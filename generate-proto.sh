@@ -1,0 +1,1 @@
+protoc -I=protocol --cpp_out=src/proto protocol/livekit_models.proto protocol/livekit_rtc.proto
