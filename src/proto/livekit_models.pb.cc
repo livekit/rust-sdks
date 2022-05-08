@@ -296,7 +296,9 @@ constexpr RTPStats::RTPStats(
   , rtt_current_(0u)
   , rtt_max_(0u)
   , key_frames_(0u)
-  , layer_lock_plis_(0u){}
+  , layer_lock_plis_(0u)
+  , nack_acks_(0u)
+  , nack_repeated_(0u){}
 struct RTPStatsDefaultTypeInternal {
   constexpr RTPStatsDefaultTypeInternal()
     : _instance(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized{}) {}
@@ -508,7 +510,9 @@ const uint32_t TableStruct_livekit_5fmodels_2eproto::offsets[] PROTOBUF_SECTION_
   PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, jitter_max_),
   PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, gap_histogram_),
   PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, nacks_),
+  PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, nack_acks_),
   PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, nack_misses_),
+  PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, nack_repeated_),
   PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, plis_),
   PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, last_pli_),
   PROTOBUF_FIELD_OFFSET(::livekit::RTPStats, firs_),
@@ -614,7 +618,7 @@ const char descriptor_table_protodef_livekit_5fmodels_2eproto[] PROTOBUF_SECTION
   "nnection\030\003 \001(\0162\034.livekit.ClientConfigSet"
   "ting\"L\n\022VideoConfiguration\0226\n\020hardware_e"
   "ncoder\030\001 \001(\0162\034.livekit.ClientConfigSetti"
-  "ng\"\237\010\n\010RTPStats\022.\n\nstart_time\030\001 \001(\0132\032.go"
+  "ng\"\311\010\n\010RTPStats\022.\n\nstart_time\030\001 \001(\0132\032.go"
   "ogle.protobuf.Timestamp\022,\n\010end_time\030\002 \001("
   "\0132\032.google.protobuf.Timestamp\022\020\n\010duratio"
   "n\030\003 \001(\001\022\017\n\007packets\030\004 \001(\r\022\023\n\013packet_rate\030"
@@ -630,34 +634,35 @@ const char descriptor_table_protodef_livekit_5fmodels_2eproto[] PROTOBUF_SECTION
   "\016\n\006frames\030\024 \001(\r\022\022\n\nframe_rate\030\025 \001(\001\022\026\n\016j"
   "itter_current\030\026 \001(\001\022\022\n\njitter_max\030\027 \001(\001\022"
   ":\n\rgap_histogram\030\030 \003(\0132#.livekit.RTPStat"
-  "s.GapHistogramEntry\022\r\n\005nacks\030\031 \001(\r\022\023\n\013na"
-  "ck_misses\030\032 \001(\r\022\014\n\004plis\030\033 \001(\r\022,\n\010last_pl"
-  "i\030\034 \001(\0132\032.google.protobuf.Timestamp\022\014\n\004f"
-  "irs\030\035 \001(\r\022,\n\010last_fir\030\036 \001(\0132\032.google.pro"
-  "tobuf.Timestamp\022\023\n\013rtt_current\030\037 \001(\r\022\017\n\007"
-  "rtt_max\030  \001(\r\022\022\n\nkey_frames\030! \001(\r\0222\n\016las"
-  "t_key_frame\030\" \001(\0132\032.google.protobuf.Time"
-  "stamp\022\027\n\017layer_lock_plis\030# \001(\r\0227\n\023last_l"
-  "ayer_lock_pli\030$ \001(\0132\032.google.protobuf.Ti"
-  "mestamp\0323\n\021GapHistogramEntry\022\013\n\003key\030\001 \001("
-  "\005\022\r\n\005value\030\002 \001(\r:\0028\001*+\n\tTrackType\022\t\n\005AUD"
-  "IO\020\000\022\t\n\005VIDEO\020\001\022\010\n\004DATA\020\002*`\n\013TrackSource"
-  "\022\013\n\007UNKNOWN\020\000\022\n\n\006CAMERA\020\001\022\016\n\nMICROPHONE\020"
-  "\002\022\020\n\014SCREEN_SHARE\020\003\022\026\n\022SCREEN_SHARE_AUDI"
-  "O\020\004*6\n\014VideoQuality\022\007\n\003LOW\020\000\022\n\n\006MEDIUM\020\001"
-  "\022\010\n\004HIGH\020\002\022\007\n\003OFF\020\003*6\n\021ConnectionQuality"
-  "\022\010\n\004POOR\020\000\022\010\n\004GOOD\020\001\022\r\n\tEXCELLENT\020\002*;\n\023C"
-  "lientConfigSetting\022\t\n\005UNSET\020\000\022\014\n\010DISABLE"
-  "D\020\001\022\013\n\007ENABLED\020\002BFZ#github.com/livekit/p"
-  "rotocol/livekit\252\002\rLiveKit.Proto\352\002\016LiveKi"
-  "t::Protob\006proto3"
+  "s.GapHistogramEntry\022\r\n\005nacks\030\031 \001(\r\022\021\n\tna"
+  "ck_acks\030% \001(\r\022\023\n\013nack_misses\030\032 \001(\r\022\025\n\rna"
+  "ck_repeated\030& \001(\r\022\014\n\004plis\030\033 \001(\r\022,\n\010last_"
+  "pli\030\034 \001(\0132\032.google.protobuf.Timestamp\022\014\n"
+  "\004firs\030\035 \001(\r\022,\n\010last_fir\030\036 \001(\0132\032.google.p"
+  "rotobuf.Timestamp\022\023\n\013rtt_current\030\037 \001(\r\022\017"
+  "\n\007rtt_max\030  \001(\r\022\022\n\nkey_frames\030! \001(\r\0222\n\016l"
+  "ast_key_frame\030\" \001(\0132\032.google.protobuf.Ti"
+  "mestamp\022\027\n\017layer_lock_plis\030# \001(\r\0227\n\023last"
+  "_layer_lock_pli\030$ \001(\0132\032.google.protobuf."
+  "Timestamp\0323\n\021GapHistogramEntry\022\013\n\003key\030\001 "
+  "\001(\005\022\r\n\005value\030\002 \001(\r:\0028\001*+\n\tTrackType\022\t\n\005A"
+  "UDIO\020\000\022\t\n\005VIDEO\020\001\022\010\n\004DATA\020\002*`\n\013TrackSour"
+  "ce\022\013\n\007UNKNOWN\020\000\022\n\n\006CAMERA\020\001\022\016\n\nMICROPHON"
+  "E\020\002\022\020\n\014SCREEN_SHARE\020\003\022\026\n\022SCREEN_SHARE_AU"
+  "DIO\020\004*6\n\014VideoQuality\022\007\n\003LOW\020\000\022\n\n\006MEDIUM"
+  "\020\001\022\010\n\004HIGH\020\002\022\007\n\003OFF\020\003*6\n\021ConnectionQuali"
+  "ty\022\010\n\004POOR\020\000\022\010\n\004GOOD\020\001\022\r\n\tEXCELLENT\020\002*;\n"
+  "\023ClientConfigSetting\022\t\n\005UNSET\020\000\022\014\n\010DISAB"
+  "LED\020\001\022\013\n\007ENABLED\020\002BFZ#github.com/livekit"
+  "/protocol/livekit\252\002\rLiveKit.Proto\352\002\016Live"
+  "Kit::Protob\006proto3"
   ;
 static const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable*const descriptor_table_livekit_5fmodels_2eproto_deps[1] = {
   &::descriptor_table_google_2fprotobuf_2ftimestamp_2eproto,
 };
 static ::PROTOBUF_NAMESPACE_ID::internal::once_flag descriptor_table_livekit_5fmodels_2eproto_once;
 const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable descriptor_table_livekit_5fmodels_2eproto = {
-  false, false, 3656, descriptor_table_protodef_livekit_5fmodels_2eproto, "livekit_models.proto", 
+  false, false, 3698, descriptor_table_protodef_livekit_5fmodels_2eproto, "livekit_models.proto", 
   &descriptor_table_livekit_5fmodels_2eproto_once, descriptor_table_livekit_5fmodels_2eproto_deps, 1, 16,
   schemas, file_default_instances, TableStruct_livekit_5fmodels_2eproto::offsets,
   file_level_metadata_livekit_5fmodels_2eproto, file_level_enum_descriptors_livekit_5fmodels_2eproto, file_level_service_descriptors_livekit_5fmodels_2eproto,
@@ -5742,16 +5747,16 @@ RTPStats::RTPStats(const RTPStats& from)
     last_layer_lock_pli_ = nullptr;
   }
   ::memcpy(&duration_, &from.duration_,
-    static_cast<size_t>(reinterpret_cast<char*>(&layer_lock_plis_) -
-    reinterpret_cast<char*>(&duration_)) + sizeof(layer_lock_plis_));
+    static_cast<size_t>(reinterpret_cast<char*>(&nack_repeated_) -
+    reinterpret_cast<char*>(&duration_)) + sizeof(nack_repeated_));
   // @@protoc_insertion_point(copy_constructor:livekit.RTPStats)
 }
 
 inline void RTPStats::SharedCtor() {
 ::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
     reinterpret_cast<char*>(&start_time_) - reinterpret_cast<char*>(this)),
-    0, static_cast<size_t>(reinterpret_cast<char*>(&layer_lock_plis_) -
-    reinterpret_cast<char*>(&start_time_)) + sizeof(layer_lock_plis_));
+    0, static_cast<size_t>(reinterpret_cast<char*>(&nack_repeated_) -
+    reinterpret_cast<char*>(&start_time_)) + sizeof(nack_repeated_));
 }
 
 RTPStats::~RTPStats() {
@@ -5817,8 +5822,8 @@ void RTPStats::Clear() {
   }
   last_layer_lock_pli_ = nullptr;
   ::memset(&duration_, 0, static_cast<size_t>(
-      reinterpret_cast<char*>(&layer_lock_plis_) -
-      reinterpret_cast<char*>(&duration_)) + sizeof(layer_lock_plis_));
+      reinterpret_cast<char*>(&nack_repeated_) -
+      reinterpret_cast<char*>(&duration_)) + sizeof(nack_repeated_));
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
@@ -6117,6 +6122,22 @@ const char* RTPStats::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::i
       case 36:
         if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 34)) {
           ptr = ctx->ParseMessage(_internal_mutable_last_layer_lock_pli(), ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // uint32 nack_acks = 37;
+      case 37:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 40)) {
+          nack_acks_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // uint32 nack_repeated = 38;
+      case 38:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 48)) {
+          nack_repeated_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
           CHK_(ptr);
         } else
           goto handle_unusual;
@@ -6451,6 +6472,18 @@ uint8_t* RTPStats::_InternalSerialize(
         36, _Internal::last_layer_lock_pli(this), target, stream);
   }
 
+  // uint32 nack_acks = 37;
+  if (this->_internal_nack_acks() != 0) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteUInt32ToArray(37, this->_internal_nack_acks(), target);
+  }
+
+  // uint32 nack_repeated = 38;
+  if (this->_internal_nack_repeated() != 0) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteUInt32ToArray(38, this->_internal_nack_repeated(), target);
+  }
+
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::InternalSerializeUnknownFieldsToArray(
         _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
@@ -6733,6 +6766,20 @@ size_t RTPStats::ByteSizeLong() const {
         this->_internal_layer_lock_plis());
   }
 
+  // uint32 nack_acks = 37;
+  if (this->_internal_nack_acks() != 0) {
+    total_size += 2 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::UInt32Size(
+        this->_internal_nack_acks());
+  }
+
+  // uint32 nack_repeated = 38;
+  if (this->_internal_nack_repeated() != 0) {
+    total_size += 2 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::UInt32Size(
+        this->_internal_nack_repeated());
+  }
+
   return MaybeComputeUnknownFieldsSize(total_size, &_cached_size_);
 }
 
@@ -6909,6 +6956,12 @@ void RTPStats::MergeFrom(const RTPStats& from) {
   if (from._internal_layer_lock_plis() != 0) {
     _internal_set_layer_lock_plis(from._internal_layer_lock_plis());
   }
+  if (from._internal_nack_acks() != 0) {
+    _internal_set_nack_acks(from._internal_nack_acks());
+  }
+  if (from._internal_nack_repeated() != 0) {
+    _internal_set_nack_repeated(from._internal_nack_repeated());
+  }
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
 }
 
@@ -6928,8 +6981,8 @@ void RTPStats::InternalSwap(RTPStats* other) {
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   gap_histogram_.InternalSwap(&other->gap_histogram_);
   ::PROTOBUF_NAMESPACE_ID::internal::memswap<
-      PROTOBUF_FIELD_OFFSET(RTPStats, layer_lock_plis_)
-      + sizeof(RTPStats::layer_lock_plis_)
+      PROTOBUF_FIELD_OFFSET(RTPStats, nack_repeated_)
+      + sizeof(RTPStats::nack_repeated_)
       - PROTOBUF_FIELD_OFFSET(RTPStats, start_time_)>(
           reinterpret_cast<char*>(&start_time_),
           reinterpret_cast<char*>(&other->start_time_));

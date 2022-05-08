@@ -339,6 +339,7 @@ constexpr TrackPermission::TrackPermission(
   ::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized)
   : track_sids_()
   , participant_sid_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
+  , participant_identity_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
   , all_tracks_(false){}
 struct TrackPermissionDefaultTypeInternal {
   constexpr TrackPermissionDefaultTypeInternal()
@@ -657,6 +658,7 @@ const uint32_t TableStruct_livekit_5frtc_2eproto::offsets[] PROTOBUF_SECTION_VAR
   PROTOBUF_FIELD_OFFSET(::livekit::TrackPermission, participant_sid_),
   PROTOBUF_FIELD_OFFSET(::livekit::TrackPermission, all_tracks_),
   PROTOBUF_FIELD_OFFSET(::livekit::TrackPermission, track_sids_),
+  PROTOBUF_FIELD_OFFSET(::livekit::TrackPermission, participant_identity_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::livekit::SubscriptionPermission, _internal_metadata_),
   ~0u,  // no _extensions_
@@ -730,11 +732,11 @@ static const ::PROTOBUF_NAMESPACE_ID::internal::MigrationSchema schemas[] PROTOB
   { 208, -1, -1, sizeof(::livekit::SubscribedQuality)},
   { 216, -1, -1, sizeof(::livekit::SubscribedQualityUpdate)},
   { 224, -1, -1, sizeof(::livekit::TrackPermission)},
-  { 233, -1, -1, sizeof(::livekit::SubscriptionPermission)},
-  { 241, -1, -1, sizeof(::livekit::SubscriptionPermissionUpdate)},
-  { 250, -1, -1, sizeof(::livekit::SyncState)},
-  { 260, -1, -1, sizeof(::livekit::DataChannelInfo)},
-  { 269, -1, -1, sizeof(::livekit::SimulateScenario)},
+  { 234, -1, -1, sizeof(::livekit::SubscriptionPermission)},
+  { 242, -1, -1, sizeof(::livekit::SubscriptionPermissionUpdate)},
+  { 251, -1, -1, sizeof(::livekit::SyncState)},
+  { 261, -1, -1, sizeof(::livekit::DataChannelInfo)},
+  { 270, -1, -1, sizeof(::livekit::SimulateScenario)},
 };
 
 static ::PROTOBUF_NAMESPACE_ID::Message const * const file_default_instances[] = {
@@ -858,36 +860,36 @@ const char descriptor_table_protodef_livekit_5frtc_2eproto[] PROTOBUF_SECTION_VA
   "eoQuality\022\017\n\007enabled\030\002 \001(\010\"f\n\027Subscribed"
   "QualityUpdate\022\021\n\ttrack_sid\030\001 \001(\t\0228\n\024subs"
   "cribed_qualities\030\002 \003(\0132\032.livekit.Subscri"
-  "bedQuality\"R\n\017TrackPermission\022\027\n\017partici"
+  "bedQuality\"p\n\017TrackPermission\022\027\n\017partici"
   "pant_sid\030\001 \001(\t\022\022\n\nall_tracks\030\002 \001(\010\022\022\n\ntr"
-  "ack_sids\030\003 \003(\t\"g\n\026SubscriptionPermission"
-  "\022\030\n\020all_participants\030\001 \001(\010\0223\n\021track_perm"
-  "issions\030\002 \003(\0132\030.livekit.TrackPermission\""
-  "[\n\034SubscriptionPermissionUpdate\022\027\n\017parti"
-  "cipant_sid\030\001 \001(\t\022\021\n\ttrack_sid\030\002 \001(\t\022\017\n\007a"
-  "llowed\030\003 \001(\010\"\325\001\n\tSyncState\022+\n\006answer\030\001 \001"
-  "(\0132\033.livekit.SessionDescription\0221\n\014subsc"
-  "ription\030\002 \001(\0132\033.livekit.UpdateSubscripti"
-  "on\0227\n\016publish_tracks\030\003 \003(\0132\037.livekit.Tra"
-  "ckPublishedResponse\022/\n\rdata_channels\030\004 \003"
-  "(\0132\030.livekit.DataChannelInfo\"S\n\017DataChan"
-  "nelInfo\022\r\n\005label\030\001 \001(\t\022\n\n\002id\030\002 \001(\r\022%\n\006ta"
-  "rget\030\003 \001(\0162\025.livekit.SignalTarget\"}\n\020Sim"
-  "ulateScenario\022\030\n\016speaker_update\030\001 \001(\005H\000\022"
-  "\026\n\014node_failure\030\002 \001(\010H\000\022\023\n\tmigration\030\003 \001"
-  "(\010H\000\022\026\n\014server_leave\030\004 \001(\010H\000B\n\n\010scenario"
-  "*-\n\014SignalTarget\022\r\n\tPUBLISHER\020\000\022\016\n\nSUBSC"
-  "RIBER\020\001*%\n\013StreamState\022\n\n\006ACTIVE\020\000\022\n\n\006PA"
-  "USED\020\001BFZ#github.com/livekit/protocol/li"
-  "vekit\252\002\rLiveKit.Proto\352\002\016LiveKit::Protob\006"
-  "proto3"
+  "ack_sids\030\003 \003(\t\022\034\n\024participant_identity\030\004"
+  " \001(\t\"g\n\026SubscriptionPermission\022\030\n\020all_pa"
+  "rticipants\030\001 \001(\010\0223\n\021track_permissions\030\002 "
+  "\003(\0132\030.livekit.TrackPermission\"[\n\034Subscri"
+  "ptionPermissionUpdate\022\027\n\017participant_sid"
+  "\030\001 \001(\t\022\021\n\ttrack_sid\030\002 \001(\t\022\017\n\007allowed\030\003 \001"
+  "(\010\"\325\001\n\tSyncState\022+\n\006answer\030\001 \001(\0132\033.livek"
+  "it.SessionDescription\0221\n\014subscription\030\002 "
+  "\001(\0132\033.livekit.UpdateSubscription\0227\n\016publ"
+  "ish_tracks\030\003 \003(\0132\037.livekit.TrackPublishe"
+  "dResponse\022/\n\rdata_channels\030\004 \003(\0132\030.livek"
+  "it.DataChannelInfo\"S\n\017DataChannelInfo\022\r\n"
+  "\005label\030\001 \001(\t\022\n\n\002id\030\002 \001(\r\022%\n\006target\030\003 \001(\016"
+  "2\025.livekit.SignalTarget\"}\n\020SimulateScena"
+  "rio\022\030\n\016speaker_update\030\001 \001(\005H\000\022\026\n\014node_fa"
+  "ilure\030\002 \001(\010H\000\022\023\n\tmigration\030\003 \001(\010H\000\022\026\n\014se"
+  "rver_leave\030\004 \001(\010H\000B\n\n\010scenario*-\n\014Signal"
+  "Target\022\r\n\tPUBLISHER\020\000\022\016\n\nSUBSCRIBER\020\001*%\n"
+  "\013StreamState\022\n\n\006ACTIVE\020\000\022\n\n\006PAUSED\020\001BFZ#"
+  "github.com/livekit/protocol/livekit\252\002\rLi"
+  "veKit.Proto\352\002\016LiveKit::Protob\006proto3"
   ;
 static const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable*const descriptor_table_livekit_5frtc_2eproto_deps[1] = {
   &::descriptor_table_livekit_5fmodels_2eproto,
 };
 static ::PROTOBUF_NAMESPACE_ID::internal::once_flag descriptor_table_livekit_5frtc_2eproto_once;
 const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable descriptor_table_livekit_5frtc_2eproto = {
-  false, false, 4406, descriptor_table_protodef_livekit_5frtc_2eproto, "livekit_rtc.proto", 
+  false, false, 4436, descriptor_table_protodef_livekit_5frtc_2eproto, "livekit_rtc.proto", 
   &descriptor_table_livekit_5frtc_2eproto_once, descriptor_table_livekit_5frtc_2eproto_deps, 1, 29,
   schemas, file_default_instances, TableStruct_livekit_5frtc_2eproto::offsets,
   file_level_metadata_livekit_5frtc_2eproto, file_level_enum_descriptors_livekit_5frtc_2eproto, file_level_service_descriptors_livekit_5frtc_2eproto,
@@ -8274,6 +8276,14 @@ TrackPermission::TrackPermission(const TrackPermission& from)
     participant_sid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_participant_sid(), 
       GetArenaForAllocation());
   }
+  participant_identity_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    participant_identity_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (!from._internal_participant_identity().empty()) {
+    participant_identity_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_participant_identity(), 
+      GetArenaForAllocation());
+  }
   all_tracks_ = from.all_tracks_;
   // @@protoc_insertion_point(copy_constructor:livekit.TrackPermission)
 }
@@ -8282,6 +8292,10 @@ inline void TrackPermission::SharedCtor() {
 participant_sid_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
   participant_sid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+participant_identity_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  participant_identity_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
 #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
 all_tracks_ = false;
 }
@@ -8296,6 +8310,7 @@ TrackPermission::~TrackPermission() {
 inline void TrackPermission::SharedDtor() {
   GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
   participant_sid_.DestroyNoArena(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  participant_identity_.DestroyNoArena(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
 }
 
 void TrackPermission::ArenaDtor(void* object) {
@@ -8316,6 +8331,7 @@ void TrackPermission::Clear() {
 
   track_sids_.Clear();
   participant_sid_.ClearToEmpty();
+  participant_identity_.ClearToEmpty();
   all_tracks_ = false;
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
@@ -8356,6 +8372,16 @@ const char* TrackPermission::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPAC
             CHK_(ptr);
             if (!ctx->DataAvailable(ptr)) break;
           } while (::PROTOBUF_NAMESPACE_ID::internal::ExpectTag<26>(ptr));
+        } else
+          goto handle_unusual;
+        continue;
+      // string participant_identity = 4;
+      case 4:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 34)) {
+          auto str = _internal_mutable_participant_identity();
+          ptr = ::PROTOBUF_NAMESPACE_ID::internal::InlineGreedyStringParser(str, ptr, ctx);
+          CHK_(::PROTOBUF_NAMESPACE_ID::internal::VerifyUTF8(str, "livekit.TrackPermission.participant_identity"));
+          CHK_(ptr);
         } else
           goto handle_unusual;
         continue;
@@ -8414,6 +8440,16 @@ uint8_t* TrackPermission::_InternalSerialize(
     target = stream->WriteString(3, s, target);
   }
 
+  // string participant_identity = 4;
+  if (!this->_internal_participant_identity().empty()) {
+    ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::VerifyUtf8String(
+      this->_internal_participant_identity().data(), static_cast<int>(this->_internal_participant_identity().length()),
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::SERIALIZE,
+      "livekit.TrackPermission.participant_identity");
+    target = stream->WriteStringMaybeAliased(
+        4, this->_internal_participant_identity(), target);
+  }
+
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::InternalSerializeUnknownFieldsToArray(
         _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
@@ -8443,6 +8479,13 @@ size_t TrackPermission::ByteSizeLong() const {
     total_size += 1 +
       ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
         this->_internal_participant_sid());
+  }
+
+  // string participant_identity = 4;
+  if (!this->_internal_participant_identity().empty()) {
+    total_size += 1 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
+        this->_internal_participant_identity());
   }
 
   // bool all_tracks = 2;
@@ -8476,6 +8519,9 @@ void TrackPermission::MergeFrom(const TrackPermission& from) {
   if (!from._internal_participant_sid().empty()) {
     _internal_set_participant_sid(from._internal_participant_sid());
   }
+  if (!from._internal_participant_identity().empty()) {
+    _internal_set_participant_identity(from._internal_participant_identity());
+  }
   if (from._internal_all_tracks() != 0) {
     _internal_set_all_tracks(from._internal_all_tracks());
   }
@@ -8503,6 +8549,11 @@ void TrackPermission::InternalSwap(TrackPermission* other) {
       &::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(),
       &participant_sid_, lhs_arena,
       &other->participant_sid_, rhs_arena
+  );
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
+      &::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(),
+      &participant_identity_, lhs_arena,
+      &other->participant_identity_, rhs_arena
   );
   swap(all_tracks_, other->all_tracks_);
 }

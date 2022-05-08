@@ -4990,6 +4990,7 @@ class TrackPermission final :
   enum : int {
     kTrackSidsFieldNumber = 3,
     kParticipantSidFieldNumber = 1,
+    kParticipantIdentityFieldNumber = 4,
     kAllTracksFieldNumber = 2,
   };
   // repeated string track_sids = 3;
@@ -5030,6 +5031,20 @@ class TrackPermission final :
   std::string* _internal_mutable_participant_sid();
   public:
 
+  // string participant_identity = 4;
+  void clear_participant_identity();
+  const std::string& participant_identity() const;
+  template <typename ArgT0 = const std::string&, typename... ArgT>
+  void set_participant_identity(ArgT0&& arg0, ArgT... args);
+  std::string* mutable_participant_identity();
+  PROTOBUF_NODISCARD std::string* release_participant_identity();
+  void set_allocated_participant_identity(std::string* participant_identity);
+  private:
+  const std::string& _internal_participant_identity() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_participant_identity(const std::string& value);
+  std::string* _internal_mutable_participant_identity();
+  public:
+
   // bool all_tracks = 2;
   void clear_all_tracks();
   bool all_tracks() const;
@@ -5048,6 +5063,7 @@ class TrackPermission final :
   typedef void DestructorSkippable_;
   ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField<std::string> track_sids_;
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr participant_sid_;
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr participant_identity_;
   bool all_tracks_;
   mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
   friend struct ::TableStruct_livekit_5frtc_2eproto;
@@ -10702,6 +10718,57 @@ inline ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField<std::string>*
 TrackPermission::mutable_track_sids() {
   // @@protoc_insertion_point(field_mutable_list:livekit.TrackPermission.track_sids)
   return &track_sids_;
+}
+
+// string participant_identity = 4;
+inline void TrackPermission::clear_participant_identity() {
+  participant_identity_.ClearToEmpty();
+}
+inline const std::string& TrackPermission::participant_identity() const {
+  // @@protoc_insertion_point(field_get:livekit.TrackPermission.participant_identity)
+  return _internal_participant_identity();
+}
+template <typename ArgT0, typename... ArgT>
+inline PROTOBUF_ALWAYS_INLINE
+void TrackPermission::set_participant_identity(ArgT0&& arg0, ArgT... args) {
+ 
+ participant_identity_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
+  // @@protoc_insertion_point(field_set:livekit.TrackPermission.participant_identity)
+}
+inline std::string* TrackPermission::mutable_participant_identity() {
+  std::string* _s = _internal_mutable_participant_identity();
+  // @@protoc_insertion_point(field_mutable:livekit.TrackPermission.participant_identity)
+  return _s;
+}
+inline const std::string& TrackPermission::_internal_participant_identity() const {
+  return participant_identity_.Get();
+}
+inline void TrackPermission::_internal_set_participant_identity(const std::string& value) {
+  
+  participant_identity_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, value, GetArenaForAllocation());
+}
+inline std::string* TrackPermission::_internal_mutable_participant_identity() {
+  
+  return participant_identity_.Mutable(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, GetArenaForAllocation());
+}
+inline std::string* TrackPermission::release_participant_identity() {
+  // @@protoc_insertion_point(field_release:livekit.TrackPermission.participant_identity)
+  return participant_identity_.Release(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArenaForAllocation());
+}
+inline void TrackPermission::set_allocated_participant_identity(std::string* participant_identity) {
+  if (participant_identity != nullptr) {
+    
+  } else {
+    
+  }
+  participant_identity_.SetAllocated(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), participant_identity,
+      GetArenaForAllocation());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (participant_identity_.IsDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited())) {
+    participant_identity_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  }
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  // @@protoc_insertion_point(field_set_allocated:livekit.TrackPermission.participant_identity)
 }
 
 // -------------------------------------------------------------------

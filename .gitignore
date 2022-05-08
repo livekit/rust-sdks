@@ -1,2 +1,7 @@
 cmake-build-debug
-.idea/*
+.idea
+build
+.vscode
+
+# atm
+thirdparty

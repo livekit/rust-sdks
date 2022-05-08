@@ -3551,6 +3551,8 @@ class RTPStats final :
     kRttMaxFieldNumber = 32,
     kKeyFramesFieldNumber = 33,
     kLayerLockPlisFieldNumber = 35,
+    kNackAcksFieldNumber = 37,
+    kNackRepeatedFieldNumber = 38,
   };
   // map<int32, uint32> gap_histogram = 24;
   int gap_histogram_size() const;
@@ -3938,6 +3940,24 @@ class RTPStats final :
   void _internal_set_layer_lock_plis(uint32_t value);
   public:
 
+  // uint32 nack_acks = 37;
+  void clear_nack_acks();
+  uint32_t nack_acks() const;
+  void set_nack_acks(uint32_t value);
+  private:
+  uint32_t _internal_nack_acks() const;
+  void _internal_set_nack_acks(uint32_t value);
+  public:
+
+  // uint32 nack_repeated = 38;
+  void clear_nack_repeated();
+  uint32_t nack_repeated() const;
+  void set_nack_repeated(uint32_t value);
+  private:
+  uint32_t _internal_nack_repeated() const;
+  void _internal_set_nack_repeated(uint32_t value);
+  public:
+
   // @@protoc_insertion_point(class_scope:livekit.RTPStats)
  private:
   class _Internal;
@@ -3985,6 +4005,8 @@ class RTPStats final :
   uint32_t rtt_max_;
   uint32_t key_frames_;
   uint32_t layer_lock_plis_;
+  uint32_t nack_acks_;
+  uint32_t nack_repeated_;
   mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
   friend struct ::TableStruct_livekit_5fmodels_2eproto;
 };
@@ -7421,6 +7443,26 @@ inline void RTPStats::set_nacks(uint32_t value) {
   // @@protoc_insertion_point(field_set:livekit.RTPStats.nacks)
 }
 
+// uint32 nack_acks = 37;
+inline void RTPStats::clear_nack_acks() {
+  nack_acks_ = 0u;
+}
+inline uint32_t RTPStats::_internal_nack_acks() const {
+  return nack_acks_;
+}
+inline uint32_t RTPStats::nack_acks() const {
+  // @@protoc_insertion_point(field_get:livekit.RTPStats.nack_acks)
+  return _internal_nack_acks();
+}
+inline void RTPStats::_internal_set_nack_acks(uint32_t value) {
+  
+  nack_acks_ = value;
+}
+inline void RTPStats::set_nack_acks(uint32_t value) {
+  _internal_set_nack_acks(value);
+  // @@protoc_insertion_point(field_set:livekit.RTPStats.nack_acks)
+}
+
 // uint32 nack_misses = 26;
 inline void RTPStats::clear_nack_misses() {
   nack_misses_ = 0u;
@@ -7439,6 +7481,26 @@ inline void RTPStats::_internal_set_nack_misses(uint32_t value) {
 inline void RTPStats::set_nack_misses(uint32_t value) {
   _internal_set_nack_misses(value);
   // @@protoc_insertion_point(field_set:livekit.RTPStats.nack_misses)
+}
+
+// uint32 nack_repeated = 38;
+inline void RTPStats::clear_nack_repeated() {
+  nack_repeated_ = 0u;
+}
+inline uint32_t RTPStats::_internal_nack_repeated() const {
+  return nack_repeated_;
+}
+inline uint32_t RTPStats::nack_repeated() const {
+  // @@protoc_insertion_point(field_get:livekit.RTPStats.nack_repeated)
+  return _internal_nack_repeated();
+}
+inline void RTPStats::_internal_set_nack_repeated(uint32_t value) {
+  
+  nack_repeated_ = value;
+}
+inline void RTPStats::set_nack_repeated(uint32_t value) {
+  _internal_set_nack_repeated(value);
+  // @@protoc_insertion_point(field_set:livekit.RTPStats.nack_repeated)
 }
 
 // uint32 plis = 27;
