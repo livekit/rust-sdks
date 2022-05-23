@@ -31,6 +31,6 @@ namespace livekit {
 
         throw std::runtime_error{"failed to parse url"};
     }
-}
+} // livekit
 
 #endif //LIVEKIT_NATIVE_UTILS_H

@@ -17,6 +17,7 @@ namespace websocket = beast::websocket; // from <boost/beast/websocket.hpp>
 namespace net = boost::asio;            // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 
+// If we keep the code singled threaded here, it'll be easily used in wasm ( Need ws bindings ), tho not sure
 namespace livekit {
     class SignalClient {
 
@@ -26,12 +27,12 @@ namespace livekit {
 
         void Connect(const std::string &url, const std::string &token);
         void Disconnect();
-        void Update();
+        void update();
         void Send(SignalRequest req);
-        SignalResponse Poll();
+        SignalResponse poll();
 
     private:
-        void Start();
+        void start();
 
         // beast handlers
         void OnResolve(beast::error_code ec, tcp::resolver::results_type results);
@@ -59,6 +60,6 @@ namespace livekit {
         tcp::resolver m_Resolver{m_IOContext};
         websocket::stream <beast::tcp_stream> m_WebSocket{m_IOContext};
     };
-}
+} // livekit
 
 #endif //LIVEKIT_NATIVE_SIGNAL_CLIENT_H

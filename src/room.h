@@ -9,19 +9,9 @@
 #include "signal_client.h"
 
 namespace livekit{
-    /*class Room {
-        Room();
-        ~Room();
-
-        void Connect(const std::string &url, const std::string &token);
 
 
-
-    private:
-        SignalClient m_Client;
-    };*/
-
-}
+} // livekit
 
 
 #endif //LIVEKIT_NATIVE_ROOM_H

@@ -23,10 +23,10 @@ namespace livekit {
         m_URL = ParseURL(url);
         m_Token = token;
 
-        Start(); // We don't need a thread, everything is async ( + easier to maintain )
+        start(); // We don't need a thread, everything is async ( + easier to maintain )
     }
 
-    void SignalClient::Update() {
+    void SignalClient::update() {
         beast::error_code ec;
         m_IOContext.poll(ec);
 
@@ -59,7 +59,15 @@ namespace livekit {
         }
     }
 
-    void SignalClient::Start() {
+    SignalResponse SignalClient::poll(){
+
+
+        auto& r = m_ReadQueue.front();
+        m_ReadQueue.pop();
+        return r;
+    }
+
+    void SignalClient::start() {
         m_Resolver.async_resolve(m_URL.host, m_URL.port, beast::bind_front_handler(&SignalClient::OnResolve, this));
     }
 
@@ -128,4 +136,4 @@ namespace livekit {
         if (ec)
             throw std::runtime_error{"SignalClient::OnWrite - " + ec.message()};
     }
-}
+} // livekit
