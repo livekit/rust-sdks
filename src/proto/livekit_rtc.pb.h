@@ -48,7 +48,7 @@ struct TableStruct_livekit_5frtc_2eproto {
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
   static const ::PROTOBUF_NAMESPACE_ID::internal::AuxiliaryParseTableField aux[]
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
-  static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTable schema[29]
+  static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTable schema[31]
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
   static const ::PROTOBUF_NAMESPACE_ID::internal::FieldMetadata field_metadata[];
   static const ::PROTOBUF_NAMESPACE_ID::internal::SerializationTable serialization_table[];
@@ -98,6 +98,9 @@ extern SignalResponseDefaultTypeInternal _SignalResponse_default_instance_;
 class SimulateScenario;
 struct SimulateScenarioDefaultTypeInternal;
 extern SimulateScenarioDefaultTypeInternal _SimulateScenario_default_instance_;
+class SimulcastCodec;
+struct SimulcastCodecDefaultTypeInternal;
+extern SimulcastCodecDefaultTypeInternal _SimulcastCodec_default_instance_;
 class SpeakersChanged;
 struct SpeakersChangedDefaultTypeInternal;
 extern SpeakersChangedDefaultTypeInternal _SpeakersChanged_default_instance_;
@@ -107,6 +110,9 @@ extern StreamStateInfoDefaultTypeInternal _StreamStateInfo_default_instance_;
 class StreamStateUpdate;
 struct StreamStateUpdateDefaultTypeInternal;
 extern StreamStateUpdateDefaultTypeInternal _StreamStateUpdate_default_instance_;
+class SubscribedCodec;
+struct SubscribedCodecDefaultTypeInternal;
+extern SubscribedCodecDefaultTypeInternal _SubscribedCodec_default_instance_;
 class SubscribedQuality;
 struct SubscribedQualityDefaultTypeInternal;
 extern SubscribedQualityDefaultTypeInternal _SubscribedQuality_default_instance_;
@@ -159,9 +165,11 @@ template<> ::livekit::SessionDescription* Arena::CreateMaybeMessage<::livekit::S
 template<> ::livekit::SignalRequest* Arena::CreateMaybeMessage<::livekit::SignalRequest>(Arena*);
 template<> ::livekit::SignalResponse* Arena::CreateMaybeMessage<::livekit::SignalResponse>(Arena*);
 template<> ::livekit::SimulateScenario* Arena::CreateMaybeMessage<::livekit::SimulateScenario>(Arena*);
+template<> ::livekit::SimulcastCodec* Arena::CreateMaybeMessage<::livekit::SimulcastCodec>(Arena*);
 template<> ::livekit::SpeakersChanged* Arena::CreateMaybeMessage<::livekit::SpeakersChanged>(Arena*);
 template<> ::livekit::StreamStateInfo* Arena::CreateMaybeMessage<::livekit::StreamStateInfo>(Arena*);
 template<> ::livekit::StreamStateUpdate* Arena::CreateMaybeMessage<::livekit::StreamStateUpdate>(Arena*);
+template<> ::livekit::SubscribedCodec* Arena::CreateMaybeMessage<::livekit::SubscribedCodec>(Arena*);
 template<> ::livekit::SubscribedQuality* Arena::CreateMaybeMessage<::livekit::SubscribedQuality>(Arena*);
 template<> ::livekit::SubscribedQualityUpdate* Arena::CreateMaybeMessage<::livekit::SubscribedQualityUpdate>(Arena*);
 template<> ::livekit::SubscriptionPermission* Arena::CreateMaybeMessage<::livekit::SubscriptionPermission>(Arena*);
@@ -1145,6 +1153,184 @@ class SignalResponse final :
 };
 // -------------------------------------------------------------------
 
+class SimulcastCodec final :
+    public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:livekit.SimulcastCodec) */ {
+ public:
+  inline SimulcastCodec() : SimulcastCodec(nullptr) {}
+  ~SimulcastCodec() override;
+  explicit constexpr SimulcastCodec(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized);
+
+  SimulcastCodec(const SimulcastCodec& from);
+  SimulcastCodec(SimulcastCodec&& from) noexcept
+    : SimulcastCodec() {
+    *this = ::std::move(from);
+  }
+
+  inline SimulcastCodec& operator=(const SimulcastCodec& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  inline SimulcastCodec& operator=(SimulcastCodec&& from) noexcept {
+    if (this == &from) return *this;
+    if (GetOwningArena() == from.GetOwningArena()
+  #ifdef PROTOBUF_FORCE_COPY_IN_MOVE
+        && GetOwningArena() != nullptr
+  #endif  // !PROTOBUF_FORCE_COPY_IN_MOVE
+    ) {
+      InternalSwap(&from);
+    } else {
+      CopyFrom(from);
+    }
+    return *this;
+  }
+
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* descriptor() {
+    return GetDescriptor();
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* GetDescriptor() {
+    return default_instance().GetMetadata().descriptor;
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Reflection* GetReflection() {
+    return default_instance().GetMetadata().reflection;
+  }
+  static const SimulcastCodec& default_instance() {
+    return *internal_default_instance();
+  }
+  static inline const SimulcastCodec* internal_default_instance() {
+    return reinterpret_cast<const SimulcastCodec*>(
+               &_SimulcastCodec_default_instance_);
+  }
+  static constexpr int kIndexInFileMessages =
+    2;
+
+  friend void swap(SimulcastCodec& a, SimulcastCodec& b) {
+    a.Swap(&b);
+  }
+  inline void Swap(SimulcastCodec* other) {
+    if (other == this) return;
+  #ifdef PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() != nullptr &&
+        GetOwningArena() == other->GetOwningArena()) {
+   #else  // PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() == other->GetOwningArena()) {
+  #endif  // !PROTOBUF_FORCE_COPY_IN_SWAP
+      InternalSwap(other);
+    } else {
+      ::PROTOBUF_NAMESPACE_ID::internal::GenericSwap(this, other);
+    }
+  }
+  void UnsafeArenaSwap(SimulcastCodec* other) {
+    if (other == this) return;
+    GOOGLE_DCHECK(GetOwningArena() == other->GetOwningArena());
+    InternalSwap(other);
+  }
+
+  // implements Message ----------------------------------------------
+
+  SimulcastCodec* New(::PROTOBUF_NAMESPACE_ID::Arena* arena = nullptr) const final {
+    return CreateMaybeMessage<SimulcastCodec>(arena);
+  }
+  using ::PROTOBUF_NAMESPACE_ID::Message::CopyFrom;
+  void CopyFrom(const SimulcastCodec& from);
+  using ::PROTOBUF_NAMESPACE_ID::Message::MergeFrom;
+  void MergeFrom(const SimulcastCodec& from);
+  private:
+  static void MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to, const ::PROTOBUF_NAMESPACE_ID::Message& from);
+  public:
+  PROTOBUF_ATTRIBUTE_REINITIALIZES void Clear() final;
+  bool IsInitialized() const final;
+
+  size_t ByteSizeLong() const final;
+  const char* _InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) final;
+  uint8_t* _InternalSerialize(
+      uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const final;
+  int GetCachedSize() const final { return _cached_size_.Get(); }
+
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const final;
+  void InternalSwap(SimulcastCodec* other);
+
+  private:
+  friend class ::PROTOBUF_NAMESPACE_ID::internal::AnyMetadata;
+  static ::PROTOBUF_NAMESPACE_ID::StringPiece FullMessageName() {
+    return "livekit.SimulcastCodec";
+  }
+  protected:
+  explicit SimulcastCodec(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+                       bool is_message_owned = false);
+  private:
+  static void ArenaDtor(void* object);
+  inline void RegisterArenaDtor(::PROTOBUF_NAMESPACE_ID::Arena* arena);
+  public:
+
+  static const ClassData _class_data_;
+  const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*GetClassData() const final;
+
+  ::PROTOBUF_NAMESPACE_ID::Metadata GetMetadata() const final;
+
+  // nested types ----------------------------------------------------
+
+  // accessors -------------------------------------------------------
+
+  enum : int {
+    kCodecFieldNumber = 1,
+    kCidFieldNumber = 2,
+    kEnableSimulcastLayersFieldNumber = 3,
+  };
+  // string codec = 1;
+  void clear_codec();
+  const std::string& codec() const;
+  template <typename ArgT0 = const std::string&, typename... ArgT>
+  void set_codec(ArgT0&& arg0, ArgT... args);
+  std::string* mutable_codec();
+  PROTOBUF_NODISCARD std::string* release_codec();
+  void set_allocated_codec(std::string* codec);
+  private:
+  const std::string& _internal_codec() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_codec(const std::string& value);
+  std::string* _internal_mutable_codec();
+  public:
+
+  // string cid = 2;
+  void clear_cid();
+  const std::string& cid() const;
+  template <typename ArgT0 = const std::string&, typename... ArgT>
+  void set_cid(ArgT0&& arg0, ArgT... args);
+  std::string* mutable_cid();
+  PROTOBUF_NODISCARD std::string* release_cid();
+  void set_allocated_cid(std::string* cid);
+  private:
+  const std::string& _internal_cid() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_cid(const std::string& value);
+  std::string* _internal_mutable_cid();
+  public:
+
+  // bool enable_simulcast_layers = 3;
+  void clear_enable_simulcast_layers();
+  bool enable_simulcast_layers() const;
+  void set_enable_simulcast_layers(bool value);
+  private:
+  bool _internal_enable_simulcast_layers() const;
+  void _internal_set_enable_simulcast_layers(bool value);
+  public:
+
+  // @@protoc_insertion_point(class_scope:livekit.SimulcastCodec)
+ private:
+  class _Internal;
+
+  template <typename T> friend class ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper;
+  typedef void InternalArenaConstructable_;
+  typedef void DestructorSkippable_;
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr codec_;
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr cid_;
+  bool enable_simulcast_layers_;
+  mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
+  friend struct ::TableStruct_livekit_5frtc_2eproto;
+};
+// -------------------------------------------------------------------
+
 class AddTrackRequest final :
     public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:livekit.AddTrackRequest) */ {
  public:
@@ -1193,7 +1379,7 @@ class AddTrackRequest final :
                &_AddTrackRequest_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    2;
+    3;
 
   friend void swap(AddTrackRequest& a, AddTrackRequest& b) {
     a.Swap(&b);
@@ -1268,6 +1454,7 @@ class AddTrackRequest final :
 
   enum : int {
     kLayersFieldNumber = 9,
+    kSimulcastCodecsFieldNumber = 10,
     kCidFieldNumber = 1,
     kNameFieldNumber = 2,
     kTypeFieldNumber = 3,
@@ -1294,6 +1481,24 @@ class AddTrackRequest final :
   ::livekit::VideoLayer* add_layers();
   const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer >&
       layers() const;
+
+  // repeated .livekit.SimulcastCodec simulcast_codecs = 10;
+  int simulcast_codecs_size() const;
+  private:
+  int _internal_simulcast_codecs_size() const;
+  public:
+  void clear_simulcast_codecs();
+  ::livekit::SimulcastCodec* mutable_simulcast_codecs(int index);
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodec >*
+      mutable_simulcast_codecs();
+  private:
+  const ::livekit::SimulcastCodec& _internal_simulcast_codecs(int index) const;
+  ::livekit::SimulcastCodec* _internal_add_simulcast_codecs();
+  public:
+  const ::livekit::SimulcastCodec& simulcast_codecs(int index) const;
+  ::livekit::SimulcastCodec* add_simulcast_codecs();
+  const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodec >&
+      simulcast_codecs() const;
 
   // string cid = 1;
   void clear_cid();
@@ -1385,6 +1590,7 @@ class AddTrackRequest final :
   typedef void InternalArenaConstructable_;
   typedef void DestructorSkippable_;
   ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer > layers_;
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodec > simulcast_codecs_;
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr cid_;
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr name_;
   int type_;
@@ -1446,7 +1652,7 @@ class TrickleRequest final :
                &_TrickleRequest_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    3;
+    4;
 
   friend void swap(TrickleRequest& a, TrickleRequest& b) {
     a.Swap(&b);
@@ -1608,7 +1814,7 @@ class MuteTrackRequest final :
                &_MuteTrackRequest_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    4;
+    5;
 
   friend void swap(MuteTrackRequest& a, MuteTrackRequest& b) {
     a.Swap(&b);
@@ -1770,7 +1976,7 @@ class JoinResponse final :
                &_JoinResponse_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    5;
+    6;
 
   friend void swap(JoinResponse& a, JoinResponse& b) {
     a.Swap(&b);
@@ -2064,7 +2270,7 @@ class TrackPublishedResponse final :
                &_TrackPublishedResponse_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    6;
+    7;
 
   friend void swap(TrackPublishedResponse& a, TrackPublishedResponse& b) {
     a.Swap(&b);
@@ -2235,7 +2441,7 @@ class TrackUnpublishedResponse final :
                &_TrackUnpublishedResponse_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    7;
+    8;
 
   friend void swap(TrackUnpublishedResponse& a, TrackUnpublishedResponse& b) {
     a.Swap(&b);
@@ -2386,7 +2592,7 @@ class SessionDescription final :
                &_SessionDescription_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    8;
+    9;
 
   friend void swap(SessionDescription& a, SessionDescription& b) {
     a.Swap(&b);
@@ -2553,7 +2759,7 @@ class ParticipantUpdate final :
                &_ParticipantUpdate_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    9;
+    10;
 
   friend void swap(ParticipantUpdate& a, ParticipantUpdate& b) {
     a.Swap(&b);
@@ -2708,7 +2914,7 @@ class UpdateSubscription final :
                &_UpdateSubscription_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    10;
+    11;
 
   friend void swap(UpdateSubscription& a, UpdateSubscription& b) {
     a.Swap(&b);
@@ -2900,7 +3106,7 @@ class UpdateTrackSettings final :
                &_UpdateTrackSettings_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    11;
+    12;
 
   friend void swap(UpdateTrackSettings& a, UpdateTrackSettings& b) {
     a.Swap(&b);
@@ -3105,7 +3311,7 @@ class LeaveRequest final :
                &_LeaveRequest_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    12;
+    13;
 
   friend void swap(LeaveRequest& a, LeaveRequest& b) {
     a.Swap(&b);
@@ -3251,7 +3457,7 @@ class UpdateVideoLayers final :
                &_UpdateVideoLayers_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    13;
+    14;
 
   friend void swap(UpdateVideoLayers& a, UpdateVideoLayers& b) {
     a.Swap(&b);
@@ -3422,7 +3628,7 @@ class ICEServer final :
                &_ICEServer_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    14;
+    15;
 
   friend void swap(ICEServer& a, ICEServer& b) {
     a.Swap(&b);
@@ -3615,7 +3821,7 @@ class SpeakersChanged final :
                &_SpeakersChanged_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    15;
+    16;
 
   friend void swap(SpeakersChanged& a, SpeakersChanged& b) {
     a.Swap(&b);
@@ -3770,7 +3976,7 @@ class RoomUpdate final :
                &_RoomUpdate_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    16;
+    17;
 
   friend void swap(RoomUpdate& a, RoomUpdate& b) {
     a.Swap(&b);
@@ -3925,7 +4131,7 @@ class ConnectionQualityInfo final :
                &_ConnectionQualityInfo_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    17;
+    18;
 
   friend void swap(ConnectionQualityInfo& a, ConnectionQualityInfo& b) {
     a.Swap(&b);
@@ -4098,7 +4304,7 @@ class ConnectionQualityUpdate final :
                &_ConnectionQualityUpdate_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    18;
+    19;
 
   friend void swap(ConnectionQualityUpdate& a, ConnectionQualityUpdate& b) {
     a.Swap(&b);
@@ -4253,7 +4459,7 @@ class StreamStateInfo final :
                &_StreamStateInfo_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    19;
+    20;
 
   friend void swap(StreamStateInfo& a, StreamStateInfo& b) {
     a.Swap(&b);
@@ -4431,7 +4637,7 @@ class StreamStateUpdate final :
                &_StreamStateUpdate_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    20;
+    21;
 
   friend void swap(StreamStateUpdate& a, StreamStateUpdate& b) {
     a.Swap(&b);
@@ -4586,7 +4792,7 @@ class SubscribedQuality final :
                &_SubscribedQuality_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    21;
+    22;
 
   friend void swap(SubscribedQuality& a, SubscribedQuality& b) {
     a.Swap(&b);
@@ -4695,6 +4901,177 @@ class SubscribedQuality final :
 };
 // -------------------------------------------------------------------
 
+class SubscribedCodec final :
+    public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:livekit.SubscribedCodec) */ {
+ public:
+  inline SubscribedCodec() : SubscribedCodec(nullptr) {}
+  ~SubscribedCodec() override;
+  explicit constexpr SubscribedCodec(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized);
+
+  SubscribedCodec(const SubscribedCodec& from);
+  SubscribedCodec(SubscribedCodec&& from) noexcept
+    : SubscribedCodec() {
+    *this = ::std::move(from);
+  }
+
+  inline SubscribedCodec& operator=(const SubscribedCodec& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  inline SubscribedCodec& operator=(SubscribedCodec&& from) noexcept {
+    if (this == &from) return *this;
+    if (GetOwningArena() == from.GetOwningArena()
+  #ifdef PROTOBUF_FORCE_COPY_IN_MOVE
+        && GetOwningArena() != nullptr
+  #endif  // !PROTOBUF_FORCE_COPY_IN_MOVE
+    ) {
+      InternalSwap(&from);
+    } else {
+      CopyFrom(from);
+    }
+    return *this;
+  }
+
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* descriptor() {
+    return GetDescriptor();
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* GetDescriptor() {
+    return default_instance().GetMetadata().descriptor;
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Reflection* GetReflection() {
+    return default_instance().GetMetadata().reflection;
+  }
+  static const SubscribedCodec& default_instance() {
+    return *internal_default_instance();
+  }
+  static inline const SubscribedCodec* internal_default_instance() {
+    return reinterpret_cast<const SubscribedCodec*>(
+               &_SubscribedCodec_default_instance_);
+  }
+  static constexpr int kIndexInFileMessages =
+    23;
+
+  friend void swap(SubscribedCodec& a, SubscribedCodec& b) {
+    a.Swap(&b);
+  }
+  inline void Swap(SubscribedCodec* other) {
+    if (other == this) return;
+  #ifdef PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() != nullptr &&
+        GetOwningArena() == other->GetOwningArena()) {
+   #else  // PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() == other->GetOwningArena()) {
+  #endif  // !PROTOBUF_FORCE_COPY_IN_SWAP
+      InternalSwap(other);
+    } else {
+      ::PROTOBUF_NAMESPACE_ID::internal::GenericSwap(this, other);
+    }
+  }
+  void UnsafeArenaSwap(SubscribedCodec* other) {
+    if (other == this) return;
+    GOOGLE_DCHECK(GetOwningArena() == other->GetOwningArena());
+    InternalSwap(other);
+  }
+
+  // implements Message ----------------------------------------------
+
+  SubscribedCodec* New(::PROTOBUF_NAMESPACE_ID::Arena* arena = nullptr) const final {
+    return CreateMaybeMessage<SubscribedCodec>(arena);
+  }
+  using ::PROTOBUF_NAMESPACE_ID::Message::CopyFrom;
+  void CopyFrom(const SubscribedCodec& from);
+  using ::PROTOBUF_NAMESPACE_ID::Message::MergeFrom;
+  void MergeFrom(const SubscribedCodec& from);
+  private:
+  static void MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to, const ::PROTOBUF_NAMESPACE_ID::Message& from);
+  public:
+  PROTOBUF_ATTRIBUTE_REINITIALIZES void Clear() final;
+  bool IsInitialized() const final;
+
+  size_t ByteSizeLong() const final;
+  const char* _InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) final;
+  uint8_t* _InternalSerialize(
+      uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const final;
+  int GetCachedSize() const final { return _cached_size_.Get(); }
+
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const final;
+  void InternalSwap(SubscribedCodec* other);
+
+  private:
+  friend class ::PROTOBUF_NAMESPACE_ID::internal::AnyMetadata;
+  static ::PROTOBUF_NAMESPACE_ID::StringPiece FullMessageName() {
+    return "livekit.SubscribedCodec";
+  }
+  protected:
+  explicit SubscribedCodec(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+                       bool is_message_owned = false);
+  private:
+  static void ArenaDtor(void* object);
+  inline void RegisterArenaDtor(::PROTOBUF_NAMESPACE_ID::Arena* arena);
+  public:
+
+  static const ClassData _class_data_;
+  const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*GetClassData() const final;
+
+  ::PROTOBUF_NAMESPACE_ID::Metadata GetMetadata() const final;
+
+  // nested types ----------------------------------------------------
+
+  // accessors -------------------------------------------------------
+
+  enum : int {
+    kQualitiesFieldNumber = 2,
+    kCodecFieldNumber = 1,
+  };
+  // repeated .livekit.SubscribedQuality qualities = 2;
+  int qualities_size() const;
+  private:
+  int _internal_qualities_size() const;
+  public:
+  void clear_qualities();
+  ::livekit::SubscribedQuality* mutable_qualities(int index);
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedQuality >*
+      mutable_qualities();
+  private:
+  const ::livekit::SubscribedQuality& _internal_qualities(int index) const;
+  ::livekit::SubscribedQuality* _internal_add_qualities();
+  public:
+  const ::livekit::SubscribedQuality& qualities(int index) const;
+  ::livekit::SubscribedQuality* add_qualities();
+  const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedQuality >&
+      qualities() const;
+
+  // string codec = 1;
+  void clear_codec();
+  const std::string& codec() const;
+  template <typename ArgT0 = const std::string&, typename... ArgT>
+  void set_codec(ArgT0&& arg0, ArgT... args);
+  std::string* mutable_codec();
+  PROTOBUF_NODISCARD std::string* release_codec();
+  void set_allocated_codec(std::string* codec);
+  private:
+  const std::string& _internal_codec() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_codec(const std::string& value);
+  std::string* _internal_mutable_codec();
+  public:
+
+  // @@protoc_insertion_point(class_scope:livekit.SubscribedCodec)
+ private:
+  class _Internal;
+
+  template <typename T> friend class ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper;
+  typedef void InternalArenaConstructable_;
+  typedef void DestructorSkippable_;
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedQuality > qualities_;
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr codec_;
+  mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
+  friend struct ::TableStruct_livekit_5frtc_2eproto;
+};
+// -------------------------------------------------------------------
+
 class SubscribedQualityUpdate final :
     public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:livekit.SubscribedQualityUpdate) */ {
  public:
@@ -4743,7 +5120,7 @@ class SubscribedQualityUpdate final :
                &_SubscribedQualityUpdate_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    22;
+    24;
 
   friend void swap(SubscribedQualityUpdate& a, SubscribedQualityUpdate& b) {
     a.Swap(&b);
@@ -4818,6 +5195,7 @@ class SubscribedQualityUpdate final :
 
   enum : int {
     kSubscribedQualitiesFieldNumber = 2,
+    kSubscribedCodecsFieldNumber = 3,
     kTrackSidFieldNumber = 1,
   };
   // repeated .livekit.SubscribedQuality subscribed_qualities = 2;
@@ -4837,6 +5215,24 @@ class SubscribedQualityUpdate final :
   ::livekit::SubscribedQuality* add_subscribed_qualities();
   const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedQuality >&
       subscribed_qualities() const;
+
+  // repeated .livekit.SubscribedCodec subscribed_codecs = 3;
+  int subscribed_codecs_size() const;
+  private:
+  int _internal_subscribed_codecs_size() const;
+  public:
+  void clear_subscribed_codecs();
+  ::livekit::SubscribedCodec* mutable_subscribed_codecs(int index);
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedCodec >*
+      mutable_subscribed_codecs();
+  private:
+  const ::livekit::SubscribedCodec& _internal_subscribed_codecs(int index) const;
+  ::livekit::SubscribedCodec* _internal_add_subscribed_codecs();
+  public:
+  const ::livekit::SubscribedCodec& subscribed_codecs(int index) const;
+  ::livekit::SubscribedCodec* add_subscribed_codecs();
+  const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedCodec >&
+      subscribed_codecs() const;
 
   // string track_sid = 1;
   void clear_track_sid();
@@ -4860,6 +5256,7 @@ class SubscribedQualityUpdate final :
   typedef void InternalArenaConstructable_;
   typedef void DestructorSkippable_;
   ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedQuality > subscribed_qualities_;
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedCodec > subscribed_codecs_;
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr track_sid_;
   mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
   friend struct ::TableStruct_livekit_5frtc_2eproto;
@@ -4914,7 +5311,7 @@ class TrackPermission final :
                &_TrackPermission_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    23;
+    25;
 
   friend void swap(TrackPermission& a, TrackPermission& b) {
     a.Swap(&b);
@@ -5118,7 +5515,7 @@ class SubscriptionPermission final :
                &_SubscriptionPermission_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    24;
+    26;
 
   friend void swap(SubscriptionPermission& a, SubscriptionPermission& b) {
     a.Swap(&b);
@@ -5284,7 +5681,7 @@ class SubscriptionPermissionUpdate final :
                &_SubscriptionPermissionUpdate_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    25;
+    27;
 
   friend void swap(SubscriptionPermissionUpdate& a, SubscriptionPermissionUpdate& b) {
     a.Swap(&b);
@@ -5462,7 +5859,7 @@ class SyncState final :
                &_SyncState_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    26;
+    28;
 
   friend void swap(SyncState& a, SyncState& b) {
     a.Swap(&b);
@@ -5677,7 +6074,7 @@ class DataChannelInfo final :
                &_DataChannelInfo_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    27;
+    29;
 
   friend void swap(DataChannelInfo& a, DataChannelInfo& b) {
     a.Swap(&b);
@@ -5858,7 +6255,7 @@ class SimulateScenario final :
                &_SimulateScenario_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    28;
+    30;
 
   friend void swap(SimulateScenario& a, SimulateScenario& b) {
     a.Swap(&b);
@@ -8133,6 +8530,132 @@ inline SignalResponse::MessageCase SignalResponse::message_case() const {
 }
 // -------------------------------------------------------------------
 
+// SimulcastCodec
+
+// string codec = 1;
+inline void SimulcastCodec::clear_codec() {
+  codec_.ClearToEmpty();
+}
+inline const std::string& SimulcastCodec::codec() const {
+  // @@protoc_insertion_point(field_get:livekit.SimulcastCodec.codec)
+  return _internal_codec();
+}
+template <typename ArgT0, typename... ArgT>
+inline PROTOBUF_ALWAYS_INLINE
+void SimulcastCodec::set_codec(ArgT0&& arg0, ArgT... args) {
+ 
+ codec_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
+  // @@protoc_insertion_point(field_set:livekit.SimulcastCodec.codec)
+}
+inline std::string* SimulcastCodec::mutable_codec() {
+  std::string* _s = _internal_mutable_codec();
+  // @@protoc_insertion_point(field_mutable:livekit.SimulcastCodec.codec)
+  return _s;
+}
+inline const std::string& SimulcastCodec::_internal_codec() const {
+  return codec_.Get();
+}
+inline void SimulcastCodec::_internal_set_codec(const std::string& value) {
+  
+  codec_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, value, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodec::_internal_mutable_codec() {
+  
+  return codec_.Mutable(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodec::release_codec() {
+  // @@protoc_insertion_point(field_release:livekit.SimulcastCodec.codec)
+  return codec_.Release(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArenaForAllocation());
+}
+inline void SimulcastCodec::set_allocated_codec(std::string* codec) {
+  if (codec != nullptr) {
+    
+  } else {
+    
+  }
+  codec_.SetAllocated(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), codec,
+      GetArenaForAllocation());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (codec_.IsDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited())) {
+    codec_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  }
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  // @@protoc_insertion_point(field_set_allocated:livekit.SimulcastCodec.codec)
+}
+
+// string cid = 2;
+inline void SimulcastCodec::clear_cid() {
+  cid_.ClearToEmpty();
+}
+inline const std::string& SimulcastCodec::cid() const {
+  // @@protoc_insertion_point(field_get:livekit.SimulcastCodec.cid)
+  return _internal_cid();
+}
+template <typename ArgT0, typename... ArgT>
+inline PROTOBUF_ALWAYS_INLINE
+void SimulcastCodec::set_cid(ArgT0&& arg0, ArgT... args) {
+ 
+ cid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
+  // @@protoc_insertion_point(field_set:livekit.SimulcastCodec.cid)
+}
+inline std::string* SimulcastCodec::mutable_cid() {
+  std::string* _s = _internal_mutable_cid();
+  // @@protoc_insertion_point(field_mutable:livekit.SimulcastCodec.cid)
+  return _s;
+}
+inline const std::string& SimulcastCodec::_internal_cid() const {
+  return cid_.Get();
+}
+inline void SimulcastCodec::_internal_set_cid(const std::string& value) {
+  
+  cid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, value, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodec::_internal_mutable_cid() {
+  
+  return cid_.Mutable(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodec::release_cid() {
+  // @@protoc_insertion_point(field_release:livekit.SimulcastCodec.cid)
+  return cid_.Release(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArenaForAllocation());
+}
+inline void SimulcastCodec::set_allocated_cid(std::string* cid) {
+  if (cid != nullptr) {
+    
+  } else {
+    
+  }
+  cid_.SetAllocated(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), cid,
+      GetArenaForAllocation());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (cid_.IsDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited())) {
+    cid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  }
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  // @@protoc_insertion_point(field_set_allocated:livekit.SimulcastCodec.cid)
+}
+
+// bool enable_simulcast_layers = 3;
+inline void SimulcastCodec::clear_enable_simulcast_layers() {
+  enable_simulcast_layers_ = false;
+}
+inline bool SimulcastCodec::_internal_enable_simulcast_layers() const {
+  return enable_simulcast_layers_;
+}
+inline bool SimulcastCodec::enable_simulcast_layers() const {
+  // @@protoc_insertion_point(field_get:livekit.SimulcastCodec.enable_simulcast_layers)
+  return _internal_enable_simulcast_layers();
+}
+inline void SimulcastCodec::_internal_set_enable_simulcast_layers(bool value) {
+  
+  enable_simulcast_layers_ = value;
+}
+inline void SimulcastCodec::set_enable_simulcast_layers(bool value) {
+  _internal_set_enable_simulcast_layers(value);
+  // @@protoc_insertion_point(field_set:livekit.SimulcastCodec.enable_simulcast_layers)
+}
+
+// -------------------------------------------------------------------
+
 // AddTrackRequest
 
 // string cid = 1;
@@ -8392,6 +8915,46 @@ inline const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer >&
 AddTrackRequest::layers() const {
   // @@protoc_insertion_point(field_list:livekit.AddTrackRequest.layers)
   return layers_;
+}
+
+// repeated .livekit.SimulcastCodec simulcast_codecs = 10;
+inline int AddTrackRequest::_internal_simulcast_codecs_size() const {
+  return simulcast_codecs_.size();
+}
+inline int AddTrackRequest::simulcast_codecs_size() const {
+  return _internal_simulcast_codecs_size();
+}
+inline void AddTrackRequest::clear_simulcast_codecs() {
+  simulcast_codecs_.Clear();
+}
+inline ::livekit::SimulcastCodec* AddTrackRequest::mutable_simulcast_codecs(int index) {
+  // @@protoc_insertion_point(field_mutable:livekit.AddTrackRequest.simulcast_codecs)
+  return simulcast_codecs_.Mutable(index);
+}
+inline ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodec >*
+AddTrackRequest::mutable_simulcast_codecs() {
+  // @@protoc_insertion_point(field_mutable_list:livekit.AddTrackRequest.simulcast_codecs)
+  return &simulcast_codecs_;
+}
+inline const ::livekit::SimulcastCodec& AddTrackRequest::_internal_simulcast_codecs(int index) const {
+  return simulcast_codecs_.Get(index);
+}
+inline const ::livekit::SimulcastCodec& AddTrackRequest::simulcast_codecs(int index) const {
+  // @@protoc_insertion_point(field_get:livekit.AddTrackRequest.simulcast_codecs)
+  return _internal_simulcast_codecs(index);
+}
+inline ::livekit::SimulcastCodec* AddTrackRequest::_internal_add_simulcast_codecs() {
+  return simulcast_codecs_.Add();
+}
+inline ::livekit::SimulcastCodec* AddTrackRequest::add_simulcast_codecs() {
+  ::livekit::SimulcastCodec* _add = _internal_add_simulcast_codecs();
+  // @@protoc_insertion_point(field_add:livekit.AddTrackRequest.simulcast_codecs)
+  return _add;
+}
+inline const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodec >&
+AddTrackRequest::simulcast_codecs() const {
+  // @@protoc_insertion_point(field_list:livekit.AddTrackRequest.simulcast_codecs)
+  return simulcast_codecs_;
 }
 
 // -------------------------------------------------------------------
@@ -10477,6 +11040,101 @@ inline void SubscribedQuality::set_enabled(bool value) {
 
 // -------------------------------------------------------------------
 
+// SubscribedCodec
+
+// string codec = 1;
+inline void SubscribedCodec::clear_codec() {
+  codec_.ClearToEmpty();
+}
+inline const std::string& SubscribedCodec::codec() const {
+  // @@protoc_insertion_point(field_get:livekit.SubscribedCodec.codec)
+  return _internal_codec();
+}
+template <typename ArgT0, typename... ArgT>
+inline PROTOBUF_ALWAYS_INLINE
+void SubscribedCodec::set_codec(ArgT0&& arg0, ArgT... args) {
+ 
+ codec_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
+  // @@protoc_insertion_point(field_set:livekit.SubscribedCodec.codec)
+}
+inline std::string* SubscribedCodec::mutable_codec() {
+  std::string* _s = _internal_mutable_codec();
+  // @@protoc_insertion_point(field_mutable:livekit.SubscribedCodec.codec)
+  return _s;
+}
+inline const std::string& SubscribedCodec::_internal_codec() const {
+  return codec_.Get();
+}
+inline void SubscribedCodec::_internal_set_codec(const std::string& value) {
+  
+  codec_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, value, GetArenaForAllocation());
+}
+inline std::string* SubscribedCodec::_internal_mutable_codec() {
+  
+  return codec_.Mutable(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, GetArenaForAllocation());
+}
+inline std::string* SubscribedCodec::release_codec() {
+  // @@protoc_insertion_point(field_release:livekit.SubscribedCodec.codec)
+  return codec_.Release(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArenaForAllocation());
+}
+inline void SubscribedCodec::set_allocated_codec(std::string* codec) {
+  if (codec != nullptr) {
+    
+  } else {
+    
+  }
+  codec_.SetAllocated(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), codec,
+      GetArenaForAllocation());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (codec_.IsDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited())) {
+    codec_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  }
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  // @@protoc_insertion_point(field_set_allocated:livekit.SubscribedCodec.codec)
+}
+
+// repeated .livekit.SubscribedQuality qualities = 2;
+inline int SubscribedCodec::_internal_qualities_size() const {
+  return qualities_.size();
+}
+inline int SubscribedCodec::qualities_size() const {
+  return _internal_qualities_size();
+}
+inline void SubscribedCodec::clear_qualities() {
+  qualities_.Clear();
+}
+inline ::livekit::SubscribedQuality* SubscribedCodec::mutable_qualities(int index) {
+  // @@protoc_insertion_point(field_mutable:livekit.SubscribedCodec.qualities)
+  return qualities_.Mutable(index);
+}
+inline ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedQuality >*
+SubscribedCodec::mutable_qualities() {
+  // @@protoc_insertion_point(field_mutable_list:livekit.SubscribedCodec.qualities)
+  return &qualities_;
+}
+inline const ::livekit::SubscribedQuality& SubscribedCodec::_internal_qualities(int index) const {
+  return qualities_.Get(index);
+}
+inline const ::livekit::SubscribedQuality& SubscribedCodec::qualities(int index) const {
+  // @@protoc_insertion_point(field_get:livekit.SubscribedCodec.qualities)
+  return _internal_qualities(index);
+}
+inline ::livekit::SubscribedQuality* SubscribedCodec::_internal_add_qualities() {
+  return qualities_.Add();
+}
+inline ::livekit::SubscribedQuality* SubscribedCodec::add_qualities() {
+  ::livekit::SubscribedQuality* _add = _internal_add_qualities();
+  // @@protoc_insertion_point(field_add:livekit.SubscribedCodec.qualities)
+  return _add;
+}
+inline const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedQuality >&
+SubscribedCodec::qualities() const {
+  // @@protoc_insertion_point(field_list:livekit.SubscribedCodec.qualities)
+  return qualities_;
+}
+
+// -------------------------------------------------------------------
+
 // SubscribedQualityUpdate
 
 // string track_sid = 1;
@@ -10568,6 +11226,46 @@ inline const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedQua
 SubscribedQualityUpdate::subscribed_qualities() const {
   // @@protoc_insertion_point(field_list:livekit.SubscribedQualityUpdate.subscribed_qualities)
   return subscribed_qualities_;
+}
+
+// repeated .livekit.SubscribedCodec subscribed_codecs = 3;
+inline int SubscribedQualityUpdate::_internal_subscribed_codecs_size() const {
+  return subscribed_codecs_.size();
+}
+inline int SubscribedQualityUpdate::subscribed_codecs_size() const {
+  return _internal_subscribed_codecs_size();
+}
+inline void SubscribedQualityUpdate::clear_subscribed_codecs() {
+  subscribed_codecs_.Clear();
+}
+inline ::livekit::SubscribedCodec* SubscribedQualityUpdate::mutable_subscribed_codecs(int index) {
+  // @@protoc_insertion_point(field_mutable:livekit.SubscribedQualityUpdate.subscribed_codecs)
+  return subscribed_codecs_.Mutable(index);
+}
+inline ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedCodec >*
+SubscribedQualityUpdate::mutable_subscribed_codecs() {
+  // @@protoc_insertion_point(field_mutable_list:livekit.SubscribedQualityUpdate.subscribed_codecs)
+  return &subscribed_codecs_;
+}
+inline const ::livekit::SubscribedCodec& SubscribedQualityUpdate::_internal_subscribed_codecs(int index) const {
+  return subscribed_codecs_.Get(index);
+}
+inline const ::livekit::SubscribedCodec& SubscribedQualityUpdate::subscribed_codecs(int index) const {
+  // @@protoc_insertion_point(field_get:livekit.SubscribedQualityUpdate.subscribed_codecs)
+  return _internal_subscribed_codecs(index);
+}
+inline ::livekit::SubscribedCodec* SubscribedQualityUpdate::_internal_add_subscribed_codecs() {
+  return subscribed_codecs_.Add();
+}
+inline ::livekit::SubscribedCodec* SubscribedQualityUpdate::add_subscribed_codecs() {
+  ::livekit::SubscribedCodec* _add = _internal_add_subscribed_codecs();
+  // @@protoc_insertion_point(field_add:livekit.SubscribedQualityUpdate.subscribed_codecs)
+  return _add;
+}
+inline const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SubscribedCodec >&
+SubscribedQualityUpdate::subscribed_codecs() const {
+  // @@protoc_insertion_point(field_list:livekit.SubscribedQualityUpdate.subscribed_codecs)
+  return subscribed_codecs_;
 }
 
 // -------------------------------------------------------------------
@@ -11488,6 +12186,10 @@ inline SimulateScenario::ScenarioCase SimulateScenario::scenario_case() const {
 #ifdef __GNUC__
   #pragma GCC diagnostic pop
 #endif  // __GNUC__
+// -------------------------------------------------------------------
+
+// -------------------------------------------------------------------
+
 // -------------------------------------------------------------------
 
 // -------------------------------------------------------------------

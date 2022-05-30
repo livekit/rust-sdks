@@ -5,6 +5,7 @@
 #include "rtc_engine.h"
 #include <rtc_base/ssl_adapter.h>
 #include <spdlog/spdlog.h>
+#include "peer_transport.h"
 
 namespace livekit{
 
@@ -19,13 +20,13 @@ namespace livekit{
     void RTCEngine::Update(){
         client_.update();
 
-        // Fetch SignalResponse ( The whole protocol is async )
         auto res = client_.poll();
         if(res.has_join())
             OnJoin(res.join());
     }
 
     void RTCEngine::OnJoin(const JoinResponse &res){
+        spdlog::info("OnJoin");
         rtc::InitializeSSL();
 
         for(auto& is : res.ice_servers()){
@@ -60,25 +61,11 @@ namespace livekit{
 
         subscriber_ = std::make_unique<PeerTransport>(*this);
         publisher_ = std::make_unique<PeerTransport>(*this);
-
-
     }
 
     void RTCEngine::Configure() {
 
     }
 
-    RTCEngine::PeerTransport::PeerTransport(const RTCEngine &rtc_engine) {
-        observer = std::make_unique<PeerObserver>();
-        webrtc::PeerConnectionDependencies peer_configuration{observer.get()};
 
-        webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::PeerConnectionInterface>> opt_peer = rtc_engine.peer_factory_->CreatePeerConnectionOrError(
-                rtc_engine.configuration_, std::move(peer_configuration));
-
-        if (!opt_peer.ok()) {
-            throw std::runtime_error{"Failed to create a peer connection"};
-        }
-
-        peer_connection = opt_peer.value();
-    }
 } // livekit

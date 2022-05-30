@@ -7,6 +7,7 @@
 
 #include "signal_client.h"
 #include "peer_observer.h"
+#include "peer_transport.h"
 #include <api/peer_connection_interface.h>
 
 namespace livekit{
@@ -24,14 +25,7 @@ namespace livekit{
         void OnJoin(const JoinResponse &res);
 
     private:
-        // Wrapper for our PeerConnection ( Int. Impl. )
-        class PeerTransport {
-        public:
-            explicit PeerTransport(const RTCEngine &rtc_engine);
-
-            rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection;
-            std::unique_ptr<PeerObserver> observer;
-        };
+        friend class PeerTransport;
 
         SignalClient client_;
         

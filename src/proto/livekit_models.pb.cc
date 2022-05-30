@@ -90,9 +90,25 @@ struct ParticipantInfoDefaultTypeInternal {
   };
 };
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT ParticipantInfoDefaultTypeInternal _ParticipantInfo_default_instance_;
+constexpr SimulcastCodecInfo::SimulcastCodecInfo(
+  ::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized)
+  : layers_()
+  , mime_type_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
+  , mid_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
+  , cid_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string){}
+struct SimulcastCodecInfoDefaultTypeInternal {
+  constexpr SimulcastCodecInfoDefaultTypeInternal()
+    : _instance(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized{}) {}
+  ~SimulcastCodecInfoDefaultTypeInternal() {}
+  union {
+    SimulcastCodecInfo _instance;
+  };
+};
+PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT SimulcastCodecInfoDefaultTypeInternal _SimulcastCodecInfo_default_instance_;
 constexpr TrackInfo::TrackInfo(
   ::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized)
   : layers_()
+  , codecs_()
   , sid_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
   , name_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
   , mime_type_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
@@ -309,7 +325,7 @@ struct RTPStatsDefaultTypeInternal {
 };
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT RTPStatsDefaultTypeInternal _RTPStats_default_instance_;
 }  // namespace livekit
-static ::PROTOBUF_NAMESPACE_ID::Metadata file_level_metadata_livekit_5fmodels_2eproto[16];
+static ::PROTOBUF_NAMESPACE_ID::Metadata file_level_metadata_livekit_5fmodels_2eproto[17];
 static const ::PROTOBUF_NAMESPACE_ID::EnumDescriptor* file_level_enum_descriptors_livekit_5fmodels_2eproto[8];
 static constexpr ::PROTOBUF_NAMESPACE_ID::ServiceDescriptor const** file_level_service_descriptors_livekit_5fmodels_2eproto = nullptr;
 
@@ -367,6 +383,16 @@ const uint32_t TableStruct_livekit_5fmodels_2eproto::offsets[] PROTOBUF_SECTION_
   PROTOBUF_FIELD_OFFSET(::livekit::ParticipantInfo, region_),
   PROTOBUF_FIELD_OFFSET(::livekit::ParticipantInfo, is_publisher_),
   ~0u,  // no _has_bits_
+  PROTOBUF_FIELD_OFFSET(::livekit::SimulcastCodecInfo, _internal_metadata_),
+  ~0u,  // no _extensions_
+  ~0u,  // no _oneof_case_
+  ~0u,  // no _weak_field_map_
+  ~0u,  // no _inlined_string_donated_
+  PROTOBUF_FIELD_OFFSET(::livekit::SimulcastCodecInfo, mime_type_),
+  PROTOBUF_FIELD_OFFSET(::livekit::SimulcastCodecInfo, mid_),
+  PROTOBUF_FIELD_OFFSET(::livekit::SimulcastCodecInfo, cid_),
+  PROTOBUF_FIELD_OFFSET(::livekit::SimulcastCodecInfo, layers_),
+  ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::livekit::TrackInfo, _internal_metadata_),
   ~0u,  // no _extensions_
   ~0u,  // no _oneof_case_
@@ -384,6 +410,7 @@ const uint32_t TableStruct_livekit_5fmodels_2eproto::offsets[] PROTOBUF_SECTION_
   PROTOBUF_FIELD_OFFSET(::livekit::TrackInfo, layers_),
   PROTOBUF_FIELD_OFFSET(::livekit::TrackInfo, mime_type_),
   PROTOBUF_FIELD_OFFSET(::livekit::TrackInfo, mid_),
+  PROTOBUF_FIELD_OFFSET(::livekit::TrackInfo, codecs_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::livekit::VideoLayer, _internal_metadata_),
   ~0u,  // no _extensions_
@@ -529,18 +556,19 @@ static const ::PROTOBUF_NAMESPACE_ID::internal::MigrationSchema schemas[] PROTOB
   { 16, -1, -1, sizeof(::livekit::Codec)},
   { 24, -1, -1, sizeof(::livekit::ParticipantPermission)},
   { 35, -1, -1, sizeof(::livekit::ParticipantInfo)},
-  { 52, -1, -1, sizeof(::livekit::TrackInfo)},
-  { 70, -1, -1, sizeof(::livekit::VideoLayer)},
-  { 81, -1, -1, sizeof(::livekit::DataPacket)},
-  { 91, -1, -1, sizeof(::livekit::ActiveSpeakerUpdate)},
-  { 98, -1, -1, sizeof(::livekit::SpeakerInfo)},
-  { 107, -1, -1, sizeof(::livekit::UserPacket)},
-  { 116, -1, -1, sizeof(::livekit::ParticipantTracks)},
-  { 124, -1, -1, sizeof(::livekit::ClientInfo)},
-  { 139, -1, -1, sizeof(::livekit::ClientConfiguration)},
-  { 148, -1, -1, sizeof(::livekit::VideoConfiguration)},
-  { 155, 163, -1, sizeof(::livekit::RTPStats_GapHistogramEntry_DoNotUse)},
-  { 165, -1, -1, sizeof(::livekit::RTPStats)},
+  { 52, -1, -1, sizeof(::livekit::SimulcastCodecInfo)},
+  { 62, -1, -1, sizeof(::livekit::TrackInfo)},
+  { 81, -1, -1, sizeof(::livekit::VideoLayer)},
+  { 92, -1, -1, sizeof(::livekit::DataPacket)},
+  { 102, -1, -1, sizeof(::livekit::ActiveSpeakerUpdate)},
+  { 109, -1, -1, sizeof(::livekit::SpeakerInfo)},
+  { 118, -1, -1, sizeof(::livekit::UserPacket)},
+  { 127, -1, -1, sizeof(::livekit::ParticipantTracks)},
+  { 135, -1, -1, sizeof(::livekit::ClientInfo)},
+  { 150, -1, -1, sizeof(::livekit::ClientConfiguration)},
+  { 159, -1, -1, sizeof(::livekit::VideoConfiguration)},
+  { 166, 174, -1, sizeof(::livekit::RTPStats_GapHistogramEntry_DoNotUse)},
+  { 176, -1, -1, sizeof(::livekit::RTPStats)},
 };
 
 static ::PROTOBUF_NAMESPACE_ID::Message const * const file_default_instances[] = {
@@ -548,6 +576,7 @@ static ::PROTOBUF_NAMESPACE_ID::Message const * const file_default_instances[] =
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::livekit::_Codec_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::livekit::_ParticipantPermission_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::livekit::_ParticipantInfo_default_instance_),
+  reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::livekit::_SimulcastCodecInfo_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::livekit::_TrackInfo_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::livekit::_VideoLayer_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::livekit::_DataPacket_default_instance_),
@@ -583,87 +612,91 @@ const char descriptor_table_protodef_livekit_5fmodels_2eproto[] PROTOBUF_SECTION
   "\n\npermission\030\013 \001(\0132\036.livekit.Participant"
   "Permission\022\016\n\006region\030\014 \001(\t\022\024\n\014is_publish"
   "er\030\r \001(\010\">\n\005State\022\013\n\007JOINING\020\000\022\n\n\006JOINED"
-  "\020\001\022\n\n\006ACTIVE\020\002\022\020\n\014DISCONNECTED\020\003\"\211\002\n\tTra"
-  "ckInfo\022\013\n\003sid\030\001 \001(\t\022 \n\004type\030\002 \001(\0162\022.live"
-  "kit.TrackType\022\014\n\004name\030\003 \001(\t\022\r\n\005muted\030\004 \001"
-  "(\010\022\r\n\005width\030\005 \001(\r\022\016\n\006height\030\006 \001(\r\022\021\n\tsim"
-  "ulcast\030\007 \001(\010\022\023\n\013disable_dtx\030\010 \001(\010\022$\n\006sou"
-  "rce\030\t \001(\0162\024.livekit.TrackSource\022#\n\006layer"
-  "s\030\n \003(\0132\023.livekit.VideoLayer\022\021\n\tmime_typ"
-  "e\030\013 \001(\t\022\013\n\003mid\030\014 \001(\t\"r\n\nVideoLayer\022&\n\007qu"
-  "ality\030\001 \001(\0162\025.livekit.VideoQuality\022\r\n\005wi"
-  "dth\030\002 \001(\r\022\016\n\006height\030\003 \001(\r\022\017\n\007bitrate\030\004 \001"
-  "(\r\022\014\n\004ssrc\030\005 \001(\r\"\264\001\n\nDataPacket\022&\n\004kind\030"
-  "\001 \001(\0162\030.livekit.DataPacket.Kind\022#\n\004user\030"
-  "\002 \001(\0132\023.livekit.UserPacketH\000\022/\n\007speaker\030"
-  "\003 \001(\0132\034.livekit.ActiveSpeakerUpdateH\000\"\037\n"
-  "\004Kind\022\014\n\010RELIABLE\020\000\022\t\n\005LOSSY\020\001B\007\n\005value\""
-  "=\n\023ActiveSpeakerUpdate\022&\n\010speakers\030\001 \003(\013"
-  "2\024.livekit.SpeakerInfo\"9\n\013SpeakerInfo\022\013\n"
-  "\003sid\030\001 \001(\t\022\r\n\005level\030\002 \001(\002\022\016\n\006active\030\003 \001("
-  "\010\"P\n\nUserPacket\022\027\n\017participant_sid\030\001 \001(\t"
-  "\022\017\n\007payload\030\002 \001(\014\022\030\n\020destination_sids\030\003 "
-  "\003(\t\"@\n\021ParticipantTracks\022\027\n\017participant_"
-  "sid\030\001 \001(\t\022\022\n\ntrack_sids\030\002 \003(\t\"\232\002\n\nClient"
-  "Info\022$\n\003sdk\030\001 \001(\0162\027.livekit.ClientInfo.S"
-  "DK\022\017\n\007version\030\002 \001(\t\022\020\n\010protocol\030\003 \001(\005\022\n\n"
-  "\002os\030\004 \001(\t\022\022\n\nos_version\030\005 \001(\t\022\024\n\014device_"
-  "model\030\006 \001(\t\022\017\n\007browser\030\007 \001(\t\022\027\n\017browser_"
-  "version\030\010 \001(\t\022\017\n\007address\030\t \001(\t\"R\n\003SDK\022\013\n"
-  "\007UNKNOWN\020\000\022\006\n\002JS\020\001\022\t\n\005SWIFT\020\002\022\013\n\007ANDROID"
-  "\020\003\022\013\n\007FLUTTER\020\004\022\006\n\002GO\020\005\022\t\n\005UNITY\020\006\"\247\001\n\023C"
-  "lientConfiguration\022*\n\005video\030\001 \001(\0132\033.live"
-  "kit.VideoConfiguration\022+\n\006screen\030\002 \001(\0132\033"
-  ".livekit.VideoConfiguration\0227\n\021resume_co"
-  "nnection\030\003 \001(\0162\034.livekit.ClientConfigSet"
-  "ting\"L\n\022VideoConfiguration\0226\n\020hardware_e"
-  "ncoder\030\001 \001(\0162\034.livekit.ClientConfigSetti"
-  "ng\"\311\010\n\010RTPStats\022.\n\nstart_time\030\001 \001(\0132\032.go"
-  "ogle.protobuf.Timestamp\022,\n\010end_time\030\002 \001("
-  "\0132\032.google.protobuf.Timestamp\022\020\n\010duratio"
-  "n\030\003 \001(\001\022\017\n\007packets\030\004 \001(\r\022\023\n\013packet_rate\030"
-  "\005 \001(\001\022\r\n\005bytes\030\006 \001(\004\022\017\n\007bitrate\030\007 \001(\001\022\024\n"
-  "\014packets_lost\030\010 \001(\r\022\030\n\020packet_loss_rate\030"
-  "\t \001(\001\022\036\n\026packet_loss_percentage\030\n \001(\002\022\031\n"
-  "\021packets_duplicate\030\013 \001(\r\022\035\n\025packet_dupli"
-  "cate_rate\030\014 \001(\001\022\027\n\017bytes_duplicate\030\r \001(\004"
-  "\022\031\n\021bitrate_duplicate\030\016 \001(\001\022\027\n\017packets_p"
-  "adding\030\017 \001(\r\022\033\n\023packet_padding_rate\030\020 \001("
-  "\001\022\025\n\rbytes_padding\030\021 \001(\004\022\027\n\017bitrate_padd"
-  "ing\030\022 \001(\001\022\034\n\024packets_out_of_order\030\023 \001(\r\022"
-  "\016\n\006frames\030\024 \001(\r\022\022\n\nframe_rate\030\025 \001(\001\022\026\n\016j"
-  "itter_current\030\026 \001(\001\022\022\n\njitter_max\030\027 \001(\001\022"
-  ":\n\rgap_histogram\030\030 \003(\0132#.livekit.RTPStat"
-  "s.GapHistogramEntry\022\r\n\005nacks\030\031 \001(\r\022\021\n\tna"
-  "ck_acks\030% \001(\r\022\023\n\013nack_misses\030\032 \001(\r\022\025\n\rna"
-  "ck_repeated\030& \001(\r\022\014\n\004plis\030\033 \001(\r\022,\n\010last_"
-  "pli\030\034 \001(\0132\032.google.protobuf.Timestamp\022\014\n"
-  "\004firs\030\035 \001(\r\022,\n\010last_fir\030\036 \001(\0132\032.google.p"
-  "rotobuf.Timestamp\022\023\n\013rtt_current\030\037 \001(\r\022\017"
-  "\n\007rtt_max\030  \001(\r\022\022\n\nkey_frames\030! \001(\r\0222\n\016l"
-  "ast_key_frame\030\" \001(\0132\032.google.protobuf.Ti"
-  "mestamp\022\027\n\017layer_lock_plis\030# \001(\r\0227\n\023last"
-  "_layer_lock_pli\030$ \001(\0132\032.google.protobuf."
-  "Timestamp\0323\n\021GapHistogramEntry\022\013\n\003key\030\001 "
-  "\001(\005\022\r\n\005value\030\002 \001(\r:\0028\001*+\n\tTrackType\022\t\n\005A"
-  "UDIO\020\000\022\t\n\005VIDEO\020\001\022\010\n\004DATA\020\002*`\n\013TrackSour"
-  "ce\022\013\n\007UNKNOWN\020\000\022\n\n\006CAMERA\020\001\022\016\n\nMICROPHON"
-  "E\020\002\022\020\n\014SCREEN_SHARE\020\003\022\026\n\022SCREEN_SHARE_AU"
-  "DIO\020\004*6\n\014VideoQuality\022\007\n\003LOW\020\000\022\n\n\006MEDIUM"
-  "\020\001\022\010\n\004HIGH\020\002\022\007\n\003OFF\020\003*6\n\021ConnectionQuali"
-  "ty\022\010\n\004POOR\020\000\022\010\n\004GOOD\020\001\022\r\n\tEXCELLENT\020\002*;\n"
-  "\023ClientConfigSetting\022\t\n\005UNSET\020\000\022\014\n\010DISAB"
-  "LED\020\001\022\013\n\007ENABLED\020\002BFZ#github.com/livekit"
-  "/protocol/livekit\252\002\rLiveKit.Proto\352\002\016Live"
-  "Kit::Protob\006proto3"
+  "\020\001\022\n\n\006ACTIVE\020\002\022\020\n\014DISCONNECTED\020\003\"f\n\022Simu"
+  "lcastCodecInfo\022\021\n\tmime_type\030\001 \001(\t\022\013\n\003mid"
+  "\030\002 \001(\t\022\013\n\003cid\030\003 \001(\t\022#\n\006layers\030\004 \003(\0132\023.li"
+  "vekit.VideoLayer\"\266\002\n\tTrackInfo\022\013\n\003sid\030\001 "
+  "\001(\t\022 \n\004type\030\002 \001(\0162\022.livekit.TrackType\022\014\n"
+  "\004name\030\003 \001(\t\022\r\n\005muted\030\004 \001(\010\022\r\n\005width\030\005 \001("
+  "\r\022\016\n\006height\030\006 \001(\r\022\021\n\tsimulcast\030\007 \001(\010\022\023\n\013"
+  "disable_dtx\030\010 \001(\010\022$\n\006source\030\t \001(\0162\024.live"
+  "kit.TrackSource\022#\n\006layers\030\n \003(\0132\023.liveki"
+  "t.VideoLayer\022\021\n\tmime_type\030\013 \001(\t\022\013\n\003mid\030\014"
+  " \001(\t\022+\n\006codecs\030\r \003(\0132\033.livekit.Simulcast"
+  "CodecInfo\"r\n\nVideoLayer\022&\n\007quality\030\001 \001(\016"
+  "2\025.livekit.VideoQuality\022\r\n\005width\030\002 \001(\r\022\016"
+  "\n\006height\030\003 \001(\r\022\017\n\007bitrate\030\004 \001(\r\022\014\n\004ssrc\030"
+  "\005 \001(\r\"\264\001\n\nDataPacket\022&\n\004kind\030\001 \001(\0162\030.liv"
+  "ekit.DataPacket.Kind\022#\n\004user\030\002 \001(\0132\023.liv"
+  "ekit.UserPacketH\000\022/\n\007speaker\030\003 \001(\0132\034.liv"
+  "ekit.ActiveSpeakerUpdateH\000\"\037\n\004Kind\022\014\n\010RE"
+  "LIABLE\020\000\022\t\n\005LOSSY\020\001B\007\n\005value\"=\n\023ActiveSp"
+  "eakerUpdate\022&\n\010speakers\030\001 \003(\0132\024.livekit."
+  "SpeakerInfo\"9\n\013SpeakerInfo\022\013\n\003sid\030\001 \001(\t\022"
+  "\r\n\005level\030\002 \001(\002\022\016\n\006active\030\003 \001(\010\"P\n\nUserPa"
+  "cket\022\027\n\017participant_sid\030\001 \001(\t\022\017\n\007payload"
+  "\030\002 \001(\014\022\030\n\020destination_sids\030\003 \003(\t\"@\n\021Part"
+  "icipantTracks\022\027\n\017participant_sid\030\001 \001(\t\022\022"
+  "\n\ntrack_sids\030\002 \003(\t\"\232\002\n\nClientInfo\022$\n\003sdk"
+  "\030\001 \001(\0162\027.livekit.ClientInfo.SDK\022\017\n\007versi"
+  "on\030\002 \001(\t\022\020\n\010protocol\030\003 \001(\005\022\n\n\002os\030\004 \001(\t\022\022"
+  "\n\nos_version\030\005 \001(\t\022\024\n\014device_model\030\006 \001(\t"
+  "\022\017\n\007browser\030\007 \001(\t\022\027\n\017browser_version\030\010 \001"
+  "(\t\022\017\n\007address\030\t \001(\t\"R\n\003SDK\022\013\n\007UNKNOWN\020\000\022"
+  "\006\n\002JS\020\001\022\t\n\005SWIFT\020\002\022\013\n\007ANDROID\020\003\022\013\n\007FLUTT"
+  "ER\020\004\022\006\n\002GO\020\005\022\t\n\005UNITY\020\006\"\247\001\n\023ClientConfig"
+  "uration\022*\n\005video\030\001 \001(\0132\033.livekit.VideoCo"
+  "nfiguration\022+\n\006screen\030\002 \001(\0132\033.livekit.Vi"
+  "deoConfiguration\0227\n\021resume_connection\030\003 "
+  "\001(\0162\034.livekit.ClientConfigSetting\"L\n\022Vid"
+  "eoConfiguration\0226\n\020hardware_encoder\030\001 \001("
+  "\0162\034.livekit.ClientConfigSetting\"\311\010\n\010RTPS"
+  "tats\022.\n\nstart_time\030\001 \001(\0132\032.google.protob"
+  "uf.Timestamp\022,\n\010end_time\030\002 \001(\0132\032.google."
+  "protobuf.Timestamp\022\020\n\010duration\030\003 \001(\001\022\017\n\007"
+  "packets\030\004 \001(\r\022\023\n\013packet_rate\030\005 \001(\001\022\r\n\005by"
+  "tes\030\006 \001(\004\022\017\n\007bitrate\030\007 \001(\001\022\024\n\014packets_lo"
+  "st\030\010 \001(\r\022\030\n\020packet_loss_rate\030\t \001(\001\022\036\n\026pa"
+  "cket_loss_percentage\030\n \001(\002\022\031\n\021packets_du"
+  "plicate\030\013 \001(\r\022\035\n\025packet_duplicate_rate\030\014"
+  " \001(\001\022\027\n\017bytes_duplicate\030\r \001(\004\022\031\n\021bitrate"
+  "_duplicate\030\016 \001(\001\022\027\n\017packets_padding\030\017 \001("
+  "\r\022\033\n\023packet_padding_rate\030\020 \001(\001\022\025\n\rbytes_"
+  "padding\030\021 \001(\004\022\027\n\017bitrate_padding\030\022 \001(\001\022\034"
+  "\n\024packets_out_of_order\030\023 \001(\r\022\016\n\006frames\030\024"
+  " \001(\r\022\022\n\nframe_rate\030\025 \001(\001\022\026\n\016jitter_curre"
+  "nt\030\026 \001(\001\022\022\n\njitter_max\030\027 \001(\001\022:\n\rgap_hist"
+  "ogram\030\030 \003(\0132#.livekit.RTPStats.GapHistog"
+  "ramEntry\022\r\n\005nacks\030\031 \001(\r\022\021\n\tnack_acks\030% \001"
+  "(\r\022\023\n\013nack_misses\030\032 \001(\r\022\025\n\rnack_repeated"
+  "\030& \001(\r\022\014\n\004plis\030\033 \001(\r\022,\n\010last_pli\030\034 \001(\0132\032"
+  ".google.protobuf.Timestamp\022\014\n\004firs\030\035 \001(\r"
+  "\022,\n\010last_fir\030\036 \001(\0132\032.google.protobuf.Tim"
+  "estamp\022\023\n\013rtt_current\030\037 \001(\r\022\017\n\007rtt_max\030 "
+  " \001(\r\022\022\n\nkey_frames\030! \001(\r\0222\n\016last_key_fra"
+  "me\030\" \001(\0132\032.google.protobuf.Timestamp\022\027\n\017"
+  "layer_lock_plis\030# \001(\r\0227\n\023last_layer_lock"
+  "_pli\030$ \001(\0132\032.google.protobuf.Timestamp\0323"
+  "\n\021GapHistogramEntry\022\013\n\003key\030\001 \001(\005\022\r\n\005valu"
+  "e\030\002 \001(\r:\0028\001*+\n\tTrackType\022\t\n\005AUDIO\020\000\022\t\n\005V"
+  "IDEO\020\001\022\010\n\004DATA\020\002*`\n\013TrackSource\022\013\n\007UNKNO"
+  "WN\020\000\022\n\n\006CAMERA\020\001\022\016\n\nMICROPHONE\020\002\022\020\n\014SCRE"
+  "EN_SHARE\020\003\022\026\n\022SCREEN_SHARE_AUDIO\020\004*6\n\014Vi"
+  "deoQuality\022\007\n\003LOW\020\000\022\n\n\006MEDIUM\020\001\022\010\n\004HIGH\020"
+  "\002\022\007\n\003OFF\020\003*6\n\021ConnectionQuality\022\010\n\004POOR\020"
+  "\000\022\010\n\004GOOD\020\001\022\r\n\tEXCELLENT\020\002*;\n\023ClientConf"
+  "igSetting\022\t\n\005UNSET\020\000\022\014\n\010DISABLED\020\001\022\013\n\007EN"
+  "ABLED\020\002BFZ#github.com/livekit/protocol/l"
+  "ivekit\252\002\rLiveKit.Proto\352\002\016LiveKit::Protob"
+  "\006proto3"
   ;
 static const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable*const descriptor_table_livekit_5fmodels_2eproto_deps[1] = {
   &::descriptor_table_google_2fprotobuf_2ftimestamp_2eproto,
 };
 static ::PROTOBUF_NAMESPACE_ID::internal::once_flag descriptor_table_livekit_5fmodels_2eproto_once;
 const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable descriptor_table_livekit_5fmodels_2eproto = {
-  false, false, 3698, descriptor_table_protodef_livekit_5fmodels_2eproto, "livekit_models.proto", 
-  &descriptor_table_livekit_5fmodels_2eproto_once, descriptor_table_livekit_5fmodels_2eproto_deps, 1, 16,
+  false, false, 3847, descriptor_table_protodef_livekit_5fmodels_2eproto, "livekit_models.proto", 
+  &descriptor_table_livekit_5fmodels_2eproto_once, descriptor_table_livekit_5fmodels_2eproto_deps, 1, 17,
   schemas, file_default_instances, TableStruct_livekit_5fmodels_2eproto::offsets,
   file_level_metadata_livekit_5fmodels_2eproto, file_level_enum_descriptors_livekit_5fmodels_2eproto, file_level_service_descriptors_livekit_5fmodels_2eproto,
 };
@@ -2451,6 +2484,340 @@ void ParticipantInfo::InternalSwap(ParticipantInfo* other) {
 
 // ===================================================================
 
+class SimulcastCodecInfo::_Internal {
+ public:
+};
+
+SimulcastCodecInfo::SimulcastCodecInfo(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+                         bool is_message_owned)
+  : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned),
+  layers_(arena) {
+  SharedCtor();
+  if (!is_message_owned) {
+    RegisterArenaDtor(arena);
+  }
+  // @@protoc_insertion_point(arena_constructor:livekit.SimulcastCodecInfo)
+}
+SimulcastCodecInfo::SimulcastCodecInfo(const SimulcastCodecInfo& from)
+  : ::PROTOBUF_NAMESPACE_ID::Message(),
+      layers_(from.layers_) {
+  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  mime_type_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    mime_type_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (!from._internal_mime_type().empty()) {
+    mime_type_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_mime_type(), 
+      GetArenaForAllocation());
+  }
+  mid_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    mid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (!from._internal_mid().empty()) {
+    mid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_mid(), 
+      GetArenaForAllocation());
+  }
+  cid_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    cid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (!from._internal_cid().empty()) {
+    cid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_cid(), 
+      GetArenaForAllocation());
+  }
+  // @@protoc_insertion_point(copy_constructor:livekit.SimulcastCodecInfo)
+}
+
+inline void SimulcastCodecInfo::SharedCtor() {
+mime_type_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  mime_type_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+mid_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  mid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+cid_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  cid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+}
+
+SimulcastCodecInfo::~SimulcastCodecInfo() {
+  // @@protoc_insertion_point(destructor:livekit.SimulcastCodecInfo)
+  if (GetArenaForAllocation() != nullptr) return;
+  SharedDtor();
+  _internal_metadata_.Delete<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
+}
+
+inline void SimulcastCodecInfo::SharedDtor() {
+  GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
+  mime_type_.DestroyNoArena(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  mid_.DestroyNoArena(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  cid_.DestroyNoArena(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+}
+
+void SimulcastCodecInfo::ArenaDtor(void* object) {
+  SimulcastCodecInfo* _this = reinterpret_cast< SimulcastCodecInfo* >(object);
+  (void)_this;
+}
+void SimulcastCodecInfo::RegisterArenaDtor(::PROTOBUF_NAMESPACE_ID::Arena*) {
+}
+void SimulcastCodecInfo::SetCachedSize(int size) const {
+  _cached_size_.Set(size);
+}
+
+void SimulcastCodecInfo::Clear() {
+// @@protoc_insertion_point(message_clear_start:livekit.SimulcastCodecInfo)
+  uint32_t cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void) cached_has_bits;
+
+  layers_.Clear();
+  mime_type_.ClearToEmpty();
+  mid_.ClearToEmpty();
+  cid_.ClearToEmpty();
+  _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
+}
+
+const char* SimulcastCodecInfo::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
+#define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
+  while (!ctx->Done(&ptr)) {
+    uint32_t tag;
+    ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
+    switch (tag >> 3) {
+      // string mime_type = 1;
+      case 1:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 10)) {
+          auto str = _internal_mutable_mime_type();
+          ptr = ::PROTOBUF_NAMESPACE_ID::internal::InlineGreedyStringParser(str, ptr, ctx);
+          CHK_(::PROTOBUF_NAMESPACE_ID::internal::VerifyUTF8(str, "livekit.SimulcastCodecInfo.mime_type"));
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // string mid = 2;
+      case 2:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 18)) {
+          auto str = _internal_mutable_mid();
+          ptr = ::PROTOBUF_NAMESPACE_ID::internal::InlineGreedyStringParser(str, ptr, ctx);
+          CHK_(::PROTOBUF_NAMESPACE_ID::internal::VerifyUTF8(str, "livekit.SimulcastCodecInfo.mid"));
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // string cid = 3;
+      case 3:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 26)) {
+          auto str = _internal_mutable_cid();
+          ptr = ::PROTOBUF_NAMESPACE_ID::internal::InlineGreedyStringParser(str, ptr, ctx);
+          CHK_(::PROTOBUF_NAMESPACE_ID::internal::VerifyUTF8(str, "livekit.SimulcastCodecInfo.cid"));
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // repeated .livekit.VideoLayer layers = 4;
+      case 4:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 34)) {
+          ptr -= 1;
+          do {
+            ptr += 1;
+            ptr = ctx->ParseMessage(_internal_add_layers(), ptr);
+            CHK_(ptr);
+            if (!ctx->DataAvailable(ptr)) break;
+          } while (::PROTOBUF_NAMESPACE_ID::internal::ExpectTag<34>(ptr));
+        } else
+          goto handle_unusual;
+        continue;
+      default:
+        goto handle_unusual;
+    }  // switch
+  handle_unusual:
+    if ((tag == 0) || ((tag & 7) == 4)) {
+      CHK_(ptr);
+      ctx->SetLastTag(tag);
+      goto message_done;
+    }
+    ptr = UnknownFieldParse(
+        tag,
+        _internal_metadata_.mutable_unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(),
+        ptr, ctx);
+    CHK_(ptr != nullptr);
+  }  // while
+message_done:
+  return ptr;
+failure:
+  ptr = nullptr;
+  goto message_done;
+#undef CHK_
+}
+
+uint8_t* SimulcastCodecInfo::_InternalSerialize(
+    uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const {
+  // @@protoc_insertion_point(serialize_to_array_start:livekit.SimulcastCodecInfo)
+  uint32_t cached_has_bits = 0;
+  (void) cached_has_bits;
+
+  // string mime_type = 1;
+  if (!this->_internal_mime_type().empty()) {
+    ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::VerifyUtf8String(
+      this->_internal_mime_type().data(), static_cast<int>(this->_internal_mime_type().length()),
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::SERIALIZE,
+      "livekit.SimulcastCodecInfo.mime_type");
+    target = stream->WriteStringMaybeAliased(
+        1, this->_internal_mime_type(), target);
+  }
+
+  // string mid = 2;
+  if (!this->_internal_mid().empty()) {
+    ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::VerifyUtf8String(
+      this->_internal_mid().data(), static_cast<int>(this->_internal_mid().length()),
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::SERIALIZE,
+      "livekit.SimulcastCodecInfo.mid");
+    target = stream->WriteStringMaybeAliased(
+        2, this->_internal_mid(), target);
+  }
+
+  // string cid = 3;
+  if (!this->_internal_cid().empty()) {
+    ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::VerifyUtf8String(
+      this->_internal_cid().data(), static_cast<int>(this->_internal_cid().length()),
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::SERIALIZE,
+      "livekit.SimulcastCodecInfo.cid");
+    target = stream->WriteStringMaybeAliased(
+        3, this->_internal_cid(), target);
+  }
+
+  // repeated .livekit.VideoLayer layers = 4;
+  for (unsigned int i = 0,
+      n = static_cast<unsigned int>(this->_internal_layers_size()); i < n; i++) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::
+      InternalWriteMessage(4, this->_internal_layers(i), target, stream);
+  }
+
+  if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::InternalSerializeUnknownFieldsToArray(
+        _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
+  }
+  // @@protoc_insertion_point(serialize_to_array_end:livekit.SimulcastCodecInfo)
+  return target;
+}
+
+size_t SimulcastCodecInfo::ByteSizeLong() const {
+// @@protoc_insertion_point(message_byte_size_start:livekit.SimulcastCodecInfo)
+  size_t total_size = 0;
+
+  uint32_t cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void) cached_has_bits;
+
+  // repeated .livekit.VideoLayer layers = 4;
+  total_size += 1UL * this->_internal_layers_size();
+  for (const auto& msg : this->layers_) {
+    total_size +=
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(msg);
+  }
+
+  // string mime_type = 1;
+  if (!this->_internal_mime_type().empty()) {
+    total_size += 1 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
+        this->_internal_mime_type());
+  }
+
+  // string mid = 2;
+  if (!this->_internal_mid().empty()) {
+    total_size += 1 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
+        this->_internal_mid());
+  }
+
+  // string cid = 3;
+  if (!this->_internal_cid().empty()) {
+    total_size += 1 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
+        this->_internal_cid());
+  }
+
+  return MaybeComputeUnknownFieldsSize(total_size, &_cached_size_);
+}
+
+const ::PROTOBUF_NAMESPACE_ID::Message::ClassData SimulcastCodecInfo::_class_data_ = {
+    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSizeCheck,
+    SimulcastCodecInfo::MergeImpl
+};
+const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*SimulcastCodecInfo::GetClassData() const { return &_class_data_; }
+
+void SimulcastCodecInfo::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to,
+                      const ::PROTOBUF_NAMESPACE_ID::Message& from) {
+  static_cast<SimulcastCodecInfo *>(to)->MergeFrom(
+      static_cast<const SimulcastCodecInfo &>(from));
+}
+
+
+void SimulcastCodecInfo::MergeFrom(const SimulcastCodecInfo& from) {
+// @@protoc_insertion_point(class_specific_merge_from_start:livekit.SimulcastCodecInfo)
+  GOOGLE_DCHECK_NE(&from, this);
+  uint32_t cached_has_bits = 0;
+  (void) cached_has_bits;
+
+  layers_.MergeFrom(from.layers_);
+  if (!from._internal_mime_type().empty()) {
+    _internal_set_mime_type(from._internal_mime_type());
+  }
+  if (!from._internal_mid().empty()) {
+    _internal_set_mid(from._internal_mid());
+  }
+  if (!from._internal_cid().empty()) {
+    _internal_set_cid(from._internal_cid());
+  }
+  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+}
+
+void SimulcastCodecInfo::CopyFrom(const SimulcastCodecInfo& from) {
+// @@protoc_insertion_point(class_specific_copy_from_start:livekit.SimulcastCodecInfo)
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+bool SimulcastCodecInfo::IsInitialized() const {
+  return true;
+}
+
+void SimulcastCodecInfo::InternalSwap(SimulcastCodecInfo* other) {
+  using std::swap;
+  auto* lhs_arena = GetArenaForAllocation();
+  auto* rhs_arena = other->GetArenaForAllocation();
+  _internal_metadata_.InternalSwap(&other->_internal_metadata_);
+  layers_.InternalSwap(&other->layers_);
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
+      &::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(),
+      &mime_type_, lhs_arena,
+      &other->mime_type_, rhs_arena
+  );
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
+      &::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(),
+      &mid_, lhs_arena,
+      &other->mid_, rhs_arena
+  );
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
+      &::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(),
+      &cid_, lhs_arena,
+      &other->cid_, rhs_arena
+  );
+}
+
+::PROTOBUF_NAMESPACE_ID::Metadata SimulcastCodecInfo::GetMetadata() const {
+  return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
+      &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
+      file_level_metadata_livekit_5fmodels_2eproto[4]);
+}
+
+// ===================================================================
+
 class TrackInfo::_Internal {
  public:
 };
@@ -2458,7 +2825,8 @@ class TrackInfo::_Internal {
 TrackInfo::TrackInfo(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
   : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned),
-  layers_(arena) {
+  layers_(arena),
+  codecs_(arena) {
   SharedCtor();
   if (!is_message_owned) {
     RegisterArenaDtor(arena);
@@ -2467,7 +2835,8 @@ TrackInfo::TrackInfo(::PROTOBUF_NAMESPACE_ID::Arena* arena,
 }
 TrackInfo::TrackInfo(const TrackInfo& from)
   : ::PROTOBUF_NAMESPACE_ID::Message(),
-      layers_(from.layers_) {
+      layers_(from.layers_),
+      codecs_(from.codecs_) {
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   sid_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -2562,6 +2931,7 @@ void TrackInfo::Clear() {
   (void) cached_has_bits;
 
   layers_.Clear();
+  codecs_.Clear();
   sid_.ClearToEmpty();
   name_.ClearToEmpty();
   mime_type_.ClearToEmpty();
@@ -2689,6 +3059,19 @@ const char* TrackInfo::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::
         } else
           goto handle_unusual;
         continue;
+      // repeated .livekit.SimulcastCodecInfo codecs = 13;
+      case 13:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 106)) {
+          ptr -= 1;
+          do {
+            ptr += 1;
+            ptr = ctx->ParseMessage(_internal_add_codecs(), ptr);
+            CHK_(ptr);
+            if (!ctx->DataAvailable(ptr)) break;
+          } while (::PROTOBUF_NAMESPACE_ID::internal::ExpectTag<106>(ptr));
+        } else
+          goto handle_unusual;
+        continue;
       default:
         goto handle_unusual;
     }  // switch
@@ -2810,6 +3193,14 @@ uint8_t* TrackInfo::_InternalSerialize(
         12, this->_internal_mid(), target);
   }
 
+  // repeated .livekit.SimulcastCodecInfo codecs = 13;
+  for (unsigned int i = 0,
+      n = static_cast<unsigned int>(this->_internal_codecs_size()); i < n; i++) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::
+      InternalWriteMessage(13, this->_internal_codecs(i), target, stream);
+  }
+
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::InternalSerializeUnknownFieldsToArray(
         _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
@@ -2829,6 +3220,13 @@ size_t TrackInfo::ByteSizeLong() const {
   // repeated .livekit.VideoLayer layers = 10;
   total_size += 1UL * this->_internal_layers_size();
   for (const auto& msg : this->layers_) {
+    total_size +=
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(msg);
+  }
+
+  // repeated .livekit.SimulcastCodecInfo codecs = 13;
+  total_size += 1UL * this->_internal_codecs_size();
+  for (const auto& msg : this->codecs_) {
     total_size +=
       ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(msg);
   }
@@ -2921,6 +3319,7 @@ void TrackInfo::MergeFrom(const TrackInfo& from) {
   (void) cached_has_bits;
 
   layers_.MergeFrom(from.layers_);
+  codecs_.MergeFrom(from.codecs_);
   if (!from._internal_sid().empty()) {
     _internal_set_sid(from._internal_sid());
   }
@@ -2974,6 +3373,7 @@ void TrackInfo::InternalSwap(TrackInfo* other) {
   auto* rhs_arena = other->GetArenaForAllocation();
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   layers_.InternalSwap(&other->layers_);
+  codecs_.InternalSwap(&other->codecs_);
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
       &::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(),
       &sid_, lhs_arena,
@@ -3005,7 +3405,7 @@ void TrackInfo::InternalSwap(TrackInfo* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata TrackInfo::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[4]);
+      file_level_metadata_livekit_5fmodels_2eproto[5]);
 }
 
 // ===================================================================
@@ -3286,7 +3686,7 @@ void VideoLayer::InternalSwap(VideoLayer* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata VideoLayer::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[5]);
+      file_level_metadata_livekit_5fmodels_2eproto[6]);
 }
 
 // ===================================================================
@@ -3615,7 +4015,7 @@ void DataPacket::InternalSwap(DataPacket* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata DataPacket::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[6]);
+      file_level_metadata_livekit_5fmodels_2eproto[7]);
 }
 
 // ===================================================================
@@ -3800,7 +4200,7 @@ void ActiveSpeakerUpdate::InternalSwap(ActiveSpeakerUpdate* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata ActiveSpeakerUpdate::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[7]);
+      file_level_metadata_livekit_5fmodels_2eproto[8]);
 }
 
 // ===================================================================
@@ -4075,7 +4475,7 @@ void SpeakerInfo::InternalSwap(SpeakerInfo* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata SpeakerInfo::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[8]);
+      file_level_metadata_livekit_5fmodels_2eproto[9]);
 }
 
 // ===================================================================
@@ -4360,7 +4760,7 @@ void UserPacket::InternalSwap(UserPacket* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata UserPacket::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[9]);
+      file_level_metadata_livekit_5fmodels_2eproto[10]);
 }
 
 // ===================================================================
@@ -4601,7 +5001,7 @@ void ParticipantTracks::InternalSwap(ParticipantTracks* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata ParticipantTracks::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[10]);
+      file_level_metadata_livekit_5fmodels_2eproto[11]);
 }
 
 // ===================================================================
@@ -5161,7 +5561,7 @@ void ClientInfo::InternalSwap(ClientInfo* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata ClientInfo::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[11]);
+      file_level_metadata_livekit_5fmodels_2eproto[12]);
 }
 
 // ===================================================================
@@ -5432,7 +5832,7 @@ void ClientConfiguration::InternalSwap(ClientConfiguration* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata ClientConfiguration::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[12]);
+      file_level_metadata_livekit_5fmodels_2eproto[13]);
 }
 
 // ===================================================================
@@ -5613,7 +6013,7 @@ void VideoConfiguration::InternalSwap(VideoConfiguration* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata VideoConfiguration::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[13]);
+      file_level_metadata_livekit_5fmodels_2eproto[14]);
 }
 
 // ===================================================================
@@ -5627,7 +6027,7 @@ void RTPStats_GapHistogramEntry_DoNotUse::MergeFrom(const RTPStats_GapHistogramE
 ::PROTOBUF_NAMESPACE_ID::Metadata RTPStats_GapHistogramEntry_DoNotUse::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[14]);
+      file_level_metadata_livekit_5fmodels_2eproto[15]);
 }
 
 // ===================================================================
@@ -6991,7 +7391,7 @@ void RTPStats::InternalSwap(RTPStats* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata RTPStats::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_livekit_5fmodels_2eproto_getter, &descriptor_table_livekit_5fmodels_2eproto_once,
-      file_level_metadata_livekit_5fmodels_2eproto[15]);
+      file_level_metadata_livekit_5fmodels_2eproto[16]);
 }
 
 // @@protoc_insertion_point(namespace_scope)
@@ -7008,6 +7408,9 @@ template<> PROTOBUF_NOINLINE ::livekit::ParticipantPermission* Arena::CreateMayb
 }
 template<> PROTOBUF_NOINLINE ::livekit::ParticipantInfo* Arena::CreateMaybeMessage< ::livekit::ParticipantInfo >(Arena* arena) {
   return Arena::CreateMessageInternal< ::livekit::ParticipantInfo >(arena);
+}
+template<> PROTOBUF_NOINLINE ::livekit::SimulcastCodecInfo* Arena::CreateMaybeMessage< ::livekit::SimulcastCodecInfo >(Arena* arena) {
+  return Arena::CreateMessageInternal< ::livekit::SimulcastCodecInfo >(arena);
 }
 template<> PROTOBUF_NOINLINE ::livekit::TrackInfo* Arena::CreateMaybeMessage< ::livekit::TrackInfo >(Arena* arena) {
   return Arena::CreateMessageInternal< ::livekit::TrackInfo >(arena);

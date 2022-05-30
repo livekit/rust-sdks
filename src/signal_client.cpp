@@ -8,7 +8,7 @@
 
 namespace livekit {
 
-    SignalClient::SignalClient() : m_Connected(false), m_Writing(false), m_Reading(false) {
+    SignalClient::SignalClient() : connected_(false), writing_(false), reading_(false) {
 
     }
 
@@ -17,79 +17,80 @@ namespace livekit {
     }
 
     void SignalClient::Connect(const std::string &url, const std::string &token) {
-        if (m_Connected)
+        if (connected_)
             throw std::runtime_error{"already connected"};
 
-        m_URL = ParseURL(url);
-        m_Token = token;
+        url_ = ParseURL(url);
+        token_ = token;
 
         start(); // We don't need a thread, everything is async ( + easier to maintain )
     }
 
     void SignalClient::update() {
         beast::error_code ec;
-        m_IOContext.poll(ec);
+        io_context_.poll(ec);
 
         if (ec)
             throw std::runtime_error{"SignalClient::Update - " + ec.message()};
 
-        if (m_Connected) {
-            if (!m_WebSocket.is_open())
+        if (connected_) {
+            if (!websocket_.is_open())
                 throw std::runtime_error{"Websocket isn't open"}; // TODO Start reconnect
 
-            if (!m_Reading) {
-                m_WebSocket.async_read(m_ReadBuffer, beast::bind_front_handler(&SignalClient::OnRead, this));
-                m_Reading = true;
+            if (!reading_) {
+                websocket_.async_read(read_buffer_, beast::bind_front_handler(&SignalClient::OnRead, this));
+                reading_ = true;
             }
 
             // Write pending messages
-            if (!m_Writing && !m_WriteQueue.empty()) {
-                auto req = m_WriteQueue.front();
+            if (!writing_ && !write_queue_.empty()) {
+                auto req = write_queue_.front();
 
                 unsigned long len = req.ByteSizeLong();
                 uint8_t data[len];
                 req.SerializeToArray(data, len);
 
-                m_WebSocket.async_write(net::buffer(&data, len),
+                websocket_.async_write(net::buffer(&data, len),
                                         beast::bind_front_handler(&SignalClient::OnWrite, this));
 
-                m_WriteQueue.pop();
-                m_Writing = true;
+                write_queue_.pop();
+                writing_ = true;
             }
         }
     }
 
     SignalResponse SignalClient::poll(){
+        if(read_queue_.empty())
+            return SignalResponse{};
 
-
-        auto& r = m_ReadQueue.front();
-        m_ReadQueue.pop();
+        auto r = read_queue_.front();
+        read_queue_.pop();
         return r;
     }
 
     void SignalClient::start() {
-        m_Resolver.async_resolve(m_URL.host, m_URL.port, beast::bind_front_handler(&SignalClient::OnResolve, this));
+        resolver_.async_resolve(url_.host, url_.port, beast::bind_front_handler(&SignalClient::OnResolve, this));
     }
 
     void SignalClient::Disconnect() {
-        if (!m_Connected)
+        if (!connected_)
             return;
 
-        m_Connected = false;
-        m_Work.reset();
+        connected_ = false;
+        work_guard_.reset();
         //m_IOContext.stop();
-        m_WebSocket.close(websocket::close_code::normal); // TODO Close should be async
+        websocket_.close(websocket::close_code::normal); // TODO Close should be async
     }
 
     void SignalClient::Send(SignalRequest req) {
-        m_WriteQueue.emplace(req);
+        write_queue_.emplace(req);
     }
 
     void SignalClient::OnResolve(beast::error_code ec, tcp::resolver::results_type results) {
         if (ec)
             throw std::runtime_error{"SignalClient::OnResolve - " + ec.message()};
 
-        auto &layer = beast::get_lowest_layer(m_WebSocket);
+        auto &layer = beast::get_lowest_layer(websocket_);
         layer.expires_after(std::chrono::seconds(15));
         layer.async_connect(results, beast::bind_front_handler(&SignalClient::OnConnect, this));
     }
@@ -98,10 +99,10 @@ namespace livekit {
         if (ec)
             throw std::runtime_error{"SignalClient::OnConnect - " + ec.message()};
 
-        beast::get_lowest_layer(m_WebSocket).expires_never();
-        m_WebSocket.set_option(websocket::stream_base::timeout::suggested(beast::role_type::client));
+        beast::get_lowest_layer(websocket_).expires_never();
+        websocket_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::client));
 
-        m_WebSocket.async_handshake(m_URL.host, "/rtc?access_token=" + m_Token + "&protocol=7",
+        websocket_.async_handshake(url_.host, "/rtc?access_token=" + token_ + "&protocol=7",
                                     beast::bind_front_handler(&SignalClient::OnHandshake, this));
     }
 
@@ -110,28 +111,29 @@ namespace livekit {
             throw std::runtime_error{
                     "SignalClient::OnHandshake - " + ec.message()}; // TODO Callback for handling errors
 
-        m_Connected = true;
+        connected_ = true;
         spdlog::info("Connected to Websocket");
     }
 
     void SignalClient::OnRead(beast::error_code ec, std::size_t bytesTransferred) {
-        m_Reading = false;
+        reading_ = false;
 
         if (ec)
             throw std::runtime_error{"SignalClient::OnRead - " + ec.message()};
 
         SignalResponse res{};
-        if (res.ParseFromArray(m_ReadBuffer.cdata().data(), bytesTransferred)) {
-            m_ReadQueue.emplace(res);
+        if (res.ParseFromArray(read_buffer_.cdata().data(), bytesTransferred)) {
+            spdlog::info("Received SignalResponse {}", bytesTransferred);
+            read_queue_.emplace(res);
         } else {
             spdlog::error("Failed to decode signal message");
         }
 
-        m_ReadBuffer.clear();
+        read_buffer_.clear();
     }
 
     void SignalClient::OnWrite(beast::error_code ec, std::size_t bytesTransferred) {
-        m_Writing = false;
+        writing_ = false;
 
         if (ec)
             throw std::runtime_error{"SignalClient::OnWrite - " + ec.message()};

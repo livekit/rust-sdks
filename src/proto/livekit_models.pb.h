@@ -51,7 +51,7 @@ struct TableStruct_livekit_5fmodels_2eproto {
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
   static const ::PROTOBUF_NAMESPACE_ID::internal::AuxiliaryParseTableField aux[]
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
-  static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTable schema[16]
+  static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTable schema[17]
     PROTOBUF_SECTION_VARIABLE(protodesc_cold);
   static const ::PROTOBUF_NAMESPACE_ID::internal::FieldMetadata field_metadata[];
   static const ::PROTOBUF_NAMESPACE_ID::internal::SerializationTable serialization_table[];
@@ -92,6 +92,9 @@ extern RTPStats_GapHistogramEntry_DoNotUseDefaultTypeInternal _RTPStats_GapHisto
 class Room;
 struct RoomDefaultTypeInternal;
 extern RoomDefaultTypeInternal _Room_default_instance_;
+class SimulcastCodecInfo;
+struct SimulcastCodecInfoDefaultTypeInternal;
+extern SimulcastCodecInfoDefaultTypeInternal _SimulcastCodecInfo_default_instance_;
 class SpeakerInfo;
 struct SpeakerInfoDefaultTypeInternal;
 extern SpeakerInfoDefaultTypeInternal _SpeakerInfo_default_instance_;
@@ -120,6 +123,7 @@ template<> ::livekit::ParticipantTracks* Arena::CreateMaybeMessage<::livekit::Pa
 template<> ::livekit::RTPStats* Arena::CreateMaybeMessage<::livekit::RTPStats>(Arena*);
 template<> ::livekit::RTPStats_GapHistogramEntry_DoNotUse* Arena::CreateMaybeMessage<::livekit::RTPStats_GapHistogramEntry_DoNotUse>(Arena*);
 template<> ::livekit::Room* Arena::CreateMaybeMessage<::livekit::Room>(Arena*);
+template<> ::livekit::SimulcastCodecInfo* Arena::CreateMaybeMessage<::livekit::SimulcastCodecInfo>(Arena*);
 template<> ::livekit::SpeakerInfo* Arena::CreateMaybeMessage<::livekit::SpeakerInfo>(Arena*);
 template<> ::livekit::TrackInfo* Arena::CreateMaybeMessage<::livekit::TrackInfo>(Arena*);
 template<> ::livekit::UserPacket* Arena::CreateMaybeMessage<::livekit::UserPacket>(Arena*);
@@ -1309,6 +1313,209 @@ class ParticipantInfo final :
 };
 // -------------------------------------------------------------------
 
+class SimulcastCodecInfo final :
+    public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:livekit.SimulcastCodecInfo) */ {
+ public:
+  inline SimulcastCodecInfo() : SimulcastCodecInfo(nullptr) {}
+  ~SimulcastCodecInfo() override;
+  explicit constexpr SimulcastCodecInfo(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized);
+
+  SimulcastCodecInfo(const SimulcastCodecInfo& from);
+  SimulcastCodecInfo(SimulcastCodecInfo&& from) noexcept
+    : SimulcastCodecInfo() {
+    *this = ::std::move(from);
+  }
+
+  inline SimulcastCodecInfo& operator=(const SimulcastCodecInfo& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  inline SimulcastCodecInfo& operator=(SimulcastCodecInfo&& from) noexcept {
+    if (this == &from) return *this;
+    if (GetOwningArena() == from.GetOwningArena()
+  #ifdef PROTOBUF_FORCE_COPY_IN_MOVE
+        && GetOwningArena() != nullptr
+  #endif  // !PROTOBUF_FORCE_COPY_IN_MOVE
+    ) {
+      InternalSwap(&from);
+    } else {
+      CopyFrom(from);
+    }
+    return *this;
+  }
+
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* descriptor() {
+    return GetDescriptor();
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* GetDescriptor() {
+    return default_instance().GetMetadata().descriptor;
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Reflection* GetReflection() {
+    return default_instance().GetMetadata().reflection;
+  }
+  static const SimulcastCodecInfo& default_instance() {
+    return *internal_default_instance();
+  }
+  static inline const SimulcastCodecInfo* internal_default_instance() {
+    return reinterpret_cast<const SimulcastCodecInfo*>(
+               &_SimulcastCodecInfo_default_instance_);
+  }
+  static constexpr int kIndexInFileMessages =
+    4;
+
+  friend void swap(SimulcastCodecInfo& a, SimulcastCodecInfo& b) {
+    a.Swap(&b);
+  }
+  inline void Swap(SimulcastCodecInfo* other) {
+    if (other == this) return;
+  #ifdef PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() != nullptr &&
+        GetOwningArena() == other->GetOwningArena()) {
+   #else  // PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() == other->GetOwningArena()) {
+  #endif  // !PROTOBUF_FORCE_COPY_IN_SWAP
+      InternalSwap(other);
+    } else {
+      ::PROTOBUF_NAMESPACE_ID::internal::GenericSwap(this, other);
+    }
+  }
+  void UnsafeArenaSwap(SimulcastCodecInfo* other) {
+    if (other == this) return;
+    GOOGLE_DCHECK(GetOwningArena() == other->GetOwningArena());
+    InternalSwap(other);
+  }
+
+  // implements Message ----------------------------------------------
+
+  SimulcastCodecInfo* New(::PROTOBUF_NAMESPACE_ID::Arena* arena = nullptr) const final {
+    return CreateMaybeMessage<SimulcastCodecInfo>(arena);
+  }
+  using ::PROTOBUF_NAMESPACE_ID::Message::CopyFrom;
+  void CopyFrom(const SimulcastCodecInfo& from);
+  using ::PROTOBUF_NAMESPACE_ID::Message::MergeFrom;
+  void MergeFrom(const SimulcastCodecInfo& from);
+  private:
+  static void MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to, const ::PROTOBUF_NAMESPACE_ID::Message& from);
+  public:
+  PROTOBUF_ATTRIBUTE_REINITIALIZES void Clear() final;
+  bool IsInitialized() const final;
+
+  size_t ByteSizeLong() const final;
+  const char* _InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) final;
+  uint8_t* _InternalSerialize(
+      uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const final;
+  int GetCachedSize() const final { return _cached_size_.Get(); }
+
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const final;
+  void InternalSwap(SimulcastCodecInfo* other);
+
+  private:
+  friend class ::PROTOBUF_NAMESPACE_ID::internal::AnyMetadata;
+  static ::PROTOBUF_NAMESPACE_ID::StringPiece FullMessageName() {
+    return "livekit.SimulcastCodecInfo";
+  }
+  protected:
+  explicit SimulcastCodecInfo(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+                       bool is_message_owned = false);
+  private:
+  static void ArenaDtor(void* object);
+  inline void RegisterArenaDtor(::PROTOBUF_NAMESPACE_ID::Arena* arena);
+  public:
+
+  static const ClassData _class_data_;
+  const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*GetClassData() const final;
+
+  ::PROTOBUF_NAMESPACE_ID::Metadata GetMetadata() const final;
+
+  // nested types ----------------------------------------------------
+
+  // accessors -------------------------------------------------------
+
+  enum : int {
+    kLayersFieldNumber = 4,
+    kMimeTypeFieldNumber = 1,
+    kMidFieldNumber = 2,
+    kCidFieldNumber = 3,
+  };
+  // repeated .livekit.VideoLayer layers = 4;
+  int layers_size() const;
+  private:
+  int _internal_layers_size() const;
+  public:
+  void clear_layers();
+  ::livekit::VideoLayer* mutable_layers(int index);
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer >*
+      mutable_layers();
+  private:
+  const ::livekit::VideoLayer& _internal_layers(int index) const;
+  ::livekit::VideoLayer* _internal_add_layers();
+  public:
+  const ::livekit::VideoLayer& layers(int index) const;
+  ::livekit::VideoLayer* add_layers();
+  const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer >&
+      layers() const;
+
+  // string mime_type = 1;
+  void clear_mime_type();
+  const std::string& mime_type() const;
+  template <typename ArgT0 = const std::string&, typename... ArgT>
+  void set_mime_type(ArgT0&& arg0, ArgT... args);
+  std::string* mutable_mime_type();
+  PROTOBUF_NODISCARD std::string* release_mime_type();
+  void set_allocated_mime_type(std::string* mime_type);
+  private:
+  const std::string& _internal_mime_type() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_mime_type(const std::string& value);
+  std::string* _internal_mutable_mime_type();
+  public:
+
+  // string mid = 2;
+  void clear_mid();
+  const std::string& mid() const;
+  template <typename ArgT0 = const std::string&, typename... ArgT>
+  void set_mid(ArgT0&& arg0, ArgT... args);
+  std::string* mutable_mid();
+  PROTOBUF_NODISCARD std::string* release_mid();
+  void set_allocated_mid(std::string* mid);
+  private:
+  const std::string& _internal_mid() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_mid(const std::string& value);
+  std::string* _internal_mutable_mid();
+  public:
+
+  // string cid = 3;
+  void clear_cid();
+  const std::string& cid() const;
+  template <typename ArgT0 = const std::string&, typename... ArgT>
+  void set_cid(ArgT0&& arg0, ArgT... args);
+  std::string* mutable_cid();
+  PROTOBUF_NODISCARD std::string* release_cid();
+  void set_allocated_cid(std::string* cid);
+  private:
+  const std::string& _internal_cid() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_cid(const std::string& value);
+  std::string* _internal_mutable_cid();
+  public:
+
+  // @@protoc_insertion_point(class_scope:livekit.SimulcastCodecInfo)
+ private:
+  class _Internal;
+
+  template <typename T> friend class ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper;
+  typedef void InternalArenaConstructable_;
+  typedef void DestructorSkippable_;
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer > layers_;
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr mime_type_;
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr mid_;
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr cid_;
+  mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
+  friend struct ::TableStruct_livekit_5fmodels_2eproto;
+};
+// -------------------------------------------------------------------
+
 class TrackInfo final :
     public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:livekit.TrackInfo) */ {
  public:
@@ -1357,7 +1564,7 @@ class TrackInfo final :
                &_TrackInfo_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    4;
+    5;
 
   friend void swap(TrackInfo& a, TrackInfo& b) {
     a.Swap(&b);
@@ -1432,6 +1639,7 @@ class TrackInfo final :
 
   enum : int {
     kLayersFieldNumber = 10,
+    kCodecsFieldNumber = 13,
     kSidFieldNumber = 1,
     kNameFieldNumber = 3,
     kMimeTypeFieldNumber = 11,
@@ -1461,6 +1669,24 @@ class TrackInfo final :
   ::livekit::VideoLayer* add_layers();
   const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer >&
       layers() const;
+
+  // repeated .livekit.SimulcastCodecInfo codecs = 13;
+  int codecs_size() const;
+  private:
+  int _internal_codecs_size() const;
+  public:
+  void clear_codecs();
+  ::livekit::SimulcastCodecInfo* mutable_codecs(int index);
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodecInfo >*
+      mutable_codecs();
+  private:
+  const ::livekit::SimulcastCodecInfo& _internal_codecs(int index) const;
+  ::livekit::SimulcastCodecInfo* _internal_add_codecs();
+  public:
+  const ::livekit::SimulcastCodecInfo& codecs(int index) const;
+  ::livekit::SimulcastCodecInfo* add_codecs();
+  const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodecInfo >&
+      codecs() const;
 
   // string sid = 1;
   void clear_sid();
@@ -1589,6 +1815,7 @@ class TrackInfo final :
   typedef void InternalArenaConstructable_;
   typedef void DestructorSkippable_;
   ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer > layers_;
+  ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodecInfo > codecs_;
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr sid_;
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr name_;
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr mime_type_;
@@ -1653,7 +1880,7 @@ class VideoLayer final :
                &_VideoLayer_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    5;
+    6;
 
   friend void swap(VideoLayer& a, VideoLayer& b) {
     a.Swap(&b);
@@ -1849,7 +2076,7 @@ class DataPacket final :
                &_DataPacket_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    6;
+    7;
 
   friend void swap(DataPacket& a, DataPacket& b) {
     a.Swap(&b);
@@ -2078,7 +2305,7 @@ class ActiveSpeakerUpdate final :
                &_ActiveSpeakerUpdate_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    7;
+    8;
 
   friend void swap(ActiveSpeakerUpdate& a, ActiveSpeakerUpdate& b) {
     a.Swap(&b);
@@ -2233,7 +2460,7 @@ class SpeakerInfo final :
                &_SpeakerInfo_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    8;
+    9;
 
   friend void swap(SpeakerInfo& a, SpeakerInfo& b) {
     a.Swap(&b);
@@ -2406,7 +2633,7 @@ class UserPacket final :
                &_UserPacket_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    9;
+    10;
 
   friend void swap(UserPacket& a, UserPacket& b) {
     a.Swap(&b);
@@ -2599,7 +2826,7 @@ class ParticipantTracks final :
                &_ParticipantTracks_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    10;
+    11;
 
   friend void swap(ParticipantTracks& a, ParticipantTracks& b) {
     a.Swap(&b);
@@ -2776,7 +3003,7 @@ class ClientInfo final :
                &_ClientInfo_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    11;
+    12;
 
   friend void swap(ClientInfo& a, ClientInfo& b) {
     a.Swap(&b);
@@ -3085,7 +3312,7 @@ class ClientConfiguration final :
                &_ClientConfiguration_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    12;
+    13;
 
   friend void swap(ClientConfiguration& a, ClientConfiguration& b) {
     a.Swap(&b);
@@ -3271,7 +3498,7 @@ class VideoConfiguration final :
                &_VideoConfiguration_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    13;
+    14;
 
   friend void swap(VideoConfiguration& a, VideoConfiguration& b) {
     a.Swap(&b);
@@ -3440,7 +3667,7 @@ class RTPStats final :
                &_RTPStats_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
-    15;
+    16;
 
   friend void swap(RTPStats& a, RTPStats& b) {
     a.Swap(&b);
@@ -5046,6 +5273,203 @@ inline void ParticipantInfo::set_is_publisher(bool value) {
 
 // -------------------------------------------------------------------
 
+// SimulcastCodecInfo
+
+// string mime_type = 1;
+inline void SimulcastCodecInfo::clear_mime_type() {
+  mime_type_.ClearToEmpty();
+}
+inline const std::string& SimulcastCodecInfo::mime_type() const {
+  // @@protoc_insertion_point(field_get:livekit.SimulcastCodecInfo.mime_type)
+  return _internal_mime_type();
+}
+template <typename ArgT0, typename... ArgT>
+inline PROTOBUF_ALWAYS_INLINE
+void SimulcastCodecInfo::set_mime_type(ArgT0&& arg0, ArgT... args) {
+ 
+ mime_type_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
+  // @@protoc_insertion_point(field_set:livekit.SimulcastCodecInfo.mime_type)
+}
+inline std::string* SimulcastCodecInfo::mutable_mime_type() {
+  std::string* _s = _internal_mutable_mime_type();
+  // @@protoc_insertion_point(field_mutable:livekit.SimulcastCodecInfo.mime_type)
+  return _s;
+}
+inline const std::string& SimulcastCodecInfo::_internal_mime_type() const {
+  return mime_type_.Get();
+}
+inline void SimulcastCodecInfo::_internal_set_mime_type(const std::string& value) {
+  
+  mime_type_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, value, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodecInfo::_internal_mutable_mime_type() {
+  
+  return mime_type_.Mutable(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodecInfo::release_mime_type() {
+  // @@protoc_insertion_point(field_release:livekit.SimulcastCodecInfo.mime_type)
+  return mime_type_.Release(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArenaForAllocation());
+}
+inline void SimulcastCodecInfo::set_allocated_mime_type(std::string* mime_type) {
+  if (mime_type != nullptr) {
+    
+  } else {
+    
+  }
+  mime_type_.SetAllocated(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), mime_type,
+      GetArenaForAllocation());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (mime_type_.IsDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited())) {
+    mime_type_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  }
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  // @@protoc_insertion_point(field_set_allocated:livekit.SimulcastCodecInfo.mime_type)
+}
+
+// string mid = 2;
+inline void SimulcastCodecInfo::clear_mid() {
+  mid_.ClearToEmpty();
+}
+inline const std::string& SimulcastCodecInfo::mid() const {
+  // @@protoc_insertion_point(field_get:livekit.SimulcastCodecInfo.mid)
+  return _internal_mid();
+}
+template <typename ArgT0, typename... ArgT>
+inline PROTOBUF_ALWAYS_INLINE
+void SimulcastCodecInfo::set_mid(ArgT0&& arg0, ArgT... args) {
+ 
+ mid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
+  // @@protoc_insertion_point(field_set:livekit.SimulcastCodecInfo.mid)
+}
+inline std::string* SimulcastCodecInfo::mutable_mid() {
+  std::string* _s = _internal_mutable_mid();
+  // @@protoc_insertion_point(field_mutable:livekit.SimulcastCodecInfo.mid)
+  return _s;
+}
+inline const std::string& SimulcastCodecInfo::_internal_mid() const {
+  return mid_.Get();
+}
+inline void SimulcastCodecInfo::_internal_set_mid(const std::string& value) {
+  
+  mid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, value, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodecInfo::_internal_mutable_mid() {
+  
+  return mid_.Mutable(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodecInfo::release_mid() {
+  // @@protoc_insertion_point(field_release:livekit.SimulcastCodecInfo.mid)
+  return mid_.Release(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArenaForAllocation());
+}
+inline void SimulcastCodecInfo::set_allocated_mid(std::string* mid) {
+  if (mid != nullptr) {
+    
+  } else {
+    
+  }
+  mid_.SetAllocated(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), mid,
+      GetArenaForAllocation());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (mid_.IsDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited())) {
+    mid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  }
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  // @@protoc_insertion_point(field_set_allocated:livekit.SimulcastCodecInfo.mid)
+}
+
+// string cid = 3;
+inline void SimulcastCodecInfo::clear_cid() {
+  cid_.ClearToEmpty();
+}
+inline const std::string& SimulcastCodecInfo::cid() const {
+  // @@protoc_insertion_point(field_get:livekit.SimulcastCodecInfo.cid)
+  return _internal_cid();
+}
+template <typename ArgT0, typename... ArgT>
+inline PROTOBUF_ALWAYS_INLINE
+void SimulcastCodecInfo::set_cid(ArgT0&& arg0, ArgT... args) {
+ 
+ cid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
+  // @@protoc_insertion_point(field_set:livekit.SimulcastCodecInfo.cid)
+}
+inline std::string* SimulcastCodecInfo::mutable_cid() {
+  std::string* _s = _internal_mutable_cid();
+  // @@protoc_insertion_point(field_mutable:livekit.SimulcastCodecInfo.cid)
+  return _s;
+}
+inline const std::string& SimulcastCodecInfo::_internal_cid() const {
+  return cid_.Get();
+}
+inline void SimulcastCodecInfo::_internal_set_cid(const std::string& value) {
+  
+  cid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, value, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodecInfo::_internal_mutable_cid() {
+  
+  return cid_.Mutable(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, GetArenaForAllocation());
+}
+inline std::string* SimulcastCodecInfo::release_cid() {
+  // @@protoc_insertion_point(field_release:livekit.SimulcastCodecInfo.cid)
+  return cid_.Release(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArenaForAllocation());
+}
+inline void SimulcastCodecInfo::set_allocated_cid(std::string* cid) {
+  if (cid != nullptr) {
+    
+  } else {
+    
+  }
+  cid_.SetAllocated(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), cid,
+      GetArenaForAllocation());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (cid_.IsDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited())) {
+    cid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  }
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  // @@protoc_insertion_point(field_set_allocated:livekit.SimulcastCodecInfo.cid)
+}
+
+// repeated .livekit.VideoLayer layers = 4;
+inline int SimulcastCodecInfo::_internal_layers_size() const {
+  return layers_.size();
+}
+inline int SimulcastCodecInfo::layers_size() const {
+  return _internal_layers_size();
+}
+inline void SimulcastCodecInfo::clear_layers() {
+  layers_.Clear();
+}
+inline ::livekit::VideoLayer* SimulcastCodecInfo::mutable_layers(int index) {
+  // @@protoc_insertion_point(field_mutable:livekit.SimulcastCodecInfo.layers)
+  return layers_.Mutable(index);
+}
+inline ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer >*
+SimulcastCodecInfo::mutable_layers() {
+  // @@protoc_insertion_point(field_mutable_list:livekit.SimulcastCodecInfo.layers)
+  return &layers_;
+}
+inline const ::livekit::VideoLayer& SimulcastCodecInfo::_internal_layers(int index) const {
+  return layers_.Get(index);
+}
+inline const ::livekit::VideoLayer& SimulcastCodecInfo::layers(int index) const {
+  // @@protoc_insertion_point(field_get:livekit.SimulcastCodecInfo.layers)
+  return _internal_layers(index);
+}
+inline ::livekit::VideoLayer* SimulcastCodecInfo::_internal_add_layers() {
+  return layers_.Add();
+}
+inline ::livekit::VideoLayer* SimulcastCodecInfo::add_layers() {
+  ::livekit::VideoLayer* _add = _internal_add_layers();
+  // @@protoc_insertion_point(field_add:livekit.SimulcastCodecInfo.layers)
+  return _add;
+}
+inline const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::VideoLayer >&
+SimulcastCodecInfo::layers() const {
+  // @@protoc_insertion_point(field_list:livekit.SimulcastCodecInfo.layers)
+  return layers_;
+}
+
+// -------------------------------------------------------------------
+
 // TrackInfo
 
 // string sid = 1;
@@ -5430,6 +5854,46 @@ inline void TrackInfo::set_allocated_mid(std::string* mid) {
   }
 #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   // @@protoc_insertion_point(field_set_allocated:livekit.TrackInfo.mid)
+}
+
+// repeated .livekit.SimulcastCodecInfo codecs = 13;
+inline int TrackInfo::_internal_codecs_size() const {
+  return codecs_.size();
+}
+inline int TrackInfo::codecs_size() const {
+  return _internal_codecs_size();
+}
+inline void TrackInfo::clear_codecs() {
+  codecs_.Clear();
+}
+inline ::livekit::SimulcastCodecInfo* TrackInfo::mutable_codecs(int index) {
+  // @@protoc_insertion_point(field_mutable:livekit.TrackInfo.codecs)
+  return codecs_.Mutable(index);
+}
+inline ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodecInfo >*
+TrackInfo::mutable_codecs() {
+  // @@protoc_insertion_point(field_mutable_list:livekit.TrackInfo.codecs)
+  return &codecs_;
+}
+inline const ::livekit::SimulcastCodecInfo& TrackInfo::_internal_codecs(int index) const {
+  return codecs_.Get(index);
+}
+inline const ::livekit::SimulcastCodecInfo& TrackInfo::codecs(int index) const {
+  // @@protoc_insertion_point(field_get:livekit.TrackInfo.codecs)
+  return _internal_codecs(index);
+}
+inline ::livekit::SimulcastCodecInfo* TrackInfo::_internal_add_codecs() {
+  return codecs_.Add();
+}
+inline ::livekit::SimulcastCodecInfo* TrackInfo::add_codecs() {
+  ::livekit::SimulcastCodecInfo* _add = _internal_add_codecs();
+  // @@protoc_insertion_point(field_add:livekit.TrackInfo.codecs)
+  return _add;
+}
+inline const ::PROTOBUF_NAMESPACE_ID::RepeatedPtrField< ::livekit::SimulcastCodecInfo >&
+TrackInfo::codecs() const {
+  // @@protoc_insertion_point(field_list:livekit.TrackInfo.codecs)
+  return codecs_;
 }
 
 // -------------------------------------------------------------------
@@ -7970,6 +8434,8 @@ inline void RTPStats::set_allocated_last_layer_lock_pli(::PROTOBUF_NAMESPACE_ID:
 #ifdef __GNUC__
   #pragma GCC diagnostic pop
 #endif  // __GNUC__
+// -------------------------------------------------------------------
+
 // -------------------------------------------------------------------
 
 // -------------------------------------------------------------------

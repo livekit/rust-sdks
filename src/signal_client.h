@@ -42,23 +42,23 @@ namespace livekit {
         void OnWrite(beast::error_code ec, std::size_t bytesTransferred);
 
     private:
-        URL m_URL;
-        std::string m_Token;
+        URL url_;
+        std::string token_;
 
-        std::queue<SignalResponse> m_ReadQueue;
-        std::queue<SignalRequest> m_WriteQueue;
-        bool m_Connected;
-        bool m_Reading, m_Writing;
+        std::queue<SignalResponse> read_queue_;
+        std::queue<SignalRequest> write_queue_;
+        bool connected_;
+        bool reading_, writing_;
 
-        beast::flat_buffer m_WriteBuffer;
-        beast::flat_buffer m_ReadBuffer;
+        beast::flat_buffer write_buffer_;
+        beast::flat_buffer read_buffer_;
 
         // Keep order
-        net::io_context m_IOContext;
-        net::executor_work_guard <net::io_context::executor_type> m_Work = net::make_work_guard(
-                m_IOContext); // Prevent the IOContext from running out of work
-        tcp::resolver m_Resolver{m_IOContext};
-        websocket::stream <beast::tcp_stream> m_WebSocket{m_IOContext};
+        net::io_context io_context_;
+        net::executor_work_guard <net::io_context::executor_type> work_guard_ = net::make_work_guard(
+                io_context_); // Prevent the IOContext from running out of work
+        tcp::resolver resolver_{io_context_};
+        websocket::stream <beast::tcp_stream> websocket_{io_context_};
     };
 } // livekit
 
