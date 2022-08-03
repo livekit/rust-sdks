@@ -1,0 +1,14 @@
+[package]
+name = "livekit-native"
+version = "0.1.0"
+edition = "2021"
+homepage = "https://livekit.io"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cxx = "1.0"
+
+[build-dependencies]
+cxx-build = "1.0"
+glob = "0.3.0"

@@ -1,7 +1,3 @@
+/target
 cmake-build-debug
 .idea
-build
-.vscode
-
-# atm
-thirdparty
