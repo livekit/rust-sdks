@@ -1,3 +1,7 @@
-/target
+target
 cmake-build-debug
-.idea
+.idea/
+.cargo/
+test/
+libwebrtc/
+CMakeLists.txt

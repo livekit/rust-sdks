@@ -1,6 +1,3 @@
-use std::thread::sleep;
-use std::time;
-
 #[cxx::bridge(namespace = "lk")]
 mod ffi {
 
@@ -12,9 +9,8 @@ mod ffi {
     }
 }
 
-
-fn main() {
-    println!("Hello, world!");
-
-    let factory = ffi::CreatePeerConnectionFactory();
+#[no_mangle]
+extern "C" fn test_rust() {
+    println!("Called test_rust");
+    let _factory = ffi::CreatePeerConnectionFactory();
 }

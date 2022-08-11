@@ -3,6 +3,7 @@ name = "livekit-native"
 version = "0.1.0"
 edition = "2021"
 homepage = "https://livekit.io"
+crate-type = ["lib"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,3 +13,8 @@ cxx = "1.0"
 [build-dependencies]
 cxx-build = "1.0"
 glob = "0.3.0"
+regex = "1.0"
+
+[lib]
+crate-type = ["cdylib"]
+bench = false
