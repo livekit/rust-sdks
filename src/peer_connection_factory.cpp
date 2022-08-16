@@ -4,6 +4,7 @@
 
 #include "peer_connection_factory.h"
 #include <iostream>
+#include "objc_test.h"
 
 namespace lk{
 
@@ -33,6 +34,8 @@ namespace lk{
     }
 
     std::unique_ptr<PeerConnectionFactory> CreatePeerConnectionFactory() {
+        LKPrintDevices(); // Just a tess
+
         return std::make_unique<PeerConnectionFactory>();
     }
 

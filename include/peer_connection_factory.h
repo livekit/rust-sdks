@@ -7,7 +7,6 @@
 #define PEER_CONNECTION_FACTORY_H
 
 #include "api/peer_connection_interface.h"
-#include "sdk/android/src/jni/jni_helpers.h"
 
 namespace lk {
 

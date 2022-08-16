@@ -5,7 +5,9 @@ use std::io::Write;
 use std::path;
 
 fn main() {
-    let target_os = "android";
+    // TODO Download precompiled binaries of WebRTC for the target_os
+
+    let target_os = "ios";
     //let target_arch = "arm64";
 
     let libwebrtc_dir = path::PathBuf::from("libwebrtc");
@@ -16,12 +18,15 @@ fn main() {
         libwebrtc_dir.join("include/"),
         libwebrtc_dir.join("include/third_party/abseil-cpp/"),
         libwebrtc_dir.join("include/third_party/libc++/"),
+
+        // For mac & ios
+        libwebrtc_dir.join("include/sdk/objc"),
+        libwebrtc_dir.join("include/sdk/objc/base"),
     ];
 
     let mut builder = cxx_build::bridges(&["src/lib.rs"]);
     builder.flag("-std=c++17");
     builder.file("src/peer_connection_factory.cpp");
-    builder.file("src/jni_onload.cc");
 
     for include in includes {
         builder.include(include);
@@ -31,7 +36,6 @@ fn main() {
         "cargo:rustc-link-search=native={}",
         libwebrtc_dir.canonicalize().unwrap().to_str().unwrap()
     );
-    println!("cargo:rustc-link-lib=static=webrtc");
 
     match target_os {
         "macos" => {
@@ -51,7 +55,13 @@ fn main() {
                 .define("WEBRTC_MAC", None);
         }
         "ios" => {
-            // TODO(theomonnom)
+
+            builder
+                .file("src/objc_test.mm")
+                .define("WEBRTC_ENABLE_OBJC_SYMBOL_EXPORT", None)
+                .define("WEBRTC_MAC", None)
+                .define("WEBRTC_POSIX", None)
+                .define("WEBRTC_IOS", None);
         }
         "android" => {
             let ndk_env = env::var("ANDROID_NDK_HOME").expect(
@@ -102,6 +112,7 @@ fn main() {
             // JNI Version Script & Keep JNI symbols
             let vs_path = path::PathBuf::from(env::var("OUT_DIR").unwrap()).join("webrtc_jni.map");
             let mut vs_file = fs::File::create(&vs_path).unwrap();
+            builder.file("src/jni_onload.cc");
             println!("cargo:rustc-link-arg=-Wl,--undefined=JNI_OnLoad");
 
             write!(vs_file, "JNI_WEBRTC {{\n\tglobal: ").unwrap();
