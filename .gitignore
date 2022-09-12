@@ -1,8 +1,3 @@
-target
-cmake-build-debug
-.idea/
-.cargo/
-test/
-libwebrtc/
-libwebrtc_android/
-CMakeLists.txt
+/target
+/.idea
+/libwebrtc

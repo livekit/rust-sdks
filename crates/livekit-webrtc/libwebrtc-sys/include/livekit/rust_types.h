@@ -1,0 +1,22 @@
+//
+// Created by Théo Monnom on 30/08/2022.
+//
+
+
+#ifndef RUST_TYPES_H
+#define RUST_TYPES_H
+
+#include "api/peer_connection_interface.h"
+
+namespace livekit {
+    struct RTCConfiguration;
+    struct PeerConnectionObserverWrapper;
+    struct CreateSdpObserverWrapper;
+    struct SetLocalSdpObserverWrapper;
+    struct SetRemoteSdpObserverWrapper;
+
+    // Shared types
+    struct RTCOfferAnswerOptions;
+}
+
+#endif //RUST_TYPES_H
