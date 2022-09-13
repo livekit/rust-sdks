@@ -11,6 +11,7 @@
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "libwebrtc-sys/src/peer_connection_factory.rs.h"
+#include "livekit/rtc_error.h"
 
 namespace livekit{
 
@@ -57,7 +58,7 @@ namespace livekit{
         auto result = peer_factory_->CreatePeerConnectionOrError(*config, std::move(deps));
 
         if(!result.ok()){
-            throw std::runtime_error(result.error().message()); // TODO(theomonnom) Bridge RTCError - Mb use ProtoBuf
+            throw std::runtime_error(serialize_error(to_error(result.error())));
         }
 
         return std::make_unique<PeerConnection>(std::move(result.value()), std::move(observer));

@@ -235,21 +235,22 @@ fn main() {
         }
     }
 
+    // TODO(theomonnom) Only add this define when building tests
+    builder.define("LIVEKIT_TEST", None);
+
     builder.warnings(false).compile("lkwebrtc");
 
     for entry in glob::glob("./src/**/*.cpp").unwrap() {
         println!(
             "cargo:rerun-if-changed={}",
-            entry.unwrap().display().to_string()
+            entry.unwrap().display()
         );
     }
 
     for entry in glob::glob("./include/**/*.h").unwrap() {
         println!(
             "cargo:rerun-if-changed={}",
-            entry.unwrap().display().to_string()
+            entry.unwrap().display()
         );
     }
-
-    println!("cargo:rerun-if-changed=src/main.rs");
 }

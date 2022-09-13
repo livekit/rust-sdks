@@ -9,6 +9,7 @@ libwebrtc-sys = { path = "./libwebrtc-sys" }
 tokio = { version = "1.20.1", features = ["full"] }
 cxx = "1.0"
 log = "0.4"
+thiserror = "1.0"
 
 [dev-dependencies]
 env_logger = "0.9"

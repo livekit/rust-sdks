@@ -28,11 +28,10 @@ impl PeerConnectionFactory {
 
         match pc_result {
             Ok(cxx_handle) => {
-                let pc = PeerConnection::new(cxx_handle);
-                Ok(pc)
+                Ok(PeerConnection::new(cxx_handle))
             }
             Err(e) => {
-                Err(RTCError{}) // TODO
+                Err(unsafe {RTCError::from(e.what()) }) // TODO
             }
         }
     }

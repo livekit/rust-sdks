@@ -24,44 +24,44 @@ pub mod ffi {
     #[derive(Debug)]
     #[repr(u32)]
     pub enum PeerConnectionState {
-        kNew,
-        kConnecting,
-        kConnected,
-        kDisconnected,
-        kFailed,
-        kClosed,
+        New,
+        Connecting,
+        Connected,
+        Disconnected,
+        Failed,
+        Closed,
     }
 
     #[derive(Debug)]
     #[repr(u32)]
     pub enum SignalingState {
-        kStable,
-        kHaveLocalOffer,
-        kHaveLocalPrAnswer,
-        kHaveRemoteOffer,
-        kHaveRemotePrAnswer,
-        kClosed,
+        Stable,
+        HaveLocalOffer,
+        HaveLocalPrAnswer,
+        HaveRemoteOffer,
+        HaveRemotePrAnswer,
+        Closed,
     }
 
     #[derive(Debug)]
     #[repr(u32)]
     pub enum IceConnectionState {
-        kIceConnectionNew,
-        kIceConnectionChecking,
-        kIceConnectionConnected,
-        kIceConnectionCompleted,
-        kIceConnectionFailed,
-        kIceConnectionDisconnected,
-        kIceConnectionClosed,
-        kIceConnectionMax,
+        IceConnectionNew,
+        IceConnectionChecking,
+        IceConnectionConnected,
+        IceConnectionCompleted,
+        IceConnectionFailed,
+        IceConnectionDisconnected,
+        IceConnectionClosed,
+        IceConnectionMax,
     }
 
     #[derive(Debug)]
     #[repr(u32)]
     pub enum IceGatheringState {
-        kIceGatheringNew,
-        kIceGatheringGathering,
-        kIceGatheringComplete
+        IceGatheringNew,
+        IceGatheringGathering,
+        IceGatheringComplete
     }
 
     #[derive(Debug)]

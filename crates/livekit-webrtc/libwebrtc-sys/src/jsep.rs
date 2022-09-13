@@ -5,21 +5,22 @@ use crate::rtc_error::ffi::RTCError;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
+
     extern "Rust" {
         type CreateSdpObserverWrapper;
         fn on_success(self: &CreateSdpObserverWrapper, session_description: UniquePtr<SessionDescription>);
-        fn on_failure(self: &CreateSdpObserverWrapper, error: UniquePtr<RTCError>);
+        fn on_failure(self: &CreateSdpObserverWrapper, error: RTCError);
 
         type SetLocalSdpObserverWrapper;
-        fn on_set_local_description_complete(self: &SetLocalSdpObserverWrapper, error: UniquePtr<RTCError>);
+        fn on_set_local_description_complete(self: &SetLocalSdpObserverWrapper, error: RTCError);
 
         type SetRemoteSdpObserverWrapper;
-        fn on_set_remote_description_complete(self: &SetRemoteSdpObserverWrapper, error: UniquePtr<RTCError>);
+        fn on_set_remote_description_complete(self: &SetRemoteSdpObserverWrapper, error: RTCError);
     }
 
     unsafe extern "C++" {
+        include!("libwebrtc-sys/src/rtc_error.rs.h");
         include!("livekit/jsep.h");
-        include!("livekit/rtc_error.h");
 
         type RTCError = crate::rtc_error::ffi::RTCError;
         type IceCandidate;
@@ -41,7 +42,7 @@ pub mod ffi {
 
 pub trait CreateSdpObserver: Send + Sync {
     fn on_success(&self, session_description: UniquePtr<ffi::SessionDescription>);
-    fn on_failure(&self, error: UniquePtr<RTCError>);
+    fn on_failure(&self, error: RTCError);
 }
 
 pub struct CreateSdpObserverWrapper {
@@ -59,7 +60,7 @@ impl CreateSdpObserverWrapper {
         self.observer.on_success(session_description);
     }
 
-    fn on_failure(&self, error: UniquePtr<RTCError>) {
+    fn on_failure(&self, error: RTCError) {
         self.observer.on_failure(error);
     }
 }
@@ -67,7 +68,7 @@ impl CreateSdpObserverWrapper {
 // SetLocalSdpObserver
 
 pub trait SetLocalSdpObserver: Send + Sync {
-    fn on_set_local_description_complete(&self, error: UniquePtr<RTCError>);
+    fn on_set_local_description_complete(&self, error: RTCError);
 }
 
 pub struct SetLocalSdpObserverWrapper {
@@ -81,7 +82,7 @@ impl SetLocalSdpObserverWrapper {
         }
     }
 
-    fn on_set_local_description_complete(&self, error: UniquePtr<RTCError>) {
+    fn on_set_local_description_complete(&self, error: RTCError) {
         self.observer.on_set_local_description_complete(error);
     }
 }
@@ -89,7 +90,7 @@ impl SetLocalSdpObserverWrapper {
 // SetRemoteSdpObserver
 
 pub trait SetRemoteSdpObserver: Send + Sync {
-    fn on_set_remote_description_complete(&self, error: UniquePtr<RTCError>);
+    fn on_set_remote_description_complete(&self, error: RTCError);
 }
 
 pub struct SetRemoteSdpObserverWrapper {
@@ -103,7 +104,7 @@ impl SetRemoteSdpObserverWrapper {
         }
     }
 
-    fn on_set_remote_description_complete(&self, error: UniquePtr<RTCError>) {
+    fn on_set_remote_description_complete(&self, error: RTCError) {
         self.observer.on_set_remote_description_complete(error);
     }
 }

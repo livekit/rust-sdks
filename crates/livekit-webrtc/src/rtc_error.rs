@@ -1,5 +1,4 @@
+use std::fmt;
 
+pub use libwebrtc_sys::rtc_error::ffi::RTCError;
 
-#[derive(Debug)]
-pub struct RTCError {
-}

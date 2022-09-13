@@ -2,7 +2,6 @@
 name = "livekit-core"
 version = "0.1.0"
 edition = "2021"
-crate-type = ["lib"]
 
 [dependencies]
 log = "0.4"
@@ -10,9 +9,9 @@ tokio-tungstenite = "0.17.2"
 tokio = { version = "1.20.1", features = ["full"] }
 url = "2.2.2"
 futures-util = "0.3.23"
-thiserror = "1.0.32"
-prost = "0.10"
-prost-types = "0.10"
+thiserror = "1.0"
+prost = "0.11.0"
+prost-types = "0.11.1"
 anyhow = "1.0.63"
 
 [build-dependencies]

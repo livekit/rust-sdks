@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex};
 use cxx::UniquePtr;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use libwebrtc_sys::peer_connection as sys_pc;
 use libwebrtc_sys::jsep as sys_jsep;
+use thiserror::Error;
 
 use crate::data_channel::DataChannel;
 use crate::media_stream::MediaStream;
@@ -17,6 +18,14 @@ pub use libwebrtc_sys::peer_connection::ffi::SignalingState;
 pub use libwebrtc_sys::peer_connection::ffi::IceConnectionState;
 pub use libwebrtc_sys::peer_connection::ffi::IceGatheringState;
 pub use libwebrtc_sys::peer_connection::ffi::RTCOfferAnswerOptions;
+
+#[derive(Error, Debug)]
+pub enum SdpError {
+    #[error("recv failure: {0}")]
+    RecvError(String),
+    #[error("internal libwebrtc error")]
+    RTCError(#[from] RTCError),
+}
 
 pub struct PeerConnection {
     cxx_handle: UniquePtr<sys_pc::ffi::PeerConnection>,
@@ -51,18 +60,43 @@ impl PeerConnection {
         }
     }
 
-    pub async fn create_offer(&mut self) -> Result<SessionDescription, RTCError> {
+    pub async fn create_offer(&mut self) -> Result<SessionDescription, SdpError> {
         let (tx, mut rx) = mpsc::channel(1);
 
         let wrapper = sys_jsep::CreateSdpObserverWrapper::new(Box::new(InternalCreateSdpObserver { tx }));
         let native_wrapper = sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper));
 
         self.cxx_handle.pin_mut().create_offer(native_wrapper, RTCOfferAnswerOptions::default());
-        rx.recv().await.unwrap()
+
+        match rx.recv().await {
+            Some(value) => value.map_err(Into::into),
+            None => Err(SdpError::RecvError("channel closed".to_string())),
+        }
     }
 
-    pub async fn create_answer(&mut self) -> Result<SessionDescription, RTCError> {
+    pub async fn create_answer(&mut self) -> Result<SessionDescription, SdpError> {
+        let (tx, mut rx) = mpsc::channel(1);
 
+        let wrapper = sys_jsep::CreateSdpObserverWrapper::new(Box::new(InternalCreateSdpObserver { tx }));
+        let native_wrapper = sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper));
+
+        self.cxx_handle.pin_mut().create_answer(native_wrapper, RTCOfferAnswerOptions::default());
+
+        match rx.recv().await {
+            Some(value) => value.map_err(Into::into),
+            None => Err(SdpError::RecvError("channel closed".to_string())),
+        }
+    }
+
+    pub async fn set_local_description(&mut self, desc: SessionDescription) -> Result<(), SdpError> {
+
+
+        Ok(())
+    }
+
+    pub async fn set_remote_description(&mut self, desc: SessionDescription) -> Result<(), SdpError> {
+
+        Ok(())
     }
 
     pub fn on_signaling_change(&mut self, handler: OnSignalingChangeHandler) {
@@ -149,10 +183,35 @@ impl sys_jsep::CreateSdpObserver for InternalCreateSdpObserver {
         self.tx.blocking_send(Ok(SessionDescription{})).unwrap(); // TODO
     }
 
-    fn on_failure(&self, error: UniquePtr<libwebrtc_sys::rtc_error::ffi::RTCError>) {
-        self.tx.blocking_send(Err(RTCError{})).unwrap(); // TODO
+    fn on_failure(&self, error: RTCError) {
+        self.tx.blocking_send(Err(error)).unwrap(); // TODO
     }
 }
+
+// SetLocalSdpObserver
+
+struct InternalSetLocalSdpObserver {
+    tx: mpsc::Sender<Result<(), RTCError>>
+}
+
+impl sys_jsep::SetLocalSdpObserver for InternalSetLocalSdpObserver {
+    fn on_set_local_description_complete(&self, error: RTCError) {
+        self.tx.blocking_send(Ok(())).unwrap();
+    }
+}
+
+// SetRemoteSdpObserver
+
+struct InternalSetRemoteSdpObserver {
+
+}
+
+impl sys_jsep::SetRemoteSdpObserver for InternalSetRemoteSdpObserver {
+    fn on_set_remote_description_complete(&self, error: RTCError) {
+        todo!()
+    }
+}
+
 
 // PeerConnectionObserver
 

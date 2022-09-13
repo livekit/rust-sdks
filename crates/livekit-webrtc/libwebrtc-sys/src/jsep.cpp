@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "livekit/rtc_error.h"
 #include "livekit/jsep.h"
 #include "libwebrtc-sys/src/jsep.rs.h"
 #include "api/make_ref_counted.h"
@@ -39,7 +40,7 @@ namespace livekit {
     }
 
     void NativeCreateSdpObserver::OnFailure(webrtc::RTCError error) {
-        observer_->on_failure(std::make_unique<RTCError>(error));
+        observer_->on_failure(to_error(error));
     }
 
     std::unique_ptr<NativeCreateSdpObserverHandle> create_native_create_sdp_observer(rust::Box<CreateSdpObserverWrapper> observer){
@@ -55,7 +56,7 @@ namespace livekit {
     }
 
     void NativeSetLocalSdpObserver::OnSetLocalDescriptionComplete(webrtc::RTCError error) {
-        observer_->on_set_local_description_complete(std::make_unique<RTCError>(error));
+        observer_->on_set_local_description_complete(to_error(error));
     }
 
     std::unique_ptr<NativeSetLocalSdpObserverHandle> create_native_set_local_sdp_observer(rust::Box<SetLocalSdpObserverWrapper> observer){
@@ -71,7 +72,7 @@ namespace livekit {
     }
 
     void NativeSetRemoteSdpObserver::OnSetRemoteDescriptionComplete(webrtc::RTCError error) {
-        observer_->on_set_remote_description_complete(std::make_unique<RTCError>(error));
+        observer_->on_set_remote_description_complete(to_error(error));
     }
 
     std::unique_ptr<NativeSetRemoteSdpObserverHandle> create_native_set_remote_sdp_observer(rust::Box<SetRemoteSdpObserverWrapper> observer){

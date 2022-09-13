@@ -17,6 +17,7 @@ namespace livekit {
 
     // Shared types
     struct RTCOfferAnswerOptions;
+    struct RTCError;
 }
 
 #endif //RUST_TYPES_H
