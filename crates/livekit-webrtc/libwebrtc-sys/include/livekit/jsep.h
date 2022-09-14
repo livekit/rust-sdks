@@ -16,7 +16,6 @@ namespace livekit {
     class IceCandidate {
     public:
         explicit IceCandidate(std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate);
-
     private:
         std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate_;
     };
@@ -29,6 +28,7 @@ namespace livekit {
     public:
         explicit SessionDescription(std::unique_ptr<webrtc::SessionDescriptionInterface> session_description);
 
+        rust::String stringify() const;
         std::unique_ptr<SessionDescription> clone() const;
         std::unique_ptr<webrtc::SessionDescriptionInterface> release();
 
@@ -37,6 +37,10 @@ namespace livekit {
     };
 
     static std::unique_ptr<SessionDescription> _unique_session_description(){
+        return nullptr; // Ignore
+    }
+
+    static std::shared_ptr<SessionDescription> _shared_session_description(){
         return nullptr; // Ignore
     }
 

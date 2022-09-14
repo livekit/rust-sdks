@@ -19,6 +19,12 @@ namespace livekit {
 
     }
 
+    rust::String SessionDescription::stringify() const {
+        std::string str;
+        session_description_->ToString(&str);
+        return rust::String{str};
+    }
+
     std::unique_ptr<SessionDescription> SessionDescription::clone() const {
         return std::make_unique<SessionDescription>(session_description_->Clone());
     }

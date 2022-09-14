@@ -1,10 +1,12 @@
-use cxx::UniquePtr;
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::candidate::ffi::Candidate;
 use crate::data_channel::ffi::DataChannel;
 use crate::jsep::ffi::IceCandidate;
 use crate::media_stream_interface::ffi::MediaStreamInterface;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
+use cxx::UniquePtr;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -61,7 +63,7 @@ pub mod ffi {
     pub enum IceGatheringState {
         IceGatheringNew,
         IceGatheringGathering,
-        IceGatheringComplete
+        IceGatheringComplete,
     }
 
     #[derive(Debug)]
@@ -79,11 +81,11 @@ pub mod ffi {
     // Wrapper to opaque C++ objects
     // https://github.com/dtolnay/cxx/issues/741
     struct MediaStreamPtr {
-        pub ptr: UniquePtr<MediaStreamInterface>
+        pub ptr: UniquePtr<MediaStreamInterface>,
     }
 
-    struct CandidatePtr  {
-        pub ptr: UniquePtr<Candidate>
+    struct CandidatePtr {
+        pub ptr: UniquePtr<Candidate>,
     }
 
     unsafe extern "C++" {
@@ -109,13 +111,31 @@ pub mod ffi {
         type NativePeerConnectionObserver;
         type PeerConnection;
 
-        fn create_offer(self: Pin<&mut PeerConnection>, observer: UniquePtr<NativeCreateSdpObserverHandle>, options: RTCOfferAnswerOptions);
-        fn create_answer(self: Pin<&mut PeerConnection>, observer: UniquePtr<NativeCreateSdpObserverHandle>, options: RTCOfferAnswerOptions);
-        fn set_local_description(self: Pin<&mut PeerConnection>, desc: UniquePtr<SessionDescription>, observer: UniquePtr<NativeSetLocalSdpObserverHandle>);
-        fn set_remote_description(self: Pin<&mut PeerConnection>, desc: UniquePtr<SessionDescription>, observer: UniquePtr<NativeSetRemoteSdpObserverHandle>);
+        fn create_offer(
+            self: Pin<&mut PeerConnection>,
+            observer: UniquePtr<NativeCreateSdpObserverHandle>,
+            options: RTCOfferAnswerOptions,
+        );
+        fn create_answer(
+            self: Pin<&mut PeerConnection>,
+            observer: UniquePtr<NativeCreateSdpObserverHandle>,
+            options: RTCOfferAnswerOptions,
+        );
+        fn set_local_description(
+            self: Pin<&mut PeerConnection>,
+            desc: UniquePtr<SessionDescription>,
+            observer: UniquePtr<NativeSetLocalSdpObserverHandle>,
+        );
+        fn set_remote_description(
+            self: Pin<&mut PeerConnection>,
+            desc: UniquePtr<SessionDescription>,
+            observer: UniquePtr<NativeSetRemoteSdpObserverHandle>,
+        );
         fn close(self: Pin<&mut PeerConnection>);
 
-        fn create_native_peer_connection_observer(observer: Box<PeerConnectionObserverWrapper>) -> UniquePtr<NativePeerConnectionObserver>;
+        fn create_native_peer_connection_observer(
+            observer: Box<PeerConnectionObserverWrapper>,
+        ) -> UniquePtr<NativePeerConnectionObserver>;
 
         fn _unique_peer_connection() -> UniquePtr<PeerConnection>; // Ignore
     }
@@ -124,23 +144,73 @@ pub mod ffi {
         type PeerConnectionObserverWrapper;
 
         fn on_signaling_change(self: &mut PeerConnectionObserverWrapper, new_state: SignalingState);
-        fn on_add_stream(self: &mut PeerConnectionObserverWrapper, stream: UniquePtr<MediaStreamInterface>);
-        fn on_remove_stream(self: &mut PeerConnectionObserverWrapper, stream: UniquePtr<MediaStreamInterface>);
-        fn on_data_channel(self: &mut PeerConnectionObserverWrapper, data_channel: UniquePtr<DataChannel>);
+        fn on_add_stream(
+            self: &mut PeerConnectionObserverWrapper,
+            stream: UniquePtr<MediaStreamInterface>,
+        );
+        fn on_remove_stream(
+            self: &mut PeerConnectionObserverWrapper,
+            stream: UniquePtr<MediaStreamInterface>,
+        );
+        fn on_data_channel(
+            self: &mut PeerConnectionObserverWrapper,
+            data_channel: UniquePtr<DataChannel>,
+        );
         fn on_renegotiation_needed(self: &mut PeerConnectionObserverWrapper);
         fn on_negotiation_needed_event(self: &mut PeerConnectionObserverWrapper, event: u32);
-        fn on_ice_connection_change(self: &mut PeerConnectionObserverWrapper, new_state: IceConnectionState);
-        fn on_standardized_ice_connection_change(self: &mut PeerConnectionObserverWrapper, new_state: IceConnectionState);
-        fn on_connection_change(self: &mut PeerConnectionObserverWrapper, new_state: PeerConnectionState);
-        fn on_ice_gathering_change(self: &mut PeerConnectionObserverWrapper, new_state: IceGatheringState);
-        fn on_ice_candidate(self: &mut PeerConnectionObserverWrapper, candidate: UniquePtr<IceCandidate>);
-        fn on_ice_candidate_error(self: &mut PeerConnectionObserverWrapper, address: String, port: i32, url: String, error_code: i32, error_text: String);
-        fn on_ice_candidates_removed(self: &mut PeerConnectionObserverWrapper, removed: Vec<CandidatePtr>);
-        fn on_ice_connection_receiving_change(self: &mut PeerConnectionObserverWrapper, receiving: bool);
-        fn on_ice_selected_candidate_pair_changed(self: &mut PeerConnectionObserverWrapper, event: CandidatePairChangeEvent);
-        fn on_add_track(self: &mut PeerConnectionObserverWrapper, receiver: UniquePtr<RtpReceiver>, streams: Vec<MediaStreamPtr>);
-        fn on_track(self: &mut PeerConnectionObserverWrapper, transceiver: UniquePtr<RtpTransceiver>);
-        fn on_remove_track(self: &mut PeerConnectionObserverWrapper, receiver: UniquePtr<RtpReceiver>);
+        fn on_ice_connection_change(
+            self: &mut PeerConnectionObserverWrapper,
+            new_state: IceConnectionState,
+        );
+        fn on_standardized_ice_connection_change(
+            self: &mut PeerConnectionObserverWrapper,
+            new_state: IceConnectionState,
+        );
+        fn on_connection_change(
+            self: &mut PeerConnectionObserverWrapper,
+            new_state: PeerConnectionState,
+        );
+        fn on_ice_gathering_change(
+            self: &mut PeerConnectionObserverWrapper,
+            new_state: IceGatheringState,
+        );
+        fn on_ice_candidate(
+            self: &mut PeerConnectionObserverWrapper,
+            candidate: UniquePtr<IceCandidate>,
+        );
+        fn on_ice_candidate_error(
+            self: &mut PeerConnectionObserverWrapper,
+            address: String,
+            port: i32,
+            url: String,
+            error_code: i32,
+            error_text: String,
+        );
+        fn on_ice_candidates_removed(
+            self: &mut PeerConnectionObserverWrapper,
+            removed: Vec<CandidatePtr>,
+        );
+        fn on_ice_connection_receiving_change(
+            self: &mut PeerConnectionObserverWrapper,
+            receiving: bool,
+        );
+        fn on_ice_selected_candidate_pair_changed(
+            self: &mut PeerConnectionObserverWrapper,
+            event: CandidatePairChangeEvent,
+        );
+        fn on_add_track(
+            self: &mut PeerConnectionObserverWrapper,
+            receiver: UniquePtr<RtpReceiver>,
+            streams: Vec<MediaStreamPtr>,
+        );
+        fn on_track(
+            self: &mut PeerConnectionObserverWrapper,
+            transceiver: UniquePtr<RtpTransceiver>,
+        );
+        fn on_remove_track(
+            self: &mut PeerConnectionObserverWrapper,
+            receiver: UniquePtr<RtpReceiver>,
+        );
         fn on_interesting_usage(self: &mut PeerConnectionObserverWrapper, usage_pattern: i32);
     }
 }
@@ -151,10 +221,10 @@ unsafe impl Send for ffi::PeerConnection {}
 
 impl Default for ffi::RTCOfferAnswerOptions {
     /*
-        static const int kUndefined = -1;
-        static const int kMaxOfferToReceiveMedia = 1;
-        static const int kOfferToReceiveMediaTrue = 1;
-     */
+       static const int kUndefined = -1;
+       static const int kMaxOfferToReceiveMedia = 1;
+       static const int kOfferToReceiveMediaTrue = 1;
+    */
 
     fn default() -> Self {
         Self {
@@ -165,7 +235,7 @@ impl Default for ffi::RTCOfferAnswerOptions {
             use_rtp_mux: true,
             raw_packetization_for_video: false,
             num_simulcast_layers: 1,
-            use_obsolete_sctp_sdp: false
+            use_obsolete_sctp_sdp: false,
         }
     }
 }
@@ -182,73 +252,90 @@ pub trait PeerConnectionObserver: Send + Sync {
     fn on_connection_change(&mut self, new_state: ffi::PeerConnectionState);
     fn on_ice_gathering_change(&mut self, new_state: ffi::IceGatheringState);
     fn on_ice_candidate(&mut self, candidate: UniquePtr<IceCandidate>);
-    fn on_ice_candidate_error(&mut self, address: String, port: i32, url: String, error_code: i32, error_text: String);
+    fn on_ice_candidate_error(
+        &mut self,
+        address: String,
+        port: i32,
+        url: String,
+        error_code: i32,
+        error_text: String,
+    );
     fn on_ice_candidates_removed(&mut self, removed: Vec<UniquePtr<Candidate>>);
     fn on_ice_connection_receiving_change(&mut self, receiving: bool);
     fn on_ice_selected_candidate_pair_changed(&mut self, event: ffi::CandidatePairChangeEvent);
-    fn on_add_track(&mut self, receiver: UniquePtr<RtpReceiver>, streams: Vec<UniquePtr<MediaStreamInterface>>);
+    fn on_add_track(
+        &mut self,
+        receiver: UniquePtr<RtpReceiver>,
+        streams: Vec<UniquePtr<MediaStreamInterface>>,
+    );
     fn on_track(&mut self, transceiver: UniquePtr<RtpTransceiver>);
     fn on_remove_track(&mut self, receiver: UniquePtr<RtpReceiver>);
     fn on_interesting_usage(&mut self, usage_pattern: i32);
 }
 
 pub struct PeerConnectionObserverWrapper {
-    observer: Box<dyn PeerConnectionObserver>,
+    observer: Rc<RefCell<dyn PeerConnectionObserver>>,
 }
 
 impl PeerConnectionObserverWrapper {
-    pub fn new(observer: Box<dyn PeerConnectionObserver>) -> Self {
-        Self {
-            observer
-        }
+    pub fn new(observer: Rc<RefCell<dyn PeerConnectionObserver>>) -> Self {
+        Self { observer }
     }
 
     fn on_signaling_change(&mut self, new_state: ffi::SignalingState) {
-        self.observer.on_signaling_change(new_state);
+        self.observer.borrow_mut().on_signaling_change(new_state);
     }
 
     fn on_add_stream(&mut self, stream: UniquePtr<MediaStreamInterface>) {
-        self.observer.on_add_stream(stream);
+        self.observer.borrow_mut().on_add_stream(stream);
     }
 
     fn on_remove_stream(&mut self, stream: UniquePtr<MediaStreamInterface>) {
-        self.observer.on_remove_stream(stream);
+        self.observer.borrow_mut().on_remove_stream(stream);
     }
 
     fn on_data_channel(&mut self, data_channel: UniquePtr<DataChannel>) {
-        self.observer.on_data_channel(data_channel);
+        self.observer.borrow_mut().on_data_channel(data_channel);
     }
 
     fn on_renegotiation_needed(&mut self) {
-        self.observer.on_renegotiation_needed();
+        self.observer.borrow_mut().on_renegotiation_needed();
     }
 
     fn on_negotiation_needed_event(&mut self, event: u32) {
-        self.observer.on_negotiation_needed_event(event);
+        self.observer.borrow_mut().on_negotiation_needed_event(event);
     }
 
     fn on_ice_connection_change(&mut self, new_state: ffi::IceConnectionState) {
-        self.observer.on_ice_connection_change(new_state);
+        self.observer.borrow_mut().on_ice_connection_change(new_state);
     }
 
     fn on_standardized_ice_connection_change(&mut self, new_state: ffi::IceConnectionState) {
-        self.observer.on_standardized_ice_connection_change(new_state);
+        self.observer.borrow_mut().on_standardized_ice_connection_change(new_state);
     }
 
     fn on_connection_change(&mut self, new_state: ffi::PeerConnectionState) {
-        self.observer.on_connection_change(new_state);
+        self.observer.borrow_mut().on_connection_change(new_state);
     }
 
     fn on_ice_gathering_change(&mut self, new_state: ffi::IceGatheringState) {
-        self.observer.on_ice_gathering_change(new_state);
+        self.observer.borrow_mut().on_ice_gathering_change(new_state);
     }
 
     fn on_ice_candidate(&mut self, candidate: UniquePtr<IceCandidate>) {
-        self.observer.on_ice_candidate(candidate);
+        self.observer.borrow_mut().on_ice_candidate(candidate);
     }
 
-    fn on_ice_candidate_error(&mut self, address: String, port: i32, url: String, error_code: i32, error_text: String) {
-        self.observer.on_ice_candidate_error(address, port, url, error_code, error_text);
+    fn on_ice_candidate_error(
+        &mut self,
+        address: String,
+        port: i32,
+        url: String,
+        error_code: i32,
+        error_text: String,
+    ) {
+        self.observer
+            .borrow_mut().on_ice_candidate_error(address, port, url, error_code, error_text);
     }
 
     fn on_ice_candidates_removed(&mut self, removed: Vec<ffi::CandidatePtr>) {
@@ -258,36 +345,40 @@ impl PeerConnectionObserverWrapper {
             vec.push(v.ptr);
         }
 
-        self.observer.on_ice_candidates_removed(vec);
+        self.observer.borrow_mut().on_ice_candidates_removed(vec);
     }
 
     fn on_ice_connection_receiving_change(&mut self, receiving: bool) {
-        self.observer.on_ice_connection_receiving_change(receiving);
+        self.observer.borrow_mut().on_ice_connection_receiving_change(receiving);
     }
 
     fn on_ice_selected_candidate_pair_changed(&mut self, event: ffi::CandidatePairChangeEvent) {
-        self.observer.on_ice_selected_candidate_pair_changed(event);
+        self.observer.borrow_mut().on_ice_selected_candidate_pair_changed(event);
     }
 
-    fn on_add_track(&mut self, receiver: UniquePtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
+    fn on_add_track(
+        &mut self,
+        receiver: UniquePtr<RtpReceiver>,
+        streams: Vec<ffi::MediaStreamPtr>,
+    ) {
         let mut vec = Vec::new();
 
         for v in streams {
             vec.push(v.ptr);
         }
 
-        self.observer.on_add_track(receiver, vec);
+        self.observer.borrow_mut().on_add_track(receiver, vec);
     }
 
     fn on_track(&mut self, transceiver: UniquePtr<RtpTransceiver>) {
-        self.observer.on_track(transceiver);
+        self.observer.borrow_mut().on_track(transceiver);
     }
 
     fn on_remove_track(&mut self, receiver: UniquePtr<RtpReceiver>) {
-        self.observer.on_remove_track(receiver);
+        self.observer.borrow_mut().on_remove_track(receiver);
     }
 
     fn on_interesting_usage(&mut self, usage_pattern: i32) {
-        self.observer.on_interesting_usage(usage_pattern);
+        self.observer.borrow_mut().on_interesting_usage(usage_pattern);
     }
 }

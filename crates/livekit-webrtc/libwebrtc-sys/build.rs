@@ -1,9 +1,9 @@
+use regex::Regex;
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::path;
 use std::process::Command;
-use regex::Regex;
 
 const MAC_SDKS: &str =
     "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs";
@@ -241,16 +241,10 @@ fn main() {
     builder.warnings(false).compile("lkwebrtc");
 
     for entry in glob::glob("./src/**/*.cpp").unwrap() {
-        println!(
-            "cargo:rerun-if-changed={}",
-            entry.unwrap().display()
-        );
+        println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
 
     for entry in glob::glob("./include/**/*.h").unwrap() {
-        println!(
-            "cargo:rerun-if-changed={}",
-            entry.unwrap().display()
-        );
+        println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
 }

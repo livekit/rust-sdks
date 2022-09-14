@@ -1,5 +1,5 @@
+use std::fmt::{Debug, Formatter};
 use cxx::UniquePtr;
-use cxx::{type_id, ExternType};
 
 use crate::rtc_error::ffi::RTCError;
 
@@ -8,7 +8,10 @@ pub mod ffi {
 
     extern "Rust" {
         type CreateSdpObserverWrapper;
-        fn on_success(self: &CreateSdpObserverWrapper, session_description: UniquePtr<SessionDescription>);
+        fn on_success(
+            self: &CreateSdpObserverWrapper,
+            session_description: UniquePtr<SessionDescription>,
+        );
         fn on_failure(self: &CreateSdpObserverWrapper, error: RTCError);
 
         type SetLocalSdpObserverWrapper;
@@ -29,18 +32,35 @@ pub mod ffi {
         type NativeSetLocalSdpObserverHandle;
         type NativeSetRemoteSdpObserverHandle;
 
-        fn create_native_create_sdp_observer(observer: Box<CreateSdpObserverWrapper>) -> UniquePtr<NativeCreateSdpObserverHandle>;
-        fn create_native_set_local_sdp_observer(observer: Box<SetLocalSdpObserverWrapper>) -> UniquePtr<NativeSetLocalSdpObserverHandle>;
-        fn create_native_set_remote_sdp_observer(observer: Box<SetRemoteSdpObserverWrapper>) -> UniquePtr<NativeSetRemoteSdpObserverHandle>;
+        fn stringify(self: &SessionDescription) -> String;
+
+        fn create_native_create_sdp_observer(
+            observer: Box<CreateSdpObserverWrapper>,
+        ) -> UniquePtr<NativeCreateSdpObserverHandle>;
+        fn create_native_set_local_sdp_observer(
+            observer: Box<SetLocalSdpObserverWrapper>,
+        ) -> UniquePtr<NativeSetLocalSdpObserverHandle>;
+        fn create_native_set_remote_sdp_observer(
+            observer: Box<SetRemoteSdpObserverWrapper>,
+        ) -> UniquePtr<NativeSetRemoteSdpObserverHandle>;
 
         fn _unique_ice_candidate() -> UniquePtr<IceCandidate>; // Ignore
+        fn _shared_session_description() -> SharedPtr<SessionDescription>; // Ignore
         fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
     }
 }
 
+impl Debug for ffi::SessionDescription {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.stringify())
+    }
+}
+
+unsafe impl Send for ffi::SessionDescription {}
+
 // CreateSdpObserver
 
-pub trait CreateSdpObserver: Send + Sync {
+pub trait CreateSdpObserver: Send {
     fn on_success(&self, session_description: UniquePtr<ffi::SessionDescription>);
     fn on_failure(&self, error: RTCError);
 }
@@ -51,9 +71,7 @@ pub struct CreateSdpObserverWrapper {
 
 impl CreateSdpObserverWrapper {
     pub fn new(observer: Box<dyn CreateSdpObserver>) -> Self {
-        Self {
-            observer
-        }
+        Self { observer }
     }
 
     fn on_success(&self, session_description: UniquePtr<ffi::SessionDescription>) {
@@ -67,7 +85,7 @@ impl CreateSdpObserverWrapper {
 
 // SetLocalSdpObserver
 
-pub trait SetLocalSdpObserver: Send + Sync {
+pub trait SetLocalSdpObserver: Send {
     fn on_set_local_description_complete(&self, error: RTCError);
 }
 
@@ -77,9 +95,7 @@ pub struct SetLocalSdpObserverWrapper {
 
 impl SetLocalSdpObserverWrapper {
     pub fn new(observer: Box<dyn SetLocalSdpObserver>) -> Self {
-        Self {
-            observer
-        }
+        Self { observer }
     }
 
     fn on_set_local_description_complete(&self, error: RTCError) {
@@ -89,7 +105,7 @@ impl SetLocalSdpObserverWrapper {
 
 // SetRemoteSdpObserver
 
-pub trait SetRemoteSdpObserver: Send + Sync {
+pub trait SetRemoteSdpObserver: Send {
     fn on_set_remote_description_complete(&self, error: RTCError);
 }
 
@@ -99,9 +115,7 @@ pub struct SetRemoteSdpObserverWrapper {
 
 impl SetRemoteSdpObserverWrapper {
     pub fn new(observer: Box<dyn SetRemoteSdpObserver>) -> Self {
-        Self {
-            observer
-        }
+        Self { observer }
     }
 
     fn on_set_remote_description_complete(&self, error: RTCError) {

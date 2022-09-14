@@ -77,7 +77,7 @@ namespace livekit{
             ice_server.password = item.password.c_str();
 
             for (auto &url: item.urls){
-                ice_server.urls.push_back(url.c_str());
+                ice_server.urls.emplace_back(url.c_str());
             }
 
             rtc->servers.push_back(ice_server);
