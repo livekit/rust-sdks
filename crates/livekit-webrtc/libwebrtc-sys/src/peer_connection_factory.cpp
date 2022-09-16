@@ -57,11 +57,11 @@ namespace livekit{
         webrtc::PeerConnectionDependencies deps{observer.get()};
         auto result = peer_factory_->CreatePeerConnectionOrError(*config, std::move(deps));
 
-        if(!result.ok()){
+        if(!result.ok()) {
             throw std::runtime_error(serialize_error(to_error(result.error())));
         }
 
-        return std::make_unique<PeerConnection>(std::move(result.value()), std::move(observer));
+        return std::make_unique<PeerConnection>(result.value(), std::move(observer));
     }
 
     std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory() {

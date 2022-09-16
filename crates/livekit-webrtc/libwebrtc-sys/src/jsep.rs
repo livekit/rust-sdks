@@ -1,5 +1,5 @@
-use std::fmt::{Debug, Formatter};
 use cxx::UniquePtr;
+use std::fmt::{Debug, Formatter};
 
 use crate::rtc_error::ffi::RTCError;
 
@@ -33,6 +33,7 @@ pub mod ffi {
         type NativeSetRemoteSdpObserverHandle;
 
         fn stringify(self: &SessionDescription) -> String;
+        fn clone(self: &SessionDescription) -> UniquePtr<SessionDescription>;
 
         fn create_native_create_sdp_observer(
             observer: Box<CreateSdpObserverWrapper>,
@@ -45,7 +46,6 @@ pub mod ffi {
         ) -> UniquePtr<NativeSetRemoteSdpObserverHandle>;
 
         fn _unique_ice_candidate() -> UniquePtr<IceCandidate>; // Ignore
-        fn _shared_session_description() -> SharedPtr<SessionDescription>; // Ignore
         fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
     }
 }

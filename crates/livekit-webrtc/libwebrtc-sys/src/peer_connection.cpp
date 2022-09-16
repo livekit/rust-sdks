@@ -4,6 +4,7 @@
 
 #include "livekit/peer_connection.h"
 #include "libwebrtc-sys/src/peer_connection.rs.h"
+#include "livekit/rtc_error.h"
 
 namespace livekit {
 
@@ -26,10 +27,6 @@ namespace livekit {
 
     }
 
-    void PeerConnection::close() {
-        peer_connection_->Close();
-    }
-
     void PeerConnection::create_offer(std::unique_ptr<NativeCreateSdpObserverHandle> observer_handle, RTCOfferAnswerOptions options) {
         peer_connection_->CreateOffer(observer_handle->observer.get(), toNativeOfferAnswerOptions(options));
     }
@@ -44,6 +41,20 @@ namespace livekit {
 
     void PeerConnection::set_remote_description(std::unique_ptr<SessionDescription> desc, std::unique_ptr<NativeSetRemoteSdpObserverHandle> observer) {
         peer_connection_->SetRemoteDescription(desc->clone()->release(), observer->observer);
+    }
+
+    std::unique_ptr<DataChannel> PeerConnection::create_data_channel(rust::String label, std::unique_ptr<NativeDataChannelInit> init) {
+        auto result = peer_connection_->CreateDataChannelOrError(label.c_str(), init.get());
+
+        if(!result.ok()) {
+            throw std::runtime_error(serialize_error(to_error(result.error())));
+        }
+
+        return std::make_unique<DataChannel>(result.value());
+    }
+
+    void PeerConnection::close() {
+        peer_connection_->Close();
     }
 
     /* Observer */

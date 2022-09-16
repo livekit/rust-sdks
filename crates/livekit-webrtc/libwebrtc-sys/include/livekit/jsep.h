@@ -40,10 +40,6 @@ namespace livekit {
         return nullptr; // Ignore
     }
 
-    static std::shared_ptr<SessionDescription> _shared_session_description(){
-        return nullptr; // Ignore
-    }
-
     // SetCreateSdpObserver
 
     class NativeCreateSdpObserver : public webrtc::CreateSessionDescriptionObserver {
