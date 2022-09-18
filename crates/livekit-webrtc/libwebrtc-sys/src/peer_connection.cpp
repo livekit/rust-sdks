@@ -21,26 +21,24 @@ namespace livekit {
         return rtc_options;
     }
 
-    PeerConnection::PeerConnection(rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection,
-                                   std::unique_ptr<NativePeerConnectionObserver> observer) : peer_connection_(
-            std::move(peer_connection)), observer_(std::move(observer)) {
+    PeerConnection::PeerConnection(rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection) : peer_connection_(std::move(peer_connection)) {
 
     }
 
-    void PeerConnection::create_offer(std::unique_ptr<NativeCreateSdpObserverHandle> observer_handle, RTCOfferAnswerOptions options) {
-        peer_connection_->CreateOffer(observer_handle->observer.get(), toNativeOfferAnswerOptions(options));
+    void PeerConnection::create_offer(NativeCreateSdpObserverHandle &observer_handle, RTCOfferAnswerOptions options) {
+        peer_connection_->CreateOffer(observer_handle.observer.get(), toNativeOfferAnswerOptions(options));
     }
 
-    void PeerConnection::create_answer(std::unique_ptr<NativeCreateSdpObserverHandle> observer_handle, RTCOfferAnswerOptions options) {
-        peer_connection_->CreateAnswer(observer_handle->observer.get(), toNativeOfferAnswerOptions(options));
+    void PeerConnection::create_answer(NativeCreateSdpObserverHandle &observer_handle, RTCOfferAnswerOptions options) {
+        peer_connection_->CreateAnswer(observer_handle.observer.get(), toNativeOfferAnswerOptions(options));
     }
 
-    void PeerConnection::set_local_description(std::unique_ptr<SessionDescription> desc, std::unique_ptr<NativeSetLocalSdpObserverHandle> observer) {
-        peer_connection_->SetLocalDescription(desc->clone()->release(), observer->observer);
+    void PeerConnection::set_local_description(std::unique_ptr<SessionDescription> desc, NativeSetLocalSdpObserverHandle &observer) {
+        peer_connection_->SetLocalDescription(desc->clone()->release(), observer.observer);
     }
 
-    void PeerConnection::set_remote_description(std::unique_ptr<SessionDescription> desc, std::unique_ptr<NativeSetRemoteSdpObserverHandle> observer) {
-        peer_connection_->SetRemoteDescription(desc->clone()->release(), observer->observer);
+    void PeerConnection::set_remote_description(std::unique_ptr<SessionDescription> desc, NativeSetRemoteSdpObserverHandle &observer) {
+        peer_connection_->SetRemoteDescription(desc->clone()->release(), observer.observer);
     }
 
     std::unique_ptr<DataChannel> PeerConnection::create_data_channel(rust::String label, std::unique_ptr<NativeDataChannelInit> init) {

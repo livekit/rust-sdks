@@ -44,10 +44,12 @@ pub mod ffi {
         fn create_peer_connection_factory() -> UniquePtr<PeerConnectionFactory>;
         fn create_rtc_configuration(conf: RTCConfiguration) -> UniquePtr<NativeRTCConfiguration>;
 
-        fn create_peer_connection(
+        /// SAFETY
+        /// The observer must live as long as the PeerConnection
+        unsafe fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: UniquePtr<NativeRTCConfiguration>,
-            observer: UniquePtr<NativePeerConnectionObserver>,
+            observer: Pin<&mut NativePeerConnectionObserver>,
         ) -> Result<UniquePtr<PeerConnection>>;
     }
 }

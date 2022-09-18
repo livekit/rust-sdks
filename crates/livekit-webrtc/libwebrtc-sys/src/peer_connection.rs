@@ -109,26 +109,38 @@ pub mod ffi {
         type NativePeerConnectionObserver;
         type PeerConnection;
 
-        fn create_offer(
+        /// SAFETY
+        /// The observer must live as long as the operation ends
+        unsafe fn create_offer(
             self: Pin<&mut PeerConnection>,
-            observer: UniquePtr<NativeCreateSdpObserverHandle>,
+            observer: Pin<&mut NativeCreateSdpObserverHandle>,
             options: RTCOfferAnswerOptions,
         );
-        fn create_answer(
+
+        /// SAFETY
+        /// The observer must live as long as the operation ends
+        unsafe fn create_answer(
             self: Pin<&mut PeerConnection>,
-            observer: UniquePtr<NativeCreateSdpObserverHandle>,
+            observer: Pin<&mut NativeCreateSdpObserverHandle>,
             options: RTCOfferAnswerOptions,
         );
-        fn set_local_description(
+
+        /// SAFETY
+        /// The observer must live as long as the operation ends
+        unsafe fn set_local_description(
             self: Pin<&mut PeerConnection>,
             desc: UniquePtr<SessionDescription>,
-            observer: UniquePtr<NativeSetLocalSdpObserverHandle>,
+            observer: Pin<&mut NativeSetLocalSdpObserverHandle>,
         );
-        fn set_remote_description(
+
+        /// SAFETY
+        /// The observer must live as long as the operation ends
+        unsafe fn set_remote_description(
             self: Pin<&mut PeerConnection>,
             desc: UniquePtr<SessionDescription>,
-            observer: UniquePtr<NativeSetRemoteSdpObserverHandle>,
+            observer: Pin<&mut NativeSetRemoteSdpObserverHandle>,
         );
+
         fn close(self: Pin<&mut PeerConnection>);
 
         fn create_native_peer_connection_observer(
@@ -212,10 +224,7 @@ pub mod ffi {
             self: &PeerConnectionObserverWrapper,
             receiver: UniquePtr<RtpReceiver>,
         );
-        unsafe fn on_interesting_usage(
-            self: &PeerConnectionObserverWrapper,
-            usage_pattern: i32,
-        );
+        unsafe fn on_interesting_usage(self: &PeerConnectionObserverWrapper, usage_pattern: i32);
     }
 }
 
@@ -358,10 +367,7 @@ impl PeerConnectionObserverWrapper {
         (*self.observer).on_ice_connection_receiving_change(receiving);
     }
 
-    unsafe fn on_ice_selected_candidate_pair_changed(
-        &self,
-        event: ffi::CandidatePairChangeEvent,
-    ) {
+    unsafe fn on_ice_selected_candidate_pair_changed(&self, event: ffi::CandidatePairChangeEvent) {
         (*self.observer).on_ice_selected_candidate_pair_changed(event);
     }
 

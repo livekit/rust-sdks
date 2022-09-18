@@ -60,7 +60,6 @@ pub mod ffi {
         type NativeDataChannelInit;
         type NativeDataChannelObserver;
 
-        
         fn close(self: Pin<&mut DataChannel>);
 
         fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;

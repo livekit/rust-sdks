@@ -13,8 +13,8 @@ namespace livekit {
 
     }
 
-    void DataChannel::register_observer(std::unique_ptr<NativeDataChannelObserver> observer) {
-        data_channel_->RegisterObserver(observer.get());
+    void DataChannel::register_observer(NativeDataChannelObserver &observer) {
+        data_channel_->RegisterObserver(&observer);
     }
 
     void DataChannel::unregister_observer() {
@@ -65,7 +65,7 @@ namespace livekit {
         observer_->on_buffered_amount_change(sent_data_size);
     }
 
-    std::unique_ptr<NativeDataChannelObserver> create_native_peer_connection_observer(rust::Box<DataChannelObserverWrapper> observer){
+    std::unique_ptr<NativeDataChannelObserver> create_native_data_channel_observer(rust::Box<DataChannelObserverWrapper> observer){
         return std::make_unique<NativeDataChannelObserver>(std::move(observer));
     }
 } // livekit

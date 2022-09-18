@@ -26,15 +26,16 @@ impl PeerConnectionFactory {
 
         unsafe {
             let mut observer = Box::new(InternalObserver::default());
-            let observer_wrapper = sys_pc::PeerConnectionObserverWrapper::new(&mut *observer);
-            let native_observer =
-                sys_pc::ffi::create_native_peer_connection_observer(Box::new(observer_wrapper));
+            let mut native_observer = sys_pc::ffi::create_native_peer_connection_observer(
+                Box::new(sys_pc::PeerConnectionObserverWrapper::new(&mut *observer)),
+            );
+
             let res = self
                 .cxx_handle
-                .create_peer_connection(native_config, native_observer);
+                .create_peer_connection(native_config, native_observer.pin_mut());
 
             match res {
-                Ok(cxx_handle) => Ok(PeerConnection::new(cxx_handle, observer)),
+                Ok(cxx_handle) => Ok(PeerConnection::new(cxx_handle, observer, native_observer)),
                 Err(e) => {
                     Err(RTCError::from(e.what())) // TODO
                 }

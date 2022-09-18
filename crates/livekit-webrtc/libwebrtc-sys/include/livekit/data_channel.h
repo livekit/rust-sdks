@@ -18,7 +18,7 @@ namespace livekit {
     public:
         explicit DataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel);
 
-        void register_observer(std::unique_ptr<NativeDataChannelObserver> observer);
+        void register_observer(NativeDataChannelObserver &observer);
         void unregister_observer();
         void close();
     private:
@@ -42,7 +42,7 @@ namespace livekit {
         rust::Box<DataChannelObserverWrapper> observer_;
     };
 
-    std::unique_ptr<NativeDataChannelObserver> create_native_peer_connection_observer(rust::Box<DataChannelObserverWrapper> observer);
+    std::unique_ptr<NativeDataChannelObserver> create_native_data_channel_observer(rust::Box<DataChannelObserverWrapper> observer);
 } // livekit
 
 #endif //CLIENT_SDK_NATIVE_DATA_CHANNEL_H

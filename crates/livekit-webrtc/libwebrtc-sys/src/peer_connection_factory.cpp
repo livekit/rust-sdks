@@ -53,15 +53,15 @@ namespace livekit{
         }
     }
 
-    std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(std::unique_ptr<webrtc::PeerConnectionInterface::RTCConfiguration> config, std::unique_ptr<NativePeerConnectionObserver> observer) const {
-        webrtc::PeerConnectionDependencies deps{observer.get()};
+    std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(std::unique_ptr<webrtc::PeerConnectionInterface::RTCConfiguration> config, NativePeerConnectionObserver &observer) const {
+        webrtc::PeerConnectionDependencies deps{&observer};
         auto result = peer_factory_->CreatePeerConnectionOrError(*config, std::move(deps));
 
         if(!result.ok()) {
             throw std::runtime_error(serialize_error(to_error(result.error())));
         }
 
-        return std::make_unique<PeerConnection>(result.value(), std::move(observer));
+        return std::make_unique<PeerConnection>(result.value());
     }
 
     std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory() {

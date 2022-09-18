@@ -17,18 +17,17 @@ namespace livekit {
 
     class PeerConnection {
     public:
-        explicit PeerConnection(rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection, std::unique_ptr<NativePeerConnectionObserver> observer);
+        explicit PeerConnection(rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
-        void create_offer(std::unique_ptr<NativeCreateSdpObserverHandle> observer, RTCOfferAnswerOptions options);
-        void create_answer(std::unique_ptr<NativeCreateSdpObserverHandle> observer, RTCOfferAnswerOptions options);
-        void set_local_description(std::unique_ptr<SessionDescription> desc, std::unique_ptr<NativeSetLocalSdpObserverHandle> observer);
-        void set_remote_description(std::unique_ptr<SessionDescription> desc, std::unique_ptr<NativeSetRemoteSdpObserverHandle> observer);
+        void create_offer(NativeCreateSdpObserverHandle &observer, RTCOfferAnswerOptions options);
+        void create_answer(NativeCreateSdpObserverHandle &observer, RTCOfferAnswerOptions options);
+        void set_local_description(std::unique_ptr<SessionDescription> desc, NativeSetLocalSdpObserverHandle &observer);
+        void set_remote_description(std::unique_ptr<SessionDescription> desc, NativeSetRemoteSdpObserverHandle &observer);
         std::unique_ptr<DataChannel> create_data_channel(rust::String label, std::unique_ptr<NativeDataChannelInit> init);
         void close();
 
     private:
         rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
-        std::unique_ptr<NativePeerConnectionObserver> observer_;
     };
 
     static std::unique_ptr<PeerConnection> _unique_peer_connection() {

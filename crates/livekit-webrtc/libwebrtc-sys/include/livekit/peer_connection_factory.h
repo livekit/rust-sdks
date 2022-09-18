@@ -17,7 +17,7 @@ namespace livekit {
     public:
         PeerConnectionFactory();
 
-        std::unique_ptr<PeerConnection> create_peer_connection(std::unique_ptr<NativeRTCConfiguration> config, std::unique_ptr<NativePeerConnectionObserver> observer) const;
+        std::unique_ptr<PeerConnection> create_peer_connection(std::unique_ptr<NativeRTCConfiguration> config, NativePeerConnectionObserver &observer) const;
 
     private:
         std::unique_ptr<rtc::Thread> network_thread_;

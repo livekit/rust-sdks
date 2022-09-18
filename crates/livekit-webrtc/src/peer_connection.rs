@@ -30,16 +30,21 @@ pub enum SdpError {
 pub struct PeerConnection {
     cxx_handle: UniquePtr<sys_pc::ffi::PeerConnection>,
     observer: Box<InternalObserver>,
+
+    // Keep alive for C++
+    native_observer: UniquePtr<sys_pc::ffi::NativePeerConnectionObserver>
 }
 
 impl PeerConnection {
     pub(crate) fn new(
         cxx_handle: UniquePtr<sys_pc::ffi::PeerConnection>,
         observer: Box<InternalObserver>,
+        native_observer: UniquePtr<sys_pc::ffi::NativePeerConnectionObserver>
     ) -> Self {
         Self {
             cxx_handle,
             observer,
+            native_observer
         }
     }
 
@@ -48,11 +53,14 @@ impl PeerConnection {
 
         let wrapper =
             sys_jsep::CreateSdpObserverWrapper::new(Box::new(InternalCreateSdpObserver { tx }));
-        let native_wrapper = sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper));
+        let mut native_wrapper =
+            sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper));
 
-        self.cxx_handle
-            .pin_mut()
-            .create_offer(native_wrapper, RTCOfferAnswerOptions::default());
+        unsafe {
+            self.cxx_handle
+                .pin_mut()
+                .create_offer(native_wrapper.pin_mut(), RTCOfferAnswerOptions::default());
+        }
 
         match rx.recv().await {
             Some(value) => value.map_err(Into::into),
@@ -65,11 +73,14 @@ impl PeerConnection {
 
         let wrapper =
             sys_jsep::CreateSdpObserverWrapper::new(Box::new(InternalCreateSdpObserver { tx }));
-        let native_wrapper = sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper));
+        let mut native_wrapper =
+            sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper));
 
-        self.cxx_handle
-            .pin_mut()
-            .create_answer(native_wrapper, RTCOfferAnswerOptions::default());
+        unsafe {
+            self.cxx_handle
+                .pin_mut()
+                .create_answer(native_wrapper.pin_mut(), RTCOfferAnswerOptions::default());
+        }
 
         match rx.recv().await {
             Some(value) => value.map_err(Into::into),
@@ -84,11 +95,14 @@ impl PeerConnection {
         let (tx, mut rx) = mpsc::channel(1);
         let wrapper =
             sys_jsep::SetLocalSdpObserverWrapper::new(Box::new(InternalSetLocalSdpObserver { tx }));
-        let native_wrapper = sys_jsep::ffi::create_native_set_local_sdp_observer(Box::new(wrapper));
+        let mut native_wrapper =
+            sys_jsep::ffi::create_native_set_local_sdp_observer(Box::new(wrapper));
 
-        self.cxx_handle
-            .pin_mut()
-            .set_local_description(desc.release(), native_wrapper);
+        unsafe {
+            self.cxx_handle
+                .pin_mut()
+                .set_local_description(desc.release(), native_wrapper.pin_mut());
+        }
 
         match rx.recv().await {
             Some(value) => value.map_err(Into::into),
@@ -105,12 +119,14 @@ impl PeerConnection {
             sys_jsep::SetRemoteSdpObserverWrapper::new(Box::new(InternalSetRemoteSdpObserver {
                 tx,
             }));
-        let native_wrapper =
+        let mut native_wrapper =
             sys_jsep::ffi::create_native_set_remote_sdp_observer(Box::new(wrapper));
 
-        self.cxx_handle
-            .pin_mut()
-            .set_remote_description(desc.release(), native_wrapper);
+        unsafe {
+            self.cxx_handle
+                .pin_mut()
+                .set_remote_description(desc.release(), native_wrapper.pin_mut());
+        }
 
         match rx.recv().await {
             Some(value) => value.map_err(Into::into),
@@ -532,10 +548,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_remove_track(
-        &self,
-        receiver: UniquePtr<libwebrtc_sys::rtp_receiver::ffi::RtpReceiver>,
-    ) {
+    fn on_remove_track(&self, receiver: UniquePtr<libwebrtc_sys::rtp_receiver::ffi::RtpReceiver>) {
         trace!("on_remove_track");
         let mut handler = self.on_remove_track_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
