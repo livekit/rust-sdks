@@ -1,12 +1,15 @@
 use cxx::UniquePtr;
+use libwebrtc_sys::data_channel as sys_dc;
 use libwebrtc_sys::jsep as sys_jsep;
 use libwebrtc_sys::peer_connection as sys_pc;
 use log::trace;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::data_channel::DataChannel;
+use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::jsep::{IceCandidate, SessionDescription};
 use crate::media_stream::MediaStream;
 use crate::rtc_error::RTCError;
@@ -32,19 +35,19 @@ pub struct PeerConnection {
     observer: Box<InternalObserver>,
 
     // Keep alive for C++
-    native_observer: UniquePtr<sys_pc::ffi::NativePeerConnectionObserver>
+    native_observer: UniquePtr<sys_pc::ffi::NativePeerConnectionObserver>,
 }
 
 impl PeerConnection {
     pub(crate) fn new(
         cxx_handle: UniquePtr<sys_pc::ffi::PeerConnection>,
         observer: Box<InternalObserver>,
-        native_observer: UniquePtr<sys_pc::ffi::NativePeerConnectionObserver>
+        native_observer: UniquePtr<sys_pc::ffi::NativePeerConnectionObserver>,
     ) -> Self {
         Self {
             cxx_handle,
             observer,
-            native_observer
+            native_observer,
         }
     }
 
@@ -130,6 +133,38 @@ impl PeerConnection {
 
         match rx.recv().await {
             Some(value) => value.map_err(Into::into),
+            None => Err(SdpError::RecvError("channel closed".to_string())),
+        }
+    }
+
+    pub fn create_data_channel(
+        &mut self,
+        label: &str,
+        init: DataChannelInit,
+    ) -> Result<DataChannel, RTCError> {
+        let native_init = sys_dc::ffi::create_data_channel_init(init.into());
+        let res = self
+            .cxx_handle
+            .pin_mut()
+            .create_data_channel(label.to_string(), native_init);
+
+        match res {
+            Ok(cxx_handle) => Ok(DataChannel::new(cxx_handle)),
+            Err(e) => Err(unsafe { RTCError::from(e.what()) }),
+        }
+    }
+
+    pub async fn add_ice_candidate(&mut self, candidate: IceCandidate) -> Result<(), SdpError> {
+        let (tx, mut rx) = mpsc::channel(1);
+        let observer = sys_pc::AddIceCandidateObserverWrapper::new(Box::new(move |error| {
+            tx.blocking_send(error).unwrap();
+        }));
+
+        let mut native_observer = sys_pc::ffi::create_native_add_ice_candidate_observer(Box::new(observer));
+        self.cxx_handle.pin_mut().add_ice_candidate(candidate.release(), native_observer.pin_mut());
+
+        match rx.recv().await {
+            Some(value) => Ok(()),
             None => Err(SdpError::RecvError("channel closed".to_string())),
         }
     }
@@ -467,10 +502,10 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_ice_candidate(&self, candidate: UniquePtr<libwebrtc_sys::jsep::ffi::IceCandidate>) {
-        trace!("on_ice_candidate");
+        trace!("TESTING on_ice_candidate");
         let mut handler = self.on_ice_candidate_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
-            // TODO(theomonnom)
+            f(IceCandidate::new(candidate));
         }
     }
 
@@ -567,8 +602,11 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
 
 #[cfg(test)]
 mod tests {
-    use crate::peer_connection_factory::PeerConnectionFactory;
-    use libwebrtc_sys::peer_connection_factory::ffi::RTCConfiguration;
+    use crate::data_channel::DataChannelInit;
+    use crate::jsep::IceCandidate;
+    use crate::peer_connection_factory::{PeerConnectionFactory, ICEServer, RTCConfiguration};
+    use tokio::sync::mpsc;
+    use crate::webrtc::RTCRuntime;
 
     fn init_log() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -578,13 +616,33 @@ mod tests {
     async fn create_pc() {
         init_log();
 
+        let test = RTCRuntime::new();
+
         let factory = PeerConnectionFactory::new();
         let config = RTCConfiguration {
-            ice_servers: vec![],
+            ice_servers: vec![ICEServer {
+                urls: vec!["stun:stun1.l.google.com:19302".to_string()],
+                username: "".into(),
+                password: "".into(),
+            }],
         };
 
         let mut bob = factory.create_peer_connection(config.clone()).unwrap();
         let mut alice = factory.create_peer_connection(config.clone()).unwrap();
+
+        let (bob_ice_tx, mut bob_ice_rx) = mpsc::channel::<IceCandidate>(1);
+        let (alice_ice_tx, mut alice_ice_rx) = mpsc::channel::<IceCandidate>(1);
+
+        bob.on_ice_candidate(Box::new(move |candidate| {
+            bob_ice_tx.blocking_send(candidate).unwrap();
+        }));
+
+        alice.on_ice_candidate(Box::new(move |candidate| {
+            alice_ice_tx.blocking_send(candidate).unwrap();
+        }));
+
+        bob.create_data_channel("test_dc", DataChannelInit::default())
+            .unwrap();
 
         let offer = bob.create_offer().await.unwrap();
         bob.set_local_description(offer.clone()).await.unwrap();
@@ -592,6 +650,12 @@ mod tests {
         let answer = alice.create_answer().await.unwrap();
         alice.set_local_description(answer.clone()).await.unwrap();
         bob.set_remote_description(answer).await.unwrap();
+
+        let bob_ice = bob_ice_rx.recv().await.unwrap();
+        let alice_ice = alice_ice_rx.recv().await.unwrap();
+
+        bob.add_ice_candidate(alice_ice).await.unwrap();
+        alice.add_ice_candidate(bob_ice).await.unwrap();
 
         alice.close();
         bob.close();

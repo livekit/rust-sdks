@@ -70,7 +70,6 @@ namespace livekit{
 
     std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(RTCConfiguration conf){
         auto rtc = std::make_unique<webrtc::PeerConnectionInterface::RTCConfiguration>();
-
         for (auto &item: conf.ice_servers){
             webrtc::PeerConnectionInterface::IceServer ice_server;
             ice_server.username = item.username.c_str();

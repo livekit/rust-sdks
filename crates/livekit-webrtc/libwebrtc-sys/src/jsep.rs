@@ -58,6 +58,14 @@ impl Debug for ffi::SessionDescription {
 
 unsafe impl Send for ffi::SessionDescription {}
 
+impl Debug for ffi::IceCandidate {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "TODO") // TODO(theomonnom)
+    }
+}
+
+unsafe impl Send for ffi::IceCandidate {}
+
 // CreateSdpObserver
 
 pub trait CreateSdpObserver: Send {

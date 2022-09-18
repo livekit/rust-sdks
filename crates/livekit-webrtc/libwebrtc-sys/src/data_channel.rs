@@ -6,7 +6,7 @@ pub mod ffi {
 
     #[derive(Debug)]
     #[repr(u32)]
-    enum Priority {
+    pub enum Priority {
         VeryLow,
         Low,
         Medium,
@@ -14,20 +14,20 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[allow(deprecated)]
     pub struct DataChannelInit {
+        #[allow(deprecated)]
         #[deprecated]
-        reliable: bool,
-        ordered: bool,
-        has_max_retransmit_time: bool,
-        max_retransmit_time: i32,
-        has_max_retransmits: bool,
-        max_retransmits: i32,
-        protocol: String,
-        negotiated: bool,
-        id: i32,
-        has_priority: bool,
-        priority: Priority,
+        pub reliable: bool,
+        pub ordered: bool,
+        pub has_max_retransmit_time: bool,
+        pub max_retransmit_time: i32,
+        pub has_max_retransmits: bool,
+        pub max_retransmits: i32,
+        pub protocol: String,
+        pub negotiated: bool,
+        pub id: i32,
+        pub has_priority: bool,
+        pub priority: Priority,
     }
 
     #[derive(Debug)]
@@ -60,6 +60,14 @@ pub mod ffi {
         type NativeDataChannelInit;
         type NativeDataChannelObserver;
 
+        /// SAFETY
+        /// The observer must live as the datachannel uses it
+        unsafe fn register_observer(
+            self: Pin<&mut DataChannel>,
+            observer: Pin<&mut NativeDataChannelObserver>,
+        );
+
+        fn unregister_observer(self: Pin<&mut DataChannel>);
         fn close(self: Pin<&mut DataChannel>);
 
         fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;

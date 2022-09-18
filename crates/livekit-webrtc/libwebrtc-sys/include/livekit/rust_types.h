@@ -15,6 +15,7 @@ namespace livekit {
     struct SetLocalSdpObserverWrapper;
     struct SetRemoteSdpObserverWrapper;
     struct DataChannelObserverWrapper;
+    struct AddIceCandidateObserverWrapper;
 
     // Shared types
     struct RTCOfferAnswerOptions;

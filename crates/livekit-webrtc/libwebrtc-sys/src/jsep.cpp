@@ -15,6 +15,10 @@ namespace livekit {
 
     }
 
+    std::unique_ptr<webrtc::IceCandidateInterface> IceCandidate::release() {
+        return std::move(ice_candidate_);
+    }
+
     SessionDescription::SessionDescription(std::unique_ptr<webrtc::SessionDescriptionInterface> session_description) : session_description_(std::move(session_description)){
 
     }

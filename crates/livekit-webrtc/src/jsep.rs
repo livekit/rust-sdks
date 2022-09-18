@@ -2,7 +2,19 @@ use cxx::{SharedPtr, UniquePtr};
 use libwebrtc_sys::jsep as sys_jsep;
 
 #[derive(Debug)]
-pub struct IceCandidate {}
+pub struct IceCandidate {
+    cxx_handle: UniquePtr<sys_jsep::ffi::IceCandidate>,
+}
+
+impl IceCandidate {
+    pub(crate) fn new(cxx_handle: UniquePtr<sys_jsep::ffi::IceCandidate>) -> Self {
+        Self { cxx_handle }
+    }
+
+    pub(crate) fn release(self) -> UniquePtr<sys_jsep::ffi::IceCandidate> {
+        self.cxx_handle
+    }
+}
 
 #[derive(Debug)]
 pub struct SessionDescription {

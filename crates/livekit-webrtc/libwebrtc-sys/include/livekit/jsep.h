@@ -16,6 +16,8 @@ namespace livekit {
     class IceCandidate {
     public:
         explicit IceCandidate(std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate);
+
+        std::unique_ptr<webrtc::IceCandidateInterface> release();
     private:
         std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate_;
     };

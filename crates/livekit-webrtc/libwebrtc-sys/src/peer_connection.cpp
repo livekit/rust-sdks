@@ -51,11 +51,31 @@ namespace livekit {
         return std::make_unique<DataChannel>(result.value());
     }
 
+    void PeerConnection::add_ice_candidate(std::unique_ptr<IceCandidate> candidate, NativeAddIceCandidateObserver &observer){
+        peer_connection_->AddIceCandidate(candidate->release(), [&](const webrtc::RTCError& err){
+            observer.OnComplete(to_error(err));
+        });
+    }
+
     void PeerConnection::close() {
         peer_connection_->Close();
     }
 
-    /* Observer */
+    // AddIceCandidateObserver
+
+    NativeAddIceCandidateObserver::NativeAddIceCandidateObserver(rust::Box<AddIceCandidateObserverWrapper> observer) : observer_(std::move(observer)) {
+
+    }
+
+    void NativeAddIceCandidateObserver::OnComplete(const RTCError &error) {
+        observer_->on_complete(error);
+    }
+
+    std::unique_ptr<NativeAddIceCandidateObserver> create_native_add_ice_candidate_observer(rust::Box<AddIceCandidateObserverWrapper> observer) {
+        return std::make_unique<NativeAddIceCandidateObserver>(std::move(observer));
+    }
+
+    // PeerConnectionObserver
 
     NativePeerConnectionObserver::NativePeerConnectionObserver(rust::Box<PeerConnectionObserverWrapper> observer) : observer_(std::move(observer)) {
 

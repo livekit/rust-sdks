@@ -36,9 +36,7 @@ impl PeerConnectionFactory {
 
             match res {
                 Ok(cxx_handle) => Ok(PeerConnection::new(cxx_handle, observer, native_observer)),
-                Err(e) => {
-                    Err(RTCError::from(e.what())) // TODO
-                }
+                Err(e) => Err(RTCError::from(e.what())),
             }
         }
     }

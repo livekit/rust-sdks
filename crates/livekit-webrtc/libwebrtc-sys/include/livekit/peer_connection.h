@@ -13,7 +13,7 @@
 #include "rust_types.h"
 
 namespace livekit {
-    class NativePeerConnectionObserver;
+    class NativeAddIceCandidateObserver;
 
     class PeerConnection {
     public:
@@ -24,6 +24,7 @@ namespace livekit {
         void set_local_description(std::unique_ptr<SessionDescription> desc, NativeSetLocalSdpObserverHandle &observer);
         void set_remote_description(std::unique_ptr<SessionDescription> desc, NativeSetRemoteSdpObserverHandle &observer);
         std::unique_ptr<DataChannel> create_data_channel(rust::String label, std::unique_ptr<NativeDataChannelInit> init);
+        void add_ice_candidate(std::unique_ptr<IceCandidate> candidate, NativeAddIceCandidateObserver &observer);
         void close();
 
     private:
@@ -33,6 +34,17 @@ namespace livekit {
     static std::unique_ptr<PeerConnection> _unique_peer_connection() {
         return nullptr; // Ignore
     }
+
+    class NativeAddIceCandidateObserver {
+    public:
+        explicit NativeAddIceCandidateObserver(rust::Box<AddIceCandidateObserverWrapper> observer);
+
+        void OnComplete(const RTCError &error);
+    private:
+        rust::Box<AddIceCandidateObserverWrapper> observer_;
+    };
+
+    std::unique_ptr<NativeAddIceCandidateObserver> create_native_add_ice_candidate_observer(rust::Box<AddIceCandidateObserverWrapper> observer);
 
     class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
     public:
