@@ -19,7 +19,6 @@ impl SessionDescription {
     }
 }
 
-
 impl Clone for SessionDescription {
     fn clone(&self) -> Self {
         SessionDescription::new(self.cxx_handle.clone())

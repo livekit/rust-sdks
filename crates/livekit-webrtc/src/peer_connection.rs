@@ -1,8 +1,8 @@
 use cxx::UniquePtr;
 use libwebrtc_sys::jsep as sys_jsep;
 use libwebrtc_sys::peer_connection as sys_pc;
-use std::sync::{Arc, Mutex};
 use log::trace;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -358,7 +358,7 @@ impl Default for InternalObserver {
 
 // Observers are being called on the Signaling Thread
 impl sys_pc::PeerConnectionObserver for InternalObserver {
-    fn on_signaling_change(&mut self, new_state: SignalingState) {
+    fn on_signaling_change(&self, new_state: SignalingState) {
         trace!("on_signaling_change, {:?}", new_state);
         let mut handler = self.on_signaling_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -367,7 +367,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_add_stream(
-        &mut self,
+        &self,
         stream: UniquePtr<libwebrtc_sys::media_stream_interface::ffi::MediaStreamInterface>,
     ) {
         trace!("on_add_stream");
@@ -378,7 +378,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_remove_stream(
-        &mut self,
+        &self,
         stream: UniquePtr<libwebrtc_sys::media_stream_interface::ffi::MediaStreamInterface>,
     ) {
         trace!("on_remove_stream");
@@ -389,7 +389,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_data_channel(
-        &mut self,
+        &self,
         data_channel: UniquePtr<libwebrtc_sys::data_channel::ffi::DataChannel>,
     ) {
         trace!("on_data_channel");
@@ -399,7 +399,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_renegotiation_needed(&mut self) {
+    fn on_renegotiation_needed(&self) {
         trace!("on_renegotiation_needed");
         let mut handler = self.on_renegotiation_needed_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -407,7 +407,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_negotiation_needed_event(&mut self, event: u32) {
+    fn on_negotiation_needed_event(&self, event: u32) {
         trace!("on_negotiation_needed_event");
         let mut handler = self.on_negotiation_needed_event_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -415,7 +415,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_ice_connection_change(&mut self, new_state: IceConnectionState) {
+    fn on_ice_connection_change(&self, new_state: IceConnectionState) {
         trace!("on_ice_connection_change");
         let mut handler = self.on_ice_connection_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -423,7 +423,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_standardized_ice_connection_change(&mut self, new_state: IceConnectionState) {
+    fn on_standardized_ice_connection_change(&self, new_state: IceConnectionState) {
         trace!("on_standardized_ice_connection_change");
         let mut handler = self
             .on_standardized_ice_connection_change_handler
@@ -434,7 +434,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_connection_change(&mut self, new_state: PeerConnectionState) {
+    fn on_connection_change(&self, new_state: PeerConnectionState) {
         trace!("on_connection_change");
         let mut handler = self.on_connection_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -442,7 +442,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_ice_gathering_change(&mut self, new_state: IceGatheringState) {
+    fn on_ice_gathering_change(&self, new_state: IceGatheringState) {
         trace!("on_ice_gathering_change");
         let mut handler = self.on_ice_gathering_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -450,7 +450,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_ice_candidate(&mut self, candidate: UniquePtr<libwebrtc_sys::jsep::ffi::IceCandidate>) {
+    fn on_ice_candidate(&self, candidate: UniquePtr<libwebrtc_sys::jsep::ffi::IceCandidate>) {
         trace!("on_ice_candidate");
         let mut handler = self.on_ice_candidate_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -459,7 +459,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_ice_candidate_error(
-        &mut self,
+        &self,
         address: String,
         port: i32,
         url: String,
@@ -474,7 +474,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_ice_candidates_removed(
-        &mut self,
+        &self,
         removed: Vec<UniquePtr<libwebrtc_sys::candidate::ffi::Candidate>>,
     ) {
         trace!("on_ice_candidates_removed");
@@ -484,7 +484,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_ice_connection_receiving_change(&mut self, receiving: bool) {
+    fn on_ice_connection_receiving_change(&self, receiving: bool) {
         trace!("on_ice_connection_receiving_change");
         let mut handler = self
             .on_ice_connection_receiving_change_handler
@@ -496,7 +496,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_ice_selected_candidate_pair_changed(
-        &mut self,
+        &self,
         event: libwebrtc_sys::peer_connection::ffi::CandidatePairChangeEvent,
     ) {
         trace!("on_ice_selected_candidate_pair_changed");
@@ -510,7 +510,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_add_track(
-        &mut self,
+        &self,
         receiver: UniquePtr<libwebrtc_sys::rtp_receiver::ffi::RtpReceiver>,
         streams: Vec<UniquePtr<libwebrtc_sys::media_stream_interface::ffi::MediaStreamInterface>>,
     ) {
@@ -522,7 +522,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_track(
-        &mut self,
+        &self,
         transceiver: UniquePtr<libwebrtc_sys::rtp_transceiver::ffi::RtpTransceiver>,
     ) {
         trace!("on_track");
@@ -533,7 +533,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_remove_track(
-        &mut self,
+        &self,
         receiver: UniquePtr<libwebrtc_sys::rtp_receiver::ffi::RtpReceiver>,
     ) {
         trace!("on_remove_track");
@@ -543,7 +543,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_interesting_usage(&mut self, usage_pattern: i32) {
+    fn on_interesting_usage(&self, usage_pattern: i32) {
         trace!("on_interesting_usage");
         let mut handler = self.on_interesting_usage_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -555,7 +555,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
 #[cfg(test)]
 mod tests {
     use crate::peer_connection_factory::PeerConnectionFactory;
-    use libwebrtc_sys::peer_connection_factory::ffi::{RTCConfiguration};
+    use libwebrtc_sys::peer_connection_factory::ffi::RTCConfiguration;
 
     fn init_log() {
         let _ = env_logger::builder().is_test(true).try_init();

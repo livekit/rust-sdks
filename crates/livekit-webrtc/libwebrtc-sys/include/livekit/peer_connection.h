@@ -39,8 +39,6 @@ namespace livekit {
     public:
         explicit NativePeerConnectionObserver(rust::Box<PeerConnectionObserverWrapper> observer);
 
-        ~NativePeerConnectionObserver() override = default;
-
         void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) override;
         void OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override;
         void OnRemoveStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override;

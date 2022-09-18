@@ -13,6 +13,18 @@ namespace livekit {
 
     }
 
+    void DataChannel::register_observer(std::unique_ptr<NativeDataChannelObserver> observer) {
+        data_channel_->RegisterObserver(observer.get());
+    }
+
+    void DataChannel::unregister_observer() {
+        data_channel_->UnregisterObserver();
+    }
+
+    void DataChannel::close() {
+        return data_channel_->Close();
+    }
+
     std::unique_ptr<NativeDataChannelInit> create_data_channel_init(DataChannelInit init) {
         auto rtc_init = std::make_unique<webrtc::DataChannelInit>();
         rtc_init->id = init.id;
@@ -33,4 +45,27 @@ namespace livekit {
         return rtc_init;
     }
 
+    NativeDataChannelObserver::NativeDataChannelObserver(rust::Box<DataChannelObserverWrapper> observer) : observer_(std::move(observer)){
+
+    }
+
+    void NativeDataChannelObserver::OnStateChange() {
+        observer_->on_state_change();
+    }
+
+    void NativeDataChannelObserver::OnMessage(const webrtc::DataBuffer &buffer) {
+        DataBuffer data{};
+        data.binary = buffer.data.data();
+        data.len = buffer.data.size();
+        data.binary = buffer.binary;
+        observer_->on_message(data);
+    }
+
+    void NativeDataChannelObserver::OnBufferedAmountChange(uint64_t sent_data_size) {
+        observer_->on_buffered_amount_change(sent_data_size);
+    }
+
+    std::unique_ptr<NativeDataChannelObserver> create_native_peer_connection_observer(rust::Box<DataChannelObserverWrapper> observer){
+        return std::make_unique<NativeDataChannelObserver>(std::move(observer));
+    }
 } // livekit
