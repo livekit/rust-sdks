@@ -1,9 +1,10 @@
-use cxx::UniquePtr;
-use libwebrtc_sys::data_channel as sys_dc;
-use log::trace;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
 
+use cxx::UniquePtr;
+use log::trace;
+
+use libwebrtc_sys::data_channel as sys_dc;
 pub use sys_dc::ffi::Priority;
 
 pub struct DataChannel {
@@ -78,7 +79,8 @@ impl DataChannel {
 }
 
 pub type OnStateChangeHandler = Box<dyn FnMut() + Send + Sync>;
-pub type OnMessageHandler = Box<dyn FnMut(&[u8], bool) + Send + Sync>; // data, is_binary
+pub type OnMessageHandler = Box<dyn FnMut(&[u8], bool) + Send + Sync>;
+// data, is_binary
 pub type OnBufferedAmountChangeHandler = Box<dyn FnMut(u64) + Send + Sync>;
 
 struct InternalDataChannelObserver {

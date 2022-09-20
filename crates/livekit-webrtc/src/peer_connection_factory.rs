@@ -1,11 +1,11 @@
 use cxx::UniquePtr;
+
 use libwebrtc_sys::peer_connection as sys_pc;
 use libwebrtc_sys::peer_connection_factory as sys_factory;
+pub use sys_factory::ffi::{ICEServer, RTCConfiguration};
 
 use crate::peer_connection::{InternalObserver, PeerConnection};
 use crate::rtc_error::RTCError;
-
-pub use sys_factory::ffi::{ICEServer, RTCConfiguration};
 
 pub struct PeerConnectionFactory {
     cxx_handle: UniquePtr<sys_factory::ffi::PeerConnectionFactory>,

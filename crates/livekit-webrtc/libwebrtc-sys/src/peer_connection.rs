@@ -1,3 +1,5 @@
+use cxx::UniquePtr;
+
 use crate::candidate::ffi::Candidate;
 use crate::data_channel::ffi::DataChannel;
 use crate::jsep::ffi::IceCandidate;
@@ -5,11 +7,9 @@ use crate::media_stream_interface::ffi::MediaStreamInterface;
 use crate::rtc_error::ffi::RTCError;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
-use cxx::UniquePtr;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-
     struct CandidatePair {
         local: UniquePtr<Candidate>,
         remote: UniquePtr<Candidate>,
@@ -246,6 +246,7 @@ pub mod ffi {
 
 // https://webrtc.github.io/webrtc-org/native-code/native-apis/
 unsafe impl Sync for ffi::PeerConnection {}
+
 unsafe impl Send for ffi::PeerConnection {}
 
 unsafe impl Send for ffi::NativePeerConnectionObserver {}

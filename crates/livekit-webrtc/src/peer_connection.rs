@@ -1,12 +1,19 @@
+use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
+
 use cxx::UniquePtr;
+use log::trace;
+use thiserror::Error;
+use tokio::sync::mpsc;
+
 use libwebrtc_sys::data_channel as sys_dc;
 use libwebrtc_sys::jsep as sys_jsep;
 use libwebrtc_sys::peer_connection as sys_pc;
-use log::trace;
-use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Mutex};
-use thiserror::Error;
-use tokio::sync::{mpsc, oneshot};
+pub use libwebrtc_sys::peer_connection::ffi::IceConnectionState;
+pub use libwebrtc_sys::peer_connection::ffi::IceGatheringState;
+pub use libwebrtc_sys::peer_connection::ffi::PeerConnectionState;
+pub use libwebrtc_sys::peer_connection::ffi::RTCOfferAnswerOptions;
+pub use libwebrtc_sys::peer_connection::ffi::SignalingState;
 
 use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::jsep::{IceCandidate, SessionDescription};
@@ -14,12 +21,6 @@ use crate::media_stream::MediaStream;
 use crate::rtc_error::RTCError;
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_transceiver::RtpTransceiver;
-
-pub use libwebrtc_sys::peer_connection::ffi::IceConnectionState;
-pub use libwebrtc_sys::peer_connection::ffi::IceGatheringState;
-pub use libwebrtc_sys::peer_connection::ffi::PeerConnectionState;
-pub use libwebrtc_sys::peer_connection::ffi::RTCOfferAnswerOptions;
-pub use libwebrtc_sys::peer_connection::ffi::SignalingState;
 
 #[derive(Error, Debug)]
 pub enum SdpError {
@@ -343,16 +344,16 @@ pub type OnRenegotiationNeededHandler = Box<dyn FnMut() + Send + Sync>;
 pub type OnNegotiationNeededEventHandler = Box<dyn FnMut(u32) + Send + Sync>;
 pub type OnIceConnectionChangeHandler = Box<dyn FnMut(IceConnectionState) + Send + Sync>;
 pub type OnStandardizedIceConnectionChangeHandler =
-    Box<dyn FnMut(IceConnectionState) + Send + Sync>;
+Box<dyn FnMut(IceConnectionState) + Send + Sync>;
 pub type OnConnectionChangeHandler = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
 pub type OnIceGatheringChangeHandler = Box<dyn FnMut(IceGatheringState) + Send + Sync>;
 pub type OnIceCandidateHandler = Box<dyn FnMut(IceCandidate) + Send + Sync>;
 pub type OnIceCandidateErrorHandler =
-    Box<dyn FnMut(String, i32, String, i32, String) + Send + Sync>;
+Box<dyn FnMut(String, i32, String, i32, String) + Send + Sync>;
 pub type OnIceCandidatesRemovedHandler = Box<dyn FnMut(Vec<IceCandidate>) + Send + Sync>;
 pub type OnIceConnectionReceivingChangeHandler = Box<dyn FnMut(bool) + Send + Sync>;
 pub type OnIceSelectedCandidatePairChangedHandler =
-    Box<dyn FnMut(libwebrtc_sys::peer_connection::ffi::CandidatePairChangeEvent) + Send + Sync>;
+Box<dyn FnMut(libwebrtc_sys::peer_connection::ffi::CandidatePairChangeEvent) + Send + Sync>;
 pub type OnAddTrackHandler = Box<dyn FnMut(RtpReceiver, Vec<MediaStream>) + Send + Sync>;
 pub type OnTrackHandler = Box<dyn FnMut(RtpTransceiver) + Send + Sync>;
 pub type OnRemoveTrackHandler = Box<dyn FnMut(RtpReceiver) + Send + Sync>;
@@ -367,16 +368,16 @@ pub(crate) struct InternalObserver {
     on_negotiation_needed_event_handler: Arc<Mutex<Option<OnNegotiationNeededEventHandler>>>,
     on_ice_connection_change_handler: Arc<Mutex<Option<OnIceConnectionChangeHandler>>>,
     on_standardized_ice_connection_change_handler:
-        Arc<Mutex<Option<OnStandardizedIceConnectionChangeHandler>>>,
+    Arc<Mutex<Option<OnStandardizedIceConnectionChangeHandler>>>,
     on_connection_change_handler: Arc<Mutex<Option<OnConnectionChangeHandler>>>,
     on_ice_gathering_change_handler: Arc<Mutex<Option<OnIceGatheringChangeHandler>>>,
     on_ice_candidate_handler: Arc<Mutex<Option<OnIceCandidateHandler>>>,
     on_ice_candidate_error_handler: Arc<Mutex<Option<OnIceCandidateErrorHandler>>>,
     on_ice_candidates_removed_handler: Arc<Mutex<Option<OnIceCandidatesRemovedHandler>>>,
     on_ice_connection_receiving_change_handler:
-        Arc<Mutex<Option<OnIceConnectionReceivingChangeHandler>>>,
+    Arc<Mutex<Option<OnIceConnectionReceivingChangeHandler>>>,
     on_ice_selected_candidate_pair_changed_handler:
-        Arc<Mutex<Option<OnIceSelectedCandidatePairChangedHandler>>>,
+    Arc<Mutex<Option<OnIceSelectedCandidatePairChangedHandler>>>,
     on_add_track_handler: Arc<Mutex<Option<OnAddTrackHandler>>>,
     on_track_handler: Arc<Mutex<Option<OnTrackHandler>>>,
     on_remove_track_handler: Arc<Mutex<Option<OnRemoveTrackHandler>>>,
@@ -604,12 +605,13 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
 
 #[cfg(test)]
 mod tests {
+    use log::trace;
+    use tokio::sync::mpsc;
+
     use crate::data_channel::{DataChannel, DataChannelInit};
     use crate::jsep::IceCandidate;
     use crate::peer_connection_factory::{ICEServer, PeerConnectionFactory, RTCConfiguration};
     use crate::webrtc::RTCRuntime;
-    use log::trace;
-    use tokio::sync::mpsc;
 
     fn init_log() {
         let _ = env_logger::builder().is_test(true).try_init();

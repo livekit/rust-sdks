@@ -5,8 +5,8 @@
 #ifndef LIVEKIT_WEBRTC_WEBRTC_H
 #define LIVEKIT_WEBRTC_WEBRTC_H
 
-#include "rtc_base/ssl_adapter.h"
 #include "rtc_base/physical_socket_server.h"
+#include "rtc_base/ssl_adapter.h"
 
 #ifdef WEBRTC_WIN
 #include "rtc_base/win32_socket_init.h"
@@ -14,21 +14,22 @@
 
 namespace livekit {
 
-    class RTCRuntime {
-    public:
-        RTCRuntime();
-        ~RTCRuntime();
+class RTCRuntime {
+ public:
+  RTCRuntime();
+  ~RTCRuntime();
 
-        RTCRuntime(const RTCRuntime&) = delete;
-        RTCRuntime& operator=(const RTCRuntime&) = delete;
-    private:
-    #ifdef WEBRTC_WIN
-        rtc::WinsockInitializer winsock_;
-    #endif
-    };
+  RTCRuntime(const RTCRuntime&) = delete;
+  RTCRuntime& operator=(const RTCRuntime&) = delete;
 
-    std::unique_ptr<RTCRuntime> create_rtc_runtime();
+ private:
+#ifdef WEBRTC_WIN
+  rtc::WinsockInitializer winsock_;
+#endif
+};
 
-} // livekit
+std::unique_ptr<RTCRuntime> create_rtc_runtime();
 
-#endif //LIVEKIT_WEBRTC_WEBRTC_H
+}  // namespace livekit
+
+#endif  // LIVEKIT_WEBRTC_WEBRTC_H

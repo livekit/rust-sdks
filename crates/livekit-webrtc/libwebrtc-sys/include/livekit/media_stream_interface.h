@@ -6,21 +6,23 @@
 #define CLIENT_SDK_NATIVE_MEDIA_STREAM_INTERFACE_H
 
 #include <memory>
+
 #include "api/media_stream_interface.h"
 
 namespace livekit {
 
-    class MediaStreamInterface {
-    public:
-        explicit MediaStreamInterface(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
+class MediaStreamInterface {
+ public:
+  explicit MediaStreamInterface(
+      rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
 
-    private:
-        rtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;
-    };
+ private:
+  rtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;
+};
 
-    static std::unique_ptr<MediaStreamInterface> _unique_media_stream(){
-        return nullptr; // Ignore
-    }
-} // livekit
+static std::unique_ptr<MediaStreamInterface> _unique_media_stream() {
+  return nullptr;  // Ignore
+}
+}  // namespace livekit
 
-#endif //CLIENT_SDK_NATIVE_MEDIA_STREAM_INTERFACE_H
+#endif  // CLIENT_SDK_NATIVE_MEDIA_STREAM_INTERFACE_H

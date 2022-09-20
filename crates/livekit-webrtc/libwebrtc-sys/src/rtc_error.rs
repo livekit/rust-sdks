@@ -6,7 +6,6 @@ use std::fmt::{Display, Formatter};
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-
     #[derive(Debug)]
     #[repr(u32)]
     pub enum RTCErrorType {
@@ -42,7 +41,8 @@ pub mod ffi {
         pub error_type: RTCErrorType,
         pub message: String,
         pub error_detail: RTCErrorDetailType,
-        pub has_sctp_cause_code: bool, // cxx doesn't support the Option trait
+        pub has_sctp_cause_code: bool,
+        // cxx doesn't support the Option trait
         pub sctp_cause_code: u16,
     }
 }

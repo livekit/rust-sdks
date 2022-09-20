@@ -5,7 +5,6 @@
 #include "livekit/candidate.h"
 
 namespace livekit {
-    Candidate::Candidate(const cricket::Candidate &candidate) : candidate_(candidate) {
-
-    }
-} // livekit
+Candidate::Candidate(const cricket::Candidate& candidate)
+    : candidate_(candidate) {}
+}  // namespace livekit

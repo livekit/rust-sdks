@@ -6,93 +6,111 @@
 #define CLIENT_SDK_NATIVE_JSEP_H
 
 #include <memory>
+
 #include "api/jsep.h"
+#include "api/ref_counted_base.h"
 #include "rust/cxx.h"
 #include "rust_types.h"
-#include "api/ref_counted_base.h"
 
 namespace livekit {
 
-    class IceCandidate {
-    public:
-        explicit IceCandidate(std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate);
+class IceCandidate {
+ public:
+  explicit IceCandidate(
+      std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate);
 
-        std::unique_ptr<webrtc::IceCandidateInterface> release();
-    private:
-        std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate_;
-    };
+  std::unique_ptr<webrtc::IceCandidateInterface> release();
 
-    static std::unique_ptr<IceCandidate> _unique_ice_candidate(){
-        return nullptr; // Ignore
-    }
+ private:
+  std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate_;
+};
 
-    class SessionDescription {
-    public:
-        explicit SessionDescription(std::unique_ptr<webrtc::SessionDescriptionInterface> session_description);
+static std::unique_ptr<IceCandidate> _unique_ice_candidate() {
+  return nullptr;  // Ignore
+}
 
-        rust::String stringify() const;
-        std::unique_ptr<SessionDescription> clone() const;
-        std::unique_ptr<webrtc::SessionDescriptionInterface> release();
+class SessionDescription {
+ public:
+  explicit SessionDescription(
+      std::unique_ptr<webrtc::SessionDescriptionInterface> session_description);
 
-    private:
-        std::unique_ptr<webrtc::SessionDescriptionInterface> session_description_;
-    };
+  rust::String stringify() const;
+  std::unique_ptr<SessionDescription> clone() const;
+  std::unique_ptr<webrtc::SessionDescriptionInterface> release();
 
-    static std::unique_ptr<SessionDescription> _unique_session_description(){
-        return nullptr; // Ignore
-    }
+ private:
+  std::unique_ptr<webrtc::SessionDescriptionInterface> session_description_;
+};
 
-    // SetCreateSdpObserver
+static std::unique_ptr<SessionDescription> _unique_session_description() {
+  return nullptr;  // Ignore
+}
 
-    class NativeCreateSdpObserver : public webrtc::CreateSessionDescriptionObserver {
-    public:
-        explicit NativeCreateSdpObserver(rust::Box<CreateSdpObserverWrapper> observer);
+// SetCreateSdpObserver
 
-        void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
-        void OnFailure(webrtc::RTCError error) override;
-    private:
-        rust::Box<CreateSdpObserverWrapper> observer_;
-    };
+class NativeCreateSdpObserver
+    : public webrtc::CreateSessionDescriptionObserver {
+ public:
+  explicit NativeCreateSdpObserver(
+      rust::Box<CreateSdpObserverWrapper> observer);
 
-    struct NativeCreateSdpObserverHandle {
-        rtc::scoped_refptr<NativeCreateSdpObserver> observer;
-    };
+  void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
+  void OnFailure(webrtc::RTCError error) override;
 
-    std::unique_ptr<NativeCreateSdpObserverHandle> create_native_create_sdp_observer(rust::Box<CreateSdpObserverWrapper> observer);
+ private:
+  rust::Box<CreateSdpObserverWrapper> observer_;
+};
 
-    // SetLocalSdpObserver
+struct NativeCreateSdpObserverHandle {
+  rtc::scoped_refptr<NativeCreateSdpObserver> observer;
+};
 
-    class NativeSetLocalSdpObserver : public webrtc::SetLocalDescriptionObserverInterface{
-    public:
-        explicit NativeSetLocalSdpObserver(rust::Box<SetLocalSdpObserverWrapper> observer);
+std::unique_ptr<NativeCreateSdpObserverHandle>
+create_native_create_sdp_observer(rust::Box<CreateSdpObserverWrapper> observer);
 
-        void OnSetLocalDescriptionComplete(webrtc::RTCError error) override;
-    private:
-        rust::Box<SetLocalSdpObserverWrapper> observer_;
-    };
+// SetLocalSdpObserver
 
-    struct NativeSetLocalSdpObserverHandle {
-        rtc::scoped_refptr<NativeSetLocalSdpObserver> observer;
-    };
+class NativeSetLocalSdpObserver
+    : public webrtc::SetLocalDescriptionObserverInterface {
+ public:
+  explicit NativeSetLocalSdpObserver(
+      rust::Box<SetLocalSdpObserverWrapper> observer);
 
-    std::unique_ptr<NativeSetLocalSdpObserverHandle> create_native_set_local_sdp_observer(rust::Box<SetLocalSdpObserverWrapper> observer);
+  void OnSetLocalDescriptionComplete(webrtc::RTCError error) override;
 
-    // SetRemoteSdpObserver
+ private:
+  rust::Box<SetLocalSdpObserverWrapper> observer_;
+};
 
-    class NativeSetRemoteSdpObserver : public webrtc::SetRemoteDescriptionObserverInterface{
-    public:
-        explicit NativeSetRemoteSdpObserver(rust::Box<SetRemoteSdpObserverWrapper> observer);
+struct NativeSetLocalSdpObserverHandle {
+  rtc::scoped_refptr<NativeSetLocalSdpObserver> observer;
+};
 
-        void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override;
-    private:
-        rust::Box<SetRemoteSdpObserverWrapper> observer_;
-    };
+std::unique_ptr<NativeSetLocalSdpObserverHandle>
+create_native_set_local_sdp_observer(
+    rust::Box<SetLocalSdpObserverWrapper> observer);
 
-    struct NativeSetRemoteSdpObserverHandle {
-        rtc::scoped_refptr<NativeSetRemoteSdpObserver> observer;
-    };
+// SetRemoteSdpObserver
 
-    std::unique_ptr<NativeSetRemoteSdpObserverHandle> create_native_set_remote_sdp_observer(rust::Box<SetRemoteSdpObserverWrapper> observer);
-} // livekit
+class NativeSetRemoteSdpObserver
+    : public webrtc::SetRemoteDescriptionObserverInterface {
+ public:
+  explicit NativeSetRemoteSdpObserver(
+      rust::Box<SetRemoteSdpObserverWrapper> observer);
 
-#endif //CLIENT_SDK_NATIVE_JSEP_H
+  void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override;
+
+ private:
+  rust::Box<SetRemoteSdpObserverWrapper> observer_;
+};
+
+struct NativeSetRemoteSdpObserverHandle {
+  rtc::scoped_refptr<NativeSetRemoteSdpObserver> observer;
+};
+
+std::unique_ptr<NativeSetRemoteSdpObserverHandle>
+create_native_set_remote_sdp_observer(
+    rust::Box<SetRemoteSdpObserverWrapper> observer);
+}  // namespace livekit
+
+#endif  // CLIENT_SDK_NATIVE_JSEP_H

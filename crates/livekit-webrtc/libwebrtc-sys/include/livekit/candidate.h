@@ -6,23 +6,24 @@
 #define CLIENT_SDK_NATIVE_CANDIDATE_H
 
 #include <memory>
+
 #include "api/candidate.h"
 
 // cricket::Candidate
 namespace livekit {
 
-    class Candidate {
-    public:
-        explicit Candidate(const cricket::Candidate &candidate);
+class Candidate {
+ public:
+  explicit Candidate(const cricket::Candidate& candidate);
 
-    private:
-        cricket::Candidate candidate_;
-    };
+ private:
+  cricket::Candidate candidate_;
+};
 
-    static std::unique_ptr<Candidate> _unique_candidate(){
-        return nullptr;
-    }
+static std::unique_ptr<Candidate> _unique_candidate() {
+  return nullptr;
+}
 
-} // livekit
+}  // namespace livekit
 
-#endif //CLIENT_SDK_NATIVE_CANDIDATE_H
+#endif  // CLIENT_SDK_NATIVE_CANDIDATE_H

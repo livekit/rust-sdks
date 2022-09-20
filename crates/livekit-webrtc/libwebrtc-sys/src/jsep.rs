@@ -1,11 +1,11 @@
-use cxx::UniquePtr;
 use std::fmt::{Debug, Formatter};
+
+use cxx::UniquePtr;
 
 use crate::rtc_error::ffi::RTCError;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-
     extern "Rust" {
         type CreateSdpObserverWrapper;
         fn on_success(
@@ -46,7 +46,7 @@ pub mod ffi {
         ) -> UniquePtr<NativeSetRemoteSdpObserverHandle>;
 
         fn _unique_ice_candidate() -> UniquePtr<IceCandidate>; // Ignore
-        fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
+    fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
     }
 }
 

@@ -1,9 +1,7 @@
-use cxx::UniquePtr;
 use std::slice;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-
     #[derive(Debug)]
     #[repr(u32)]
     pub enum Priority {
@@ -83,6 +81,7 @@ pub mod ffi {
 }
 
 unsafe impl Send for ffi::DataChannel {}
+
 unsafe impl Send for ffi::NativeDataChannelObserver {}
 
 // DataChannelObserver

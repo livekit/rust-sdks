@@ -1,4 +1,5 @@
-use cxx::{SharedPtr, UniquePtr};
+use cxx::UniquePtr;
+
 use libwebrtc_sys::jsep as sys_jsep;
 
 #[derive(Debug)]

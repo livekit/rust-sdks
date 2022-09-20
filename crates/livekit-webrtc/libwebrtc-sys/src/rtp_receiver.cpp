@@ -5,7 +5,7 @@
 #include "livekit/rtp_receiver.h"
 
 namespace livekit {
-    RtpReceiver::RtpReceiver(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) : receiver_(std::move(receiver)) {
-
-    }
-} // livekit
+RtpReceiver::RtpReceiver(
+    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
+    : receiver_(std::move(receiver)) {}
+}  // namespace livekit

@@ -7,19 +7,20 @@
 
 #include "api/rtc_error.h"
 #include "libwebrtc-sys/src/rtc_error.rs.h"
-#include "rust_types.h"
 #include "rust/cxx.h"
+#include "rust_types.h"
 
 namespace livekit {
 
-    RTCError to_error(const webrtc::RTCError &error);
-    std::string serialize_error(const RTCError &error); // to be used inside cxx::Exception msg
+RTCError to_error(const webrtc::RTCError& error);
+std::string serialize_error(
+    const RTCError& error);  // to be used inside cxx::Exception msg
 
 #ifdef LIVEKIT_TEST
-    rust::String serialize_deserialize();
-    void throw_error();
+rust::String serialize_deserialize();
+void throw_error();
 #endif
 
-} // livekit
+}  // namespace livekit
 
-#endif //CLIENT_SDK_NATIVE_RTC_ERROR_H
+#endif  // CLIENT_SDK_NATIVE_RTC_ERROR_H
