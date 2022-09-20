@@ -22,7 +22,9 @@ namespace livekit {
         RTCRuntime(const RTCRuntime&) = delete;
         RTCRuntime& operator=(const RTCRuntime&) = delete;
     private:
+    #ifdef WEBRTC_WIN
         rtc::WinsockInitializer winsock_;
+    #endif
     };
 
     std::unique_ptr<RTCRuntime> create_rtc_runtime();

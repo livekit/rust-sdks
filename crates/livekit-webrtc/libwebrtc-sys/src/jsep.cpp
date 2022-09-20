@@ -7,7 +7,7 @@
 #include "livekit/rtc_error.h"
 #include "livekit/jsep.h"
 #include "libwebrtc-sys/src/jsep.rs.h"
-#include "api/make_ref_counted.h"
+#include "rtc_base/ref_counted_object.h"
 
 namespace livekit {
 
