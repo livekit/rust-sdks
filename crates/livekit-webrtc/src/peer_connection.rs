@@ -1,9 +1,9 @@
-use std::fmt::{Debug, Formatter};
 use cxx::UniquePtr;
 use libwebrtc_sys::data_channel as sys_dc;
 use libwebrtc_sys::jsep as sys_jsep;
 use libwebrtc_sys::peer_connection as sys_pc;
 use log::trace;
+use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
@@ -672,7 +672,9 @@ mod tests {
         let (data_tx, mut data_rx) = mpsc::channel::<String>(1);
         let mut alice_dc = alice_dc_rx.recv().await.unwrap();
         alice_dc.on_message(Box::new(move |data, is_binary| {
-            data_tx.blocking_send(String::from_utf8_lossy(data).to_string()).unwrap();
+            data_tx
+                .blocking_send(String::from_utf8_lossy(data).to_string())
+                .unwrap();
         }));
 
         assert!(bob_dc.send(b"This is a test", true));

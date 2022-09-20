@@ -1,7 +1,7 @@
-use std::fmt::{Debug, Formatter};
 use cxx::UniquePtr;
 use libwebrtc_sys::data_channel as sys_dc;
 use log::trace;
+use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
 
 pub use sys_dc::ffi::Priority;
