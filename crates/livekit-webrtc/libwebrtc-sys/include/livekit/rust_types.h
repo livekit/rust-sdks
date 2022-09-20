@@ -21,6 +21,7 @@ namespace livekit {
     struct RTCOfferAnswerOptions;
     struct RTCError;
     struct DataChannelInit;
+    struct DataBuffer;
 }
 
 #endif //RUST_TYPES_H

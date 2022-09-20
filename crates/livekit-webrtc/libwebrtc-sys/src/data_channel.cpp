@@ -21,6 +21,14 @@ namespace livekit {
         data_channel_->UnregisterObserver();
     }
 
+    bool DataChannel::send(const DataBuffer &buffer) {
+        return data_channel_->Send(webrtc::DataBuffer{rtc::CopyOnWriteBuffer(buffer.ptr, buffer.len), buffer.binary });
+    }
+
+    rust::String DataChannel::label() const{
+        return data_channel_->label();
+    }
+
     void DataChannel::close() {
         return data_channel_->Close();
     }
@@ -55,7 +63,7 @@ namespace livekit {
 
     void NativeDataChannelObserver::OnMessage(const webrtc::DataBuffer &buffer) {
         DataBuffer data{};
-        data.binary = buffer.data.data();
+        data.ptr = buffer.data.data();
         data.len = buffer.data.size();
         data.binary = buffer.binary;
         observer_->on_message(data);

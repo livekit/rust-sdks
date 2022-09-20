@@ -6,7 +6,7 @@
 
 namespace livekit {
 
-    MediaStreamInterface::MediaStreamInterface(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) : media_stream_(stream) {
+    MediaStreamInterface::MediaStreamInterface(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) : media_stream_(std::move(stream)) {
 
     }
 } // livekit

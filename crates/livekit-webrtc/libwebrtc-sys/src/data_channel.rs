@@ -38,6 +38,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
+    #[repr(u32)]
     pub enum DataState {
         Connecting,
         Open,
@@ -68,6 +69,8 @@ pub mod ffi {
         );
 
         fn unregister_observer(self: Pin<&mut DataChannel>);
+        fn send(self: Pin<&mut DataChannel>, data: &DataBuffer) -> bool;
+        fn label(self: &DataChannel) -> String;
         fn close(self: Pin<&mut DataChannel>);
 
         fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;
@@ -79,6 +82,9 @@ pub mod ffi {
     }
 }
 
+unsafe impl Send for ffi::DataChannel {}
+unsafe impl Send for ffi::NativeDataChannelObserver {}
+
 // DataChannelObserver
 
 pub trait DataChannelObserver: Send {
@@ -88,24 +94,30 @@ pub trait DataChannelObserver: Send {
 }
 
 pub struct DataChannelObserverWrapper {
-    observer: Box<dyn DataChannelObserver>,
+    observer: *mut dyn DataChannelObserver,
 }
 
 impl DataChannelObserverWrapper {
-    pub fn new(observer: Box<dyn DataChannelObserver>) -> Self {
+    /// SAFETY
+    /// DataChannelObserver must lives as long as DataChannelObserverWrapper does
+    pub unsafe fn new(observer: *mut dyn DataChannelObserver) -> Self {
         Self { observer }
     }
 
     fn on_state_change(&self) {
-        self.observer.on_state_change();
+        unsafe {
+            (*self.observer).on_state_change();
+        }
     }
 
     fn on_message(&self, buffer: ffi::DataBuffer) {
-        let data = unsafe { slice::from_raw_parts(buffer.ptr, buffer.len) };
-        self.observer.on_message(data, buffer.binary);
+        unsafe {
+            let data = slice::from_raw_parts(buffer.ptr, buffer.len);
+            (*self.observer).on_message(data, buffer.binary);
+        }
     }
 
     fn on_buffered_amount_change(&self, sent_data_size: u64) {
-        self.observer.on_buffered_amount_change(sent_data_size);
+        unsafe { (*self.observer).on_buffered_amount_change(sent_data_size) };
     }
 }

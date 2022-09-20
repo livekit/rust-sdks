@@ -20,6 +20,8 @@ namespace livekit {
 
         void register_observer(NativeDataChannelObserver &observer);
         void unregister_observer();
+        bool send(const DataBuffer& buffer);
+        rust::String label() const;
         void close();
     private:
         rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel_;

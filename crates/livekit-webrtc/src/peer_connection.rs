@@ -1,10 +1,9 @@
+use std::fmt::{Debug, Formatter};
 use cxx::UniquePtr;
 use libwebrtc_sys::data_channel as sys_dc;
 use libwebrtc_sys::jsep as sys_jsep;
 use libwebrtc_sys::peer_connection as sys_pc;
 use log::trace;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
@@ -160,8 +159,11 @@ impl PeerConnection {
             tx.blocking_send(error).unwrap();
         }));
 
-        let mut native_observer = sys_pc::ffi::create_native_add_ice_candidate_observer(Box::new(observer));
-        self.cxx_handle.pin_mut().add_ice_candidate(candidate.release(), native_observer.pin_mut());
+        let mut native_observer =
+            sys_pc::ffi::create_native_add_ice_candidate_observer(Box::new(observer));
+        self.cxx_handle
+            .pin_mut()
+            .add_ice_candidate(candidate.release(), native_observer.pin_mut());
 
         match rx.recv().await {
             Some(value) => Ok(()),
@@ -446,7 +448,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         trace!("on_data_channel");
         let mut handler = self.on_data_channel_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
-            // TODO(theomonnom)
+            f(DataChannel::new(data_channel));
         }
     }
 
@@ -502,7 +504,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_ice_candidate(&self, candidate: UniquePtr<libwebrtc_sys::jsep::ffi::IceCandidate>) {
-        trace!("TESTING on_ice_candidate");
+        trace!("on_ice_candidate");
         let mut handler = self.on_ice_candidate_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(IceCandidate::new(candidate));
@@ -602,11 +604,12 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
 
 #[cfg(test)]
 mod tests {
-    use crate::data_channel::DataChannelInit;
+    use crate::data_channel::{DataChannel, DataChannelInit};
     use crate::jsep::IceCandidate;
-    use crate::peer_connection_factory::{PeerConnectionFactory, ICEServer, RTCConfiguration};
-    use tokio::sync::mpsc;
+    use crate::peer_connection_factory::{ICEServer, PeerConnectionFactory, RTCConfiguration};
     use crate::webrtc::RTCRuntime;
+    use log::trace;
+    use tokio::sync::mpsc;
 
     fn init_log() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -630,8 +633,9 @@ mod tests {
         let mut bob = factory.create_peer_connection(config.clone()).unwrap();
         let mut alice = factory.create_peer_connection(config.clone()).unwrap();
 
-        let (bob_ice_tx, mut bob_ice_rx) = mpsc::channel::<IceCandidate>(1);
-        let (alice_ice_tx, mut alice_ice_rx) = mpsc::channel::<IceCandidate>(1);
+        let (bob_ice_tx, mut bob_ice_rx) = mpsc::channel::<IceCandidate>(16);
+        let (alice_ice_tx, mut alice_ice_rx) = mpsc::channel::<IceCandidate>(16);
+        let (alice_dc_tx, mut alice_dc_rx) = mpsc::channel::<DataChannel>(16);
 
         bob.on_ice_candidate(Box::new(move |candidate| {
             bob_ice_tx.blocking_send(candidate).unwrap();
@@ -641,13 +645,21 @@ mod tests {
             alice_ice_tx.blocking_send(candidate).unwrap();
         }));
 
-        bob.create_data_channel("test_dc", DataChannelInit::default())
+        alice.on_data_channel(Box::new(move |dc| {
+            alice_dc_tx.blocking_send(dc).unwrap();
+        }));
+
+        let mut bob_dc = bob
+            .create_data_channel("test_dc", DataChannelInit::default())
             .unwrap();
 
         let offer = bob.create_offer().await.unwrap();
+        trace!("Bob offer: {:?}", offer);
         bob.set_local_description(offer.clone()).await.unwrap();
         alice.set_remote_description(offer).await.unwrap();
+
         let answer = alice.create_answer().await.unwrap();
+        trace!("Alice answer: {:?}", answer);
         alice.set_local_description(answer.clone()).await.unwrap();
         bob.set_remote_description(answer).await.unwrap();
 
@@ -656,6 +668,15 @@ mod tests {
 
         bob.add_ice_candidate(alice_ice).await.unwrap();
         alice.add_ice_candidate(bob_ice).await.unwrap();
+
+        let (data_tx, mut data_rx) = mpsc::channel::<String>(1);
+        let mut alice_dc = alice_dc_rx.recv().await.unwrap();
+        alice_dc.on_message(Box::new(move |data, is_binary| {
+            data_tx.blocking_send(String::from_utf8_lossy(data).to_string()).unwrap();
+        }));
+
+        assert!(bob_dc.send(b"This is a test", true));
+        assert_eq!(data_rx.recv().await.unwrap(), "This is a test");
 
         alice.close();
         bob.close();
