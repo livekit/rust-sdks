@@ -24,7 +24,6 @@ impl RTCEngine {
         Ok(())
     }
 
-
     pub fn update(&self) {}
 
     async fn handle_rtc(mut signal_receiver: broadcast::Receiver<signal_response::Message>) {

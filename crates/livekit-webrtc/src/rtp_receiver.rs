@@ -1,5 +1,2 @@
-
-
-pub struct RtpReceiver {
-
-}
+#[derive(Debug)]
+pub struct RtpReceiver {}

@@ -6,7 +6,7 @@ pub mod ffi {
         include!("livekit/candidate.h");
 
         type Candidate; // cricket::Candidate
- 
+
         fn _unique_candidate() -> UniquePtr<Candidate>; // Ignore
     }
 }

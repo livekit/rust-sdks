@@ -15,8 +15,18 @@ namespace livekit {
 
     }
 
+    std::unique_ptr<webrtc::IceCandidateInterface> IceCandidate::release() {
+        return std::move(ice_candidate_);
+    }
+
     SessionDescription::SessionDescription(std::unique_ptr<webrtc::SessionDescriptionInterface> session_description) : session_description_(std::move(session_description)){
 
+    }
+
+    rust::String SessionDescription::stringify() const {
+        std::string str;
+        session_description_->ToString(&str);
+        return rust::String{str};
     }
 
     std::unique_ptr<SessionDescription> SessionDescription::clone() const {

@@ -7,7 +7,6 @@
 #include <sstream>
 #include <string>
 
-
 namespace livekit {
 
     RTCError to_error(const webrtc::RTCError &error) {
@@ -15,7 +14,7 @@ namespace livekit {
         lk_error.error_detail = static_cast<RTCErrorDetailType>(error.error_detail());
         lk_error.error_type = static_cast<RTCErrorType>(error.type());
         lk_error.has_sctp_cause_code = error.sctp_cause_code().has_value();
-        lk_error.sctp_cause_code = error.sctp_cause_code().value();
+        lk_error.sctp_cause_code = error.sctp_cause_code().value_or(0);
         lk_error.message = error.message();
         return lk_error;
     }

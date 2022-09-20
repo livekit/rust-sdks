@@ -1,4 +1,2 @@
-
-pub struct MediaStream {
-
-}
+#[derive(Debug)]
+pub struct MediaStream {}

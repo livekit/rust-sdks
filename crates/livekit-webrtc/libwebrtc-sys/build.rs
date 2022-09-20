@@ -1,9 +1,9 @@
+use regex::Regex;
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::path;
 use std::process::Command;
-use regex::Regex;
 
 const MAC_SDKS: &str =
     "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs";
@@ -78,6 +78,7 @@ fn main() {
         "src/rtp_receiver.rs",
         "src/rtp_transceiver.rs",
         "src/rtc_error.rs",
+        "src/webrtc.rs",
     ]);
 
     builder.file("src/peer_connection.cpp");
@@ -89,6 +90,7 @@ fn main() {
     builder.file("src/rtp_receiver.cpp");
     builder.file("src/rtp_transceiver.cpp");
     builder.file("src/rtc_error.cpp");
+    builder.file("src/webrtc.cpp");
 
     for include in includes {
         builder.include(include);
@@ -241,16 +243,10 @@ fn main() {
     builder.warnings(false).compile("lkwebrtc");
 
     for entry in glob::glob("./src/**/*.cpp").unwrap() {
-        println!(
-            "cargo:rerun-if-changed={}",
-            entry.unwrap().display()
-        );
+        println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
 
     for entry in glob::glob("./include/**/*.h").unwrap() {
-        println!(
-            "cargo:rerun-if-changed={}",
-            entry.unwrap().display()
-        );
+        println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
 }

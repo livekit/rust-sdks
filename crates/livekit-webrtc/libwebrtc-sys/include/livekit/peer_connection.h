@@ -13,32 +13,42 @@
 #include "rust_types.h"
 
 namespace livekit {
-    class NativePeerConnectionObserver;
+    class NativeAddIceCandidateObserver;
 
     class PeerConnection {
     public:
-        explicit PeerConnection(rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection, std::unique_ptr<NativePeerConnectionObserver> observer);
+        explicit PeerConnection(rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
+        void create_offer(NativeCreateSdpObserverHandle &observer, RTCOfferAnswerOptions options);
+        void create_answer(NativeCreateSdpObserverHandle &observer, RTCOfferAnswerOptions options);
+        void set_local_description(std::unique_ptr<SessionDescription> desc, NativeSetLocalSdpObserverHandle &observer);
+        void set_remote_description(std::unique_ptr<SessionDescription> desc, NativeSetRemoteSdpObserverHandle &observer);
+        std::unique_ptr<DataChannel> create_data_channel(rust::String label, std::unique_ptr<NativeDataChannelInit> init);
+        void add_ice_candidate(std::unique_ptr<IceCandidate> candidate, NativeAddIceCandidateObserver &observer);
         void close();
-        void create_offer(std::unique_ptr<NativeCreateSdpObserverHandle> observer, RTCOfferAnswerOptions options);
-        void create_answer(std::unique_ptr<NativeCreateSdpObserverHandle> observer, RTCOfferAnswerOptions options);
-        void set_local_description(std::unique_ptr<SessionDescription> desc, std::unique_ptr<NativeSetLocalSdpObserverHandle> observer);
-        void set_remote_description(std::unique_ptr<SessionDescription> desc, std::unique_ptr<NativeSetRemoteSdpObserverHandle> observer);
 
     private:
         rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
-        std::unique_ptr<NativePeerConnectionObserver> observer_;
     };
 
     static std::unique_ptr<PeerConnection> _unique_peer_connection() {
         return nullptr; // Ignore
     }
 
+    class NativeAddIceCandidateObserver {
+    public:
+        explicit NativeAddIceCandidateObserver(rust::Box<AddIceCandidateObserverWrapper> observer);
+
+        void OnComplete(const RTCError &error);
+    private:
+        rust::Box<AddIceCandidateObserverWrapper> observer_;
+    };
+
+    std::unique_ptr<NativeAddIceCandidateObserver> create_native_add_ice_candidate_observer(rust::Box<AddIceCandidateObserverWrapper> observer);
+
     class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
     public:
         explicit NativePeerConnectionObserver(rust::Box<PeerConnectionObserverWrapper> observer);
-
-        ~NativePeerConnectionObserver() override = default;
 
         void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) override;
         void OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override;

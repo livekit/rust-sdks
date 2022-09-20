@@ -9,5 +9,4 @@ pub mod ffi {
 
         fn _unique_media_stream() -> UniquePtr<MediaStreamInterface>; // Ignore
     }
-
 }

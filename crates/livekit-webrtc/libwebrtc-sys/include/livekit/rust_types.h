@@ -14,10 +14,14 @@ namespace livekit {
     struct CreateSdpObserverWrapper;
     struct SetLocalSdpObserverWrapper;
     struct SetRemoteSdpObserverWrapper;
+    struct DataChannelObserverWrapper;
+    struct AddIceCandidateObserverWrapper;
 
     // Shared types
     struct RTCOfferAnswerOptions;
     struct RTCError;
+    struct DataChannelInit;
+    struct DataBuffer;
 }
 
 #endif //RUST_TYPES_H
