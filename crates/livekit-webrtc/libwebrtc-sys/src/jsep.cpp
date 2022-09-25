@@ -4,13 +4,22 @@
 
 #include "livekit/jsep.h"
 
+#include <iomanip>
 #include <memory>
 
 #include "libwebrtc-sys/src/jsep.rs.h"
 #include "livekit/rtc_error.h"
-#include "rtc_base/ref_counted_object.h"
 
 namespace livekit {
+
+const std::string& serialize_sdp_error(webrtc::SdpParseError error) {
+  std::stringstream ss;
+  ss << std::hex << std::setfill('0');
+  ss << std::setw(8) << (uint32_t)error.line.length();
+  ss << std::dec << std::setw(1) << error.line;
+  ss << std::dec << std::setw(1) << error.description;
+  return ss.str();
+}
 
 IceCandidate::IceCandidate(
     std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate)
@@ -24,6 +33,20 @@ rust::String IceCandidate::stringify() const {
 
 std::unique_ptr<webrtc::IceCandidateInterface> IceCandidate::release() {
   return std::move(ice_candidate_);
+}
+
+std::unique_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
+                                                   int sdp_mline_index,
+                                                   rust::String sdp) {
+  webrtc::SdpParseError error;
+  auto ice_rtc = webrtc::CreateIceCandidate(sdp_mid.c_str(), sdp_mline_index,
+                                            sdp.c_str(), &error);
+  if (!ice_rtc) {
+    throw std::runtime_error(serialize_sdp_error(error));
+  }
+
+  return std::make_unique<IceCandidate>(
+      std::unique_ptr<webrtc::IceCandidateInterface>(ice_rtc));
 }
 
 SessionDescription::SessionDescription(
@@ -43,6 +66,19 @@ std::unique_ptr<SessionDescription> SessionDescription::clone() const {
 std::unique_ptr<webrtc::SessionDescriptionInterface>
 SessionDescription::release() {
   return std::move(session_description_);
+}
+
+std::unique_ptr<SessionDescription> create_session_description(
+    SdpType type,
+    rust::String sdp) {
+  webrtc::SdpParseError error;
+  auto rtc_sdp = webrtc::CreateSessionDescription(
+      static_cast<webrtc::SdpType>(type), sdp.c_str(), &error);
+  if (!rtc_sdp) {
+    throw std::runtime_error(serialize_sdp_error(error));
+  }
+
+  return std::make_unique<SessionDescription>(std::move(rtc_sdp));
 }
 
 // CreateSdpObserver

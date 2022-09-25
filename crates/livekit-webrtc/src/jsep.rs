@@ -1,6 +1,7 @@
 use cxx::UniquePtr;
-
 use libwebrtc_sys::jsep as sys_jsep;
+
+pub use sys_jsep::ffi::{SdpType, SdpParseError};
 
 // TODO Maybe we can replace that by a serialized IceCandidateInit
 #[derive(Debug)]
@@ -9,6 +10,15 @@ pub struct IceCandidate {
 }
 
 impl IceCandidate {
+    pub fn from(sdp_mid: &str, sdp_mline_index: i32, sdp: &str) -> Result<IceCandidate, SdpParseError> {
+        let res = sys_jsep::ffi::create_ice_candidate(sdp_mid.to_string(), sdp_mline_index, sdp.to_string());
+
+        match res {
+            Ok(cxx_handle) => Ok(IceCandidate::new(cxx_handle)),
+            Err(e) => Err(unsafe { SdpParseError::from(e.what()) }),
+        }
+    }
+
     pub(crate) fn new(cxx_handle: UniquePtr<sys_jsep::ffi::IceCandidate>) -> Self {
         Self { cxx_handle }
     }
@@ -30,6 +40,15 @@ pub struct SessionDescription {
 }
 
 impl SessionDescription {
+    pub fn from(sdp_type: SdpType, description: &str) -> Result<SessionDescription, SdpParseError> {
+        let res = sys_jsep::ffi::create_session_description(sdp_type, description.to_string());
+
+        match res {
+            Ok(cxx_handle) => Ok(SessionDescription::new(cxx_handle)),
+            Err(e) => Err(unsafe { SdpParseError::from(e.what()) }),
+        }
+    }
+
     pub(crate) fn new(cxx_handle: UniquePtr<sys_jsep::ffi::SessionDescription>) -> Self {
         Self { cxx_handle }
     }

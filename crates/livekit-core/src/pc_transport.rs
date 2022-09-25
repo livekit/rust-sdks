@@ -4,7 +4,9 @@ use std::time::Duration;
 use log::{error, trace};
 
 use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
-use livekit_webrtc::peer_connection::{PeerConnection, RTCOfferAnswerOptions, SdpError, SignalingState};
+use livekit_webrtc::peer_connection::{
+    PeerConnection, RTCOfferAnswerOptions, SignalingState,
+};
 use livekit_webrtc::peer_connection_factory::RTCConfiguration;
 use livekit_webrtc::rtc_error::RTCError;
 
@@ -12,7 +14,7 @@ use crate::lk_runtime::LKRuntime;
 
 const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150); // TODO(theomonnom)
 
-pub type OnOfferHandler = Box<dyn FnMut(SessionDescription)>;
+pub type OnOfferHandler = Box<dyn FnMut(SessionDescription) + Send>;
 
 pub struct PCTransport {
     peer_connection: PeerConnection,
@@ -43,37 +45,48 @@ impl PCTransport {
         self.on_offer_handler = Some(handler);
     }
 
-    pub fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) {
+    pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RTCError> {
         if self.peer_connection.remote_description().is_none() {
             self.pending_candidates.push(ice_candidate);
-            return;
+            return Ok(());
         }
 
-        self.peer_connection.add_ice_candidate(ice_candidate);
+        self.peer_connection.add_ice_candidate(ice_candidate).await?;
+        Ok(())
     }
 
-    pub async fn set_remote_description(&mut self, remote_description: SessionDescription) -> Result<(), SdpError> {
-        self.peer_connection.set_remote_description(remote_description).await?;
+    pub async fn set_remote_description(
+        &mut self,
+        remote_description: SessionDescription,
+    ) -> Result<(), RTCError> {
+        self.peer_connection
+            .set_remote_description(remote_description)
+            .await?;
 
         for ic in self.pending_candidates.drain(..) {
-            self.peer_connection.add_ice_candidate(ic);
+            self.peer_connection.add_ice_candidate(ic).await?;
         }
         self.restarting_ice = false;
 
         if self.renegotiate {
             self.renegotiate = false;
-            self.create_and_send_offer(RTCOfferAnswerOptions::default()).await?;
+            self.create_and_send_offer(RTCOfferAnswerOptions::default())
+                .await?;
         }
 
         Ok(())
     }
 
-    pub async fn negotiate(&mut self) -> Result<(), SdpError> {
+    pub async fn negotiate(&mut self) -> Result<(), RTCError> {
         // TODO(theomonnom) Debounce here with NEGOTIATION_FREQUENCY
-        self.create_and_send_offer(RTCOfferAnswerOptions::default()).await
+        self.create_and_send_offer(RTCOfferAnswerOptions::default())
+            .await
     }
 
-    async fn create_and_send_offer(&mut self, options: RTCOfferAnswerOptions) -> Result<(), SdpError> {
+    async fn create_and_send_offer(
+        &mut self,
+        options: RTCOfferAnswerOptions,
+    ) -> Result<(), RTCError> {
         if self.on_offer_handler.is_none() {
             return Ok(());
         }
@@ -86,7 +99,9 @@ impl PCTransport {
         if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
             if options.ice_restart {
                 if let Some(remote_description) = self.peer_connection.remote_description() {
-                    self.peer_connection.set_remote_description(remote_description).await?;
+                    self.peer_connection
+                        .set_remote_description(remote_description)
+                        .await?;
                 } else {
                     error!("trying to ice restart when the pc doesn't have remote description");
                 }
@@ -98,7 +113,9 @@ impl PCTransport {
 
         let offer = self.peer_connection.create_offer(options).await?;
         trace!("created offer {:?}", offer);
-        self.peer_connection.set_local_description(offer.clone()).await?;
+        self.peer_connection
+            .set_local_description(offer.clone())
+            .await?;
         self.on_offer_handler.as_mut().unwrap()(offer);
         Ok(())
     }
