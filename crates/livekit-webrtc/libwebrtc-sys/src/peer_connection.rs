@@ -23,7 +23,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum PeerConnectionState {
         New,
         Connecting,
@@ -34,7 +34,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum SignalingState {
         Stable,
         HaveLocalOffer,
@@ -45,7 +45,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum IceConnectionState {
         IceConnectionNew,
         IceConnectionChecking,
@@ -58,7 +58,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum IceGatheringState {
         IceGatheringNew,
         IceGatheringGathering,
@@ -157,6 +157,14 @@ pub mod ffi {
             candidate: UniquePtr<IceCandidate>,
             observer: Pin<&mut NativeAddIceCandidateObserver>,
         );
+
+        fn local_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
+
+        fn remote_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
+
+        fn signaling_state(self: &PeerConnection) -> SignalingState;
+
+        fn ice_gathering_state(self: &PeerConnection) -> IceGatheringState;
 
         fn close(self: Pin<&mut PeerConnection>);
 

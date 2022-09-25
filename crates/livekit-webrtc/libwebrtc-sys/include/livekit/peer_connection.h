@@ -34,6 +34,10 @@ class PeerConnection {
       std::unique_ptr<NativeDataChannelInit> init);
   void add_ice_candidate(std::unique_ptr<IceCandidate> candidate,
                          NativeAddIceCandidateObserver& observer);
+  std::unique_ptr<SessionDescription> local_description() const;
+  std::unique_ptr<SessionDescription> remote_description() const;
+  SignalingState signaling_state() const;
+  IceGatheringState ice_gathering_state() const;
   void close();
 
  private:

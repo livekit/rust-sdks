@@ -19,6 +19,7 @@ class IceCandidate {
   explicit IceCandidate(
       std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate);
 
+  rust::String stringify() const;
   std::unique_ptr<webrtc::IceCandidateInterface> release();
 
  private:

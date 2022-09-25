@@ -51,7 +51,7 @@ impl PeerConnection {
         }
     }
 
-    pub async fn create_offer(&mut self) -> Result<SessionDescription, SdpError> {
+    pub async fn create_offer(&mut self, options: RTCOfferAnswerOptions) -> Result<SessionDescription, SdpError> {
         let (tx, mut rx) = mpsc::channel(1);
 
         let wrapper =
@@ -62,7 +62,7 @@ impl PeerConnection {
         unsafe {
             self.cxx_handle
                 .pin_mut()
-                .create_offer(native_wrapper.pin_mut(), RTCOfferAnswerOptions::default());
+                .create_offer(native_wrapper.pin_mut(), options);
         }
 
         match rx.recv().await {
@@ -71,7 +71,7 @@ impl PeerConnection {
         }
     }
 
-    pub async fn create_answer(&mut self) -> Result<SessionDescription, SdpError> {
+    pub async fn create_answer(&mut self, options: RTCOfferAnswerOptions) -> Result<SessionDescription, SdpError> {
         let (tx, mut rx) = mpsc::channel(1);
 
         let wrapper =
@@ -82,7 +82,7 @@ impl PeerConnection {
         unsafe {
             self.cxx_handle
                 .pin_mut()
-                .create_answer(native_wrapper.pin_mut(), RTCOfferAnswerOptions::default());
+                .create_answer(native_wrapper.pin_mut(), options);
         }
 
         match rx.recv().await {
@@ -154,6 +154,7 @@ impl PeerConnection {
         }
     }
 
+    // TODO(theomonnom) Use IceCandidateInit instead of IceCandidate
     pub async fn add_ice_candidate(&mut self, candidate: IceCandidate) -> Result<(), SdpError> {
         let (tx, mut rx) = mpsc::channel(1);
         let observer = sys_pc::AddIceCandidateObserverWrapper::new(Box::new(move |error| {
@@ -170,6 +171,32 @@ impl PeerConnection {
             Some(value) => Ok(()),
             None => Err(SdpError::RecvError("channel closed".to_string())),
         }
+    }
+
+    pub fn local_description(&self) -> Option<SessionDescription> {
+        let local_description = self.cxx_handle.local_description();
+        if local_description.is_null() {
+            None
+        } else {
+            Some(SessionDescription::new(local_description))
+        }
+    }
+
+    pub fn remote_description(&self) -> Option<SessionDescription> {
+        let remote_description = self.cxx_handle.remote_description();
+        if remote_description.is_null() {
+            None
+        } else {
+            Some(SessionDescription::new(remote_description))
+        }
+    }
+
+    pub fn signaling_state(&self) -> SignalingState {
+        self.cxx_handle.signaling_state()
+    }
+
+    pub fn ice_gathering_state(&self) -> IceGatheringState {
+        self.cxx_handle.ice_gathering_state()
     }
 
     pub fn close(&mut self) {
@@ -344,16 +371,16 @@ pub type OnRenegotiationNeededHandler = Box<dyn FnMut() + Send + Sync>;
 pub type OnNegotiationNeededEventHandler = Box<dyn FnMut(u32) + Send + Sync>;
 pub type OnIceConnectionChangeHandler = Box<dyn FnMut(IceConnectionState) + Send + Sync>;
 pub type OnStandardizedIceConnectionChangeHandler =
-Box<dyn FnMut(IceConnectionState) + Send + Sync>;
+    Box<dyn FnMut(IceConnectionState) + Send + Sync>;
 pub type OnConnectionChangeHandler = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
 pub type OnIceGatheringChangeHandler = Box<dyn FnMut(IceGatheringState) + Send + Sync>;
 pub type OnIceCandidateHandler = Box<dyn FnMut(IceCandidate) + Send + Sync>;
 pub type OnIceCandidateErrorHandler =
-Box<dyn FnMut(String, i32, String, i32, String) + Send + Sync>;
+    Box<dyn FnMut(String, i32, String, i32, String) + Send + Sync>;
 pub type OnIceCandidatesRemovedHandler = Box<dyn FnMut(Vec<IceCandidate>) + Send + Sync>;
 pub type OnIceConnectionReceivingChangeHandler = Box<dyn FnMut(bool) + Send + Sync>;
 pub type OnIceSelectedCandidatePairChangedHandler =
-Box<dyn FnMut(libwebrtc_sys::peer_connection::ffi::CandidatePairChangeEvent) + Send + Sync>;
+    Box<dyn FnMut(libwebrtc_sys::peer_connection::ffi::CandidatePairChangeEvent) + Send + Sync>;
 pub type OnAddTrackHandler = Box<dyn FnMut(RtpReceiver, Vec<MediaStream>) + Send + Sync>;
 pub type OnTrackHandler = Box<dyn FnMut(RtpTransceiver) + Send + Sync>;
 pub type OnRemoveTrackHandler = Box<dyn FnMut(RtpReceiver) + Send + Sync>;
@@ -368,16 +395,16 @@ pub(crate) struct InternalObserver {
     on_negotiation_needed_event_handler: Arc<Mutex<Option<OnNegotiationNeededEventHandler>>>,
     on_ice_connection_change_handler: Arc<Mutex<Option<OnIceConnectionChangeHandler>>>,
     on_standardized_ice_connection_change_handler:
-    Arc<Mutex<Option<OnStandardizedIceConnectionChangeHandler>>>,
+        Arc<Mutex<Option<OnStandardizedIceConnectionChangeHandler>>>,
     on_connection_change_handler: Arc<Mutex<Option<OnConnectionChangeHandler>>>,
     on_ice_gathering_change_handler: Arc<Mutex<Option<OnIceGatheringChangeHandler>>>,
     on_ice_candidate_handler: Arc<Mutex<Option<OnIceCandidateHandler>>>,
     on_ice_candidate_error_handler: Arc<Mutex<Option<OnIceCandidateErrorHandler>>>,
     on_ice_candidates_removed_handler: Arc<Mutex<Option<OnIceCandidatesRemovedHandler>>>,
     on_ice_connection_receiving_change_handler:
-    Arc<Mutex<Option<OnIceConnectionReceivingChangeHandler>>>,
+        Arc<Mutex<Option<OnIceConnectionReceivingChangeHandler>>>,
     on_ice_selected_candidate_pair_changed_handler:
-    Arc<Mutex<Option<OnIceSelectedCandidatePairChangedHandler>>>,
+        Arc<Mutex<Option<OnIceSelectedCandidatePairChangedHandler>>>,
     on_add_track_handler: Arc<Mutex<Option<OnAddTrackHandler>>>,
     on_track_handler: Arc<Mutex<Option<OnTrackHandler>>>,
     on_remove_track_handler: Arc<Mutex<Option<OnRemoveTrackHandler>>>,

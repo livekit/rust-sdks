@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 log = "0.4"
-tokio-tungstenite = "0.17.2"
+tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
 tokio = { version = "1.20.1", features = ["full"] }
 url = "2.2.2"
 futures-util = "0.3.23"
@@ -13,6 +13,8 @@ thiserror = "1.0"
 prost = "0.11.0"
 prost-types = "0.11.1"
 anyhow = "1.0.63"
+livekit-webrtc = { path = "../livekit-webrtc" }
+lazy_static = "1.4.0"
 
 [build-dependencies]
 prost-build = { version = "0.10" }

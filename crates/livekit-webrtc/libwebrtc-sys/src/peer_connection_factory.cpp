@@ -86,8 +86,13 @@ std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(
     for (auto& url : item.urls) {
       ice_server.urls.emplace_back(url.c_str());
     }
-
     rtc->servers.push_back(ice_server);
+    rtc->continual_gathering_policy =
+        static_cast<webrtc::PeerConnectionInterface::ContinualGatheringPolicy>(
+            conf.continual_gathering_policy);
+
+    rtc->type = static_cast<webrtc::PeerConnectionInterface::IceTransportsType>(
+        conf.ice_transport_type);
   }
 
   return rtc;

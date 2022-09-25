@@ -16,6 +16,12 @@ IceCandidate::IceCandidate(
     std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate)
     : ice_candidate_(std::move(ice_candidate)) {}
 
+rust::String IceCandidate::stringify() const {
+  std::string str;
+  ice_candidate_->ToString(&str);
+  return rust::String{str};
+}
+
 std::unique_ptr<webrtc::IceCandidateInterface> IceCandidate::release() {
   return std::move(ice_candidate_);
 }

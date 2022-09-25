@@ -3,7 +3,7 @@ use std::slice;
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum Priority {
         VeryLow,
         Low,
@@ -36,7 +36,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum DataState {
         Connecting,
         Open,

@@ -2,6 +2,7 @@ use cxx::UniquePtr;
 
 use libwebrtc_sys::jsep as sys_jsep;
 
+// TODO Maybe we can replace that by a serialized IceCandidateInit
 #[derive(Debug)]
 pub struct IceCandidate {
     cxx_handle: UniquePtr<sys_jsep::ffi::IceCandidate>,
@@ -17,6 +18,12 @@ impl IceCandidate {
     }
 }
 
+impl ToString for IceCandidate {
+    fn to_string(&self) -> String {
+        self.cxx_handle.stringify()
+    }
+}
+
 #[derive(Debug)]
 pub struct SessionDescription {
     cxx_handle: UniquePtr<sys_jsep::ffi::SessionDescription>,
@@ -29,6 +36,12 @@ impl SessionDescription {
 
     pub(crate) fn release(self) -> UniquePtr<sys_jsep::ffi::SessionDescription> {
         self.cxx_handle
+    }
+}
+
+impl ToString for SessionDescription {
+    fn to_string(&self) -> String {
+        self.cxx_handle.stringify()
     }
 }
 

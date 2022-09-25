@@ -32,6 +32,8 @@ pub mod ffi {
         type NativeSetLocalSdpObserverHandle;
         type NativeSetRemoteSdpObserverHandle;
 
+        fn stringify(self: &IceCandidate) -> String;
+
         fn stringify(self: &SessionDescription) -> String;
         fn clone(self: &SessionDescription) -> UniquePtr<SessionDescription>;
 
@@ -46,7 +48,7 @@ pub mod ffi {
         ) -> UniquePtr<NativeSetRemoteSdpObserverHandle>;
 
         fn _unique_ice_candidate() -> UniquePtr<IceCandidate>; // Ignore
-    fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
+        fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
     }
 }
 
@@ -60,11 +62,13 @@ unsafe impl Send for ffi::SessionDescription {}
 
 impl Debug for ffi::IceCandidate {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "TODO") // TODO(theomonnom)
+        write!(f, "{}", self.stringify())
     }
 }
 
 unsafe impl Send for ffi::IceCandidate {}
+
+unsafe impl Sync for ffi::IceCandidate {}
 
 // CreateSdpObserver
 

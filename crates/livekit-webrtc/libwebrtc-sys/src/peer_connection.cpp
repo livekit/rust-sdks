@@ -76,9 +76,34 @@ void PeerConnection::add_ice_candidate(
       [&](const webrtc::RTCError& err) { observer.OnComplete(to_error(err)); });
 }
 
+std::unique_ptr<SessionDescription> PeerConnection::local_description() const {
+  auto local_description = peer_connection_->local_description();
+  if (local_description)
+    return std::make_unique<SessionDescription>(local_description->Clone());
+
+  return std::unique_ptr<SessionDescription>();
+}
+
+std::unique_ptr<SessionDescription> PeerConnection::remote_description() const {
+  auto remote_description = peer_connection_->remote_description();
+  if (remote_description)
+    return std::make_unique<SessionDescription>(remote_description->Clone());
+
+  return std::unique_ptr<SessionDescription>();
+}
+
+SignalingState PeerConnection::signaling_state() const {
+  return static_cast<SignalingState>(peer_connection_->signaling_state());
+}
+
+IceGatheringState PeerConnection::ice_gathering_state() const {
+  return static_cast<IceGatheringState>(peer_connection_->ice_gathering_state());
+}
+
 void PeerConnection::close() {
   peer_connection_->Close();
 }
+
 
 // AddIceCandidateObserver
 

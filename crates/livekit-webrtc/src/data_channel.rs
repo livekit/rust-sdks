@@ -128,14 +128,14 @@ impl Default for InternalDataChannelObserver {
 #[derive(Debug)]
 pub struct DataChannelInit {
     #[deprecated]
-    reliable: bool,
-    ordered: bool,
-    max_retransmit_time: Option<i32>,
-    max_retransmits: Option<i32>,
-    protocol: String,
-    negotiated: bool,
-    id: i32,
-    priority: Option<Priority>,
+    pub reliable: bool,
+    pub ordered: bool,
+    pub max_retransmit_time: Option<i32>,
+    pub max_retransmits: Option<i32>,
+    pub protocol: String,
+    pub negotiated: bool,
+    pub id: i32,
+    pub priority: Option<Priority>,
 }
 
 impl Default for DataChannelInit {
