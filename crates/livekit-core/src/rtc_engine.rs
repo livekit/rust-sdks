@@ -7,6 +7,7 @@ use prost::Message as ProstMessage;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::Data;
 
 use livekit_webrtc::data_channel::{DataChannel, DataChannelInit};
 use livekit_webrtc::jsep::{IceCandidate, SdpParseError, SessionDescription};
@@ -73,6 +74,8 @@ struct PeerInternal {
     lossy_data_rx: mpsc::Receiver<DataPacket>,
     reliable_data_rx: mpsc::Receiver<DataPacket>,
 
+    sub_dc_rx: mpsc::Receiver<DataChannel>,
+
     pc_state: PCState,
 }
 
@@ -100,9 +103,9 @@ impl RTCInternal {
         let lk_runtime = lk_runtime.unwrap();
         let signal_client = Arc::new(signal_client::connect(url, token).await?);
 
-        trace!("waiting JoinReponse..");
+        trace!("waiting join_response..");
         if let signal_response::Message::Join(join) = signal_client.recv().await? {
-            trace!("configuring peerconnections: {:?}", join);
+            trace!("configuring peer_connections: {:?}", join);
             let mut pc_internal = Self::configure(lk_runtime.clone(), join.clone())?;
 
             if !join.subscriber_primary {
@@ -151,9 +154,9 @@ impl RTCInternal {
             signal_response::Message::Trickle(trickle) => {
                 let json: serde_json::Value = serde_json::from_str(&trickle.candidate_init)?;
                 let ice = IceCandidate::from(
-                json["sdpMid"].as_str().unwrap(),
-                json["sdpMLineIndex"].as_i64().unwrap().try_into().unwrap(),
-                json["candidate"].as_str().unwrap()
+                    json["sdpMid"].as_str().unwrap(),
+                    json["sdpMLineIndex"].as_i64().unwrap().try_into().unwrap(),
+                    json["candidate"].as_str().unwrap()
                 )?;
 
                 if trickle.target == SignalTarget::Publisher as i32 {
@@ -219,9 +222,36 @@ impl RTCInternal {
                 },
                 Some(data) = self.pc_internal.reliable_data_rx.recv() => {
 
+                },
+                Some(mut dc) = self.pc_internal.sub_dc_rx.recv() => {
+                    // Subscriber DataChannels
+                    // Only received when the subscriber_primary is enabled
+                    trace!("using subscriber data channels");
+
+                    let (data_tx, data_rx) = mpsc::channel(8);
+                    Self::configure_dc(&mut dc, data_tx);
+
+                    if dc.label() == RELIABLE_DC_LABEL {
+                        self.pc_internal.reliable_dc = dc;
+                        self.pc_internal.reliable_data_rx = data_rx;
+                    } else {
+                        self.pc_internal.lossy_dc = dc;
+                        self.pc_internal.lossy_data_rx = data_rx;
+                    }
                 }
             }
         }
+    }
+
+    fn configure_dc(data_channel: &mut DataChannel, data_tx: mpsc::Sender<DataPacket>) {
+        let label = data_channel.label();
+        data_channel.on_message(Box::new(move |data, _| {
+            if let Ok(data) = DataPacket::decode(data) {
+                let _ = data_tx.blocking_send(data);
+            } else {
+                trace!("{} - failed to decode DataPacket", label);
+            }
+        }));
     }
 
     fn configure(
@@ -255,6 +285,7 @@ impl RTCInternal {
         let (secondary_connection_state_tx, secondary_connection_state_rx) = mpsc::channel(8);
         let (lossy_data_tx, lossy_data_rx) = mpsc::channel(8);
         let (reliable_data_tx, reliable_data_rx) = mpsc::channel(8);
+        let (sub_dc_tx, sub_dc_rx) = mpsc::channel(8);
 
         publisher_pc
             .peer_connection()
@@ -280,6 +311,10 @@ impl RTCInternal {
         if join.subscriber_primary {
             primary_pc = &mut subscriber_pc;
             secondary_pc = &mut publisher_pc;
+
+            primary_pc.peer_connection().on_data_channel(Box::new(move |dc| {
+                let _ = sub_dc_tx.blocking_send(dc);
+            }));
         }
 
         primary_pc
@@ -294,6 +329,8 @@ impl RTCInternal {
                 let _ = secondary_connection_state_tx.blocking_send(state);
             }));
 
+        // Note that when subscriber_primary feature is enabled,
+        // the subscriber uses his own data channels created by the server.
         let mut lossy_dc = publisher_pc.peer_connection().create_data_channel(
             LOSSY_DC_LABEL,
             DataChannelInit {
@@ -311,21 +348,8 @@ impl RTCInternal {
             },
         )?;
 
-        lossy_dc.on_message(Box::new(move |data, _| {
-            if let Ok(data) = DataPacket::decode(data) {
-                let _ = lossy_data_tx.blocking_send(data);
-            } else {
-                trace!("lossy_dc - failed to decode DataPacket");
-            }
-        }));
-
-        reliable_dc.on_message(Box::new(move |data, _| {
-            if let Ok(data) = DataPacket::decode(data) {
-                let _ = reliable_data_tx.blocking_send(data);
-            } else {
-                trace!("reliable_dc - failed to decode DataPacket");
-            }
-        }));
+        Self::configure_dc(&mut lossy_dc, lossy_data_tx);
+        Self::configure_dc(&mut reliable_dc, reliable_data_tx);
 
         Ok(PeerInternal {
             publisher_pc,
@@ -339,6 +363,7 @@ impl RTCInternal {
             secondary_connection_state_rx,
             lossy_data_rx,
             reliable_data_rx,
+            sub_dc_rx,
             pc_state: PCState::New,
         })
     }
