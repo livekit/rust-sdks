@@ -17,6 +17,12 @@ struct DataChannelObserverWrapper;
 struct AddIceCandidateObserverWrapper;
 
 // Shared types
+enum class PeerConnectionState;
+enum class SignalingState;
+enum class IceConnectionState;
+enum class IceGatheringState;
+enum class SdpType;
+struct SdpParseError;
 struct RTCOfferAnswerOptions;
 struct RTCError;
 struct DataChannelInit;

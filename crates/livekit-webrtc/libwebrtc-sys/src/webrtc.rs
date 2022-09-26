@@ -10,3 +10,6 @@ pub mod ffi {
         fn create_rtc_runtime() -> UniquePtr<RTCRuntime>;
     }
 }
+
+unsafe impl Send for ffi::RTCRuntime {}
+unsafe impl Sync for ffi::RTCRuntime {}

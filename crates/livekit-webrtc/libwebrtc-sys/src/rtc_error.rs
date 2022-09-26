@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter};
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum RTCErrorType {
         None,
         UnsupportedOperation,
@@ -24,7 +24,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum RTCErrorDetailType {
         None,
         DataChannelFailure,

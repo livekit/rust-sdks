@@ -23,7 +23,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum PeerConnectionState {
         New,
         Connecting,
@@ -34,7 +34,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum SignalingState {
         Stable,
         HaveLocalOffer,
@@ -45,7 +45,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum IceConnectionState {
         IceConnectionNew,
         IceConnectionChecking,
@@ -58,7 +58,7 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    #[repr(u32)]
+    #[repr(i32)]
     pub enum IceGatheringState {
         IceGatheringNew,
         IceGatheringGathering,
@@ -158,6 +158,14 @@ pub mod ffi {
             observer: Pin<&mut NativeAddIceCandidateObserver>,
         );
 
+        fn local_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
+
+        fn remote_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
+
+        fn signaling_state(self: &PeerConnection) -> SignalingState;
+
+        fn ice_gathering_state(self: &PeerConnection) -> IceGatheringState;
+
         fn close(self: Pin<&mut PeerConnection>);
 
         fn create_native_peer_connection_observer(
@@ -245,11 +253,23 @@ pub mod ffi {
 }
 
 // https://webrtc.github.io/webrtc-org/native-code/native-apis/
+unsafe impl Send for ffi::PeerConnection {}
 unsafe impl Sync for ffi::PeerConnection {}
 
-unsafe impl Send for ffi::PeerConnection {}
-
 unsafe impl Send for ffi::NativePeerConnectionObserver {}
+unsafe impl Sync for ffi::NativePeerConnectionObserver {}
+
+unsafe impl Sync for ffi::NativeAddIceCandidateObserver {}
+unsafe impl Send for ffi::NativeAddIceCandidateObserver {}
+
+unsafe impl Sync for ffi::NativeSetRemoteSdpObserverHandle {}
+unsafe impl Send for ffi::NativeSetRemoteSdpObserverHandle {}
+
+unsafe impl Sync for ffi::NativeSetLocalSdpObserverHandle {}
+unsafe impl Send for ffi::NativeSetLocalSdpObserverHandle {}
+
+unsafe impl Sync for ffi::NativeCreateSdpObserverHandle {}
+unsafe impl Send for ffi::NativeCreateSdpObserverHandle {}
 
 impl Default for ffi::RTCOfferAnswerOptions {
     /*
@@ -272,17 +292,21 @@ impl Default for ffi::RTCOfferAnswerOptions {
     }
 }
 
+pub trait AddIceCandidateObserver: Send {
+    fn on_complete(&self, error: RTCError);
+}
+
 pub struct AddIceCandidateObserverWrapper {
-    observer: Box<dyn Fn(RTCError) + Send>,
+    observer: Box<dyn AddIceCandidateObserver>,
 }
 
 impl AddIceCandidateObserverWrapper {
-    pub fn new(observer: Box<dyn Fn(RTCError) + Send>) -> Self {
+    pub fn new(observer: Box<dyn AddIceCandidateObserver>) -> Self {
         Self { observer }
     }
 
     fn on_complete(&self, error: RTCError) {
-        (self.observer)(error);
+        self.observer.on_complete(error);
     }
 }
 
