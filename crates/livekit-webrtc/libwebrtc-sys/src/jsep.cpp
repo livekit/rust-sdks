@@ -12,7 +12,7 @@
 
 namespace livekit {
 
-const std::string& serialize_sdp_error(webrtc::SdpParseError error) {
+std::string serialize_sdp_error(webrtc::SdpParseError error) {
   std::stringstream ss;
   ss << std::hex << std::setfill('0');
   ss << std::setw(8) << (uint32_t)error.line.length();
@@ -24,6 +24,18 @@ const std::string& serialize_sdp_error(webrtc::SdpParseError error) {
 IceCandidate::IceCandidate(
     std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate)
     : ice_candidate_(std::move(ice_candidate)) {}
+
+rust::String IceCandidate::sdp_mid() const {
+  return ice_candidate_->sdp_mid();
+}
+
+int IceCandidate::sdp_mline_index() const {
+  return ice_candidate_->sdp_mline_index();
+}
+
+rust::String IceCandidate::candidate() const {
+  return stringify();
+}
 
 rust::String IceCandidate::stringify() const {
   std::string str;

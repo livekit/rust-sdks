@@ -12,6 +12,7 @@
 #include "jsep.h"
 #include "rust/cxx.h"
 #include "rust_types.h"
+#include "webrtc.h"
 
 namespace livekit {
 class NativeAddIceCandidateObserver;
@@ -19,6 +20,7 @@ class NativeAddIceCandidateObserver;
 class PeerConnection {
  public:
   explicit PeerConnection(
+      std::shared_ptr<RTCRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   void create_offer(NativeCreateSdpObserverHandle& observer,
@@ -38,9 +40,11 @@ class PeerConnection {
   std::unique_ptr<SessionDescription> remote_description() const;
   SignalingState signaling_state() const;
   IceGatheringState ice_gathering_state() const;
+  IceConnectionState ice_connection_state() const;
   void close();
 
  private:
+  std::shared_ptr<RTCRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
@@ -65,7 +69,7 @@ create_native_add_ice_candidate_observer(
 
 class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
  public:
-  explicit NativePeerConnectionObserver(
+  explicit NativePeerConnectionObserver(std::shared_ptr<RTCRuntime> rtc_runtime,
       rust::Box<PeerConnectionObserverWrapper> observer);
 
   void OnSignalingChange(
@@ -126,11 +130,13 @@ class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
   void OnInterestingUsage(int usage_pattern) override;
 
  private:
+  std::shared_ptr<RTCRuntime> rtc_runtime_;
   rust::Box<PeerConnectionObserverWrapper> observer_;
 };
 
 std::unique_ptr<NativePeerConnectionObserver>
 create_native_peer_connection_observer(
+    std::shared_ptr<RTCRuntime> rtc_runtime,
     rust::Box<PeerConnectionObserverWrapper> observer);
 }  // namespace livekit
 

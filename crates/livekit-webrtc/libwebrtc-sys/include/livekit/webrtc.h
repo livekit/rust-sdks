@@ -22,13 +22,20 @@ class RTCRuntime {
   RTCRuntime(const RTCRuntime&) = delete;
   RTCRuntime& operator=(const RTCRuntime&) = delete;
 
+  rtc::Thread* network_thread() const;
+  rtc::Thread* worker_thread() const;
+  rtc::Thread* signaling_thread() const;
+
  private:
+  std::unique_ptr<rtc::Thread> network_thread_;
+  std::unique_ptr<rtc::Thread> worker_thread_;
+  std::unique_ptr<rtc::Thread> signaling_thread_;
 #ifdef WEBRTC_WIN
   rtc::WinsockInitializer winsock_;
 #endif
 };
 
-std::unique_ptr<RTCRuntime> create_rtc_runtime();
+std::shared_ptr<RTCRuntime> create_rtc_runtime();
 
 }  // namespace livekit
 

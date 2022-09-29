@@ -10,6 +10,7 @@
 #include "api/data_channel_interface.h"
 #include "rust/cxx.h"
 #include "rust_types.h"
+#include "webrtc.h"
 
 namespace livekit {
 using NativeDataChannelInit = webrtc::DataChannelInit;
@@ -18,15 +19,18 @@ class NativeDataChannelObserver;
 class DataChannel {
  public:
   explicit DataChannel(
+      std::shared_ptr<RTCRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel);
 
   void register_observer(NativeDataChannelObserver& observer);
   void unregister_observer();
   bool send(const DataBuffer& buffer);
   rust::String label() const;
+  DataState state() const;
   void close();
 
  private:
+  std::shared_ptr<RTCRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel_;
 };
 

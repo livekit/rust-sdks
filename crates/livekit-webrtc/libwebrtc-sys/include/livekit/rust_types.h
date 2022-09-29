@@ -22,6 +22,7 @@ enum class SignalingState;
 enum class IceConnectionState;
 enum class IceGatheringState;
 enum class SdpType;
+enum class DataState;
 struct SdpParseError;
 struct RTCOfferAnswerOptions;
 struct RTCError;

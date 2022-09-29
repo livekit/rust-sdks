@@ -49,6 +49,9 @@ pub mod ffi {
         type NativeSetLocalSdpObserverHandle;
         type NativeSetRemoteSdpObserverHandle;
 
+        fn sdp_mid(self: &IceCandidate) -> String;
+        fn sdp_mline_index(self: &IceCandidate) -> i32;
+        fn candidate(self: &IceCandidate) -> String;
         fn stringify(self: &IceCandidate) -> String;
 
         fn stringify(self: &SessionDescription) -> String;

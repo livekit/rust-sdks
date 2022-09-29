@@ -26,6 +26,18 @@ impl IceCandidate {
     pub(crate) fn release(self) -> UniquePtr<sys_jsep::ffi::IceCandidate> {
         self.cxx_handle
     }
+
+    pub fn sdp_mid(&self) -> String {
+        self.cxx_handle.sdp_mid()
+    }
+
+    pub fn sdp_mline_index(&self) -> i32 {
+        self.cxx_handle.sdp_mline_index()
+    }
+
+    pub fn candidate(&self) -> String {
+        self.cxx_handle.candidate()
+    }
 }
 
 impl ToString for IceCandidate {

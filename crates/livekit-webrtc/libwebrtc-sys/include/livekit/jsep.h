@@ -18,7 +18,11 @@ class IceCandidate {
  public:
   explicit IceCandidate(
       std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate);
-
+  
+  rust::String sdp_mid() const;
+  int sdp_mline_index() const;
+  rust::String candidate() const; // TODO(theomonnom) Return livekit::Candidate instead of rust::String
+  
   rust::String stringify() const;
   std::unique_ptr<webrtc::IceCandidateInterface> release();
 

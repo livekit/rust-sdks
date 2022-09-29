@@ -4,6 +4,8 @@
 
 #include "livekit/peer_connection_factory.h"
 
+#include <utility>
+
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
@@ -16,24 +18,15 @@
 
 namespace livekit {
 
-PeerConnectionFactory::PeerConnectionFactory() {
-  rtc::LogMessage::LogToDebug(rtc::LS_INFO);
+PeerConnectionFactory::PeerConnectionFactory(
+    std::shared_ptr<RTCRuntime> rtc_runtime)
+    : rtc_runtime_(std::move(rtc_runtime)) {
   RTC_LOG(LS_INFO) << "PeerConnectionFactory::PeerConnectionFactory()";
 
-  network_thread_ = rtc::Thread::CreateWithSocketServer();
-  network_thread_->SetName("network_thread", &network_thread_);
-  network_thread_->Start();
-  worker_thread_ = rtc::Thread::Create();
-  worker_thread_->SetName("worker_thread", &worker_thread_);
-  worker_thread_->Start();
-  signaling_thread_ = rtc::Thread::Create();
-  signaling_thread_->SetName("signaling_thread", &signaling_thread_);
-  signaling_thread_->Start();
-
   webrtc::PeerConnectionFactoryDependencies dependencies;
-  dependencies.network_thread = network_thread_.get();
-  dependencies.worker_thread = worker_thread_.get();
-  dependencies.signaling_thread = signaling_thread_.get();
+  dependencies.network_thread = rtc_runtime_->network_thread();
+  dependencies.worker_thread = rtc_runtime_->worker_thread();
+  dependencies.signaling_thread = rtc_runtime_->signaling_thread();
   dependencies.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>(
       dependencies.task_queue_factory.get());
@@ -56,6 +49,10 @@ PeerConnectionFactory::PeerConnectionFactory() {
   }
 }
 
+PeerConnectionFactory::~PeerConnectionFactory() {
+  RTC_LOG(LS_INFO) << "PeerConnectionFactory::~PeerConnectionFactory()";
+}
+
 std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     std::unique_ptr<webrtc::PeerConnectionInterface::RTCConfiguration> config,
     NativePeerConnectionObserver& observer) const {
@@ -67,11 +64,11 @@ std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     throw std::runtime_error(serialize_error(to_error(result.error())));
   }
 
-  return std::make_unique<PeerConnection>(result.value());
+  return std::make_unique<PeerConnection>(rtc_runtime_, result.value());
 }
 
-std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory() {
-  return std::make_unique<PeerConnectionFactory>();
+std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory(std::shared_ptr<RTCRuntime> rtc_runtime) {
+  return std::make_unique<PeerConnectionFactory>(std::move(rtc_runtime));
 }
 
 std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(

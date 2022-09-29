@@ -7,7 +7,7 @@ pub mod ffi {
 
         type RTCRuntime;
 
-        fn create_rtc_runtime() -> UniquePtr<RTCRuntime>;
+        fn create_rtc_runtime() -> SharedPtr<RTCRuntime>;
     }
 }
 

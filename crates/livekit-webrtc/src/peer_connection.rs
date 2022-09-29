@@ -25,6 +25,7 @@ pub struct PeerConnection {
     observer: Box<InternalObserver>,
 
     // Keep alive for C++
+    #[allow(unused)]
     native_observer: UniquePtr<sys_pc::ffi::NativePeerConnectionObserver>,
 }
 
@@ -172,6 +173,10 @@ impl PeerConnection {
 
     pub fn ice_gathering_state(&self) -> IceGatheringState {
         self.cxx_handle.ice_gathering_state()
+    }
+
+    pub fn ice_connection_state(&self) -> IceConnectionState {
+        self.cxx_handle.ice_connection_state()
     }
 
     pub fn close(&mut self) {
