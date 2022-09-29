@@ -1,20 +1,18 @@
-use std::sync::Arc;
+use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
 
 use log::{error, trace};
 
 use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
 use livekit_webrtc::peer_connection::{
-    PeerConnection, RTCOfferAnswerOptions, SignalingState,
+    IceConnectionState, PeerConnection, RTCOfferAnswerOptions, SignalingState,
 };
-use livekit_webrtc::peer_connection_factory::RTCConfiguration;
 use livekit_webrtc::rtc_error::RTCError;
-
-use crate::lk_runtime::LKRuntime;
 
 const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150); // TODO(theomonnom)
 
-pub type OnOfferHandler = Box<dyn FnMut(SessionDescription) + Send>;
+pub type OnOfferHandler = Box<dyn (FnMut(SessionDescription) -> Pin<Box<dyn Future<Output=()> + Send + 'static>>) + Send + Sync>;
 
 pub struct PCTransport {
     peer_connection: PeerConnection,
@@ -25,16 +23,20 @@ pub struct PCTransport {
 }
 
 impl PCTransport {
-    pub fn new(lk_runtime: Arc<LKRuntime>, cfg: RTCConfiguration) -> Result<Self, RTCError> {
-        let peer_connection = lk_runtime.pc_factory.create_peer_connection(cfg)?;
-
-        Ok(Self {
+    pub fn new(peer_connection: PeerConnection) -> Self {
+        Self {
             peer_connection,
             pending_candidates: Vec::default(),
             on_offer_handler: None,
             restarting_ice: false,
             renegotiate: false,
-        })
+        }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.peer_connection.ice_connection_state() == IceConnectionState::IceConnectionConnected
+            || self.peer_connection.ice_connection_state()
+            == IceConnectionState::IceConnectionCompleted
     }
 
     pub fn peer_connection(&mut self) -> &mut PeerConnection {
@@ -51,7 +53,9 @@ impl PCTransport {
             return Ok(());
         }
 
-        self.peer_connection.add_ice_candidate(ice_candidate).await?;
+        self.peer_connection
+            .add_ice_candidate(ice_candidate)
+            .await?;
         Ok(())
     }
 
@@ -116,7 +120,8 @@ impl PCTransport {
         self.peer_connection
             .set_local_description(offer.clone())
             .await?;
-        self.on_offer_handler.as_mut().unwrap()(offer);
+        self.on_offer_handler.as_mut().unwrap()(offer).await;
         Ok(())
     }
 }
+

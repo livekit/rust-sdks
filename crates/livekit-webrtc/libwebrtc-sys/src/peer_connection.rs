@@ -109,6 +109,7 @@ pub mod ffi {
         type NativeSetRemoteSdpObserverHandle = crate::jsep::ffi::NativeSetRemoteSdpObserverHandle;
         type NativeDataChannelInit = crate::data_channel::ffi::NativeDataChannelInit;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
+        type RTCRuntime = crate::webrtc::ffi::RTCRuntime;
 
         type NativeAddIceCandidateObserver;
         type NativePeerConnectionObserver;
@@ -166,9 +167,12 @@ pub mod ffi {
 
         fn ice_gathering_state(self: &PeerConnection) -> IceGatheringState;
 
+        fn ice_connection_state(self: &PeerConnection) -> IceConnectionState;
+
         fn close(self: Pin<&mut PeerConnection>);
 
         fn create_native_peer_connection_observer(
+            rtc_runtime: SharedPtr<RTCRuntime>,
             observer: Box<PeerConnectionObserverWrapper>,
         ) -> UniquePtr<NativePeerConnectionObserver>;
 

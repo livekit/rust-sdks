@@ -1,11 +1,12 @@
-use std::fmt::{Debug, Formatter};
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, Mutex};
-
 use cxx::UniquePtr;
 use log::trace;
 
 use libwebrtc_sys::data_channel as sys_dc;
-pub use sys_dc::ffi::Priority;
+
+pub use sys_dc::ffi::{Priority, DataState};
 
 pub struct DataChannel {
     cxx_handle: UniquePtr<sys_dc::ffi::DataChannel>,
@@ -20,6 +21,17 @@ impl Debug for DataChannel {
         write!(f, "DataChannel [{:?}]", self.label())
     }
 }
+
+#[derive(Debug)]
+pub struct DataSendError;
+
+impl Display for DataSendError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "failed to send data to the DataChannel")
+    }
+}
+
+impl Error for DataSendError { }
 
 impl DataChannel {
     pub(crate) fn new(cxx_handle: UniquePtr<sys_dc::ffi::DataChannel>) -> Self {
@@ -44,17 +56,26 @@ impl DataChannel {
         dc
     }
 
-    pub fn send(&mut self, data: &[u8], binary: bool) -> bool {
+    pub fn send(&mut self, data: &[u8], binary: bool) -> Result<(), DataSendError> {
         let buffer = sys_dc::ffi::DataBuffer {
             ptr: data.as_ptr(),
             len: data.len(),
             binary,
         };
-        self.cxx_handle.pin_mut().send(&buffer)
+
+        self.cxx_handle
+            .pin_mut()
+            .send(&buffer)
+            .then_some(())
+            .ok_or(DataSendError {})
     }
 
     pub fn label(&self) -> String {
         self.cxx_handle.label()
+    }
+
+    pub fn state(&self) -> DataState {
+        self.cxx_handle.state()
     }
 
     pub fn close(&mut self) {
@@ -69,7 +90,7 @@ impl DataChannel {
         *self.observer.on_message_handler.lock().unwrap() = Some(handler);
     }
 
-    pub fn on_buffer(&mut self, handler: OnBufferedAmountChangeHandler) {
+    pub fn on_buffered_amount_change(&mut self, handler: OnBufferedAmountChangeHandler) {
         *self
             .observer
             .on_buffered_amount_change_handler
