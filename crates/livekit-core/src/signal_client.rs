@@ -1,16 +1,18 @@
-use futures_util::{SinkExt, StreamExt};
+use futures::future::poll_fn;
 use futures_util::stream::{SplitSink, SplitStream};
-use log::{error, info};
+use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
+use std::fmt::{Debug, Formatter};
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tokio_tungstenite::tungstenite::{
-    Error as WsError,
-    Message, protocol::frame::{CloseFrame, coding::CloseCode},
+    protocol::frame::{coding::CloseCode, CloseFrame},
+    Error as WsError, Message,
 };
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tracing::{event, span, Level};
 
 use crate::proto::{signal_request, signal_response, SignalRequest, SignalResponse};
 
@@ -31,7 +33,7 @@ type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 #[derive(Debug)]
 struct RecvMessage {
-    response_chn: oneshot::Sender<SignalResult<signal_response::Message>>,
+    response_chn: oneshot::Sender<Option<signal_response::Message>>,
 }
 
 #[derive(Debug)]
@@ -49,6 +51,13 @@ pub struct SignalClient {
     write_handle: JoinHandle<()>,
 }
 
+impl Debug for SignalClient {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "SignalClient")
+    }
+}
+
+#[tracing::instrument]
 pub async fn connect(url: &str, token: &str) -> SignalResult<SignalClient> {
     let mut lk_url = url::Url::parse(url)?;
     lk_url.set_path("/rtc");
@@ -57,11 +66,14 @@ pub async fn connect(url: &str, token: &str) -> SignalResult<SignalClient> {
         .append_pair("access_token", token)
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str());
 
-    let (ws_stream, _) = connect_async(lk_url).await?;
+    event!(Level::DEBUG, "connecting to websocket: {}", lk_url);
+    let (ws_stream, _) = connect_async(lk_url.clone()).await?;
+    event!(Level::DEBUG, "connected to SignalClient");
+
     let (ws_writer, ws_reader) = ws_stream.split();
 
-    let (read_tx, read_rx) = mpsc::channel::<RecvMessage>(1);
-    let (write_tx, write_rx) = mpsc::channel::<SendMessage>(1);
+    let (read_tx, read_rx) = mpsc::channel::<RecvMessage>(8);
+    let (write_tx, write_rx) = mpsc::channel::<SendMessage>(8);
     let (read_shutdown_tx, read_shutdown_rx) = oneshot::channel();
     let (write_shutdown_tx, write_shutdown_rx) = oneshot::channel();
 
@@ -90,7 +102,7 @@ impl SignalClient {
         let _ = self.read_handle.await;
     }
 
-    pub async fn recv(&self) -> SignalResult<signal_response::Message> {
+    pub async fn recv(&self) -> Option<signal_response::Message> {
         let (send, recv) = oneshot::channel();
         let msg = RecvMessage { response_chn: send };
         let _ = self.read_sender.send(msg).await;
@@ -107,6 +119,7 @@ impl SignalClient {
         recv.await.expect("channel closed")
     }
 
+    #[tracing::instrument]
     async fn ws_write(
         mut write_receiver: mpsc::Receiver<SendMessage>,
         mut ws_writer: SplitSink<WebSocket, Message>,
@@ -115,13 +128,15 @@ impl SignalClient {
         loop {
             tokio::select! {
                 Some(msg) = write_receiver.recv() => {
+                    event!(Level::TRACE, "sending: {:?}", msg.signal);
+
                     let req = SignalRequest {
                         message: Some(msg.signal),
                     };
 
                     let write_res = ws_writer.send(Message::Binary(req.encode_to_vec())).await;
                     if let Err(err) = write_res {
-                        error!("failed to send message to ws: {:?}", err);
+                        event!(Level::ERROR, "failed to send message to ws: {:?}", err);
                         let _ = msg.response_chn.send(Err(err.into()));
                         break;
                     }
@@ -140,32 +155,35 @@ impl SignalClient {
         }
     }
 
+    #[tracing::instrument]
     async fn ws_read(
-        mut write_receiver: mpsc::Receiver<RecvMessage>,
+        mut read_receiver: mpsc::Receiver<RecvMessage>,
         mut ws_reader: SplitStream<WebSocket>,
         mut shutdown_receiver: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
-                Some(msg) = write_receiver.recv() => {
-                    let read = ws_reader.next().await;
-                    if read.is_none() {
-                        let _ = msg.response_chn.send(Err(SignalError::WsError(WsError::ConnectionClosed)));
-                        break;
-                    }
-                    let read = read.unwrap();
-                    match read {
-                        Ok(Message::Binary(data)) => {
-                            let res = SignalResponse::decode(data.as_slice()).expect("failed to decode incoming SignalResponse");
-
-                            // TODO(theomonnon) Handle Message::Pong
-                            let res = res.message.unwrap();
-                            let _ = msg.response_chn.send(Ok(res));
-                        }
-                        _ => {
-                            error!("unhandled websocket message: {:?}", read);
-                            let _ = msg.response_chn.send(Err(SignalError::WsError(WsError::ConnectionClosed)));
-                            break;
+                Some(mut msg) = read_receiver.recv() => {
+                    tokio::select! {
+                        Some(read) = ws_reader.next() => {
+                           match read {
+                                Ok(Message::Binary(data)) => {
+                                    let res = SignalResponse::decode(data.as_slice()).expect("failed to decode SignalResponse");
+                                    let signal = res.message.unwrap();
+                                    event!(Level::TRACE, "received: {:?}", signal);
+                                    let _ = msg.response_chn.send(Some(signal));
+                                }
+                                _ => {
+                                    event!(Level::ERROR, "unhandled websocket message {:?}", read);
+                                    let _ = msg.response_chn.send(None);
+                                }
+                            }
+                        },
+                        _ = poll_fn(|cx| msg.response_chn.poll_closed(cx)) => {
+                            continue; // Cancelled
+                        },
+                        else => {
+                            break; // Connection closed
                         }
                     }
                 },
@@ -173,14 +191,4 @@ impl SignalClient {
             }
         }
     }
-}
-
-#[tokio::test]
-async fn test_test() {
-    env_logger::init();
-    let client = connect("ws://localhost:7880", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2NzEyMzk4NjAsImlzcyI6IkFQSXpLYkFTaUNWYWtnSiIsIm5hbWUiOiJ0ZXN0IiwibmJmIjoxNjY0MDM5ODYwLCJzdWIiOiJ0ZXN0IiwidmlkZW8iOnsicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZX19.0Bee2jI2cSZveAbZ8MLc-ADoMYQ4l8IRxcAxpXAS6a8").await.unwrap();
-    let msg = client.recv().await.unwrap();
-
-    client.close().await;
-    info!("Received message {:?}", msg);
 }

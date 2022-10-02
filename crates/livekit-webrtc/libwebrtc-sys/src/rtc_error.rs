@@ -59,8 +59,8 @@ impl ffi::RTCError {
         let message = String::from(&value[22..]); // msg isn't encoded
 
         Self {
-            error_type: unsafe { std::mem::transmute(error_type) },
-            error_detail: unsafe { std::mem::transmute(error_detail) },
+            error_type: std::mem::transmute(error_type),
+            error_detail: std::mem::transmute(error_detail),
             sctp_cause_code,
             has_sctp_cause_code: has_scp_cause_code == 1,
             message,
@@ -68,7 +68,7 @@ impl ffi::RTCError {
     }
 
     pub fn ok(&self) -> bool {
-        return self.error_type == RTCErrorType::None;
+        self.error_type == RTCErrorType::None
     }
 }
 

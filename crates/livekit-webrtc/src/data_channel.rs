@@ -18,7 +18,7 @@ pub struct DataChannel {
 
 impl Debug for DataChannel {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "DataChannel [{:?}]", self.label())
+        write!(f, "DataChannel[{}]", self.label())
     }
 }
 
@@ -100,8 +100,7 @@ impl DataChannel {
 }
 
 pub type OnStateChangeHandler = Box<dyn FnMut() + Send + Sync>;
-pub type OnMessageHandler = Box<dyn FnMut(&[u8], bool) + Send + Sync>;
-// data, is_binary
+pub type OnMessageHandler = Box<dyn FnMut(&[u8], bool) + Send + Sync>; // data, is_binary
 pub type OnBufferedAmountChangeHandler = Box<dyn FnMut(u64) + Send + Sync>;
 
 struct InternalDataChannelObserver {

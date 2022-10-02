@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use cxx::UniquePtr;
 
 use crate::candidate::ffi::Candidate;

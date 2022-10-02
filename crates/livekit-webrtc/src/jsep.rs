@@ -1,12 +1,18 @@
+use std::fmt::{Debug, Display, Formatter, write};
 use cxx::UniquePtr;
 use libwebrtc_sys::jsep as sys_jsep;
 
 pub use sys_jsep::ffi::{SdpType, SdpParseError};
 
 // TODO Maybe we can replace that by a serialized IceCandidateInit
-#[derive(Debug)]
 pub struct IceCandidate {
     cxx_handle: UniquePtr<sys_jsep::ffi::IceCandidate>,
+}
+
+impl Debug for IceCandidate {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "IceCandidate[{}]", self.to_string())
+    }
 }
 
 impl IceCandidate {
@@ -46,9 +52,14 @@ impl ToString for IceCandidate {
     }
 }
 
-#[derive(Debug)]
 pub struct SessionDescription {
     cxx_handle: UniquePtr<sys_jsep::ffi::SessionDescription>,
+}
+
+impl Debug for SessionDescription {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "SessionDescription[{}]", self.to_string())
+    }
 }
 
 impl SessionDescription {

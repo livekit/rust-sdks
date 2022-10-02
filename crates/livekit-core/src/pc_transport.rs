@@ -1,9 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
-
-use log::{error, trace};
-
+use tracing::{Level, event};
 use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
 use livekit_webrtc::peer_connection::{
     IceConnectionState, PeerConnection, RTCOfferAnswerOptions, SignalingState,
@@ -96,7 +94,7 @@ impl PCTransport {
         }
 
         if options.ice_restart {
-            trace!("restarting ICE");
+            event!(Level::TRACE, "restarting ICE");
             self.restarting_ice = true;
         }
 
@@ -107,7 +105,7 @@ impl PCTransport {
                         .set_remote_description(remote_description)
                         .await?;
                 } else {
-                    error!("trying to ice restart when the pc doesn't have remote description");
+                    event!(Level::ERROR, "trying to restart ICE when the pc doesn't have remote description");
                 }
             } else {
                 self.renegotiate = true;
@@ -116,7 +114,6 @@ impl PCTransport {
         }
 
         let offer = self.peer_connection.create_offer(options).await?;
-        trace!("created offer {:?}", offer);
         self.peer_connection
             .set_local_description(offer.clone())
             .await?;

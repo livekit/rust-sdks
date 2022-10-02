@@ -83,20 +83,8 @@ impl Display for ffi::SdpParseError {
     }
 }
 
-impl Debug for ffi::SessionDescription {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.stringify())
-    }
-}
-
 unsafe impl Send for ffi::SessionDescription {}
 unsafe impl Sync for ffi::SessionDescription {}
-
-impl Debug for ffi::IceCandidate {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.stringify())
-    }
-}
 
 unsafe impl Send for ffi::IceCandidate {}
 unsafe impl Sync for ffi::IceCandidate {}

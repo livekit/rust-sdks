@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use std::slice;
 
 #[cxx::bridge(namespace = "livekit")]
