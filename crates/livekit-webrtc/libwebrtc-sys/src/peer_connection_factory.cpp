@@ -30,6 +30,7 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>(
       dependencies.task_queue_factory.get());
+  dependencies.call_factory = webrtc::CreateCallFactory();
 
   cricket::MediaEngineDependencies media_deps;
   media_deps.task_queue_factory = dependencies.task_queue_factory.get();

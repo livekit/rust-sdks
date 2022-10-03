@@ -8,7 +8,7 @@
 
 namespace livekit {
 RTCRuntime::RTCRuntime() {
-  // rtc::LogMessage::LogToDebug(rtc::LS_INFO);
+  rtc::LogMessage::LogToDebug(rtc::LS_INFO);
   RTC_LOG(LS_INFO) << "RTCRuntime()";
   RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
 
