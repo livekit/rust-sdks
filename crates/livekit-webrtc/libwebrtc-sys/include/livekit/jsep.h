@@ -18,11 +18,12 @@ class IceCandidate {
  public:
   explicit IceCandidate(
       std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate);
-  
+
   rust::String sdp_mid() const;
   int sdp_mline_index() const;
-  rust::String candidate() const; // TODO(theomonnom) Return livekit::Candidate instead of rust::String
-  
+  rust::String candidate() const;  // TODO(theomonnom) Return livekit::Candidate
+                                   // instead of rust::String
+
   rust::String stringify() const;
   std::unique_ptr<webrtc::IceCandidateInterface> release();
 
@@ -30,7 +31,9 @@ class IceCandidate {
   std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate_;
 };
 
-std::unique_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid, int sdp_mline_index, rust::String sdp);
+std::unique_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
+                                                   int sdp_mline_index,
+                                                   rust::String sdp);
 
 static std::unique_ptr<IceCandidate> _unique_ice_candidate() {
   return nullptr;  // Ignore
@@ -49,7 +52,9 @@ class SessionDescription {
   std::unique_ptr<webrtc::SessionDescriptionInterface> session_description_;
 };
 
-std::unique_ptr<SessionDescription> create_session_description(SdpType type, rust::String sdp);
+std::unique_ptr<SessionDescription> create_session_description(
+    SdpType type,
+    rust::String sdp);
 
 static std::unique_ptr<SessionDescription> _unique_session_description() {
   return nullptr;  // Ignore

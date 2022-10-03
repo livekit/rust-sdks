@@ -1,8 +1,9 @@
-use std::fmt::{Debug, Display, Formatter, write};
-use cxx::UniquePtr;
-use libwebrtc_sys::jsep as sys_jsep;
+use std::fmt::{Debug, Display, Formatter};
 
-pub use sys_jsep::ffi::{SdpType, SdpParseError};
+use cxx::UniquePtr;
+
+use libwebrtc_sys::jsep as sys_jsep;
+pub use sys_jsep::ffi::{SdpParseError, SdpType};
 
 // TODO Maybe we can replace that by a serialized IceCandidateInit
 pub struct IceCandidate {

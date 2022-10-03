@@ -1,4 +1,5 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
+
 use cxx::UniquePtr;
 
 use crate::candidate::ffi::Candidate;
@@ -259,21 +260,27 @@ pub mod ffi {
 
 // https://webrtc.github.io/webrtc-org/native-code/native-apis/
 unsafe impl Send for ffi::PeerConnection {}
+
 unsafe impl Sync for ffi::PeerConnection {}
 
 unsafe impl Send for ffi::NativePeerConnectionObserver {}
+
 unsafe impl Sync for ffi::NativePeerConnectionObserver {}
 
 unsafe impl Sync for ffi::NativeAddIceCandidateObserver {}
+
 unsafe impl Send for ffi::NativeAddIceCandidateObserver {}
 
 unsafe impl Sync for ffi::NativeSetRemoteSdpObserverHandle {}
+
 unsafe impl Send for ffi::NativeSetRemoteSdpObserverHandle {}
 
 unsafe impl Sync for ffi::NativeSetLocalSdpObserverHandle {}
+
 unsafe impl Send for ffi::NativeSetLocalSdpObserverHandle {}
 
 unsafe impl Sync for ffi::NativeCreateSdpObserverHandle {}
+
 unsafe impl Send for ffi::NativeCreateSdpObserverHandle {}
 
 impl Default for ffi::RTCOfferAnswerOptions {

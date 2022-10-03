@@ -1,4 +1,4 @@
-use cxx::{SharedPtr};
+use cxx::SharedPtr;
 
 use libwebrtc_sys::webrtc as sys_rtc;
 

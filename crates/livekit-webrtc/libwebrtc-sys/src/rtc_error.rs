@@ -1,6 +1,7 @@
-use crate::rtc_error::ffi::RTCErrorType;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+
+use crate::rtc_error::ffi::RTCErrorType;
 
 // cxx doesn't support custom Exception type, so we serialize RTCError inside the cxx::Exception "what" string
 

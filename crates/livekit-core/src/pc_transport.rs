@@ -1,14 +1,17 @@
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
-use tracing::{Level, event};
+
+use tracing::{event, Level};
+
 use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
 use livekit_webrtc::peer_connection::{
     IceConnectionState, PeerConnection, RTCOfferAnswerOptions, SignalingState,
 };
 use livekit_webrtc::rtc_error::RTCError;
 
-const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150); // TODO(theomonnom)
+const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
 pub type OnOfferHandler = Box<dyn (FnMut(SessionDescription) -> Pin<Box<dyn Future<Output=()> + Send + 'static>>) + Send + Sync>;
 
@@ -18,6 +21,12 @@ pub struct PCTransport {
     on_offer_handler: Option<OnOfferHandler>,
     restarting_ice: bool,
     renegotiate: bool,
+}
+
+impl Debug for PCTransport {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.write_str("PCTransport")
+    }
 }
 
 impl PCTransport {
@@ -45,6 +54,7 @@ impl PCTransport {
         self.on_offer_handler = Some(handler);
     }
 
+    #[tracing::instrument]
     pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RTCError> {
         if self.peer_connection.remote_description().is_none() {
             self.pending_candidates.push(ice_candidate);
@@ -57,6 +67,7 @@ impl PCTransport {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn set_remote_description(
         &mut self,
         remote_description: SessionDescription,
@@ -79,12 +90,14 @@ impl PCTransport {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub async fn negotiate(&mut self) -> Result<(), RTCError> {
         // TODO(theomonnom) Debounce here with NEGOTIATION_FREQUENCY
         self.create_and_send_offer(RTCOfferAnswerOptions::default())
             .await
     }
 
+    #[tracing::instrument]
     async fn create_and_send_offer(
         &mut self,
         options: RTCOfferAnswerOptions,

@@ -43,5 +43,3 @@ impl LocalParticipant {
         self.engine.lock().await.publish_data(&data, kind).await.map_err(Into::into)
     }
 }
-
-

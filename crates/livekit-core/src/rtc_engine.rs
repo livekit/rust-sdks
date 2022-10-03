@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::Duration;
 
 use lazy_static::lazy_static;
@@ -23,15 +23,15 @@ use livekit_webrtc::peer_connection_factory::{
 };
 use livekit_webrtc::rtc_error::RTCError;
 
+use crate::{proto, signal_client};
 use crate::lk_runtime::LKRuntime;
 use crate::pc_transport::PCTransport;
-use crate::proto::data_packet::Value;
 use crate::proto::{
-    data_packet, signal_request, signal_response, DataPacket, JoinResponse, SignalTarget,
+    data_packet, DataPacket, JoinResponse, signal_request, signal_response, SignalTarget,
     TrickleRequest, UserPacket,
 };
+use crate::proto::data_packet::Value;
 use crate::signal_client::{SignalClient, SignalError};
-use crate::{proto, signal_client};
 
 const LOSSY_DC_LABEL: &str = "_lossy";
 const RELIABLE_DC_LABEL: &str = "_reliable";
@@ -107,7 +107,7 @@ pub enum EngineMessage {
 }
 
 pub type OnDataHandler =
-    Box<dyn (FnMut(Packet) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Send + Sync>;
+Box<dyn (FnMut(Packet) -> Pin<Box<dyn Future<Output=()> + Send + 'static>>) + Send + Sync>;
 
 struct EngineInternal {
     publisher_pc: Arc<Mutex<PCTransport>>,
@@ -142,7 +142,7 @@ pub struct RTCEngine {
     lk_runtime: Arc<LKRuntime>, // Keep a reference while we're using the RTCEngine
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(url, token))]
 pub async fn connect(url: &str, token: &str) -> Result<RTCEngine, EngineError> {
     // Acquire an existing/a new LKRuntime
     let mut lk_runtime_ref = LK_RUNTIME.lock().await;
@@ -214,11 +214,11 @@ impl RTCEngine {
         *self.internal.on_data_handler.lock().await = Some(f);
     }
 
-    fn data_channel(&self, kind: data_packet::Kind) -> &Arc<Mutex<DataChannel>> {
+    fn data_channel(&self, kind: data_packet::Kind) -> Arc<Mutex<DataChannel>> {
         if kind == data_packet::Kind::Reliable {
-            &self.internal.reliable_dc
+            self.internal.reliable_dc.clone()
         } else {
-            &self.internal.lossy_dc
+            self.internal.lossy_dc.clone()
         }
     }
 
@@ -236,7 +236,7 @@ impl RTCEngine {
             let mut publisher = publisher.lock().await;
             if !publisher.is_connected()
                 && publisher.peer_connection().ice_connection_state()
-                    != IceConnectionState::IceConnectionChecking
+                != IceConnectionState::IceConnectionChecking
             {
                 tokio::spawn({
                     let rtc_internal = self.internal.clone();
@@ -265,7 +265,7 @@ impl RTCEngine {
                 interval.tick().await;
             }
         })
-        .await;
+            .await;
 
         if res.is_err() {
             let err =
@@ -394,7 +394,7 @@ impl RTCEngine {
                     let _ = signal_client.send(signal_request::Message::Trickle(
                         TrickleRequest {
                             candidate_init: json,
-                            target: target as i32
+                            target: target as i32,
                         },
                     )).await;
                 });
@@ -469,7 +469,7 @@ impl RTCEngine {
                                 data: user,
                                 kind: data_packet::Kind::from_i32(data.kind).unwrap(),
                             })
-                            .await;
+                                .await;
                         }
                     }
                     Value::Speaker(_) => {
@@ -502,7 +502,7 @@ impl RTCEngine {
                             }
                         }
                         None => {
-                            // TODO{theomonnom) Trigger reconnect
+                            // TODO(theomonnom) Trigger reconnect
                         }
                     }
                 },

@@ -67,7 +67,8 @@ std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
   return std::make_unique<PeerConnection>(rtc_runtime_, result.value());
 }
 
-std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory(std::shared_ptr<RTCRuntime> rtc_runtime) {
+std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory(
+    std::shared_ptr<RTCRuntime> rtc_runtime) {
   return std::make_unique<PeerConnectionFactory>(std::move(rtc_runtime));
 }
 

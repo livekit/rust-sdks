@@ -11,3 +11,6 @@ members = [
     "crates/livekit-webrtc",
     "crates/livekit-webrtc/libwebrtc-sys"
 ]
+
+[dependencies]
+livekit-core = { path = "crates/livekit-core" }

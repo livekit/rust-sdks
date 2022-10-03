@@ -1,12 +1,12 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, Mutex};
+
 use cxx::UniquePtr;
 use log::trace;
 
 use libwebrtc_sys::data_channel as sys_dc;
-
-pub use sys_dc::ffi::{Priority, DataState};
+pub use sys_dc::ffi::{DataState, Priority};
 
 pub struct DataChannel {
     cxx_handle: UniquePtr<sys_dc::ffi::DataChannel>,
@@ -31,7 +31,7 @@ impl Display for DataSendError {
     }
 }
 
-impl Error for DataSendError { }
+impl Error for DataSendError {}
 
 impl DataChannel {
     pub(crate) fn new(cxx_handle: UniquePtr<sys_dc::ffi::DataChannel>) -> Self {
@@ -100,7 +100,8 @@ impl DataChannel {
 }
 
 pub type OnStateChangeHandler = Box<dyn FnMut() + Send + Sync>;
-pub type OnMessageHandler = Box<dyn FnMut(&[u8], bool) + Send + Sync>; // data, is_binary
+pub type OnMessageHandler = Box<dyn FnMut(&[u8], bool) + Send + Sync>;
+// data, is_binary
 pub type OnBufferedAmountChangeHandler = Box<dyn FnMut(u64) + Send + Sync>;
 
 struct InternalDataChannelObserver {

@@ -152,7 +152,8 @@ void NativePeerConnectionObserver::OnRemoveStream(
 
 void NativePeerConnectionObserver::OnDataChannel(
     rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) {
-  observer_->on_data_channel(std::make_unique<DataChannel>(rtc_runtime_, data_channel));
+  observer_->on_data_channel(
+      std::make_unique<DataChannel>(rtc_runtime_, data_channel));
 }
 
 void NativePeerConnectionObserver::OnRenegotiationNeeded() {

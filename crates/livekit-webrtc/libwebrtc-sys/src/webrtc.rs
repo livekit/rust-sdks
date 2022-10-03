@@ -1,5 +1,3 @@
-use cxx::UniquePtr;
-
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     unsafe extern "C++" {
@@ -12,4 +10,5 @@ pub mod ffi {
 }
 
 unsafe impl Send for ffi::RTCRuntime {}
+
 unsafe impl Sync for ffi::RTCRuntime {}

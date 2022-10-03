@@ -69,7 +69,8 @@ create_native_add_ice_candidate_observer(
 
 class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
  public:
-  explicit NativePeerConnectionObserver(std::shared_ptr<RTCRuntime> rtc_runtime,
+  explicit NativePeerConnectionObserver(
+      std::shared_ptr<RTCRuntime> rtc_runtime,
       rust::Box<PeerConnectionObserverWrapper> observer);
 
   void OnSignalingChange(

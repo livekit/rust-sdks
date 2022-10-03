@@ -13,7 +13,8 @@ namespace livekit {
 DataChannel::DataChannel(
     std::shared_ptr<RTCRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
-    : rtc_runtime_(std::move(rtc_runtime)), data_channel_(std::move(data_channel)) {}
+    : rtc_runtime_(std::move(rtc_runtime)),
+      data_channel_(std::move(data_channel)) {}
 
 void DataChannel::register_observer(NativeDataChannelObserver& observer) {
   data_channel_->RegisterObserver(&observer);

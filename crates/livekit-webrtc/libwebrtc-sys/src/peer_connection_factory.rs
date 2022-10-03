@@ -1,8 +1,3 @@
-use std::any::Any;
-
-use crate::jsep::CreateSdpObserver;
-use crate::peer_connection::PeerConnectionObserver;
-
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     #[derive(Debug, Clone)]
@@ -40,7 +35,7 @@ pub mod ffi {
 
         type PeerConnection = crate::peer_connection::ffi::PeerConnection;
         type NativePeerConnectionObserver =
-            crate::peer_connection::ffi::NativePeerConnectionObserver;
+        crate::peer_connection::ffi::NativePeerConnectionObserver;
         type PeerConnectionFactory;
         type NativeRTCConfiguration;
         type RTCRuntime = crate::webrtc::ffi::RTCRuntime;
@@ -59,4 +54,5 @@ pub mod ffi {
 }
 
 unsafe impl Send for ffi::PeerConnectionFactory {}
+
 unsafe impl Sync for ffi::PeerConnectionFactory {}

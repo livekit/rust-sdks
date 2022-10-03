@@ -28,7 +28,8 @@ class PeerConnectionFactory {
   rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
 };
 
-std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory(std::shared_ptr<RTCRuntime> rtc_runtime);
+std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory(
+    std::shared_ptr<RTCRuntime> rtc_runtime);
 std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(
     RTCConfiguration conf);
 }  // namespace livekit

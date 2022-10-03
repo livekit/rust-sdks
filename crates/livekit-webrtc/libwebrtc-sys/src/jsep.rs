@@ -71,7 +71,7 @@ pub mod ffi {
         fn create_session_description(sdp_type: SdpType, sdp: String) -> Result<UniquePtr<SessionDescription>>;
 
         fn _unique_ice_candidate() -> UniquePtr<IceCandidate>; // Ignore
-        fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
+    fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
     }
 }
 
@@ -84,9 +84,11 @@ impl Display for ffi::SdpParseError {
 }
 
 unsafe impl Send for ffi::SessionDescription {}
+
 unsafe impl Sync for ffi::SessionDescription {}
 
 unsafe impl Send for ffi::IceCandidate {}
+
 unsafe impl Sync for ffi::IceCandidate {}
 
 impl ffi::SdpParseError {
