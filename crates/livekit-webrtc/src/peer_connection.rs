@@ -1,14 +1,16 @@
+use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
 
 use cxx::UniquePtr;
 use log::trace;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use libwebrtc_sys::data_channel as sys_dc;
 use libwebrtc_sys::jsep as sys_jsep;
 use libwebrtc_sys::peer_connection as sys_pc;
 pub use libwebrtc_sys::peer_connection::ffi::IceConnectionState;
 pub use libwebrtc_sys::peer_connection::ffi::IceGatheringState;
+use libwebrtc_sys::peer_connection::ffi::NativeCreateSdpObserverHandle;
 pub use libwebrtc_sys::peer_connection::ffi::PeerConnectionState;
 pub use libwebrtc_sys::peer_connection::ffi::RTCOfferAnswerOptions;
 pub use libwebrtc_sys::peer_connection::ffi::SignalingState;
@@ -42,13 +44,34 @@ impl PeerConnection {
         }
     }
 
-    pub async fn create_offer(&mut self, options: RTCOfferAnswerOptions) -> Result<SessionDescription, RTCError> {
-        let (tx, mut rx) = mpsc::channel(1);
+    fn create_sdp_observer() -> (
+        UniquePtr<NativeCreateSdpObserverHandle>,
+        mpsc::Receiver<Result<SessionDescription, RTCError>>,
+    ) {
+        let (tx, rx) = mpsc::channel(1);
+        let wrapper = sys_jsep::CreateSdpObserverWrapper {
+            on_success: ManuallyDrop::new(Box::new({
+                let tx = tx.clone();
+                move |session_description| {
+                    let _ = tx.blocking_send(Ok(SessionDescription::new(session_description)));
+                }
+            })),
+            on_failure: ManuallyDrop::new(Box::new(move |error| {
+                let _ = tx.blocking_send(Err(error));
+            })),
+        };
 
-        let wrapper =
-            sys_jsep::CreateSdpObserverWrapper::new(Box::new(InternalCreateSdpObserver { tx }));
-        let mut native_wrapper =
-            sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper));
+        (
+            sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper)),
+            rx,
+        )
+    }
+
+    pub async fn create_offer(
+        &mut self,
+        options: RTCOfferAnswerOptions,
+    ) -> Result<SessionDescription, RTCError> {
+        let (mut native_wrapper, mut rx) = Self::create_sdp_observer();
 
         unsafe {
             self.cxx_handle
@@ -59,13 +82,11 @@ impl PeerConnection {
         rx.recv().await.unwrap()
     }
 
-    pub async fn create_answer(&mut self, options: RTCOfferAnswerOptions) -> Result<SessionDescription, RTCError> {
-        let (tx, mut rx) = mpsc::channel(1);
-
-        let wrapper =
-            sys_jsep::CreateSdpObserverWrapper::new(Box::new(InternalCreateSdpObserver { tx }));
-        let mut native_wrapper =
-            sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper));
+    pub async fn create_answer(
+        &mut self,
+        options: RTCOfferAnswerOptions,
+    ) -> Result<SessionDescription, RTCError> {
+        let (mut native_wrapper, mut rx) = Self::create_sdp_observer();
 
         unsafe {
             self.cxx_handle
@@ -80,9 +101,11 @@ impl PeerConnection {
         &mut self,
         desc: SessionDescription,
     ) -> Result<(), RTCError> {
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, rx) = oneshot::channel();
         let wrapper =
-            sys_jsep::SetLocalSdpObserverWrapper::new(Box::new(InternalSetLocalSdpObserver { tx }));
+            sys_jsep::SetLocalSdpObserverWrapper(ManuallyDrop::new(Box::new(move |error| {
+                let _ = tx.send(if error.ok() { Ok(()) } else { Err(error) });
+            })));
         let mut native_wrapper =
             sys_jsep::ffi::create_native_set_local_sdp_observer(Box::new(wrapper));
 
@@ -92,18 +115,18 @@ impl PeerConnection {
                 .set_local_description(desc.release(), native_wrapper.pin_mut());
         }
 
-        rx.recv().await.unwrap()
+        rx.await.unwrap()
     }
 
     pub async fn set_remote_description(
         &mut self,
         desc: SessionDescription,
     ) -> Result<(), RTCError> {
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, rx) = oneshot::channel();
         let wrapper =
-            sys_jsep::SetRemoteSdpObserverWrapper::new(Box::new(InternalSetRemoteSdpObserver {
-                tx,
-            }));
+            sys_jsep::SetRemoteSdpObserverWrapper(ManuallyDrop::new(Box::new(move |error| {
+                let _ = tx.send(if error.ok() { Ok(()) } else { Err(error) });
+            })));
         let mut native_wrapper =
             sys_jsep::ffi::create_native_set_remote_sdp_observer(Box::new(wrapper));
 
@@ -113,7 +136,7 @@ impl PeerConnection {
                 .set_remote_description(desc.release(), native_wrapper.pin_mut());
         }
 
-        rx.recv().await.unwrap()
+        rx.await.unwrap()
     }
 
     pub fn create_data_channel(
@@ -135,10 +158,11 @@ impl PeerConnection {
 
     // TODO(theomonnom) Use IceCandidateInit instead of IceCandidate
     pub async fn add_ice_candidate(&mut self, candidate: IceCandidate) -> Result<(), RTCError> {
-        let (tx, mut rx) = mpsc::channel(1);
-        let observer = sys_pc::AddIceCandidateObserverWrapper::new(Box::new(InternalAddIceCandidateObserver {
-            tx,
-        }));
+        let (tx, rx) = oneshot::channel();
+        let observer =
+            sys_pc::AddIceCandidateObserverWrapper(ManuallyDrop::new(Box::new(|error| {
+                let _ = tx.send(if error.ok() { Ok(()) } else { Err(error) });
+            })));
 
         let mut native_observer =
             sys_pc::ffi::create_native_add_ice_candidate_observer(Box::new(observer));
@@ -146,7 +170,7 @@ impl PeerConnection {
             .pin_mut()
             .add_ice_candidate(candidate.release(), native_observer.pin_mut());
 
-        rx.recv().await.unwrap()
+        rx.await.unwrap()
     }
 
     pub fn local_description(&self) -> Option<SessionDescription> {
@@ -293,67 +317,6 @@ impl PeerConnection {
     }
 }
 
-
-// SetLocalSdpObserver
-
-struct InternalAddIceCandidateObserver {
-    tx: mpsc::Sender<Result<(), RTCError>>,
-}
-
-impl sys_pc::AddIceCandidateObserver for InternalAddIceCandidateObserver {
-    fn on_complete(&self, error: RTCError) {
-        let res = if error.ok() { Ok(()) } else { Err(error) };
-        let _ = self.tx.blocking_send(res);
-    }
-}
-
-// CreateSdpObserver
-
-struct InternalCreateSdpObserver {
-    tx: mpsc::Sender<Result<SessionDescription, RTCError>>,
-}
-
-impl sys_jsep::CreateSdpObserver for InternalCreateSdpObserver {
-    fn on_success(
-        &self,
-        session_description: UniquePtr<libwebrtc_sys::jsep::ffi::SessionDescription>,
-    ) {
-        let _ = self.tx.blocking_send(Ok(SessionDescription::new(session_description)));
-    }
-
-    fn on_failure(&self, error: RTCError) {
-        let _ = self.tx.blocking_send(Err(error));
-    }
-}
-
-// SetLocalSdpObserver
-
-struct InternalSetLocalSdpObserver {
-    tx: mpsc::Sender<Result<(), RTCError>>,
-}
-
-impl sys_jsep::SetLocalSdpObserver for InternalSetLocalSdpObserver {
-    fn on_set_local_description_complete(&self, error: RTCError) {
-        let res = if error.ok() { Ok(()) } else { Err(error) };
-        let _ = self.tx.blocking_send(res);
-    }
-}
-
-// SetRemoteSdpObserver
-
-struct InternalSetRemoteSdpObserver {
-    tx: mpsc::Sender<Result<(), RTCError>>,
-}
-
-impl sys_jsep::SetRemoteSdpObserver for InternalSetRemoteSdpObserver {
-    fn on_set_remote_description_complete(&self, error: RTCError) {
-        let res = if error.ok() { Ok(()) } else { Err(error) };
-        let _ = self.tx.blocking_send(res);
-    }
-}
-
-// PeerConnectionObserver
-
 // TODO(theomonnom) Should we return futures?
 pub type OnSignalingChangeHandler = Box<dyn FnMut(SignalingState) + Send + Sync>;
 pub type OnAddStreamHandler = Box<dyn FnMut(MediaStream) + Send + Sync>;
@@ -363,16 +326,16 @@ pub type OnRenegotiationNeededHandler = Box<dyn FnMut() + Send + Sync>;
 pub type OnNegotiationNeededEventHandler = Box<dyn FnMut(u32) + Send + Sync>;
 pub type OnIceConnectionChangeHandler = Box<dyn FnMut(IceConnectionState) + Send + Sync>;
 pub type OnStandardizedIceConnectionChangeHandler =
-Box<dyn FnMut(IceConnectionState) + Send + Sync>;
+    Box<dyn FnMut(IceConnectionState) + Send + Sync>;
 pub type OnConnectionChangeHandler = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
 pub type OnIceGatheringChangeHandler = Box<dyn FnMut(IceGatheringState) + Send + Sync>;
 pub type OnIceCandidateHandler = Box<dyn FnMut(IceCandidate) + Send + Sync>;
 pub type OnIceCandidateErrorHandler =
-Box<dyn FnMut(String, i32, String, i32, String) + Send + Sync>;
+    Box<dyn FnMut(String, i32, String, i32, String) + Send + Sync>;
 pub type OnIceCandidatesRemovedHandler = Box<dyn FnMut(Vec<IceCandidate>) + Send + Sync>;
 pub type OnIceConnectionReceivingChangeHandler = Box<dyn FnMut(bool) + Send + Sync>;
 pub type OnIceSelectedCandidatePairChangedHandler =
-Box<dyn FnMut(libwebrtc_sys::peer_connection::ffi::CandidatePairChangeEvent) + Send + Sync>;
+    Box<dyn FnMut(libwebrtc_sys::peer_connection::ffi::CandidatePairChangeEvent) + Send + Sync>;
 pub type OnAddTrackHandler = Box<dyn FnMut(RtpReceiver, Vec<MediaStream>) + Send + Sync>;
 pub type OnTrackHandler = Box<dyn FnMut(RtpTransceiver) + Send + Sync>;
 pub type OnRemoveTrackHandler = Box<dyn FnMut(RtpReceiver) + Send + Sync>;
@@ -387,16 +350,16 @@ pub(crate) struct InternalObserver {
     on_negotiation_needed_event_handler: Arc<Mutex<Option<OnNegotiationNeededEventHandler>>>,
     on_ice_connection_change_handler: Arc<Mutex<Option<OnIceConnectionChangeHandler>>>,
     on_standardized_ice_connection_change_handler:
-    Arc<Mutex<Option<OnStandardizedIceConnectionChangeHandler>>>,
+        Arc<Mutex<Option<OnStandardizedIceConnectionChangeHandler>>>,
     on_connection_change_handler: Arc<Mutex<Option<OnConnectionChangeHandler>>>,
     on_ice_gathering_change_handler: Arc<Mutex<Option<OnIceGatheringChangeHandler>>>,
     on_ice_candidate_handler: Arc<Mutex<Option<OnIceCandidateHandler>>>,
     on_ice_candidate_error_handler: Arc<Mutex<Option<OnIceCandidateErrorHandler>>>,
     on_ice_candidates_removed_handler: Arc<Mutex<Option<OnIceCandidatesRemovedHandler>>>,
     on_ice_connection_receiving_change_handler:
-    Arc<Mutex<Option<OnIceConnectionReceivingChangeHandler>>>,
+        Arc<Mutex<Option<OnIceConnectionReceivingChangeHandler>>>,
     on_ice_selected_candidate_pair_changed_handler:
-    Arc<Mutex<Option<OnIceSelectedCandidatePairChangedHandler>>>,
+        Arc<Mutex<Option<OnIceSelectedCandidatePairChangedHandler>>>,
     on_add_track_handler: Arc<Mutex<Option<OnAddTrackHandler>>>,
     on_track_handler: Arc<Mutex<Option<OnTrackHandler>>>,
     on_remove_track_handler: Arc<Mutex<Option<OnRemoveTrackHandler>>>,
@@ -628,7 +591,9 @@ mod tests {
     use tokio::sync::mpsc;
 
     use libwebrtc_sys::peer_connection::ffi::RTCOfferAnswerOptions;
-    use libwebrtc_sys::peer_connection_factory::ffi::{ContinualGatheringPolicy, IceTransportsType};
+    use libwebrtc_sys::peer_connection_factory::ffi::{
+        ContinualGatheringPolicy, IceTransportsType,
+    };
 
     use crate::data_channel::{DataChannel, DataChannelInit};
     use crate::jsep::IceCandidate;
@@ -643,9 +608,9 @@ mod tests {
     async fn create_pc() {
         init_log();
 
-        let test = RTCRuntime::new();
+        let rtc_runtime = RTCRuntime::new();
 
-        let factory = PeerConnectionFactory::new();
+        let factory = PeerConnectionFactory::new(rtc_runtime);
         let config = RTCConfiguration {
             ice_servers: vec![ICEServer {
                 urls: vec!["stun:stun1.l.google.com:19302".to_string()],
@@ -679,12 +644,19 @@ mod tests {
             .create_data_channel("test_dc", DataChannelInit::default())
             .unwrap();
 
-        let offer = bob.create_offer(RTCOfferAnswerOptions::default()).await.unwrap();
+        let offer = bob
+            .create_offer(RTCOfferAnswerOptions::default())
+            .await
+            .unwrap();
         trace!("Bob offer: {:?}", offer);
         bob.set_local_description(offer.clone()).await.unwrap();
         alice.set_remote_description(offer).await.unwrap();
 
-        let answer = alice.create_answer(RTCOfferAnswerOptions::default()).await.unwrap();
+        let answer = alice
+            .create_answer(RTCOfferAnswerOptions::default())
+            .await
+            .unwrap();
+
         trace!("Alice answer: {:?}", answer);
         alice.set_local_description(answer.clone()).await.unwrap();
         bob.set_remote_description(answer).await.unwrap();
@@ -697,13 +669,13 @@ mod tests {
 
         let (data_tx, mut data_rx) = mpsc::channel::<String>(1);
         let mut alice_dc = alice_dc_rx.recv().await.unwrap();
-        alice_dc.on_message(Box::new(move |data, is_binary| {
+        alice_dc.on_message(Box::new(move |data, _| {
             data_tx
                 .blocking_send(String::from_utf8_lossy(data).to_string())
                 .unwrap();
         }));
 
-        assert!(bob_dc.send(b"This is a test", true));
+        bob_dc.send(b"This is a test", true).unwrap();
         assert_eq!(data_rx.recv().await.unwrap(), "This is a test");
 
         alice.close();

@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::mem::ManuallyDrop;
 use std::str::FromStr;
 
 use cxx::UniquePtr;
@@ -123,66 +124,46 @@ impl FromStr for ffi::SdpType {
 
 // CreateSdpObserver
 
-pub trait CreateSdpObserver: Send {
-    fn on_success(&self, session_description: UniquePtr<ffi::SessionDescription>);
-    fn on_failure(&self, error: RTCError);
-}
-
 pub struct CreateSdpObserverWrapper {
-    observer: Box<dyn CreateSdpObserver>,
+    pub on_success: ManuallyDrop<Box<dyn FnOnce(UniquePtr<ffi::SessionDescription>) + Send>>,
+    pub on_failure: ManuallyDrop<Box<dyn FnOnce(RTCError) + Send>>,
 }
 
 impl CreateSdpObserverWrapper {
-    pub fn new(observer: Box<dyn CreateSdpObserver>) -> Self {
-        Self { observer }
-    }
-
     fn on_success(&self, session_description: UniquePtr<ffi::SessionDescription>) {
-        self.observer.on_success(session_description);
+        unsafe {
+            std::ptr::read(&*self.on_success)(session_description);
+        }
     }
 
     fn on_failure(&self, error: RTCError) {
-        self.observer.on_failure(error);
+        unsafe {
+            std::ptr::read(&*self.on_failure)(error);
+        }
     }
 }
 
 // SetLocalSdpObserver
 
-pub trait SetLocalSdpObserver: Send {
-    fn on_set_local_description_complete(&self, error: RTCError);
-}
-
-pub struct SetLocalSdpObserverWrapper {
-    observer: Box<dyn SetLocalSdpObserver>,
-}
+pub struct SetLocalSdpObserverWrapper(pub ManuallyDrop<Box<dyn FnOnce(RTCError) + Send>>);
 
 impl SetLocalSdpObserverWrapper {
-    pub fn new(observer: Box<dyn SetLocalSdpObserver>) -> Self {
-        Self { observer }
-    }
-
     fn on_set_local_description_complete(&self, error: RTCError) {
-        self.observer.on_set_local_description_complete(error);
+        unsafe {
+            std::ptr::read(&*self.0)(error);
+        }
     }
 }
 
 // SetRemoteSdpObserver
 
-pub trait SetRemoteSdpObserver: Send {
-    fn on_set_remote_description_complete(&self, error: RTCError);
-}
-
-pub struct SetRemoteSdpObserverWrapper {
-    observer: Box<dyn SetRemoteSdpObserver>,
-}
+pub struct SetRemoteSdpObserverWrapper(pub ManuallyDrop<Box<dyn FnOnce(RTCError) + Send>>);
 
 impl SetRemoteSdpObserverWrapper {
-    pub fn new(observer: Box<dyn SetRemoteSdpObserver>) -> Self {
-        Self { observer }
-    }
-
     fn on_set_remote_description_complete(&self, error: RTCError) {
-        self.observer.on_set_remote_description_complete(error);
+        unsafe {
+            std::ptr::read(&*self.0)(error);
+        }
     }
 }
 

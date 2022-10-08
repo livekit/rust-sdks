@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::mem::ManuallyDrop;
 
 use cxx::UniquePtr;
 
@@ -304,21 +305,13 @@ impl Default for ffi::RTCOfferAnswerOptions {
     }
 }
 
-pub trait AddIceCandidateObserver: Send {
-    fn on_complete(&self, error: RTCError);
-}
-
-pub struct AddIceCandidateObserverWrapper {
-    observer: Box<dyn AddIceCandidateObserver>,
-}
+pub struct AddIceCandidateObserverWrapper(pub ManuallyDrop<Box<dyn FnOnce(RTCError) + Send>>);
 
 impl AddIceCandidateObserverWrapper {
-    pub fn new(observer: Box<dyn AddIceCandidateObserver>) -> Self {
-        Self { observer }
-    }
-
     fn on_complete(&self, error: RTCError) {
-        self.observer.on_complete(error);
+        unsafe {
+            std::ptr::read(&*self.0)(error);
+        }
     }
 }
 
