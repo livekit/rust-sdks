@@ -7,5 +7,6 @@ mod signal_client;
 mod pc_transport;
 mod rtc_engine;
 mod local_participant;
+mod event;
 
 pub mod room;

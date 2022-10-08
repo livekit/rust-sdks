@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tracing::{event, Level, trace};
 
 use crate::local_participant::LocalParticipant;
 use crate::rtc_engine;
@@ -12,6 +11,11 @@ use crate::rtc_engine::{EngineError, RTCEngine};
 pub enum RoomError {
     #[error("internal RTCEngine failure")]
     Engine(#[from] EngineError),
+}
+
+#[derive(Debug)]
+pub enum RoomEvent { 
+    
 }
 
 pub struct Room {
@@ -24,18 +28,16 @@ pub struct Room {
 #[tracing::instrument(skip(url, token))]
 pub async fn connect(url: &str, token: &str) -> Result<Room, RoomError> {
     let engine = rtc_engine::connect(url, token).await?;
-
-    engine.on_data(Box::new(|packet| {
-        event!(Level::DEBUG, "received data");
-        Box::pin(async move {})
-    })).await;
-
     let join = engine.join_response().await;
     let engine = Arc::new(Mutex::new(engine));
     let local_participant = LocalParticipant::from(join.participant.unwrap(), engine.clone());
-
     let internal = Arc::new(RoomInternal::new(engine));
     let room_info = join.room.unwrap();
+
+    tokio::spawn(async move {
+
+    });
+
     Ok(Room {
         sid: room_info.sid,
         name: room_info.name,
@@ -45,7 +47,11 @@ pub async fn connect(url: &str, token: &str) -> Result<Room, RoomError> {
 }
 
 impl Room {
-    pub fn local_participant(&mut self) -> &mut LocalParticipant {
+    pub fn local_participant(&self) -> &LocalParticipant {
+        &self.local_participant
+    }
+
+    pub fn local_participant_mut(&mut self) -> &mut LocalParticipant {
         &mut self.local_participant
     }
 

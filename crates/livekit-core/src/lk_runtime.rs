@@ -6,7 +6,7 @@ use livekit_webrtc::peer_connection_factory::PeerConnectionFactory;
 use livekit_webrtc::webrtc::RTCRuntime;
 
 /// SAFETY: The order of initialization and deletion is important for LKRuntime.
-/// See the C++ constructors & destructor of these fields
+/// See the C++ constructors & destructors of these fields
 
 pub struct LKRuntime {
     pub pc_factory: PeerConnectionFactory,

@@ -1,6 +1,4 @@
 use std::sync::Arc;
-
-use futures_util::TryFutureExt;
 use tokio::sync::Mutex;
 
 use crate::proto::{data_packet, DataPacket, ParticipantInfo, UserPacket};
