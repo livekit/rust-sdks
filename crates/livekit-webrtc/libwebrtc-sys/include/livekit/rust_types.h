@@ -23,6 +23,7 @@ enum class IceConnectionState;
 enum class IceGatheringState;
 enum class SdpType;
 enum class DataState;
+enum class TrackState;
 struct SdpParseError;
 struct RTCOfferAnswerOptions;
 struct RTCError;

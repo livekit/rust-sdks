@@ -6,7 +6,7 @@ use cxx::UniquePtr;
 use crate::candidate::ffi::Candidate;
 use crate::data_channel::ffi::DataChannel;
 use crate::jsep::ffi::IceCandidate;
-use crate::media_stream_interface::ffi::MediaStreamInterface;
+use crate::media_stream::ffi::MediaStream;
 use crate::rtc_error::ffi::RTCError;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
@@ -83,7 +83,7 @@ pub mod ffi {
     // Wrapper to opaque C++ objects
     // https://github.com/dtolnay/cxx/issues/741
     struct MediaStreamPtr {
-        pub ptr: UniquePtr<MediaStreamInterface>,
+        pub ptr: UniquePtr<MediaStream>,
     }
 
     struct CandidatePtr {
@@ -96,7 +96,7 @@ pub mod ffi {
         include!("livekit/data_channel.h");
         include!("livekit/rtp_receiver.h");
         include!("livekit/rtp_transceiver.h");
-        include!("livekit/media_stream_interface.h");
+        include!("livekit/media_stream.h");
         include!("livekit/candidate.h");
         include!("libwebrtc-sys/src/rtc_error.rs.h");
 
@@ -106,7 +106,7 @@ pub mod ffi {
         type DataChannel = crate::data_channel::ffi::DataChannel;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
         type RtpTransceiver = crate::rtp_transceiver::ffi::RtpTransceiver;
-        type MediaStreamInterface = crate::media_stream_interface::ffi::MediaStreamInterface;
+        type MediaStream = crate::media_stream::ffi::MediaStream;
         type NativeCreateSdpObserverHandle = crate::jsep::ffi::NativeCreateSdpObserverHandle;
         type NativeSetLocalSdpObserverHandle = crate::jsep::ffi::NativeSetLocalSdpObserverHandle;
         type NativeSetRemoteSdpObserverHandle = crate::jsep::ffi::NativeSetRemoteSdpObserverHandle;
@@ -194,14 +194,8 @@ pub mod ffi {
         type PeerConnectionObserverWrapper;
 
         fn on_signaling_change(self: &PeerConnectionObserverWrapper, new_state: SignalingState);
-        fn on_add_stream(
-            self: &PeerConnectionObserverWrapper,
-            stream: UniquePtr<MediaStreamInterface>,
-        );
-        fn on_remove_stream(
-            self: &PeerConnectionObserverWrapper,
-            stream: UniquePtr<MediaStreamInterface>,
-        );
+        fn on_add_stream(self: &PeerConnectionObserverWrapper, stream: UniquePtr<MediaStream>);
+        fn on_remove_stream(self: &PeerConnectionObserverWrapper, stream: UniquePtr<MediaStream>);
         fn on_data_channel(
             self: &PeerConnectionObserverWrapper,
             data_channel: UniquePtr<DataChannel>,
@@ -317,8 +311,8 @@ impl AddIceCandidateObserverWrapper {
 
 pub trait PeerConnectionObserver: Send + Sync {
     fn on_signaling_change(&self, new_state: ffi::SignalingState);
-    fn on_add_stream(&self, stream: UniquePtr<MediaStreamInterface>);
-    fn on_remove_stream(&self, stream: UniquePtr<MediaStreamInterface>);
+    fn on_add_stream(&self, stream: UniquePtr<MediaStream>);
+    fn on_remove_stream(&self, stream: UniquePtr<MediaStream>);
     fn on_data_channel(&self, data_channel: UniquePtr<DataChannel>);
     fn on_renegotiation_needed(&self);
     fn on_negotiation_needed_event(&self, event: u32);
@@ -338,11 +332,7 @@ pub trait PeerConnectionObserver: Send + Sync {
     fn on_ice_candidates_removed(&self, removed: Vec<UniquePtr<Candidate>>);
     fn on_ice_connection_receiving_change(&self, receiving: bool);
     fn on_ice_selected_candidate_pair_changed(&self, event: ffi::CandidatePairChangeEvent);
-    fn on_add_track(
-        &self,
-        receiver: UniquePtr<RtpReceiver>,
-        streams: Vec<UniquePtr<MediaStreamInterface>>,
-    );
+    fn on_add_track(&self, receiver: UniquePtr<RtpReceiver>, streams: Vec<UniquePtr<MediaStream>>);
     fn on_track(&self, transceiver: UniquePtr<RtpTransceiver>);
     fn on_remove_track(&self, receiver: UniquePtr<RtpReceiver>);
     fn on_interesting_usage(&self, usage_pattern: i32);
@@ -366,13 +356,13 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_add_stream(&self, stream: UniquePtr<MediaStreamInterface>) {
+    fn on_add_stream(&self, stream: UniquePtr<MediaStream>) {
         unsafe {
             (*self.observer).on_add_stream(stream);
         }
     }
 
-    fn on_remove_stream(&self, stream: UniquePtr<MediaStreamInterface>) {
+    fn on_remove_stream(&self, stream: UniquePtr<MediaStream>) {
         unsafe {
             (*self.observer).on_remove_stream(stream);
         }

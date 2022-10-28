@@ -472,6 +472,7 @@ dependencies = [
  "futures-util",
  "lazy_static",
  "livekit-webrtc",
+ "parking_lot",
  "prost",
  "prost-build",
  "prost-types",
@@ -931,6 +932,7 @@ dependencies = [
 name = "simple_room"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "livekit",
  "tokio",
  "tracing",

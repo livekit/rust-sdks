@@ -35,12 +35,14 @@ pub mod ffi {
 
         type PeerConnection = crate::peer_connection::ffi::PeerConnection;
         type NativePeerConnectionObserver =
-        crate::peer_connection::ffi::NativePeerConnectionObserver;
+            crate::peer_connection::ffi::NativePeerConnectionObserver;
         type PeerConnectionFactory;
         type NativeRTCConfiguration;
         type RTCRuntime = crate::webrtc::ffi::RTCRuntime;
 
-        fn create_peer_connection_factory(runtime: SharedPtr<RTCRuntime>) -> UniquePtr<PeerConnectionFactory>;
+        fn create_peer_connection_factory(
+            runtime: SharedPtr<RTCRuntime>,
+        ) -> UniquePtr<PeerConnectionFactory>;
         fn create_rtc_configuration(conf: RTCConfiguration) -> UniquePtr<NativeRTCConfiguration>;
 
         /// SAFETY

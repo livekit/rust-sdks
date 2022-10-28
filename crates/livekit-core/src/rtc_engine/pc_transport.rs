@@ -13,7 +13,11 @@ use livekit_webrtc::rtc_error::RTCError;
 
 const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
-pub type OnOfferHandler = Box<dyn (FnMut(SessionDescription) -> Pin<Box<dyn Future<Output=()> + Send + 'static>>) + Send + Sync>;
+pub type OnOfferHandler = Box<
+    dyn (FnMut(SessionDescription) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
+        + Send
+        + Sync,
+>;
 
 pub struct PCTransport {
     peer_connection: PeerConnection,
@@ -43,7 +47,7 @@ impl PCTransport {
     pub fn is_connected(&self) -> bool {
         self.peer_connection.ice_connection_state() == IceConnectionState::IceConnectionConnected
             || self.peer_connection.ice_connection_state()
-            == IceConnectionState::IceConnectionCompleted
+                == IceConnectionState::IceConnectionCompleted
     }
 
     pub fn peer_connection(&mut self) -> &mut PeerConnection {
@@ -118,7 +122,10 @@ impl PCTransport {
                         .set_remote_description(remote_description)
                         .await?;
                 } else {
-                    event!(Level::ERROR, "trying to restart ICE when the pc doesn't have remote description");
+                    event!(
+                        Level::ERROR,
+                        "trying to restart ICE when the pc doesn't have remote description"
+                    );
                 }
             } else {
                 self.renegotiate = true;

@@ -1,7 +1,7 @@
 pub mod candidate;
 pub mod data_channel;
 pub mod jsep;
-pub mod media_stream_interface;
+pub mod media_stream;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod rtc_error;

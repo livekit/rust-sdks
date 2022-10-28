@@ -402,10 +402,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_add_stream(
-        &self,
-        stream: UniquePtr<libwebrtc_sys::media_stream_interface::ffi::MediaStreamInterface>,
-    ) {
+    fn on_add_stream(&self, stream: UniquePtr<libwebrtc_sys::media_stream::ffi::MediaStream>) {
         trace!("on_add_stream");
         let mut handler = self.on_add_stream_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -413,10 +410,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_remove_stream(
-        &self,
-        stream: UniquePtr<libwebrtc_sys::media_stream_interface::ffi::MediaStreamInterface>,
-    ) {
+    fn on_remove_stream(&self, stream: UniquePtr<libwebrtc_sys::media_stream::ffi::MediaStream>) {
         trace!("on_remove_stream");
         let mut handler = self.on_remove_stream_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -548,12 +542,13 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     fn on_add_track(
         &self,
         receiver: UniquePtr<libwebrtc_sys::rtp_receiver::ffi::RtpReceiver>,
-        streams: Vec<UniquePtr<libwebrtc_sys::media_stream_interface::ffi::MediaStreamInterface>>,
+        streams: Vec<UniquePtr<libwebrtc_sys::media_stream::ffi::MediaStream>>,
     ) {
         trace!("on_add_track");
         let mut handler = self.on_add_track_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
-            // TODO(theomonnom)
+            let streams = streams.into_iter().map(MediaStream::new).collect();
+            f(RtpReceiver::new(receiver), streams)
         }
     }
 

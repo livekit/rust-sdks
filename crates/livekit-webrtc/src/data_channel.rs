@@ -99,6 +99,12 @@ impl DataChannel {
     }
 }
 
+impl Drop for DataChannel {
+    fn drop(&mut self) {
+        self.cxx_handle.pin_mut().unregister_observer();
+    }
+}
+
 pub type OnStateChangeHandler = Box<dyn FnMut() + Send + Sync>;
 pub type OnMessageHandler = Box<dyn FnMut(&[u8], bool) + Send + Sync>;
 // data, is_binary

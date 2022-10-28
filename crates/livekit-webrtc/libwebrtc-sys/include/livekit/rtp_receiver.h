@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "api/rtp_receiver_interface.h"
+#include "livekit/media_stream.h"
 
 namespace livekit {
 
@@ -15,6 +16,8 @@ class RtpReceiver {
  public:
   explicit RtpReceiver(
       rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
+
+  std::unique_ptr<MediaStreamTrack> track() const;
 
  private:
   rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;

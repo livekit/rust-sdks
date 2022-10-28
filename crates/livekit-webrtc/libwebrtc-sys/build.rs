@@ -71,7 +71,7 @@ fn main() {
     let mut builder = cxx_build::bridges(&[
         "src/peer_connection.rs",
         "src/peer_connection_factory.rs",
-        "src/media_stream_interface.rs",
+        "src/media_stream.rs",
         "src/data_channel.rs",
         "src/jsep.rs",
         "src/candidate.rs",
@@ -83,7 +83,7 @@ fn main() {
 
     builder.file("src/peer_connection.cpp");
     builder.file("src/peer_connection_factory.cpp");
-    builder.file("src/media_stream_interface.cpp");
+    builder.file("src/media_stream.cpp");
     builder.file("src/data_channel.cpp");
     builder.file("src/jsep.cpp");
     builder.file("src/candidate.cpp");
@@ -203,7 +203,7 @@ fn main() {
             let jni_regex = Regex::new(r"(Java_org_webrtc.*)").unwrap();
             let content = &String::from_utf8_lossy(&readelf_output.stdout);
             let mut jni_symbols = Vec::new();
-            jni_regex.captures_iter(&content).for_each(|cap| {
+            jni_regex.captures_iter(content).for_each(|cap| {
                 jni_symbols.push(cap.get(1).unwrap().as_str());
             });
 
@@ -215,7 +215,7 @@ fn main() {
 
             write!(vs_file, "JNI_WEBRTC {{\n\tglobal: ").unwrap();
             write!(vs_file, "JNI_OnLoad; ").unwrap();
-            for x in &jni_symbols {
+            for x in jni_symbols {
                 println!("cargo:rustc-link-arg=-Wl,--undefined={}", x);
                 write!(vs_file, "{}; ", x).unwrap();
             }
