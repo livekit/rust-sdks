@@ -1,6 +1,3 @@
-extern crate core;
-extern crate core;
-
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/livekit.rs"));
 }

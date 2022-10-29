@@ -1,4 +1,3 @@
-use core::num::flt2dec::Sign;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};

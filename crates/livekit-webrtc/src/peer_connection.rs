@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
 
@@ -29,6 +30,18 @@ pub struct PeerConnection {
     // Keep alive for C++
     #[allow(unused)]
     native_observer: UniquePtr<sys_pc::ffi::NativePeerConnectionObserver>,
+}
+
+impl Debug for PeerConnection {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("PeerConnection")
+            .field("signaling_state", &self.signaling_state())
+            .field("ice_connection_state", &self.ice_connection_state())
+            .field("ice_gathering_state", &self.ice_gathering_state())
+            .field("local_description", &self.local_description())
+            .field("remote_description", &self.remote_description())
+            .finish()
+    }
 }
 
 impl PeerConnection {

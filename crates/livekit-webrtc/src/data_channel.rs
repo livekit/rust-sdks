@@ -18,7 +18,9 @@ pub struct DataChannel {
 
 impl Debug for DataChannel {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "DataChannel[{}]", self.label())
+        f.debug_struct("DataChannel")
+            .field("label", &self.label())
+            .finish()
     }
 }
 
