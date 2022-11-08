@@ -1,27 +1,69 @@
+#[derive(Debug)]
 pub enum TrackKind {
+    Unknown,
     Audio,
-    Video
+    Video,
 }
 
+impl From<u8> for TrackKind {
+    fn from(val: u8) -> Self {
+        match val {
+            1 => Self::Audio,
+            2 => Self::Video,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum StreamState {
+    Unknown,
     Active,
     Paused,
-    Unknown
 }
 
+#[derive(Debug)]
 pub enum TrackSource {
+    Unknown,
     Camera,
     Microphone,
     Screenshare,
     ScreenshareAudio,
-    Unknown,
+}
+
+impl From<u8> for TrackSource {
+    fn from(val: u8) -> Self {
+        match val {
+            1 => Self::Camera,
+            2 => Self::Microphone,
+            3 => Self::Screenshare,
+            4 => Self::ScreenshareAudio,
+            _ => Self::Unknown,
+        }
+    }
 }
 
 pub struct LocalVideoTrack {}
 pub struct RemoteVideoTrack {}
 pub struct LocalAudioTrack {}
-pub struct RemoteAudioTrack {}
 
+
+pub struct RemoteAudioTrack {
+
+
+}
+
+impl RemoteVideoTrack {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
+
+impl RemoteAudioTrack {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
 
 pub enum RemoteTrack {
     Audio(RemoteAudioTrack),

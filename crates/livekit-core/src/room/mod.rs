@@ -1,7 +1,6 @@
 use futures_util::future::BoxFuture;
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
 use parking_lot::{Mutex, RwLock};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::AtomicU8;
@@ -36,6 +35,7 @@ pub enum RoomError {
 
 type RoomResult<T> = Result<T, RoomError>;
 
+#[derive(Debug)]
 pub enum ConnectionState {
     Disconnected,
     Connecting,

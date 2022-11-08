@@ -10,7 +10,7 @@ pub(super) struct ParticipantShared {
     pub(super) identity: Mutex<ParticipantIdentity>,
     pub(super) name: Mutex<String>,
     pub(super) metadata: Mutex<String>,
-    pub(super) tracks: RwLock<HashMap<TrackSid, Arc<TrackPublication>>>,
+    pub(super) tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
 }
 
 impl ParticipantShared {
@@ -50,7 +50,7 @@ pub enum Participant {
     Remote(RemoteParticipant),
 }
 
-macro_rules! shared_method {
+macro_rules! shared_getter {
     ($x:ident, $ret:ident) => {
         fn $x(&self) -> $ret {
             match self {
@@ -62,10 +62,10 @@ macro_rules! shared_method {
 }
 
 impl ParticipantTrait for Participant {
-    shared_method!(sid, ParticipantSid);
-    shared_method!(identity, ParticipantIdentity);
-    shared_method!(name, String);
-    shared_method!(metadata, String);
+    shared_getter!(sid, ParticipantSid);
+    shared_getter!(identity, ParticipantIdentity);
+    shared_getter!(name, String);
+    shared_getter!(metadata, String);
 
     fn update_info(&self, info: ParticipantInfo) {
         match self {
