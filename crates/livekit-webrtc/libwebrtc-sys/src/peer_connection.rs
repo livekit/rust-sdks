@@ -344,7 +344,7 @@ pub struct PeerConnectionObserverWrapper {
 }
 
 impl PeerConnectionObserverWrapper {
-    /// SAFETY
+    /// # Safety
     /// PeerConnectionObserver must lives as long as PeerConnectionObserverWrapper does
     pub unsafe fn new(observer: *mut dyn PeerConnectionObserver) -> Self {
         Self { observer }

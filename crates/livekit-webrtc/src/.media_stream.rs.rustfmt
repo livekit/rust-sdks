@@ -18,8 +18,7 @@ pub trait MediaStreamTrackTrait {
     fn state(&self) -> TrackState;
 }
 
-#[derive(Clone)]
-pub enum MediaStreamTrackHandle {
+pub enum MediaStreamTrack {
     Audio(Arc<AudioTrack>),
     Video(Arc<VideoTrack>),
 }
@@ -35,25 +34,25 @@ macro_rules! shared_getter {
     };
 }
 
-impl MediaStreamTrackHandle {
+impl MediaStreamTrack {
     pub(crate) fn new(cxx_handle: UniquePtr<sys_ms::ffi::MediaStreamTrack>) -> Self {
         unsafe {
             if cxx_handle.kind() == MEDIA_TYPE_VIDEO {
-                Self::Video(VideoTrack::new(UniquePtr::from_raw(
+                Self::Video(Arc::new(VideoTrack::new(UniquePtr::from_raw(
                     sys_ms::ffi::media_to_video(cxx_handle.into_raw())
                         as *mut sys_ms::ffi::VideoTrack,
-                )))
+                ))))
             } else {
-                Self::Audio(AudioTrack::new(UniquePtr::from_raw(
+                Self::Audio(Arc::new(AudioTrack::new(UniquePtr::from_raw(
                     sys_ms::ffi::media_to_audio(cxx_handle.into_raw())
                         as *mut sys_ms::ffi::AudioTrack,
-                )))
+                ))))
             }
         }
     }
 }
 
-impl Debug for MediaStreamTrackHandle {
+impl Debug for MediaStreamTrack {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         f.debug_struct("MediaStreamTrack")
             .field("id", &self.id())
@@ -64,7 +63,7 @@ impl Debug for MediaStreamTrackHandle {
     }
 }
 
-impl MediaStreamTrackTrait for MediaStreamTrackHandle {
+impl MediaStreamTrackTrait for MediaStreamTrack {
     shared_getter!(kind, String);
     shared_getter!(id, String);
     shared_getter!(enabled, bool);
@@ -83,10 +82,10 @@ pub struct AudioTrack {
 }
 
 impl AudioTrack {
-    pub(crate) fn new(cxx_handle: UniquePtr<sys_ms::ffi::AudioTrack>) -> Arc<Self> {
-        Arc::new(Self {
+    pub(crate) fn new(cxx_handle: UniquePtr<sys_ms::ffi::AudioTrack>) -> Self {
+        Self {
             cxx_handle: Mutex::new(cxx_handle),
-        })
+        }
     }
 }
 
@@ -178,7 +177,7 @@ impl sys_ms::VideoFrameSink for InternalVideoTrackSink {
 }
 
 impl VideoTrack {
-    fn new(cxx_handle: UniquePtr<sys_ms::ffi::VideoTrack>) -> Arc<Self> {
+    fn new(cxx_handle: UniquePtr<sys_ms::ffi::VideoTrack>) -> Self {
         let mut observer = Box::new(InternalVideoTrackSink::default());
 
         let mut track = unsafe {
@@ -200,10 +199,13 @@ impl VideoTrack {
                 .add_sink(track.native_observer.pin_mut());
         }
 
-        Arc::new(track)
+        track
     }
 
     pub fn set_should_receive(&mut self, should_receive: bool) {
+
+
+        
         self.cxx_handle
             .lock()
             .unwrap()

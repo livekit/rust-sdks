@@ -52,7 +52,7 @@ fn macos_link_search_path() -> Option<String> {
 
 fn main() {
     // TODO Download precompiled binaries of WebRTC for the target_os
-    let target_os = "macos";
+    let target_os = "windows";
     //let target_arch = "arm64";
 
     let libwebrtc_dir = path::PathBuf::from("libwebrtc");
@@ -79,6 +79,8 @@ fn main() {
         "src/rtp_transceiver.rs",
         "src/rtc_error.rs",
         "src/webrtc.rs",
+        "src/video_frame.rs",
+        "src/video_frame_buffer.rs",
     ]);
 
     builder.file("src/peer_connection.cpp");

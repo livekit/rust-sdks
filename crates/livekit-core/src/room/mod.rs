@@ -1,29 +1,27 @@
-use futures_util::future::BoxFuture;
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
+use self::id::ParticipantSid;
+use self::participant::local_participant::LocalParticipant;
+use self::participant::remote_participant::RemoteParticipant;
+use self::participant::ParticipantInternalTrait;
+use self::participant::ParticipantTrait;
+use crate::events::room::{ParticipantConnectedEvent, ParticipantDisconnectedEvent, RoomEvents};
 use crate::proto;
-use crate::proto::{participant_info, ParticipantInfo};
-use crate::room::id::{ParticipantIdentity, ParticipantSid};
-use crate::room::local_participant::LocalParticipant;
-use crate::room::participant::ParticipantTrait;
-use crate::room::remote_participant::RemoteParticipant;
+use crate::proto::participant_info;
 use thiserror::Error;
 use tracing::error;
 
 use crate::rtc_engine::{EngineError, EngineEvent, EngineEvents, RTCEngine};
 use crate::signal_client::SignalOptions;
 
-mod id;
-mod local_participant;
-mod participant;
-mod remote_participant;
-mod track;
-mod track_publication;
+pub mod id;
+pub mod participant;
+pub mod publication;
+pub mod track;
 
 #[derive(Error, Debug)]
 pub enum RoomError {
@@ -52,15 +50,6 @@ struct RoomInner {
     local_participant: Arc<LocalParticipant>,
 }
 
-type OnParticipantConnectedHandler =
-    Box<dyn FnMut(RoomHandle, Arc<RemoteParticipant>) -> BoxFuture<'static, ()> + Send + Sync>;
-type OnParticipantDisconnectedHandler = OnParticipantConnectedHandler;
-
-struct RoomEvents {
-    on_participant_connected_handler: Mutex<Option<OnParticipantConnectedHandler>>,
-    on_participant_disconnected_handler: Mutex<Option<OnParticipantDisconnectedHandler>>,
-}
-
 pub struct Room {
     inner: Option<Arc<RoomInner>>,
     events: Arc<RoomEvents>,
@@ -70,11 +59,12 @@ impl Room {
     pub fn new() -> Room {
         Self {
             inner: None,
-            events: Arc::new(RoomEvents {
-                on_participant_connected_handler: Default::default(),
-                on_participant_disconnected_handler: Default::default(),
-            }),
+            events: Default::default(),
         }
+    }
+
+    pub fn events(&self) -> Arc<RoomEvents> {
+        self.events.clone()
     }
 
     pub async fn connect(&mut self, url: &str, token: &str) -> RoomResult<()> {
@@ -107,28 +97,6 @@ impl Room {
         self.inner.as_ref().map(|inner| RoomHandle {
             inner: inner.clone(),
         })
-    }
-
-    pub fn on_participant_connected<F, Fut>(&self, mut callback: F)
-    where
-        F: FnMut(RoomHandle, Arc<RemoteParticipant>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + Sync + 'static,
-    {
-        *self.events.on_participant_connected_handler.lock() =
-            Some(Box::new(move |handle, participant| {
-                Box::pin(callback(handle, participant))
-            }));
-    }
-
-    pub fn on_participant_disconnected<F, Fut>(&self, mut callback: F)
-    where
-        F: FnMut(RoomHandle, Arc<RemoteParticipant>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + Sync + 'static,
-    {
-        *self.events.on_participant_disconnected_handler.lock() =
-            Some(Box::new(move |handle, participant| {
-                Box::pin(callback(handle, participant))
-            }));
     }
 
     async fn room_task(
@@ -178,7 +146,10 @@ impl Room {
                     Self::get_participant(room_inner.clone(), &participant_sid.to_string().into());
 
                 if let Some(remote_participant) = remote_participant {
-
+                    remote_participant.add_subscribed_media_track(
+                        track_sid.to_string().into(),
+                        rtp_receiver.track(),
+                    );
                 } else {
                     // The server should send participant updates before sending a new offer
                     // So this should not happen.
@@ -223,13 +194,14 @@ impl Room {
                 }
             } else {
                 // Create a new participant and call OnConnect event
-                let remote_participant = Self::get_or_create_participant(room_inner.clone(), pi);
-                let mut handler = room_events.on_participant_connected_handler.lock();
-                if let Some(callback) = handler.as_mut() {
-                    callback(
-                        RoomHandle::from(room_inner.clone()),
-                        remote_participant.clone(),
-                    );
+                let remote_participant =
+                    Self::get_or_create_participant(room_inner.clone(), room_events.clone(), pi);
+                let mut handler = room_events.on_participant_connected.lock();
+                if let Some(cb) = handler.as_mut() {
+                    cb(ParticipantConnectedEvent {
+                        room_handle: RoomHandle::from(room_inner.clone()),
+                        participant: remote_participant.clone(),
+                    });
                 }
             }
         }
@@ -247,12 +219,12 @@ impl Room {
 
         // TODO(theomonnom): Unpublish all tracks
 
-        let mut handler = room_events.on_participant_disconnected_handler.lock();
-        if let Some(callback) = handler.as_mut() {
-            callback(
-                RoomHandle::from(room_inner.clone()),
-                remote_participant.clone(),
-            );
+        let mut handler = room_events.on_participant_disconnected.lock();
+        if let Some(cb) = handler.as_mut() {
+            cb(ParticipantDisconnectedEvent {
+                room_handle: RoomHandle::from(room_inner.clone()),
+                participant: remote_participant.clone(),
+            });
         }
     }
 
@@ -265,6 +237,7 @@ impl Room {
 
     fn get_or_create_participant(
         room_inner: Arc<RoomInner>,
+        room_events: Arc<RoomEvents>,
         pi: proto::ParticipantInfo,
     ) -> Arc<RemoteParticipant> {
         let participants = room_inner.participants.upgradable_read();
@@ -275,6 +248,13 @@ impl Room {
         } else {
             let mut participants = RwLockUpgradableReadGuard::upgrade(participants);
             let p = Arc::new(RemoteParticipant::new(pi));
+
+            // Forward participantevents to room events
+            p.internal_events().on_track_published({
+                let room_events = room_events.clone();
+                |event| async move {}
+            });
+
             participants.insert(sid, p.clone());
             p
         }

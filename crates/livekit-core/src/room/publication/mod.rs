@@ -1,8 +1,10 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use crate::room::id::TrackSid;
+use crate::room::track::local_track::LocalTrackHandle;
+use crate::room::track::remote_track::RemoteTrackHandle;
+use crate::room::track::{TrackHandle, TrackKind, TrackSource};
 use parking_lot::Mutex;
-use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
-use crate::room::track::{TrackKind, TrackSource};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Arc;
 
 pub trait TrackPublicationTrait {
     fn name(&self) -> String;
@@ -13,21 +15,22 @@ pub trait TrackPublicationTrait {
 }
 
 pub(super) struct TrackPublicationShared {
+    pub(super) track: Mutex<Option<TrackHandle>>,
     pub(super) name: Mutex<String>,
     pub(super) sid: Mutex<TrackSid>,
-    pub(super) kind: AtomicU8, // Casted to TrackKind
+    pub(super) kind: AtomicU8,   // Casted to TrackKind
     pub(super) source: AtomicU8, // Casted to TrackSource
-    pub(super) simulcasted: AtomicBool
+    pub(super) simulcasted: AtomicBool,
 }
 
 #[derive(Clone)]
 pub enum TrackPublication {
     Local(LocalTrackPublication),
-    Remote(RemoteTrackPublication)
+    Remote(RemoteTrackPublication),
 }
 
 macro_rules! shared_getter {
-    ($x:ident, $ret:ident) => {
+    ($x:ident, $ret:ty) => {
         fn $x(&self) -> $ret {
             match self {
                 TrackPublication::Local(p) => p.$x(),
@@ -35,6 +38,15 @@ macro_rules! shared_getter {
             }
         }
     };
+}
+
+impl TrackPublication {
+    pub fn track(&self) -> Option<TrackHandle> {
+        match self {
+            TrackPublication::Local(p) => p.shared.track.lock().clone(),
+            TrackPublication::Remote(p) => p.shared.track.lock().clone(),
+        }
+    }
 }
 
 impl TrackPublicationTrait for TrackPublication {
@@ -68,19 +80,37 @@ macro_rules! impl_publication_trait {
                 self.shared.simulcasted.load(Ordering::SeqCst)
             }
         }
-    }
+    };
 }
-
-
 
 #[derive(Clone)]
 pub struct LocalTrackPublication {
-    shared: Arc<TrackPublicationShared>
+    shared: Arc<TrackPublicationShared>,
+}
+
+impl LocalTrackPublication {
+    pub fn track(&self) -> Option<LocalTrackHandle> {
+        self.shared
+            .track
+            .lock()
+            .clone()
+            .map(|local_track| local_track.try_into().unwrap())
+    }
 }
 
 #[derive(Clone)]
 pub struct RemoteTrackPublication {
-    shared: Arc<TrackPublicationShared>
+    shared: Arc<TrackPublicationShared>,
+}
+
+impl RemoteTrackPublication {
+    pub fn track(&self) -> Option<RemoteTrackHandle> {
+        self.shared
+            .track
+            .lock()
+            .clone()
+            .map(|track| track.try_into().unwrap())
+    }
 }
 
 impl_publication_trait!(LocalTrackPublication);

@@ -18,7 +18,7 @@ pub use libwebrtc_sys::peer_connection::ffi::SignalingState;
 
 use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::jsep::{IceCandidate, SessionDescription};
-use crate::media_stream::MediaStream;
+use crate::media_stream::{MediaStream, VideoTrack, AudioTrack};
 use crate::rtc_error::RTCError;
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_transceiver::RtpTransceiver;

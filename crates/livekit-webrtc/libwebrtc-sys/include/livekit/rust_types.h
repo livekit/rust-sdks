@@ -15,6 +15,7 @@ struct SetLocalSdpObserverWrapper;
 struct SetRemoteSdpObserverWrapper;
 struct DataChannelObserverWrapper;
 struct AddIceCandidateObserverWrapper;
+struct VideoFrameSinkWrapper;
 
 // Shared types
 enum class PeerConnectionState;
@@ -24,6 +25,9 @@ enum class IceGatheringState;
 enum class SdpType;
 enum class DataState;
 enum class TrackState;
+enum class ContentHint;
+enum class VideoRotation;
+enum class VideoFrameBufferType;
 struct SdpParseError;
 struct RTCOfferAnswerOptions;
 struct RTCError;

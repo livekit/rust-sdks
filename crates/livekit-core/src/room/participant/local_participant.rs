@@ -2,7 +2,6 @@ use crate::proto::{data_packet, DataPacket, UserPacket};
 use crate::room::participant::{impl_participant_trait, ParticipantShared};
 use crate::room::RoomError;
 use crate::rtc_engine::RTCEngine;
-use std::sync::Arc;
 
 pub struct LocalParticipant {
     shared: ParticipantShared,
@@ -10,7 +9,7 @@ pub struct LocalParticipant {
 }
 
 impl LocalParticipant {
-    pub(super) fn new(rtc_engine: Arc<RTCEngine>, info: ParticipantInfo) -> Self {
+    pub(crate) fn new(rtc_engine: Arc<RTCEngine>, info: ParticipantInfo) -> Self {
         Self {
             shared: ParticipantShared::new(
                 info.sid.into(),

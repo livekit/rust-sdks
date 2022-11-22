@@ -109,13 +109,13 @@ impl Drop for DataChannel {
 
 pub type OnStateChangeHandler = Box<dyn FnMut() + Send + Sync>;
 pub type OnMessageHandler = Box<dyn FnMut(&[u8], bool) + Send + Sync>;
-// data, is_binary
 pub type OnBufferedAmountChangeHandler = Box<dyn FnMut(u64) + Send + Sync>;
 
+#[derive(Default)]
 struct InternalDataChannelObserver {
-    on_state_change_handler: Arc<Mutex<Option<OnStateChangeHandler>>>,
-    on_message_handler: Arc<Mutex<Option<OnMessageHandler>>>,
-    on_buffered_amount_change_handler: Arc<Mutex<Option<OnBufferedAmountChangeHandler>>>,
+    on_state_change_handler: Mutex<Option<OnStateChangeHandler>>,
+    on_message_handler: Mutex<Option<OnMessageHandler>>,
+    on_buffered_amount_change_handler: Mutex<Option<OnBufferedAmountChangeHandler>>,
 }
 
 impl sys_dc::DataChannelObserver for InternalDataChannelObserver {
@@ -140,16 +140,6 @@ impl sys_dc::DataChannelObserver for InternalDataChannelObserver {
         let mut handler = self.on_buffered_amount_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(sent_data_size);
-        }
-    }
-}
-
-impl Default for InternalDataChannelObserver {
-    fn default() -> Self {
-        Self {
-            on_state_change_handler: Arc::new(Default::default()),
-            on_message_handler: Arc::new(Default::default()),
-            on_buffered_amount_change_handler: Arc::new(Default::default()),
         }
     }
 }

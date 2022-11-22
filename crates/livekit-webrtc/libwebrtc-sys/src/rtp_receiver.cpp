@@ -10,7 +10,7 @@ RtpReceiver::RtpReceiver(
     : receiver_(std::move(receiver)) {}
 
 std::unique_ptr<MediaStreamTrack> RtpReceiver::track() const {
-  return std::make_unique<MediaStreamTrack>(receiver_->track());
+  return MediaStreamTrack::from(receiver_->track());
 }
 
 }  // namespace livekit

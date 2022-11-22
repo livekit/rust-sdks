@@ -1,3 +1,24 @@
+use crate::room::id::TrackSid;
+use crate::room::track::local_audio_track::LocalAudioTrack;
+use crate::room::track::local_video_track::LocalVideoTrack;
+use crate::room::track::remote_audio_track::RemoteAudioTrack;
+use crate::room::track::remote_video_track::RemoteVideoTrack;
+use crate::utils::wrap_variants;
+use livekit_webrtc::media_stream::{MediaStreamTrackHandle, MediaStreamTrackTrait};
+use parking_lot::Mutex;
+use std::sync::atomic::AtomicU8;
+use std::sync::Arc;
+
+pub mod audio_track;
+pub mod events;
+pub mod local_audio_track;
+pub mod local_track;
+pub mod local_video_track;
+pub mod remote_audio_track;
+pub mod remote_track;
+pub mod remote_video_track;
+pub mod video_track;
+
 #[derive(Debug)]
 pub enum TrackKind {
     Unknown,
@@ -22,6 +43,16 @@ pub enum StreamState {
     Paused,
 }
 
+impl From<u8> for StreamState {
+    fn from(val: u8) -> Self {
+        match val {
+            1 => Self::Active,
+            2 => Self::Paused,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum TrackSource {
     Unknown,
@@ -43,135 +74,114 @@ impl From<u8> for TrackSource {
     }
 }
 
-pub struct LocalVideoTrack {}
-pub struct RemoteVideoTrack {}
-pub struct LocalAudioTrack {}
-
-
-pub struct RemoteAudioTrack {
-
-
+pub trait TrackTrait {
+    fn sid(&self) -> TrackSid;
+    fn name(&self) -> String;
+    fn kind(&self) -> TrackKind;
+    fn stream_state(&self) -> StreamState;
+    fn start(&self);
+    fn stop(&self);
 }
 
-impl RemoteVideoTrack {
-    pub(crate) fn new() -> Self {
-        Self {}
+pub(super) struct TrackShared {
+    pub(super) sid: Mutex<TrackSid>,
+    pub(super) name: Mutex<String>,
+    pub(super) kind: AtomicU8,         // TrackKind
+    pub(super) stream_state: AtomicU8, // StreamState
+    pub(super) rtc_track: MediaStreamTrackHandle,
+}
+
+impl TrackShared {
+    pub(crate) fn new(
+        sid: TrackSid,
+        name: String,
+        kind: TrackKind,
+        rtc_track: MediaStreamTrackHandle,
+    ) -> Self {
+        Self {
+            sid: Mutex::new(sid),
+            name: Mutex::new(name),
+            kind: AtomicU8::new(kind as u8),
+            stream_state: AtomicU8::new(StreamState::Active as u8),
+            rtc_track: rtc_track,
+        }
+    }
+
+    pub(crate) fn start(&self) {
+        self.rtc_track.set_enabled(true);
+    }
+
+    pub(crate) fn stop(&self) {
+        self.rtc_track.set_enabled(false);
     }
 }
 
-impl RemoteAudioTrack {
-    pub(crate) fn new() -> Self {
-        Self {}
-    }
+#[derive(Clone)]
+pub enum TrackHandle {
+    LocalVideo(Arc<LocalVideoTrack>),
+    LocalAudio(Arc<LocalAudioTrack>),
+    RemoteVideo(Arc<RemoteVideoTrack>),
+    RemoteAudio(Arc<RemoteAudioTrack>),
 }
 
-pub enum RemoteTrack {
-    Audio(RemoteAudioTrack),
-    Video(RemoteVideoTrack),
+impl TrackTrait for TrackHandle {
+    wrap_variants!(
+        [LocalVideo, LocalAudio, RemoteVideo, RemoteAudio]
+        fnc!(sid, TrackSid, []);
+        fnc!(name, String, []);
+        fnc!(kind, TrackKind, []);
+        fnc!(stream_state, StreamState, []);
+        fnc!(start, (), []);
+        fnc!(stop, (), []);
+    );
 }
 
-pub enum LocalTrack {
-    Audio(LocalAudioTrack),
-    Video(LocalVideoTrack),
-}
-
-pub enum VideoTrack {
-    Local(LocalVideoTrack),
-    Remote(RemoteVideoTrack),
-}
-
-pub enum AudioTrack {
-    Local(LocalAudioTrack),
-    Remote(RemoteAudioTrack),
-}
-
-pub enum Track {
-    LocalVideo(LocalVideoTrack),
-    LocalAudio(LocalAudioTrack),
-    RemoteVideo(RemoteVideoTrack),
-    RemoteAudio(RemoteAudioTrack),
-}
-
-impl From<VideoTrack> for Track {
-    fn from(video_track: VideoTrack) -> Self {
-        match video_track {
-            VideoTrack::Local(local_video) => Self::LocalVideo(local_video),
-            VideoTrack::Remote(remote_video) => Self::RemoteVideo(remote_video),
+impl TrackHandle {
+    pub fn rtc_track(&self) -> MediaStreamTrackHandle {
+        match self {
+            Self::RemoteVideo(remote_video) => {
+                MediaStreamTrackHandle::Video(remote_video.rtc_track())
+            }
+            Self::RemoteAudio(remote_audio) => {
+                MediaStreamTrackHandle::Audio(remote_audio.rtc_track())
+            }
+            _ => todo!(),
         }
     }
 }
 
-impl From<AudioTrack> for Track {
-    fn from(audio_track: AudioTrack) -> Self {
-        match audio_track {
-            AudioTrack::Local(local_audio) => Self::LocalAudio(local_audio),
-            AudioTrack::Remote(remote_audio) => Self::RemoteAudio(remote_audio),
+macro_rules! impl_track_trait {
+    ($x:ident) => {
+        use crate::room::id::TrackSid;
+        use crate::room::track::{StreamState, TrackKind, TrackTrait};
+        use std::sync::atomic::Ordering;
+
+        impl TrackTrait for $x {
+            fn sid(&self) -> TrackSid {
+                self.shared.sid.lock().clone()
+            }
+
+            fn name(&self) -> String {
+                self.shared.name.lock().clone()
+            }
+
+            fn kind(&self) -> TrackKind {
+                self.shared.kind.load(Ordering::SeqCst).into()
+            }
+
+            fn stream_state(&self) -> StreamState {
+                self.shared.stream_state.load(Ordering::SeqCst).into()
+            }
+
+            fn start(&self) {
+                self.shared.start();
+            }
+
+            fn stop(&self) {
+                self.shared.stop();
+            }
         }
-    }
+    };
 }
 
-impl From<LocalTrack> for Track {
-    fn from(local_track: LocalTrack) -> Self {
-        match local_track {
-            LocalTrack::Audio(local_audio) => Self::LocalAudio(local_audio),
-            LocalTrack::Video(local_video) => Self::LocalVideo(local_video),
-        }
-    }
-}
-
-impl From<RemoteTrack> for Track {
-    fn from(remote_track: RemoteTrack) -> Self {
-        match remote_track {
-            RemoteTrack::Audio(remote_audio) => Self::RemoteAudio(remote_audio),
-            RemoteTrack::Video(remote_video) => Self::RemoteVideo(remote_video),
-        }
-    }
-}
-
-impl TryFrom<Track> for VideoTrack {
-    type Error = &'static str;
-
-    fn try_from(track: Track) -> Result<Self, Self::Error> {
-        match track {
-            Track::LocalVideo(local_video) => Ok(Self::Local(local_video)),
-            Track::RemoteVideo(remote_video) => Ok(Self::Remote(remote_video)),
-            _ => Err("not a video track"),
-        }
-    }
-}
-
-impl TryFrom<Track> for AudioTrack {
-    type Error = &'static str;
-
-    fn try_from(track: Track) -> Result<Self, Self::Error> {
-        match track {
-            Track::LocalAudio(local_audio) => Ok(Self::Local(local_audio)),
-            Track::RemoteAudio(remote_audio) => Ok(Self::Remote(remote_audio)),
-            _ => Err("not a audio track"),
-        }
-    }
-}
-
-impl TryFrom<Track> for LocalTrack {
-    type Error = &'static str;
-
-    fn try_from(track: Track) -> Result<Self, Self::Error> {
-        match track {
-            Track::LocalAudio(local_audio) => Ok(Self::Audio(local_audio)),
-            Track::LocalVideo(local_video) => Ok(Self::Video(local_video)),
-            _ => Err("not a local track"),
-        }
-    }
-}
-
-impl TryFrom<Track> for RemoteTrack {
-    type Error = &'static str;
-
-    fn try_from(track: Track) -> Result<Self, Self::Error> {
-        match track {
-            Track::RemoteAudio(remote_audio) => Ok(Self::Audio(remote_audio)),
-            Track::RemoteVideo(remote_video) => Ok(Self::Video(remote_video)),
-            _ => Err("not a remote track"),
-        }
-    }
-}
+pub(super) use impl_track_trait;

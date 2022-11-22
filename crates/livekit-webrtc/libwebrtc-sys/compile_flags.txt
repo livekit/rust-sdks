@@ -1,0 +1,8 @@
+-xc++
+-std=c++17
+-Iinclude
+-Ilibwebrtc/include
+-Ilibwebrtc/include/third_party/abseil-cpp
+-Ilibwebrtc/include/third_party/libc++
+-I../../../target/cxxbridge
+-DWEBRTC_WIN
