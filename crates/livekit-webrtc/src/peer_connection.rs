@@ -459,7 +459,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_ice_connection_change(&self, new_state: IceConnectionState) {
-        trace!("on_ice_connection_change");
+        trace!("on_ice_connection_change (new_state: {:?})", new_state);
         let mut handler = self.on_ice_connection_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(new_state);
@@ -467,7 +467,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_standardized_ice_connection_change(&self, new_state: IceConnectionState) {
-        trace!("on_standardized_ice_connection_change");
+        trace!("on_standardized_ice_connection_change (new_state: {:?}", new_state);
         let mut handler = self
             .on_standardized_ice_connection_change_handler
             .lock()
@@ -478,7 +478,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_connection_change(&self, new_state: PeerConnectionState) {
-        trace!("on_connection_change");
+        trace!("on_connection_change (new_state: {:?})", new_state);
         let mut handler = self.on_connection_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(new_state);
@@ -486,7 +486,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
     }
 
     fn on_ice_gathering_change(&self, new_state: IceGatheringState) {
-        trace!("on_ice_gathering_change");
+        trace!("on_ice_gathering_change (new_state: {:?}", new_state);
         let mut handler = self.on_ice_gathering_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(new_state);

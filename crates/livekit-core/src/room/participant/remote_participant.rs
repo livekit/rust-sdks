@@ -1,16 +1,25 @@
-use crate::events::participant::{TrackSubscribedEvent, TrackSubscriptionFailedEvent};
+use crate::events::participant::{
+    TrackPublishedEvent, TrackSubscribedEvent, TrackSubscriptionFailedEvent,
+};
 use crate::events::TrackError;
 use crate::room::id::TrackSid;
-use crate::room::participant::{impl_participant_trait, ParticipantShared};
-use crate::room::publication::{RemoteTrackPublication, TrackPublication, TrackPublicationTrait};
+use crate::room::participant::{
+    impl_participant_trait, ParticipantInternalTrait, ParticipantShared,
+};
+use crate::room::publication::{
+    RemoteTrackPublication, TrackPublication, TrackPublicationInternalTrait, TrackPublicationTrait,
+};
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
-use crate::room::track::{TrackTrait, TrackKind};
+use crate::room::track::{TrackKind, TrackTrait, TrackHandle};
 use livekit_webrtc::media_stream::MediaStreamTrackHandle;
+use std::collections::HashSet;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
-use tracing::error;
+use tracing::{info, error};
+
+use super::ParticipantTrait;
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -80,6 +89,9 @@ impl RemoteParticipant {
                     _ => unreachable!(),
                 };
 
+                info!("starting track: {:?}", sid);
+
+                remote_publication.update_track(Some(track.clone().into()));
                 self.shared
                     .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
                 track.start();
@@ -143,6 +155,50 @@ impl RemoteParticipant {
                 unreachable!()
             }
         })
+    }
+
+    pub(crate) async fn update_info(self: Arc<Self>, info: ParticipantInfo) {
+        self.shared.update_info(info.clone());
+
+        let mut valid_tracks = HashSet::<TrackSid>::new();
+
+        for track in info.tracks {
+            if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
+                publication.update_info(track.clone());
+            } else {
+                let publication = RemoteTrackPublication::new(track.clone(), self.sid(), None);
+                self.shared
+                    .add_track_publication(TrackPublication::Remote(publication.clone()));
+
+                // This is a new track, fire publish events
+                let event = TrackPublishedEvent {
+                    participant: self.clone(),
+                    publication: publication.clone(),
+                };
+
+                if let Some(cb) = self
+                    .shared
+                    .internal_events
+                    .on_track_published
+                    .lock()
+                    .as_mut()
+                {
+                    cb(event.clone()).await;
+                }
+
+                if let Some(cb) = self.shared.events.on_track_published.lock().as_mut() {
+                    cb(event).await;
+                }
+            }
+
+            valid_tracks.insert(track.sid.into());
+        }
+    }
+}
+
+impl ParticipantInternalTrait for RemoteParticipant {
+    fn internal_events(&self) -> Arc<ParticipantEvents> {
+        self.shared.internal_events.clone()
     }
 }
 

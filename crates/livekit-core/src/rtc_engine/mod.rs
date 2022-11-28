@@ -10,7 +10,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time::sleep;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::{proto, signal_client};
 use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataSendError, DataState};
@@ -280,6 +280,7 @@ impl RTCEngine {
             }
             RTCEvent::ConnectionChange { state, target } => {
                 // Reconnect if we've been disconnected unexpectedly
+                trace!("Connection change, {:?} {:?}", state, target);
                 let subscriber_primary = engine_inner.join_response.lock().subscriber_primary;
                 let is_primary = subscriber_primary && target == SignalTarget::Subscriber;
 
@@ -328,10 +329,12 @@ impl RTCEngine {
                 target,
             } => {
                 if target == SignalTarget::Subscriber {
-                    let _ = emitter.send(EngineEvent::AddTrack {
-                        rtp_receiver,
-                        streams,
-                    });
+                    let _ = emitter
+                        .send(EngineEvent::AddTrack {
+                            rtp_receiver,
+                            streams,
+                        })
+                        .await;
                 }
             }
             RTCEvent::Data { data, binary } => {
@@ -377,7 +380,7 @@ impl RTCEngine {
             signal_response::Message::Offer(offer) => {
                 // Handle the subscriber offer & send an answer to livekit-server
                 // We always get an offer from the server when connecting
-                trace!("received offer from the publisher: {:?}", offer);
+                trace!("received offer for the subscriber: {:?}", offer);
                 let sdp = SessionDescription::from(offer.r#type.parse().unwrap(), &offer.sdp)?;
 
                 engine_inner
@@ -438,7 +441,7 @@ impl RTCEngine {
                 }
             }
             signal_response::Message::Update(update) => {
-                let _ = emitter.send(EngineEvent::ParticipantUpdate(update));
+                let _ = emitter.send(EngineEvent::ParticipantUpdate(update)).await;
             }
             _ => {}
         }

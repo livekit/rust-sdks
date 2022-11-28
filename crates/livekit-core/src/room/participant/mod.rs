@@ -65,13 +65,22 @@ pub trait ParticipantTrait {
     fn identity(&self) -> ParticipantIdentity;
     fn name(&self) -> String;
     fn metadata(&self) -> String;
-    fn update_info(&self, info: ParticipantInfo);
 }
 
 #[derive(Clone)]
 pub enum ParticipantHandle {
     Local(Arc<LocalParticipant>),
     Remote(Arc<RemoteParticipant>),
+}
+
+impl ParticipantHandle {
+    // TODO(theomonnom): Add async support to wrap_variants ... 
+    pub(crate) async fn update_info(&self, info: ParticipantInfo) {
+        match self {
+            Self::Local(inner) => inner.clone().update_info(info).await,
+            Self::Remote(inner) => inner.clone().update_info(info).await,
+        }
+    }
 }
 
 impl ParticipantInternalTrait for ParticipantHandle {
@@ -89,7 +98,6 @@ impl ParticipantTrait for ParticipantHandle {
         fnc!(identity, ParticipantIdentity, []);
         fnc!(name, String, []);
         fnc!(metadata, String, []);
-        fnc!(update_info, (), [info: ParticipantInfo]);
     );
 }
 
@@ -99,12 +107,6 @@ macro_rules! impl_participant_trait {
         use crate::proto::ParticipantInfo;
         use crate::room::id::{ParticipantIdentity, ParticipantSid};
         use std::sync::Arc;
-
-        impl crate::room::participant::ParticipantInternalTrait for $x {
-            fn internal_events(&self) -> Arc<ParticipantEvents> {
-                self.shared.internal_events.clone()
-            }
-        }
 
         impl crate::room::participant::ParticipantTrait for $x {
             fn events(&self) -> Arc<ParticipantEvents> {
@@ -125,10 +127,6 @@ macro_rules! impl_participant_trait {
 
             fn metadata(&self) -> String {
                 self.shared.metadata.lock().clone()
-            }
-
-            fn update_info(&self, info: ParticipantInfo) {
-                self.shared.update_info(info);
             }
         }
     };

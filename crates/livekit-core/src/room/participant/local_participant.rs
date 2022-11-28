@@ -1,5 +1,5 @@
 use crate::proto::{data_packet, DataPacket, UserPacket};
-use crate::room::participant::{impl_participant_trait, ParticipantShared};
+use crate::room::participant::{impl_participant_trait, ParticipantShared, ParticipantInternalTrait};
 use crate::room::RoomError;
 use crate::rtc_engine::RTCEngine;
 
@@ -39,6 +39,16 @@ impl LocalParticipant {
             .publish_data(&data, kind)
             .await
             .map_err(Into::into)
+    }
+
+    pub(crate) async fn update_info(self: Arc<Self>, info: ParticipantInfo) {
+        self.shared.update_info(info);
+    }
+}
+
+impl ParticipantInternalTrait for LocalParticipant {
+    fn internal_events(&self) -> Arc<ParticipantEvents> {
+        self.shared.internal_events.clone()
     }
 }
 

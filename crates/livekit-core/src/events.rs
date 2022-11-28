@@ -8,7 +8,7 @@ macro_rules! event_setter {
         pub fn $fnc<F, Fut>(&self, mut callback: F)
         where
             F: FnMut($event) -> Fut + Send + Sync + 'static,
-            Fut: Future<Output = ()> + Send + Sync + 'static,
+            Fut: Future<Output = ()> + Send + 'static,
         {
             *self.$fnc.lock() = Some(Box::new(move |event| Box::pin(callback(event))));
         }

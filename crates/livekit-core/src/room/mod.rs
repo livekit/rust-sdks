@@ -9,11 +9,13 @@ use self::participant::local_participant::LocalParticipant;
 use self::participant::remote_participant::RemoteParticipant;
 use self::participant::ParticipantInternalTrait;
 use self::participant::ParticipantTrait;
-use crate::events::room::{ParticipantConnectedEvent, ParticipantDisconnectedEvent, RoomEvents};
+use crate::events::room::{
+    ParticipantConnectedEvent, ParticipantDisconnectedEvent, RoomEvents, TrackSubscribedEvent,
+};
 use crate::proto;
 use crate::proto::participant_info;
 use thiserror::Error;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::rtc_engine::{EngineError, EngineEvent, EngineEvents, RTCEngine};
 use crate::signal_client::SignalOptions;
@@ -63,10 +65,6 @@ impl Room {
         }
     }
 
-    pub fn events(&self) -> Arc<RoomEvents> {
-        self.events.clone()
-    }
-
     pub async fn connect(&mut self, url: &str, token: &str) -> RoomResult<()> {
         let (rtc_engine, engine_events) =
             RTCEngine::connect(url, token, SignalOptions::default()).await?;
@@ -88,9 +86,19 @@ impl Room {
 
         self.inner = Some(inner.clone());
 
+        // Add already connected participants
+        for pi in join_response.other_participants {
+            let p = Self::create_participant(inner.clone(), self.events.clone(), pi.clone());
+            p.update_info(pi).await;
+        }
+
         tokio::spawn(Self::room_task(inner, self.events.clone(), engine_events));
 
         Ok(())
+    }
+
+    pub fn events(&self) -> Arc<RoomEvents> {
+        self.events.clone()
     }
 
     pub fn get_handle(&self) -> Option<RoomHandle> {
@@ -121,6 +129,7 @@ impl Room {
         match event {
             EngineEvent::ParticipantUpdate(update) => {
                 Self::handle_participant_update(room_inner.clone(), room_events.clone(), update)
+                    .await
             }
             EngineEvent::AddTrack {
                 rtp_receiver,
@@ -164,7 +173,7 @@ impl Room {
         Ok(())
     }
 
-    fn handle_participant_update(
+    async fn handle_participant_update(
         room_inner: Arc<RoomInner>,
         room_events: Arc<RoomEvents>,
         update: proto::ParticipantUpdate,
@@ -173,7 +182,7 @@ impl Room {
             if pi.sid == room_inner.local_participant.sid()
                 || pi.identity == room_inner.local_participant.identity()
             {
-                room_inner.local_participant.update_info(pi);
+                room_inner.local_participant.clone().update_info(pi).await;
                 continue;
             }
 
@@ -190,12 +199,12 @@ impl Room {
                     )
                 } else {
                     // Participant is already connected, update the informations
-                    remote_participant.update_info(pi);
+                    remote_participant.update_info(pi).await;
                 }
             } else {
                 // Create a new participant and call OnConnect event
                 let remote_participant =
-                    Self::get_or_create_participant(room_inner.clone(), room_events.clone(), pi);
+                    Self::create_participant(room_inner.clone(), room_events.clone(), pi);
                 let mut handler = room_events.on_participant_connected.lock();
                 if let Some(cb) = handler.as_mut() {
                     cb(ParticipantConnectedEvent {
@@ -235,29 +244,41 @@ impl Room {
         room_inner.participants.read().get(sid).cloned()
     }
 
-    fn get_or_create_participant(
+    fn create_participant(
         room_inner: Arc<RoomInner>,
         room_events: Arc<RoomEvents>,
         pi: proto::ParticipantInfo,
     ) -> Arc<RemoteParticipant> {
-        let participants = room_inner.participants.upgradable_read();
-        let sid = pi.sid.clone().into();
-        if let Some(p) = participants.get(&sid) {
-            p.update_info(pi);
-            p.clone()
-        } else {
-            let mut participants = RwLockUpgradableReadGuard::upgrade(participants);
-            let p = Arc::new(RemoteParticipant::new(pi));
+        let p = Arc::new(RemoteParticipant::new(pi.clone()));
 
-            // Forward participantevents to room events
-            p.internal_events().on_track_published({
+        // Forward participantevents to room events
+        p.internal_events().on_track_subscribed({
+            let room_events = room_events.clone();
+            let room_inner = room_inner.clone();
+
+            move |event| {
                 let room_events = room_events.clone();
-                |event| async move {}
-            });
+                let room_inner = room_inner.clone();
 
-            participants.insert(sid, p.clone());
-            p
-        }
+                async move {
+                    if let Some(cb) = room_events.clone().on_track_subscribed.lock().as_mut() {
+                        cb(TrackSubscribedEvent {
+                            room_handle: RoomHandle::from(room_inner.clone()),
+                            track: event.track,
+                            participant: event.participant,
+                            publication: event.publication,
+                        })
+                        .await;
+                    }
+                }
+            }
+        });
+
+        room_inner
+            .participants
+            .write()
+            .insert(pi.sid.into(), p.clone());
+        p
     }
 }
 

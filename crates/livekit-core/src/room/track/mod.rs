@@ -1,3 +1,4 @@
+use crate::proto::{TrackSource as ProtoTrackSource, TrackType};
 use crate::room::id::TrackSid;
 use crate::room::track::local_audio_track::LocalAudioTrack;
 use crate::room::track::local_video_track::LocalVideoTrack;
@@ -31,6 +32,16 @@ impl From<u8> for TrackKind {
         match val {
             1 => Self::Audio,
             2 => Self::Video,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<TrackType> for TrackKind {
+    fn from(r#type: TrackType) -> Self {
+        match r#type {
+            TrackType::Audio => Self::Audio,
+            TrackType::Video => Self::Video,
             _ => Self::Unknown,
         }
     }
@@ -74,6 +85,20 @@ impl From<u8> for TrackSource {
     }
 }
 
+impl From<ProtoTrackSource> for TrackSource {
+    fn from(source: ProtoTrackSource) -> Self {
+        match source {
+            ProtoTrackSource::Camera => Self::Camera,
+            ProtoTrackSource::Microphone => Self::Microphone,
+            ProtoTrackSource::ScreenShare => Self::Screenshare,
+            ProtoTrackSource::ScreenShareAudio => Self::ScreenshareAudio,
+            ProtoTrackSource::Unknown => Self::Unknown,
+        }
+    }
+}
+
+pub struct TrackDimension(pub u32, pub u32);
+
 pub trait TrackTrait {
     fn sid(&self) -> TrackSid;
     fn name(&self) -> String;
@@ -103,7 +128,7 @@ impl TrackShared {
             name: Mutex::new(name),
             kind: AtomicU8::new(kind as u8),
             stream_state: AtomicU8::new(StreamState::Active as u8),
-            rtc_track: rtc_track,
+            rtc_track,
         }
     }
 

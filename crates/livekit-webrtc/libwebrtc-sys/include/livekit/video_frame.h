@@ -30,8 +30,8 @@ class VideoFrame {
   }
 
   // TODO(theomonnom) This shouldn't create a new shared_ptr at each call
-  std::shared_ptr<VideoFrameBuffer> video_frame_buffer() const {
-    return std::make_shared<VideoFrameBuffer>(frame_.video_frame_buffer());
+  std::unique_ptr<VideoFrameBuffer> video_frame_buffer() const {
+    return std::make_unique<VideoFrameBuffer>(frame_.video_frame_buffer());
   }
 
  private:

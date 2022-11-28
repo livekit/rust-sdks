@@ -3,6 +3,8 @@ use libwebrtc_sys::video_frame as vf_sys;
 
 pub use vf_sys::ffi::VideoRotation;
 
+use crate::video_frame_buffer::VideoFrameBuffer;
+
 pub struct VideoFrame {
     cxx_handle: UniquePtr<vf_sys::ffi::VideoFrame>,
 }
@@ -31,7 +33,7 @@ impl VideoFrame {
     pub fn timestamp_us(&self) -> i64 {
         self.cxx_handle.timestamp_us()
     }
-    
+
     pub fn ntp_time_ms(&self) -> i64 {
         self.cxx_handle.ntp_time_ms()
     }
@@ -46,5 +48,13 @@ impl VideoFrame {
 
     pub fn rotation(&self) -> VideoRotation {
         self.cxx_handle.rotation()
+    }
+
+    /// # Safety
+    /// Must be called only once, this function create the safe Rust
+    /// wrapper around a VideoFrameBuffer.
+    /// Only one wrapper musts exist at a time.
+    pub(crate) unsafe fn video_frame_buffer(&self) -> VideoFrameBuffer {
+        VideoFrameBuffer::new(self.cxx_handle.video_frame_buffer())
     }
 }

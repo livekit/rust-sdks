@@ -23,7 +23,11 @@ pub mod ffi {
         fn buffer_type(self: &VideoFrameBuffer) -> VideoFrameBufferType;
         fn width(self: &VideoFrameBuffer) -> i32;
         fn height(self: &VideoFrameBuffer) -> i32;
-        fn to_i420(self: Pin<&mut VideoFrameBuffer>) -> SharedPtr<I420Buffer>;
+
+        // Require ownership
+        unsafe fn to_i420(self: Pin<&mut VideoFrameBuffer>) -> UniquePtr<I420Buffer>;
+        unsafe fn get_i420(self: Pin<&mut VideoFrameBuffer>) -> UniquePtr<I420Buffer>;
+        // TODO(theomonnom): Bridge other get_*
 
         fn chroma_width(self: &PlanarYuvBuffer) -> i32;
         fn chroma_height(self: &PlanarYuvBuffer) -> i32;
@@ -35,9 +39,10 @@ pub mod ffi {
         fn data_u(self: &PlanarYuv8Buffer) -> *const u8;
         fn data_v(self: &PlanarYuv8Buffer) -> *const u8;
 
-        fn to_video_frame_buffer(buffer: SharedPtr<PlanarYuvBuffer>)
-            -> SharedPtr<VideoFrameBuffer>;
-        fn to_yuv_buffer(buffer: SharedPtr<PlanarYuv8Buffer>) -> SharedPtr<PlanarYuvBuffer>;
-        fn to_yuv8_buffer(buffer: SharedPtr<I420Buffer>) -> SharedPtr<PlanarYuv8Buffer>;
+        unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
+        unsafe fn yuv8_to_yuv(yuv8: *const PlanarYuv8Buffer) -> *const PlanarYuvBuffer;
+        unsafe fn i420_to_yuv8(i420: *const I420Buffer) -> *const PlanarYuv8Buffer;
+
+        fn _unique_video_frame_buffer() -> UniquePtr<VideoFrameBuffer>;
     }
 }

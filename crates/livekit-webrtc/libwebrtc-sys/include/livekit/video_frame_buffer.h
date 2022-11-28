@@ -5,6 +5,8 @@
 #ifndef LIVEKIT_WEBRTC_VIDEO_FRAME_BUFFER_H
 #define LIVEKIT_WEBRTC_VIDEO_FRAME_BUFFER_H
 
+#include <memory>
+
 #include "api/video/video_frame_buffer.h"
 #include "rust_types.h"
 
@@ -26,8 +28,15 @@ class VideoFrameBuffer {
   int width() const { return buffer_->width(); }
   int height() const { return buffer_->height(); }
 
-  std::shared_ptr<I420Buffer> to_i420() {
-    return std::make_shared<I420Buffer>(buffer_->ToI420());
+  std::unique_ptr<I420Buffer> to_i420() {
+    return std::make_unique<I420Buffer>(buffer_->ToI420());
+  }
+
+  std::unique_ptr<I420Buffer> get_i420() {
+    // const_cast is valid here because we take the ownership on the rust side
+    return std::make_unique<I420Buffer>(
+        rtc::scoped_refptr<webrtc::I420BufferInterface>(
+            const_cast<webrtc::I420BufferInterface*>(buffer_->GetI420())));
   }
 
  protected:
@@ -73,19 +82,20 @@ class I420Buffer : public PlanarYuv8Buffer {
       : PlanarYuv8Buffer(buffer) {}
 };
 
-std::shared_ptr<VideoFrameBuffer> to_video_frame_buffer(
-    std::shared_ptr<PlanarYuvBuffer> buffer) {
-  return buffer;
+static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
+  return yuv;
 }
 
-std::shared_ptr<PlanarYuvBuffer> to_yuv_buffer(
-    std::shared_ptr<PlanarYuv8Buffer> buffer) {
-  return buffer;
+static const PlanarYuvBuffer* yuv8_to_yuv(const PlanarYuv8Buffer* yuv8) {
+  return yuv8;
 }
 
-std::shared_ptr<PlanarYuv8Buffer> to_yuv8_buffer(
-    std::shared_ptr<I420Buffer> buffer) {
-  return buffer;
+static const PlanarYuv8Buffer* i420_to_yuv8(const I420Buffer* i420) {
+  return i420;
+}
+
+static std::unique_ptr<VideoFrameBuffer> _unique_video_frame_buffer() {
+  return nullptr;  // Ignore
 }
 
 }  // namespace livekit

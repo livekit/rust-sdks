@@ -4,6 +4,7 @@
 
 #include "livekit/media_stream.h"
 
+#include "api/media_stream_interface.h"
 #include "libwebrtc-sys/src/media_stream.rs.h"
 
 namespace livekit {
@@ -52,6 +53,9 @@ MediaStream::MediaStream(
 rust::String MediaStream::id() const {
   return media_stream_->id();
 }
+
+AudioTrack::AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track)
+    : MediaStreamTrack(std::move(track)) {}
 
 VideoTrack::VideoTrack(rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
     : MediaStreamTrack(std::move(track)) {}

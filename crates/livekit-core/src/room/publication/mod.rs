@@ -1,10 +1,21 @@
+use crate::proto::TrackType;
+use crate::proto::{TrackInfo, TrackSource as ProtoTrackSource};
+use crate::room::id::ParticipantSid;
 use crate::room::id::TrackSid;
 use crate::room::track::local_track::LocalTrackHandle;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::room::track::{TrackHandle, TrackKind, TrackSource};
+use crate::utils::wrap_variants;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
+
+use super::track::TrackDimension;
+
+pub(crate) trait TrackPublicationInternalTrait {
+    fn update_track(&self, track: Option<TrackHandle>);
+    fn update_info(&self, info: TrackInfo);
+}
 
 pub trait TrackPublicationTrait {
     fn name(&self) -> String;
@@ -21,6 +32,43 @@ pub(super) struct TrackPublicationShared {
     pub(super) kind: AtomicU8,   // Casted to TrackKind
     pub(super) source: AtomicU8, // Casted to TrackSource
     pub(super) simulcasted: AtomicBool,
+    pub(super) dimension: Mutex<TrackDimension>,
+    pub(super) mime_type: Mutex<String>,
+    pub(super) participant: ParticipantSid, // TODO(theomonnom) Use WeakParticipant instead
+}
+
+impl TrackPublicationShared {
+    pub fn new(info: TrackInfo, participant: ParticipantSid, track: Option<TrackHandle>) -> Arc<Self> {
+        Arc::new(Self {
+            track: Mutex::new(track),
+            name: Mutex::new(info.name),
+            sid: Mutex::new(info.sid.into()),
+            kind: AtomicU8::new(TrackKind::from(TrackType::from_i32(info.r#type).unwrap()) as u8),
+            source: AtomicU8::new(TrackSource::from(
+                ProtoTrackSource::from_i32(info.source).unwrap(),
+            ) as u8),
+            simulcasted: AtomicBool::new(info.simulcast),
+            dimension: Mutex::new(TrackDimension(info.width, info.height)),
+            mime_type: Mutex::new(info.mime_type),
+            participant,
+        })
+    }
+
+    pub fn update_info(&self, info: TrackInfo) {
+        *self.name.lock() = info.name;
+        *self.sid.lock() = info.sid.into();
+        self.kind.store(
+            TrackKind::from(TrackType::from_i32(info.r#type).unwrap()) as u8,
+            Ordering::SeqCst,
+        );
+        self.source.store(
+            TrackSource::from(ProtoTrackSource::from_i32(info.source).unwrap()) as u8,
+            Ordering::SeqCst,
+        );
+        self.simulcasted.store(info.simulcast, Ordering::SeqCst);
+        *self.dimension.lock() = TrackDimension(info.width, info.height);
+        *self.mime_type.lock() = info.mime_type;
+    }
 }
 
 #[derive(Clone)]
@@ -29,19 +77,9 @@ pub enum TrackPublication {
     Remote(RemoteTrackPublication),
 }
 
-macro_rules! shared_getter {
-    ($x:ident, $ret:ty) => {
-        fn $x(&self) -> $ret {
-            match self {
-                TrackPublication::Local(p) => p.$x(),
-                TrackPublication::Remote(p) => p.$x(),
-            }
-        }
-    };
-}
-
 impl TrackPublication {
     pub fn track(&self) -> Option<TrackHandle> {
+        // Not calling Local/Remote function here, we don't need "cast"
         match self {
             TrackPublication::Local(p) => p.shared.track.lock().clone(),
             TrackPublication::Remote(p) => p.shared.track.lock().clone(),
@@ -49,16 +87,37 @@ impl TrackPublication {
     }
 }
 
+impl TrackPublicationInternalTrait for TrackPublication {
+    wrap_variants!(
+        [Local, Remote]
+        fnc!(update_track, (), [track: Option<TrackHandle>]);
+        fnc!(update_info, (), [info: TrackInfo]);
+    );
+}
+
 impl TrackPublicationTrait for TrackPublication {
-    shared_getter!(name, String);
-    shared_getter!(sid, TrackSid);
-    shared_getter!(kind, TrackKind);
-    shared_getter!(source, TrackSource);
-    shared_getter!(simulcasted, bool);
+    wrap_variants!(
+        [Local, Remote]
+        fnc!(sid, TrackSid, []);
+        fnc!(name, String, []);
+        fnc!(kind, TrackKind, []);
+        fnc!(source, TrackSource, []);
+        fnc!(simulcasted, bool, []);
+    );
 }
 
 macro_rules! impl_publication_trait {
     ($x:ident) => {
+        impl TrackPublicationInternalTrait for $x {
+            fn update_track(&self, track: Option<TrackHandle>) {
+                *self.shared.track.lock() = track;
+            }
+
+            fn update_info(&self, info: TrackInfo) {
+                self.shared.update_info(info);
+            }
+        }
+
         impl TrackPublicationTrait for $x {
             fn name(&self) -> String {
                 self.shared.name.lock().clone()
@@ -104,6 +163,12 @@ pub struct RemoteTrackPublication {
 }
 
 impl RemoteTrackPublication {
+    pub fn new(info: TrackInfo, participant: ParticipantSid, track: Option<TrackHandle>) -> Self {
+        Self {
+            shared: TrackPublicationShared::new(info, participant, track),
+        }
+    }
+
     pub fn track(&self) -> Option<RemoteTrackHandle> {
         self.shared
             .track

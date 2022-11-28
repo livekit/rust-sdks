@@ -102,19 +102,19 @@ class NativeVideoFrameSink
 std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
     rust::Box<VideoFrameSinkWrapper> observer);
 
-const MediaStreamTrack* video_to_media(const VideoTrack* track) {
+static const MediaStreamTrack* video_to_media(const VideoTrack* track) {
   return track;
 }
 
-const MediaStreamTrack* audio_to_media(const AudioTrack* track) {
+static const MediaStreamTrack* audio_to_media(const AudioTrack* track) {
   return track;
 }
 
-const VideoTrack* media_to_video(const MediaStreamTrack* track) {
+static const VideoTrack* media_to_video(const MediaStreamTrack* track) {
   return static_cast<const VideoTrack*>(track);
 }
 
-const AudioTrack* media_to_audio(const MediaStreamTrack* track) {
+static const AudioTrack* media_to_audio(const MediaStreamTrack* track) {
   return static_cast<const AudioTrack*>(track); 
 }
 

@@ -25,7 +25,7 @@ pub mod ffi {
         fn transport_frame_id(self: &VideoFrame) -> u32;
         fn timestamp(self: &VideoFrame) -> u32;
         fn rotation(self: &VideoFrame) -> VideoRotation;
-        fn video_frame_buffer(self: &VideoFrame) -> SharedPtr<VideoFrameBuffer>;
+        fn video_frame_buffer(self: &VideoFrame) -> UniquePtr<VideoFrameBuffer>;
 
         fn _unique_video_frame() -> UniquePtr<VideoFrame>; // Ignore
     }

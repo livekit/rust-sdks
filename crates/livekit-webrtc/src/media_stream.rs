@@ -9,6 +9,7 @@ pub use sys_ms::ffi::ContentHint;
 pub use sys_ms::ffi::TrackState;
 
 use crate::video_frame::VideoFrame;
+use crate::video_frame_buffer::VideoFrameBuffer;
 
 pub trait MediaStreamTrackTrait {
     fn kind(&self) -> String;
@@ -115,8 +116,8 @@ macro_rules! impl_media_stream_track_trait {
 
             fn set_enabled(&self, enabled: bool) -> bool {
                 unsafe {
-                    let media =
-                        sys_ms::ffi::$cast(&**self.cxx_handle.lock().unwrap()) as *mut sys_ms::ffi::MediaStreamTrack;
+                    let media = sys_ms::ffi::$cast(&**self.cxx_handle.lock().unwrap())
+                        as *mut sys_ms::ffi::MediaStreamTrack;
 
                     Pin::new_unchecked(&mut *media).set_enabled(enabled)
                 }
@@ -132,7 +133,7 @@ macro_rules! impl_media_stream_track_trait {
 impl_media_stream_track_trait!(VideoTrack, video_to_media);
 impl_media_stream_track_trait!(AudioTrack, audio_to_media);
 
-pub type OnFrameHandler = Box<dyn FnMut(VideoFrame) + Send + Sync>;
+pub type OnFrameHandler = Box<dyn FnMut(VideoFrame, VideoFrameBuffer) + Send + Sync>;
 pub type OnDiscardedFrameHandler = Box<dyn FnMut() + Send + Sync>;
 pub type OnConstraintsChanged = Box<dyn FnMut(VideoTrackSourceConstraints) + Send + Sync>;
 
@@ -160,7 +161,9 @@ impl From<sys_ms::ffi::VideoTrackSourceConstraints> for VideoTrackSourceConstrai
 impl sys_ms::VideoFrameSink for InternalVideoTrackSink {
     fn on_frame(&self, frame: UniquePtr<libwebrtc_sys::video_frame::ffi::VideoFrame>) {
         if let Some(cb) = self.on_frame_handler.lock().unwrap().as_mut() {
-            cb(VideoFrame::new(frame));
+            let frame = VideoFrame::new(frame);
+            let video_frame_buffer = unsafe { frame.video_frame_buffer() };
+            cb(frame, video_frame_buffer);
         }
     }
 
@@ -203,7 +206,7 @@ impl VideoTrack {
         Arc::new(track)
     }
 
-    pub fn set_should_receive(&mut self, should_receive: bool) {
+    pub fn set_should_receive(&self, should_receive: bool) {
         self.cxx_handle
             .lock()
             .unwrap()
@@ -211,7 +214,7 @@ impl VideoTrack {
             .set_should_receive(should_receive)
     }
 
-    pub fn set_content_hint(&mut self, hint: ContentHint) {
+    pub fn set_content_hint(&self, hint: ContentHint) {
         self.cxx_handle
             .lock()
             .unwrap()
@@ -227,15 +230,15 @@ impl VideoTrack {
         self.cxx_handle.lock().unwrap().content_hint()
     }
 
-    pub fn on_frame(&mut self, handler: OnFrameHandler) {
+    pub fn on_frame(&self, handler: OnFrameHandler) {
         *self.observer.on_frame_handler.lock().unwrap() = Some(handler);
     }
 
-    pub fn on_discarded_frame(&mut self, handler: OnDiscardedFrameHandler) {
+    pub fn on_discarded_frame(&self, handler: OnDiscardedFrameHandler) {
         *self.observer.on_discarded_frame_handler.lock().unwrap() = Some(handler);
     }
 
-    pub fn on_constraints_changed(&mut self, handler: OnConstraintsChanged) {
+    pub fn on_constraints_changed(&self, handler: OnConstraintsChanged) {
         *self.observer.on_constraints_changed_handler.lock().unwrap() = Some(handler);
     }
 }
