@@ -53,7 +53,7 @@ impl Default for SignalOptions {
             reconnect: false,
             auto_subscribe: true,
             sid: "".to_string(),
-            adaptive_stream: true,
+            adaptive_stream: false,
         }
     }
 }
