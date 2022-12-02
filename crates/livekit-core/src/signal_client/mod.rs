@@ -1,18 +1,23 @@
-use core::num::flt2dec::Sign;
 use std::fmt::Debug;
+use std::time::Duration;
 
+use livekit_webrtc::peer_connection_factory::{
+    ContinualGatheringPolicy, ICEServer, IceTransportsType, RTCConfiguration,
+};
 use thiserror::Error;
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Error as WsError;
 
-use crate::event::{Emitter, Events};
-use crate::proto::{signal_request, signal_response};
+use crate::proto::{signal_request, signal_response, JoinResponse};
 use crate::signal_client::signal_stream::SignalStream;
 
 mod signal_stream;
 
-type SignalEmitter = Emitter<SignalEvent>;
-type SignalEvents = Events<SignalEvent>;
-type SignalResult<T> = Result<T, SignalError>;
+pub(crate) type SignalEmitter = mpsc::Sender<SignalEvent>;
+pub(crate) type SignalEvents = mpsc::Receiver<SignalEvent>;
+pub(crate) type SignalResult<T> = Result<T, SignalError>;
+
+pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Error, Debug)]
 pub enum SignalError {
@@ -22,10 +27,12 @@ pub enum SignalError {
     UrlParse(#[from] url::ParseError),
     #[error("failed to decode messages from server")]
     ProtoParse(#[from] prost::DecodeError),
+    #[error("{0}")]
+    Timeout(String),
 }
 
 /// Events used by the RTCEngine who will handle the reconnection logic
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) enum SignalEvent {
     Open,
     Signal(signal_response::Message),
@@ -40,6 +47,17 @@ pub(crate) struct SignalOptions {
     adaptive_stream: bool,
 }
 
+impl Default for SignalOptions {
+    fn default() -> Self {
+        Self {
+            reconnect: false,
+            auto_subscribe: true,
+            sid: "".to_string(),
+            adaptive_stream: false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct SignalClient {
     stream: SignalStream,
@@ -47,15 +65,16 @@ pub struct SignalClient {
 }
 
 impl SignalClient {
-    pub async fn connect(
+    pub(crate) async fn connect(
         url: &str,
         token: &str,
         options: SignalOptions,
     ) -> SignalResult<(Self, SignalEvents)> {
-        // TODO(theomonnom) Retry initial connection
-        let (emitter, receiver) = SignalEmitter::new();
-        let events = SignalEvents::new(receiver);
+        let (emitter, events) = mpsc::channel(8);
         let stream = SignalStream::connect(url, token, options, emitter.clone()).await?;
+
+        // TODO(theomonnom) Retry initial connection
+
         Ok((Self { stream, emitter }, events))
     }
 
@@ -67,5 +86,62 @@ impl SignalClient {
 
     pub async fn reconnect(&self) {
         // TODO(theomonnom) Close & recreate SignalStream, also send the queue if needed
+    }
+}
+
+impl From<JoinResponse> for RTCConfiguration {
+    fn from(join_response: JoinResponse) -> Self {
+        Self {
+            ice_servers: {
+                let mut servers = vec![];
+                for ice_server in join_response.ice_servers.clone() {
+                    servers.push(ICEServer {
+                        urls: ice_server.urls,
+                        username: ice_server.username,
+                        password: ice_server.credential,
+                    })
+                }
+                servers
+            },
+            continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
+            ice_transport_type: IceTransportsType::All,
+        }
+    }
+}
+
+pub mod utils {
+    use crate::proto::{signal_response, JoinResponse};
+    use crate::signal_client::{SignalError, SignalEvent, SignalResult, JOIN_RESPONSE_TIMEOUT};
+    use tokio::sync::mpsc;
+    use tokio::time::timeout;
+    use tokio_tungstenite::tungstenite::Error as WsError;
+    use tracing::{event, Level};
+
+    pub(crate) async fn next_join_response(
+        receiver: &mut mpsc::Receiver<SignalEvent>,
+    ) -> SignalResult<JoinResponse> {
+        let join = async {
+            while let Some(event) = receiver.recv().await {
+                match event {
+                    SignalEvent::Signal(signal_response::Message::Join(join)) => return Ok(join),
+                    SignalEvent::Close => break,
+                    SignalEvent::Open => continue,
+                    _ => {
+                        event!(
+                            Level::WARN,
+                            "received unexpected message while waiting for JoinResponse: {:?}",
+                            event
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            Err(WsError::ConnectionClosed)?
+        };
+
+        timeout(JOIN_RESPONSE_TIMEOUT, join)
+            .await
+            .map_err(|_| SignalError::Timeout("failed to receive JoinResponse".to_string()))?
     }
 }

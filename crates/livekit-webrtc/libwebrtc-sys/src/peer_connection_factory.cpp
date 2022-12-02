@@ -27,10 +27,12 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
   dependencies.signaling_thread = rtc_runtime_->signaling_thread();
+  dependencies.socket_factory = rtc_runtime_->network_thread()->socketserver();
   dependencies.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>(
       dependencies.task_queue_factory.get());
   dependencies.call_factory = webrtc::CreateCallFactory();
+  dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
 
   cricket::MediaEngineDependencies media_deps;
   media_deps.task_queue_factory = dependencies.task_queue_factory.get();
@@ -38,6 +40,8 @@ PeerConnectionFactory::PeerConnectionFactory(
   media_deps.video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
   media_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   media_deps.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
+  media_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+  media_deps.trials = dependencies.trials.get();
 
   dependencies.media_engine = cricket::CreateMediaEngine(std::move(media_deps));
 

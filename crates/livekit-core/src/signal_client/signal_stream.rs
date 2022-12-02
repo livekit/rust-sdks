@@ -1,13 +1,13 @@
-use futures_util::{SinkExt, StreamExt};
 use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tracing::{event, Level};
 
 use crate::proto::{signal_request, SignalRequest, SignalResponse};
@@ -72,7 +72,7 @@ impl SignalStream {
         event!(Level::DEBUG, "connecting to websocket: {}", lk_url);
         let (ws_stream, _) = connect_async(lk_url).await?;
         event!(Level::DEBUG, "connected to websocket");
-        emitter.event(SignalEvent::Open);
+        let _ = emitter.send(SignalEvent::Open).await;
 
         let (ws_writer, ws_reader) = ws_stream.split();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
@@ -119,7 +119,7 @@ impl SignalStream {
 
     /// This task is used to send messages to the websocket
     /// It is also responsible for closing the connection
-    pub async fn handle_write(
+    async fn handle_write(
         mut internal_rx: mpsc::Receiver<InternalMessage>,
         mut ws_writer: SplitSink<WebSocket, Message>,
         emitter: SignalEmitter,
@@ -136,7 +136,7 @@ impl SignalStream {
                         SignalRequest {
                             message: Some(signal),
                         }
-                            .encode_to_vec(),
+                        .encode_to_vec(),
                     );
 
                     if let Err(err) = ws_writer.send(data).await {
@@ -163,14 +163,14 @@ impl SignalStream {
         }
 
         let _ = ws_writer.close().await;
-        emitter.event(SignalEvent::Close);
+        let _ = emitter.send(SignalEvent::Close).await;
     }
 
     /// This task is used to read incoming messages from the websocket
     /// and dispatch them through the EventEmitter.
     ///
     /// It can also send messages to [handle_write] task ( Used e.g. answer to pings )
-    pub async fn handle_read(
+    async fn handle_read(
         internal_tx: mpsc::Sender<InternalMessage>,
         mut ws_reader: SplitStream<WebSocket>,
         emitter: SignalEmitter,
@@ -181,8 +181,9 @@ impl SignalStream {
                     let res = SignalResponse::decode(data.as_slice())
                         .expect("failed to decode SignalResponse");
 
-                    event!(Level::TRACE, "received SignalResponse: {:?}", res);
-                    emitter.event(SignalEvent::Signal(res.message.unwrap()));
+                    let msg = res.message.unwrap();
+                    event!(Level::TRACE, "received SignalResponse: {:?}", msg);
+                    let _ = emitter.send(SignalEvent::Signal(msg)).await;
                 }
                 Ok(Message::Ping(data)) => {
                     let _ = internal_tx

@@ -3,6 +3,7 @@
 //
 
 #include "livekit/peer_connection.h"
+#include "livekit/media_stream.h"
 
 #include "libwebrtc-sys/src/peer_connection.rs.h"
 #include "livekit/rtc_error.h"
@@ -142,12 +143,12 @@ void NativePeerConnectionObserver::OnSignalingChange(
 
 void NativePeerConnectionObserver::OnAddStream(
     rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
-  observer_->on_add_stream(std::make_unique<MediaStreamInterface>(stream));
+  observer_->on_add_stream(std::make_unique<MediaStream>(stream));
 }
 
 void NativePeerConnectionObserver::OnRemoveStream(
     rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
-  observer_->on_remove_stream(std::make_unique<MediaStreamInterface>(stream));
+  observer_->on_remove_stream(std::make_unique<MediaStream>(stream));
 }
 
 void NativePeerConnectionObserver::OnDataChannel(
@@ -241,7 +242,7 @@ void NativePeerConnectionObserver::OnAddTrack(
   rust::Vec<MediaStreamPtr> vec;
 
   for (const auto& item : streams) {
-    vec.push_back(MediaStreamPtr{std::make_unique<MediaStreamInterface>(item)});
+    vec.push_back(MediaStreamPtr{std::make_unique<MediaStream>(item)});
   }
 
   observer_->on_add_track(std::make_unique<RtpReceiver>(receiver),

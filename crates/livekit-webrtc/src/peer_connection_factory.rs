@@ -18,7 +18,9 @@ pub struct PeerConnectionFactory {
 impl PeerConnectionFactory {
     pub fn new(rtc_runtime: RTCRuntime) -> Self {
         Self {
-            cxx_handle: sys_factory::ffi::create_peer_connection_factory(rtc_runtime.clone().release()),
+            cxx_handle: sys_factory::ffi::create_peer_connection_factory(
+                rtc_runtime.clone().release(),
+            ),
             rtc_runtime,
         }
     }
@@ -31,8 +33,9 @@ impl PeerConnectionFactory {
 
         unsafe {
             let mut observer = Box::new(InternalObserver::default());
-            let mut native_observer = sys_pc::ffi::create_native_peer_connection_observer(self.rtc_runtime.clone().release(),
-                                                                                          Box::new(sys_pc::PeerConnectionObserverWrapper::new(&mut *observer)),
+            let mut native_observer = sys_pc::ffi::create_native_peer_connection_observer(
+                self.rtc_runtime.clone().release(),
+                Box::new(sys_pc::PeerConnectionObserverWrapper::new(&mut *observer)),
             );
 
             let res = self

@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 
 use cxx::UniquePtr;
 
@@ -17,8 +17,16 @@ impl Debug for IceCandidate {
 }
 
 impl IceCandidate {
-    pub fn from(sdp_mid: &str, sdp_mline_index: i32, sdp: &str) -> Result<IceCandidate, SdpParseError> {
-        let res = sys_jsep::ffi::create_ice_candidate(sdp_mid.to_string(), sdp_mline_index, sdp.to_string());
+    pub fn from(
+        sdp_mid: &str,
+        sdp_mline_index: i32,
+        sdp: &str,
+    ) -> Result<IceCandidate, SdpParseError> {
+        let res = sys_jsep::ffi::create_ice_candidate(
+            sdp_mid.to_string(),
+            sdp_mline_index,
+            sdp.to_string(),
+        );
 
         match res {
             Ok(cxx_handle) => Ok(IceCandidate::new(cxx_handle)),

@@ -68,11 +68,18 @@ pub mod ffi {
             observer: Box<SetRemoteSdpObserverWrapper>,
         ) -> UniquePtr<NativeSetRemoteSdpObserverHandle>;
 
-        fn create_ice_candidate(sdp_mid: String, sdp_mline_index: i32, sdp: String) -> Result<UniquePtr<IceCandidate>>;
-        fn create_session_description(sdp_type: SdpType, sdp: String) -> Result<UniquePtr<SessionDescription>>;
+        fn create_ice_candidate(
+            sdp_mid: String,
+            sdp_mline_index: i32,
+            sdp: String,
+        ) -> Result<UniquePtr<IceCandidate>>;
+        fn create_session_description(
+            sdp_type: SdpType,
+            sdp: String,
+        ) -> Result<UniquePtr<SessionDescription>>;
 
         fn _unique_ice_candidate() -> UniquePtr<IceCandidate>; // Ignore
-    fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
+        fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
     }
 }
 
@@ -80,7 +87,11 @@ impl Error for ffi::SdpParseError {}
 
 impl Display for ffi::SdpParseError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "SdpParseError occurred {}: {}", self.line, self.description)
+        write!(
+            f,
+            "SdpParseError occurred {}: {}",
+            self.line, self.description
+        )
     }
 }
 
@@ -101,10 +112,7 @@ impl ffi::SdpParseError {
         let line = String::from(&value[8..line_length]);
         let description = String::from(&value[line_length..]);
 
-        Self {
-            line,
-            description,
-        }
+        Self { line, description }
     }
 }
 

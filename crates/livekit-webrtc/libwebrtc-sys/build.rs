@@ -55,23 +55,23 @@ fn main() {
     let target_os = "windows";
     //let target_arch = "arm64";
 
-    let libwebrtc_dir = path::PathBuf::from("libwebrtc");
+    let libwebrtc_dir = path::PathBuf::from("libwebrtc/src");
 
     // Just required for the bridge build to succeed.
     let includes = &[
         path::PathBuf::from("./include"),
-        libwebrtc_dir.join("include/"),
-        libwebrtc_dir.join("include/third_party/abseil-cpp/"),
-        libwebrtc_dir.join("include/third_party/libc++/"),
+        libwebrtc_dir.clone(),
+        libwebrtc_dir.join("third_party/abseil-cpp/"),
+        libwebrtc_dir.join("third_party/libc++/"),
         // For mac & ios
-        libwebrtc_dir.join("include/sdk/objc"),
-        libwebrtc_dir.join("include/sdk/objc/base"),
+        libwebrtc_dir.join("sdk/objc"),
+        libwebrtc_dir.join("sdk/objc/base"),
     ];
 
     let mut builder = cxx_build::bridges(&[
         "src/peer_connection.rs",
         "src/peer_connection_factory.rs",
-        "src/media_stream_interface.rs",
+        "src/media_stream.rs",
         "src/data_channel.rs",
         "src/jsep.rs",
         "src/candidate.rs",
@@ -79,11 +79,14 @@ fn main() {
         "src/rtp_transceiver.rs",
         "src/rtc_error.rs",
         "src/webrtc.rs",
+        "src/video_frame.rs",
+        "src/video_frame_buffer.rs",
+        "src/yuv_helper.rs",
     ]);
 
     builder.file("src/peer_connection.cpp");
     builder.file("src/peer_connection_factory.cpp");
-    builder.file("src/media_stream_interface.cpp");
+    builder.file("src/media_stream.cpp");
     builder.file("src/data_channel.cpp");
     builder.file("src/jsep.cpp");
     builder.file("src/candidate.cpp");
@@ -98,7 +101,12 @@ fn main() {
 
     println!(
         "cargo:rustc-link-search=native={}",
-        libwebrtc_dir.canonicalize().unwrap().to_str().unwrap()
+        libwebrtc_dir
+            .join("out/Default/obj")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
     );
 
     match target_os {
@@ -122,6 +130,7 @@ fn main() {
                 .flag("/std:c++17")
                 .flag("/EHsc")
                 .define("WEBRTC_WIN", None)
+                //.define("WEBRTC_ENABLE_SYMBOL_EXPORT", None) Not necessary when using WebRTC as a static library
                 .define("NOMINMAX", None);
         }
         "macos" => {
@@ -203,7 +212,7 @@ fn main() {
             let jni_regex = Regex::new(r"(Java_org_webrtc.*)").unwrap();
             let content = &String::from_utf8_lossy(&readelf_output.stdout);
             let mut jni_symbols = Vec::new();
-            jni_regex.captures_iter(&content).for_each(|cap| {
+            jni_regex.captures_iter(content).for_each(|cap| {
                 jni_symbols.push(cap.get(1).unwrap().as_str());
             });
 
@@ -215,7 +224,7 @@ fn main() {
 
             write!(vs_file, "JNI_WEBRTC {{\n\tglobal: ").unwrap();
             write!(vs_file, "JNI_OnLoad; ").unwrap();
-            for x in &jni_symbols {
+            for x in jni_symbols {
                 println!("cargo:rustc-link-arg=-Wl,--undefined={}", x);
                 write!(vs_file, "{}; ", x).unwrap();
             }
