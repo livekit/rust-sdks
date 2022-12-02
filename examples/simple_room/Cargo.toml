@@ -9,3 +9,10 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 livekit = { path = "../.." }
 futures = "0.3"
+wgpu = "0.14.0"
+winit = "0.27.5"
+
+egui = { git = "https://github.com/emilk/egui" }
+egui-wgpu = { git = "https://github.com/emilk/egui", features = ["winit"] }
+egui-winit = { git = "https://github.com/emilk/egui" }
+egui_demo_lib = { git = "https://github.com/emilk/egui" }

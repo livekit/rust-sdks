@@ -5,7 +5,7 @@ use crate::room::id::TrackSid;
 use crate::room::track::local_track::LocalTrackHandle;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::room::track::{TrackHandle, TrackKind, TrackSource};
-use crate::utils::wrap_variants;
+use livekit_utils::enum_dispatch;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -38,7 +38,11 @@ pub(super) struct TrackPublicationShared {
 }
 
 impl TrackPublicationShared {
-    pub fn new(info: TrackInfo, participant: ParticipantSid, track: Option<TrackHandle>) -> Arc<Self> {
+    pub fn new(
+        info: TrackInfo,
+        participant: ParticipantSid,
+        track: Option<TrackHandle>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             track: Mutex::new(track),
             name: Mutex::new(info.name),
@@ -88,21 +92,21 @@ impl TrackPublication {
 }
 
 impl TrackPublicationInternalTrait for TrackPublication {
-    wrap_variants!(
+    enum_dispatch!(
         [Local, Remote]
-        fnc!(update_track, (), [track: Option<TrackHandle>]);
-        fnc!(update_info, (), [info: TrackInfo]);
+        fnc!(update_track, &Self, [track: Option<TrackHandle>], ());
+        fnc!(update_info, &Self, [info: TrackInfo], ());
     );
 }
 
 impl TrackPublicationTrait for TrackPublication {
-    wrap_variants!(
+    enum_dispatch!(
         [Local, Remote]
-        fnc!(sid, TrackSid, []);
-        fnc!(name, String, []);
-        fnc!(kind, TrackKind, []);
-        fnc!(source, TrackSource, []);
-        fnc!(simulcasted, bool, []);
+        fnc!(sid, &Self, [], TrackSid);
+        fnc!(name, &Self, [], String);
+        fnc!(kind, &Self, [], TrackKind);
+        fnc!(source, &Self, [], TrackSource);
+        fnc!(simulcasted, &Self, [], bool);
     );
 }
 

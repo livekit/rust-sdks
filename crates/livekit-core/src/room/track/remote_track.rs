@@ -5,7 +5,7 @@ use crate::room::id::TrackSid;
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
 use crate::room::track::TrackHandle;
-use crate::utils::wrap_variants;
+use livekit_utils::enum_dispatch;
 
 use super::TrackTrait;
 
@@ -16,14 +16,14 @@ pub enum RemoteTrackHandle {
 }
 
 impl TrackTrait for RemoteTrackHandle {
-    wrap_variants!(
+    enum_dispatch!(
         [Audio, Video]
-        fnc!(sid, TrackSid, []);
-        fnc!(name, String, []);
-        fnc!(kind, TrackKind, []);
-        fnc!(stream_state, StreamState, []);
-        fnc!(start, (), []);
-        fnc!(stop, (), []);
+        fnc!(sid, &Self, [], TrackSid);
+        fnc!(name, &Self, [], String);
+        fnc!(kind, &Self, [], TrackKind);
+        fnc!(stream_state, &Self, [], StreamState);
+        fnc!(start, &Self, [], ());
+        fnc!(stop, &Self, [], ());
     );
 }
 

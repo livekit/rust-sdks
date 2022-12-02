@@ -4,7 +4,7 @@ use crate::room::track::local_audio_track::LocalAudioTrack;
 use crate::room::track::local_video_track::LocalVideoTrack;
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
-use crate::utils::wrap_variants;
+use livekit_utils::enum_dispatch;
 use livekit_webrtc::media_stream::{MediaStreamTrackHandle, MediaStreamTrackTrait};
 use parking_lot::Mutex;
 use std::sync::atomic::AtomicU8;
@@ -150,14 +150,14 @@ pub enum TrackHandle {
 }
 
 impl TrackTrait for TrackHandle {
-    wrap_variants!(
+    enum_dispatch!(
         [LocalVideo, LocalAudio, RemoteVideo, RemoteAudio]
-        fnc!(sid, TrackSid, []);
-        fnc!(name, String, []);
-        fnc!(kind, TrackKind, []);
-        fnc!(stream_state, StreamState, []);
-        fnc!(start, (), []);
-        fnc!(stop, (), []);
+        fnc!(sid, &Self, [], TrackSid);
+        fnc!(name, &Self, [], String);
+        fnc!(kind, &Self, [], TrackKind);
+        fnc!(stream_state, &Self, [], StreamState);
+        fnc!(start, &Self, [], ());
+        fnc!(stop, &Self, [], ());
     );
 }
 

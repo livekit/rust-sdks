@@ -484,6 +484,7 @@ name = "livekit"
 version = "0.1.0"
 dependencies = [
  "livekit-core",
+ "livekit-webrtc",
 ]
 
 [[package]]
@@ -493,6 +494,7 @@ dependencies = [
  "futures",
  "futures-util",
  "lazy_static",
+ "livekit-utils",
  "livekit-webrtc",
  "parking_lot",
  "prost",
@@ -508,12 +510,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-utils"
+version = "0.1.0"
+
+[[package]]
 name = "livekit-webrtc"
 version = "0.1.0"
 dependencies = [
  "cxx",
  "env_logger",
  "libwebrtc-sys",
+ "livekit-utils",
  "log",
  "thiserror",
  "tokio",

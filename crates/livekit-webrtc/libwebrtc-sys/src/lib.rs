@@ -10,6 +10,7 @@ pub mod rtp_transceiver;
 pub mod video_frame;
 pub mod video_frame_buffer;
 pub mod webrtc;
+pub mod yuv_helper;
 
 pub const MEDIA_TYPE_VIDEO: &str = "video";
 pub const MEDIA_TYPE_AUDIO: &str = "audio";

@@ -55,17 +55,17 @@ fn main() {
     let target_os = "windows";
     //let target_arch = "arm64";
 
-    let libwebrtc_dir = path::PathBuf::from("libwebrtc");
+    let libwebrtc_dir = path::PathBuf::from("libwebrtc/src");
 
     // Just required for the bridge build to succeed.
     let includes = &[
         path::PathBuf::from("./include"),
-        libwebrtc_dir.join("include/"),
-        libwebrtc_dir.join("include/third_party/abseil-cpp/"),
-        libwebrtc_dir.join("include/third_party/libc++/"),
+        libwebrtc_dir.clone(),
+        libwebrtc_dir.join("third_party/abseil-cpp/"),
+        libwebrtc_dir.join("third_party/libc++/"),
         // For mac & ios
-        libwebrtc_dir.join("include/sdk/objc"),
-        libwebrtc_dir.join("include/sdk/objc/base"),
+        libwebrtc_dir.join("sdk/objc"),
+        libwebrtc_dir.join("sdk/objc/base"),
     ];
 
     let mut builder = cxx_build::bridges(&[
@@ -81,6 +81,7 @@ fn main() {
         "src/webrtc.rs",
         "src/video_frame.rs",
         "src/video_frame_buffer.rs",
+        "src/yuv_helper.rs",
     ]);
 
     builder.file("src/peer_connection.cpp");
@@ -100,7 +101,12 @@ fn main() {
 
     println!(
         "cargo:rustc-link-search=native={}",
-        libwebrtc_dir.canonicalize().unwrap().to_str().unwrap()
+        libwebrtc_dir
+            .join("out/Default/obj")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
     );
 
     match target_os {
@@ -124,6 +130,7 @@ fn main() {
                 .flag("/std:c++17")
                 .flag("/EHsc")
                 .define("WEBRTC_WIN", None)
+                //.define("WEBRTC_ENABLE_SYMBOL_EXPORT", None) Not necessary when using WebRTC as a static library
                 .define("NOMINMAX", None);
         }
         "macos" => {

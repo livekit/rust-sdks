@@ -1,5 +1,6 @@
 use cxx::UniquePtr;
 use libwebrtc_sys::video_frame_buffer as vfb_sys;
+use livekit_utils::enum_dispatch;
 use std::pin::Pin;
 use std::slice;
 use vfb_sys::ffi::VideoFrameBufferType;
@@ -51,6 +52,15 @@ impl VideoFrameBuffer {
             }
         }
     }
+}
+
+impl VideoFrameBufferTrait for VideoFrameBuffer {
+    enum_dispatch!(
+        [Native, I420, I420A, I422, I444, I010, NV12]
+        fnc!(width, &Self, [], i32);
+        fnc!(height, &Self, [], i32);
+        fnc!(to_i420, Self, [], I420Buffer);
+    );
 }
 
 macro_rules! recursive_cast {
@@ -146,21 +156,23 @@ macro_rules! impl_yuv8_buffer {
             fn data_y(&self) -> &[u8] {
                 let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
                 unsafe {
-                    slice::from_raw_parts((*ptr).data_y(), self.stride_y().try_into().unwrap())
+                    slice::from_raw_parts((*ptr).data_y(), (self.width() * self.height()) as usize)
                 }
             }
 
             fn data_u(&self) -> &[u8] {
                 let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
                 unsafe {
-                    slice::from_raw_parts((*ptr).data_u(), self.stride_u().try_into().unwrap())
+                    let chroma_height = (self.height() + 1) / 2;
+                    slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * chroma_height) as usize)
                 }
             }
 
             fn data_v(&self) -> &[u8] {
                 let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
                 unsafe {
-                    slice::from_raw_parts((*ptr).data_v(), self.stride_v().try_into().unwrap())
+                    let chroma_height = (self.height() + 1) / 2;
+                    slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * chroma_height) as usize)
                 }
             }
         }

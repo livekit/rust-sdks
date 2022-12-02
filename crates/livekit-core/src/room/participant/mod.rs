@@ -4,8 +4,8 @@ use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
 use crate::room::participant::local_participant::LocalParticipant;
 use crate::room::participant::remote_participant::RemoteParticipant;
 use crate::room::publication::{TrackPublication, TrackPublicationTrait};
-use crate::utils::wrap_variants;
 use futures_util::future::BoxFuture;
+use livekit_utils::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -74,7 +74,7 @@ pub enum ParticipantHandle {
 }
 
 impl ParticipantHandle {
-    // TODO(theomonnom): Add async support to wrap_variants ... 
+    // TODO(theomonnom): Add async support to wrap_variants ...
     pub(crate) async fn update_info(&self, info: ParticipantInfo) {
         match self {
             Self::Local(inner) => inner.clone().update_info(info).await,
@@ -84,20 +84,20 @@ impl ParticipantHandle {
 }
 
 impl ParticipantInternalTrait for ParticipantHandle {
-    wrap_variants!(
+    enum_dispatch!(
         [Local, Remote]
-        fnc!(internal_events, Arc<ParticipantEvents>, []);
+        fnc!(internal_events, &Self, [], Arc<ParticipantEvents>);
     );
 }
 
 impl ParticipantTrait for ParticipantHandle {
-    wrap_variants!(
+    enum_dispatch!(
         [Local, Remote]
-        fnc!(events, Arc<ParticipantEvents>, []);
-        fnc!(sid, ParticipantSid, []);
-        fnc!(identity, ParticipantIdentity, []);
-        fnc!(name, String, []);
-        fnc!(metadata, String, []);
+        fnc!(events, &Self, [], Arc<ParticipantEvents>);
+        fnc!(sid, &Self, [], ParticipantSid);
+        fnc!(identity, &Self, [], ParticipantIdentity);
+        fnc!(name, &Self, [], String);
+        fnc!(metadata, &Self, [], String);
     );
 }
 
