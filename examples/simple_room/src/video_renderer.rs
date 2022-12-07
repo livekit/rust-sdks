@@ -149,8 +149,6 @@ impl VideoRenderer {
                     copy_layout,
                     copy_size,
                 );
-
-                println!("wrote");
             })
         });
 

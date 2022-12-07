@@ -11,6 +11,7 @@ livekit = { path = "../.." }
 futures = "0.3"
 wgpu = "0.14.0"
 winit = "0.27.5"
+parking_lot = "0.12.1"
 
 egui = { git = "https://github.com/emilk/egui" }
 egui-wgpu = { git = "https://github.com/emilk/egui", features = ["winit"] }

@@ -2038,6 +2038,7 @@ dependencies = [
  "egui_demo_lib",
  "futures",
  "livekit",
+ "parking_lot",
  "tokio",
  "tracing",
  "tracing-subscriber",
