@@ -1,7 +1,8 @@
-use crate::events::DemoEvent;
-use crate::video_grid::VideoGrid;
+use crate::events::UiCmd;
 use crate::video_renderer::VideoRenderer;
+use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui_wgpu::WgpuConfiguration;
+use livekit::room::track::remote_track::RemoteTrackHandle;
 use parking_lot::Mutex;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -9,10 +10,11 @@ use std::sync::{
 };
 use tokio::sync::mpsc;
 
-use livekit::room::Room;
+use livekit::room::{ConnectionState, Room, RoomError};
 
-const URL: &str = "ws://localhost:7880";
-const TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIzODQ4MDY0NzMsImlzcyI6IkFQSXpLYkFTaUNWYWtnSiIsIm5hbWUiOiJuYXRpdmUiLCJuYmYiOjE2NjQ4MDY0NzMsInN1YiI6Im5hdGl2ZSIsInZpZGVvIjp7InJvb21DcmVhdGUiOnRydWUsInJvb21Kb2luIjp0cnVlfX0.BgVdBnq3XFD3_BQHoe1azqjifYysubgFl6Qlzu9IQGI";
+// Useful default constants for developing
+const DEFAULT_URL: &str = "ws://localhost:7880";
+const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIzODQ4MDY0NzMsImlzcyI6IkFQSXpLYkFTaUNWYWtnSiIsIm5hbWUiOiJuYXRpdmUiLCJuYmYiOjE2NjQ4MDY0NzMsInN1YiI6Im5hdGl2ZSIsInZpZGVvIjp7InJvb21DcmVhdGUiOnRydWUsInJvb21Kb2luIjp0cnVlfX0.BgVdBnq3XFD3_BQHoe1azqjifYysubgFl6Qlzu9IQGI";
 
 // eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIzODQ4MDY3MzAsImlzcyI6IkFQSXpLYkFTaUNWYWtnSiIsIm5hbWUiOiJ3ZWIiLCJuYmYiOjE2NjQ4MDY3MzAsInN1YiI6IndlYiIsInZpZGVvIjp7InJvb21DcmVhdGUiOnRydWUsInJvb21Kb2luIjp0cnVlfX0.VbDoULjX1CVGZu2sPy3SvWYlVZUBXxQVPmdB9BnmlN4
 
@@ -30,16 +32,19 @@ struct AppState {
 struct App {
     state: Arc<AppState>,
 
-    renderers: Vec<VideoRenderer>,
+    video_renderers: Vec<VideoRenderer>,
     egui_context: egui::Context,
     egui_state: egui_winit::State,
     egui_painter: egui_wgpu::winit::Painter,
     window: winit::window::Window,
-    event_tx: mpsc::UnboundedSender<DemoEvent>,
+    cmd_tx: mpsc::UnboundedSender<AsyncCmd>,
+    cmd_rx: mpsc::UnboundedReceiver<UiCmd>,
 
     // UI State
     lk_url: String,
     lk_token: String,
+    connection_failure: Option<String>,
+    room_state: ConnectionState,
 }
 
 pub fn run(rt: tokio::runtime::Runtime) {
@@ -58,8 +63,8 @@ pub fn run(rt: tokio::runtime::Runtime) {
             egui_painter.set_window(Some(&window));
         }
 
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<DemoEvent>();
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<DemoEvent>();
+        let (async_cmd_tx, mut async_cmd_rx) = mpsc::unbounded_channel::<AsyncCmd>();
+        let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel::<UiCmd>();
 
         let state = Arc::new(AppState {
             room: Mutex::new(Room::new()),
@@ -68,25 +73,44 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
         let mut app = App {
             state: state.clone(),
-            renderers: Vec::default(),
+            video_renderers: Vec::default(),
             egui_context,
             egui_state,
             egui_painter,
             window,
-            event_tx,
-            lk_url: "ws://localhost:8080/".to_owned(),
-            lk_token: "your token".to_owned(),
+            cmd_tx: async_cmd_tx,
+            cmd_rx: ui_cmd_rx,
+            lk_url: DEFAULT_URL.to_owned(),
+            lk_token: DEFAULT_TOKEN.to_owned(),
+            connection_failure: None,
+            room_state: ConnectionState::Connected,
         };
 
         // Async event loop
         tokio::spawn(async move {
-            while let Some(event) = event_rx.recv().await {
+            {
+                let events = state.room.lock().events();
+                events.on_track_subscribed({
+                    let ui_cmd_tx = ui_cmd_tx.clone();
+                    move |event| {
+                        let ui_cmd_tx = ui_cmd_tx.clone();
+                        async move {
+                            ui_cmd_tx.send(UiCmd::TrackSubscribed { event }).unwrap();
+                        }
+                    }
+                });
+            }
+            while let Some(event) = async_cmd_rx.recv().await {
                 match event {
-                    DemoEvent::RoomConnect { url, token } => {
+                    AsyncCmd::RoomConnect { url, token } => {
                         state.connecting.store(true, Ordering::SeqCst);
 
                         let mut room = state.room.lock();
-                        room.connect(&url, &token).await.unwrap();
+                        ui_cmd_tx
+                            .send(UiCmd::ConnectResult {
+                                result: room.connect(&url, &token).await,
+                            })
+                            .unwrap();
 
                         state.connecting.store(false, Ordering::SeqCst);
                     }
@@ -105,6 +129,33 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
 impl App {
     fn update<T>(&mut self, event: Event<'_, T>, control_flow: &mut ControlFlow) {
+        if let Ok(cmd) = self.cmd_rx.try_recv() {
+            match cmd {
+                UiCmd::ConnectResult { result } => {
+                    if let Err(err) = result {
+                        self.connection_failure = Some(err.to_string());
+                    } else {
+                        self.connection_failure = None
+                    }
+                }
+                UiCmd::TrackSubscribed { event } => {
+                    match event.track {
+                        RemoteTrackHandle::Video(video_track) => {
+                            // Create a new VideoRenderer
+                            let video_renderer = VideoRenderer::new(
+                                self.egui_painter.render_state().clone().unwrap(),
+                                video_track.rtc_track(),
+                            );
+                            self.video_renderers.push(video_renderer);
+                        }
+                        RemoteTrackHandle::Audio(_) => {
+                            // The demo doesn't support Audio rendering at the moment.
+                        }
+                    };
+                }
+            }
+        }
+
         match event {
             Event::WindowEvent { window_id, event } => {
                 if let Some(flow) = self.on_window_event(window_id, event) {
@@ -157,16 +208,16 @@ impl App {
                     if ui.button("Logs").clicked() {}
                     if ui.button("Profiler").clicked() {}
                     if ui.button("WebRTC Stats").clicked() {}
+                    if ui.button("Events").clicked() {}
                 });
                 ui.menu_button("Simulate", |ui| {});
             });
         });
 
         egui::SidePanel::right("room_panel")
-            .default_width(128.0)
+            .default_width(256.0)
             .show(ui.ctx(), |ui| {
                 ui.heading("Livekit - Connect to a room");
-
                 ui.separator();
 
                 ui.horizontal(|ui| {
@@ -182,9 +233,11 @@ impl App {
                 ui.horizontal(|ui| {
                     let connecting = self.state.connecting.load(Ordering::SeqCst);
                     ui.set_enabled(!connecting);
+
                     if ui.button("Connect").clicked() {
-                        self.event_tx
-                            .send(DemoEvent::RoomConnect {
+                        self.connection_failure = None;
+                        self.cmd_tx
+                            .send(AsyncCmd::RoomConnect {
                                 url: self.lk_url.clone(),
                                 token: self.lk_token.clone(),
                             })
@@ -196,7 +249,11 @@ impl App {
                     }
                 });
 
-                ui.allocate_space(ui.available_size());
+                if let Some(err) = &self.connection_failure {
+                    ui.colored_label(egui::Color32::RED, err);
+                }
+
+                ui.separator();
             });
 
         egui::CentralPanel::default().show(ui.ctx(), |ui| {
@@ -204,14 +261,33 @@ impl App {
                 VideoGrid::new("default_grid")
                     .max_columns(6)
                     .show(ui, |ui| {
-                        for _ in 0..20 {
-                            ui.video_frame(|ui| {
-                                egui::Frame::none()
-                                    .fill(egui::Color32::DARK_GRAY)
-                                    .show(ui, |ui| {
-                                        ui.allocate_space(ui.available_size());
-                                    });
-                            });
+                        if self.room_state == ConnectionState::Disconnected {
+                            for _ in 0..20 {
+                                ui.video_frame(|ui| {
+                                    egui::Frame::none().fill(egui::Color32::DARK_GRAY).show(
+                                        ui,
+                                        |ui| {
+                                            ui.allocate_space(ui.available_size());
+                                        },
+                                    );
+                                });
+                            }
+                        } else {
+                            for video_renderer in &self.video_renderers {
+                                ui.video_frame(|ui| {
+                                    if let Some(tex) = video_renderer.texture_id() {
+                                        ui.painter().image(
+                                            tex,
+                                            ui.available_rect_before_wrap(),
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(0.0, 0.0),
+                                                egui::pos2(1.0, 1.0),
+                                            ),
+                                            egui::Color32::WHITE,
+                                        );
+                                    }
+                                });
+                            }
                         }
                     });
             });

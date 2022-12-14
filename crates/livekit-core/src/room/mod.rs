@@ -1,21 +1,21 @@
-use parking_lot::lock_api::RwLockUpgradableReadGuard;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
-use self::id::ParticipantSid;
+use self::id::{ParticipantIdentity, ParticipantSid};
 use self::participant::local_participant::LocalParticipant;
 use self::participant::remote_participant::RemoteParticipant;
 use self::participant::ParticipantInternalTrait;
 use self::participant::ParticipantTrait;
-use crate::events::room::{
-    ParticipantConnectedEvent, ParticipantDisconnectedEvent, RoomEvents, TrackSubscribedEvent,
+use crate::events::{
+    ParticipantConnectedEvent, ParticipantDisconnectedEvent, RoomEvents, TrackPublishedEvent,
+    TrackSubscribedEvent,
 };
 use crate::proto;
 use crate::proto::participant_info;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, error, instrument, trace_span, Level};
 
 use crate::rtc_engine::{EngineError, EngineEvent, EngineEvents, RTCEngine};
 use crate::signal_client::SignalOptions;
@@ -27,15 +27,15 @@ pub mod track;
 
 #[derive(Error, Debug)]
 pub enum RoomError {
-    #[error("internal RTCEngine failure")]
+    #[error("engine : {0}")]
     Engine(#[from] EngineError),
-    #[error("internal Room failure")]
+    #[error("room failure: {0}")]
     Internal(String),
 }
 
-type RoomResult<T> = Result<T, RoomError>;
+pub type RoomResult<T> = Result<T, RoomError>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionState {
     Disconnected,
     Connecting,
@@ -43,6 +43,7 @@ pub enum ConnectionState {
     Reconnecting,
 }
 
+#[derive(Debug)]
 struct RoomInner {
     state: AtomicU8, // ConnectionState
     sid: Mutex<String>,
@@ -52,6 +53,7 @@ struct RoomInner {
     local_participant: Arc<LocalParticipant>,
 }
 
+#[derive(Debug)]
 pub struct Room {
     inner: Option<Arc<RoomInner>>,
     events: Arc<RoomEvents>,
@@ -65,14 +67,19 @@ impl Room {
         }
     }
 
+    #[instrument(level = Level::DEBUG)]
     pub async fn connect(&mut self, url: &str, token: &str) -> RoomResult<()> {
         let (rtc_engine, engine_events) =
             RTCEngine::connect(url, token, SignalOptions::default()).await?;
         let rtc_engine = Arc::new(rtc_engine);
         let join_response = rtc_engine.join_response();
+        let pi = join_response.participant.unwrap().clone();
         let local_participant = Arc::new(LocalParticipant::new(
             rtc_engine.clone(),
-            join_response.participant.unwrap().clone(),
+            pi.sid.into(),
+            pi.identity.into(),
+            pi.name,
+            pi.metadata,
         ));
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomInner {
@@ -84,14 +91,25 @@ impl Room {
             local_participant,
         });
 
-        self.inner = Some(inner.clone());
-
-        // Add already connected participants
         for pi in join_response.other_participants {
-            let p = Self::create_participant(inner.clone(), self.events.clone(), pi.clone());
-            p.update_info(pi).await;
+            let participant = {
+                let pi = pi.clone();
+                Self::create_participant(
+                    inner.clone(),
+                    self.events.clone(),
+                    pi.sid.into(),
+                    pi.identity.into(),
+                    pi.name,
+                    pi.metadata,
+                )
+            };
+            participant.update_info(pi.clone());
+            participant
+                .update_tracks(RoomHandle::from(inner.clone()), pi.tracks)
+                .await;
         }
 
+        self.inner = Some(inner.clone());
         tokio::spawn(Self::room_task(inner, self.events.clone(), engine_events));
 
         Ok(())
@@ -121,6 +139,7 @@ impl Room {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(room_inner, room_events))]
     async fn handle_event(
         room_inner: Arc<RoomInner>,
         room_events: Arc<RoomEvents>,
@@ -155,10 +174,18 @@ impl Room {
                     Self::get_participant(room_inner.clone(), &participant_sid.to_string().into());
 
                 if let Some(remote_participant) = remote_participant {
-                    remote_participant.add_subscribed_media_track(
-                        track_sid.to_string().into(),
-                        rtp_receiver.track(),
-                    );
+                    tokio::spawn({
+                        let track_sid = track_sid.to_owned().into();
+                        async move {
+                            remote_participant
+                                .add_subscribed_media_track(
+                                    RoomHandle::from(room_inner),
+                                    track_sid,
+                                    rtp_receiver.track(),
+                                )
+                                .await;
+                        }
+                    });
                 } else {
                     // The server should send participant updates before sending a new offer
                     // So this should not happen.
@@ -173,6 +200,7 @@ impl Room {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(room_inner, room_events))]
     async fn handle_participant_update(
         room_inner: Arc<RoomInner>,
         room_events: Arc<RoomEvents>,
@@ -182,7 +210,7 @@ impl Room {
             if pi.sid == room_inner.local_participant.sid()
                 || pi.identity == room_inner.local_participant.identity()
             {
-                room_inner.local_participant.clone().update_info(pi).await;
+                room_inner.local_participant.clone().update_info(pi);
                 continue;
             }
 
@@ -199,12 +227,24 @@ impl Room {
                     )
                 } else {
                     // Participant is already connected, update the informations
-                    remote_participant.update_info(pi).await;
+                    remote_participant.update_info(pi.clone());
+                    remote_participant
+                        .update_tracks(RoomHandle::from(room_inner.clone()), pi.tracks)
+                        .await;
                 }
             } else {
                 // Create a new participant and call OnConnect event
-                let remote_participant =
-                    Self::create_participant(room_inner.clone(), room_events.clone(), pi);
+                let remote_participant = {
+                    let pi = pi.clone();
+                    Self::create_participant(
+                        room_inner.clone(),
+                        room_events.clone(),
+                        pi.sid.into(),
+                        pi.identity.into(),
+                        pi.name,
+                        pi.metadata,
+                    )
+                };
                 let mut handler = room_events.on_participant_connected.lock();
                 if let Some(cb) = handler.as_mut() {
                     cb(ParticipantConnectedEvent {
@@ -212,10 +252,16 @@ impl Room {
                         participant: remote_participant.clone(),
                     });
                 }
+
+                remote_participant.update_info(pi.clone());
+                remote_participant
+                    .update_tracks(RoomHandle::from(room_inner.clone()), pi.tracks)
+                    .await;
             }
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(room_inner, room_events))]
     fn handle_participant_disconnect(
         room_inner: Arc<RoomInner>,
         room_events: Arc<RoomEvents>,
@@ -247,42 +293,64 @@ impl Room {
     fn create_participant(
         room_inner: Arc<RoomInner>,
         room_events: Arc<RoomEvents>,
-        pi: proto::ParticipantInfo,
+        sid: ParticipantSid,
+        identity: ParticipantIdentity,
+        name: String,
+        metadata: String,
     ) -> Arc<RemoteParticipant> {
-        let p = Arc::new(RemoteParticipant::new(pi.clone()));
+        let p = Arc::new(RemoteParticipant::new(
+            sid.clone(),
+            identity,
+            name,
+            metadata,
+        ));
+
+        macro_rules! forward_event {
+            ($type:ident, when_connected) => {
+                p.internal_events().$type({
+                    let room_events = room_events.clone();
+                    let room_inner = room_inner.clone();
+                    move |event| {
+                        let room_events = room_events.clone();
+                        let room_inner = room_inner.clone();
+                        async move {
+                            if room_inner.state.load(Ordering::SeqCst)
+                                == ConnectionState::Connected as u8
+                            {
+                                if let Some(cb) = room_events.$type.lock().as_mut() {
+                                    cb(event).await;
+                                }
+                            }
+                        }
+                    }
+                })
+            };
+            ($type:ident) => {
+                p.internal_events().$type({
+                    let room_events = room_events.clone();
+                    move |event| {
+                        let room_events = room_events.clone();
+                        async move {
+                            if let Some(cb) = room_events.$type.lock().as_mut() {
+                                cb(event).await;
+                            }
+                        }
+                    }
+                })
+            };
+        }
 
         // Forward participantevents to room events
-        p.internal_events().on_track_subscribed({
-            let room_events = room_events.clone();
-            let room_inner = room_inner.clone();
+        forward_event!(on_track_published, when_connected);
+        forward_event!(on_track_subscribed);
+        forward_event!(on_track_subscription_failed);
 
-            move |event| {
-                let room_events = room_events.clone();
-                let room_inner = room_inner.clone();
-
-                async move {
-                    if let Some(cb) = room_events.clone().on_track_subscribed.lock().as_mut() {
-                        cb(TrackSubscribedEvent {
-                            room_handle: RoomHandle::from(room_inner.clone()),
-                            track: event.track,
-                            participant: event.participant,
-                            publication: event.publication,
-                        })
-                        .await;
-                    }
-                }
-            }
-        });
-
-        room_inner
-            .participants
-            .write()
-            .insert(pi.sid.into(), p.clone());
+        room_inner.participants.write().insert(sid, p.clone());
         p
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RoomHandle {
     inner: Arc<RoomInner>,
 }

@@ -1,4 +1,5 @@
 use parking_lot::Mutex;
+use std::error;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -10,7 +11,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time::sleep;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{proto, signal_client};
 use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataSendError, DataState};
@@ -46,6 +47,10 @@ pub(crate) type EngineEmitter = mpsc::Sender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::Receiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
+// TODO(theomonnom): Smarter retry intervals
+pub(crate) const RECONNECT_ATTEMPTS: u32 = 10;
+pub(crate) const RECONNECT_INTERVAL: Duration = Duration::from_millis(300);
+
 pub(crate) const MAX_ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) const LOSSY_DC_LABEL: &str = "_lossy";
 pub(crate) const RELIABLE_DC_LABEL: &str = "_reliable";
@@ -69,7 +74,7 @@ struct IceCandidateJSON {
 
 #[derive(Error, Debug)]
 pub enum EngineError {
-    #[error("signal failure")]
+    #[error("signal failure: {0}")]
     Signal(#[from] SignalError),
     #[error("internal webrtc failure")]
     Rtc(#[from] RTCError),
@@ -94,13 +99,25 @@ pub(crate) enum EngineEvent {
         rtp_receiver: RtpReceiver,
         streams: Vec<MediaStream>,
     },
+    Connected,
+    Resuming,
+    Resumed,
+    SignalResumed,
+    Restarting,
+    Restarted,
 }
 
 #[derive(Debug)]
 struct EngineInner {
-    has_published: AtomicBool,
+    // Join infornation
+    url: String,
+    token: Mutex<String>, // The token is refreshed periodically
+    options: Mutex<SignalOptions>,
     join_response: Mutex<JoinResponse>,
+
+    has_published: AtomicBool,
     pc_state: AtomicU8, // Casted to PCState enum
+    reconnecting: AtomicBool,
 
     publisher_pc: AsyncMutex<PCTransport>,
     subscriber_pc: AsyncMutex<PCTransport>,
@@ -109,12 +126,13 @@ struct EngineInner {
     // Used to send data to other participants ( The SFU forward the messages )
     lossy_dc: Mutex<DataChannel>,
     reliable_dc: Mutex<DataChannel>,
-
     // Subscriber data channels
     // These fields are never used, we just keep a strong reference to them,
     // so we can receive data from other participants
     sub_reliable_dc: Mutex<Option<DataChannel>>,
     sub_lossy_dc: Mutex<Option<DataChannel>>,
+
+    closed: AtomicBool,
 }
 
 #[derive(Debug)]
@@ -126,7 +144,72 @@ pub struct RTCEngine {
     lk_runtime: Arc<LKRuntime>, // Keep a reference while we're using the RTCEngine
 }
 
+impl EngineInner {
+    async fn ensure_publisher_connected(&self, kind: data_packet::Kind) -> EngineResult<()> {
+        if !self.join_response.lock().subscriber_primary {
+            return Ok(());
+        }
+
+        let publisher = &self.publisher_pc;
+        {
+            let mut publisher = publisher.lock().await;
+            if !publisher.is_connected()
+                && publisher.peer_connection().ice_connection_state()
+                    != IceConnectionState::IceConnectionChecking
+            {
+                let _ = self.negotiate_publisher().await;
+            }
+        }
+
+        let dc = self.data_channel(kind);
+        if dc.lock().state() == DataState::Open {
+            return Ok(());
+        }
+
+        // Wait until the PeerConnection is connected
+        let wait_connected = async move {
+            while publisher.lock().await.is_connected() && dc.lock().state() == DataState::Open {
+                sleep(Duration::from_millis(50)).await;
+            }
+        };
+
+        tokio::select! {
+            _ = wait_connected => Ok(()),
+            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
+                let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
+                error!(error = ?err);
+                Err(err)
+            }
+        }
+    }
+
+    async fn negotiate_publisher(&self) -> EngineResult<()> {
+        self.has_published.store(true, Ordering::SeqCst);
+        if let Err(err) = self.publisher_pc.lock().await.negotiate().await {
+            error!("failed to negotiate the publisher: {:?}", err);
+            Err(err)?
+        } else {
+            Ok(())
+        }
+    }
+
+    fn data_channel(&self, kind: data_packet::Kind) -> &Mutex<DataChannel> {
+        if kind == data_packet::Kind::Reliable {
+            &self.reliable_dc
+        } else {
+            &self.lossy_dc
+        }
+    }
+}
+
 impl RTCEngine {
+    pub fn new() -> Self {
+
+		Self {
+
+		}
+	}
+
     #[tracing::instrument(skip(url, token))]
     pub(crate) async fn connect(
         url: &str,
@@ -172,15 +255,15 @@ impl RTCEngine {
             emitter.clone(),
         ));
 
+        if !join_response.subscriber_primary {
+            engine_inner.negotiate_publisher().await?;
+        }
+
         let rtc_engine = Self {
             signal_client,
             engine_inner,
             lk_runtime,
         };
-
-        if !join_response.subscriber_primary {
-            rtc_engine.negotiate_publisher().await?;
-        }
 
         Ok((rtc_engine, events))
     }
@@ -191,8 +274,9 @@ impl RTCEngine {
         data: &DataPacket,
         kind: data_packet::Kind,
     ) -> Result<(), EngineError> {
-        self.ensure_publisher_connected(kind).await?;
-        self.data_channel(kind)
+        self.engine_inner.ensure_publisher_connected(kind).await?;
+        self.engine_inner
+            .data_channel(kind)
             .lock()
             .send(&data.encode_to_vec(), true)
             .map_err(Into::into)
@@ -244,7 +328,11 @@ impl RTCEngine {
                     }
                 }
                 SignalEvent::Close => {
-                    // Try reconnect if this isn't expected
+                    Self::handle_disconnected(
+                        signal_client.clone(),
+                        engine_inner.clone(),
+                        emitter.clone(),
+                    );
                 }
             }
         }
@@ -279,23 +367,23 @@ impl RTCEngine {
                 });
             }
             RTCEvent::ConnectionChange { state, target } => {
-                // Reconnect if we've been disconnected unexpectedly
-                trace!("Connection change, {:?} {:?}", state, target);
+                trace!("connection change, {:?} {:?}", state, target);
                 let subscriber_primary = engine_inner.join_response.lock().subscriber_primary;
                 let is_primary = subscriber_primary && target == SignalTarget::Subscriber;
 
-                if is_primary && state == PeerConnectionState::Disconnected {
+                if is_primary && state == PeerConnectionState::Connected {
                     let old_state = engine_inner
                         .pc_state
                         .swap(PCState::Connected as u8, Ordering::SeqCst);
                     if old_state == PCState::New as u8 {
-                        // TODO(theomonnom) Handle disconnect
+                        let _ = emitter.send(EngineEvent::Connected).await; // First time connected
                     }
                 } else if state == PeerConnectionState::Failed {
                     engine_inner
                         .pc_state
                         .store(PCState::Disconnected as u8, Ordering::SeqCst);
-                    // TODO(theomonnom) Handle disconnect
+
+                    Self::handle_disconnected(signal_client, engine_inner, emitter);
                 }
             }
             RTCEvent::DataChannel {
@@ -449,30 +537,131 @@ impl RTCEngine {
         Ok(())
     }
 
-    async fn ensure_publisher_connected(&self, kind: data_packet::Kind) -> EngineResult<()> {
-        if !self.join_response().subscriber_primary {
-            return Ok(());
-        }
-
-        let publisher = &self.engine_inner.publisher_pc;
+    async fn handle_disconnected(
+        signal_client: Arc<SignalClient>,
+        engine_inner: Arc<EngineInner>,
+        emitter: EngineEmitter,
+    ) {
+        if engine_inner.closed.load(Ordering::SeqCst)
+            || engine_inner.reconnecting.load(Ordering::SeqCst)
         {
-            let mut publisher = publisher.lock().await;
-            if !publisher.is_connected()
-                && publisher.peer_connection().ice_connection_state()
-                    != IceConnectionState::IceConnectionChecking
-            {
-                let _ = self.negotiate_publisher().await;
+            return;
+        }
+
+        engine_inner.reconnecting.store(true, Ordering::SeqCst);
+        warn!("RTCEngine disconnected unexpectedly, reconnecting...");
+
+        let mut full_reconnect = false;
+        for i in 0..RECONNECT_ATTEMPTS {
+            if full_reconnect {
+                if i == 0 {
+                    let _ = emitter.send(EngineEvent::Restarting).await;
+                }
+
+                info!("restarting connection... attempt: {}", i);
+                if let Err(err) = Self::try_restart_connection(
+                    signal_client.clone(),
+                    engine_inner.clone(),
+                    emitter.clone(),
+                )
+                .await
+                {
+                    error!("restarting connection failed: {}", err);
+                } else {
+                    return;
+                }
+            } else {
+                if i == 0 {
+                    let _ = emitter.send(EngineEvent::Resuming).await;
+                }
+
+                info!("resuming connection... attempt: {}", i);
+                if let Err(err) = Self::try_resume_connection(
+                    signal_client.clone(),
+                    engine_inner.clone(),
+                    emitter.clone(),
+                )
+                .await
+                {
+                    error!("resuming connection failed: {}", err);
+                    if let EngineError::Signal(_) = err {
+                        full_reconnect = true;
+                    }
+                } else {
+                    return;
+                }
             }
+
+            tokio::time::sleep(RECONNECT_INTERVAL).await;
+        }
+        error!("failed to reconnect after {} attemps", RECONNECT_ATTEMPTS);
+        engine_inner.reconnecting.store(false, Ordering::SeqCst);
+
+        // TODO DISCONNECT
+    }
+
+    async fn try_restart_connection(
+        signal_client: Arc<SignalClient>,
+        engine_inner: Arc<EngineInner>,
+        emitter: EngineEmitter,
+    ) -> EngineResult<()> {
+        Ok(())
+    }
+
+    async fn try_resume_connection(
+        signal_client: Arc<SignalClient>,
+        engine_inner: Arc<EngineInner>,
+        emitter: EngineEmitter,
+    ) -> EngineResult<()> {
+        let mut options = engine_inner.options.lock().clone();
+        options.sid = engine_inner
+            .join_response
+            .lock()
+            .participant
+            .as_ref()
+            .unwrap()
+            .sid
+            .clone();
+
+        signal_client
+            .reconnect(
+                &engine_inner.url,
+                &engine_inner.token.lock().clone(),
+                options,
+            )
+            .await?;
+
+        let _ = emitter.send(EngineEvent::SignalResumed).await;
+
+        engine_inner
+            .subscriber_pc
+            .lock()
+            .await
+            .prepare_ice_restart();
+
+        if engine_inner.has_published.load(Ordering::SeqCst) {
+            engine_inner
+                .publisher_pc
+                .lock()
+                .await
+                .create_and_send_offer(RTCOfferAnswerOptions {
+                    ice_restart: true,
+                    ..Default::default()
+                })
+                .await?;
         }
 
-        let dc = self.data_channel(kind);
-        if dc.lock().state() == DataState::Open {
-            return Ok(());
-        }
+        Self::wait_pc_connection(engine_inner).await?;
+        signal_client.flush_queue().await;
 
-        // Wait until the PeerConnection is connected
+        let _ = emitter.send(EngineEvent::Resumed);
+
+        Ok(())
+    }
+
+    async fn wait_pc_connection(engine_inner: Arc<EngineInner>) -> EngineResult<()> {
         let wait_connected = async move {
-            while publisher.lock().await.is_connected() && dc.lock().state() == DataState::Open {
+            while engine_inner.pc_state.load(Ordering::SeqCst) != PCState::Connected as u8 {
                 sleep(Duration::from_millis(50)).await;
             }
         };
@@ -480,30 +669,14 @@ impl RTCEngine {
         tokio::select! {
             _ = wait_connected => Ok(()),
             _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
-                let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
-                error!(error = ?err);
+                let err = EngineError::Connection("wait_pc_connection timed out".to_string());
                 Err(err)
             }
         }
     }
 
-    async fn negotiate_publisher(&self) -> EngineResult<()> {
-        self.engine_inner
-            .has_published
-            .store(true, Ordering::SeqCst);
-        if let Err(err) = self
-            .engine_inner
-            .publisher_pc
-            .lock()
-            .await
-            .negotiate()
-            .await
-        {
-            error!("failed to negotiate the publisher: {:?}", err);
-            Err(err)?
-        } else {
-            Ok(())
-        }
+    fn close(&self) {
+        // TODO
     }
 
     fn configure_engine(
@@ -617,16 +790,9 @@ impl RTCEngine {
                 reliable_dc: Mutex::new(reliable_dc),
                 sub_lossy_dc: Mutex::new(None),
                 sub_reliable_dc: Mutex::new(None),
+                closed: AtomicBool::new(false),
             },
             events,
         ))
-    }
-
-    fn data_channel(&self, kind: data_packet::Kind) -> &Mutex<DataChannel> {
-        if kind == data_packet::Kind::Reliable {
-            &self.engine_inner.reliable_dc
-        } else {
-            &self.engine_inner.lossy_dc
-        }
     }
 }

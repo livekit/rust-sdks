@@ -9,7 +9,7 @@ use livekit_utils::enum_dispatch;
 
 use super::TrackTrait;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum RemoteTrackHandle {
     Audio(Arc<RemoteAudioTrack>),
     Video(Arc<RemoteVideoTrack>),

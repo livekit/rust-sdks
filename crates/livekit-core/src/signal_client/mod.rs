@@ -1,15 +1,18 @@
 use std::fmt::Debug;
+use std::sync::RwLockWriteGuard;
 use std::time::Duration;
 
 use livekit_webrtc::peer_connection_factory::{
     ContinualGatheringPolicy, ICEServer, IceTransportsType, RTCConfiguration,
 };
+use parking_lot::RwLock;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Error as WsError;
 
 use crate::proto::{signal_request, signal_response, JoinResponse};
 use crate::signal_client::signal_stream::SignalStream;
+use tracing::{instrument, Level};
 
 mod signal_stream;
 
@@ -21,7 +24,7 @@ pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Error, Debug)]
 pub enum SignalError {
-    #[error("websocket failure")]
+    #[error("ws failure: {0}")]
     WsError(#[from] WsError),
     #[error("failed to parse the url")]
     UrlParse(#[from] url::ParseError),
@@ -39,12 +42,12 @@ pub(crate) enum SignalEvent {
     Close,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct SignalOptions {
-    reconnect: bool,
-    auto_subscribe: bool,
-    sid: String,
-    adaptive_stream: bool,
+    pub(crate) reconnect: bool,
+    pub(crate) sid: String,
+    pub auto_subscribe: bool,
+    pub adaptive_stream: bool,
 }
 
 impl Default for SignalOptions {
@@ -60,32 +63,59 @@ impl Default for SignalOptions {
 
 #[derive(Debug)]
 pub struct SignalClient {
-    stream: SignalStream,
+    stream: RwLock<Option<SignalStream>>,
     emitter: SignalEmitter,
 }
 
 impl SignalClient {
+    pub fn new() -> (Self, SignalEvents) {
+        let (emitter, events) = mpsc::channel(8);
+        (
+            Self {
+                stream: Default::default(),
+                emitter,
+            },
+            events,
+        )
+    }
+
+    #[instrument(level = Level::DEBUG, skip(url, token, options))]
     pub(crate) async fn connect(
+        &self,
         url: &str,
         token: &str,
         options: SignalOptions,
-    ) -> SignalResult<(Self, SignalEvents)> {
-        let (emitter, events) = mpsc::channel(8);
-        let stream = SignalStream::connect(url, token, options, emitter.clone()).await?;
-
-        // TODO(theomonnom) Retry initial connection
-
-        Ok((Self { stream, emitter }, events))
+    ) -> SignalResult<()> {
+        let stream = SignalStream::connect(url, token, options, self.emitter.clone()).await?;
+        *self.stream.write() = Some(stream);
+        Ok(())
     }
 
-    pub async fn send(&self, signal: signal_request::Message) {
-        if let Err(_) = self.stream.send(signal).await {
-            // TODO(theomonnom) Queue message ( Ignore on full reconnect )
+    #[instrument(level = Level::DEBUG)]
+    pub async fn close(&self) {
+        if let Some(stream) = self.stream.write().take() {
+            stream.close().await;
         }
     }
 
-    pub async fn reconnect(&self) {
-        // TODO(theomonnom) Close & recreate SignalStream, also send the queue if needed
+    #[instrument(level = Level::DEBUG)]
+    pub async fn send(&self, signal: signal_request::Message) {
+        if let Some(stream) = self.stream.read().as_ref() {
+            if stream.send(signal).await.is_ok() {
+                return;
+            }
+        }
+
+        // TODO(theomonnom): enqueue message
+    }
+
+    pub async fn clear_queue(&self) {
+        // TODO(theomonnom): impl
+    }
+
+    #[instrument(level = Level::DEBUG)]
+    pub async fn flush_queue(&self) {
+        // TODO(theomonnom): impl
     }
 }
 
@@ -115,8 +145,9 @@ pub mod utils {
     use tokio::sync::mpsc;
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Error as WsError;
-    use tracing::{event, Level};
+    use tracing::{event, instrument, Level};
 
+    #[instrument(level = Level::DEBUG, skip(receiver))]
     pub(crate) async fn next_join_response(
         receiver: &mut mpsc::Receiver<SignalEvent>,
     ) -> SignalResult<JoinResponse> {

@@ -11,7 +11,6 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 pub mod audio_track;
-pub mod events;
 pub mod local_audio_track;
 pub mod local_track;
 pub mod local_video_track;
@@ -97,6 +96,7 @@ impl From<ProtoTrackSource> for TrackSource {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct TrackDimension(pub u32, pub u32);
 
 pub trait TrackTrait {
@@ -108,6 +108,7 @@ pub trait TrackTrait {
     fn stop(&self);
 }
 
+#[derive(Debug)]
 pub(super) struct TrackShared {
     pub(super) sid: Mutex<TrackSid>,
     pub(super) name: Mutex<String>,
@@ -141,7 +142,7 @@ impl TrackShared {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TrackHandle {
     LocalVideo(Arc<LocalVideoTrack>),
     LocalAudio(Arc<LocalAudioTrack>),

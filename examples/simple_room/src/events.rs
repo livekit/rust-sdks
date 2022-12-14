@@ -1,3 +1,5 @@
+use livekit::events::TrackSubscribedEvent;
+
 #[derive(Debug)]
 pub enum AsyncCmd {
     RoomConnect { url: String, token: String },
@@ -5,5 +7,10 @@ pub enum AsyncCmd {
 
 #[derive(Debug)]
 pub enum UiCmd {
-    ConnectResult,
+    ConnectResult {
+        result: livekit::room::RoomResult<()>,
+    },
+    TrackSubscribed {
+        event: TrackSubscribedEvent,
+    },
 }

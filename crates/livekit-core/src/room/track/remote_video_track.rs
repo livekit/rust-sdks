@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::room::track::{impl_track_trait, TrackShared};
 
+#[derive(Debug)]
 pub struct RemoteVideoTrack {
     shared: TrackShared,
 }

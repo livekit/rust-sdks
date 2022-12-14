@@ -19,12 +19,12 @@ pub type OnOfferHandler = Box<
         + Sync,
 >;
 
-pub struct PCTransport {
+pub(crate) struct PCTransport {
     peer_connection: PeerConnection,
     pending_candidates: Vec<IceCandidate>,
     on_offer_handler: Option<OnOfferHandler>,
-    restarting_ice: bool,
     renegotiate: bool,
+    restarting_ice: bool,
 }
 
 impl Debug for PCTransport {
@@ -58,7 +58,11 @@ impl PCTransport {
         self.on_offer_handler = Some(handler);
     }
 
-    #[tracing::instrument]
+    pub fn prepare_ice_restart(&mut self) {
+        self.restarting_ice = true;
+    }
+
+    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RTCError> {
         if self.peer_connection.remote_description().is_none() {
             self.pending_candidates.push(ice_candidate);
@@ -71,7 +75,7 @@ impl PCTransport {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn set_remote_description(
         &mut self,
         remote_description: SessionDescription,
@@ -94,15 +98,15 @@ impl PCTransport {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn negotiate(&mut self) -> Result<(), RTCError> {
         // TODO(theomonnom) Debounce here with NEGOTIATION_FREQUENCY
         self.create_and_send_offer(RTCOfferAnswerOptions::default())
             .await
     }
 
-    #[tracing::instrument]
-    async fn create_and_send_offer(
+    #[tracing::instrument(level = Level::DEBUG)]
+    pub async fn create_and_send_offer(
         &mut self,
         options: RTCOfferAnswerOptions,
     ) -> Result<(), RTCError> {

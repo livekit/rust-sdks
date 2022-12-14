@@ -16,4 +16,3 @@ parking_lot = "0.12.1"
 egui = { git = "https://github.com/emilk/egui" }
 egui-wgpu = { git = "https://github.com/emilk/egui", features = ["winit"] }
 egui-winit = { git = "https://github.com/emilk/egui" }
-egui_demo_lib = { git = "https://github.com/emilk/egui" }

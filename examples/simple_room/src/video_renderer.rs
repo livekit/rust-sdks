@@ -3,6 +3,7 @@ use livekit::webrtc::video_frame_buffer::PlanarYuv8Buffer;
 use livekit::webrtc::video_frame_buffer::PlanarYuvBuffer;
 use livekit::webrtc::video_frame_buffer::VideoFrameBufferTrait;
 use livekit::webrtc::yuv_helper;
+use tracing::debug_span;
 use std::convert::TryInto;
 use std::num::NonZeroU32;
 use std::{
@@ -101,6 +102,9 @@ impl VideoRenderer {
             let internal = internal.clone();
 
             Box::new(move |_frame, buffer| {
+                let span = debug_span!("texture_upload");
+                let _enter = span.enter();
+
                 let mut internal = internal.lock().unwrap();
                 let buffer = buffer.to_i420();
 

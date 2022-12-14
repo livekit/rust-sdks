@@ -1,10 +1,9 @@
-use crate::events::participant::ParticipantEvents;
+use crate::events::ParticipantEvents;
 use crate::proto::ParticipantInfo;
 use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
 use crate::room::participant::local_participant::LocalParticipant;
 use crate::room::participant::remote_participant::RemoteParticipant;
 use crate::room::publication::{TrackPublication, TrackPublicationTrait};
-use futures_util::future::BoxFuture;
 use livekit_utils::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
@@ -13,8 +12,7 @@ use std::sync::Arc;
 pub mod local_participant;
 pub mod remote_participant;
 
-type OnTrackSubscribed = Box<dyn FnMut(ParticipantHandle) -> BoxFuture<'static, ()> + Send + Sync>;
-
+#[derive(Debug)]
 pub(super) struct ParticipantShared {
     pub(super) events: Arc<ParticipantEvents>,
     pub(super) internal_events: Arc<ParticipantEvents>,
@@ -57,6 +55,7 @@ impl ParticipantShared {
 
 pub(crate) trait ParticipantInternalTrait {
     fn internal_events(&self) -> Arc<ParticipantEvents>;
+    fn update_info(&self, info: ParticipantInfo);
 }
 
 pub trait ParticipantTrait {
@@ -73,20 +72,11 @@ pub enum ParticipantHandle {
     Remote(Arc<RemoteParticipant>),
 }
 
-impl ParticipantHandle {
-    // TODO(theomonnom): Add async support to wrap_variants ...
-    pub(crate) async fn update_info(&self, info: ParticipantInfo) {
-        match self {
-            Self::Local(inner) => inner.clone().update_info(info).await,
-            Self::Remote(inner) => inner.clone().update_info(info).await,
-        }
-    }
-}
-
 impl ParticipantInternalTrait for ParticipantHandle {
     enum_dispatch!(
         [Local, Remote]
         fnc!(internal_events, &Self, [], Arc<ParticipantEvents>);
+        fnc!(update_info, &Self, [info: ParticipantInfo], ());
     );
 }
 
@@ -103,7 +93,7 @@ impl ParticipantTrait for ParticipantHandle {
 
 macro_rules! impl_participant_trait {
     ($x:ty) => {
-        use crate::events::participant::ParticipantEvents;
+        use crate::events::ParticipantEvents;
         use crate::proto::ParticipantInfo;
         use crate::room::id::{ParticipantIdentity, ParticipantSid};
         use std::sync::Arc;

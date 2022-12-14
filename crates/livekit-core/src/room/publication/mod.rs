@@ -25,6 +25,7 @@ pub trait TrackPublicationTrait {
     fn simulcasted(&self) -> bool;
 }
 
+#[derive(Debug)]
 pub(super) struct TrackPublicationShared {
     pub(super) track: Mutex<Option<TrackHandle>>,
     pub(super) name: Mutex<String>,
@@ -75,7 +76,7 @@ impl TrackPublicationShared {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TrackPublication {
     Local(LocalTrackPublication),
     Remote(RemoteTrackPublication),
@@ -146,7 +147,7 @@ macro_rules! impl_publication_trait {
     };
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalTrackPublication {
     shared: Arc<TrackPublicationShared>,
 }
@@ -161,7 +162,7 @@ impl LocalTrackPublication {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RemoteTrackPublication {
     shared: Arc<TrackPublicationShared>,
 }
