@@ -61,34 +61,23 @@ impl Default for SignalOptions {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SignalClient {
     stream: RwLock<Option<SignalStream>>,
-    emitter: SignalEmitter,
 }
 
 impl SignalClient {
-    pub fn new() -> (Self, SignalEvents) {
-        let (emitter, events) = mpsc::channel(8);
-        (
-            Self {
-                stream: Default::default(),
-                emitter,
-            },
-            events,
-        )
-    }
-
     #[instrument(level = Level::DEBUG, skip(url, token, options))]
     pub(crate) async fn connect(
         &self,
         url: &str,
         token: &str,
         options: SignalOptions,
-    ) -> SignalResult<()> {
-        let stream = SignalStream::connect(url, token, options, self.emitter.clone()).await?;
+    ) -> SignalResult<SignalEvents> {
+        let (emitter, events) = mpsc::channel(8);
+        let stream = SignalStream::connect(url, token, options, emitter).await?;
         *self.stream.write() = Some(stream);
-        Ok(())
+        Ok(events)
     }
 
     #[instrument(level = Level::DEBUG)]
@@ -142,14 +131,15 @@ impl From<JoinResponse> for RTCConfiguration {
 pub mod utils {
     use crate::proto::{signal_response, JoinResponse};
     use crate::signal_client::{SignalError, SignalEvent, SignalResult, JOIN_RESPONSE_TIMEOUT};
-    use tokio::sync::mpsc;
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Error as WsError;
     use tracing::{event, instrument, Level};
 
+    use super::SignalEvents;
+
     #[instrument(level = Level::DEBUG, skip(receiver))]
     pub(crate) async fn next_join_response(
-        receiver: &mut mpsc::Receiver<SignalEvent>,
+        receiver: &mut SignalEvents,
     ) -> SignalResult<JoinResponse> {
         let join = async {
             while let Some(event) = receiver.recv().await {

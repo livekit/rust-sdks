@@ -11,6 +11,8 @@ use livekit_webrtc::peer_connection::{
 };
 use livekit_webrtc::rtc_error::RTCError;
 
+use crate::proto::SignalTarget;
+
 const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
 pub type OnOfferHandler = Box<
@@ -20,6 +22,7 @@ pub type OnOfferHandler = Box<
 >;
 
 pub(crate) struct PCTransport {
+    signal_target: SignalTarget,
     peer_connection: PeerConnection,
     pending_candidates: Vec<IceCandidate>,
     on_offer_handler: Option<OnOfferHandler>,
@@ -34,8 +37,9 @@ impl Debug for PCTransport {
 }
 
 impl PCTransport {
-    pub fn new(peer_connection: PeerConnection) -> Self {
+    pub fn new(peer_connection: PeerConnection, signal_target: SignalTarget) -> Self {
         Self {
+            signal_target,
             peer_connection,
             pending_candidates: Vec::default(),
             on_offer_handler: None,
@@ -52,6 +56,10 @@ impl PCTransport {
 
     pub fn peer_connection(&mut self) -> &mut PeerConnection {
         &mut self.peer_connection
+    }
+
+    pub fn signal_target(&self) -> SignalTarget {
+        self.signal_target.clone()
     }
 
     pub fn on_offer(&mut self, handler: OnOfferHandler) {

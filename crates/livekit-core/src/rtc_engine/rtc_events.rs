@@ -11,11 +11,13 @@ use tokio::sync::mpsc;
 use crate::proto::SignalTarget;
 use crate::rtc_engine::pc_transport::OnOfferHandler;
 
-pub(super) type RTCEmitter = mpsc::UnboundedSender<RTCEvent>;
-pub(super) type RTCEvents = mpsc::UnboundedReceiver<RTCEvent>;
+use super::pc_transport::PCTransport;
+
+pub type RTCEmitter = mpsc::UnboundedSender<RTCEvent>;
+pub type RTCEvents = mpsc::UnboundedReceiver<RTCEvent>;
 
 #[derive(Debug)]
-pub(super) enum RTCEvent {
+pub enum RTCEvent {
     IceCandidate {
         ice_candidate: IceCandidate,
         target: SignalTarget,
@@ -43,19 +45,16 @@ pub(super) enum RTCEvent {
     },
 }
 
-/// Handlers used to forward event to a channel
+/// Handlers used to forward events to a channel
 /// Every callback here is called on the signaling thread
 
-pub(super) fn on_connection_change(
-    target: SignalTarget,
-    emitter: RTCEmitter,
-) -> OnConnectionChangeHandler {
+fn on_connection_change(target: SignalTarget, emitter: RTCEmitter) -> OnConnectionChangeHandler {
     Box::new(move |state| {
         let _ = emitter.send(RTCEvent::ConnectionChange { state, target });
     })
 }
 
-pub(super) fn on_ice_candidate(target: SignalTarget, emitter: RTCEmitter) -> OnIceCandidateHandler {
+fn on_ice_candidate(target: SignalTarget, emitter: RTCEmitter) -> OnIceCandidateHandler {
     Box::new(move |ice_candidate| {
         let _ = emitter.send(RTCEvent::IceCandidate {
             ice_candidate,
@@ -64,7 +63,7 @@ pub(super) fn on_ice_candidate(target: SignalTarget, emitter: RTCEmitter) -> OnI
     })
 }
 
-pub(super) fn on_offer(target: SignalTarget, emitter: RTCEmitter) -> OnOfferHandler {
+fn on_offer(target: SignalTarget, emitter: RTCEmitter) -> OnOfferHandler {
     Box::new(move |offer| {
         let _ = emitter.send(RTCEvent::Offer { offer, target });
 
@@ -72,7 +71,7 @@ pub(super) fn on_offer(target: SignalTarget, emitter: RTCEmitter) -> OnOfferHand
     })
 }
 
-pub(super) fn on_data_channel(target: SignalTarget, emitter: RTCEmitter) -> OnDataChannelHandler {
+fn on_data_channel(target: SignalTarget, emitter: RTCEmitter) -> OnDataChannelHandler {
     Box::new(move |mut data_channel| {
         data_channel.on_message(on_message(emitter.clone()));
 
@@ -83,7 +82,7 @@ pub(super) fn on_data_channel(target: SignalTarget, emitter: RTCEmitter) -> OnDa
     })
 }
 
-pub(super) fn on_add_track(target: SignalTarget, emitter: RTCEmitter) -> OnAddTrackHandler {
+fn on_add_track(target: SignalTarget, emitter: RTCEmitter) -> OnAddTrackHandler {
     Box::new(move |rtp_receiver, streams| {
         let _ = emitter.send(RTCEvent::AddTrack {
             rtp_receiver,
@@ -93,11 +92,42 @@ pub(super) fn on_add_track(target: SignalTarget, emitter: RTCEmitter) -> OnAddTr
     })
 }
 
-pub(super) fn on_message(emitter: RTCEmitter) -> OnMessageHandler {
+pub fn forward_pc_events(transport: &mut PCTransport, rtc_emitter: RTCEmitter) {
+    transport
+        .peer_connection()
+        .on_ice_candidate(on_ice_candidate(
+            transport.signal_target(),
+            rtc_emitter.clone(),
+        ));
+
+    transport.peer_connection().on_data_channel(on_data_channel(
+        transport.signal_target(),
+        rtc_emitter.clone(),
+    ));
+
+    transport
+        .peer_connection()
+        .on_add_track(on_add_track(transport.signal_target(), rtc_emitter.clone()));
+
+    transport
+        .peer_connection()
+        .on_connection_change(on_connection_change(
+            transport.signal_target(),
+            rtc_emitter.clone(),
+        ));
+
+    transport.on_offer(on_offer(transport.signal_target(), rtc_emitter.clone()));
+}
+
+fn on_message(emitter: RTCEmitter) -> OnMessageHandler {
     Box::new(move |data, binary| {
         let _ = emitter.send(RTCEvent::Data {
             data: data.to_vec(),
             binary,
         });
     })
+}
+
+pub fn forward_dc_events(dc: &mut DataChannel, rtc_emitter: RTCEmitter) {
+    dc.on_message(on_message(rtc_emitter.clone()));
 }

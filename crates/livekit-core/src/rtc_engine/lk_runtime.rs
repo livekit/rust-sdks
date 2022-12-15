@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
-use tracing::{event, Level};
+use tracing::trace;
 
 use livekit_webrtc::peer_connection_factory::PeerConnectionFactory;
 use livekit_webrtc::webrtc::RTCRuntime;
@@ -19,9 +19,9 @@ impl Debug for LKRuntime {
     }
 }
 
-impl LKRuntime {
-    pub fn new() -> Self {
-        event!(Level::TRACE, "LKRuntime::new()");
+impl Default for LKRuntime {
+    fn default() -> Self {
+        trace!("LKRuntime::default()");
         let rtc_runtime = RTCRuntime::new();
         Self {
             pc_factory: PeerConnectionFactory::new(rtc_runtime.clone()),
@@ -32,6 +32,6 @@ impl LKRuntime {
 
 impl Drop for LKRuntime {
     fn drop(&mut self) {
-        event!(Level::TRACE, "LKRuntime::drop()");
+        trace!("LKRuntime::drop()");
     }
 }
