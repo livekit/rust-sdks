@@ -1,28 +1,23 @@
 use parking_lot::{Mutex, RwLock};
-use std::error;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
+use tokio::time::sleep;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
 use lazy_static::lazy_static;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use tokio::time::sleep;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{proto, signal_client};
 use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataSendError, DataState};
 use livekit_webrtc::jsep::{IceCandidate, SdpParseError, SessionDescription};
-use livekit_webrtc::media_stream::MediaStream;
 use livekit_webrtc::peer_connection::{
     IceConnectionState, PeerConnectionState, RTCOfferAnswerOptions,
 };
 use livekit_webrtc::peer_connection_factory::RTCConfiguration;
-use livekit_webrtc::rtc_error::RTCError;
-use livekit_webrtc::rtp_receiver::RtpReceiver;
 
 use crate::proto::data_packet::Value;
 use crate::proto::{
@@ -33,10 +28,8 @@ use crate::rtc_engine::lk_runtime::LKRuntime;
 use crate::rtc_engine::pc_transport::PCTransport;
 use crate::rtc_engine::rtc_events::{RTCEmitter, RTCEvent, RTCEvents};
 use crate::signal_client::{SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions};
-use std::cell::RefCell;
 
-use super::{rtc_events, EngineEvents};
-use super::{EngineEmitter, EngineError, EngineEvent, EngineEvents, EngineResult};
+use super::{rtc_events, EngineEmitter, EngineError, EngineEvent, EngineEvents, EngineResult};
 //
 // TODO(theomonnom): Smarter retry intervals
 pub(crate) const RECONNECT_ATTEMPTS: u32 = 10;
@@ -60,7 +53,7 @@ pub enum PCState {
     Closed,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SessionInfo {
     url: String,
     token: String,
@@ -70,6 +63,7 @@ pub struct SessionInfo {
 #[derive(Debug)]
 pub struct EngineInternal {
     lk_runtime: Arc<LKRuntime>,
+    info: Mutex<SessionInfo>,
     signal_client: Arc<SignalClient>,
     session: Arc<RwLock<Option<RTCSession>>>,
     reconnecting: AtomicBool,
@@ -283,7 +277,12 @@ impl EngineInternal {
         tokio::spawn(self.clone().engine_task(rtc_events));
 
         if !join_response.subscriber_primary {
-            session.read().unwrap().negotiate_publisher().await?;
+            session
+                .read()
+                .as_ref()
+                .unwrap()
+                .negotiate_publisher()
+                .await?;
         }
 
         Ok(engine_events)
@@ -327,19 +326,24 @@ impl EngineInternal {
 
                 trace!("sending ice_candidate ({:?}) - {:?}", target, ice_candidate);
 
-                tokio::spawn(async move {
-                    signal_client
-                        .send(signal_request::Message::Trickle(TrickleRequest {
-                            candidate_init: json,
-                            target: target as i32,
-                        }))
-                        .await;
+                tokio::spawn({
+                    let signal_client = self.signal_client.clone();
+                    async move {
+                        signal_client
+                            .send(signal_request::Message::Trickle(TrickleRequest {
+                                candidate_init: json,
+                                target: target as i32,
+                            }))
+                            .await;
+                    }
                 });
             }
             RTCEvent::ConnectionChange { state, target } => {
                 trace!("connection change, {:?} {:?}", state, target);
-                let subscriber_primary = session
+                let subscriber_primary = self
+                    .session
                     .read()
+                    .as_ref()
                     .unwrap()
                     .join_response
                     .lock()
@@ -348,22 +352,26 @@ impl EngineInternal {
                 let is_primary = subscriber_primary && target == SignalTarget::Subscriber;
 
                 if is_primary && state == PeerConnectionState::Connected {
-                    let old_state = session
+                    let old_state = self
+                        .session
                         .read()
+                        .as_ref()
                         .unwrap()
                         .pc_state
                         .swap(PCState::Connected as u8, Ordering::SeqCst);
                     if old_state == PCState::New as u8 {
-                        let _ = emitter.send(EngineEvent::Connected).await; // First time connected
+                        let _ = self.engine_emitter.send(EngineEvent::Connected).await;
+                        // First time connected
                     }
                 } else if state == PeerConnectionState::Failed {
-                    session
+                    self.session
                         .read()
+                        .as_ref()
                         .unwrap()
                         .pc_state
                         .store(PCState::Disconnected as u8, Ordering::SeqCst);
 
-                    Self::handle_disconnected(signal_client, engine_inner, emitter);
+                    self.handle_disconnected();
                 }
             }
             RTCEvent::DataChannel {
@@ -372,22 +380,27 @@ impl EngineInternal {
             } => {
                 if target == SignalTarget::Subscriber {
                     if data_channel.label() == RELIABLE_DC_LABEL {
-                        *session.read().unwrap().sub_reliable_dc.lock() = Some(data_channel);
+                        *self.session.read().as_ref().unwrap().sub_reliable_dc.lock() =
+                            Some(data_channel);
                     } else {
-                        *session.read().unwrap().sub_lossy_dc.lock() = Some(data_channel);
+                        *self.session.read().as_ref().unwrap().sub_lossy_dc.lock() =
+                            Some(data_channel);
                     }
                 }
             }
             RTCEvent::Offer { offer, target } => {
                 if target == SignalTarget::Publisher {
                     // Send the publisher offer to the server
-                    tokio::spawn(async move {
-                        signal_client
-                            .send(signal_request::Message::Offer(proto::SessionDescription {
-                                r#type: "offer".to_string(),
-                                sdp: offer.to_string(),
-                            }))
-                            .await;
+                    tokio::spawn({
+                        let signal_client = self.signal_client.clone();
+                        async move {
+                            signal_client
+                                .send(signal_request::Message::Offer(proto::SessionDescription {
+                                    r#type: "offer".to_string(),
+                                    sdp: offer.to_string(),
+                                }))
+                                .await;
+                        }
                     });
                 }
             }
@@ -397,7 +410,8 @@ impl EngineInternal {
                 target,
             } => {
                 if target == SignalTarget::Subscriber {
-                    let _ = emitter
+                    let _ = self
+                        .engine_emitter
                         .send(EngineEvent::AddTrack {
                             rtp_receiver,
                             streams,
@@ -435,6 +449,7 @@ impl EngineInternal {
                 let sdp = SessionDescription::from(answer.r#type.parse().unwrap(), &answer.sdp)?;
                 self.session
                     .read()
+                    .as_ref()
                     .unwrap()
                     .publisher_pc
                     .lock()
@@ -448,14 +463,8 @@ impl EngineInternal {
                 trace!("received offer for the subscriber: {:?}", offer);
                 let sdp = SessionDescription::from(offer.r#type.parse().unwrap(), &offer.sdp)?;
 
-                let subscriber_pc = self
-                    .session
-                    .read()
-                    .as_ref()
-                    .unwrap()
-                    .subscriber_pc
-                    .lock()
-                    .await;
+                let session = self.session.read();
+                let mut subscriber_pc = session.as_ref().unwrap().subscriber_pc.lock().await;
 
                 subscriber_pc.set_remote_description(sdp).await?;
                 let answer = subscriber_pc
@@ -467,13 +476,16 @@ impl EngineInternal {
                     .set_local_description(answer.clone())
                     .await?;
 
-                tokio::spawn(async move {
-                    self.signal_client
-                        .send(signal_request::Message::Answer(proto::SessionDescription {
-                            r#type: "answer".to_string(),
-                            sdp: answer.to_string(),
-                        }))
-                        .await;
+                tokio::spawn({
+                    let signal_client = self.signal_client.clone();
+                    async move {
+                        signal_client
+                            .send(signal_request::Message::Answer(proto::SessionDescription {
+                                r#type: "answer".to_string(),
+                                sdp: answer.to_string(),
+                            }))
+                            .await;
+                    }
                 });
             }
             signal_response::Message::Trickle(trickle) => {
@@ -490,6 +502,7 @@ impl EngineInternal {
                 if trickle.target == SignalTarget::Publisher as i32 {
                     self.session
                         .read()
+                        .as_ref()
                         .unwrap()
                         .publisher_pc
                         .lock()
@@ -499,6 +512,7 @@ impl EngineInternal {
                 } else {
                     self.session
                         .read()
+                        .as_ref()
                         .unwrap()
                         .subscriber_pc
                         .lock()
@@ -508,7 +522,10 @@ impl EngineInternal {
                 }
             }
             signal_response::Message::Update(update) => {
-                let _ = emitter.send(EngineEvent::ParticipantUpdate(update)).await;
+                let _ = self
+                    .engine_emitter
+                    .send(EngineEvent::ParticipantUpdate(update))
+                    .await;
             }
             _ => {}
         }
@@ -531,34 +548,22 @@ impl EngineInternal {
         for i in 0..RECONNECT_ATTEMPTS {
             if full_reconnect {
                 if i == 0 {
-                    let _ = emitter.send(EngineEvent::Restarting).await;
+                    let _ = self.engine_emitter.send(EngineEvent::Restarting).await;
                 }
 
                 info!("restarting connection... attempt: {}", i);
-                if let Err(err) = Self::try_restart_connection(
-                    signal_client.clone(),
-                    engine_inner.clone(),
-                    emitter.clone(),
-                )
-                .await
-                {
+                if let Err(err) = self.try_restart_connection().await {
                     error!("restarting connection failed: {}", err);
                 } else {
                     return;
                 }
             } else {
                 if i == 0 {
-                    let _ = emitter.send(EngineEvent::Resuming).await;
+                    let _ = self.engine_emitter.send(EngineEvent::Resuming).await;
                 }
 
                 info!("resuming connection... attempt: {}", i);
-                if let Err(err) = Self::try_resume_connection(
-                    signal_client.clone(),
-                    engine_inner.clone(),
-                    emitter.clone(),
-                )
-                .await
-                {
+                if let Err(err) = self.try_resume_connection().await {
                     error!("resuming connection failed: {}", err);
                     if let EngineError::Signal(_) = err {
                         full_reconnect = true;
@@ -576,21 +581,17 @@ impl EngineInternal {
         // TODO DISCONNECT
     }
 
-    async fn try_restart_connection(
-        self: Arc<Self>,
-        signal_client: Arc<SignalClient>,
-        emitter: EngineEmitter,
-    ) -> EngineResult<()> {
+    async fn try_restart_connection(self: &Arc<Self>) -> EngineResult<()> {
         Ok(())
     }
 
-    async fn try_resume_connection(
-        self: Arc<Self>,
-        signal_client: Arc<SignalClient>,
-        emitter: EngineEmitter,
-    ) -> EngineResult<()> {
-        let mut options = engine_inner.options.lock().clone();
-        options.sid = engine_inner
+    async fn try_resume_connection(self: &Arc<Self>) -> EngineResult<()> {
+        let mut info = self.info.lock();
+        info.options.sid = self
+            .session
+            .read()
+            .as_ref()
+            .unwrap()
             .join_response
             .lock()
             .participant
@@ -599,24 +600,34 @@ impl EngineInternal {
             .sid
             .clone();
 
-        signal_client
-            .reconnect(
-                &engine_inner.url,
-                &engine_inner.token.lock().clone(),
-                options,
-            )
+        self.signal_client.close().await;
+        self.signal_client
+            .connect(&info.url, &info.token.clone(), info.options.clone())
             .await?;
 
-        let _ = emitter.send(EngineEvent::SignalResumed).await;
+        self.engine_emitter.send(EngineEvent::SignalResumed).await;
 
-        engine_inner
+        self.session
+            .read()
+            .as_ref()
+            .unwrap()
             .subscriber_pc
             .lock()
             .await
             .prepare_ice_restart();
 
-        if engine_inner.has_published.load(Ordering::SeqCst) {
-            engine_inner
+        if self
+            .session
+            .read()
+            .as_ref()
+            .unwrap()
+            .has_published
+            .load(Ordering::SeqCst)
+        {
+            self.session
+                .read()
+                .as_ref()
+                .unwrap()
                 .publisher_pc
                 .lock()
                 .await
@@ -626,12 +637,15 @@ impl EngineInternal {
                 })
                 .await?;
         }
+        self.session
+            .read()
+            .as_ref()
+            .unwrap()
+            .wait_pc_connection()
+            .await?;
 
-        Self::wait_pc_connection(engine_inner).await?;
-        signal_client.flush_queue().await;
-
-        let _ = emitter.send(EngineEvent::Resumed);
-
+        self.signal_client.flush_queue().await;
+        self.engine_emitter.send(EngineEvent::Resumed);
         Ok(())
     }
 }
