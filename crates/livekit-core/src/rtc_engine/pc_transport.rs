@@ -13,17 +13,15 @@ use livekit_webrtc::rtc_error::RTCError;
 
 use crate::proto::SignalTarget;
 
-const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
-
 pub type OnOfferHandler = Box<
     dyn (FnMut(SessionDescription) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
         + Send
         + Sync,
 >;
 
-pub(crate) struct PCTransport {
-    signal_target: SignalTarget,
+pub struct PCTransport {
     peer_connection: PeerConnection,
+    signal_target: SignalTarget,
     pending_candidates: Vec<IceCandidate>,
     on_offer_handler: Option<OnOfferHandler>,
     renegotiate: bool,
@@ -46,20 +44,6 @@ impl PCTransport {
             restarting_ice: false,
             renegotiate: false,
         }
-    }
-
-    pub fn is_connected(&self) -> bool {
-        self.peer_connection.ice_connection_state() == IceConnectionState::IceConnectionConnected
-            || self.peer_connection.ice_connection_state()
-                == IceConnectionState::IceConnectionCompleted
-    }
-
-    pub fn peer_connection(&mut self) -> &mut PeerConnection {
-        &mut self.peer_connection
-    }
-
-    pub fn signal_target(&self) -> SignalTarget {
-        self.signal_target.clone()
     }
 
     pub fn on_offer(&mut self, handler: OnOfferHandler) {
@@ -107,13 +91,6 @@ impl PCTransport {
     }
 
     #[tracing::instrument(level = Level::DEBUG)]
-    pub async fn negotiate(&mut self) -> Result<(), RTCError> {
-        // TODO(theomonnom) Debounce here with NEGOTIATION_FREQUENCY
-        self.create_and_send_offer(RTCOfferAnswerOptions::default())
-            .await
-    }
-
-    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn create_and_send_offer(
         &mut self,
         options: RTCOfferAnswerOptions,
@@ -151,5 +128,21 @@ impl PCTransport {
             .await?;
         self.on_offer_handler.as_mut().unwrap()(offer).await;
         Ok(())
+    }
+}
+
+impl PCTransport {
+    pub fn is_connected(&self) -> bool {
+        self.peer_connection.ice_connection_state() == IceConnectionState::IceConnectionConnected
+            || self.peer_connection.ice_connection_state()
+                == IceConnectionState::IceConnectionCompleted
+    }
+
+    pub fn peer_connection(&mut self) -> &mut PeerConnection {
+        &mut self.peer_connection
+    }
+
+    pub fn signal_target(&self) -> SignalTarget {
+        self.signal_target.clone()
     }
 }

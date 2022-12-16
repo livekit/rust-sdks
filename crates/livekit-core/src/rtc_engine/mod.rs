@@ -37,6 +37,7 @@ use crate::signal_client::{SignalClient, SignalError, SignalEvent, SignalEvents,
 mod engine_internal;
 mod lk_runtime;
 mod pc_transport;
+mod rtc_session;
 mod rtc_events;
 
 pub(crate) type EngineEmitter = mpsc::Sender<EngineEvent>;

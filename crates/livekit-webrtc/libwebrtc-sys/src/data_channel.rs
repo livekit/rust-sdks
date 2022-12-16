@@ -68,10 +68,10 @@ pub mod ffi {
         );
 
         fn unregister_observer(self: Pin<&mut DataChannel>);
-        fn send(self: Pin<&mut DataChannel>, data: &DataBuffer) -> bool;
+        fn send(self: &DataChannel, data: &DataBuffer) -> bool;
         fn label(self: &DataChannel) -> String;
         fn state(self: &DataChannel) -> DataState;
-        fn close(self: Pin<&mut DataChannel>);
+        fn close(self: &DataChannel);
 
         fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;
         fn create_native_data_channel_observer(
@@ -83,8 +83,10 @@ pub mod ffi {
 }
 
 unsafe impl Send for ffi::DataChannel {}
+unsafe impl Sync for ffi::DataChannel {}
 
 unsafe impl Send for ffi::NativeDataChannelObserver {}
+unsafe impl Sync for ffi::NativeDataChannelObserver {}
 
 // DataChannelObserver
 

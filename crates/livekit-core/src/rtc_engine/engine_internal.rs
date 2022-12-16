@@ -2,9 +2,10 @@ use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
+use tracing::subscriber::DefaultGuard;
 
-use tokio::time::sleep;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
+use tokio::time::sleep;
 
 use lazy_static::lazy_static;
 use prost::Message;
@@ -29,15 +30,14 @@ use crate::rtc_engine::pc_transport::PCTransport;
 use crate::rtc_engine::rtc_events::{RTCEmitter, RTCEvent, RTCEvents};
 use crate::signal_client::{SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions};
 
-use super::{rtc_events, EngineEmitter, EngineError, EngineEvent, EngineEvents, EngineResult};
+use super::{
+    rtc_events, rtc_session::RTCSession, EngineEmitter, EngineError, EngineEvent, EngineEvents,
+    EngineResult,
+};
 //
 // TODO(theomonnom): Smarter retry intervals
 pub(crate) const RECONNECT_ATTEMPTS: u32 = 10;
 pub(crate) const RECONNECT_INTERVAL: Duration = Duration::from_millis(300);
-
-pub(crate) const LOSSY_DC_LABEL: &str = "_lossy";
-pub(crate) const RELIABLE_DC_LABEL: &str = "_reliable";
-pub(crate) const MAX_ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 lazy_static! {
     // Share one LKRuntime across all RTCEngine instances
@@ -53,6 +53,12 @@ pub enum PCState {
     Closed,
 }
 
+impl Default for PCState {
+    fn default() -> Self {
+        Self::New
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct SessionInfo {
     url: String,
@@ -64,34 +70,12 @@ pub struct SessionInfo {
 pub struct EngineInternal {
     lk_runtime: Arc<LKRuntime>,
     info: Mutex<SessionInfo>,
-    signal_client: Arc<SignalClient>,
-    session: Arc<RwLock<Option<RTCSession>>>,
+    state: AtomicU8, // PCState
+    signal_client: SignalClient,
+    session: RwLock<Option<Arc<RTCSession>>>,
     reconnecting: AtomicBool,
     closed: AtomicBool,
     engine_emitter: EngineEmitter,
-}
-
-/// This struct holds a WebRTC session
-/// The session changes at every reconnection
-#[derive(Debug)]
-pub struct RTCSession {
-    join_response: Mutex<JoinResponse>,
-    has_published: AtomicBool,
-    pc_state: AtomicU8, // Casted to PCState enum
-
-    publisher_pc: AsyncMutex<PCTransport>,
-    subscriber_pc: AsyncMutex<PCTransport>,
-
-    // Publisher data channels
-    // Used to send data to other participants ( The SFU forwards the messages )
-    lossy_dc: Mutex<DataChannel>,
-    reliable_dc: Mutex<DataChannel>,
-
-    // Subscriber data channels
-    // These fields are never used, we just keep a strong reference to them,
-    // so we can receive data from other participants
-    sub_reliable_dc: Mutex<Option<DataChannel>>,
-    sub_lossy_dc: Mutex<Option<DataChannel>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -100,138 +84,6 @@ struct IceCandidateJSON {
     sdpMid: String,
     sdpMLineIndex: i32,
     candidate: String,
-}
-
-impl RTCSession {
-    pub fn configure(
-        lk_runtime: Arc<LKRuntime>,
-        join_response: JoinResponse,
-    ) -> EngineResult<(Self, RTCEvents)> {
-        let (rtc_emitter, events) = mpsc::unbounded_channel();
-        let rtc_config = RTCConfiguration::from(join_response.clone());
-
-        let mut publisher_pc = PCTransport::new(
-            lk_runtime
-                .pc_factory
-                .create_peer_connection(rtc_config.clone())?,
-            SignalTarget::Publisher,
-        );
-
-        let mut subscriber_pc = PCTransport::new(
-            lk_runtime
-                .pc_factory
-                .create_peer_connection(rtc_config.clone())?,
-            SignalTarget::Subscriber,
-        );
-
-        let mut lossy_dc = publisher_pc.peer_connection().create_data_channel(
-            LOSSY_DC_LABEL,
-            DataChannelInit {
-                ordered: true,
-                max_retransmits: Some(0),
-                ..DataChannelInit::default()
-            },
-        )?;
-
-        let mut reliable_dc = publisher_pc.peer_connection().create_data_channel(
-            RELIABLE_DC_LABEL,
-            DataChannelInit {
-                ordered: true,
-                ..DataChannelInit::default()
-            },
-        )?;
-
-        rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
-        rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
-        rtc_events::forward_dc_events(&mut lossy_dc, rtc_emitter.clone());
-        rtc_events::forward_dc_events(&mut reliable_dc, rtc_emitter.clone());
-
-        Ok((
-            Self {
-                join_response: Mutex::new(join_response),
-                has_published: AtomicBool::new(false),
-                pc_state: AtomicU8::new(PCState::New as u8),
-                publisher_pc: AsyncMutex::new(publisher_pc),
-                subscriber_pc: AsyncMutex::new(subscriber_pc),
-                lossy_dc: Mutex::new(lossy_dc),
-                reliable_dc: Mutex::new(reliable_dc),
-                sub_lossy_dc: Mutex::new(None),
-                sub_reliable_dc: Mutex::new(None),
-            },
-            events,
-        ))
-    }
-
-    async fn negotiate_publisher(&self) -> EngineResult<()> {
-        self.has_published.store(true, Ordering::SeqCst);
-        let res = self.publisher_pc.lock().await.negotiate().await;
-        if let Err(err) = &res {
-            error!("failed to negotiate the publisher: {:?}", err);
-        }
-        res.map_err(Into::into)
-    }
-
-    async fn ensure_publisher_connected(&self, kind: data_packet::Kind) -> EngineResult<()> {
-        if !self.join_response.lock().subscriber_primary {
-            return Ok(());
-        }
-
-        let publisher = &self.publisher_pc;
-        {
-            let mut publisher = publisher.lock().await;
-            if !publisher.is_connected()
-                && publisher.peer_connection().ice_connection_state()
-                    != IceConnectionState::IceConnectionChecking
-            {
-                let _ = self.negotiate_publisher().await;
-            }
-        }
-
-        let dc = self.data_channel(kind);
-        if dc.lock().state() == DataState::Open {
-            return Ok(());
-        }
-
-        // Wait until the PeerConnection is connected
-        let wait_connected = async move {
-            while publisher.lock().await.is_connected() && dc.lock().state() == DataState::Open {
-                sleep(Duration::from_millis(50)).await;
-            }
-        };
-
-        tokio::select! {
-            _ = wait_connected => Ok(()),
-            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
-                let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
-                error!(error = ?err);
-                Err(err)
-            }
-        }
-    }
-
-    async fn wait_pc_connection(&self) -> EngineResult<()> {
-        let wait_connected = async move {
-            while self.pc_state.load(Ordering::SeqCst) != PCState::Connected as u8 {
-                sleep(Duration::from_millis(50)).await;
-            }
-        };
-
-        tokio::select! {
-            _ = wait_connected => Ok(()),
-            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
-                let err = EngineError::Connection("wait_pc_connection timed out".to_string());
-                Err(err)
-            }
-        }
-    }
-
-    fn data_channel(&self, kind: data_packet::Kind) -> &Mutex<DataChannel> {
-        if kind == data_packet::Kind::Reliable {
-            &self.reliable_dc
-        } else {
-            &self.lossy_dc
-        }
-    }
 }
 
 impl Default for EngineInternal {
@@ -326,17 +178,12 @@ impl EngineInternal {
 
                 trace!("sending ice_candidate ({:?}) - {:?}", target, ice_candidate);
 
-                tokio::spawn({
-                    let signal_client = self.signal_client.clone();
-                    async move {
-                        signal_client
-                            .send(signal_request::Message::Trickle(TrickleRequest {
-                                candidate_init: json,
-                                target: target as i32,
-                            }))
-                            .await;
-                    }
-                });
+                self.signal_client
+                    .send(signal_request::Message::Trickle(TrickleRequest {
+                        candidate_init: json,
+                        target: target as i32,
+                    }))
+                    .await;
             }
             RTCEvent::ConnectionChange { state, target } => {
                 trace!("connection change, {:?} {:?}", state, target);
@@ -345,30 +192,18 @@ impl EngineInternal {
                     .read()
                     .as_ref()
                     .unwrap()
-                    .join_response
-                    .lock()
+                    .join_response()
                     .subscriber_primary;
 
                 let is_primary = subscriber_primary && target == SignalTarget::Subscriber;
-
                 if is_primary && state == PeerConnectionState::Connected {
-                    let old_state = self
-                        .session
-                        .read()
-                        .as_ref()
-                        .unwrap()
-                        .pc_state
-                        .swap(PCState::Connected as u8, Ordering::SeqCst);
+                    let old_state = self.state.swap(PCState::Connected as u8, Ordering::SeqCst);
                     if old_state == PCState::New as u8 {
                         let _ = self.engine_emitter.send(EngineEvent::Connected).await;
                         // First time connected
                     }
                 } else if state == PeerConnectionState::Failed {
-                    self.session
-                        .read()
-                        .as_ref()
-                        .unwrap()
-                        .pc_state
+                    self.state
                         .store(PCState::Disconnected as u8, Ordering::SeqCst);
 
                     self.handle_disconnected();
@@ -378,30 +213,21 @@ impl EngineInternal {
                 data_channel,
                 target,
             } => {
-                if target == SignalTarget::Subscriber {
-                    if data_channel.label() == RELIABLE_DC_LABEL {
-                        *self.session.read().as_ref().unwrap().sub_reliable_dc.lock() =
-                            Some(data_channel);
-                    } else {
-                        *self.session.read().as_ref().unwrap().sub_lossy_dc.lock() =
-                            Some(data_channel);
-                    }
-                }
+                self.session
+                    .read()
+                    .as_ref()
+                    .unwrap()
+                    .add_data_channel(data_channel, target);
             }
             RTCEvent::Offer { offer, target } => {
                 if target == SignalTarget::Publisher {
                     // Send the publisher offer to the server
-                    tokio::spawn({
-                        let signal_client = self.signal_client.clone();
-                        async move {
-                            signal_client
-                                .send(signal_request::Message::Offer(proto::SessionDescription {
-                                    r#type: "offer".to_string(),
-                                    sdp: offer.to_string(),
-                                }))
-                                .await;
-                        }
-                    });
+                    self.signal_client
+                        .send(signal_request::Message::Offer(proto::SessionDescription {
+                            r#type: "offer".to_string(),
+                            sdp: offer.to_string(),
+                        }))
+                        .await;
                 }
             }
             RTCEvent::AddTrack {
@@ -647,5 +473,21 @@ impl EngineInternal {
         self.signal_client.flush_queue().await;
         self.engine_emitter.send(EngineEvent::Resumed);
         Ok(())
+    }
+
+    pub async fn wait_pc_connection(&self) -> EngineResult<()> {
+        let wait_connected = async move {
+            while self.state != PCState::Connected {
+                sleep(Duration::from_millis(50)).await;
+            }
+        };
+
+        tokio::select! {
+            _ = wait_connected => Ok(()),
+            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
+                let err = EngineError::Connection("wait_pc_connection timed out".to_string());
+                Err(err)
+            }
+        }
     }
 }
