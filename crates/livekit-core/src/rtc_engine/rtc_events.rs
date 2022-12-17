@@ -3,7 +3,7 @@ use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
 use livekit_webrtc::media_stream::MediaStream;
 use livekit_webrtc::peer_connection::{
     OnAddTrackHandler, OnConnectionChangeHandler, OnDataChannelHandler, OnIceCandidateHandler,
-    PeerConnectionState,
+    PeerConnectionState, RTCOfferAnswerOptions,
 };
 use livekit_webrtc::rtp_receiver::RtpReceiver;
 use tokio::sync::mpsc;
@@ -30,8 +30,7 @@ pub enum RTCEvent {
         data_channel: DataChannel,
         target: SignalTarget,
     },
-    Offer {
-        offer: SessionDescription,
+    NegotiationNeeded {
         target: SignalTarget,
     },
     AddTrack {

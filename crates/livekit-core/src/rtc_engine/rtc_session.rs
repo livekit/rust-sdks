@@ -1,5 +1,7 @@
 use parking_lot::{Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use prost_types::DurationError;
+use std::ops::Residual;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -16,7 +18,7 @@ use crate::{proto, signal_client};
 use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataSendError, DataState};
 use livekit_webrtc::jsep::{IceCandidate, SdpParseError, SessionDescription};
 use livekit_webrtc::peer_connection::{
-    IceConnectionState, PeerConnectionState, RTCOfferAnswerOptions,
+    IceConnectionState, PeerConnectionState, RTCOfferAnswerOptions, SignalingState,
 };
 use livekit_webrtc::peer_connection_factory::RTCConfiguration;
 
@@ -35,7 +37,6 @@ use super::{rtc_events, EngineEmitter, EngineError, EngineEvent, EngineEvents, E
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const MAX_ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-pub const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
 /// This struct holds a WebRTC session
 /// The session changes at every reconnection
@@ -58,7 +59,8 @@ pub struct RTCSession {
     sub_reliable_dc: Mutex<Option<DataChannel>>,
     sub_lossy_dc: Mutex<Option<DataChannel>>,
 
-    negotiation_debounce: AsyncMutex<Option<JoinHandle<()>>>,
+    renegotiate_publisher: AtomicBool,
+    rtc_emitter: RTCEmitter,
 }
 
 impl RTCSession {
@@ -115,13 +117,14 @@ impl RTCSession {
                 reliable_dc,
                 sub_lossy_dc: Default::default(),
                 sub_reliable_dc: Default::default(),
-                negotiation_debounce: Default::default(),
+                renegotiate_publisher: AtomicBool::new(false),
+                rtc_emitter,
             }),
             events,
         ))
     }
 
-    pub fn add_data_channel(&self, data_channel: DataChannel, target: SignalTarget) {
+    pub fn use_data_channel(&self, data_channel: DataChannel, target: SignalTarget) {
         if target == SignalTarget::Subscriber {
             if data_channel.label() == RELIABLE_DC_LABEL {
                 *self.sub_reliable_dc.lock() = Some(data_channel);
@@ -131,38 +134,88 @@ impl RTCSession {
         }
     }
 
-    pub async fn negotiate_publisher(self: Arc<Self>) {
-        self.has_published.store(true, Ordering::SeqCst);
-
-        if let Some(debounce) = self.negotiation_debounce.lock().await.take() {
-            debounce.abort();
+    pub async fn use_ice_candidate(
+        &self,
+        ice_candidate: IceCandidate,
+        target: SignalTarget,
+    ) -> EngineResult<()> {
+        if target == SignalTarget::Publisher {
+            self.publisher_pc
+                .lock()
+                .await
+                .add_ice_candidate(ice_candidate)
+                .await?;
+        } else {
+            self.subscriber_pc
+                .lock()
+                .await
+                .add_ice_candidate(ice_candidate)
+                .await?;
         }
-
-        let debounce = tokio::spawn({
-            let session = self.clone();
-            async move {
-                sleep(NEGOTIATION_FREQUENCY).await;
-
-                let _guard = session.negotiation_debounce.lock().await;
-                if let Err(err) = session
-                    .publisher_pc
-                    .lock()
-                    .await
-                    .create_and_send_offer(RTCOfferAnswerOptions::default())
-                    .await
-                {
-                    error!("failed to negotiate the publisher: {:?}", err);
-                }
-            }
-        });
-
-        *self.negotiation_debounce.lock().await = Some(debounce);
+        Ok(())
     }
 
-    pub async fn ensure_publisher_connected(
-        self: &Arc<Self>,
-        kind: data_packet::Kind,
-    ) -> EngineResult<()> {
+    pub async fn use_publisher_answer(&self, anwser: SessionDescription) -> EngineResult<()> {
+        self.publisher_pc
+            .lock()
+            .await
+            .set_remote_description(anwser)
+            .await?;
+
+        if self.renegotiate_publisher.compare_exchange(
+            true,
+            false,
+            Ordering::Acquire,
+            Ordering::Release,
+        ) {
+            self.request_publisher_negotiation().await;
+        }
+
+        Ok(())
+    }
+
+    pub async fn use_subscriber_offer(
+        &self,
+        offer: SessionDescription,
+        options: RTCOfferAnswerOptions,
+    ) -> EngineResult<SessionDescription> {
+        Ok(self
+            .subscriber_pc
+            .lock()
+            .await
+            .create_anwser(offer, options)
+            .await?)
+    }
+
+    pub async fn create_publisher_offer(
+        &self,
+        options: RTCOfferAnswerOptions,
+    ) -> EngineResult<SessionDescription> {
+        Ok(self.publisher_pc.lock().await.create_offer(options).await?)
+    }
+
+    pub async fn request_publisher_negotiation(&self) {
+        self.has_published.store(true, Ordering::SeqCst);
+        // Check if we are already waiting for the remote peer to accept our offer
+        // If so, delay the renegotiation when the current one finished
+        if self
+            .publisher_pc
+            .lock()
+            .await
+            .peer_connection()
+            .signaling_state()
+            == SignalingState::HaveLocalOffer
+        {
+            self.renegotiate_publisher.store(true, Ordering::SeqCst);
+            return;
+        }
+
+        self.rtc_emitter.send(RTCEvent::NegotiationNeeded {
+            target: SignalTarget::Publisher,
+        })
+    }
+
+    pub async fn ensure_publisher_connected(&self, kind: data_packet::Kind) -> EngineResult<()> {
         if !self.join_response.subscriber_primary {
             return Ok(());
         }
@@ -176,7 +229,7 @@ impl RTCSession {
                 .ice_connection_state()
                 != IceConnectionState::IceConnectionChecking
         {
-            let _ = self.clone().negotiate_publisher().await;
+            let _ = self.request_publisher_negotiation().await;
         }
 
         let dc = self.data_channel(kind);
@@ -213,5 +266,13 @@ impl RTCSession {
         } else {
             &self.lossy_dc
         }
+    }
+
+    pub fn subscriber(&self) -> AsyncMutex<PCTransport> {
+        self.subscriber_pc
+    }
+
+    pub fn publisher(&self) -> AsyncMutex<PCTransport> {
+        self.publisher_pc
     }
 }

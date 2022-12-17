@@ -58,6 +58,10 @@ void PeerConnection::set_remote_description(
                                          observer.observer);
 }
 
+void PeerConnection::restart_ice() {
+    peer_connection_->RestartIce();
+}
+
 std::unique_ptr<DataChannel> PeerConnection::create_data_channel(
     rust::String label,
     std::unique_ptr<NativeDataChannelInit> init) {

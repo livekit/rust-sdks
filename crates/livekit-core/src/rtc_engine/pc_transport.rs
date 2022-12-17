@@ -13,18 +13,10 @@ use livekit_webrtc::rtc_error::RTCError;
 
 use crate::proto::SignalTarget;
 
-pub type OnOfferHandler = Box<
-    dyn (FnMut(SessionDescription) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-        + Send
-        + Sync,
->;
-
 pub struct PCTransport {
     peer_connection: PeerConnection,
     signal_target: SignalTarget,
     pending_candidates: Vec<IceCandidate>,
-    on_offer_handler: Option<OnOfferHandler>,
-    renegotiate: bool,
     restarting_ice: bool,
 }
 
@@ -40,14 +32,8 @@ impl PCTransport {
             signal_target,
             peer_connection,
             pending_candidates: Vec::default(),
-            on_offer_handler: None,
             restarting_ice: false,
-            renegotiate: false,
         }
-    }
-
-    pub fn on_offer(&mut self, handler: OnOfferHandler) {
-        self.on_offer_handler = Some(handler);
     }
 
     pub fn prepare_ice_restart(&mut self) {
@@ -56,14 +42,14 @@ impl PCTransport {
 
     #[tracing::instrument(level = Level::DEBUG)]
     pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RTCError> {
-        if self.peer_connection.remote_description().is_none() {
-            self.pending_candidates.push(ice_candidate);
+        if self.peer_connection.remote_description().is_some() && !self.restarting_ice {
+            self.peer_connection
+                .add_ice_candidate(ice_candidate)
+                .await?;
             return Ok(());
         }
 
-        self.peer_connection
-            .add_ice_candidate(ice_candidate)
-            .await?;
+        self.pending_candidates.push(ice_candidate);
         Ok(())
     }
 
@@ -80,54 +66,38 @@ impl PCTransport {
             self.peer_connection.add_ice_candidate(ic).await?;
         }
         self.restarting_ice = false;
-
-        if self.renegotiate {
-            self.renegotiate = false;
-            self.create_and_send_offer(RTCOfferAnswerOptions::default())
-                .await?;
-        }
-
         Ok(())
     }
 
     #[tracing::instrument(level = Level::DEBUG)]
-    pub async fn create_and_send_offer(
+    pub async fn create_anwser(
+        &mut self,
+        offer: SessionDescription,
+        options: RTCOfferAnswerOptions,
+    ) -> Result<SessionDescription, RTCError> {
+        self.set_remote_description(offer).await?;
+        let answer = self.peer_connection.create_answer(offer).await?;
+        self.peer_connection
+            .set_local_description(answer.clone())
+            .await?;
+    }
+
+    #[tracing::instrument(level = Level::DEBUG)]
+    pub async fn create_offer(
         &mut self,
         options: RTCOfferAnswerOptions,
-    ) -> Result<(), RTCError> {
-        if self.on_offer_handler.is_none() {
-            return Ok(());
-        }
-
+    ) -> Result<SessionDescription, RTCError> {
         if options.ice_restart {
             event!(Level::TRACE, "restarting ICE");
             self.restarting_ice = true;
-        }
-
-        if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
-            if options.ice_restart {
-                if let Some(remote_description) = self.peer_connection.remote_description() {
-                    self.peer_connection
-                        .set_remote_description(remote_description)
-                        .await?;
-                } else {
-                    event!(
-                        Level::ERROR,
-                        "trying to restart ICE when the pc doesn't have remote description"
-                    );
-                }
-            } else {
-                self.renegotiate = true;
-                return Ok(());
-            }
+            self.peer_connection().restart_ice();
         }
 
         let offer = self.peer_connection.create_offer(options).await?;
         self.peer_connection
             .set_local_description(offer.clone())
             .await?;
-        self.on_offer_handler.as_mut().unwrap()(offer).await;
-        Ok(())
+        Ok(offer)
     }
 }
 

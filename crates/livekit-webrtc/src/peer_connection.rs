@@ -152,6 +152,10 @@ impl PeerConnection {
         rx.await.unwrap()
     }
 
+    pub fn restart_ice(&mut self) {
+        self.cxx_handle.pin_mut().restart_ice();
+    }
+
     pub fn create_data_channel(
         &mut self,
         label: &str,

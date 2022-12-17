@@ -129,12 +129,7 @@ impl EngineInternal {
         tokio::spawn(self.clone().engine_task(rtc_events));
 
         if !join_response.subscriber_primary {
-            session
-                .read()
-                .as_ref()
-                .unwrap()
-                .negotiate_publisher()
-                .await?;
+            session.read().as_ref().unwrap().negotiate_publisher().await;
         }
 
         Ok(engine_events)
@@ -200,7 +195,6 @@ impl EngineInternal {
                     let old_state = self.state.swap(PCState::Connected as u8, Ordering::SeqCst);
                     if old_state == PCState::New as u8 {
                         let _ = self.engine_emitter.send(EngineEvent::Connected).await;
-                        // First time connected
                     }
                 } else if state == PeerConnectionState::Failed {
                     self.state
@@ -217,11 +211,19 @@ impl EngineInternal {
                     .read()
                     .as_ref()
                     .unwrap()
-                    .add_data_channel(data_channel, target);
+                    .use_data_channel(data_channel, target);
             }
-            RTCEvent::Offer { offer, target } => {
+            RTCEvent::NegotiationNeeded { target } => {
                 if target == SignalTarget::Publisher {
-                    // Send the publisher offer to the server
+                    // Debounce the negotiation to avoid ICE overflow
+                    let offer = self
+                        .session
+                        .read()
+                        .as_ref()
+                        .unwrap()
+                        .create_publisher_offer(RTCOfferAnswerOptions::default())
+                        .await?;
+
                     self.signal_client
                         .send(signal_request::Message::Offer(proto::SessionDescription {
                             r#type: "offer".to_string(),
@@ -271,81 +273,47 @@ impl EngineInternal {
         match event {
             signal_response::Message::Answer(answer) => {
                 trace!("received answer from the publisher: {:?}", answer);
-
-                let sdp = SessionDescription::from(answer.r#type.parse().unwrap(), &answer.sdp)?;
+                let anwser = SessionDescription::from(answer.r#type.parse().unwrap(), &answer.sdp)?;
                 self.session
                     .read()
                     .as_ref()
                     .unwrap()
-                    .publisher_pc
-                    .lock()
-                    .await
-                    .set_remote_description(sdp)
+                    .use_publisher_answer(anwser)
                     .await?;
             }
             signal_response::Message::Offer(offer) => {
                 // Handle the subscriber offer & send an answer to livekit-server
                 // We always get an offer from the server when connecting
                 trace!("received offer for the subscriber: {:?}", offer);
-                let sdp = SessionDescription::from(offer.r#type.parse().unwrap(), &offer.sdp)?;
-
-                let session = self.session.read();
-                let mut subscriber_pc = session.as_ref().unwrap().subscriber_pc.lock().await;
-
-                subscriber_pc.set_remote_description(sdp).await?;
-                let answer = subscriber_pc
-                    .peer_connection()
-                    .create_answer(RTCOfferAnswerOptions::default())
+                let offer = SessionDescription::from(offer.r#type.parse().unwrap(), &offer.sdp)?;
+                let answer = self
+                    .session
+                    .read()
+                    .as_ref()
+                    .unwrap()
+                    .use_subscriber_offer(offer)
                     .await?;
-                subscriber_pc
-                    .peer_connection()
-                    .set_local_description(answer.clone())
-                    .await?;
-
-                tokio::spawn({
-                    let signal_client = self.signal_client.clone();
-                    async move {
-                        signal_client
-                            .send(signal_request::Message::Answer(proto::SessionDescription {
-                                r#type: "answer".to_string(),
-                                sdp: answer.to_string(),
-                            }))
-                            .await;
-                    }
-                });
+                self.signal_client
+                    .send(signal_request::Message::Answer(proto::SessionDescription {
+                        r#type: "answer".to_string(),
+                        sdp: answer.to_string(),
+                    }))
+                    .await;
             }
             signal_response::Message::Trickle(trickle) => {
                 // Add the IceCandidate received from the livekit-server
                 let json: IceCandidateJSON = serde_json::from_str(&trickle.candidate_init)?;
                 let ice = IceCandidate::from(&json.sdpMid, json.sdpMLineIndex, &json.candidate)?;
+                let target = SignalTarget::from_i32(trickle.target).unwrap();
 
-                trace!(
-                    "received ice_candidate {:?} - {:?}",
-                    SignalTarget::from_i32(trickle.target).unwrap(),
-                    ice
-                );
+                trace!("received ice_candidate {:?} - {:?}", target, ice);
 
-                if trickle.target == SignalTarget::Publisher as i32 {
-                    self.session
-                        .read()
-                        .as_ref()
-                        .unwrap()
-                        .publisher_pc
-                        .lock()
-                        .await
-                        .add_ice_candidate(ice)
-                        .await?;
-                } else {
-                    self.session
-                        .read()
-                        .as_ref()
-                        .unwrap()
-                        .subscriber_pc
-                        .lock()
-                        .await
-                        .add_ice_candidate(ice)
-                        .await?;
-                }
+                self.session
+                    .read()
+                    .as_ref()
+                    .unwrap()
+                    .use_ice_candidate(IceCandidate, target)
+                    .await?;
             }
             signal_response::Message::Update(update) => {
                 let _ = self
@@ -412,12 +380,9 @@ impl EngineInternal {
     }
 
     async fn try_resume_connection(self: &Arc<Self>) -> EngineResult<()> {
+        let session = self.session.read().as_ref().unwrap();
         let mut info = self.info.lock();
-        info.options.sid = self
-            .session
-            .read()
-            .as_ref()
-            .unwrap()
+        info.options.sid = session
             .join_response
             .lock()
             .participant
@@ -433,27 +398,9 @@ impl EngineInternal {
 
         self.engine_emitter.send(EngineEvent::SignalResumed).await;
 
-        self.session
-            .read()
-            .as_ref()
-            .unwrap()
-            .subscriber_pc
-            .lock()
-            .await
-            .prepare_ice_restart();
-
-        if self
-            .session
-            .read()
-            .as_ref()
-            .unwrap()
-            .has_published
-            .load(Ordering::SeqCst)
-        {
-            self.session
-                .read()
-                .as_ref()
-                .unwrap()
+        session.subscriber_pc.lock().await.prepare_ice_restart();
+        if session.has_published.load(Ordering::SeqCst) {
+            session
                 .publisher_pc
                 .lock()
                 .await
@@ -463,12 +410,7 @@ impl EngineInternal {
                 })
                 .await?;
         }
-        self.session
-            .read()
-            .as_ref()
-            .unwrap()
-            .wait_pc_connection()
-            .await?;
+        session.wait_pc_connection().await?;
 
         self.signal_client.flush_queue().await;
         self.engine_emitter.send(EngineEvent::Resumed);

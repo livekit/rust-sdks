@@ -150,6 +150,8 @@ pub mod ffi {
             observer: Pin<&mut NativeSetRemoteSdpObserverHandle>,
         );
 
+        fn restart_ice(self: Pin<&mut PeerConnection>);
+
         fn create_data_channel(
             self: Pin<&mut PeerConnection>,
             label: String,

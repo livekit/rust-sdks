@@ -31,6 +31,7 @@ class PeerConnection {
                              NativeSetLocalSdpObserverHandle& observer);
   void set_remote_description(std::unique_ptr<SessionDescription> desc,
                               NativeSetRemoteSdpObserverHandle& observer);
+  void restart_ice();
   std::unique_ptr<DataChannel> create_data_channel(
       rust::String label,
       std::unique_ptr<NativeDataChannelInit> init);
