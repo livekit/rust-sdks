@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
+use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use tokio::time::sleep;
-use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
 use lazy_static::lazy_static;
 use prost::Message;
@@ -53,21 +53,24 @@ pub enum PCState {
     Closed,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SessionInfo {
     url: String,
     token: String,
     options: SignalOptions,
+    join_response: JoinResponse,
 }
 
 #[derive(Debug)]
 pub struct EngineInternal {
     lk_runtime: Arc<LKRuntime>,
     info: Mutex<SessionInfo>,
-    signal_client: Arc<SignalClient>,
-    session: Arc<RwLock<Option<RTCSession>>>,
+    session: AsyncRwLock<RTCSession>,
+    signal_client: SignalClient,
     reconnecting: AtomicBool,
     closed: AtomicBool,
+    has_published: AtomicBool,
+    pc_state: AtomicU8, // Casted to PCState enum
     engine_emitter: EngineEmitter,
 }
 
@@ -75,17 +78,13 @@ pub struct EngineInternal {
 /// The session changes at every reconnection
 #[derive(Debug)]
 pub struct RTCSession {
-    join_response: Mutex<JoinResponse>,
-    has_published: AtomicBool,
-    pc_state: AtomicU8, // Casted to PCState enum
-
     publisher_pc: AsyncMutex<PCTransport>,
     subscriber_pc: AsyncMutex<PCTransport>,
 
     // Publisher data channels
     // Used to send data to other participants ( The SFU forwards the messages )
-    lossy_dc: Mutex<DataChannel>,
-    reliable_dc: Mutex<DataChannel>,
+    lossy_dc: DataChannel,
+    reliable_dc: DataChannel,
 
     // Subscriber data channels
     // These fields are never used, we just keep a strong reference to them,
@@ -103,12 +102,12 @@ struct IceCandidateJSON {
 }
 
 impl RTCSession {
-    pub fn configure(
+    pub fn new(
         lk_runtime: Arc<LKRuntime>,
-        join_response: JoinResponse,
+        session_info: SessionInfo,
     ) -> EngineResult<(Self, RTCEvents)> {
         let (rtc_emitter, events) = mpsc::unbounded_channel();
-        let rtc_config = RTCConfiguration::from(join_response.clone());
+        let rtc_config = RTCConfiguration::from(session_info.join_response);
 
         let mut publisher_pc = PCTransport::new(
             lk_runtime
@@ -148,20 +147,285 @@ impl RTCSession {
 
         Ok((
             Self {
-                join_response: Mutex::new(join_response),
-                has_published: AtomicBool::new(false),
-                pc_state: AtomicU8::new(PCState::New as u8),
                 publisher_pc: AsyncMutex::new(publisher_pc),
                 subscriber_pc: AsyncMutex::new(subscriber_pc),
-                lossy_dc: Mutex::new(lossy_dc),
-                reliable_dc: Mutex::new(reliable_dc),
-                sub_lossy_dc: Mutex::new(None),
-                sub_reliable_dc: Mutex::new(None),
+                sub_lossy_dc: Default::default(),
+                sub_reliable_dc: Default::default(),
+                lossy_dc,
+                reliable_dc,
             },
             events,
         ))
     }
+}
 
+impl EngineInternal {
+    #[tracing::instrument]
+    pub async fn connect(
+        url: &str,
+        token: &str,
+        options: SignalOptions,
+    ) -> EngineResult<(Arc<Self>, EngineEvents)> {
+        let mut lk_runtime = None;
+        {
+            let mut lk_runtime_ref = LK_RUNTIME.lock();
+            lk_runtime = lk_runtime_ref.upgrade();
+
+            if lk_runtime.is_none() {
+                let new_runtime = Arc::new(LKRuntime::default());
+                *lk_runtime_ref = Arc::downgrade(&new_runtime);
+                lk_runtime = Some(new_runtime);
+            }
+        }
+        let lk_runtime = lk_runtime.unwrap();
+
+        // Connect to the SignalClient
+        let signal_client = SignalClient::default();
+        let mut signal_events = signal_client.connect(url, token, options.clone()).await?;
+        let join_response = signal_client::utils::next_join_response(&mut signal_events).await?;
+        debug!("received JoinResponse: {:?}", join_response);
+
+        // Configure the PeerConnections/RTCSession
+        let (engine_emitter, engine_events) = mpsc::channel(8);
+        let session_info = SessionInfo {
+            url: url.to_owned(),
+            token: token.to_owned(),
+            join_response: join_response.clone(),
+            options,
+        };
+        let (rtc_session, rtc_events) = RTCSession::new(lk_runtime.clone(), session_info.clone())?;
+        let rtc_session = AsyncRwLock::new(rtc_session);
+        let rtc_internal = Arc::new(Self {
+            lk_runtime,
+            info: Mutex::new(session_info),
+            session: rtc_session,
+            signal_client,
+            reconnecting: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+            has_published: AtomicBool::new(false),
+            pc_state: AtomicU8::new(PCState::New as u8),
+            engine_emitter,
+        });
+
+        // Start tasks
+        tokio::spawn(rtc_internal.clone().signal_task(signal_events));
+        tokio::spawn(rtc_internal.clone().engine_task(rtc_events));
+
+        if !join_response.subscriber_primary {
+            rtc_internal.negotiate_publisher().await?;
+        }
+
+        Ok((rtc_internal, engine_events))
+    }
+
+    async fn engine_task(self: Arc<Self>, mut rtc_events: RTCEvents) {
+        while let Some(event) = rtc_events.recv().await {
+            if let Err(err) = self.handle_rtc(event).await {
+                error!("failed to handle rtc event: {:?}", err);
+            }
+        }
+    }
+
+    async fn signal_task(self: Arc<Self>, mut signal_events: SignalEvents) {
+        while let Some(signal) = signal_events.recv().await {
+            match signal {
+                SignalEvent::Open => {}
+                SignalEvent::Signal(signal) => {
+                    if let Err(err) = self.handle_signal(signal).await {
+                        error!("failed to handle signal: {:?}", err);
+                    }
+                }
+                SignalEvent::Close => {
+                    self.handle_disconnected();
+                }
+            }
+        }
+    }
+
+    async fn handle_rtc(self: &Arc<Self>, event: RTCEvent) -> EngineResult<()> {
+        match event {
+            RTCEvent::IceCandidate {
+                ice_candidate,
+                target,
+            } => {
+                trace!("sending ice_candidate ({:?}) - {:?}", target, ice_candidate);
+
+                let json = serde_json::to_string(&IceCandidateJSON {
+                    sdpMid: ice_candidate.sdp_mid(),
+                    sdpMLineIndex: ice_candidate.sdp_mline_index(),
+                    candidate: ice_candidate.candidate(),
+                })?;
+
+                self.signal_client
+                    .send(signal_request::Message::Trickle(TrickleRequest {
+                        candidate_init: json,
+                        target: target as i32,
+                    }))
+                    .await;
+            }
+            RTCEvent::ConnectionChange { state, target } => {
+                trace!("connection change, {:?} {:?}", state, target);
+                let subscriber_primary = self.info.lock().join_response.subscriber_primary;
+                let is_primary = subscriber_primary && target == SignalTarget::Subscriber;
+
+                if is_primary && state == PeerConnectionState::Connected {
+                    let old_state = self
+                        .pc_state
+                        .swap(PCState::Connected as u8, Ordering::SeqCst);
+                    if old_state == PCState::New as u8 {
+                        let _ = self.engine_emitter.send(EngineEvent::Connected).await;
+                        // First time connected
+                    }
+                } else if state == PeerConnectionState::Failed {
+                    self.pc_state
+                        .store(PCState::Disconnected as u8, Ordering::SeqCst);
+
+                    self.handle_disconnected();
+                }
+            }
+            RTCEvent::DataChannel {
+                data_channel,
+                target,
+            } => {
+                if target == SignalTarget::Subscriber {
+                    if data_channel.label() == RELIABLE_DC_LABEL {
+                        *self.session.read().await.sub_reliable_dc.lock() = Some(data_channel);
+                    } else {
+                        *self.session.read().await.sub_lossy_dc.lock() = Some(data_channel);
+                    }
+                }
+            }
+            RTCEvent::Offer { offer, target } => {
+                if target == SignalTarget::Publisher {
+                    // Send the publisher offer to the server
+                    self.signal_client
+                        .send(signal_request::Message::Offer(proto::SessionDescription {
+                            r#type: "offer".to_string(),
+                            sdp: offer.to_string(),
+                        }))
+                        .await;
+                }
+            }
+            RTCEvent::AddTrack {
+                rtp_receiver,
+                streams,
+                target,
+            } => {
+                if target == SignalTarget::Subscriber {
+                    let _ = self
+                        .engine_emitter
+                        .send(EngineEvent::AddTrack {
+                            rtp_receiver,
+                            streams,
+                        })
+                        .await;
+                }
+            }
+            RTCEvent::Data { data, binary } => {
+                if !binary {
+                    Err(EngineError::Internal(
+                        "text messages aren't supported".to_string(),
+                    ))?;
+                }
+
+                let data = DataPacket::decode(&*data)?;
+                match data.value.unwrap() {
+                    Value::User(user) => {
+                        // TODO(theomonnom) Send event
+                    }
+                    Value::Speaker(_) => {
+                        // TODO(theomonnonm)
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_signal(self: &Arc<Self>, event: signal_response::Message) -> EngineResult<()> {
+        match event {
+            signal_response::Message::Answer(answer) => {
+                trace!("received answer from the publisher: {:?}", answer);
+
+                let answer = SessionDescription::from(answer.r#type.parse().unwrap(), &answer.sdp)?;
+                self.session
+                    .read()
+                    .await
+                    .publisher_pc
+                    .lock()
+                    .await
+                    .set_remote_description(answer)
+                    .await?;
+            }
+            signal_response::Message::Offer(offer) => {
+                trace!("received offer for the subscriber: {:?}", offer);
+                // Handle the subscriber offer & send an answer to livekit-server
+                // We always get an offer from the server when connecting
+
+                let offer = SessionDescription::from(offer.r#type.parse().unwrap(), &offer.sdp)?;
+                let answer = self
+                    .session
+                    .read()
+                    .await
+                    .subscriber_pc
+                    .lock()
+                    .await
+                    .create_anwser(offer, RTCOfferAnswerOptions::default())
+                    .await?;
+
+                self.signal_client
+                    .send(signal_request::Message::Answer(proto::SessionDescription {
+                        r#type: "answer".to_string(),
+                        sdp: answer.to_string(),
+                    }))
+                    .await;
+            }
+            signal_response::Message::Trickle(trickle) => {
+                // Add the IceCandidate received from the livekit-server
+                let json: IceCandidateJSON = serde_json::from_str(&trickle.candidate_init)?;
+                let ice_candidate =
+                    IceCandidate::from(&json.sdpMid, json.sdpMLineIndex, &json.candidate)?;
+                let signal_target = SignalTarget::from_i32(trickle.target).unwrap();
+                trace!(
+                    "received ice_candidate {:?} {:?}",
+                    signal_target,
+                    ice_candidate
+                );
+
+                if trickle.target == SignalTarget::Publisher as i32 {
+                    self.session
+                        .read()
+                        .await
+                        .publisher_pc
+                        .lock()
+                        .await
+                        .add_ice_candidate(ice_candidate)
+                        .await?;
+                } else {
+                    self.session
+                        .read()
+                        .await
+                        .subscriber_pc
+                        .lock()
+                        .await
+                        .add_ice_candidate(ice_candidate)
+                        .await?;
+                }
+            }
+            signal_response::Message::Update(update) => {
+                let _ = self
+                    .engine_emitter
+                    .send(EngineEvent::ParticipantUpdate(update))
+                    .await;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    /// Start publisher negotiation
     async fn negotiate_publisher(&self) -> EngineResult<()> {
         self.has_published.store(true, Ordering::SeqCst);
         let res = self.publisher_pc.lock().await.negotiate().await;
@@ -171,6 +435,8 @@ impl RTCSession {
         res.map_err(Into::into)
     }
 
+    /// Ensure the Publisher PC is connected, if not, start the negotiation
+    /// This is required when sending data to the server
     async fn ensure_publisher_connected(&self, kind: data_packet::Kind) -> EngineResult<()> {
         if !self.join_response.lock().subscriber_primary {
             return Ok(());
@@ -234,308 +500,12 @@ impl RTCSession {
     }
 }
 
-impl Default for EngineInternal {
-    fn default() -> Self {
-        let mut lk_runtime = None;
-        {
-            let mut lk_runtime_ref = LK_RUNTIME.lock();
-            lk_runtime = lk_runtime_ref.upgrade();
-
-            if lk_runtime.is_none() {
-                let new_runtime = Arc::new(LKRuntime::default());
-                *lk_runtime_ref = Arc::downgrade(&new_runtime);
-                lk_runtime = Some(new_runtime);
-            }
-        }
-
-        Self {
-            lk_runtime: lk_runtime.unwrap(),
-            ..Default::default()
-        }
-    }
-}
-
+/// Reconnection logic impl, LiveKit handles reconnection in two ways:
+///  - If the connection is recoverable, the client performs an ICE Restart [`try_resume_connection()`]
+///  - Othwerwise, a full reconnect is performed. See [`try_restart_connection()`]
 impl EngineInternal {
-    #[tracing::instrument]
-    pub async fn connect(
-        self: Arc<Self>,
-        url: &str,
-        token: &str,
-        options: SignalOptions,
-    ) -> EngineResult<EngineEvents> {
-        let mut signal_events = self.signal_client.connect(url, token, options).await?;
-        let join_response = signal_client::utils::next_join_response(&mut signal_events).await?;
-        debug!("received JoinResponse: {:?}", join_response);
-
-        let (session, rtc_events) =
-            RTCSession::configure(self.lk_runtime.clone(), join_response.clone())?;
-        let session = Arc::new(RwLock::new(Some(session)));
-
-        let (engine_emitter, engine_events) = mpsc::channel(8);
-
-        tokio::spawn(self.clone().signal_task(signal_events));
-        tokio::spawn(self.clone().engine_task(rtc_events));
-
-        if !join_response.subscriber_primary {
-            session
-                .read()
-                .as_ref()
-                .unwrap()
-                .negotiate_publisher()
-                .await?;
-        }
-
-        Ok(engine_events)
-    }
-
-    async fn engine_task(self: Arc<Self>, mut rtc_events: RTCEvents) {
-        while let Some(event) = rtc_events.recv().await {
-            if let Err(err) = self.handle_rtc(event).await {
-                error!("failed to handle rtc event: {:?}", err);
-            }
-        }
-    }
-
-    async fn signal_task(self: Arc<Self>, mut signal_events: SignalEvents) {
-        while let Some(signal) = signal_events.recv().await {
-            match signal {
-                SignalEvent::Open => {}
-                SignalEvent::Signal(signal) => {
-                    if let Err(err) = self.handle_signal(signal).await {
-                        error!("failed to handle signal: {:?}", err);
-                    }
-                }
-                SignalEvent::Close => {
-                    self.handle_disconnected();
-                }
-            }
-        }
-    }
-
-    async fn handle_rtc(self: &Arc<Self>, event: RTCEvent) -> EngineResult<()> {
-        match event {
-            RTCEvent::IceCandidate {
-                ice_candidate,
-                target,
-            } => {
-                let json = serde_json::to_string(&IceCandidateJSON {
-                    sdpMid: ice_candidate.sdp_mid(),
-                    sdpMLineIndex: ice_candidate.sdp_mline_index(),
-                    candidate: ice_candidate.candidate(),
-                })?;
-
-                trace!("sending ice_candidate ({:?}) - {:?}", target, ice_candidate);
-
-                tokio::spawn({
-                    let signal_client = self.signal_client.clone();
-                    async move {
-                        signal_client
-                            .send(signal_request::Message::Trickle(TrickleRequest {
-                                candidate_init: json,
-                                target: target as i32,
-                            }))
-                            .await;
-                    }
-                });
-            }
-            RTCEvent::ConnectionChange { state, target } => {
-                trace!("connection change, {:?} {:?}", state, target);
-                let subscriber_primary = self
-                    .session
-                    .read()
-                    .as_ref()
-                    .unwrap()
-                    .join_response
-                    .lock()
-                    .subscriber_primary;
-
-                let is_primary = subscriber_primary && target == SignalTarget::Subscriber;
-
-                if is_primary && state == PeerConnectionState::Connected {
-                    let old_state = self
-                        .session
-                        .read()
-                        .as_ref()
-                        .unwrap()
-                        .pc_state
-                        .swap(PCState::Connected as u8, Ordering::SeqCst);
-                    if old_state == PCState::New as u8 {
-                        let _ = self.engine_emitter.send(EngineEvent::Connected).await;
-                        // First time connected
-                    }
-                } else if state == PeerConnectionState::Failed {
-                    self.session
-                        .read()
-                        .as_ref()
-                        .unwrap()
-                        .pc_state
-                        .store(PCState::Disconnected as u8, Ordering::SeqCst);
-
-                    self.handle_disconnected();
-                }
-            }
-            RTCEvent::DataChannel {
-                data_channel,
-                target,
-            } => {
-                if target == SignalTarget::Subscriber {
-                    if data_channel.label() == RELIABLE_DC_LABEL {
-                        *self.session.read().as_ref().unwrap().sub_reliable_dc.lock() =
-                            Some(data_channel);
-                    } else {
-                        *self.session.read().as_ref().unwrap().sub_lossy_dc.lock() =
-                            Some(data_channel);
-                    }
-                }
-            }
-            RTCEvent::Offer { offer, target } => {
-                if target == SignalTarget::Publisher {
-                    // Send the publisher offer to the server
-                    tokio::spawn({
-                        let signal_client = self.signal_client.clone();
-                        async move {
-                            signal_client
-                                .send(signal_request::Message::Offer(proto::SessionDescription {
-                                    r#type: "offer".to_string(),
-                                    sdp: offer.to_string(),
-                                }))
-                                .await;
-                        }
-                    });
-                }
-            }
-            RTCEvent::AddTrack {
-                rtp_receiver,
-                streams,
-                target,
-            } => {
-                if target == SignalTarget::Subscriber {
-                    let _ = self
-                        .engine_emitter
-                        .send(EngineEvent::AddTrack {
-                            rtp_receiver,
-                            streams,
-                        })
-                        .await;
-                }
-            }
-            RTCEvent::Data { data, binary } => {
-                if !binary {
-                    Err(EngineError::Internal(
-                        "text messages aren't supported".to_string(),
-                    ))?;
-                }
-
-                let data = DataPacket::decode(&*data)?;
-                match data.value.unwrap() {
-                    Value::User(user) => {
-                        // TODO(theomonnom) Send event
-                    }
-                    Value::Speaker(_) => {
-                        // TODO(theomonnonm)
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn handle_signal(self: &Arc<Self>, event: signal_response::Message) -> EngineResult<()> {
-        match event {
-            signal_response::Message::Answer(answer) => {
-                trace!("received answer from the publisher: {:?}", answer);
-
-                let sdp = SessionDescription::from(answer.r#type.parse().unwrap(), &answer.sdp)?;
-                self.session
-                    .read()
-                    .as_ref()
-                    .unwrap()
-                    .publisher_pc
-                    .lock()
-                    .await
-                    .set_remote_description(sdp)
-                    .await?;
-            }
-            signal_response::Message::Offer(offer) => {
-                // Handle the subscriber offer & send an answer to livekit-server
-                // We always get an offer from the server when connecting
-                trace!("received offer for the subscriber: {:?}", offer);
-                let sdp = SessionDescription::from(offer.r#type.parse().unwrap(), &offer.sdp)?;
-
-                let session = self.session.read();
-                let mut subscriber_pc = session.as_ref().unwrap().subscriber_pc.lock().await;
-
-                subscriber_pc.set_remote_description(sdp).await?;
-                let answer = subscriber_pc
-                    .peer_connection()
-                    .create_answer(RTCOfferAnswerOptions::default())
-                    .await?;
-                subscriber_pc
-                    .peer_connection()
-                    .set_local_description(answer.clone())
-                    .await?;
-
-                tokio::spawn({
-                    let signal_client = self.signal_client.clone();
-                    async move {
-                        signal_client
-                            .send(signal_request::Message::Answer(proto::SessionDescription {
-                                r#type: "answer".to_string(),
-                                sdp: answer.to_string(),
-                            }))
-                            .await;
-                    }
-                });
-            }
-            signal_response::Message::Trickle(trickle) => {
-                // Add the IceCandidate received from the livekit-server
-                let json: IceCandidateJSON = serde_json::from_str(&trickle.candidate_init)?;
-                let ice = IceCandidate::from(&json.sdpMid, json.sdpMLineIndex, &json.candidate)?;
-
-                trace!(
-                    "received ice_candidate {:?} - {:?}",
-                    SignalTarget::from_i32(trickle.target).unwrap(),
-                    ice
-                );
-
-                if trickle.target == SignalTarget::Publisher as i32 {
-                    self.session
-                        .read()
-                        .as_ref()
-                        .unwrap()
-                        .publisher_pc
-                        .lock()
-                        .await
-                        .add_ice_candidate(ice)
-                        .await?;
-                } else {
-                    self.session
-                        .read()
-                        .as_ref()
-                        .unwrap()
-                        .subscriber_pc
-                        .lock()
-                        .await
-                        .add_ice_candidate(ice)
-                        .await?;
-                }
-            }
-            signal_response::Message::Update(update) => {
-                let _ = self
-                    .engine_emitter
-                    .send(EngineEvent::ParticipantUpdate(update))
-                    .await;
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-}
-
-/// Reconnection Logic for the RTCEngine, it is responsable for: TODO
-impl EngineInternal {
+    /// Called every time the PeerConnection or the SignalClient is closed
+    /// We first try to resume the connection, if it fails, we start a full reconnect.
     async fn handle_disconnected(self: &Arc<Self>) {
         if self.closed.load(Ordering::SeqCst) || self.reconnecting.load(Ordering::SeqCst) {
             return;
@@ -581,17 +551,19 @@ impl EngineInternal {
         // TODO DISCONNECT
     }
 
+    /// Try to recover the connection by doing a full reconnect.
+    /// It creates a new RTCSession
     async fn try_restart_connection(self: &Arc<Self>) -> EngineResult<()> {
         Ok(())
     }
 
+    /// Try to recover the connection by doing an ICE restart.
     async fn try_resume_connection(self: &Arc<Self>) -> EngineResult<()> {
-        let mut info = self.info.lock();
+        let mut session_info = self.info.lock();
         info.options.sid = self
             .session
             .read()
-            .as_ref()
-            .unwrap()
+            .await
             .join_response
             .lock()
             .participant

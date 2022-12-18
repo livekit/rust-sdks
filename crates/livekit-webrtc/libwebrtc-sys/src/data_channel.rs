@@ -83,8 +83,10 @@ pub mod ffi {
 }
 
 unsafe impl Send for ffi::DataChannel {}
+unsafe impl Sync for ffi::DataChannel {}
 
 unsafe impl Send for ffi::NativeDataChannelObserver {}
+unsafe impl Sync for ffi::NativeDataChannelObserver {}
 
 // DataChannelObserver
 

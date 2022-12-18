@@ -114,6 +114,24 @@ impl PCTransport {
     }
 
     #[tracing::instrument(level = Level::DEBUG)]
+    pub async fn create_anwser(
+        &mut self,
+        offer: SessionDescription,
+        options: RTCOfferAnswerOptions,
+    ) -> Result<SessionDescription, RTCError> {
+        self.set_remote_description(offer).await?;
+        let answer = self
+            .peer_connection()
+            .create_answer(RTCOfferAnswerOptions::default())
+            .await?;
+        self.peer_connection()
+            .set_local_description(answer.clone())
+            .await?;
+
+        Ok(answer)
+    }
+
+    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn create_and_send_offer(
         &mut self,
         options: RTCOfferAnswerOptions,
