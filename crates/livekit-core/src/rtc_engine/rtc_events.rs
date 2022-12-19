@@ -28,16 +28,14 @@ pub enum RTCEvent {
     },
     DataChannel {
         data_channel: DataChannel,
-        target: SignalTarget,
     },
+    // TODO (theomonnom): Move Offer to PCTransport
     Offer {
         offer: SessionDescription,
-        target: SignalTarget,
     },
     AddTrack {
         rtp_receiver: RtpReceiver,
         streams: Vec<MediaStream>,
-        target: SignalTarget,
     },
     Data {
         data: Vec<u8>,

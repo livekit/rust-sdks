@@ -70,6 +70,10 @@ impl PCTransport {
         self.restarting_ice = true;
     }
 
+    pub fn close(&mut self) {
+        self.peer_connection.close();
+    }
+
     #[tracing::instrument(level = Level::DEBUG)]
     pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RTCError> {
         if self.peer_connection.remote_description().is_none() {

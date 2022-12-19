@@ -61,23 +61,34 @@ impl Default for SignalOptions {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SignalClient {
     stream: RwLock<Option<SignalStream>>,
+    emitter: SignalEmitter,
 }
 
 impl SignalClient {
+    pub fn new() -> (Self, SignalEvents) {
+        let (emitter, events) = mpsc::channel(8);
+        (
+            Self {
+                stream: Default::default(),
+                emitter,
+            },
+            events,
+        )
+    }
+
     #[instrument(level = Level::DEBUG, skip(url, token, options))]
-    pub(crate) async fn connect(
+    pub async fn connect(
         &self,
         url: &str,
         token: &str,
         options: SignalOptions,
-    ) -> SignalResult<SignalEvents> {
-        let (emitter, events) = mpsc::channel(8);
-        let stream = SignalStream::connect(url, token, options, emitter).await?;
+    ) -> SignalResult<()> {
+        let stream = SignalStream::connect(url, token, options, self.emitter.clone()).await?;
         *self.stream.write() = Some(stream);
-        Ok(events)
+        Ok(())
     }
 
     #[instrument(level = Level::DEBUG)]
