@@ -38,6 +38,7 @@ mod engine_internal;
 mod lk_runtime;
 mod pc_transport;
 mod rtc_events;
+mod rtc_session;
 
 pub(crate) type EngineEmitter = mpsc::Sender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::Receiver<EngineEvent>;
