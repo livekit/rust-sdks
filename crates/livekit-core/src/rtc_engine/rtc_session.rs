@@ -1,22 +1,21 @@
 use livekit_webrtc::media_stream::{MediaStream, MediaStreamTrackHandle};
 use livekit_webrtc::rtp_receiver::RtpReceiver;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 
-use tokio::sync::{broadcast, mpsc, watch, Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use tokio::sync::{mpsc, watch, Mutex as AsyncMutex};
 use tokio::time::sleep;
 
-use lazy_static::lazy_static;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::{proto, signal_client};
-use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataSendError, DataState};
-use livekit_webrtc::jsep::{IceCandidate, SdpParseError, SessionDescription};
+use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataState};
+use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
 use livekit_webrtc::peer_connection::{
     IceConnectionState, PeerConnectionState, RTCOfferAnswerOptions,
 };
@@ -24,15 +23,15 @@ use livekit_webrtc::peer_connection_factory::RTCConfiguration;
 
 use crate::proto::data_packet::Value;
 use crate::proto::{
-    data_packet, signal_request, signal_response, DataPacket, JoinResponse, ParticipantUpdate,
-    SignalTarget, TrickleRequest,
+    data_packet, signal_request, signal_response, DataPacket, JoinResponse, SignalTarget,
+    TrickleRequest,
 };
 use crate::rtc_engine::lk_runtime::LKRuntime;
 use crate::rtc_engine::pc_transport::PCTransport;
-use crate::rtc_engine::rtc_events::{RTCEmitter, RTCEvent, RTCEvents};
-use crate::signal_client::{SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions};
+use crate::rtc_engine::rtc_events::{RTCEvent, RTCEvents};
+use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
 
-use super::{rtc_events, EngineEmitter, EngineError, EngineEvent, EngineEvents, EngineResult};
+use super::{rtc_events, EngineError, EngineResult};
 
 pub const MAX_ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const LOSSY_DC_LABEL: &str = "_lossy";

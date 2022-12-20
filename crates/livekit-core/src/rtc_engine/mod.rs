@@ -4,29 +4,19 @@ use livekit_webrtc::media_stream::MediaStream;
 use livekit_webrtc::rtc_error::RTCError;
 use livekit_webrtc::rtp_receiver::RtpReceiver;
 use parking_lot::{Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::task::JoinHandle;
-use tokio_tungstenite::tungstenite::Error;
 
 use lazy_static::lazy_static;
-use prost::Message;
-use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex, RwLock as AsyncRwLock};
-use tracing::{debug, error, info, trace, warn};
+use tokio::sync::{mpsc, oneshot};
+use tracing::{error, info, warn};
 
-use livekit_webrtc::peer_connection_factory::RTCConfiguration;
-
-use crate::proto::data_packet::Value;
-use crate::proto::{
-    data_packet, signal_request, signal_response, DataPacket, JoinResponse, ParticipantUpdate,
-    SignalTarget, TrickleRequest,
-};
+use crate::proto::{data_packet, DataPacket, JoinResponse, ParticipantUpdate};
 use crate::rtc_engine::lk_runtime::LKRuntime;
-use crate::rtc_engine::pc_transport::PCTransport;
-use crate::rtc_engine::rtc_events::{RTCEmitter, RTCEvent, RTCEvents};
-use crate::signal_client::{SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions};
+use crate::signal_client::{SignalError, SignalOptions};
 
 use self::rtc_session::{RTCSession, SessionEvent, SessionEvents};
 
@@ -305,8 +295,9 @@ impl EngineInner {
     }
 
     /// Try to recover the connection by doing a full reconnect.
-    /// It creates a new RTCSession
+    /// It recreates a new RTCSession
     async fn try_restart_connection(&self) -> EngineResult<()> {
+        self.close().await;
         Ok(())
     }
 
