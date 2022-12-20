@@ -24,7 +24,7 @@ void DataChannel::unregister_observer() {
   data_channel_->UnregisterObserver();
 }
 
-bool DataChannel::send(const DataBuffer& buffer) {
+bool DataChannel::send(const DataBuffer& buffer) const {
   return data_channel_->Send(webrtc::DataBuffer{
       rtc::CopyOnWriteBuffer(buffer.ptr, buffer.len), buffer.binary});
 }
@@ -37,7 +37,7 @@ DataState DataChannel::state() const {
   return static_cast<DataState>(data_channel_->state());
 }
 
-void DataChannel::close() {
+void DataChannel::close() const {
   return data_channel_->Close();
 }
 

@@ -76,14 +76,15 @@ impl PCTransport {
 
     #[tracing::instrument(level = Level::DEBUG)]
     pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RTCError> {
-        if self.peer_connection.remote_description().is_none() {
-            self.pending_candidates.push(ice_candidate);
+        if self.peer_connection.remote_description().is_some() && !self.restarting_ice {
+            self.peer_connection
+                .add_ice_candidate(ice_candidate)
+                .await?;
+
             return Ok(());
         }
 
-        self.peer_connection
-            .add_ice_candidate(ice_candidate)
-            .await?;
+        self.pending_candidates.push(ice_candidate);
         Ok(())
     }
 

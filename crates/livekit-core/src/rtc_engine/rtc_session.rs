@@ -54,6 +54,7 @@ pub enum SessionEvent {
     Close {
         reason: String,
     },
+    Connected,
 }
 
 #[repr(u8)]
@@ -81,7 +82,7 @@ pub struct SessionInfo {
     pub join_response: JoinResponse,
 }
 
-/// Fields shared with engine_task and signal_task
+/// Fields shared with rtc_task and signal_task
 #[derive(Debug)]
 struct SessionInner {
     info: SessionInfo,
@@ -114,7 +115,7 @@ pub struct RTCSession {
     inner: Arc<SessionInner>,
     close_emitter: watch::Sender<bool>, // false = is_running
     signal_task: JoinHandle<()>,
-    engine_task: JoinHandle<()>,
+    rtc_task: JoinHandle<()>,
 }
 
 impl RTCSession {
@@ -123,7 +124,8 @@ impl RTCSession {
         token: &str,
         options: SignalOptions,
         lk_runtime: Arc<LKRuntime>,
-    ) -> EngineResult<(Self, SessionEvents)> {
+        session_emitter: SessionEmitter,
+    ) -> EngineResult<Self> {
         // Connect to the SignalClient
         let (signal_client, mut signal_events) = SignalClient::new();
         let signal_client = Arc::new(signal_client);
@@ -165,6 +167,7 @@ impl RTCSession {
             },
         )?;
 
+        // Forward events received in the Signaling Thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
         rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut lossy_dc, rtc_emitter.clone());
@@ -178,7 +181,6 @@ impl RTCSession {
         };
 
         // Start tasks
-        let (session_emitter, session_events) = mpsc::unbounded_channel();
         let (close_emitter, close_receiver) = watch::channel(false);
 
         let inner = Arc::new(SessionInner {
@@ -200,50 +202,42 @@ impl RTCSession {
                 .clone()
                 .signal_task(signal_events, close_receiver.clone()),
         );
-        let engine_task = tokio::spawn(
-            inner
-                .clone()
-                .engine_task(rtc_events, close_receiver.clone()),
-        );
+        let rtc_task = tokio::spawn(inner.clone().rtc_task(rtc_events, close_receiver.clone()));
 
         let session = Self {
             lk_runtime,
-            inner,
+            inner: inner.clone(),
             close_emitter,
             signal_task,
-            engine_task,
+            rtc_task,
         };
 
-        if !join_response.subscriber_primary {
+        if !inner.info.join_response.subscriber_primary {
             inner.negotiate_publisher().await?;
         }
 
-        Ok((session, session_events))
+        Ok(session)
     }
 
     /// Close the PeerConnections and the SignalClient
     pub async fn close(self) {
         // Close the tasks
         self.close_emitter.send(true);
-        self.engine_task.await;
+        self.rtc_task.await;
         self.signal_task.await;
         self.inner.close().await;
     }
 
-    pub async fn wait_pc_connection(&self) -> EngineResult<()> {
-        let wait_connected = async move {
-            while self.inner.pc_state.load(Ordering::Acquire) != PCState::Connected as u8 {
-                tokio::task::yield_now().await;
-            }
-        };
+    pub async fn publish_data(
+        &self,
+        data: &DataPacket,
+        kind: data_packet::Kind,
+    ) -> Result<(), EngineError> {
+        self.inner.publish_data(data, kind).await
+    }
 
-        tokio::select! {
-            _ = wait_connected => Ok(()),
-            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
-                let err = EngineError::Connection("wait_pc_connection timed out".to_string());
-                Err(err)
-            }
-        }
+    pub async fn wait_pc_connectiom(&self) -> EngineResult<()> {
+        self.inner.wait_pc_connection().await
     }
 }
 
@@ -260,13 +254,17 @@ impl RTCSession {
         &self.inner.subscriber_pc
     }
 
+    pub fn signal_client(&self) -> &Arc<SignalClient> {
+        &self.inner.signal_client
+    }
+
     pub fn data_channel(&self, kind: data_packet::Kind) -> &DataChannel {
         &self.inner.data_channel(kind)
     }
 }
 
 impl SessionInner {
-    async fn engine_task(
+    async fn rtc_task(
         self: Arc<Self>,
         mut rtc_events: RTCEvents,
         mut close_receiver: watch::Receiver<bool>,
@@ -405,7 +403,7 @@ impl SessionInner {
                         .pc_state
                         .swap(PCState::Connected as u8, Ordering::SeqCst);
                     if old_state == PCState::New as u8 {
-                        let _ = self.engine_emitter.send(EngineEvent::Connected).await;
+                        let _ = self.emitter.send(SessionEvent::Connected);
                     }
                 } else if state == PeerConnectionState::Failed {
                     self.pc_state
@@ -428,15 +426,17 @@ impl SessionInner {
             }
             RTCEvent::AddTrack {
                 rtp_receiver,
-                streams,
+                mut streams,
             } => {
-                let _ = self
-                    .engine_emitter
-                    .send(EngineEvent::AddTrack {
-                        rtp_receiver,
-                        streams,
-                    })
-                    .await;
+                if !streams.is_empty() {
+                    let _ = self.emitter.send(SessionEvent::MediaTrack {
+                        track: rtp_receiver.track(),
+                        stream: streams.remove(0),
+                        receiver: rtp_receiver,
+                    });
+                } else {
+                    warn!("AddTrack event with no streams");
+                }
             }
             RTCEvent::Data { data, binary } => {
                 if !binary {
@@ -472,6 +472,68 @@ impl SessionInner {
         self.signal_client.close().await;
         self.publisher_pc.lock().await.close();
         self.subscriber_pc.lock().await.close();
+    }
+
+    #[tracing::instrument]
+    async fn publish_data(
+        &self,
+        data: &DataPacket,
+        kind: data_packet::Kind,
+    ) -> Result<(), EngineError> {
+        self.ensure_publisher_connected(kind).await?;
+        self.data_channel(kind)
+            .send(&data.encode_to_vec(), true)
+            .map_err(Into::into)
+    }
+
+    /// Try to restart the session by doing an ICE Restart (The SignalClient is also restarted)
+    /// This reconnection if more seemless than the full reconnection implemented in ['RTCEngine']
+    async fn restart_session(&self) -> EngineResult<()> {
+        self.signal_client.close().await;
+
+        let mut options = self.info.options.clone();
+        options.sid = self.info.join_response.participant.clone().unwrap().sid;
+        options.reconnect = true;
+
+        self.signal_client
+            .connect(&self.info.url, &self.info.token, options)
+            .await?;
+
+        self.subscriber_pc.lock().await.prepare_ice_restart();
+
+        if self.has_published.load(Ordering::Acquire) {
+            self.publisher_pc
+                .lock()
+                .await
+                .create_and_send_offer(RTCOfferAnswerOptions {
+                    ice_restart: true,
+                    ..Default::default()
+                })
+                .await?;
+        }
+
+        self.wait_pc_connection().await?;
+        self.signal_client.flush_queue().await;
+
+        Ok(())
+    }
+
+    // Wait for PCState to become PCState::Connected
+    // Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
+    async fn wait_pc_connection(&self) -> EngineResult<()> {
+        let wait_connected = async move {
+            while self.pc_state.load(Ordering::Acquire) != PCState::Connected as u8 {
+                tokio::task::yield_now().await;
+            }
+        };
+
+        tokio::select! {
+            _ = wait_connected => Ok(()),
+            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
+                let err = EngineError::Connection("wait_pc_connection timed out".to_string());
+                Err(err)
+            }
+        }
     }
 
     /// Start publisher negotiation

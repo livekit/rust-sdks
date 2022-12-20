@@ -58,7 +58,7 @@ impl DataChannel {
         dc
     }
 
-    pub fn send(&mut self, data: &[u8], binary: bool) -> Result<(), DataSendError> {
+    pub fn send(&self, data: &[u8], binary: bool) -> Result<(), DataSendError> {
         let buffer = sys_dc::ffi::DataBuffer {
             ptr: data.as_ptr(),
             len: data.len(),
@@ -66,7 +66,6 @@ impl DataChannel {
         };
 
         self.cxx_handle
-            .pin_mut()
             .send(&buffer)
             .then_some(())
             .ok_or(DataSendError {})
@@ -80,8 +79,8 @@ impl DataChannel {
         self.cxx_handle.state()
     }
 
-    pub fn close(&mut self) {
-        self.cxx_handle.pin_mut().close();
+    pub fn close(&self) {
+        self.cxx_handle.close();
     }
 
     pub fn on_state_change(&mut self, handler: OnStateChangeHandler) {
