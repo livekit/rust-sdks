@@ -124,7 +124,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=d3d11");
             println!("cargo:rustc-link-lib=dylib=dxgi");
             println!("cargo:rustc-link-lib=dylib=dwmapi");
-            println!("cargo:rustc-link-lib=dylib=webrtc");
+            println!("cargo:rustc-link-lib=static=webrtc");
 
             builder
                 .flag("/std:c++17")
