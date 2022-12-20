@@ -66,15 +66,12 @@ pub enum EngineEvent {
         rtp_receiver: RtpReceiver,
         streams: Vec<MediaStream>,
     },
-    Connected,
     Resuming,
     Resumed,
-    SignalResumed,
     Restarting,
     Restarted,
 }
 
-//
 // TODO(theomonnom): Smarter retry intervals
 pub(crate) const RECONNECT_ATTEMPTS: u32 = 10;
 pub(crate) const RECONNECT_INTERVAL: Duration = Duration::from_millis(300);

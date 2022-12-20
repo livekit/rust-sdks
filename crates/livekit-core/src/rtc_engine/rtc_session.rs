@@ -220,6 +220,7 @@ impl RTCSession {
     }
 
     /// Close the PeerConnections and the SignalClient
+    #[tracing::instrument]
     pub async fn close(self) {
         // Close the tasks
         self.close_emitter.send(true);
@@ -468,13 +469,14 @@ impl SessionInner {
         });
     }
 
+    #[tracing::instrument]
     async fn close(&self) {
         self.signal_client.close().await;
         self.publisher_pc.lock().await.close();
         self.subscriber_pc.lock().await.close();
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(data))]
     async fn publish_data(
         &self,
         data: &DataPacket,
@@ -577,6 +579,7 @@ impl SessionInner {
             }
         };
 
+        // TODO(theomonnom) Avoid 15 seconds deadlock on the RTCEngine by recv close here
         tokio::select! {
             _ = wait_connected => Ok(()),
             _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
