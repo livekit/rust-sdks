@@ -36,14 +36,14 @@ pub enum SignalError {
 
 /// Events used by the RTCEngine who will handle the reconnection logic
 #[derive(Debug)]
-pub(crate) enum SignalEvent {
+pub enum SignalEvent {
     Open,
     Signal(signal_response::Message),
     Close,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SignalOptions {
+pub struct SignalOptions {
     pub(crate) reconnect: bool,
     pub(crate) sid: String,
     pub auto_subscribe: bool,

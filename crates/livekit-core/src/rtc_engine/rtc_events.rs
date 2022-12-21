@@ -28,14 +28,17 @@ pub enum RTCEvent {
     },
     DataChannel {
         data_channel: DataChannel,
+        target: SignalTarget,
     },
     // TODO (theomonnom): Move Offer to PCTransport
     Offer {
         offer: SessionDescription,
+        target: SignalTarget,
     },
     AddTrack {
         rtp_receiver: RtpReceiver,
         streams: Vec<MediaStream>,
+        target: SignalTarget,
     },
     Data {
         data: Vec<u8>,
@@ -91,28 +94,22 @@ fn on_add_track(target: SignalTarget, emitter: RTCEmitter) -> OnAddTrackHandler 
 }
 
 pub fn forward_pc_events(transport: &mut PCTransport, rtc_emitter: RTCEmitter) {
+    let signal_target = transport.signal_target();
     transport
         .peer_connection()
-        .on_ice_candidate(on_ice_candidate(
-            transport.signal_target(),
-            rtc_emitter.clone(),
-        ));
-
-    transport.peer_connection().on_data_channel(on_data_channel(
-        transport.signal_target(),
-        rtc_emitter.clone(),
-    ));
+        .on_ice_candidate(on_ice_candidate(signal_target, rtc_emitter.clone()));
 
     transport
         .peer_connection()
-        .on_add_track(on_add_track(transport.signal_target(), rtc_emitter.clone()));
+        .on_data_channel(on_data_channel(signal_target, rtc_emitter.clone()));
 
     transport
         .peer_connection()
-        .on_connection_change(on_connection_change(
-            transport.signal_target(),
-            rtc_emitter.clone(),
-        ));
+        .on_add_track(on_add_track(signal_target, rtc_emitter.clone()));
+
+    transport
+        .peer_connection()
+        .on_connection_change(on_connection_change(signal_target, rtc_emitter.clone()));
 
     transport.on_offer(on_offer(transport.signal_target(), rtc_emitter.clone()));
 }

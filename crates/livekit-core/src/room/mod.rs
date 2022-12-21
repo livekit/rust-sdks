@@ -35,7 +35,7 @@ pub enum RoomError {
 
 pub type RoomResult<T> = Result<T, RoomError>;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ConnectionState {
     Disconnected,
     Connecting,
@@ -69,10 +69,14 @@ impl Room {
 
     #[instrument(level = Level::DEBUG)]
     pub async fn connect(&mut self, url: &str, token: &str) -> RoomResult<()> {
-        let (rtc_engine, engine_events) =
-            RTCEngine::connect(url, token, SignalOptions::default()).await?;
+        // Initialize the RTCEngine
+        let (rtc_engine, engine_events) = RTCEngine::new();
         let rtc_engine = Arc::new(rtc_engine);
-        let join_response = rtc_engine.join_response();
+        rtc_engine
+            .connect(url, token, SignalOptions::default())
+            .await?;
+
+        let join_response = rtc_engine.join_response().unwrap();
         let pi = join_response.participant.unwrap().clone();
         let local_participant = Arc::new(LocalParticipant::new(
             rtc_engine.clone(),
@@ -150,26 +154,21 @@ impl Room {
                 Self::handle_participant_update(room_inner.clone(), room_events.clone(), update)
                     .await
             }
-            EngineEvent::AddTrack {
-                rtp_receiver,
-                streams,
+            EngineEvent::MediaTrack {
+                track,
+                stream,
+                receiver,
             } => {
-                if streams.is_empty() {
-                    Err(RoomError::Internal(
-                        "AddTrack event with empty streams".to_string(),
-                    ))?;
-                }
-
-                let first_stream_id = streams.first().unwrap().id();
-                let stream_id = unpack_stream_id(&first_stream_id);
-                if stream_id.is_none() {
+                let stream_id = stream.id();
+                let lk_stream_id = unpack_stream_id(&stream_id);
+                if lk_stream_id.is_none() {
                     Err(RoomError::Internal(format!(
-                        "AddTrack event with invalid track_id: {:?}",
-                        first_stream_id
+                        "MediaTrack event with invalid track_id: {:?}",
+                        &stream_id
                     )))?;
                 }
 
-                let (participant_sid, track_sid) = stream_id.unwrap();
+                let (participant_sid, track_sid) = lk_stream_id.unwrap();
                 let remote_participant =
                     Self::get_participant(room_inner.clone(), &participant_sid.to_string().into());
 
@@ -181,7 +180,7 @@ impl Room {
                                 .add_subscribed_media_track(
                                     RoomHandle::from(room_inner),
                                     track_sid,
-                                    rtp_receiver.track(),
+                                    track,
                                 )
                                 .await;
                         }
@@ -195,6 +194,11 @@ impl Room {
                     )))?;
                 }
             }
+            EngineEvent::Resuming => {}
+            EngineEvent::Resumed => {}
+            EngineEvent::Restarting => {}
+            EngineEvent::Restarted => {}
+            EngineEvent::Disconnected => {}
         }
 
         Ok(())

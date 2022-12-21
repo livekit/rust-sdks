@@ -21,7 +21,7 @@ pub type OnOfferHandler = Box<
         + Sync,
 >;
 
-pub(crate) struct PCTransport {
+pub struct PCTransport {
     signal_target: SignalTarget,
     peer_connection: PeerConnection,
     pending_candidates: Vec<IceCandidate>,

@@ -1,6 +1,7 @@
 use livekit_webrtc::media_stream::{MediaStream, MediaStreamTrackHandle};
 use livekit_webrtc::rtp_receiver::RtpReceiver;
 use parking_lot::Mutex;
+use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,6 +64,21 @@ pub enum PCState {
     Disconnected,
     Reconnecting,
     Closed,
+}
+
+impl TryInto<PCState> for u8 {
+    type Error = &'static str;
+
+    fn try_into(self) -> Result<PCState, Self::Error> {
+        match self {
+            0 => Ok(PCState::New),
+            1 => Ok(PCState::Connected),
+            2 => Ok(PCState::Disconnected),
+            3 => Ok(PCState::Reconnecting),
+            4 => Ok(PCState::Closed),
+            _ => Err("invalid PCState"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -236,7 +252,11 @@ impl RTCSession {
         self.inner.publish_data(data, kind).await
     }
 
-    pub async fn wait_pc_connectiom(&self) -> EngineResult<()> {
+    pub async fn restart(&self) -> EngineResult<()> {
+        self.inner.restart_session().await
+    }
+
+    pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
     }
 }
@@ -244,6 +264,14 @@ impl RTCSession {
 impl RTCSession {
     pub fn info(&self) -> &SessionInfo {
         &self.inner.info
+    }
+
+    pub fn state(&self) -> PCState {
+        self.inner
+            .pc_state
+            .load(Ordering::SeqCst)
+            .try_into()
+            .unwrap()
     }
 
     pub fn publisher(&self) -> &AsyncMutex<PCTransport> {
@@ -412,10 +440,13 @@ impl SessionInner {
                     self.on_session_disconnected("pc_state failed");
                 }
             }
-            RTCEvent::DataChannel { data_channel } => {
+            RTCEvent::DataChannel {
+                data_channel,
+                target: _,
+            } => {
                 self.subscriber_dc.lock().push(data_channel);
             }
-            RTCEvent::Offer { offer } => {
+            RTCEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
                 self.signal_client
                     .send(signal_request::Message::Offer(proto::SessionDescription {
@@ -427,6 +458,7 @@ impl SessionInner {
             RTCEvent::AddTrack {
                 rtp_receiver,
                 mut streams,
+                target: _,
             } => {
                 if !streams.is_empty() {
                     let _ = self.emitter.send(SessionEvent::MediaTrack {
