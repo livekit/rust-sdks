@@ -51,6 +51,7 @@ pub enum SessionEvent {
         stream: MediaStream,
         receiver: RtpReceiver,
     },
+    // TODO(theomonnom): Move entirely the reconnection logic on mod.rs
     Close {
         source: String,
         reason: DisconnectReason,
