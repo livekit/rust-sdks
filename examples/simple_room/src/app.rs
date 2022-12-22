@@ -334,6 +334,9 @@ impl App {
     }
 
     fn render(&mut self) {
+        self.egui_state
+            .set_pixels_per_point(egui_winit::native_pixels_per_point(&self.window));
+
         let raw_inputs = self.egui_state.take_egui_input(&self.window);
         let full_output = self.egui_context.clone().run(raw_inputs, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
