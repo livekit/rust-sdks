@@ -55,6 +55,8 @@ pub enum SessionEvent {
         source: String,
         reason: DisconnectReason,
         can_reconnect: bool,
+        full_reconnect: bool,
+        retry_now: bool,
     },
     Connected,
 }
@@ -338,7 +340,7 @@ impl SessionInner {
                                 }
                             }
                             SignalEvent::Close => {
-                                self.on_session_disconnected("SignalClient closed", DisconnectReason::UnknownReason, true);
+                                self.on_session_disconnected("SignalClient closed", DisconnectReason::UnknownReason, true, false, false);
                             }
                         }
                     } else {
@@ -405,7 +407,13 @@ impl SessionInner {
                 }
             }
             signal_response::Message::Leave(leave) => {
-                self.on_session_disconnected("received leave", leave.reason(), leave.can_reconnect);
+                self.on_session_disconnected(
+                    "received leave",
+                    leave.reason(),
+                    leave.can_reconnect,
+                    true,
+                    true,
+                );
             }
             _ => {}
         }
@@ -450,6 +458,8 @@ impl SessionInner {
                         "pc_state failed",
                         DisconnectReason::UnknownReason,
                         true,
+                        false,
+                        false,
                     );
                 }
             }
@@ -507,11 +517,20 @@ impl SessionInner {
 
     /// Called when the SignalClient or one of the PeerConnection has lost the connection
     /// The RTCEngine may try a reconnect.
-    fn on_session_disconnected(&self, source: &str, reason: DisconnectReason, can_reconnect: bool) {
+    fn on_session_disconnected(
+        &self,
+        source: &str,
+        reason: DisconnectReason,
+        can_reconnect: bool,
+        retry_now: bool,
+        full_reconnect: bool,
+    ) {
         let _ = self.emitter.send(SessionEvent::Close {
             source: source.to_owned(),
             reason,
             can_reconnect,
+            retry_now,
+            full_reconnect,
         });
     }
 

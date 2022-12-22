@@ -12,6 +12,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::task::JoinHandle;
+use tokio::time::{interval, Interval};
 
 use lazy_static::lazy_static;
 use tokio::sync::{mpsc, oneshot};
@@ -79,9 +80,8 @@ pub enum EngineEvent {
     Disconnected,
 }
 
-// TODO(theomonnom): Smarter retry intervals
 pub const RECONNECT_ATTEMPTS: u32 = 10;
-pub const RECONNECT_INTERVAL: Duration = Duration::from_millis(300);
+pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 
 lazy_static! {
     // Share one LKRuntime across all RTCEngine instances
@@ -102,9 +102,13 @@ struct EngineInner {
     lk_runtime: Arc<LKRuntime>,
     session_info: Mutex<Option<SessionInfo>>, // Last/Current Sessioninfo
     running_handle: AsyncRwLock<Option<EngineHandle>>,
-    reconnecting: AtomicBool,
     opened: AtomicBool,
     engine_emitter: EngineEmitter,
+
+    // Reconnecting fields
+    reconnecting: AtomicBool,
+    full_reconnect: AtomicBool,
+    reconnect_interval: Mutex<Interval>,
 }
 
 #[derive(Debug)]
@@ -131,9 +135,11 @@ impl RTCEngine {
             lk_runtime: lk_runtime.unwrap(),
             session_info: Default::default(),
             running_handle: Default::default(),
-            reconnecting: Default::default(),
             opened: Default::default(),
             engine_emitter,
+            reconnecting: Default::default(),
+            full_reconnect: Default::default(),
+            reconnect_interval: Mutex::new(interval(RECONNECT_INTERVAL)),
         });
 
         (Self { inner }, engine_events)
@@ -214,7 +220,7 @@ impl EngineInner {
                 },
                  _ = &mut close_receiver => {
                     break;
-                
+                }
             }
         }
     }
@@ -225,10 +231,12 @@ impl EngineInner {
                 source,
                 reason,
                 can_reconnect,
+                retry_now,
+                full_reconnect,
             } => {
                 info!("received session close: {}, {:?}", source, reason);
                 if can_reconnect {
-                    self.handle_disconnected().await;
+                    self.clone().try_reconnect(retry_now, full_reconnect);
                 } else {
                     self.close().await;
                 }
@@ -301,6 +309,8 @@ impl EngineInner {
         let _ = self.engine_emitter.send(EngineEvent::Disconnected).await;
     }
 
+    // Wait for the reconnection task to finish
+    // Return directly if no open RTCSession
     async fn wait_reconnection(&self) -> EngineResult<()> {
         if !self.opened.load(Ordering::SeqCst) {
             Err(EngineError::Connection("not opened".to_owned()))?
@@ -317,37 +327,51 @@ impl EngineInner {
         Ok(())
     }
 
-    fn try_reconnect(self: Arc<Self>) {
-        warn!("reconnecting RTCEngine...");
-
-        if !self.opened.load(Ordering::SeqCst) || self.reconnecting.load(Ordering::SeqCst) {
+    /// Start the reconnect task if not already started
+    fn try_reconnect(self: Arc<Self>, retry_now: bool, full_reconnect: bool) {
+        if !self.opened.load(Ordering::SeqCst) {
             return;
         }
 
-        let mut reconnect_task = self.reconnect_task.lock();
-        *reconnect_task = Some(tokio::spawn({
+        if self.reconnecting.load(Ordering::SeqCst) {
+            if retry_now {
+                self.reconnect_interval.lock().reset();
+                self.full_reconnect.store(full_reconnect, Ordering::SeqCst);
+            }
+            return;
+        }
+
+        warn!("reconnecting RTCEngine...");
+
+        self.reconnecting.store(true, Ordering::SeqCst);
+        self.full_reconnect.store(full_reconnect, Ordering::SeqCst);
+        self.reconnect_interval.lock().reset();
+        tokio::spawn({
             let inner = self.clone();
             async move {
-                inner.handle_disconnected().await;
-                inner.reconnect_task.lock().take();
+                let res = inner.reconnect_task().await;
+                inner.reconnecting.store(false, Ordering::SeqCst);
+
+                if res.is_err() {
+                    error!("failed to reconnect after {} attemps", RECONNECT_ATTEMPTS);
+                    inner.close().await;
+                }
             }
-        }));
+        });
     }
 
     /// Called every time the PeerConnection or the SignalClient is closed
     /// We first try to resume the connection, if it fails, we start a full reconnect.
-    async fn handle_disconnected(self: &Arc<Self>) {
-        if !self.opened.load(Ordering::SeqCst) || self.reconnecting.load(Ordering::SeqCst) {
-            return;
-        }
-
-        self.reconnecting.store(true, Ordering::SeqCst);
-        warn!("RTCEngine disconnected unexpectedly, reconnecting...");
-
-        let mut connected = false;
-        let mut full_reconnect = false;
+    async fn reconnect_task(self: &Arc<Self>) -> EngineResult<()> {
         for i in 0..RECONNECT_ATTEMPTS {
-            if full_reconnect {
+            if !self.opened.load(Ordering::Acquire) {
+                // The user closed the RTCEngine, cancel the reconnection task
+                return Ok(());
+            }
+
+            self.reconnect_interval.lock().tick().await;
+
+            if self.full_reconnect.load(Ordering::SeqCst) {
                 if i == 0 {
                     let _ = self.engine_emitter.send(EngineEvent::Restarting).await;
                 }
@@ -357,8 +381,7 @@ impl EngineInner {
                     error!("restarting connection failed: {}", err);
                 } else {
                     let _ = self.engine_emitter.send(EngineEvent::Restarted).await;
-                    connected = true;
-                    break;
+                    return Ok(());
                 }
             } else {
                 if i == 0 {
@@ -369,25 +392,16 @@ impl EngineInner {
                 if let Err(err) = self.try_resume_connection().await {
                     error!("resuming connection failed: {}", err);
                     if let EngineError::Signal(_) = err {
-                        full_reconnect = true;
+                        self.full_reconnect.store(true, Ordering::SeqCst);
                     }
                 } else {
-                    info!("Connected but failed?");
                     let _ = self.engine_emitter.send(EngineEvent::Resumed).await;
-                    connected = true;
-                    break;
+                    return Ok(());
                 }
             }
-
-            tokio::time::sleep(RECONNECT_INTERVAL).await;
         }
 
-        self.reconnecting.store(false, Ordering::SeqCst);
-
-        if !connected {
-            error!("failed to reconnect after {} attemps", RECONNECT_ATTEMPTS);
-            self.close().await;
-        }
+        Err(EngineError::Connection("failed to reconnect".to_owned()))
     }
 
     /// Try to recover the connection by doing a full reconnect.
