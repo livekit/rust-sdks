@@ -1,8 +1,9 @@
-use livekit::events::TrackSubscribedEvent;
+use livekit::{events::TrackSubscribedEvent, room::SimulateScenario};
 
 #[derive(Debug)]
 pub enum AsyncCmd {
     RoomConnect { url: String, token: String },
+    SimulateScenario { scenario: SimulateScenario }
 }
 
 #[derive(Debug)]

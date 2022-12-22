@@ -12,7 +12,7 @@ use tokio::time::sleep;
 
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{proto, signal_client};
 use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataState};
@@ -24,15 +24,15 @@ use livekit_webrtc::peer_connection_factory::RTCConfiguration;
 
 use crate::proto::data_packet::Value;
 use crate::proto::{
-    data_packet, signal_request, signal_response, DataPacket, JoinResponse, SignalTarget,
-    TrickleRequest,
+    data_packet, signal_request, signal_response, CandidateProtocol, DataPacket, DisconnectReason,
+    JoinResponse, SignalTarget, TrickleRequest,
 };
 use crate::rtc_engine::lk_runtime::LKRuntime;
 use crate::rtc_engine::pc_transport::PCTransport;
 use crate::rtc_engine::rtc_events::{RTCEvent, RTCEvents};
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
 
-use super::{rtc_events, EngineError, EngineResult};
+use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
 
 pub const MAX_ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
@@ -52,7 +52,9 @@ pub enum SessionEvent {
         receiver: RtpReceiver,
     },
     Close {
-        reason: String,
+        source: String,
+        reason: DisconnectReason,
+        can_reconnect: bool,
     },
     Connected,
 }
@@ -238,9 +240,9 @@ impl RTCSession {
     #[tracing::instrument]
     pub async fn close(self) {
         // Close the tasks
-        self.close_emitter.send(true);
-        self.rtc_task.await;
-        self.signal_task.await;
+        let _ = self.close_emitter.send(true);
+        let _ = self.rtc_task.await;
+        let _ = self.signal_task.await;
         self.inner.close().await;
     }
 
@@ -258,6 +260,10 @@ impl RTCSession {
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
+    }
+
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) {
+        self.inner.simulate_scenario(scenario).await
     }
 }
 
@@ -332,7 +338,7 @@ impl SessionInner {
                                 }
                             }
                             SignalEvent::Close => {
-                                self.on_session_disconnected("SignalClient closed");
+                                self.on_session_disconnected("SignalClient closed", DisconnectReason::UnknownReason, true);
                             }
                         }
                     } else {
@@ -398,6 +404,9 @@ impl SessionInner {
                         .await?;
                 }
             }
+            signal_response::Message::Leave(leave) => {
+                self.on_session_disconnected("received leave", leave.reason(), leave.can_reconnect);
+            }
             _ => {}
         }
 
@@ -437,7 +446,11 @@ impl SessionInner {
                     self.pc_state
                         .store(PCState::Disconnected as u8, Ordering::SeqCst);
 
-                    self.on_session_disconnected("pc_state failed");
+                    self.on_session_disconnected(
+                        "pc_state failed",
+                        DisconnectReason::UnknownReason,
+                        true,
+                    );
                 }
             }
             RTCEvent::DataChannel {
@@ -494,9 +507,11 @@ impl SessionInner {
 
     /// Called when the SignalClient or one of the PeerConnection has lost the connection
     /// The RTCEngine may try a reconnect.
-    fn on_session_disconnected(&self, reason: &str) {
+    fn on_session_disconnected(&self, source: &str, reason: DisconnectReason, can_reconnect: bool) {
         let _ = self.emitter.send(SessionEvent::Close {
-            reason: reason.to_owned(),
+            source: source.to_owned(),
+            reason,
+            can_reconnect,
         });
     }
 
@@ -505,6 +520,65 @@ impl SessionInner {
         self.signal_client.close().await;
         self.publisher_pc.lock().await.close();
         self.subscriber_pc.lock().await.close();
+    }
+
+    #[tracing::instrument]
+    async fn simulate_scenario(&self, scenario: SimulateScenario) {
+        match scenario {
+            SimulateScenario::SignalReconnect => {
+                self.signal_client.close().await;
+            }
+            SimulateScenario::Speaker => {
+                self.signal_client
+                    .send(signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(proto::simulate_scenario::Scenario::SpeakerUpdate(3)),
+                    }))
+                    .await;
+            }
+            SimulateScenario::NodeFailure => {
+                self.signal_client
+                    .send(signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(proto::simulate_scenario::Scenario::NodeFailure(true)),
+                    }))
+                    .await;
+            }
+            SimulateScenario::ServerLeave => {
+                self.signal_client
+                    .send(signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(proto::simulate_scenario::Scenario::ServerLeave(true)),
+                    }))
+                    .await;
+            }
+            SimulateScenario::Migration => {
+                self.signal_client
+                    .send(signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(proto::simulate_scenario::Scenario::Migration(true)),
+                    }))
+                    .await;
+            }
+            SimulateScenario::ForceTcp => {
+                self.signal_client
+                    .send(signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::SwitchCandidateProtocol(
+                                CandidateProtocol::Tcp as i32,
+                            ),
+                        ),
+                    }))
+                    .await;
+            }
+            SimulateScenario::ForceTls => {
+                self.signal_client
+                    .send(signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::SwitchCandidateProtocol(
+                                CandidateProtocol::Tls as i32,
+                            ),
+                        ),
+                    }))
+                    .await;
+            }
+        }
     }
 
     #[tracing::instrument(skip(data))]

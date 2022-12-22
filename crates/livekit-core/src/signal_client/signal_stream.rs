@@ -4,6 +4,7 @@ use prost::Message as ProstMessage;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tokio_tungstenite::tungstenite::error::ProtocolError;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
@@ -60,6 +61,7 @@ impl SignalStream {
             .append_pair("access_token", token)
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
             .append_pair("reconnect", if options.reconnect { "1" } else { "0" })
+            .append_pair("sid", &options.sid)
             .append_pair(
                 "auto_subscribe",
                 if options.auto_subscribe { "1" } else { "0" },
@@ -69,9 +71,8 @@ impl SignalStream {
                 if options.adaptive_stream { "1" } else { "0" },
             );
 
-        event!(Level::DEBUG, "connecting to websocket: {}", lk_url);
+        event!(Level::INFO, "connecting to SignalClient: {}", lk_url);
         let (ws_stream, _) = connect_async(lk_url).await?;
-        event!(Level::DEBUG, "connected to websocket");
         let _ = emitter.send(SignalEvent::Open).await;
 
         let (ws_writer, ws_reader) = ws_stream.split();

@@ -17,8 +17,12 @@ use crate::proto::participant_info;
 use thiserror::Error;
 use tracing::{debug, error, instrument, trace_span, Level};
 
-use crate::rtc_engine::{EngineError, EngineEvent, EngineEvents, RTCEngine};
+use crate::rtc_engine::{
+    EngineError, EngineEvent, EngineEvents, EngineResult, RTCEngine,
+};
 use crate::signal_client::SignalOptions;
+
+pub use crate::rtc_engine::SimulateScenario;
 
 pub mod id;
 pub mod participant;
@@ -374,6 +378,10 @@ impl RoomHandle {
 
     pub fn local_participant(&self) -> Arc<LocalParticipant> {
         self.inner.local_participant.clone()
+    }
+
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
+        self.inner.rtc_engine.simulate_scenario(scenario).await
     }
 }
 

@@ -1,3 +1,4 @@
+use futures::future::BoxFuture;
 use futures::FutureExt;
 use livekit_webrtc::data_channel::DataSendError;
 use livekit_webrtc::jsep::SdpParseError;
@@ -30,6 +31,18 @@ mod rtc_session;
 pub(crate) type EngineEmitter = mpsc::Sender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::Receiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[repr(u8)]
+pub enum SimulateScenario {
+    SignalReconnect,
+    Speaker,
+    NodeFailure,
+    ServerLeave,
+    Migration,
+    ForceTcp,
+    ForceTls,
+}
 
 #[derive(Error, Debug)]
 pub enum EngineError {
@@ -74,19 +87,7 @@ lazy_static! {
     // Share one LKRuntime across all RTCEngine instances
     static ref LK_RUNTIME: Mutex<Weak<LKRuntime>> = Mutex::new(Weak::new());
 }
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[repr(u8)]
-pub enum SimulateScenario {
-    SignalReconnect,
-    Speaker,
-    NodeFailure,
-    ServerLeave,
-    Migration,
-    ForceTcp,
-    ForceTls,
-}
-
+///
 /// Represents a running RTCSession with the ability to close the session
 /// and the engine_task
 #[derive(Debug)]
@@ -150,13 +151,7 @@ impl RTCEngine {
 
     #[tracing::instrument]
     pub async fn close(&self) {
-        self.inner.opened.store(false, Ordering::SeqCst);
-        self.inner.close();
-        let _ = self
-            .inner
-            .engine_emitter
-            .send(EngineEvent::Disconnected)
-            .await;
+        self.inner.close().await
     }
 
     #[tracing::instrument(skip(data))]
@@ -164,7 +159,7 @@ impl RTCEngine {
         &self,
         data: &DataPacket,
         kind: data_packet::Kind,
-    ) -> Result<(), EngineError> {
+    ) -> EngineResult<()> {
         self.inner.wait_reconnection().await?;
         self.inner
             .running_handle
@@ -174,8 +169,20 @@ impl RTCEngine {
             .unwrap()
             .session
             .publish_data(data, kind)
-            .await?;
+            .await
+    }
 
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
+        self.inner.wait_reconnection().await?;
+        self.inner
+            .running_handle
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .session
+            .simulate_scenario(scenario)
+            .await;
         Ok(())
     }
 
@@ -207,16 +214,24 @@ impl EngineInner {
                 },
                  _ = &mut close_receiver => {
                     break;
-                }
+                
             }
         }
     }
 
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
-            SessionEvent::Close { reason } => {
-                info!("received session close: {}", reason);
-                self.handle_disconnected().await;
+            SessionEvent::Close {
+                source,
+                reason,
+                can_reconnect,
+            } => {
+                info!("received session close: {}, {:?}", source, reason);
+                if can_reconnect {
+                    self.handle_disconnected().await;
+                } else {
+                    self.close().await;
+                }
             }
             SessionEvent::Data { data } => {}
             SessionEvent::MediaTrack {
@@ -238,43 +253,52 @@ impl EngineInner {
         Ok(())
     }
 
-    async fn connect(
-        self: &Arc<Self>,
-        url: &str,
-        token: &str,
+    fn connect<'a>(
+        self: &'a Arc<Self>,
+        url: &'a str,
+        token: &'a str,
         options: SignalOptions,
-    ) -> EngineResult<()> {
-        let (session_emitter, session_events) = mpsc::unbounded_channel();
-        let session = RTCSession::connect(
-            url,
-            token,
-            options,
-            self.lk_runtime.clone(),
-            session_emitter,
-        )
-        .await?;
+    ) -> BoxFuture<'a, EngineResult<()>> {
+        async {
+            let (session_emitter, session_events) = mpsc::unbounded_channel();
+            let session = RTCSession::connect(
+                url,
+                token,
+                options,
+                self.lk_runtime.clone(),
+                session_emitter,
+            )
+            .await?;
 
-        let (close_sender, close_receiver) = oneshot::channel();
-        let engine_task = tokio::spawn(self.clone().engine_task(session_events, close_receiver));
+            let (close_sender, close_receiver) = oneshot::channel();
+            let engine_task =
+                tokio::spawn(self.clone().engine_task(session_events, close_receiver));
 
-        *self.session_info.lock() = Some(session.info().clone());
-        *self.running_handle.write().await = Some(EngineHandle {
-            session,
-            engine_task,
-            close_sender,
-        });
+            *self.session_info.lock() = Some(session.info().clone());
+            *self.running_handle.write().await = Some(EngineHandle {
+                session,
+                engine_task,
+                close_sender,
+            });
 
-        self.opened.store(true, Ordering::SeqCst);
-
-        Ok(())
+            self.opened.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        .boxed()
     }
 
-    async fn close(&self) {
+    async fn terminate_session(&self) {
         if let Some(handle) = self.running_handle.write().await.take() {
             handle.session.close().await;
             let _ = handle.close_sender.send(());
             let _ = handle.engine_task.await;
         }
+    }
+
+    async fn close(&self) {
+        self.opened.store(false, Ordering::SeqCst);
+        self.terminate_session().await;
+        let _ = self.engine_emitter.send(EngineEvent::Disconnected).await;
     }
 
     async fn wait_reconnection(&self) -> EngineResult<()> {
@@ -291,6 +315,23 @@ impl EngineInner {
         }
 
         Ok(())
+    }
+
+    fn try_reconnect(self: Arc<Self>) {
+        warn!("reconnecting RTCEngine...");
+
+        if !self.opened.load(Ordering::SeqCst) || self.reconnecting.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let mut reconnect_task = self.reconnect_task.lock();
+        *reconnect_task = Some(tokio::spawn({
+            let inner = self.clone();
+            async move {
+                inner.handle_disconnected().await;
+                inner.reconnect_task.lock().take();
+            }
+        }));
     }
 
     /// Called every time the PeerConnection or the SignalClient is closed
@@ -331,6 +372,7 @@ impl EngineInner {
                         full_reconnect = true;
                     }
                 } else {
+                    info!("Connected but failed?");
                     let _ = self.engine_emitter.send(EngineEvent::Resumed).await;
                     connected = true;
                     break;
@@ -344,7 +386,6 @@ impl EngineInner {
 
         if !connected {
             error!("failed to reconnect after {} attemps", RECONNECT_ATTEMPTS);
-            let _ = self.engine_emitter.send(EngineEvent::Disconnected).await;
             self.close().await;
         }
     }
@@ -353,7 +394,7 @@ impl EngineInner {
     /// It recreates a new RTCSession
     async fn try_restart_connection(self: &Arc<Self>) -> EngineResult<()> {
         let info = self.session_info.lock().clone().unwrap();
-        self.close().await;
+        self.terminate_session().await;
         self.connect(&info.url, &info.token, info.options).await?;
         self.running_handle
             .read()

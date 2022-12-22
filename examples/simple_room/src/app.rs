@@ -10,7 +10,7 @@ use std::sync::{
 };
 use tokio::sync::mpsc;
 
-use livekit::room::{ConnectionState, Room, RoomError};
+use livekit::room::{ConnectionState, Room, RoomError, SimulateScenario};
 
 // Useful default constants for developing
 const DEFAULT_URL: &str = "ws://localhost:7880";
@@ -114,6 +114,11 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
                         state.connecting.store(false, Ordering::SeqCst);
                     }
+                    AsyncCmd::SimulateScenario { scenario } => {
+                        if let Some(handle) = state.room.lock().get_handle() {
+                            let _ = handle.simulate_scenario(scenario).await;
+                        }
+                    }
                 }
             }
         });
@@ -210,7 +215,43 @@ impl App {
                     if ui.button("WebRTC Stats").clicked() {}
                     if ui.button("Events").clicked() {}
                 });
-                ui.menu_button("Simulate", |ui| {});
+                ui.menu_button("Simulate", |ui| {
+                    if ui.button("SignalReconnect").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
+                            scenario: SimulateScenario::SignalReconnect,
+                        });
+                    }
+                    if ui.button("Speaker").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
+                            scenario: SimulateScenario::Speaker,
+                        });
+                    }
+                    if ui.button("NodeFailure").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
+                            scenario: SimulateScenario::NodeFailure,
+                        });
+                    }
+                    if ui.button("ServerLeave").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
+                            scenario: SimulateScenario::ServerLeave,
+                        });
+                    }
+                    if ui.button("Migration").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
+                            scenario: SimulateScenario::Migration,
+                        });
+                    }
+                    if ui.button("ForceTcp").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
+                            scenario: SimulateScenario::ForceTcp,
+                        });
+                    }
+                    if ui.button("ForceTls").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
+                            scenario: SimulateScenario::ForceTls,
+                        });
+                    }
+                });
             });
         });
 
@@ -236,12 +277,10 @@ impl App {
 
                     if ui.button("Connect").clicked() {
                         self.connection_failure = None;
-                        self.cmd_tx
-                            .send(AsyncCmd::RoomConnect {
-                                url: self.lk_url.clone(),
-                                token: self.lk_token.clone(),
-                            })
-                            .unwrap();
+                        let _ = self.cmd_tx.send(AsyncCmd::RoomConnect {
+                            url: self.lk_url.clone(),
+                            token: self.lk_token.clone(),
+                        });
                     }
 
                     if connecting {
