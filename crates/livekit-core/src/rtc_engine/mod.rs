@@ -369,8 +369,6 @@ impl EngineInner {
                 return Ok(());
             }
 
-            self.reconnect_interval.lock().tick().await;
-
             if self.full_reconnect.load(Ordering::SeqCst) {
                 if i == 0 {
                     let _ = self.engine_emitter.send(EngineEvent::Restarting).await;
@@ -399,6 +397,8 @@ impl EngineInner {
                     return Ok(());
                 }
             }
+
+            self.reconnect_interval.lock().tick().await;
         }
 
         Err(EngineError::Connection("failed to reconnect".to_owned()))

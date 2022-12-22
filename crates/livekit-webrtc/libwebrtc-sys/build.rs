@@ -52,7 +52,7 @@ fn macos_link_search_path() -> Option<String> {
 
 fn main() {
     // TODO Download precompiled binaries of WebRTC for the target_os
-    let target_os = "macos";
+    let target_os = "windows";
     //let target_arch = "arm64";
 
     let libwebrtc_dir = path::PathBuf::from("libwebrtc/src");
