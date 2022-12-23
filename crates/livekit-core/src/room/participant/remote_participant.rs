@@ -68,7 +68,7 @@ impl RemoteParticipant {
                         return publication;
                     }
 
-                    sleep(Duration::from_millis(50)).await;
+                    tokio::task::yield_now();
                 }
             }
         };

@@ -352,7 +352,9 @@ impl EngineInner {
                 let res = inner.reconnect_task().await;
                 inner.reconnecting.store(false, Ordering::SeqCst);
 
-                if res.is_err() {
+                if res.is_ok() {
+                    warn!("RTCEngine successfully reconnected")
+                } else {
                     error!("failed to reconnect after {} attemps", RECONNECT_ATTEMPTS);
                     inner.close().await;
                 }

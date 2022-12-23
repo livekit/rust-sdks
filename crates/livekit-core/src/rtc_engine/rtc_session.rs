@@ -200,9 +200,7 @@ impl RTCSession {
             join_response,
         };
 
-        // Start tasks
         let (close_emitter, close_receiver) = watch::channel(false);
-
         let inner = Arc::new(SessionInner {
             info: session_info,
             pc_state: AtomicU8::new(PCState::New as u8),
@@ -224,6 +222,10 @@ impl RTCSession {
         );
         let rtc_task = tokio::spawn(inner.clone().rtc_task(rtc_events, close_receiver.clone()));
 
+        if !inner.info.join_response.subscriber_primary {
+            inner.negotiate_publisher().await?;
+        }
+
         let session = Self {
             lk_runtime,
             inner: inner.clone(),
@@ -231,10 +233,6 @@ impl RTCSession {
             signal_task,
             rtc_task,
         };
-
-        if !inner.info.join_response.subscriber_primary {
-            inner.negotiate_publisher().await?;
-        }
 
         Ok(session)
     }
