@@ -8,14 +8,14 @@ use tokio::task::JoinHandle;
 use crate::events::{ParticipantConnectedEvent, ParticipantDisconnectedEvent, RoomEvents};
 use crate::proto::{self, participant_info};
 use crate::room::ConnectionState;
-use crate::rtc_engine::{EngineEvent, EngineEvents, RTCEngine};
+use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
 use crate::signal_client::SignalOptions;
 
 use super::id::{ParticipantIdentity, ParticipantSid};
 use super::participant::local_participant::LocalParticipant;
 use super::participant::remote_participant::RemoteParticipant;
 use super::participant::{ParticipantInternalTrait, ParticipantTrait};
-use super::{RoomError, RoomHandle, RoomResult};
+use super::{RoomError, RoomResult, SimulateScenario};
 use tracing::{error, instrument, Level};
 
 #[derive(Debug)]
@@ -29,73 +29,39 @@ pub struct SessionInner {
     pub room_events: Arc<RoomEvents>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RoomSession {
     inner: Arc<SessionInner>,
-    session_task: JoinHandle<()>,
-    close_emitter: oneshot::Sender<()>,
 }
 
 impl RoomSession {
-    pub async fn connect(
-        room_events: Arc<RoomEvents>,
-        url: &str,
-        token: &str,
-    ) -> RoomResult<Self> {
-        let (rtc_engine, engine_events) = RTCEngine::new();
-        let rtc_engine = Arc::new(rtc_engine);
-        rtc_engine
-            .connect(url, token, SignalOptions::default())
-            .await?;
-
-        let join_response = rtc_engine.join_response().unwrap();
-        let pi = join_response.participant.unwrap().clone();
-        let local_participant = Arc::new(LocalParticipant::new(
-            rtc_engine.clone(),
-            pi.sid.into(),
-            pi.identity.into(),
-            pi.name,
-            pi.metadata,
-        ));
-        let room_info = join_response.room.unwrap();
-        let inner = Arc::new(SessionInner {
-            state: AtomicU8::new(ConnectionState::Connecting as u8),
-            sid: Mutex::new(room_info.sid),
-            name: Mutex::new(room_info.name),
-            participants: Default::default(),
-            rtc_engine,
-            local_participant,
-            room_events,
-        });
-
-        for pi in join_response.other_participants {
-            let participant = {
-                let pi = pi.clone();
-                inner.create_participant(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata)
-            };
-            participant.update_info(pi.clone());
-            participant
-                .update_tracks(RoomHandle::from(inner.clone()), pi.tracks)
-                .await;
-        }
-
-        let (close_emitter, close_receiver) = oneshot::channel();
-        let session_task = tokio::spawn(inner.room_task(engine_events, close_receiver));
-
-        let session = Self {
-            inner,
-            session_task,
-            close_emitter,
-        };
-        Ok(session)
+    pub fn sid(&self) -> String {
+        self.session.sid.lock().clone()
     }
 
-    pub async fn close(self) {
-        self.inner.close();
-        let _ = self.close_emitter.send(());
-        self.session_task.await;
+    pub fn name(&self) -> String {
+        self.internal.name.lock().clone()
+    }
+
+    pub fn local_participant(&self) -> Arc<LocalParticipant> {
+        self.internal.local_participant.clone()
+    }
+
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
+        self.internal.rtc_engine.simulate_scenario(scenario).await
     }
 }
+
+impl RoomSession {
+
+    pub(crate) async fn close(&self) -> RoomResult<()> {
+        self.internal.rtc_engine.close().await?;
+        self.internal.room_events.close();
+        Ok(())
+    }   
+}
+
+// Connect me to a database
 
 impl SessionInner {
     async fn room_task(
