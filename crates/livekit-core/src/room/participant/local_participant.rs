@@ -4,7 +4,7 @@ use crate::proto::{data_packet, DataPacket, UserPacket};
 use crate::room::participant::{
     impl_participant_trait, ParticipantInternalTrait, ParticipantShared,
 };
-use crate::room::{RoomError, RoomInner};
+use crate::room::RoomError;
 use crate::rtc_engine::RTCEngine;
 
 #[derive(Debug)]

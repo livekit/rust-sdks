@@ -1,8 +1,8 @@
 use crate::room::id::TrackSid;
 use crate::room::participant::remote_participant::RemoteParticipant;
 use crate::room::publication::RemoteTrackPublication;
+use crate::room::room_session::{ConnectionState, RoomSession};
 use crate::room::track::remote_track::RemoteTrackHandle;
-use crate::room::{ConnectionState, RoomHandle};
 use futures::future::Future;
 use futures_util::future::BoxFuture;
 use parking_lot::Mutex;
@@ -32,19 +32,19 @@ pub enum TrackError {
 
 #[derive(Clone, Debug)]
 pub struct ParticipantConnectedEvent {
-    pub room_handle: RoomHandle,
+    pub room_session: RoomSession,
     pub participant: Arc<RemoteParticipant>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ParticipantDisconnectedEvent {
-    pub room_handle: RoomHandle,
+    pub room_session: RoomSession,
     pub participant: Arc<RemoteParticipant>,
 }
 
 #[derive(Clone, Debug)]
 pub struct TrackSubscribedEvent {
-    pub room_handle: RoomHandle,
+    pub room_session: RoomSession,
     pub track: RemoteTrackHandle,
     pub publication: RemoteTrackPublication,
     pub participant: Arc<RemoteParticipant>,
@@ -52,14 +52,14 @@ pub struct TrackSubscribedEvent {
 
 #[derive(Clone, Debug)]
 pub struct TrackPublishedEvent {
-    pub room_handle: RoomHandle,
+    pub room_session: RoomSession,
     pub publication: RemoteTrackPublication,
     pub participant: Arc<RemoteParticipant>,
 }
 
 #[derive(Clone, Debug)]
 pub struct TrackSubscriptionFailedEvent {
-    pub room_handle: RoomHandle,
+    pub room_session: RoomSession,
     pub error: TrackError,
     pub sid: TrackSid,
     pub participant: Arc<RemoteParticipant>,
@@ -67,7 +67,7 @@ pub struct TrackSubscriptionFailedEvent {
 
 #[derive(Clone, Debug)]
 pub struct ConnectionStateChangedEvent {
-    pub room_handle: RoomHandle,
+    pub room_session: RoomSession,
     pub state: ConnectionState,
 }
 

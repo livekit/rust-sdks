@@ -7,7 +7,6 @@ use tokio::task::JoinHandle;
 
 use crate::events::{ParticipantConnectedEvent, ParticipantDisconnectedEvent, RoomEvents};
 use crate::proto::{self, participant_info};
-use crate::room::ConnectionState;
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
 use crate::signal_client::SignalOptions;
 
@@ -18,50 +17,148 @@ use super::participant::{ParticipantInternalTrait, ParticipantTrait};
 use super::{RoomError, RoomResult, SimulateScenario};
 use tracing::{error, instrument, Level};
 
-#[derive(Debug)]
-pub struct SessionInner {
-    pub state: AtomicU8, // ConnectionState
-    pub sid: Mutex<String>,
-    pub name: Mutex<String>,
-    pub participants: RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>>,
-    pub rtc_engine: Arc<RTCEngine>,
-    pub local_participant: Arc<LocalParticipant>,
-    pub room_events: Arc<RoomEvents>,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+    Reconnecting,
 }
 
-#[derive(Clone, Debug)]
+impl TryFrom<u8> for ConnectionState {
+    type Error = &'static str;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(ConnectionState::Disconnected),
+            1 => Ok(ConnectionState::Connecting),
+            2 => Ok(ConnectionState::Connected),
+            3 => Ok(ConnectionState::Reconnecting),
+            _ => Err("invalid ConnectionState"),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SessionInner {
+    state: AtomicU8, // ConnectionState
+    sid: Mutex<String>,
+    name: Mutex<String>,
+    participants: RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>>,
+    rtc_engine: Arc<RTCEngine>,
+    local_participant: Arc<LocalParticipant>,
+    room_events: Arc<RoomEvents>,
+}
+
+/// RoomSession represents a connection to a room.
+/// It can be cloned and shared across threads.
+#[derive(Debug, Clone)]
 pub struct RoomSession {
     inner: Arc<SessionInner>,
 }
 
-impl RoomSession {
-    pub fn sid(&self) -> String {
-        self.session.sid.lock().clone()
+/// Responsible for creating and closing the room session.
+#[derive(Debug)]
+pub struct RoomInternal {
+    inner: Arc<SessionInner>,
+    session_task: JoinHandle<()>,
+    close_emitter: oneshot::Sender<()>,
+}
+
+impl RoomInternal {
+    pub async fn connect(room_events: Arc<RoomEvents>, url: &str, token: &str) -> RoomResult<Self> {
+        let (rtc_engine, engine_events) = RTCEngine::new();
+        let rtc_engine = Arc::new(rtc_engine);
+        rtc_engine
+            .connect(url, token, SignalOptions::default())
+            .await?;
+
+        let join_response = rtc_engine.join_response().unwrap();
+        let pi = join_response.participant.unwrap().clone();
+        let local_participant = Arc::new(LocalParticipant::new(
+            rtc_engine.clone(),
+            pi.sid.into(),
+            pi.identity.into(),
+            pi.name,
+            pi.metadata,
+        ));
+        let room_info = join_response.room.unwrap();
+        let inner = Arc::new(SessionInner {
+            state: AtomicU8::new(ConnectionState::Connecting as u8),
+            sid: Mutex::new(room_info.sid),
+            name: Mutex::new(room_info.name),
+            participants: Default::default(),
+            rtc_engine,
+            local_participant,
+            room_events,
+        });
+
+        for pi in join_response.other_participants {
+            let participant = {
+                let pi = pi.clone();
+                inner.create_participant(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata)
+            };
+            participant.update_info(pi.clone());
+            participant
+                .update_tracks(RoomSession::from(inner.clone()), pi.tracks)
+                .await;
+        }
+
+        let (close_emitter, close_receiver) = oneshot::channel();
+        let session_task = tokio::spawn(inner.clone().room_task(engine_events, close_receiver));
+
+        let session = Self {
+            inner,
+            session_task,
+            close_emitter,
+        };
+        Ok(session)
     }
 
-    pub fn name(&self) -> String {
-        self.internal.name.lock().clone()
+    pub async fn close(self) {
+        self.inner.close();
+        let _ = self.close_emitter.send(());
+        self.session_task.await;
     }
 
-    pub fn local_participant(&self) -> Arc<LocalParticipant> {
-        self.internal.local_participant.clone()
+    pub fn session(&self) -> RoomSession {
+        RoomSession::from(self.inner.clone())
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
-        self.internal.rtc_engine.simulate_scenario(scenario).await
+        self.inner.rtc_engine.simulate_scenario(scenario).await
     }
 }
 
 impl RoomSession {
+    fn from(inner: Arc<SessionInner>) -> Self {
+        Self { inner }
+    }
 
-    pub(crate) async fn close(&self) -> RoomResult<()> {
-        self.internal.rtc_engine.close().await?;
-        self.internal.room_events.close();
-        Ok(())
-    }   
+    pub fn sid(&self) -> String {
+        self.inner.sid.lock().clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name.lock().clone()
+    }
+
+    pub fn local_participant(&self) -> Arc<LocalParticipant> {
+        self.inner.local_participant.clone()
+    }
+
+    pub fn connection_state(&self) -> ConnectionState {
+        self.inner.state.load(Ordering::Acquire).try_into().unwrap()
+    }
+
+    pub fn participants(&self) -> &RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>> {
+        &self.inner.participants
+    }
+
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
+        self.inner.rtc_engine.simulate_scenario(scenario).await
+    }
 }
-
-// Connect me to a database
 
 impl SessionInner {
     async fn room_task(
@@ -110,13 +207,13 @@ impl SessionInner {
 
                 if let Some(remote_participant) = remote_participant {
                     tokio::spawn({
-                        let room_internal = self.clone();
+                        let session_inner = self.clone();
                         {
                             let track_sid = track_sid.to_owned().into();
                             async move {
                                 remote_participant
                                     .add_subscribed_media_track(
-                                        RoomHandle::from(room_internal),
+                                        RoomSession::from(session_inner),
                                         track_sid,
                                         track,
                                     )
@@ -174,7 +271,7 @@ impl SessionInner {
                     // Participant is already connected, update the it
                     remote_participant.update_info(pi.clone());
                     remote_participant
-                        .update_tracks(RoomHandle::from(self.clone()), pi.tracks)
+                        .update_tracks(RoomSession::from(self.clone()), pi.tracks)
                         .await;
                 }
             } else {
@@ -186,14 +283,14 @@ impl SessionInner {
                 let mut handler = self.room_events.on_participant_connected.lock();
                 if let Some(cb) = handler.as_mut() {
                     cb(ParticipantConnectedEvent {
-                        room_handle: RoomHandle::from(self.clone()),
+                        room_session: RoomSession::from(self.clone()),
                         participant: remote_participant.clone(),
                     });
                 }
 
                 remote_participant.update_info(pi.clone());
                 remote_participant
-                    .update_tracks(RoomHandle::from(self.clone()), pi.tracks)
+                    .update_tracks(RoomSession::from(self.clone()), pi.tracks)
                     .await;
             }
         }
@@ -208,7 +305,7 @@ impl SessionInner {
         let mut handler = self.room_events.on_participant_disconnected.lock();
         if let Some(cb) = handler.as_mut() {
             cb(ParticipantDisconnectedEvent {
-                room_handle: RoomHandle::from(self.clone()),
+                room_session: RoomSession::from(self.clone()),
                 participant: remote_participant.clone(),
             });
         }

@@ -9,11 +9,11 @@ use crate::room::participant::{
 use crate::room::publication::{
     RemoteTrackPublication, TrackPublication, TrackPublicationInternalTrait, TrackPublicationTrait,
 };
+use crate::room::room_session::RoomSession;
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
 use crate::room::track::{TrackKind, TrackTrait};
-use crate::room::{RoomHandle, RoomInner};
 use livekit_webrtc::media_stream::MediaStreamTrackHandle;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -51,10 +51,10 @@ impl RemoteParticipant {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(room_handle))]
+    #[instrument(level = Level::DEBUG, skip(room_session))]
     pub(crate) async fn add_subscribed_media_track(
         self: Arc<Self>,
-        room_handle: RoomHandle,
+        room_session: RoomSession,
         sid: TrackSid,
         media_track: MediaStreamTrackHandle,
     ) {
@@ -110,7 +110,7 @@ impl RemoteParticipant {
             track.start();
 
             let event = TrackSubscribedEvent {
-                room_handle,
+                room_session,
                 track,
                 publication: remote_publication,
                 participant: self.clone(),
@@ -133,7 +133,7 @@ impl RemoteParticipant {
             error!("could not find published track with sid: {:?}", sid);
 
             let event = TrackSubscriptionFailedEvent {
-                room_handle,
+                room_session,
                 sid: sid.clone(),
                 error: TrackError::TrackNotFound(sid.clone().to_string()),
                 participant: self.clone(),
@@ -161,10 +161,10 @@ impl RemoteParticipant {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(room_handle))]
+    #[instrument(level = Level::DEBUG, skip(room_session))]
     pub(crate) async fn update_tracks(
         self: Arc<Self>,
-        room_handle: RoomHandle,
+        room_session: RoomSession,
         tracks: Vec<TrackInfo>,
     ) {
         let mut valid_tracks = HashSet::<TrackSid>::new();
@@ -179,7 +179,7 @@ impl RemoteParticipant {
 
                 // This is a new track, fire publish events
                 let event = TrackPublishedEvent {
-                    room_handle: room_handle.clone(),
+                    room_session: room_session.clone(),
                     participant: self.clone(),
                     publication: publication.clone(),
                 };
