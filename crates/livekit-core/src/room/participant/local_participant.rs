@@ -49,7 +49,7 @@ impl LocalParticipant {
 }
 
 impl ParticipantInternalTrait for LocalParticipant {
-    fn update_info(&self, info: ParticipantInfo) {
+    fn update_info(self: &Arc<Self>, info: ParticipantInfo) {
         self.shared.update_info(info);
     }
 }

@@ -241,7 +241,7 @@ impl EngineInner {
                     self.close().await;
                 }
             }
-            SessionEvent::Data { data } => {}
+            SessionEvent::Data { data: _ } => {}
             SessionEvent::MediaTrack {
                 track,
                 stream,

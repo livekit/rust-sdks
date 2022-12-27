@@ -12,7 +12,7 @@ use tokio::time::sleep;
 
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::{proto, signal_client};
 use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataState};
@@ -501,7 +501,7 @@ impl SessionInner {
 
                 let data = DataPacket::decode(&*data)?;
                 match data.value.unwrap() {
-                    Value::User(user) => {
+                    Value::User(_user) => {
                         // TODO(theomonnom) Send event
                     }
                     Value::Speaker(_) => {

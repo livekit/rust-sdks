@@ -53,7 +53,7 @@ impl ParticipantShared {
 }
 
 pub(crate) trait ParticipantInternalTrait {
-    fn update_info(&self, info: ParticipantInfo);
+    fn update_info(self: &Arc<Self>, info: ParticipantInfo);
 }
 
 pub trait ParticipantTrait {
@@ -69,7 +69,7 @@ pub enum ParticipantHandle {
     Remote(Arc<RemoteParticipant>),
 }
 
-impl ParticipantInternalTrait for ParticipantHandle {
+impl ParticipantHandle {
     enum_dispatch!(
         [Local, Remote]
         fnc!(update_info, &Self, [info: ParticipantInfo], ());
@@ -114,4 +114,4 @@ macro_rules! impl_participant_trait {
 
 pub(super) use impl_participant_trait;
 
-use super::RoomEmitter;
+

@@ -6,7 +6,6 @@ use crate::room::participant::{
 use crate::room::publication::{
     RemoteTrackPublication, TrackPublication, TrackPublicationInternalTrait, TrackPublicationTrait,
 };
-use crate::room::room_session::RoomSession;
 use crate::room::room_session::SessionEmitter;
 use crate::room::room_session::SessionEvent;
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
@@ -109,7 +108,8 @@ impl RemoteParticipant {
                 .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
             track.start();
 
-            self.shared
+            let _ = self
+                .shared
                 .internal_tx
                 .send(SessionEvent::Room(RoomEvent::TrackSubscribed {
                     track: track,
@@ -119,21 +119,23 @@ impl RemoteParticipant {
         } else {
             error!("could not find published track with sid: {:?}", sid);
 
-            self.shared
-                .internal_tx
-                .send(SessionEvent::Room(RoomEvent::TrackSubscriptionFailed {
+            let _ = self.shared.internal_tx.send(SessionEvent::Room(
+                RoomEvent::TrackSubscriptionFailed {
                     sid: sid.clone(),
                     error: TrackError::TrackNotFound(sid.clone().to_string()),
                     participant: self.clone(),
-                }));
+                },
+            ));
         }
     }
+}
 
-    #[instrument(level = Level::DEBUG)]
-    pub(crate) async fn update_tracks(self: Arc<Self>, tracks: Vec<TrackInfo>) {
+impl ParticipantInternalTrait for RemoteParticipant {
+    fn update_info(self: &Arc<Self>, info: ParticipantInfo) {
+        self.shared.update_info(info.clone());
+
         let mut valid_tracks = HashSet::<TrackSid>::new();
-
-        for track in tracks {
+        for track in info.tracks {
             if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
                 publication.update_info(track.clone());
             } else {
@@ -141,23 +143,18 @@ impl RemoteParticipant {
                 self.shared
                     .add_track_publication(TrackPublication::Remote(publication.clone()));
 
-                // This is a new track, fire publish events
-                self.shared
-                    .internal_tx
-                    .send(SessionEvent::Room(RoomEvent::TrackPublished {
-                        publication: publication.clone(),
-                        participant: self.clone(),
-                    }));
+                // This is a new track, fire publish event
+                let _ =
+                    self.shared
+                        .internal_tx
+                        .send(SessionEvent::Room(RoomEvent::TrackPublished {
+                            publication: publication.clone(),
+                            participant: self.clone(),
+                        }));
             }
 
             valid_tracks.insert(track.sid.into());
         }
-    }
-}
-
-impl ParticipantInternalTrait for RemoteParticipant {
-    fn update_info(&self, info: ParticipantInfo) {
-        self.shared.update_info(info)
     }
 }
 

@@ -106,7 +106,6 @@ impl SessionHandle {
                 inner.create_participant(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata)
             };
             participant.update_info(pi.clone());
-            participant.update_tracks(pi.tracks).await;
         }
 
         let (close_emitter, close_receiver) = oneshot::channel();
@@ -117,9 +116,7 @@ impl SessionHandle {
             room_emitter,
         ));
 
-        inner
-            .update_connection_state(ConnectionState::Connected)
-            .await;
+        inner.update_connection_state(ConnectionState::Connected);
 
         let session = Self {
             session: RoomSession::from(inner),
@@ -233,7 +230,7 @@ impl SessionInner {
     #[instrument(level = Level::DEBUG)]
     async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
         match event {
-            EngineEvent::ParticipantUpdate(update) => self.handle_participant_update(update).await,
+            EngineEvent::ParticipantUpdate(update) => self.handle_participant_update(update),
             EngineEvent::MediaTrack {
                 track,
                 stream,
@@ -267,11 +264,25 @@ impl SessionInner {
                     )))?;
                 }
             }
-            EngineEvent::Resuming => {}
-            EngineEvent::Resumed => {}
-            EngineEvent::Restarting => {}
-            EngineEvent::Restarted => {}
-            EngineEvent::Disconnected => {}
+            EngineEvent::Resuming => {
+                if self.update_connection_state(ConnectionState::Reconnecting) {
+                    let _ = self
+                        .internal_tx
+                        .send(SessionEvent::Room(RoomEvent::Reconnecting));
+                }
+            }
+            EngineEvent::Resumed => {
+                self.update_connection_state(ConnectionState::Connected);
+                let _ = self
+                    .internal_tx
+                    .send(SessionEvent::Room(RoomEvent::Reconnected));
+
+                // TODO(theomonnom): Update subscriptions settings
+                // TODO(theomonnom): Send sync state
+            }
+            EngineEvent::Restarting => self.handle_restarting(),
+            EngineEvent::Restarted => self.handle_restarted(),
+            EngineEvent::Disconnected => self.handle_disconnected(),
         }
 
         Ok(())
@@ -282,30 +293,32 @@ impl SessionInner {
         self.rtc_engine.close().await;
     }
 
-    fn get_participant(self: &Arc<Self>, sid: &ParticipantSid) -> Option<Arc<RemoteParticipant>> {
+    fn get_participant(&self, sid: &ParticipantSid) -> Option<Arc<RemoteParticipant>> {
         self.participants.read().get(sid).cloned()
     }
 
     /// Change the connection state and emit an event
     /// Does nothing if the state is already the same
     #[instrument(level = Level::DEBUG)]
-    async fn update_connection_state(self: &Arc<Self>, state: ConnectionState) {
+    fn update_connection_state(&self, state: ConnectionState) -> bool {
         let old_state = self.state.load(Ordering::Acquire);
         if old_state == state as u8 {
-            return;
+            return false;
         }
 
         self.state.store(state as u8, Ordering::Release);
         let _ = self
             .internal_tx
             .send(SessionEvent::Room(RoomEvent::ConnectionStateChanged(state)));
+
+        return true;
     }
 
     /// Update the participants inside a Room.
     /// It'll create, update or remove a participant
     /// It also update the participant tracks.
     #[instrument(level = Level::DEBUG)]
-    async fn handle_participant_update(self: &Arc<Self>, update: proto::ParticipantUpdate) {
+    fn handle_participant_update(&self, update: proto::ParticipantUpdate) {
         for pi in update.participants {
             if pi.sid == self.local_participant.sid()
                 || pi.identity == self.local_participant.identity()
@@ -323,7 +336,6 @@ impl SessionInner {
                 } else {
                     // Participant is already connected, update the it
                     remote_participant.update_info(pi.clone());
-                    remote_participant.update_tracks(pi.tracks).await;
                 }
             } else {
                 // Create a new participant
@@ -339,7 +351,6 @@ impl SessionInner {
                     )));
 
                 remote_participant.update_info(pi.clone());
-                remote_participant.update_tracks(pi.tracks).await;
             }
         }
     }
@@ -347,7 +358,7 @@ impl SessionInner {
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     #[instrument(level = Level::DEBUG)]
-    fn handle_participant_disconnect(self: &Arc<Self>, remote_participant: Arc<RemoteParticipant>) {
+    fn handle_participant_disconnect(&self, remote_participant: Arc<RemoteParticipant>) {
         self.participants.write().remove(&remote_participant.sid());
 
         // TODO(theomonnom): Unpublish all tracks
@@ -358,10 +369,57 @@ impl SessionInner {
             )));
     }
 
+    #[instrument(level = Level::DEBUG)]
+    fn handle_restarting(&self) {
+        // Remove existing participants/subscriptions on full reconnect
+        for (_, participant) in self.participants.read().iter() {
+            self.handle_participant_disconnect(participant.clone());
+        }
+
+        if self.update_connection_state(ConnectionState::Reconnecting) {
+            let _ = self
+                .internal_tx
+                .send(SessionEvent::Room(RoomEvent::Reconnecting));
+        }
+    }
+
+    #[instrument(level = Level::DEBUG)]
+    fn handle_restarted(&self) {
+        // Full reconnect succeeded!
+        let join_response = self.rtc_engine.join_response().unwrap();
+
+        self.update_connection_state(ConnectionState::Connected);
+        let _ = self
+            .internal_tx
+            .send(SessionEvent::Room(RoomEvent::Reconnected));
+
+        if let Some(pi) = join_response.participant {
+            self.local_participant.update_info(pi); // The sid may have changed
+        }
+
+        self.handle_participant_update(proto::ParticipantUpdate {
+            participants: join_response.other_participants,
+        });
+
+        // TODO(theomonnom): unpublish & republish tracks
+    }
+
+    #[instrument(level = Level::DEBUG)]
+    fn handle_disconnected(&self) {
+        if self.state.load(Ordering::Acquire) == ConnectionState::Disconnected as u8 {
+            return;
+        }
+
+        self.update_connection_state(ConnectionState::Disconnected);
+        let _ = self
+            .internal_tx
+            .send(SessionEvent::Room(RoomEvent::Disconnected));
+    }
+
     /// Create a new participant
     /// Also add it to the participants list
     fn create_participant(
-        self: &Arc<Self>,
+        &self,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
