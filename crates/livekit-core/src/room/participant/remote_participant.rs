@@ -7,16 +7,18 @@ use crate::room::publication::{
     RemoteTrackPublication, TrackPublication, TrackPublicationInternalTrait, TrackPublicationTrait,
 };
 use crate::room::room_session::RoomSession;
+use crate::room::room_session::SessionEmitter;
+use crate::room::room_session::SessionEvent;
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
 use crate::room::track::{TrackKind, TrackTrait};
-use crate::room::{RoomEmitter, RoomEvent, TrackError};
+use crate::room::{RoomEvent, TrackError};
 use livekit_webrtc::media_stream::MediaStreamTrackHandle;
 use std::collections::HashSet;
 use std::time::Duration;
-use tokio::time::{sleep, timeout};
-use tracing::{debug, debug_span, error, instrument, Instrument, Level};
+use tokio::time::timeout;
+use tracing::{debug, error, instrument, Level};
 
 use super::ParticipantTrait;
 
@@ -33,10 +35,10 @@ impl RemoteParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
-        room_emitter: RoomEmitter,
+        internal_tx: SessionEmitter,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata, room_emitter),
+            shared: ParticipantShared::new(sid, identity, name, metadata, internal_tx),
         }
     }
 
@@ -50,10 +52,9 @@ impl RemoteParticipant {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(room_session))]
+    #[instrument(level = Level::DEBUG)]
     pub(crate) async fn add_subscribed_media_track(
         self: Arc<Self>,
-        room_session: RoomSession,
         sid: TrackSid,
         media_track: MediaStreamTrackHandle,
     ) {
@@ -67,7 +68,7 @@ impl RemoteParticipant {
                         return publication;
                     }
 
-                    tokio::task::yield_now();
+                    tokio::task::yield_now().await;
                 }
             }
         };
@@ -108,30 +109,28 @@ impl RemoteParticipant {
                 .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
             track.start();
 
-            self.shared.room_emitter.send(RoomEvent::TrackSubscribed {
-                track: track,
-                publication: remote_publication,
-                participant: self.clone(),
-            });
+            self.shared
+                .internal_tx
+                .send(SessionEvent::Room(RoomEvent::TrackSubscribed {
+                    track: track,
+                    publication: remote_publication,
+                    participant: self.clone(),
+                }));
         } else {
             error!("could not find published track with sid: {:?}", sid);
 
             self.shared
-                .room_emitter
-                .send(RoomEvent::TrackSubscriptionFailed {
+                .internal_tx
+                .send(SessionEvent::Room(RoomEvent::TrackSubscriptionFailed {
                     sid: sid.clone(),
                     error: TrackError::TrackNotFound(sid.clone().to_string()),
                     participant: self.clone(),
-                });
+                }));
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(room_session))]
-    pub(crate) async fn update_tracks(
-        self: Arc<Self>,
-        room_session: RoomSession,
-        tracks: Vec<TrackInfo>,
-    ) {
+    #[instrument(level = Level::DEBUG)]
+    pub(crate) async fn update_tracks(self: Arc<Self>, tracks: Vec<TrackInfo>) {
         let mut valid_tracks = HashSet::<TrackSid>::new();
 
         for track in tracks {
@@ -143,10 +142,12 @@ impl RemoteParticipant {
                     .add_track_publication(TrackPublication::Remote(publication.clone()));
 
                 // This is a new track, fire publish events
-                self.shared.room_emitter.send(RoomEvent::TrackPublished {
-                    publication: publication.clone(),
-                    participant: self.clone(),
-                });
+                self.shared
+                    .internal_tx
+                    .send(SessionEvent::Room(RoomEvent::TrackPublished {
+                        publication: publication.clone(),
+                        participant: self.clone(),
+                    }));
             }
 
             valid_tracks.insert(track.sid.into());

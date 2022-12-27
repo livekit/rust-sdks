@@ -3,6 +3,7 @@ use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
 use crate::room::participant::local_participant::LocalParticipant;
 use crate::room::participant::remote_participant::RemoteParticipant;
 use crate::room::publication::{TrackPublication, TrackPublicationTrait};
+use crate::room::room_session::SessionEmitter;
 use livekit_utils::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
@@ -18,7 +19,7 @@ pub(super) struct ParticipantShared {
     pub(super) name: Mutex<String>,
     pub(super) metadata: Mutex<String>,
     pub(super) tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
-    pub(super) room_emitter: RoomEmitter,
+    pub(super) internal_tx: SessionEmitter,
 }
 
 impl ParticipantShared {
@@ -27,7 +28,7 @@ impl ParticipantShared {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
-        room_emitter: RoomEmitter,
+        internal_tx: SessionEmitter,
     ) -> Self {
         Self {
             sid: Mutex::new(sid),
@@ -35,7 +36,7 @@ impl ParticipantShared {
             name: Mutex::new(name),
             metadata: Mutex::new(metadata),
             tracks: Default::default(),
-            room_emitter
+            internal_tx,
         }
     }
 

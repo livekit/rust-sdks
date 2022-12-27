@@ -2,7 +2,8 @@ use crate::proto::{data_packet, DataPacket, UserPacket};
 use crate::room::participant::{
     impl_participant_trait, ParticipantInternalTrait, ParticipantShared, ParticipantTrait,
 };
-use crate::room::{RoomError, RoomEmitter};
+use crate::room::room_session::SessionEmitter;
+use crate::room::RoomError;
 use crate::rtc_engine::RTCEngine;
 
 #[derive(Debug)]
@@ -18,10 +19,10 @@ impl LocalParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
-        room_emitter: RoomEmitter,
+        internal_tx: SessionEmitter,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata, room_emitter),
+            shared: ParticipantShared::new(sid, identity, name, metadata, internal_tx),
             rtc_engine,
         }
     }
