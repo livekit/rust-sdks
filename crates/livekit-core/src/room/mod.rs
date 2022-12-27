@@ -1,25 +1,13 @@
-use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
+use self::room_session::{ConnectionState, RoomSession, SessionHandle};
+use crate::room::id::TrackSid;
+use crate::room::participant::remote_participant::RemoteParticipant;
+use crate::room::publication::RemoteTrackPublication;
+use crate::room::track::remote_track::RemoteTrackHandle;
+use crate::rtc_engine::EngineError;
+use std::fmt::Debug;
 use std::sync::Arc;
-
-use self::id::{ParticipantIdentity, ParticipantSid};
-use self::participant::local_participant::LocalParticipant;
-use self::participant::remote_participant::RemoteParticipant;
-use self::participant::ParticipantInternalTrait;
-use self::participant::ParticipantTrait;
-use self::room_session::{RoomInternal, RoomSession};
-use crate::events::{
-    ParticipantConnectedEvent, ParticipantDisconnectedEvent, RoomEvents, TrackPublishedEvent,
-    TrackSubscribedEvent,
-};
-use crate::proto;
-use crate::proto::participant_info;
 use thiserror::Error;
-use tracing::{debug, error, instrument, trace_span, Level};
-
-use crate::rtc_engine::{EngineError, EngineEvent, EngineEvents, EngineResult, RTCEngine};
-use crate::signal_client::SignalOptions;
+use tokio::sync::mpsc;
 
 pub use crate::rtc_engine::SimulateScenario;
 
@@ -29,6 +17,10 @@ pub mod publication;
 pub mod room_session;
 pub mod track;
 
+pub type RoomEvents = mpsc::UnboundedReceiver<RoomEvent>;
+pub type RoomEmitter = mpsc::UnboundedSender<RoomEvent>;
+pub type RoomResult<T> = Result<T, RoomError>;
+
 #[derive(Error, Debug)]
 pub enum RoomError {
     #[error("engine : {0}")]
@@ -37,34 +29,54 @@ pub enum RoomError {
     Internal(String),
 }
 
-pub type RoomResult<T> = Result<T, RoomError>;
+#[derive(Error, Debug, Clone)]
+pub enum TrackError {
+    #[error("could not find published track with sid: {0}")]
+    TrackNotFound(String),
+}
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug)]
+pub enum RoomEvent {
+    ParticipantConnected(Arc<RemoteParticipant>),
+    ParticipantDisconnected(Arc<RemoteParticipant>),
+    TrackSubscribed {
+        track: RemoteTrackHandle,
+        publication: RemoteTrackPublication,
+        participant: Arc<RemoteParticipant>,
+    },
+    TrackPublished {
+        publication: RemoteTrackPublication,
+        participant: Arc<RemoteParticipant>,
+    },
+    TrackSubscriptionFailed {
+        error: TrackError,
+        sid: TrackSid,
+        participant: Arc<RemoteParticipant>,
+    },
+    ConnectionStateChanged(ConnectionState),
+    Connected,
+    Disconnected,
+    Reconnecting,
+    Reconnected,
+}
+
+#[derive(Debug)]
 pub struct Room {
-    internal: Option<RoomInternal>,
-    events: Arc<RoomEvents>, // Keep the same RoomEvents across sessions
+    handle: SessionHandle,
 }
 
 impl Room {
-    #[instrument(level = Level::DEBUG)]
-    pub async fn connect(&mut self, url: &str, token: &str) -> RoomResult<()> {
-        let internal = RoomInternal::connect(self.events.clone(), url, token).await?;
-        self.internal = Some(internal);
-        Ok(())
+    pub async fn connect(url: &str, token: &str) -> RoomResult<(Self, RoomEvents)> {
+        let (emitter, events) = mpsc::unbounded_channel();
+        let handle = SessionHandle::connect(emitter, url, token).await?;
+        Ok((Self { handle }, events))
     }
 
-    #[instrument(level = Level::DEBUG)]
-    pub async fn close(&mut self) {
-        if let Some(internal) = self.internal.take() {
-            internal.close().await;
-        }
+    pub async fn close(self) {
+        self.handle.close().await;
     }
 
-    pub fn events(&self) -> Arc<RoomEvents> {
-        self.events.clone()
-    }
-
-    pub fn session(&self) -> Option<RoomSession> {
-        self.internal.as_ref().map(RoomInternal::session)
+    pub fn session(&self) -> RoomSession {
+        self.handle.session()
     }
 }

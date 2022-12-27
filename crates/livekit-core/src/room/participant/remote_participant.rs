@@ -1,6 +1,3 @@
-use crate::events::{
-    TrackError, TrackPublishedEvent, TrackSubscribedEvent, TrackSubscriptionFailedEvent,
-};
 use crate::proto::TrackInfo;
 use crate::room::id::TrackSid;
 use crate::room::participant::{
@@ -14,6 +11,7 @@ use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
 use crate::room::track::{TrackKind, TrackTrait};
+use crate::room::{RoomEmitter, RoomEvent, TrackError};
 use livekit_webrtc::media_stream::MediaStreamTrackHandle;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -35,9 +33,10 @@ impl RemoteParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        room_emitter: RoomEmitter,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata),
+            shared: ParticipantShared::new(sid, identity, name, metadata, room_emitter),
         }
     }
 
@@ -109,55 +108,21 @@ impl RemoteParticipant {
                 .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
             track.start();
 
-            let event = TrackSubscribedEvent {
-                room_session,
-                track,
+            self.shared.room_emitter.send(RoomEvent::TrackSubscribed {
+                track: track,
                 publication: remote_publication,
                 participant: self.clone(),
-            };
-
-            if let Some(cb) = self
-                .shared
-                .internal_events
-                .on_track_subscribed
-                .lock()
-                .as_mut()
-            {
-                cb(event.clone()).await;
-            }
-
-            if let Some(cb) = self.shared.events.on_track_subscribed.lock().as_mut() {
-                cb(event).await;
-            }
+            });
         } else {
             error!("could not find published track with sid: {:?}", sid);
 
-            let event = TrackSubscriptionFailedEvent {
-                room_session,
-                sid: sid.clone(),
-                error: TrackError::TrackNotFound(sid.clone().to_string()),
-                participant: self.clone(),
-            };
-
-            if let Some(cb) = self
-                .shared
-                .internal_events
-                .on_track_subscription_failed
-                .lock()
-                .as_mut()
-            {
-                cb(event.clone()).await;
-            }
-
-            if let Some(cb) = self
-                .shared
-                .events
-                .on_track_subscription_failed
-                .lock()
-                .as_mut()
-            {
-                cb(event).await;
-            }
+            self.shared
+                .room_emitter
+                .send(RoomEvent::TrackSubscriptionFailed {
+                    sid: sid.clone(),
+                    error: TrackError::TrackNotFound(sid.clone().to_string()),
+                    participant: self.clone(),
+                });
         }
     }
 
@@ -178,25 +143,10 @@ impl RemoteParticipant {
                     .add_track_publication(TrackPublication::Remote(publication.clone()));
 
                 // This is a new track, fire publish events
-                let event = TrackPublishedEvent {
-                    room_session: room_session.clone(),
-                    participant: self.clone(),
+                self.shared.room_emitter.send(RoomEvent::TrackPublished {
                     publication: publication.clone(),
-                };
-
-                if let Some(cb) = self
-                    .shared
-                    .internal_events
-                    .on_track_published
-                    .lock()
-                    .as_mut()
-                {
-                    cb(event.clone()).await;
-                }
-
-                if let Some(cb) = self.shared.events.on_track_published.lock().as_mut() {
-                    cb(event).await;
-                }
+                    participant: self.clone(),
+                });
             }
 
             valid_tracks.insert(track.sid.into());
@@ -205,10 +155,6 @@ impl RemoteParticipant {
 }
 
 impl ParticipantInternalTrait for RemoteParticipant {
-    fn internal_events(&self) -> Arc<ParticipantEvents> {
-        self.shared.internal_events.clone()
-    }
-
     fn update_info(&self, info: ParticipantInfo) {
         self.shared.update_info(info)
     }

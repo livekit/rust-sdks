@@ -1,10 +1,8 @@
-use std::sync::Weak;
-
 use crate::proto::{data_packet, DataPacket, UserPacket};
 use crate::room::participant::{
-    impl_participant_trait, ParticipantInternalTrait, ParticipantShared,
+    impl_participant_trait, ParticipantInternalTrait, ParticipantShared, ParticipantTrait,
 };
-use crate::room::RoomError;
+use crate::room::{RoomError, RoomEmitter};
 use crate::rtc_engine::RTCEngine;
 
 #[derive(Debug)]
@@ -20,9 +18,10 @@ impl LocalParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        room_emitter: RoomEmitter,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata),
+            shared: ParticipantShared::new(sid, identity, name, metadata, room_emitter),
             rtc_engine,
         }
     }
@@ -35,7 +34,7 @@ impl LocalParticipant {
         let data = DataPacket {
             kind: kind as i32,
             value: Some(data_packet::Value::User(UserPacket {
-                participant_sid: "".to_string(), /*self.sid().to_owned()*/
+                participant_sid: self.sid().to_string(),
                 payload: data.to_vec(),
                 destination_sids: vec![],
             })),
@@ -49,10 +48,6 @@ impl LocalParticipant {
 }
 
 impl ParticipantInternalTrait for LocalParticipant {
-    fn internal_events(&self) -> Arc<ParticipantEvents> {
-        self.shared.internal_events.clone()
-    }
-
     fn update_info(&self, info: ParticipantInfo) {
         self.shared.update_info(info);
     }

@@ -7,5 +7,4 @@ pub mod proto {
 mod rtc_engine;
 mod signal_client;
 
-pub mod events;
 pub mod room;

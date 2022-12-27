@@ -1,4 +1,3 @@
-use crate::events::ParticipantEvents;
 use crate::proto::ParticipantInfo;
 use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
 use crate::room::participant::local_participant::LocalParticipant;
@@ -14,13 +13,12 @@ pub mod remote_participant;
 
 #[derive(Debug)]
 pub(super) struct ParticipantShared {
-    pub(super) events: Arc<ParticipantEvents>,
-    pub(super) internal_events: Arc<ParticipantEvents>,
     pub(super) sid: Mutex<ParticipantSid>,
     pub(super) identity: Mutex<ParticipantIdentity>,
     pub(super) name: Mutex<String>,
     pub(super) metadata: Mutex<String>,
     pub(super) tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    pub(super) room_emitter: RoomEmitter,
 }
 
 impl ParticipantShared {
@@ -29,15 +27,15 @@ impl ParticipantShared {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        room_emitter: RoomEmitter,
     ) -> Self {
         Self {
-            events: Default::default(),
-            internal_events: Default::default(),
             sid: Mutex::new(sid),
             identity: Mutex::new(identity),
             name: Mutex::new(name),
             metadata: Mutex::new(metadata),
             tracks: Default::default(),
+            room_emitter
         }
     }
 
@@ -54,12 +52,10 @@ impl ParticipantShared {
 }
 
 pub(crate) trait ParticipantInternalTrait {
-    fn internal_events(&self) -> Arc<ParticipantEvents>;
     fn update_info(&self, info: ParticipantInfo);
 }
 
 pub trait ParticipantTrait {
-    fn events(&self) -> Arc<ParticipantEvents>;
     fn sid(&self) -> ParticipantSid;
     fn identity(&self) -> ParticipantIdentity;
     fn name(&self) -> String;
@@ -75,7 +71,6 @@ pub enum ParticipantHandle {
 impl ParticipantInternalTrait for ParticipantHandle {
     enum_dispatch!(
         [Local, Remote]
-        fnc!(internal_events, &Self, [], Arc<ParticipantEvents>);
         fnc!(update_info, &Self, [info: ParticipantInfo], ());
     );
 }
@@ -83,7 +78,6 @@ impl ParticipantInternalTrait for ParticipantHandle {
 impl ParticipantTrait for ParticipantHandle {
     enum_dispatch!(
         [Local, Remote]
-        fnc!(events, &Self, [], Arc<ParticipantEvents>);
         fnc!(sid, &Self, [], ParticipantSid);
         fnc!(identity, &Self, [], ParticipantIdentity);
         fnc!(name, &Self, [], String);
@@ -93,16 +87,11 @@ impl ParticipantTrait for ParticipantHandle {
 
 macro_rules! impl_participant_trait {
     ($x:ty) => {
-        use crate::events::ParticipantEvents;
         use crate::proto::ParticipantInfo;
         use crate::room::id::{ParticipantIdentity, ParticipantSid};
         use std::sync::Arc;
 
         impl crate::room::participant::ParticipantTrait for $x {
-            fn events(&self) -> Arc<ParticipantEvents> {
-                self.shared.events.clone()
-            }
-
             fn sid(&self) -> ParticipantSid {
                 self.shared.sid.lock().clone()
             }
@@ -123,3 +112,5 @@ macro_rules! impl_participant_trait {
 }
 
 pub(super) use impl_participant_trait;
+
+use super::RoomEmitter;
