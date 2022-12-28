@@ -44,7 +44,9 @@ pub type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
 #[derive(Debug)]
 pub enum SessionEvent {
     Data {
-        data: Vec<u8>,
+        participant_sid: String,
+        payload: Vec<u8>,
+        kind: proto::data_packet::Kind,
     },
     MediaTrack {
         track: MediaStreamTrackHandle,
@@ -501,8 +503,12 @@ impl SessionInner {
 
                 let data = DataPacket::decode(&*data)?;
                 match data.value.unwrap() {
-                    Value::User(_user) => {
-                        // TODO(theomonnom) Send event
+                    Value::User(user) => {
+                        let _ = self.emitter.send(SessionEvent::Data {
+                            participant_sid: user.participant_sid,
+                            payload: user.payload,
+                            kind: data_packet::Kind::from_i32(data.kind).unwrap(),
+                        });
                     }
                     Value::Speaker(_) => {
                         // TODO(theomonnonm)

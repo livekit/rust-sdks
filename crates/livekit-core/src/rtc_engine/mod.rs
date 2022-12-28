@@ -73,6 +73,11 @@ pub enum EngineEvent {
         stream: MediaStream,
         receiver: RtpReceiver,
     },
+    Data {
+        participant_sid: String,
+        payload: Vec<u8>,
+        kind: data_packet::Kind,
+    },
     Resuming,
     Resumed,
     Restarting,
@@ -241,7 +246,20 @@ impl EngineInner {
                     self.close().await;
                 }
             }
-            SessionEvent::Data { data: _ } => {}
+            SessionEvent::Data {
+                participant_sid,
+                payload,
+                kind,
+            } => {
+                let _ = self
+                    .engine_emitter
+                    .send(EngineEvent::Data {
+                        participant_sid,
+                        payload,
+                        kind,
+                    })
+                    .await;
+            }
             SessionEvent::MediaTrack {
                 track,
                 stream,

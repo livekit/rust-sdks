@@ -1,7 +1,10 @@
 use self::room_session::{ConnectionState, RoomSession, SessionHandle};
+use crate::proto::data_packet;
 use crate::room::id::TrackSid;
 use crate::room::participant::remote_participant::RemoteParticipant;
+use crate::room::participant::ParticipantHandle;
 use crate::room::publication::RemoteTrackPublication;
+use crate::room::publication::TrackPublication;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::rtc_engine::EngineError;
 use std::fmt::Debug;
@@ -48,9 +51,34 @@ pub enum RoomEvent {
         publication: RemoteTrackPublication,
         participant: Arc<RemoteParticipant>,
     },
+    TrackUnpublished {
+        publication: RemoteTrackPublication,
+        participant: Arc<RemoteParticipant>,
+    },
+    TrackUnsubscribed {
+        track: RemoteTrackHandle,
+        publication: RemoteTrackPublication,
+        participant: Arc<RemoteParticipant>,
+    },
     TrackSubscriptionFailed {
         error: TrackError,
         sid: TrackSid,
+        participant: Arc<RemoteParticipant>,
+    },
+    TrackMuted {
+        publication: TrackPublication,
+        participant: ParticipantHandle,
+    },
+    TrackUnmuted {
+        publication: TrackPublication,
+        participant: ParticipantHandle,
+    },
+    ActiveSpeakersChanged {
+        speakers: Vec<ParticipantHandle>,
+    },
+    DataReceived {
+        payload: Vec<u8>,
+        kind: data_packet::Kind,
         participant: Arc<RemoteParticipant>,
     },
     ConnectionStateChanged(ConnectionState),

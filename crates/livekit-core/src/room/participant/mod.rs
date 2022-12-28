@@ -63,7 +63,7 @@ pub trait ParticipantTrait {
     fn metadata(&self) -> String;
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ParticipantHandle {
     Local(Arc<LocalParticipant>),
     Remote(Arc<RemoteParticipant>),

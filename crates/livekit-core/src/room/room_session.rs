@@ -283,6 +283,21 @@ impl SessionInner {
             EngineEvent::Restarting => self.handle_restarting(),
             EngineEvent::Restarted => self.handle_restarted(),
             EngineEvent::Disconnected => self.handle_disconnected(),
+            EngineEvent::Data {
+                payload,
+                kind,
+                participant_sid,
+            } => {
+                if let Some(participant) = self.get_participant(&participant_sid.into()) {
+                    let _ = self
+                        .internal_tx
+                        .send(SessionEvent::Room(RoomEvent::DataReceived {
+                            payload,
+                            kind,
+                            participant,
+                        }));
+                }
+            }
         }
 
         Ok(())
