@@ -1,3 +1,4 @@
+use self::participant::ConnectionQuality;
 use self::room_session::{ConnectionState, RoomSession, SessionHandle};
 use crate::proto::data_packet;
 use crate::room::id::TrackSid;
@@ -75,6 +76,10 @@ pub enum RoomEvent {
     },
     ActiveSpeakersChanged {
         speakers: Vec<ParticipantHandle>,
+    },
+    ConnectionQualityChanged {
+        quality: ConnectionQuality,
+        participant: ParticipantHandle,
     },
     DataReceived {
         payload: Vec<u8>,

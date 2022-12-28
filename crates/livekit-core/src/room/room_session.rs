@@ -1,7 +1,7 @@
 use super::id::{ParticipantIdentity, ParticipantSid};
 use super::participant::local_participant::LocalParticipant;
 use super::participant::remote_participant::RemoteParticipant;
-use super::participant::ParticipantHandle;
+use super::participant::{ConnectionQuality, ParticipantHandle};
 use super::participant::{ParticipantInternalTrait, ParticipantTrait};
 use super::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};
 use crate::proto::{self, participant_info, SpeakerInfo};
@@ -29,17 +29,16 @@ pub enum ConnectionState {
     Disconnected,
     Connected,
     Reconnecting,
+    Unknown,
 }
 
-impl TryFrom<u8> for ConnectionState {
-    type Error = &'static str;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+impl From<u8> for ConnectionState {
+    fn from(value: u8) -> Self {
         match value {
-            0 => Ok(ConnectionState::Disconnected),
-            1 => Ok(ConnectionState::Connected),
-            2 => Ok(ConnectionState::Reconnecting),
-            _ => Err("invalid ConnectionState"),
+            0 => ConnectionState::Disconnected,
+            1 => ConnectionState::Connected,
+            2 => ConnectionState::Reconnecting,
+            _ => ConnectionState::Unknown,
         }
     }
 }
@@ -220,6 +219,7 @@ impl SessionInner {
                     && matches!(
                         event,
                         RoomEvent::TrackPublished { .. }
+                            | RoomEvent::TrackUnpublished { .. }
                             | RoomEvent::ParticipantConnected { .. }
                             | RoomEvent::ParticipantDisconnected { .. }
                             | RoomEvent::ActiveSpeakersChanged { .. }
@@ -308,6 +308,9 @@ impl SessionInner {
                 }
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
+            EngineEvent::ConnectionQuality { updates } => {
+                self.handle_connection_quality_update(updates)
+            }
         }
 
         Ok(())
@@ -390,6 +393,8 @@ impl SessionInner {
             )));
     }
 
+    /// Active speakers changed
+    /// Update the participants & sort the active_speakers by audio_level
     #[instrument(level = Level::DEBUG)]
     fn handle_speakers_changed(&self, speakers_info: Vec<SpeakerInfo>) {
         let mut speakers = Vec::new();
@@ -422,6 +427,38 @@ impl SessionInner {
             .send(SessionEvent::Room(RoomEvent::ActiveSpeakersChanged {
                 speakers,
             }));
+    }
+
+    /// Handle a connection quality update
+    /// Emit ConnectionQualityChanged event for the concerned participants
+    #[instrument(level = Level::DEBUG)]
+    fn handle_connection_quality_update(&self, updates: Vec<proto::ConnectionQualityInfo>) {
+        for update in updates {
+            let participant = {
+                if update.participant_sid == self.local_participant.sid() {
+                    ParticipantHandle::Local(self.local_participant.clone())
+                } else {
+                    if let Some(participant) = self.get_participant(&update.participant_sid.into())
+                    {
+                        ParticipantHandle::Remote(participant)
+                    } else {
+                        continue;
+                    }
+                }
+            };
+
+            let quality: ConnectionQuality = proto::ConnectionQuality::from_i32(update.quality)
+                .unwrap()
+                .into();
+
+            participant.set_connection_quality(quality);
+            let _ =
+                self.internal_tx
+                    .send(SessionEvent::Room(RoomEvent::ConnectionQualityChanged {
+                        participant,
+                        quality,
+                    }));
+        }
     }
 
     #[instrument(level = Level::DEBUG)]

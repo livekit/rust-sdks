@@ -60,6 +60,10 @@ impl ParticipantInternalTrait for LocalParticipant {
     fn set_audio_level(&self, level: f32) {
         self.shared.set_audio_level(level);
     }
+
+    fn set_connection_quality(&self, quality: ConnectionQuality) {
+        self.shared.set_connection_quality(quality);
+    }
 }
 
 impl_participant_trait!(LocalParticipant);

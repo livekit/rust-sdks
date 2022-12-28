@@ -178,8 +178,8 @@ impl TrackHandle {
 
 macro_rules! impl_track_trait {
     ($x:ident) => {
-        use crate::room::id::TrackSid;
-        use crate::room::track::{StreamState, TrackKind, TrackTrait};
+        use $crate::room::id::TrackSid;
+        use $crate::room::track::{StreamState, TrackKind, TrackTrait};
         use std::sync::atomic::Ordering;
 
         impl TrackTrait for $x {

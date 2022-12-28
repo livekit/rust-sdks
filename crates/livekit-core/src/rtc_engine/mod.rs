@@ -18,7 +18,9 @@ use lazy_static::lazy_static;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 
-use crate::proto::{data_packet, DataPacket, JoinResponse, ParticipantUpdate, SpeakerInfo};
+use crate::proto::{
+    self as proto, data_packet, DataPacket, JoinResponse, ParticipantUpdate, SpeakerInfo,
+};
 use crate::rtc_engine::lk_runtime::LKRuntime;
 use crate::signal_client::{SignalError, SignalOptions};
 
@@ -80,6 +82,9 @@ pub enum EngineEvent {
     },
     SpeakersChanged {
         speakers: Vec<SpeakerInfo>,
+    },
+    ConnectionQuality {
+        updates: Vec<proto::ConnectionQualityInfo>,
     },
     Resuming,
     Resumed,
@@ -281,6 +286,12 @@ impl EngineInner {
                 let _ = self
                     .engine_emitter
                     .send(EngineEvent::SpeakersChanged { speakers })
+                    .await;
+            }
+            SessionEvent::ConnectionQuality { updates } => {
+                let _ = self
+                    .engine_emitter
+                    .send(EngineEvent::ConnectionQuality { updates })
                     .await;
             }
             SessionEvent::Connected => {}

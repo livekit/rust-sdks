@@ -56,6 +56,9 @@ pub enum SessionEvent {
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
     },
+    ConnectionQuality{
+        updates: Vec<proto::ConnectionQualityInfo>,
+    },
     // TODO(theomonnom): Move entirely the reconnection logic on mod.rs
     Close {
         source: String,
@@ -420,11 +423,14 @@ impl SessionInner {
                 );
             }
             signal_response::Message::SpeakersChanged(speaker) => {
-                let _ = self
-                    .emitter
-                    .send(SessionEvent::SpeakersChanged { 
-                        speakers: speaker.speakers,
-                    });
+                let _ = self.emitter.send(SessionEvent::SpeakersChanged {
+                    speakers: speaker.speakers,
+                });
+            }
+            signal_response::Message::ConnectionQuality(quality) => {
+                let _ = self.emitter.send(SessionEvent::ConnectionQuality{
+                    updates: quality.updates,
+                });
             }
             _ => {}
         }
