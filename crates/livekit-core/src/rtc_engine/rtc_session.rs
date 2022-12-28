@@ -53,6 +53,9 @@ pub enum SessionEvent {
         stream: MediaStream,
         receiver: RtpReceiver,
     },
+    SpeakersChanged {
+        speakers: Vec<proto::SpeakerInfo>,
+    },
     // TODO(theomonnom): Move entirely the reconnection logic on mod.rs
     Close {
         source: String,
@@ -416,6 +419,13 @@ impl SessionInner {
                     true,
                 );
             }
+            signal_response::Message::SpeakersChanged(speaker) => {
+                let _ = self
+                    .emitter
+                    .send(SessionEvent::SpeakersChanged { 
+                        speakers: speaker.speakers,
+                    });
+            }
             _ => {}
         }
 
@@ -510,9 +520,7 @@ impl SessionInner {
                             kind: data_packet::Kind::from_i32(data.kind).unwrap(),
                         });
                     }
-                    Value::Speaker(_) => {
-                        // TODO(theomonnonm)
-                    }
+                    Value::Speaker(_) => {}
                 }
             }
         }

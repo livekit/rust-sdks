@@ -1,9 +1,10 @@
 use super::id::{ParticipantIdentity, ParticipantSid};
 use super::participant::local_participant::LocalParticipant;
 use super::participant::remote_participant::RemoteParticipant;
+use super::participant::ParticipantHandle;
 use super::participant::{ParticipantInternalTrait, ParticipantTrait};
 use super::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};
-use crate::proto::{self, participant_info};
+use crate::proto::{self, participant_info, SpeakerInfo};
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
 use crate::signal_client::SignalOptions;
 use parking_lot::{Mutex, RwLock};
@@ -50,6 +51,7 @@ struct SessionInner {
     sid: Mutex<String>,
     name: Mutex<String>,
     participants: RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>>,
+    active_speakers: RwLock<Vec<ParticipantHandle>>,
     rtc_engine: Arc<RTCEngine>,
     local_participant: Arc<LocalParticipant>,
     internal_tx: SessionEmitter,
@@ -95,6 +97,7 @@ impl SessionHandle {
             sid: Mutex::new(room_info.sid),
             name: Mutex::new(room_info.name),
             participants: Default::default(),
+            active_speakers: Default::default(),
             rtc_engine,
             local_participant,
             internal_tx,
@@ -214,7 +217,13 @@ impl SessionInner {
         match event {
             SessionEvent::Room(event) => {
                 if self.state.load(Ordering::Acquire) != ConnectionState::Connected as u8
-                    && matches!(event, RoomEvent::TrackPublished { .. })
+                    && matches!(
+                        event,
+                        RoomEvent::TrackPublished { .. }
+                            | RoomEvent::ParticipantConnected { .. }
+                            | RoomEvent::ParticipantDisconnected { .. }
+                            | RoomEvent::ActiveSpeakersChanged { .. }
+                    )
                 {
                     return Ok(()); // Ignore the event
                 }
@@ -298,6 +307,7 @@ impl SessionInner {
                         }));
                 }
             }
+            EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
         }
 
         Ok(())
@@ -306,10 +316,6 @@ impl SessionInner {
     #[instrument(level = Level::DEBUG)]
     async fn close(&self) {
         self.rtc_engine.close().await;
-    }
-
-    fn get_participant(&self, sid: &ParticipantSid) -> Option<Arc<RemoteParticipant>> {
-        self.participants.read().get(sid).cloned()
     }
 
     /// Change the connection state and emit an event
@@ -385,6 +391,40 @@ impl SessionInner {
     }
 
     #[instrument(level = Level::DEBUG)]
+    fn handle_speakers_changed(&self, speakers_info: Vec<SpeakerInfo>) {
+        let mut speakers = Vec::new();
+
+        for speaker in speakers_info {
+            let participant = {
+                if speaker.sid == self.local_participant.sid() {
+                    ParticipantHandle::Local(self.local_participant.clone())
+                } else {
+                    if let Some(participant) = self.get_participant(&speaker.sid.into()) {
+                        ParticipantHandle::Remote(participant)
+                    } else {
+                        continue;
+                    }
+                }
+            };
+
+            participant.set_speaking(speaker.active);
+            participant.set_audio_level(speaker.level);
+
+            if speaker.active {
+                speakers.push(participant);
+            }
+        }
+
+        speakers.sort_by(|a, b| a.audio_level().partial_cmp(&b.audio_level()).unwrap());
+        *self.active_speakers.write() = speakers.clone();
+        let _ = self
+            .internal_tx
+            .send(SessionEvent::Room(RoomEvent::ActiveSpeakersChanged {
+                speakers,
+            }));
+    }
+
+    #[instrument(level = Level::DEBUG)]
     fn handle_restarting(&self) {
         // Remove existing participants/subscriptions on full reconnect
         for (_, participant) in self.participants.read().iter() {
@@ -450,6 +490,10 @@ impl SessionInner {
 
         self.participants.write().insert(sid, p.clone());
         p
+    }
+
+    fn get_participant(&self, sid: &ParticipantSid) -> Option<Arc<RemoteParticipant>> {
+        self.participants.read().get(sid).cloned()
     }
 }
 

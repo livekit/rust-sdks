@@ -7,6 +7,7 @@ use crate::room::room_session::SessionEmitter;
 use livekit_utils::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 pub mod local_participant;
@@ -19,6 +20,8 @@ pub(super) struct ParticipantShared {
     pub(super) name: Mutex<String>,
     pub(super) metadata: Mutex<String>,
     pub(super) tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    pub(super) speaking: AtomicBool,
+    pub(super) audio_level: AtomicU32,
     pub(super) internal_tx: SessionEmitter,
 }
 
@@ -36,6 +39,8 @@ impl ParticipantShared {
             name: Mutex::new(name),
             metadata: Mutex::new(metadata),
             tracks: Default::default(),
+            speaking: Default::default(),
+            audio_level: Default::default(),
             internal_tx,
         }
     }
@@ -47,12 +52,23 @@ impl ParticipantShared {
         *self.metadata.lock() = info.metadata; // TODO(theomonnom): callback MetadataChanged
     }
 
+    pub(crate) fn set_speaking(&self, speaking: bool) {
+        self.speaking.store(speaking, Ordering::SeqCst);
+    }
+
+    pub(crate) fn set_audio_level(&self, audio_level: f32) {
+        self.audio_level
+            .store(audio_level.to_bits(), Ordering::SeqCst)
+    }
+
     pub(crate) fn add_track_publication(&self, publication: TrackPublication) {
         self.tracks.write().insert(publication.sid(), publication);
     }
 }
 
 pub(crate) trait ParticipantInternalTrait {
+    fn set_speaking(&self, speaking: bool);
+    fn set_audio_level(&self, level: f32);
     fn update_info(self: &Arc<Self>, info: ParticipantInfo);
 }
 
@@ -61,6 +77,8 @@ pub trait ParticipantTrait {
     fn identity(&self) -> ParticipantIdentity;
     fn name(&self) -> String;
     fn metadata(&self) -> String;
+    fn is_speaking(&self) -> bool;
+    fn audio_level(&self) -> f32;
 }
 
 #[derive(Debug, Clone)]
@@ -72,7 +90,9 @@ pub enum ParticipantHandle {
 impl ParticipantHandle {
     enum_dispatch!(
         [Local, Remote]
-        fnc!(update_info, &Self, [info: ParticipantInfo], ());
+        fnc!(pub(crate), update_info, &Self, [info: ParticipantInfo], ());
+        fnc!(pub(crate), set_speaking, &Self, [speaking: bool], ());
+        fnc!(pub(crate), set_audio_level, &Self, [audio_level: f32], ());
     );
 }
 
@@ -83,6 +103,8 @@ impl ParticipantTrait for ParticipantHandle {
         fnc!(identity, &Self, [], ParticipantIdentity);
         fnc!(name, &Self, [], String);
         fnc!(metadata, &Self, [], String);
+        fnc!(is_speaking, &Self, [], bool);
+        fnc!(audio_level, &Self, [], f32);
     );
 }
 
@@ -90,6 +112,7 @@ macro_rules! impl_participant_trait {
     ($x:ty) => {
         use crate::proto::ParticipantInfo;
         use crate::room::id::{ParticipantIdentity, ParticipantSid};
+        use std::sync::atomic::Ordering;
         use std::sync::Arc;
 
         impl crate::room::participant::ParticipantTrait for $x {
@@ -108,10 +131,16 @@ macro_rules! impl_participant_trait {
             fn metadata(&self) -> String {
                 self.shared.metadata.lock().clone()
             }
+
+            fn is_speaking(&self) -> bool {
+                self.shared.speaking.load(Ordering::SeqCst)
+            }
+
+            fn audio_level(&self) -> f32 {
+                f32::from_bits(self.shared.audio_level.load(Ordering::SeqCst))
+            }
         }
     };
 }
 
 pub(super) use impl_participant_trait;
-
-

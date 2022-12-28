@@ -52,6 +52,14 @@ impl ParticipantInternalTrait for LocalParticipant {
     fn update_info(self: &Arc<Self>, info: ParticipantInfo) {
         self.shared.update_info(info);
     }
+
+    fn set_speaking(&self, speaking: bool) {
+        self.shared.set_speaking(speaking);
+    }
+
+    fn set_audio_level(&self, level: f32) {
+        self.shared.set_audio_level(level);
+    }
 }
 
 impl_participant_trait!(LocalParticipant);

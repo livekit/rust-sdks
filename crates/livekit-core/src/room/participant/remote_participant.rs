@@ -1,4 +1,3 @@
-use crate::proto::TrackInfo;
 use crate::room::id::TrackSid;
 use crate::room::participant::{
     impl_participant_trait, ParticipantInternalTrait, ParticipantShared,
@@ -155,6 +154,14 @@ impl ParticipantInternalTrait for RemoteParticipant {
 
             valid_tracks.insert(track.sid.into());
         }
+    }
+
+    fn set_speaking(&self, speaking: bool) {
+        self.shared.set_speaking(speaking);
+    }
+
+    fn set_audio_level(&self, level: f32) {
+        self.shared.set_audio_level(level);
     }
 }
 
