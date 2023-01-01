@@ -62,6 +62,7 @@ fn main() {
         path::PathBuf::from("./include"),
         libwebrtc_dir.clone(),
         libwebrtc_dir.join("third_party/abseil-cpp/"),
+        libwebrtc_dir.join("third_party/libyuv/include/"),
         libwebrtc_dir.join("third_party/libc++/"),
         // For mac & ios
         libwebrtc_dir.join("sdk/objc"),
@@ -124,7 +125,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=d3d11");
             println!("cargo:rustc-link-lib=dylib=dxgi");
             println!("cargo:rustc-link-lib=dylib=dwmapi");
-            println!("cargo:rustc-link-lib=dylib=webrtc");
+            println!("cargo:rustc-link-lib=static=webrtc");
 
             builder
                 .flag("/std:c++17")

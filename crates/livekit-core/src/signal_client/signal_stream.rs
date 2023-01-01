@@ -4,6 +4,7 @@ use prost::Message as ProstMessage;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
+
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
@@ -60,6 +61,7 @@ impl SignalStream {
             .append_pair("access_token", token)
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
             .append_pair("reconnect", if options.reconnect { "1" } else { "0" })
+            .append_pair("sid", &options.sid)
             .append_pair(
                 "auto_subscribe",
                 if options.auto_subscribe { "1" } else { "0" },
@@ -69,17 +71,15 @@ impl SignalStream {
                 if options.adaptive_stream { "1" } else { "0" },
             );
 
-        event!(Level::DEBUG, "connecting to websocket: {}", lk_url);
+        event!(Level::INFO, "connecting to SignalClient: {}", lk_url);
         let (ws_stream, _) = connect_async(lk_url).await?;
-        event!(Level::DEBUG, "connected to websocket");
         let _ = emitter.send(SignalEvent::Open).await;
 
         let (ws_writer, ws_reader) = ws_stream.split();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
 
-        let write_handle =
-            tokio::spawn(Self::handle_write(internal_rx, ws_writer, emitter.clone()));
-        let read_handle = tokio::spawn(Self::handle_read(internal_tx.clone(), ws_reader, emitter));
+        let write_handle = tokio::spawn(Self::write_task(internal_rx, ws_writer, emitter.clone()));
+        let read_handle = tokio::spawn(Self::read_task(internal_tx.clone(), ws_reader, emitter));
 
         Ok(Self {
             internal_tx,
@@ -119,7 +119,7 @@ impl SignalStream {
 
     /// This task is used to send messages to the websocket
     /// It is also responsible for closing the connection
-    async fn handle_write(
+    async fn write_task(
         mut internal_rx: mpsc::Receiver<InternalMessage>,
         mut ws_writer: SplitSink<WebSocket, Message>,
         emitter: SignalEmitter,
@@ -170,7 +170,7 @@ impl SignalStream {
     /// and dispatch them through the EventEmitter.
     ///
     /// It can also send messages to [handle_write] task ( Used e.g. answer to pings )
-    async fn handle_read(
+    async fn read_task(
         internal_tx: mpsc::Sender<InternalMessage>,
         mut ws_reader: SplitStream<WebSocket>,
         emitter: SignalEmitter,

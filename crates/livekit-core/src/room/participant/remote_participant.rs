@@ -1,10 +1,9 @@
-use crate::events::participant::{
-    TrackPublishedEvent, TrackSubscribedEvent, TrackSubscriptionFailedEvent,
-};
-use crate::events::TrackError;
-use crate::room::id::TrackSid;
+use super::ConnectionQuality;
+use crate::proto::{data_packet, DataPacket, ParticipantInfo, UserPacket};
+use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
 use crate::room::participant::{
-    impl_participant_trait, ParticipantInternalTrait, ParticipantShared,
+    impl_participant_trait, ParticipantEvent, ParticipantInternalTrait, ParticipantShared,
+    ParticipantTrait,
 };
 use crate::room::publication::{
     RemoteTrackPublication, TrackPublication, TrackPublicationInternalTrait, TrackPublicationTrait,
@@ -12,139 +11,36 @@ use crate::room::publication::{
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
-use crate::room::track::{TrackKind, TrackTrait, TrackHandle};
+use crate::room::track::{TrackKind, TrackTrait};
+use crate::room::TrackError;
 use livekit_webrtc::media_stream::MediaStreamTrackHandle;
+use parking_lot::RwLockReadGuard;
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{sleep, timeout};
-use tracing::{info, error};
-
-use super::ParticipantTrait;
+use tokio::sync::mpsc;
+use tokio::time::timeout;
+use tracing::{debug, error, instrument, Level};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
+#[derive(Debug)]
 pub struct RemoteParticipant {
     shared: ParticipantShared,
 }
 
 impl RemoteParticipant {
-    pub(crate) fn new(info: ParticipantInfo) -> Self {
+    pub(crate) fn new(
+        sid: ParticipantSid,
+        identity: ParticipantIdentity,
+        name: String,
+        metadata: String,
+    ) -> Self {
         Self {
-            shared: ParticipantShared::new(
-                info.sid.into(),
-                info.identity.into(),
-                info.name,
-                info.metadata,
-            ),
+            shared: ParticipantShared::new(sid, identity, name, metadata),
         }
-    }
-
-    pub(crate) fn add_subscribed_media_track(
-        self: Arc<Self>,
-        sid: TrackSid,
-        media_track: MediaStreamTrackHandle,
-    ) {
-        tokio::spawn(async move {
-            let wait_publication = {
-                let participant = self.clone();
-                let sid = sid.clone();
-                async move {
-                    loop {
-                        let publication = participant.get_track_publication(&sid);
-                        if let Some(publication) = publication {
-                            return publication;
-                        }
-
-                        sleep(Duration::from_millis(50)).await;
-                    }
-                }
-            };
-
-            if let Ok(remote_publication) = timeout(ADD_TRACK_TIMEOUT, wait_publication).await {
-                let track = match remote_publication.kind() {
-                    TrackKind::Audio => {
-                        if let MediaStreamTrackHandle::Audio(rtc_track) = media_track {
-                            let audio_track = RemoteAudioTrack::new(
-                                remote_publication.sid().into(),
-                                remote_publication.name(),
-                                rtc_track,
-                            );
-                            RemoteTrackHandle::Audio(Arc::new(audio_track))
-                        } else {
-                            unreachable!();
-                        }
-                    }
-                    TrackKind::Video => {
-                        if let MediaStreamTrackHandle::Video(rtc_track) = media_track {
-                            let video_track = RemoteVideoTrack::new(
-                                remote_publication.sid().into(),
-                                remote_publication.name(),
-                                rtc_track,
-                            );
-                            RemoteTrackHandle::Video(Arc::new(video_track))
-                        } else {
-                            unreachable!()
-                        }
-                    }
-                    _ => unreachable!(),
-                };
-
-                info!("starting track: {:?}", sid);
-
-                remote_publication.update_track(Some(track.clone().into()));
-                self.shared
-                    .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
-                track.start();
-
-                let event = TrackSubscribedEvent {
-                    track,
-                    publication: remote_publication,
-                    participant: self.clone(),
-                };
-
-                if let Some(cb) = self
-                    .shared
-                    .internal_events
-                    .on_track_subscribed
-                    .lock()
-                    .as_mut()
-                {
-                    cb(event.clone()).await;
-                }
-
-                if let Some(cb) = self.shared.events.on_track_subscribed.lock().as_mut() {
-                    cb(event).await;
-                }
-            } else {
-                error!("could not find published track with sid: {:?}", sid);
-
-                let event = TrackSubscriptionFailedEvent {
-                    sid: sid.clone(),
-                    error: TrackError::TrackNotFound(sid.clone().to_string()),
-                    participant: self.clone(),
-                };
-
-                if let Some(cb) = self
-                    .shared
-                    .internal_events
-                    .on_track_subscription_failed
-                    .lock()
-                    .as_mut()
-                {
-                    cb(event.clone()).await;
-                }
-
-                if let Some(cb) = self
-                    .shared
-                    .events
-                    .on_track_subscription_failed
-                    .lock()
-                    .as_mut()
-                {
-                    cb(event).await;
-                }
-            }
-        });
     }
 
     fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
@@ -157,11 +53,129 @@ impl RemoteParticipant {
         })
     }
 
-    pub(crate) async fn update_info(self: Arc<Self>, info: ParticipantInfo) {
+    /// Called by the RoomSession when receiving data by the RTCSession
+    /// It is just used to emit the Data event on the participant dispatcher.
+    pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: data_packet::Kind) {
+        self.shared
+            .dispatcher
+            .lock()
+            .dispatch(&ParticipantEvent::DataReceived {
+                payload: data,
+                kind,
+            });
+    }
+
+    #[instrument(level = Level::DEBUG)]
+    pub(crate) async fn add_subscribed_media_track(
+        self: Arc<Self>,
+        sid: TrackSid,
+        media_track: MediaStreamTrackHandle,
+    ) {
+        let wait_publication = {
+            let participant = self.clone();
+            let sid = sid.clone();
+            async move {
+                loop {
+                    let publication = participant.get_track_publication(&sid);
+                    if let Some(publication) = publication {
+                        return publication;
+                    }
+
+                    tokio::task::yield_now().await;
+                }
+            }
+        };
+
+        if let Ok(remote_publication) = timeout(ADD_TRACK_TIMEOUT, wait_publication).await {
+            let track = match remote_publication.kind() {
+                TrackKind::Audio => {
+                    if let MediaStreamTrackHandle::Audio(rtc_track) = media_track {
+                        let audio_track = RemoteAudioTrack::new(
+                            remote_publication.sid().into(),
+                            remote_publication.name(),
+                            rtc_track,
+                        );
+                        RemoteTrackHandle::Audio(Arc::new(audio_track))
+                    } else {
+                        unreachable!();
+                    }
+                }
+                TrackKind::Video => {
+                    if let MediaStreamTrackHandle::Video(rtc_track) = media_track {
+                        let video_track = RemoteVideoTrack::new(
+                            remote_publication.sid().into(),
+                            remote_publication.name(),
+                            rtc_track,
+                        );
+                        RemoteTrackHandle::Video(Arc::new(video_track))
+                    } else {
+                        unreachable!()
+                    }
+                }
+                _ => unreachable!(),
+            };
+
+            debug!("starting track: {:?}", sid);
+
+            remote_publication.update_track(Some(track.clone().into()));
+            self.shared
+                .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
+            track.start();
+
+            self.shared
+                .dispatcher
+                .lock()
+                .dispatch(&ParticipantEvent::TrackSubscribed {
+                    track: track,
+                    publication: remote_publication,
+                });
+        } else {
+            error!("could not find published track with sid: {:?}", sid);
+
+            self.shared
+                .dispatcher
+                .lock()
+                .dispatch(&ParticipantEvent::TrackSubscriptionFailed {
+                    sid: sid.clone(),
+                    error: TrackError::TrackNotFound(sid.clone().to_string()),
+                });
+        }
+    }
+
+    pub(crate) fn unpublish_track(self: &Arc<Self>, sid: &TrackSid, emit_events: bool) {
+        if let Some(publication) = self.get_track_publication(sid) {
+            // Unsubscribe to the track if needed
+            if let Some(track) = publication.track() {
+                track.stop();
+
+                self.shared
+                    .dispatcher
+                    .lock()
+                    .dispatch(&ParticipantEvent::TrackUnsubscribed {
+                        track: track.clone(),
+                        publication: publication.clone(),
+                    });
+            }
+
+            if emit_events {
+                self.shared
+                    .dispatcher
+                    .lock()
+                    .dispatch(&ParticipantEvent::TrackUnpublished {
+                        publication: publication.clone(),
+                    });
+            }
+
+            publication.update_track(None);
+        }
+    }
+}
+
+impl ParticipantInternalTrait for RemoteParticipant {
+    fn update_info(self: &Arc<Self>, info: ParticipantInfo, emit_events: bool) {
         self.shared.update_info(info.clone());
 
         let mut valid_tracks = HashSet::<TrackSid>::new();
-
         for track in info.tracks {
             if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
                 publication.update_info(track.clone());
@@ -170,35 +184,38 @@ impl RemoteParticipant {
                 self.shared
                     .add_track_publication(TrackPublication::Remote(publication.clone()));
 
-                // This is a new track, fire publish events
-                let event = TrackPublishedEvent {
-                    participant: self.clone(),
-                    publication: publication.clone(),
-                };
-
-                if let Some(cb) = self
-                    .shared
-                    .internal_events
-                    .on_track_published
-                    .lock()
-                    .as_mut()
-                {
-                    cb(event.clone()).await;
-                }
-
-                if let Some(cb) = self.shared.events.on_track_published.lock().as_mut() {
-                    cb(event).await;
+                // This is a new track, dispatch publish event
+                if emit_events {
+                    self.shared
+                        .dispatcher
+                        .lock()
+                        .dispatch(&ParticipantEvent::TrackPublished { publication });
                 }
             }
 
             valid_tracks.insert(track.sid.into());
         }
-    }
-}
 
-impl ParticipantInternalTrait for RemoteParticipant {
-    fn internal_events(&self) -> Arc<ParticipantEvents> {
-        self.shared.internal_events.clone()
+        // remove tracks that are no longer valid
+        for (sid, _) in self.shared.tracks.read().iter() {
+            if valid_tracks.contains(sid) {
+                continue;
+            }
+
+            self.unpublish_track(sid, emit_events);
+        }
+    }
+
+    fn set_speaking(&self, speaking: bool) {
+        self.shared.set_speaking(speaking);
+    }
+
+    fn set_audio_level(&self, level: f32) {
+        self.shared.set_audio_level(level);
+    }
+
+    fn set_connection_quality(&self, quality: ConnectionQuality) {
+        self.shared.set_connection_quality(quality);
     }
 }
 

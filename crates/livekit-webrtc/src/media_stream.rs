@@ -1,6 +1,7 @@
 use cxx::UniquePtr;
 use libwebrtc_sys::media_stream as sys_ms;
 use libwebrtc_sys::MEDIA_TYPE_VIDEO;
+use livekit_utils::enum_dispatch;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -23,17 +24,6 @@ pub trait MediaStreamTrackTrait {
 pub enum MediaStreamTrackHandle {
     Audio(Arc<AudioTrack>),
     Video(Arc<VideoTrack>),
-}
-
-macro_rules! shared_getter {
-    ($x:ident, $ret:ty) => {
-        fn $x(&self) -> $ret {
-            match self {
-                Self::Video(inner) => inner.$x(),
-                Self::Audio(inner) => inner.$x(),
-            }
-        }
-    };
 }
 
 impl MediaStreamTrackHandle {
@@ -66,17 +56,14 @@ impl Debug for MediaStreamTrackHandle {
 }
 
 impl MediaStreamTrackTrait for MediaStreamTrackHandle {
-    shared_getter!(kind, String);
-    shared_getter!(id, String);
-    shared_getter!(enabled, bool);
-    shared_getter!(state, TrackState);
-
-    fn set_enabled(&self, enabled: bool) -> bool {
-        match self {
-            Self::Video(inner) => inner.set_enabled(enabled),
-            Self::Audio(inner) => inner.set_enabled(enabled),
-        }
-    }
+    enum_dispatch!(
+        [Audio, Video]
+        fnc!(kind, &Self, [], String);
+        fnc!(id, &Self, [], String);
+        fnc!(enabled, &Self, [], bool);
+        fnc!(state, &Self, [], TrackState);
+        fnc!(set_enabled, &Self, [enabled: bool], bool);
+    );
 }
 
 pub struct AudioTrack {

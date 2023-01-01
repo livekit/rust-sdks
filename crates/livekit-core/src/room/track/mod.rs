@@ -5,13 +5,14 @@ use crate::room::track::local_video_track::LocalVideoTrack;
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
 use livekit_utils::enum_dispatch;
+use livekit_utils::observer::Dispatcher;
 use livekit_webrtc::media_stream::{MediaStreamTrackHandle, MediaStreamTrackTrait};
 use parking_lot::Mutex;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub mod audio_track;
-pub mod events;
 pub mod local_audio_track;
 pub mod local_track;
 pub mod local_video_track;
@@ -97,6 +98,7 @@ impl From<ProtoTrackSource> for TrackSource {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct TrackDimension(pub u32, pub u32);
 
 pub trait TrackTrait {
@@ -106,14 +108,25 @@ pub trait TrackTrait {
     fn stream_state(&self) -> StreamState;
     fn start(&self);
     fn stop(&self);
+    fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent>;
+    fn set_muted(&self, muted: bool);
 }
 
+#[derive(Debug, Clone)]
+pub enum TrackEvent {
+    Mute,
+    Unmute,
+}
+
+#[derive(Debug)]
 pub(super) struct TrackShared {
     pub(super) sid: Mutex<TrackSid>,
     pub(super) name: Mutex<String>,
     pub(super) kind: AtomicU8,         // TrackKind
     pub(super) stream_state: AtomicU8, // StreamState
+    pub(super) muted: AtomicBool,
     pub(super) rtc_track: MediaStreamTrackHandle,
+    pub(super) dispatcher: Mutex<Dispatcher<TrackEvent>>,
 }
 
 impl TrackShared {
@@ -128,7 +141,9 @@ impl TrackShared {
             name: Mutex::new(name),
             kind: AtomicU8::new(kind as u8),
             stream_state: AtomicU8::new(StreamState::Active as u8),
+            muted: AtomicBool::new(false),
             rtc_track,
+            dispatcher: Default::default(),
         }
     }
 
@@ -139,9 +154,28 @@ impl TrackShared {
     pub(crate) fn stop(&self) {
         self.rtc_track.set_enabled(false);
     }
+
+    pub(crate) fn set_muted(&self, muted: bool) {
+        if self.muted.load(Ordering::SeqCst) == muted {
+            return;
+        }
+
+        self.muted.store(muted, Ordering::SeqCst);
+        self.rtc_track.set_enabled(!muted);
+
+        self.dispatcher.lock().dispatch(if muted {
+            &TrackEvent::Mute
+        } else {
+            &TrackEvent::Unmute
+        });
+    }
+
+    pub(crate) fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
+        self.dispatcher.lock().register()
+    }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TrackHandle {
     LocalVideo(Arc<LocalVideoTrack>),
     LocalAudio(Arc<LocalAudioTrack>),
@@ -158,6 +192,8 @@ impl TrackTrait for TrackHandle {
         fnc!(stream_state, &Self, [], StreamState);
         fnc!(start, &Self, [], ());
         fnc!(stop, &Self, [], ());
+        fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
+        fnc!(set_muted, &Self, [muted: bool], ());
     );
 }
 
@@ -177,9 +213,10 @@ impl TrackHandle {
 
 macro_rules! impl_track_trait {
     ($x:ident) => {
-        use crate::room::id::TrackSid;
-        use crate::room::track::{StreamState, TrackKind, TrackTrait};
         use std::sync::atomic::Ordering;
+        use tokio::sync::mpsc;
+        use $crate::room::id::TrackSid;
+        use $crate::room::track::{StreamState, TrackEvent, TrackKind, TrackTrait};
 
         impl TrackTrait for $x {
             fn sid(&self) -> TrackSid {
@@ -204,6 +241,14 @@ macro_rules! impl_track_trait {
 
             fn stop(&self) {
                 self.shared.stop();
+            }
+
+            fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
+                self.shared.register_observer()
+            }
+
+            fn set_muted(&self, muted: bool) {
+                self.shared.set_muted(muted);
             }
         }
     };

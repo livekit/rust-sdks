@@ -1,28 +1,103 @@
-use crate::events::participant::ParticipantEvents;
+use super::publication::RemoteTrackPublication;
+use super::TrackError;
+use crate::proto;
 use crate::proto::ParticipantInfo;
 use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
 use crate::room::participant::local_participant::LocalParticipant;
 use crate::room::participant::remote_participant::RemoteParticipant;
 use crate::room::publication::{TrackPublication, TrackPublicationTrait};
-use futures_util::future::BoxFuture;
+use crate::room::track::remote_track::RemoteTrackHandle;
 use livekit_utils::enum_dispatch;
-use parking_lot::{Mutex, RwLock};
+use livekit_utils::observer::Dispatcher;
+use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use proto::data_packet;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub mod local_participant;
 pub mod remote_participant;
 
-type OnTrackSubscribed = Box<dyn FnMut(ParticipantHandle) -> BoxFuture<'static, ()> + Send + Sync>;
+#[derive(Debug, Clone)]
+pub enum ParticipantEvent {
+    TrackPublished {
+        publication: RemoteTrackPublication,
+    },
+    TrackUnpublished {
+        publication: RemoteTrackPublication,
+    },
+    TrackSubscribed {
+        track: RemoteTrackHandle,
+        publication: RemoteTrackPublication,
+    },
+    TrackUnsubscribed {
+        track: RemoteTrackHandle,
+        publication: RemoteTrackPublication,
+    },
+    TrackSubscriptionFailed {
+        error: TrackError,
+        sid: TrackSid,
+    },
+    DataReceived {
+        payload: Arc<Vec<u8>>,
+        kind: data_packet::Kind,
+    },
+    SpeakingChanged {
+        speaking: bool,
+    },
+    TrackMuted {
+        publication: TrackPublication,
+    },
+    TrackUnmuted {
+        publication: TrackPublication,
+    },
+    ConnectionQualityChanged {
+        quality: ConnectionQuality,
+    },
+}
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ConnectionQuality {
+    Unknown,
+    Excellent,
+    Good,
+    Poor,
+}
+
+impl From<u8> for ConnectionQuality {
+    fn from(value: u8) -> Self {
+        match value {
+            1 => Self::Excellent,
+            2 => Self::Good,
+            3 => Self::Poor,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<proto::ConnectionQuality> for ConnectionQuality {
+    fn from(value: proto::ConnectionQuality) -> Self {
+        match value {
+            proto::ConnectionQuality::Excellent => Self::Excellent,
+            proto::ConnectionQuality::Good => Self::Good,
+            proto::ConnectionQuality::Poor => Self::Poor,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct ParticipantShared {
-    pub(super) events: Arc<ParticipantEvents>,
-    pub(super) internal_events: Arc<ParticipantEvents>,
     pub(super) sid: Mutex<ParticipantSid>,
     pub(super) identity: Mutex<ParticipantIdentity>,
     pub(super) name: Mutex<String>,
     pub(super) metadata: Mutex<String>,
     pub(super) tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    pub(super) speaking: AtomicBool,
+    pub(super) audio_level: AtomicU32,
+    pub(super) connection_quality: AtomicU8,
+    pub(super) dispatcher: Mutex<Dispatcher<ParticipantEvent>>,
 }
 
 impl ParticipantShared {
@@ -33,13 +108,15 @@ impl ParticipantShared {
         metadata: String,
     ) -> Self {
         Self {
-            events: Default::default(),
-            internal_events: Default::default(),
             sid: Mutex::new(sid),
             identity: Mutex::new(identity),
             name: Mutex::new(name),
             metadata: Mutex::new(metadata),
             tracks: Default::default(),
+            speaking: Default::default(),
+            audio_level: Default::default(),
+            connection_quality: AtomicU8::new(ConnectionQuality::Unknown as u8),
+            dispatcher: Default::default(),
         }
     }
 
@@ -50,69 +127,84 @@ impl ParticipantShared {
         *self.metadata.lock() = info.metadata; // TODO(theomonnom): callback MetadataChanged
     }
 
+    pub(crate) fn set_speaking(&self, speaking: bool) {
+        self.speaking.store(speaking, Ordering::SeqCst);
+    }
+
+    pub(crate) fn set_audio_level(&self, audio_level: f32) {
+        self.audio_level
+            .store(audio_level.to_bits(), Ordering::SeqCst)
+    }
+
+    pub(crate) fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
+        self.dispatcher.lock().register()
+    }
+
+    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
+        self.connection_quality
+            .store(quality as u8, Ordering::SeqCst);
+    }
+
     pub(crate) fn add_track_publication(&self, publication: TrackPublication) {
         self.tracks.write().insert(publication.sid(), publication);
     }
 }
 
 pub(crate) trait ParticipantInternalTrait {
-    fn internal_events(&self) -> Arc<ParticipantEvents>;
+    fn set_speaking(&self, speaking: bool);
+    fn set_audio_level(&self, level: f32);
+    fn set_connection_quality(&self, quality: ConnectionQuality);
+    fn update_info(self: &Arc<Self>, info: ParticipantInfo, emit_events: bool);
 }
 
 pub trait ParticipantTrait {
-    fn events(&self) -> Arc<ParticipantEvents>;
     fn sid(&self) -> ParticipantSid;
     fn identity(&self) -> ParticipantIdentity;
     fn name(&self) -> String;
     fn metadata(&self) -> String;
+    fn is_speaking(&self) -> bool;
+    fn audio_level(&self) -> f32;
+    fn connection_quality(&self) -> ConnectionQuality;
+    fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>>;
+    fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent>;
 }
 
-#[derive(Clone)]
-pub enum ParticipantHandle {
+#[derive(Debug, Clone)]
+pub enum Participant {
     Local(Arc<LocalParticipant>),
     Remote(Arc<RemoteParticipant>),
 }
 
-impl ParticipantHandle {
-    // TODO(theomonnom): Add async support to wrap_variants ...
-    pub(crate) async fn update_info(&self, info: ParticipantInfo) {
-        match self {
-            Self::Local(inner) => inner.clone().update_info(info).await,
-            Self::Remote(inner) => inner.clone().update_info(info).await,
-        }
-    }
-}
+// TODO(theomonnom): Should I provide a WeakParticipant here ?
 
-impl ParticipantInternalTrait for ParticipantHandle {
+impl Participant {
     enum_dispatch!(
         [Local, Remote]
-        fnc!(internal_events, &Self, [], Arc<ParticipantEvents>);
+        fnc!(pub(crate), update_info, &Self, [info: ParticipantInfo, emit_events: bool], ());
+        fnc!(pub(crate), set_speaking, &Self, [speaking: bool], ());
+        fnc!(pub(crate), set_audio_level, &Self, [audio_level: f32], ());
+        fnc!(pub(crate), set_connection_quality, &Self, [quality: ConnectionQuality], ());
     );
 }
 
-impl ParticipantTrait for ParticipantHandle {
+impl ParticipantTrait for Participant {
     enum_dispatch!(
         [Local, Remote]
-        fnc!(events, &Self, [], Arc<ParticipantEvents>);
         fnc!(sid, &Self, [], ParticipantSid);
         fnc!(identity, &Self, [], ParticipantIdentity);
         fnc!(name, &Self, [], String);
         fnc!(metadata, &Self, [], String);
+        fnc!(is_speaking, &Self, [], bool);
+        fnc!(audio_level, &Self, [], f32);
+        fnc!(connection_quality, &Self, [], ConnectionQuality);
+        fnc!(tracks, &Self, [], RwLockReadGuard<HashMap<TrackSid, TrackPublication>>);
+        fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<ParticipantEvent>);
     );
 }
 
 macro_rules! impl_participant_trait {
     ($x:ty) => {
-        use crate::events::participant::ParticipantEvents;
-        use crate::proto::ParticipantInfo;
-        use crate::room::id::{ParticipantIdentity, ParticipantSid};
-        use std::sync::Arc;
-
         impl crate::room::participant::ParticipantTrait for $x {
-            fn events(&self) -> Arc<ParticipantEvents> {
-                self.shared.events.clone()
-            }
-
             fn sid(&self) -> ParticipantSid {
                 self.shared.sid.lock().clone()
             }
@@ -127,6 +219,26 @@ macro_rules! impl_participant_trait {
 
             fn metadata(&self) -> String {
                 self.shared.metadata.lock().clone()
+            }
+
+            fn is_speaking(&self) -> bool {
+                self.shared.speaking.load(Ordering::SeqCst)
+            }
+
+            fn audio_level(&self) -> f32 {
+                f32::from_bits(self.shared.audio_level.load(Ordering::SeqCst))
+            }
+
+            fn connection_quality(&self) -> ConnectionQuality {
+                self.shared.connection_quality.load(Ordering::SeqCst).into()
+            }
+
+            fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
+                self.shared.tracks.read()
+            }
+
+            fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
+                self.shared.register_observer()
             }
         }
     };

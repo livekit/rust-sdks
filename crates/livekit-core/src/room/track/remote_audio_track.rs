@@ -2,6 +2,7 @@ use crate::room::track::{impl_track_trait, TrackShared};
 use livekit_webrtc::media_stream::{AudioTrack, MediaStreamTrackHandle};
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct RemoteAudioTrack {
     shared: TrackShared,
 }

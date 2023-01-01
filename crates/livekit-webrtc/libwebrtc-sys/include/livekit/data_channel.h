@@ -24,10 +24,10 @@ class DataChannel {
 
   void register_observer(NativeDataChannelObserver& observer);
   void unregister_observer();
-  bool send(const DataBuffer& buffer);
+  bool send(const DataBuffer& buffer) const;
   rust::String label() const;
   DataState state() const;
-  void close();
+  void close() const;
 
  private:
   std::shared_ptr<RTCRuntime> rtc_runtime_;

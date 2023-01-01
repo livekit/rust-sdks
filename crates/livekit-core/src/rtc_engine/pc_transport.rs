@@ -11,6 +11,8 @@ use livekit_webrtc::peer_connection::{
 };
 use livekit_webrtc::rtc_error::RTCError;
 
+use crate::proto::SignalTarget;
+
 const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
 pub type OnOfferHandler = Box<
@@ -20,11 +22,12 @@ pub type OnOfferHandler = Box<
 >;
 
 pub struct PCTransport {
+    signal_target: SignalTarget,
     peer_connection: PeerConnection,
     pending_candidates: Vec<IceCandidate>,
     on_offer_handler: Option<OnOfferHandler>,
-    restarting_ice: bool,
     renegotiate: bool,
+    restarting_ice: bool,
 }
 
 impl Debug for PCTransport {
@@ -34,8 +37,9 @@ impl Debug for PCTransport {
 }
 
 impl PCTransport {
-    pub fn new(peer_connection: PeerConnection) -> Self {
+    pub fn new(peer_connection: PeerConnection, signal_target: SignalTarget) -> Self {
         Self {
+            signal_target,
             peer_connection,
             pending_candidates: Vec::default(),
             on_offer_handler: None,
@@ -54,24 +58,37 @@ impl PCTransport {
         &mut self.peer_connection
     }
 
+    pub fn signal_target(&self) -> SignalTarget {
+        self.signal_target.clone()
+    }
+
     pub fn on_offer(&mut self, handler: OnOfferHandler) {
         self.on_offer_handler = Some(handler);
     }
 
-    #[tracing::instrument]
+    pub fn prepare_ice_restart(&mut self) {
+        self.restarting_ice = true;
+    }
+
+    pub fn close(&mut self) {
+        self.peer_connection.close();
+    }
+
+    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RTCError> {
-        if self.peer_connection.remote_description().is_none() {
-            self.pending_candidates.push(ice_candidate);
+        if self.peer_connection.remote_description().is_some() && !self.restarting_ice {
+            self.peer_connection
+                .add_ice_candidate(ice_candidate)
+                .await?;
+
             return Ok(());
         }
 
-        self.peer_connection
-            .add_ice_candidate(ice_candidate)
-            .await?;
+        self.pending_candidates.push(ice_candidate);
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn set_remote_description(
         &mut self,
         remote_description: SessionDescription,
@@ -94,15 +111,33 @@ impl PCTransport {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn negotiate(&mut self) -> Result<(), RTCError> {
         // TODO(theomonnom) Debounce here with NEGOTIATION_FREQUENCY
         self.create_and_send_offer(RTCOfferAnswerOptions::default())
             .await
     }
 
-    #[tracing::instrument]
-    async fn create_and_send_offer(
+    #[tracing::instrument(level = Level::DEBUG)]
+    pub async fn create_anwser(
+        &mut self,
+        offer: SessionDescription,
+        options: RTCOfferAnswerOptions,
+    ) -> Result<SessionDescription, RTCError> {
+        self.set_remote_description(offer).await?;
+        let answer = self
+            .peer_connection()
+            .create_answer(RTCOfferAnswerOptions::default())
+            .await?;
+        self.peer_connection()
+            .set_local_description(answer.clone())
+            .await?;
+
+        Ok(answer)
+    }
+
+    #[tracing::instrument(level = Level::DEBUG)]
+    pub async fn create_and_send_offer(
         &mut self,
         options: RTCOfferAnswerOptions,
     ) -> Result<(), RTCError> {

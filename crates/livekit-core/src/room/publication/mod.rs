@@ -4,13 +4,15 @@ use crate::room::id::ParticipantSid;
 use crate::room::id::TrackSid;
 use crate::room::track::local_track::LocalTrackHandle;
 use crate::room::track::remote_track::RemoteTrackHandle;
-use crate::room::track::{TrackHandle, TrackKind, TrackSource};
+use crate::room::track::{TrackHandle, TrackKind, TrackSource, TrackTrait};
 use livekit_utils::enum_dispatch;
+use livekit_utils::observer::Dispatcher;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot};
 
-use super::track::TrackDimension;
+use super::track::{TrackDimension, TrackEvent};
 
 pub(crate) trait TrackPublicationInternalTrait {
     fn update_track(&self, track: Option<TrackHandle>);
@@ -22,9 +24,11 @@ pub trait TrackPublicationTrait {
     fn sid(&self) -> TrackSid;
     fn kind(&self) -> TrackKind;
     fn source(&self) -> TrackSource;
+    fn muted(&self) -> bool;
     fn simulcasted(&self) -> bool;
 }
 
+#[derive(Debug)]
 pub(super) struct TrackPublicationShared {
     pub(super) track: Mutex<Option<TrackHandle>>,
     pub(super) name: Mutex<String>,
@@ -34,7 +38,10 @@ pub(super) struct TrackPublicationShared {
     pub(super) simulcasted: AtomicBool,
     pub(super) dimension: Mutex<TrackDimension>,
     pub(super) mime_type: Mutex<String>,
-    pub(super) participant: ParticipantSid, // TODO(theomonnom) Use WeakParticipant instead
+    pub(super) muted: AtomicBool,
+    pub(super) participant: ParticipantSid,
+    pub(super) dispatcher: Mutex<Dispatcher<TrackEvent>>,
+    pub(super) close_sender: Mutex<Option<oneshot::Sender<()>>>,
 }
 
 impl TrackPublicationShared {
@@ -54,13 +61,56 @@ impl TrackPublicationShared {
             simulcasted: AtomicBool::new(info.simulcast),
             dimension: Mutex::new(TrackDimension(info.width, info.height)),
             mime_type: Mutex::new(info.mime_type),
+            muted: AtomicBool::new(info.muted),
+            dispatcher: Default::default(),
+            close_sender: Default::default(),
             participant,
         })
+    }
+
+    pub fn update_track(self: &Arc<Self>, track: Option<TrackHandle>) {
+        let mut old_track = self.track.lock();
+
+        if let Some(close_sender) = self.close_sender.lock().take() {
+            let _ = close_sender.send(());
+        }
+
+        *old_track = track.clone();
+        if let Some(track) = track {
+            let (close_sender, close_receiver) = oneshot::channel();
+            self.close_sender.lock().replace(close_sender);
+
+            let track_receiver = track.register_observer();
+            tokio::spawn(
+                self.clone()
+                    .publication_task(close_receiver, track_receiver),
+            );
+        }
+    }
+
+    /// Task used to forward TrackHandle's events to the TrackPublications's dispatcher
+    async fn publication_task(
+        self: Arc<Self>,
+        mut close_receiver: oneshot::Receiver<()>,
+        mut track_receiver: mpsc::UnboundedReceiver<TrackEvent>,
+    ) {
+        loop {
+            tokio::select! {
+                Some(event) = track_receiver.recv() => {
+                    self.dispatcher.lock().dispatch(&event);
+                }
+                _ = &mut close_receiver => {
+                    break;
+                }
+            }
+        }
     }
 
     pub fn update_info(&self, info: TrackInfo) {
         *self.name.lock() = info.name;
         *self.sid.lock() = info.sid.into();
+        *self.dimension.lock() = TrackDimension(info.width, info.height);
+        *self.mime_type.lock() = info.mime_type;
         self.kind.store(
             TrackKind::from(TrackType::from_i32(info.r#type).unwrap()) as u8,
             Ordering::SeqCst,
@@ -70,12 +120,23 @@ impl TrackPublicationShared {
             Ordering::SeqCst,
         );
         self.simulcasted.store(info.simulcast, Ordering::SeqCst);
-        *self.dimension.lock() = TrackDimension(info.width, info.height);
-        *self.mime_type.lock() = info.mime_type;
+        self.muted.store(info.muted, Ordering::SeqCst);
+
+        if let Some(track) = self.track.lock().as_ref() {
+            track.set_muted(info.muted);
+        }
     }
 }
 
-#[derive(Clone)]
+impl Drop for TrackPublicationShared {
+    fn drop(&mut self) {
+        if let Some(close_sender) = self.close_sender.lock().take() {
+            let _ = close_sender.send(());
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum TrackPublication {
     Local(LocalTrackPublication),
     Remote(RemoteTrackPublication),
@@ -106,22 +167,13 @@ impl TrackPublicationTrait for TrackPublication {
         fnc!(name, &Self, [], String);
         fnc!(kind, &Self, [], TrackKind);
         fnc!(source, &Self, [], TrackSource);
+        fnc!(muted, &Self, [], bool);
         fnc!(simulcasted, &Self, [], bool);
     );
 }
 
 macro_rules! impl_publication_trait {
     ($x:ident) => {
-        impl TrackPublicationInternalTrait for $x {
-            fn update_track(&self, track: Option<TrackHandle>) {
-                *self.shared.track.lock() = track;
-            }
-
-            fn update_info(&self, info: TrackInfo) {
-                self.shared.update_info(info);
-            }
-        }
-
         impl TrackPublicationTrait for $x {
             fn name(&self) -> String {
                 self.shared.name.lock().clone()
@@ -142,11 +194,15 @@ macro_rules! impl_publication_trait {
             fn simulcasted(&self) -> bool {
                 self.shared.simulcasted.load(Ordering::SeqCst)
             }
+
+            fn muted(&self) -> bool {
+                self.shared.muted.load(Ordering::SeqCst)
+            }
         }
     };
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalTrackPublication {
     shared: Arc<TrackPublicationShared>,
 }
@@ -161,7 +217,17 @@ impl LocalTrackPublication {
     }
 }
 
-#[derive(Clone)]
+impl TrackPublicationInternalTrait for LocalTrackPublication {
+    fn update_track(&self, track: Option<TrackHandle>) {
+        self.shared.update_track(track);
+    }
+
+    fn update_info(&self, info: TrackInfo) {
+        self.shared.update_info(info);
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct RemoteTrackPublication {
     shared: Arc<TrackPublicationShared>,
 }
@@ -179,6 +245,16 @@ impl RemoteTrackPublication {
             .lock()
             .clone()
             .map(|track| track.try_into().unwrap())
+    }
+}
+
+impl TrackPublicationInternalTrait for RemoteTrackPublication {
+    fn update_track(&self, track: Option<TrackHandle>) {
+        self.shared.update_track(track);
+    }
+
+    fn update_info(&self, info: TrackInfo) {
+        self.shared.update_info(info);
     }
 }
 

@@ -1,15 +1,15 @@
 use std::sync::Arc;
-
 use super::{StreamState, TrackKind};
 use crate::room::id::TrackSid;
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
-use crate::room::track::TrackHandle;
+use crate::room::track::{TrackHandle, TrackEvent};
+use tokio::sync::mpsc;
 use livekit_utils::enum_dispatch;
 
 use super::TrackTrait;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum RemoteTrackHandle {
     Audio(Arc<RemoteAudioTrack>),
     Video(Arc<RemoteVideoTrack>),
@@ -24,6 +24,8 @@ impl TrackTrait for RemoteTrackHandle {
         fnc!(stream_state, &Self, [], StreamState);
         fnc!(start, &Self, [], ());
         fnc!(stop, &Self, [], ());
+        fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
+        fnc!(set_muted, &Self, [muted: bool], ());
     );
 }
 
