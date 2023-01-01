@@ -3,13 +3,14 @@ use livekit::webrtc::video_frame_buffer::PlanarYuv8Buffer;
 use livekit::webrtc::video_frame_buffer::PlanarYuvBuffer;
 use livekit::webrtc::video_frame_buffer::VideoFrameBufferTrait;
 use livekit::webrtc::yuv_helper;
-use tracing::debug_span;
 use std::convert::TryInto;
 use std::num::NonZeroU32;
 use std::{
     ops::DerefMut,
     sync::{Arc, Mutex},
 };
+use tracing::debug_span;
+use tracing::{error, warn};
 
 pub struct VideoRenderer {
     internal: Arc<Mutex<RendererInternal>>,
@@ -98,10 +99,12 @@ impl VideoRenderer {
             egui_texture: None,
         }));
 
+        error!("siubsc");
         rtc_track.on_frame({
             let internal = internal.clone();
 
             Box::new(move |_frame, buffer| {
+                warn!("got frame");
                 let span = debug_span!("texture_upload");
                 let _enter = span.enter();
 

@@ -1161,6 +1161,10 @@ dependencies = [
 [[package]]
 name = "livekit-utils"
 version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "tokio",
+]
 
 [[package]]
 name = "livekit-webrtc"

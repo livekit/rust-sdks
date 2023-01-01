@@ -8,15 +8,17 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use tracing::error;
 
-use livekit::room::{ConnectionState, Room, RoomError, SimulateScenario};
+use livekit::room::room_session::ConnectionState;
+use livekit::room::{Room, RoomEvent, RoomEvents, SimulateScenario};
 
 // Useful default constants for developing
 const DEFAULT_URL: &str = "ws://localhost:7880";
-const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIzODQ4MDY0NzMsImlzcyI6IkFQSXpLYkFTaUNWYWtnSiIsIm5hbWUiOiJuYXRpdmUiLCJuYmYiOjE2NjQ4MDY0NzMsInN1YiI6Im5hdGl2ZSIsInZpZGVvIjp7InJvb21DcmVhdGUiOnRydWUsInJvb21Kb2luIjp0cnVlfX0.BgVdBnq3XFD3_BQHoe1azqjifYysubgFl6Qlzu9IQGI";
+const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTMyODgsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJuYXRpdmUiLCJuYmYiOjE2NzI2MTMyODgsInN1YiI6Im5hdGl2ZSIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.uSNIangMRu8jZD5mnRYoCHjcsQWCrJXgHCs0aNIgBFY";
 
-// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIzODQ4MDY3MzAsImlzcyI6IkFQSXpLYkFTaUNWYWtnSiIsIm5hbWUiOiJ3ZWIiLCJuYmYiOjE2NjQ4MDY3MzAsInN1YiI6IndlYiIsInZpZGVvIjp7InJvb21DcmVhdGUiOnRydWUsInJvb21Kb2luIjp0cnVlfX0.VbDoULjX1CVGZu2sPy3SvWYlVZUBXxQVPmdB9BnmlN4
+// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTM0MzcsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJ3ZWIiLCJuYmYiOjE2NzI2MTM0MzcsInN1YiI6IndlYiIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.DFTXt60n1kzGq4cSuOhbFBTQW2nd3rlcXKQ54sXsP8s
 
 use winit::{
     event::*,
@@ -25,7 +27,7 @@ use winit::{
 };
 
 struct AppState {
-    room: Mutex<Room>,
+    room: Mutex<Option<(Room, oneshot::Sender<()>)>>,
     connecting: AtomicBool,
 }
 
@@ -67,7 +69,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
         let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel::<UiCmd>();
 
         let state = Arc::new(AppState {
-            room: Mutex::new(Room::new()),
+            room: Default::default(),
             connecting: AtomicBool::new(false),
         });
 
@@ -88,35 +90,42 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
         // Async event loop
         tokio::spawn(async move {
-            {
-                let events = state.room.lock().events();
-                events.on_track_subscribed({
-                    let ui_cmd_tx = ui_cmd_tx.clone();
-                    move |event| {
-                        let ui_cmd_tx = ui_cmd_tx.clone();
-                        async move {
-                            ui_cmd_tx.send(UiCmd::TrackSubscribed { event }).unwrap();
-                        }
-                    }
-                });
-            }
             while let Some(event) = async_cmd_rx.recv().await {
                 match event {
                     AsyncCmd::RoomConnect { url, token } => {
+                        if let Some((room, close_tx)) = state.room.lock().take() {
+                            // Close the Room if already connected
+                            let _ = room.close().await;
+                            let _ = close_tx.send(());
+                        }
+
                         state.connecting.store(true, Ordering::SeqCst);
 
-                        let mut room = state.room.lock();
-                        ui_cmd_tx
-                            .send(UiCmd::ConnectResult {
-                                result: room.connect(&url, &token).await,
-                            })
-                            .unwrap();
+                        let res = Room::connect(&url, &token).await;
+                        match res {
+                            Ok((room, room_events)) => {
+                                let (close_tx, close_rx) = oneshot::channel();
+                                state.room.lock().replace((room, close_tx));
+
+                                tokio::spawn(room_task(
+                                    state.clone(),
+                                    room_events,
+                                    close_rx,
+                                    ui_cmd_tx.clone(),
+                                ));
+
+                                let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Ok(()) });
+                            }
+                            Err(err) => {
+                                let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Err(err) });
+                            }
+                        }
 
                         state.connecting.store(false, Ordering::SeqCst);
                     }
                     AsyncCmd::SimulateScenario { scenario } => {
-                        if let Some(handle) = state.room.lock().get_handle() {
-                            let _ = handle.simulate_scenario(scenario).await;
+                        if let Some((room, _)) = state.room.lock().as_ref() {
+                            let _ = room.session().simulate_scenario(scenario).await;
                         }
                     }
                 }
@@ -132,6 +141,24 @@ pub fn run(rt: tokio::runtime::Runtime) {
     });
 }
 
+async fn room_task(
+    _app_state: Arc<AppState>,
+    mut room_events: RoomEvents,
+    mut close_rx: oneshot::Receiver<()>,
+    ui_cmd_tx: mpsc::UnboundedSender<UiCmd>,
+) {
+    loop {
+        tokio::select! {
+            Some(event) = room_events.recv() => {
+                let _ = ui_cmd_tx.send(UiCmd::RoomEvent{event});
+            }
+            _ = &mut close_rx => {
+                //break;
+            }
+        }
+    }
+}
+
 impl App {
     fn update<T>(&mut self, event: Event<'_, T>, control_flow: &mut ControlFlow) {
         if let Ok(cmd) = self.cmd_rx.try_recv() {
@@ -143,20 +170,25 @@ impl App {
                         self.connection_failure = None
                     }
                 }
-                UiCmd::TrackSubscribed { event } => {
-                    match event.track {
-                        RemoteTrackHandle::Video(video_track) => {
-                            // Create a new VideoRenderer
-                            let video_renderer = VideoRenderer::new(
-                                self.egui_painter.render_state().clone().unwrap(),
-                                video_track.rtc_track(),
-                            );
-                            self.video_renderers.push(video_renderer);
+                UiCmd::RoomEvent { event } => {
+                    match event {
+                        RoomEvent::TrackSubscribed { track, .. } => {
+                            match track {
+                                RemoteTrackHandle::Video(video_track) => {
+                                    // Create a new VideoRenderer
+                                    let video_renderer = VideoRenderer::new(
+                                        self.egui_painter.render_state().clone().unwrap(),
+                                        video_track.rtc_track(),
+                                    );
+                                    self.video_renderers.push(video_renderer);
+                                }
+                                RemoteTrackHandle::Audio(_) => {
+                                    // The demo doesn't support Audio rendering at the moment.
+                                }
+                            };
                         }
-                        RemoteTrackHandle::Audio(_) => {
-                            // The demo doesn't support Audio rendering at the moment.
-                        }
-                    };
+                        _ => {}
+                    }
                 }
             }
         }

@@ -34,6 +34,6 @@ where
 
     pub fn dispatch(&mut self, msg: &T) {
         self.senders
-            .retain(|sender| sender.send(msg.clone()).is_err());
+            .retain(|sender| sender.send(msg.clone()).is_ok());
     }
 }
