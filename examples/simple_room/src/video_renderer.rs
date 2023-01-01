@@ -99,12 +99,10 @@ impl VideoRenderer {
             egui_texture: None,
         }));
 
-        error!("siubsc");
         rtc_track.on_frame({
             let internal = internal.clone();
 
             Box::new(move |_frame, buffer| {
-                warn!("got frame");
                 let span = debug_span!("texture_upload");
                 let _enter = span.enter();
 
