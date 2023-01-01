@@ -1,7 +1,7 @@
 use super::id::{ParticipantIdentity, ParticipantSid};
 use super::participant::local_participant::LocalParticipant;
 use super::participant::remote_participant::RemoteParticipant;
-use super::participant::{ConnectionQuality, ParticipantHandle};
+use super::participant::{ConnectionQuality, Participant, ParticipantEvent};
 use super::participant::{ParticipantInternalTrait, ParticipantTrait};
 use super::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};
 use crate::proto::{self, participant_info, SpeakerInfo};
@@ -15,14 +15,6 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{error, instrument, Level};
-
-pub(crate) type SessionEmitter = mpsc::UnboundedSender<SessionEvent>;
-pub(crate) type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
-
-/// Used internally for participants and tracks
-pub(crate) enum SessionEvent {
-    Room(RoomEvent), // Send a public event
-}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionState {
@@ -50,10 +42,11 @@ struct SessionInner {
     sid: Mutex<String>,
     name: Mutex<String>,
     participants: RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>>,
-    active_speakers: RwLock<Vec<ParticipantHandle>>,
+    participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
+    active_speakers: RwLock<Vec<Participant>>,
     rtc_engine: Arc<RTCEngine>,
     local_participant: Arc<LocalParticipant>,
-    internal_tx: SessionEmitter,
+    room_emitter: RoomEmitter,
 }
 
 #[derive(Debug)]
@@ -78,7 +71,6 @@ impl SessionHandle {
             .connect(url, token, SignalOptions::default())
             .await?;
 
-        let (internal_tx, internal_rx) = mpsc::unbounded_channel();
         let join_response = rtc_engine.join_response().unwrap();
         let pi = join_response.participant.unwrap().clone();
         let local_participant = Arc::new(LocalParticipant::new(
@@ -87,7 +79,6 @@ impl SessionHandle {
             pi.identity.into(),
             pi.name,
             pi.metadata,
-            internal_tx.clone(),
         ));
 
         let room_info = join_response.room.unwrap();
@@ -96,10 +87,11 @@ impl SessionHandle {
             sid: Mutex::new(room_info.sid),
             name: Mutex::new(room_info.name),
             participants: Default::default(),
+            participants_tasks: Default::default(),
             active_speakers: Default::default(),
             rtc_engine,
             local_participant,
-            internal_tx,
+            room_emitter,
         });
 
         for pi in join_response.other_participants {
@@ -107,16 +99,11 @@ impl SessionHandle {
                 let pi = pi.clone();
                 inner.create_participant(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata)
             };
-            participant.update_info(pi.clone());
+            participant.update_info(pi.clone(), false);
         }
 
         let (close_emitter, close_receiver) = oneshot::channel();
-        let session_task = tokio::spawn(inner.clone().room_task(
-            engine_events,
-            internal_rx,
-            close_receiver,
-            room_emitter,
-        ));
+        let session_task = tokio::spawn(inner.clone().room_task(engine_events, close_receiver));
 
         inner.update_connection_state(ConnectionState::Connected);
 
@@ -174,23 +161,10 @@ impl SessionInner {
     async fn room_task(
         self: Arc<Self>,
         mut engine_events: EngineEvents,
-        mut internal_rx: SessionEvents,
         mut close_receiver: oneshot::Receiver<()>,
-        room_emitter: RoomEmitter,
     ) {
         loop {
             tokio::select! {
-                biased;
-                res = internal_rx.recv() => {
-                    match res {
-                        Some(event) => {
-                            if let Err(err) = self.on_internal_event(event, &room_emitter).await {
-                                error!("failed to handle internal event: {:?}", err);
-                            }
-                        },
-                        _ => panic!("internal_rx has been closed unexpectedly")
-                    };
-                }
                 res = engine_events.recv() => {
                     match res {
                         Some(event) => {
@@ -208,29 +182,69 @@ impl SessionInner {
         }
     }
 
-    async fn on_internal_event(
-        &self,
-        event: SessionEvent,
-        room_emitter: &RoomEmitter,
-    ) -> EngineResult<()> {
-        match event {
-            SessionEvent::Room(event) => {
-                if self.state.load(Ordering::Acquire) != ConnectionState::Connected as u8
-                    && matches!(
-                        event,
-                        RoomEvent::TrackPublished { .. }
-                            | RoomEvent::TrackUnpublished { .. }
-                            | RoomEvent::ParticipantConnected { .. }
-                            | RoomEvent::ParticipantDisconnected { .. }
-                            | RoomEvent::ActiveSpeakersChanged { .. }
-                    )
-                {
-                    return Ok(()); // Ignore the event
-                }
-
-                // Forward the event to the public channel
-                let _ = room_emitter.send(event);
+    /// Listen to the Participant events and forward them to the Room Dispatcher
+    #[instrument(level = Level::DEBUG)]
+    async fn participant_task(
+        self: Arc<Self>,
+        participant: Participant,
+        mut participant_events: mpsc::UnboundedReceiver<ParticipantEvent>,
+        mut close_rx: oneshot::Receiver<()>,
+    ) {
+        loop {
+            tokio::select! {
+                res = participant_events.recv() => {
+                    match res {
+                        Some(event) => {
+                            if let Err(err) = self.on_participant_event(&participant, event).await {
+                                error!("failed to handle participant event for {:?}: {:?}", participant.sid(), err);
+                            }
+                        },
+                        _ => panic!("engine_events has been closed unexpectedly")
+                    };
+                },
+                _ = &mut close_rx => {
+                    break;
+                },
             }
+        }
+    }
+
+    #[instrument(level = Level::DEBUG)]
+    async fn on_participant_event(
+        self: &Arc<Self>,
+        participant: &Participant,
+        event: ParticipantEvent,
+    ) -> RoomResult<()> {
+        if let Participant::Remote(remote_participant) = participant {
+            match event {
+                ParticipantEvent::TrackPublished { publication } => {
+                    let _ = self.room_emitter.send(RoomEvent::TrackPublished {
+                        participant: remote_participant.clone(),
+                        publication,
+                    });
+                }
+                ParticipantEvent::TrackUnpublished { publication } => {
+                    let _ = self.room_emitter.send(RoomEvent::TrackUnpublished {
+                        participant: remote_participant.clone(),
+                        publication,
+                    });
+                }
+                ParticipantEvent::TrackSubscribed { track, publication } => {
+                    let _ = self.room_emitter.send(RoomEvent::TrackSubscribed {
+                        participant: remote_participant.clone(),
+                        track,
+                        publication,
+                    });
+                }
+                ParticipantEvent::TrackUnsubscribed { track, publication } => {
+                    let _ = self.room_emitter.send(RoomEvent::TrackUnsubscribed {
+                        participant: remote_participant.clone(),
+                        track,
+                        publication,
+                    });
+                }
+                _ => {}
+            };
         }
 
         Ok(())
@@ -275,16 +289,12 @@ impl SessionInner {
             }
             EngineEvent::Resuming => {
                 if self.update_connection_state(ConnectionState::Reconnecting) {
-                    let _ = self
-                        .internal_tx
-                        .send(SessionEvent::Room(RoomEvent::Reconnecting));
+                    let _ = self.room_emitter.send(RoomEvent::Reconnecting);
                 }
             }
             EngineEvent::Resumed => {
                 self.update_connection_state(ConnectionState::Connected);
-                let _ = self
-                    .internal_tx
-                    .send(SessionEvent::Room(RoomEvent::Reconnected));
+                let _ = self.room_emitter.send(RoomEvent::Reconnected);
 
                 // TODO(theomonnom): Update subscriptions settings
                 // TODO(theomonnom): Send sync state
@@ -297,14 +307,15 @@ impl SessionInner {
                 kind,
                 participant_sid,
             } => {
+                let payload = Arc::new(payload);
                 if let Some(participant) = self.get_participant(&participant_sid.into()) {
-                    let _ = self
-                        .internal_tx
-                        .send(SessionEvent::Room(RoomEvent::DataReceived {
-                            payload,
-                            kind,
-                            participant,
-                        }));
+                    let _ = self.room_emitter.send(RoomEvent::DataReceived {
+                        payload: payload.clone(),
+                        kind,
+                        participant: participant.clone(),
+                    });
+
+                    participant.on_data_received(payload, kind);
                 }
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
@@ -332,9 +343,8 @@ impl SessionInner {
 
         self.state.store(state as u8, Ordering::Release);
         let _ = self
-            .internal_tx
-            .send(SessionEvent::Room(RoomEvent::ConnectionStateChanged(state)));
-
+            .room_emitter
+            .send(RoomEvent::ConnectionStateChanged(state));
         return true;
     }
 
@@ -342,12 +352,12 @@ impl SessionInner {
     /// It'll create, update or remove a participant
     /// It also update the participant tracks.
     #[instrument(level = Level::DEBUG)]
-    fn handle_participant_update(&self, update: proto::ParticipantUpdate) {
+    fn handle_participant_update(self: &Arc<Self>, update: proto::ParticipantUpdate) {
         for pi in update.participants {
             if pi.sid == self.local_participant.sid()
                 || pi.identity == self.local_participant.identity()
             {
-                self.local_participant.clone().update_info(pi);
+                self.local_participant.clone().update_info(pi, true);
                 continue;
             }
 
@@ -356,10 +366,11 @@ impl SessionInner {
             if let Some(remote_participant) = remote_participant {
                 if pi.state == participant_info::State::Disconnected as i32 {
                     // Participant disconnected
-                    self.handle_participant_disconnect(remote_participant)
+                    self.clone()
+                        .handle_participant_disconnect(remote_participant)
                 } else {
                     // Participant is already connected, update the it
-                    remote_participant.update_info(pi.clone());
+                    remote_participant.update_info(pi.clone(), true);
                 }
             } else {
                 // Create a new participant
@@ -369,28 +380,12 @@ impl SessionInner {
                 };
 
                 let _ = self
-                    .internal_tx
-                    .send(SessionEvent::Room(RoomEvent::ParticipantConnected(
-                        remote_participant.clone(),
-                    )));
+                    .room_emitter
+                    .send(RoomEvent::ParticipantConnected(remote_participant.clone()));
 
-                remote_participant.update_info(pi.clone());
+                remote_participant.update_info(pi.clone(), true);
             }
         }
-    }
-
-    /// A participant has disconnected
-    /// Cleanup the participant and emit an event
-    #[instrument(level = Level::DEBUG)]
-    fn handle_participant_disconnect(&self, remote_participant: Arc<RemoteParticipant>) {
-        self.participants.write().remove(&remote_participant.sid());
-
-        // TODO(theomonnom): Unpublish all tracks
-        let _ = self
-            .internal_tx
-            .send(SessionEvent::Room(RoomEvent::ParticipantDisconnected(
-                remote_participant.clone(),
-            )));
     }
 
     /// Active speakers changed
@@ -402,10 +397,10 @@ impl SessionInner {
         for speaker in speakers_info {
             let participant = {
                 if speaker.sid == self.local_participant.sid() {
-                    ParticipantHandle::Local(self.local_participant.clone())
+                    Participant::Local(self.local_participant.clone())
                 } else {
                     if let Some(participant) = self.get_participant(&speaker.sid.into()) {
-                        ParticipantHandle::Remote(participant)
+                        Participant::Remote(participant)
                     } else {
                         continue;
                     }
@@ -422,11 +417,10 @@ impl SessionInner {
 
         speakers.sort_by(|a, b| a.audio_level().partial_cmp(&b.audio_level()).unwrap());
         *self.active_speakers.write() = speakers.clone();
+
         let _ = self
-            .internal_tx
-            .send(SessionEvent::Room(RoomEvent::ActiveSpeakersChanged {
-                speakers,
-            }));
+            .room_emitter
+            .send(RoomEvent::ActiveSpeakersChanged { speakers });
     }
 
     /// Handle a connection quality update
@@ -436,11 +430,11 @@ impl SessionInner {
         for update in updates {
             let participant = {
                 if update.participant_sid == self.local_participant.sid() {
-                    ParticipantHandle::Local(self.local_participant.clone())
+                    Participant::Local(self.local_participant.clone())
                 } else {
                     if let Some(participant) = self.get_participant(&update.participant_sid.into())
                     {
-                        ParticipantHandle::Remote(participant)
+                        Participant::Remote(participant)
                     } else {
                         continue;
                     }
@@ -452,41 +446,36 @@ impl SessionInner {
                 .into();
 
             participant.set_connection_quality(quality);
-            let _ =
-                self.internal_tx
-                    .send(SessionEvent::Room(RoomEvent::ConnectionQualityChanged {
-                        participant,
-                        quality,
-                    }));
+            let _ = self.room_emitter.send(RoomEvent::ConnectionQualityChanged {
+                participant,
+                quality,
+            });
         }
     }
 
     #[instrument(level = Level::DEBUG)]
-    fn handle_restarting(&self) {
+    fn handle_restarting(self: &Arc<Self>) {
         // Remove existing participants/subscriptions on full reconnect
         for (_, participant) in self.participants.read().iter() {
-            self.handle_participant_disconnect(participant.clone());
+            self.clone()
+                .handle_participant_disconnect(participant.clone());
         }
 
         if self.update_connection_state(ConnectionState::Reconnecting) {
-            let _ = self
-                .internal_tx
-                .send(SessionEvent::Room(RoomEvent::Reconnecting));
+            let _ = self.room_emitter.send(RoomEvent::Reconnecting);
         }
     }
 
     #[instrument(level = Level::DEBUG)]
-    fn handle_restarted(&self) {
+    fn handle_restarted(self: &Arc<Self>) {
         // Full reconnect succeeded!
         let join_response = self.rtc_engine.join_response().unwrap();
 
         self.update_connection_state(ConnectionState::Connected);
-        let _ = self
-            .internal_tx
-            .send(SessionEvent::Room(RoomEvent::Reconnected));
+        let _ = self.room_emitter.send(RoomEvent::Reconnected);
 
         if let Some(pi) = join_response.participant {
-            self.local_participant.update_info(pi); // The sid may have changed
+            self.local_participant.update_info(pi, true); // The sid may have changed
         }
 
         self.handle_participant_update(proto::ParticipantUpdate {
@@ -503,30 +492,66 @@ impl SessionInner {
         }
 
         self.update_connection_state(ConnectionState::Disconnected);
-        let _ = self
-            .internal_tx
-            .send(SessionEvent::Room(RoomEvent::Disconnected));
+        let _ = self.room_emitter.send(RoomEvent::Disconnected);
     }
 
     /// Create a new participant
     /// Also add it to the participants list
+    #[instrument(level = Level::DEBUG)]
     fn create_participant(
-        &self,
+        self: &Arc<Self>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
     ) -> Arc<RemoteParticipant> {
-        let p = Arc::new(RemoteParticipant::new(
+        let participant = Arc::new(RemoteParticipant::new(
             sid.clone(),
             identity,
             name,
             metadata,
-            self.internal_tx.clone(),
         ));
 
-        self.participants.write().insert(sid, p.clone());
-        p
+        // Create the participant task
+        let (close_tx, close_rx) = oneshot::channel();
+        let participant_task = tokio::spawn(self.clone().participant_task(
+            Participant::Remote(participant.clone()),
+            participant.register_observer(),
+            close_rx,
+        ));
+        self.participants_tasks
+            .write()
+            .insert(sid.clone(), (participant_task, close_tx));
+
+        self.participants.write().insert(sid, participant.clone());
+        participant
+    }
+
+    /// A participant has disconnected
+    /// Cleanup the participant and emit an event
+    #[instrument(level = Level::DEBUG)]
+    fn handle_participant_disconnect(self: Arc<Self>, remote_participant: Arc<RemoteParticipant>) {
+        tokio::spawn(async move {
+            for (sid, _) in &*remote_participant.tracks() {
+                remote_participant.unpublish_track(&sid, true);
+            }
+
+            // Close the participant task
+            if let Some((task, close_tx)) = self
+                .participants_tasks
+                .write()
+                .remove(&remote_participant.sid())
+            {
+                let _ = close_tx.send(());
+                let _ = task.await;
+            }
+
+            self.participants.write().remove(&remote_participant.sid());
+
+            let _ = self.room_emitter.send(RoomEvent::ParticipantDisconnected(
+                remote_participant.clone(),
+            ));
+        });
     }
 
     fn get_participant(&self, sid: &ParticipantSid) -> Option<Arc<RemoteParticipant>> {

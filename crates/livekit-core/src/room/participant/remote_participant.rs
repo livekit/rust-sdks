@@ -1,24 +1,28 @@
-use crate::room::id::TrackSid;
+use super::ConnectionQuality;
+use crate::proto::{data_packet, DataPacket, ParticipantInfo, UserPacket};
+use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
 use crate::room::participant::{
-    impl_participant_trait, ParticipantInternalTrait, ParticipantShared,
+    impl_participant_trait, ParticipantEvent, ParticipantInternalTrait, ParticipantShared,
+    ParticipantTrait,
 };
 use crate::room::publication::{
     RemoteTrackPublication, TrackPublication, TrackPublicationInternalTrait, TrackPublicationTrait,
 };
-use crate::room::room_session::SessionEmitter;
-use crate::room::room_session::SessionEvent;
 use crate::room::track::remote_audio_track::RemoteAudioTrack;
 use crate::room::track::remote_track::RemoteTrackHandle;
 use crate::room::track::remote_video_track::RemoteVideoTrack;
 use crate::room::track::{TrackKind, TrackTrait};
-use crate::room::{RoomEvent, TrackError};
+use crate::room::TrackError;
 use livekit_webrtc::media_stream::MediaStreamTrackHandle;
+use parking_lot::RwLockReadGuard;
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tracing::{debug, error, instrument, Level};
-
-use super::ParticipantTrait;
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -33,10 +37,9 @@ impl RemoteParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
-        internal_tx: SessionEmitter,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata, internal_tx),
+            shared: ParticipantShared::new(sid, identity, name, metadata),
         }
     }
 
@@ -48,6 +51,18 @@ impl RemoteParticipant {
                 unreachable!()
             }
         })
+    }
+
+    /// Called by the RoomSession when receiving data by the RTCSession
+    /// It is just used to emit the Data event on the participant dispatcher.
+    pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: data_packet::Kind) {
+        self.shared
+            .dispatcher
+            .lock()
+            .dispatch(&ParticipantEvent::DataReceived {
+                payload: data,
+                kind,
+            });
     }
 
     #[instrument(level = Level::DEBUG)]
@@ -107,30 +122,57 @@ impl RemoteParticipant {
                 .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
             track.start();
 
-            let _ = self
-                .shared
-                .internal_tx
-                .send(SessionEvent::Room(RoomEvent::TrackSubscribed {
+            self.shared
+                .dispatcher
+                .lock()
+                .dispatch(&ParticipantEvent::TrackSubscribed {
                     track: track,
                     publication: remote_publication,
-                    participant: self.clone(),
-                }));
+                });
         } else {
             error!("could not find published track with sid: {:?}", sid);
 
-            let _ = self.shared.internal_tx.send(SessionEvent::Room(
-                RoomEvent::TrackSubscriptionFailed {
+            self.shared
+                .dispatcher
+                .lock()
+                .dispatch(&ParticipantEvent::TrackSubscriptionFailed {
                     sid: sid.clone(),
                     error: TrackError::TrackNotFound(sid.clone().to_string()),
-                    participant: self.clone(),
-                },
-            ));
+                });
+        }
+    }
+
+    pub(crate) fn unpublish_track(self: &Arc<Self>, sid: &TrackSid, emit_events: bool) {
+        if let Some(publication) = self.get_track_publication(sid) {
+            // Unsubscribe to the track if needed
+            if let Some(track) = publication.track() {
+                track.stop();
+
+                self.shared
+                    .dispatcher
+                    .lock()
+                    .dispatch(&ParticipantEvent::TrackUnsubscribed {
+                        track: track.clone(),
+                        publication: publication.clone(),
+                    });
+            }
+
+            if emit_events {
+                self.shared
+                    .dispatcher
+                    .lock()
+                    .dispatch(&ParticipantEvent::TrackUnpublished {
+                        publication: publication.clone(),
+                    });
+            }
+
+            publication.update_track(None);
         }
     }
 }
 
 impl ParticipantInternalTrait for RemoteParticipant {
-    fn update_info(self: &Arc<Self>, info: ParticipantInfo) {
+    fn update_info(self: &Arc<Self>, info: ParticipantInfo, emit_events: bool) {
         self.shared.update_info(info.clone());
 
         let mut valid_tracks = HashSet::<TrackSid>::new();
@@ -142,17 +184,25 @@ impl ParticipantInternalTrait for RemoteParticipant {
                 self.shared
                     .add_track_publication(TrackPublication::Remote(publication.clone()));
 
-                // This is a new track, fire publish event
-                let _ =
+                // This is a new track, dispatch publish event
+                if emit_events {
                     self.shared
-                        .internal_tx
-                        .send(SessionEvent::Room(RoomEvent::TrackPublished {
-                            publication: publication.clone(),
-                            participant: self.clone(),
-                        }));
+                        .dispatcher
+                        .lock()
+                        .dispatch(&ParticipantEvent::TrackPublished { publication });
+                }
             }
 
             valid_tracks.insert(track.sid.into());
+        }
+
+        // remove tracks that are no longer valid
+        for (sid, _) in self.shared.tracks.read().iter() {
+            if valid_tracks.contains(sid) {
+                continue;
+            }
+
+            self.unpublish_track(sid, emit_events);
         }
     }
 
@@ -163,7 +213,7 @@ impl ParticipantInternalTrait for RemoteParticipant {
     fn set_audio_level(&self, level: f32) {
         self.shared.set_audio_level(level);
     }
-    
+
     fn set_connection_quality(&self, quality: ConnectionQuality) {
         self.shared.set_connection_quality(quality);
     }

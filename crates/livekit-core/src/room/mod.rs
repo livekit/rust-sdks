@@ -3,7 +3,7 @@ use self::room_session::{ConnectionState, RoomSession, SessionHandle};
 use crate::proto::data_packet;
 use crate::room::id::TrackSid;
 use crate::room::participant::remote_participant::RemoteParticipant;
-use crate::room::participant::ParticipantHandle;
+use crate::room::participant::Participant;
 use crate::room::publication::RemoteTrackPublication;
 use crate::room::publication::TrackPublication;
 use crate::room::track::remote_track::RemoteTrackHandle;
@@ -68,21 +68,21 @@ pub enum RoomEvent {
     },
     TrackMuted {
         publication: TrackPublication,
-        participant: ParticipantHandle,
+        participant: Participant,
     },
     TrackUnmuted {
         publication: TrackPublication,
-        participant: ParticipantHandle,
+        participant: Participant,
     },
     ActiveSpeakersChanged {
-        speakers: Vec<ParticipantHandle>,
+        speakers: Vec<Participant>,
     },
     ConnectionQualityChanged {
         quality: ConnectionQuality,
-        participant: ParticipantHandle,
+        participant: Participant,
     },
     DataReceived {
-        payload: Vec<u8>,
+        payload: Arc<Vec<u8>>,
         kind: data_packet::Kind,
         participant: Arc<RemoteParticipant>,
     },

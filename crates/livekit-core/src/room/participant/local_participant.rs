@@ -1,10 +1,18 @@
-use crate::proto::{data_packet, DataPacket, UserPacket};
+use super::ConnectionQuality;
+use crate::proto::{data_packet, DataPacket, ParticipantInfo, UserPacket};
+use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
 use crate::room::participant::{
-    impl_participant_trait, ParticipantInternalTrait, ParticipantShared, ParticipantTrait,
+    impl_participant_trait, ParticipantEvent, ParticipantInternalTrait, ParticipantShared,
+    ParticipantTrait,
 };
-use crate::room::room_session::SessionEmitter;
+use crate::room::publication::TrackPublication;
 use crate::room::RoomError;
 use crate::rtc_engine::RTCEngine;
+use parking_lot::RwLockReadGuard;
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub struct LocalParticipant {
@@ -19,10 +27,9 @@ impl LocalParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
-        internal_tx: SessionEmitter,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata, internal_tx),
+            shared: ParticipantShared::new(sid, identity, name, metadata),
             rtc_engine,
         }
     }
@@ -49,7 +56,7 @@ impl LocalParticipant {
 }
 
 impl ParticipantInternalTrait for LocalParticipant {
-    fn update_info(self: &Arc<Self>, info: ParticipantInfo) {
+    fn update_info(self: &Arc<Self>, info: ParticipantInfo, _emit_events: bool) {
         self.shared.update_info(info);
     }
 
