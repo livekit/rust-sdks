@@ -149,10 +149,8 @@ async fn room_task(
 ) {
     loop {
         tokio::select! {
-            event = room_events.recv() => {
-                if let Some(event) = event {
-                    let _ = ui_cmd_tx.send(UiCmd::RoomEvent{event});
-                }
+            Some(event) = room_events.recv() => {
+                let _ = ui_cmd_tx.send(UiCmd::RoomEvent{event});
             }
             _ = &mut close_rx => {
                 //break;
