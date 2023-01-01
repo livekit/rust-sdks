@@ -109,6 +109,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
                                 tokio::spawn(room_task(
                                     state.clone(),
                                     room_events,
+                                    close_rx,
                                     ui_cmd_tx.clone(),
                                 ));
 
@@ -123,7 +124,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
                     }
                     AsyncCmd::SimulateScenario { scenario } => {
                         if let Some((room, _)) = state.room.lock().as_ref() {
-                            room.session().simulate_scenario(scenario).await;
+                            let _ = room.session().simulate_scenario(scenario).await;
                         }
                     }
                 }
@@ -140,12 +141,20 @@ pub fn run(rt: tokio::runtime::Runtime) {
 }
 
 async fn room_task(
-    app_state: Arc<AppState>,
+    _app_state: Arc<AppState>,
     mut room_events: RoomEvents,
+    mut close_rx: oneshot::Receiver<()>,
     ui_cmd_tx: mpsc::UnboundedSender<UiCmd>,
 ) {
-    while let Some(event) = room_events.recv().await {
-        let _ = ui_cmd_tx.send(UiCmd::RoomEvent { event });
+    loop {
+        tokio::select! {
+            Some(event) = room_events.recv() => {
+                let _ = ui_cmd_tx.send(UiCmd::RoomEvent { event });
+            }
+            _ = &mut close_rx => {
+                break;
+            }
+        }
     }
 }
 
