@@ -199,7 +199,7 @@ impl SessionInner {
                                 error!("failed to handle participant event for {:?}: {:?}", participant.sid(), err);
                             }
                         },
-                        _ => panic!("engine_events has been closed unexpectedly")
+                        _ => panic!("participant_events has been closed unexpectedly")
                     };
                 },
                 _ = &mut close_rx => {
