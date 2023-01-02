@@ -2,11 +2,12 @@ use livekit_webrtc::data_channel::{DataChannel, OnMessageHandler};
 use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
 use livekit_webrtc::media_stream::MediaStream;
 use livekit_webrtc::peer_connection::{
-    OnAddTrackHandler, OnConnectionChangeHandler, OnDataChannelHandler, OnIceCandidateHandler,
-    PeerConnectionState,
+    OnAddTrackHandler, OnConnectionChangeHandler, OnDataChannelHandler, OnIceCandidateErrorHandler,
+    OnIceCandidateHandler, PeerConnectionState,
 };
 use livekit_webrtc::rtp_receiver::RtpReceiver;
 use tokio::sync::mpsc;
+use tracing::error;
 
 use crate::proto::SignalTarget;
 use crate::rtc_engine::pc_transport::OnOfferHandler;
@@ -93,6 +94,18 @@ fn on_add_track(target: SignalTarget, emitter: RTCEmitter) -> OnAddTrackHandler 
     })
 }
 
+fn on_ice_candidate_error(
+    target: SignalTarget,
+    _emitter: RTCEmitter,
+) -> OnIceCandidateErrorHandler {
+    Box::new(move |address, port, url, error_code, error_text| {
+        error!(
+            "ICE candidate error ({:?}): address: {} - port: {} - url: {} - error_code: {} - error_text: {}",
+            target, address, port, url, error_code, error_text
+        );
+    })
+}
+
 pub fn forward_pc_events(transport: &mut PCTransport, rtc_emitter: RTCEmitter) {
     let signal_target = transport.signal_target();
     transport
@@ -110,6 +123,10 @@ pub fn forward_pc_events(transport: &mut PCTransport, rtc_emitter: RTCEmitter) {
     transport
         .peer_connection()
         .on_connection_change(on_connection_change(signal_target, rtc_emitter.clone()));
+
+    transport
+        .peer_connection()
+        .on_ice_candidate_error(on_ice_candidate_error(signal_target, rtc_emitter.clone()));
 
     transport.on_offer(on_offer(transport.signal_target(), rtc_emitter.clone()));
 }

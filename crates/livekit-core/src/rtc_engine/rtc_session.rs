@@ -132,7 +132,6 @@ struct SessionInner {
 
     emitter: SessionEmitter,
 }
-
 /// This struct holds a WebRTC session
 /// The session changes at every reconnection
 ///
