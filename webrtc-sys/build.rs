@@ -20,7 +20,13 @@ fn download_prebuilt(
         _ => target_arch,
     };
 
-    let file_name = format!("webrtc.{}_{}.tar.gz", target_os, target_arch);
+    let file_ext = if target_os == "windows" {
+        "zip"
+    } else {
+        "tar.gz"
+    };
+
+    let file_name = format!("webrtc.{}_{}.{}", target_os, target_arch, file_ext);
     let file_url = format!(
         "https://github.com/webrtc-sdk/webrtc-build/releases/download/{}/{}",
         WEBRTC_TAG, file_name
@@ -54,9 +60,36 @@ fn download_prebuilt(
 
         // Extract the archive
         let file = fs::File::open(&file_path)?;
-        let unzipped = GzDecoder::new(file);
-        let mut a = Archive::new(unzipped);
-        a.unpack(&out_path)?;
+        if file_ext == "zip" {
+            let mut archive = zip::ZipArchive::new(file)?;
+            for i in 0..archive.len() {
+                let mut inner_file = archive.by_index(i)?;
+                let relative_path = inner_file.mangled_name();
+
+                if relative_path.to_string_lossy().is_empty() {
+                    continue; // Ignore root
+                }
+
+                let extracted_file = out_path.join(relative_path);
+                if inner_file.name().ends_with('/') {
+                    // Directory
+                    fs::create_dir_all(&extracted_file)?;
+                } else {
+                    // File
+                    if let Some(p) = extracted_file.parent() {
+                        if !p.exists() {
+                            fs::create_dir_all(&p)?;
+                        }
+                    }
+                    let mut outfile = fs::File::create(&extracted_file)?;
+                    io::copy(&mut inner_file, &mut outfile)?;
+                }
+            }
+        } else if file_ext == "tar.gz" {
+            let unzipped = GzDecoder::new(file);
+            let mut a = Archive::new(unzipped);
+            a.unpack(&out_path)?;
+        }
     }
 
     Ok(out_path.join("webrtc"))
@@ -166,8 +199,8 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=IOKit");
             println!("cargo:rustc-link-lib=framework=IOSurface");
             println!("cargo:rustc-link-lib=static=webrtc");
-            println!("cargo:rustc-link-lib=dylib=c++");
             println!("cargo:rustc-link-lib=clang_rt.osx");
+            println!("cargo:rustc-link-arg=-ObjC");
 
             let output = Command::new("clang")
                 .arg("--print-search-dirs")
@@ -187,6 +220,7 @@ fn main() {
             builder
                 .flag("-stdlib=libc++")
                 .flag("-std=c++17")
+                .flag("-ObjC++")
                 .define("WEBRTC_ENABLE_OBJC_SYMBOL_EXPORT", None)
                 .define("WEBRTC_POSIX", None)
                 .define("WEBRTC_MAC", None);

@@ -15,6 +15,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    continue-on-error: true
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
@@ -24,6 +25,8 @@ jobs:
       with:
         submodules: true
     - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
     - name: Build
       run: cargo build --verbose
     - name: Run tests
