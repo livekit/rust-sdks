@@ -613,7 +613,8 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.20.0"
-source = "git+https://github.com/emilk/egui#34f587d1e1cc69146f7a02f20903e4f573030ffd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b601108bca3af7650440ace4ca55b2daf52c36f2635be3587d77b16efd8d0691"
 dependencies = [
  "bytemuck",
 ]
@@ -621,7 +622,8 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.20.1"
-source = "git+https://github.com/emilk/egui#34f587d1e1cc69146f7a02f20903e4f573030ffd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65a5e883a316e53866977450eecfbcac9c48109c2ab3394af29feb83fcde4ea9"
 dependencies = [
  "ahash 0.8.2",
  "epaint",
@@ -632,10 +634,12 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.20.0"
-source = "git+https://github.com/emilk/egui#34f587d1e1cc69146f7a02f20903e4f573030ffd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3a6edfac4c02455f5024dc7cda997629b94748571935773d1a0cfab8213c80a"
 dependencies = [
  "bytemuck",
- "epaint",
+ "egui",
+ "pollster",
  "tracing",
  "type-map",
  "wgpu",
@@ -645,7 +649,8 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.20.1"
-source = "git+https://github.com/emilk/egui#34f587d1e1cc69146f7a02f20903e4f573030ffd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5696bdbe60898b81157f07ae34fe02dbfd522174bd6e620942c269cd7307901f"
 dependencies = [
  "arboard",
  "egui",
@@ -665,7 +670,8 @@ checksum = "90e5c1c8368803113bf0c9584fc495a58b86dc8a29edbf8fe877d21d9507e797"
 [[package]]
 name = "emath"
 version = "0.20.0"
-source = "git+https://github.com/emilk/egui#34f587d1e1cc69146f7a02f20903e4f573030ffd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5277249c8c3430e7127e4f2c40a77485e7baf11ae132ce9b3253a8ed710df0a0"
 dependencies = [
  "bytemuck",
 ]
@@ -673,7 +679,8 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.20.0"
-source = "git+https://github.com/emilk/egui#34f587d1e1cc69146f7a02f20903e4f573030ffd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de14b65fe5e423e0058f77a8beb2c863b056d0566d6c4ce0d097aa5814cb705a"
 dependencies = [
  "ab_glyph",
  "ahash 0.8.2",
@@ -1691,6 +1698,12 @@ dependencies = [
  "flate2",
  "miniz_oxide",
 ]
+
+[[package]]
+name = "pollster"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5da3b0203fd7ee5720aa0b5e790b591aa5d3f41c3ed2c34a3a393382198af2f7"
 
 [[package]]
 name = "ppv-lite86"
