@@ -5,7 +5,7 @@ edition = "2021"
 homepage = "https://livekit.io"
 
 [dependencies]
-libwebrtc-sys = { path = "./libwebrtc-sys" }
+webrtc-sys = { path = "../webrtc-sys" }
 livekit-utils = { path = "../livekit-utils" }
 tokio = { version = "1", features = ["full"] }
 cxx = "1.0"

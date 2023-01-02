@@ -1,18 +1,8 @@
-[package]
-name = "livekit"
-version = "0.1.0"
-edition = "2021"
-repository = "https://github.com/livekit/client-sdk-native"
-
 [workspace]
-exclude = ["libwebrtc"]
 members = [
-    "crates/livekit-core",
-    "crates/livekit-webrtc",
-    "crates/livekit-utils",
-    "crates/livekit-webrtc/libwebrtc-sys"
+    "livekit",
+    "livekit-webrtc",
+    "livekit-utils",
+    "webrtc-sys"
 ]
 
-[dependencies]
-livekit-core = { path = "crates/livekit-core" }
-livekit-webrtc = { path = "crates/livekit-webrtc" }

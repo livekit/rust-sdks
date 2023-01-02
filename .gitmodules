@@ -1,3 +1,0 @@
-[submodule "crates/livekit-core/protocol"]
-	path = crates/livekit-core/protocol
-	url = https://github.com/livekit/protocol
