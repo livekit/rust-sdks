@@ -60,9 +60,36 @@ fn download_prebuilt(
 
         // Extract the archive
         let file = fs::File::open(&file_path)?;
-        let unzipped = GzDecoder::new(file);
-        let mut a = Archive::new(unzipped);
-        a.unpack(&out_path)?;
+        if file_ext == "zip" {
+            let mut archive = zip::ZipArchive::new(file)?;
+            for i in 0..archive.len() {
+                let mut inner_file = archive.by_index(i)?;
+                let relative_path = inner_file.mangled_name();
+
+                if relative_path.to_string_lossy().is_empty() {
+                    continue; // Ignore root
+                }
+
+                let extracted_file = out_path.join(relative_path);
+                if inner_file.name().ends_with('/') {
+                    // Directory
+                    fs::create_dir_all(&extracted_file)?;
+                } else {
+                    // File
+                    if let Some(p) = extracted_file.parent() {
+                        if !p.exists() {
+                            fs::create_dir_all(&p)?;
+                        }
+                    }
+                    let mut outfile = fs::File::create(&extracted_file)?;
+                    io::copy(&mut inner_file, &mut outfile)?;
+                }
+            }
+        } else if file_ext == "tar.gz" {
+            let unzipped = GzDecoder::new(file);
+            let mut a = Archive::new(unzipped);
+            a.unpack(&out_path)?;
+        }
     }
 
     Ok(out_path.join("webrtc"))
