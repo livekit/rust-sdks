@@ -1,5 +1,5 @@
 use cxx::UniquePtr;
-use libwebrtc_sys::video_frame as vf_sys;
+use webrtc_sys::video_frame as vf_sys;
 
 pub use vf_sys::ffi::VideoRotation;
 

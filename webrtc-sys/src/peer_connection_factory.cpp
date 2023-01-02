@@ -12,7 +12,7 @@
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
-#include "libwebrtc-sys/src/peer_connection_factory.rs.h"
+#include "webrtc-sys/src/peer_connection_factory.rs.h"
 #include "livekit/rtc_error.h"
 #include "media/engine/webrtc_media_engine.h"
 

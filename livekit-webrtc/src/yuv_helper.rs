@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use libwebrtc_sys::yuv_helper as yuv_sys;
+use webrtc_sys::yuv_helper as yuv_sys;
 
 pub fn i420_to_abgr(
     src_y: &[u8],

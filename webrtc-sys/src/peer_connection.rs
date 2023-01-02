@@ -98,7 +98,7 @@ pub mod ffi {
         include!("livekit/rtp_transceiver.h");
         include!("livekit/media_stream.h");
         include!("livekit/candidate.h");
-        include!("libwebrtc-sys/src/rtc_error.rs.h");
+        include!("webrtc-sys/src/rtc_error.rs.h");
 
         type RTCError = crate::rtc_error::ffi::RTCError;
         type Candidate = crate::candidate::ffi::Candidate;

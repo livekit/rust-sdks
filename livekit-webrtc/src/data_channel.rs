@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use cxx::UniquePtr;
 use log::trace;
 
-use libwebrtc_sys::data_channel as sys_dc;
 pub use sys_dc::ffi::{DataState, Priority};
+use webrtc_sys::data_channel as sys_dc;
 
 pub struct DataChannel {
     cxx_handle: UniquePtr<sys_dc::ffi::DataChannel>,

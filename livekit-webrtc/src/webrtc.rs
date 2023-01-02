@@ -1,6 +1,6 @@
 use cxx::SharedPtr;
 
-use libwebrtc_sys::webrtc as sys_rtc;
+use webrtc_sys::webrtc as sys_rtc;
 
 #[derive(Clone)]
 pub struct RTCRuntime {

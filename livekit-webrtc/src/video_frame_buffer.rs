@@ -1,9 +1,9 @@
 use cxx::UniquePtr;
-use libwebrtc_sys::video_frame_buffer as vfb_sys;
 use livekit_utils::enum_dispatch;
 use std::pin::Pin;
 use std::slice;
 use vfb_sys::ffi::VideoFrameBufferType;
+use webrtc_sys::video_frame_buffer as vfb_sys;
 
 pub trait VideoFrameBufferTrait {
     fn width(&self) -> i32;

@@ -21,6 +21,7 @@
 - `livekit-utils`: Shared utilities between our crates
 - `livekit-ffi`: Use `livekit-core` on foreign languages
 - `livekit-webrtc`: Safe Rust bindings to libwebrtc 
+- `webrtc-sys`: Unsafe bindings to libwebrtc 
 
 ## Design Goals
 - Be used as a common core across our native SDKs

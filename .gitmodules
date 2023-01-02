@@ -1,0 +1,3 @@
+[submodule "livekit/protocol"]
+	path = livekit/protocol
+	url = https://github.com/livekit/protocol

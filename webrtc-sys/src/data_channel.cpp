@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "libwebrtc-sys/src/data_channel.rs.h"
+#include "webrtc-sys/src/data_channel.rs.h"
 
 namespace livekit {
 

@@ -7,7 +7,7 @@
 #include <iomanip>
 #include <memory>
 
-#include "libwebrtc-sys/src/jsep.rs.h"
+#include "webrtc-sys/src/jsep.rs.h"
 #include "livekit/rtc_error.h"
 
 namespace livekit {

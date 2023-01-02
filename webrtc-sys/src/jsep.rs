@@ -40,7 +40,7 @@ pub mod ffi {
     }
 
     unsafe extern "C++" {
-        include!("libwebrtc-sys/src/rtc_error.rs.h");
+        include!("webrtc-sys/src/rtc_error.rs.h");
         include!("livekit/jsep.h");
 
         type RTCError = crate::rtc_error::ffi::RTCError;

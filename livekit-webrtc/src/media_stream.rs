@@ -1,10 +1,10 @@
 use cxx::UniquePtr;
-use libwebrtc_sys::media_stream as sys_ms;
-use libwebrtc_sys::MEDIA_TYPE_VIDEO;
 use livekit_utils::enum_dispatch;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use webrtc_sys::media_stream as sys_ms;
+use webrtc_sys::MEDIA_TYPE_VIDEO;
 
 pub use sys_ms::ffi::ContentHint;
 pub use sys_ms::ffi::TrackState;
@@ -146,7 +146,7 @@ impl From<sys_ms::ffi::VideoTrackSourceConstraints> for VideoTrackSourceConstrai
 }
 
 impl sys_ms::VideoFrameSink for InternalVideoTrackSink {
-    fn on_frame(&self, frame: UniquePtr<libwebrtc_sys::video_frame::ffi::VideoFrame>) {
+    fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         if let Some(cb) = self.on_frame_handler.lock().unwrap().as_mut() {
             let frame = VideoFrame::new(frame);
             let video_frame_buffer = unsafe { frame.video_frame_buffer() };

@@ -5,7 +5,7 @@
 #include "livekit/peer_connection.h"
 #include "livekit/media_stream.h"
 
-#include "libwebrtc-sys/src/peer_connection.rs.h"
+#include "webrtc-sys/src/peer_connection.rs.h"
 #include "livekit/rtc_error.h"
 
 namespace livekit {

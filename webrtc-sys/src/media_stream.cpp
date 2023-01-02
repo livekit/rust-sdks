@@ -5,7 +5,7 @@
 #include "livekit/media_stream.h"
 
 #include "api/media_stream_interface.h"
-#include "libwebrtc-sys/src/media_stream.rs.h"
+#include "webrtc-sys/src/media_stream.rs.h"
 
 namespace livekit {
 
