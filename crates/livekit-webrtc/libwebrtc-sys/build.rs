@@ -1,72 +1,93 @@
+use curl::easy::Easy;
+use flate2::read::GzDecoder;
 use regex::Regex;
 use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path;
 use std::process::Command;
+use tar::Archive;
 
-const MAC_SDKS: &str =
-    "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs";
+const WEBRTC_TAG: &str = "m104.5112.06";
 
-fn get_mac_sysroot() -> String {
-    let mut sdks: Vec<String> = vec![];
-    let files = fs::read_dir(MAC_SDKS).unwrap();
-    for entry in files {
-        let entry = entry.unwrap();
-        let filename = entry.file_name().to_str().unwrap().to_owned();
-        sdks.push(filename);
+fn download_prebuilt(
+    target_os: &str,
+    target_arch: &str,
+    out_path: std::path::PathBuf,
+) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let target_arch = match target_arch {
+        "aarch64" => "arm64",
+        _ => target_arch,
+    };
+
+    let file_name = format!("webrtc.{}_{}.tar.gz", target_os, target_arch);
+    let file_url = format!(
+        "https://github.com/webrtc-sdk/webrtc-build/releases/download/{}/{}",
+        WEBRTC_TAG, file_name
+    );
+    let file_path = out_path.join(&file_name);
+
+    if !out_path.exists() {
+        fs::create_dir(&out_path)?;
     }
 
-    sdks = sdks
-        .iter()
-        .filter(|value| value.contains("MacOSX1"))
-        .map(|original| original.to_owned())
-        .collect();
+    // Download the release archive
+    if !file_path.exists() {
+        let file = fs::File::create(&file_path)?;
+        {
+            let mut writer = io::BufWriter::new(file);
+            let mut handle = Easy::new();
+            handle.url(&file_url)?;
+            handle.follow_location(true)?;
+            handle.write_function(move |data| Ok(writer.write(data).unwrap()))?;
+            handle.perform()?;
 
-    let last = sdks.last().unwrap();
-
-    format!("{}/{}", MAC_SDKS, &last)
-}
-
-fn macos_link_search_path() -> Option<String> {
-    let output = Command::new("clang")
-        .arg("--print-search-dirs")
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        // Failed to run 'clang --print-search-dirs'.
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if line.contains("libraries: =") {
-            let path = line.split('=').nth(1)?;
-            return Some(format!("{}/lib/darwin", path));
+            let response_code = handle.response_code()?;
+            if response_code != 200 {
+                fs::remove_file(&file_path)?;
+                Err(format!(
+                    "Failed to download WebRTC-SDK (Status: {}) {}",
+                    response_code, file_url
+                ))?
+            }
         }
+
+        // Extract the archive
+        let file = fs::File::open(&file_path)?;
+        let unzipped = GzDecoder::new(file);
+        let mut a = Archive::new(unzipped);
+        a.unpack(&out_path)?;
     }
 
-    // Failed to determine link search path.
-    None
+    Ok(out_path.join("webrtc"))
 }
 
 fn main() {
-    // TODO Download precompiled binaries of WebRTC for the target_os
-    let target_os = "windows";
-    //let target_arch = "arm64";
+    // Download the prebuilt WebRTC library.
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let install_directory = env::var("OUT_DIR").unwrap() + "/webrtc-sdk";
 
-    let libwebrtc_dir = path::PathBuf::from("libwebrtc/src");
+    let webrtc_dir = download_prebuilt(
+        &target_os,
+        &target_arch,
+        path::PathBuf::from(install_directory),
+    )
+    .unwrap();
+
+    let webrtc_include = webrtc_dir.join("include");
+    let webrtc_lib = webrtc_dir.join("lib");
 
     // Just required for the bridge build to succeed.
     let includes = &[
         path::PathBuf::from("./include"),
-        libwebrtc_dir.clone(),
-        libwebrtc_dir.join("third_party/abseil-cpp/"),
-        libwebrtc_dir.join("third_party/libyuv/include/"),
-        libwebrtc_dir.join("third_party/libc++/"),
+        webrtc_include.clone(),
+        webrtc_include.join("third_party/abseil-cpp/"),
+        webrtc_include.join("third_party/libyuv/include/"),
+        webrtc_include.join("third_party/libc++/"),
         // For mac & ios
-        libwebrtc_dir.join("sdk/objc"),
-        libwebrtc_dir.join("sdk/objc/base"),
+        webrtc_include.join("sdk/objc"),
+        webrtc_include.join("sdk/objc/base"),
     ];
 
     let mut builder = cxx_build::bridges(&[
@@ -102,15 +123,10 @@ fn main() {
 
     println!(
         "cargo:rustc-link-search=native={}",
-        libwebrtc_dir
-            .join("out/Default/obj")
-            .canonicalize()
-            .unwrap()
-            .to_str()
-            .unwrap()
+        webrtc_lib.canonicalize().unwrap().to_str().unwrap()
     );
 
-    match target_os {
+    match &target_os as &str {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
             println!("cargo:rustc-link-lib=dylib=wmcodecdspuuid");
@@ -135,7 +151,6 @@ fn main() {
                 .define("NOMINMAX", None);
         }
         "macos" => {
-            println!("cargo:rustc-link-lib=dylib=c++");
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
@@ -151,19 +166,30 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=IOKit");
             println!("cargo:rustc-link-lib=framework=IOSurface");
             println!("cargo:rustc-link-lib=static=webrtc");
+            println!("cargo:rustc-link-lib=dylib=c++");
+            println!("cargo:rustc-link-lib=clang_rt.osx");
+
+            let output = Command::new("clang")
+                .arg("--print-search-dirs")
+                .output()
+                .ok()
+                .unwrap();
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if line.contains("libraries: =") {
+                    let path = line.split('=').nth(1).unwrap();
+                    let path = format!("{}/lib/darwin", path);
+                    println!("cargo:rustc-link-search={}", path);
+                }
+            }
 
             builder
                 .flag("-stdlib=libc++")
                 .flag("-std=c++17")
-                .flag(format!("-isysroot{}", get_mac_sysroot()).as_str())
                 .define("WEBRTC_ENABLE_OBJC_SYMBOL_EXPORT", None)
                 .define("WEBRTC_POSIX", None)
                 .define("WEBRTC_MAC", None);
-
-            if let Some(path) = macos_link_search_path() {
-                println!("cargo:rustc-link-lib=clang_rt.osx");
-                println!("cargo:rustc-link-search={}", path);
-            }
         }
         "ios" => {
             builder
@@ -205,7 +231,7 @@ fn main() {
             // Find JNI symbols
             let readelf_output = std::process::Command::new(toolchain.join("bin/llvm-readelf"))
                 .arg("-Ws")
-                .arg(libwebrtc_dir.join("libwebrtc.a"))
+                .arg(webrtc_lib.join("/libwebrtc.a"))
                 .output()
                 .expect("failed to run llvm-readelf");
 
