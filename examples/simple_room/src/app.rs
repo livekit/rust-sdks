@@ -62,7 +62,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
         let mut egui_painter = egui_wgpu::winit::Painter::new(WgpuConfiguration::default(), 1, 32);
 
         unsafe {
-            egui_painter.set_window(Some(&window)).await.unwrap();
+            egui_painter.set_window(Some(&window));
         }
 
         let (async_cmd_tx, mut async_cmd_rx) = mpsc::unbounded_channel::<AsyncCmd>();
