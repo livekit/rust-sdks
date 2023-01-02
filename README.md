@@ -16,13 +16,19 @@
    - NvEnc for Windows
    - VideoToolbox for MacOS/iOS
 
+## Crates
+- `livekit-core`: LiveKit protocol implementation
+- `livekit-utils`: Shared utilities between our crates
+- `livekit-ffi`: Use `livekit-core' on foreign languages
+- `livekit-webrtc`: Safe Rust bindings to libwebrtc 
+
 ## Design Goals
 - Be used as a common core across our native SDKs
 - Create Client SDKs more quickly for different languages
 - Be used as a standalone cross-platform SDK
 
 ## Getting started
-Tokio is required to use the SDK, we have plan to make the async executor agnostic 
+Tokio is required to use the SDK, we have plan to make the async executor agnostic
 ### Connecting to a Room and listen to events:
 ```rust
 #[tokio::main]
@@ -41,3 +47,6 @@ async fn main() -> Result<()> {
    Ok(())
 }
 ```
+
+## Examples
+We made [simple room](https://github.com/livekit/client-sdk-native/tree/main/examples/simple_room) demo using all features of the SDK. We render videos using wgpu and egui.
