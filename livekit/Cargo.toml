@@ -3,6 +3,7 @@ name = "livekit"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+description = "Native SDK for LiveKit"
 
 [dependencies]
 livekit-webrtc = { path = "../livekit-webrtc", version = "0.1.0" }

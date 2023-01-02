@@ -3,6 +3,8 @@ name = "livekit-webrtc"
 version = "0.1.0"
 edition = "2021"
 homepage = "https://livekit.io"
+license = "Apache-2.0"
+description = "Livekit safe bindings to libwebrtc"
 
 [dependencies]
 webrtc-sys = { path = "../webrtc-sys", version = "0.1.0" }
