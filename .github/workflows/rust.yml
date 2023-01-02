@@ -16,6 +16,8 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
     - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose
