@@ -1,5 +1,6 @@
 # LiveKit: Native SDK
-
+![crates.io](https://img.shields.io/crates/v/livekit.svg)
+[![Tests & Build](https://github.com/livekit/client-sdk-native/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/rust.yml)
 > **Warning**
 > This SDK is a developer preview and is not ready for production use. There will be bugs and the APIs may change during this period.
 > All feedbacks/contributions are appreciated. You can create issues or discuss with us on the #rust-developer-preview channel in our [Slack](https://livekit.io/join-slack)
