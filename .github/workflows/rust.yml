@@ -25,6 +25,8 @@ jobs:
       with:
         submodules: true
     - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
     - name: Build
       run: cargo build --verbose
     - name: Run tests
