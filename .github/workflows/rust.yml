@@ -21,6 +21,8 @@ jobs:
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v3
+      with:
+        submodules: true
     - name: Build
       run: cargo build --verbose
     - name: Run tests
