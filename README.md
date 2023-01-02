@@ -65,6 +65,26 @@ async fn main() -> Result<()> {
 }
 ```
 
+### Receive video frames of a subscribed track
+
+```rust
+match event {
+   RoomEvent::TrackSubscribed { track, publication, participant } => {
+      if let RemoteTrackHandle::Video(video_track) => {
+          let rtc_track = video_track.rtc_track();
+            rtc_track.on_frame(Box::new(move |frame, buffer| {
+                // Just received a video frame!
+                // The buffer is YuvEncoded, you can decode it to ABGR by using our yuv_helper
+                // See the simple_room example for the conversion 
+            });
+      } else {
+          // Audio Track..
+      }
+   }
+   _ => {}
+}
+```
+
 ## Examples
 
 We made [simple room](https://github.com/livekit/client-sdk-native/tree/main/examples/simple_room) demo using all features of the SDK. We render videos using wgpu and egui.
