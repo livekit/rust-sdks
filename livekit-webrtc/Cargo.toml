@@ -1,0 +1,18 @@
+[package]
+name = "livekit-webrtc"
+version = "0.1.0"
+edition = "2021"
+homepage = "https://livekit.io"
+license = "Apache-2.0"
+description = "Livekit safe bindings to libwebrtc"
+
+[dependencies]
+webrtc-sys = { path = "../webrtc-sys", version = "0.1.0" }
+livekit-utils = { path = "../livekit-utils", version = "0.1.0" }
+tokio = { version = "1", features = ["full"] }
+cxx = "1.0"
+log = "0.4"
+thiserror = "1.0"
+
+[dev-dependencies]
+env_logger = "0.9"

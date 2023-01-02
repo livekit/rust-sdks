@@ -7,12 +7,12 @@ edition = "2021"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
-livekit = { path = "../.." }
+livekit = { path = "../../livekit", version = "0.1.0" }
 futures = "0.3"
 wgpu = "0.14.0"
 winit = "0.27.5"
 parking_lot = "0.12.1"
 
-egui = { git = "https://github.com/emilk/egui" }
-egui-wgpu = { git = "https://github.com/emilk/egui", features = ["winit"] }
-egui-winit = { git = "https://github.com/emilk/egui" }
+egui = "0.20.1"
+egui-wgpu = { version = "0.20.0", features = ["winit"] }
+egui-winit = "0.20.1"
