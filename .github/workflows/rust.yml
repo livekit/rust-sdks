@@ -1,4 +1,4 @@
-name: Rust
+name: Tests & Build
 
 on:
   push:
@@ -11,9 +11,9 @@ env:
 
 jobs:
   build:
-
-    runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
     steps:
     - uses: actions/checkout@v3
     - name: Build
