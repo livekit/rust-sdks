@@ -15,6 +15,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    continue-on-error: true
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v1

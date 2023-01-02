@@ -161,6 +161,7 @@ fn main() {
 
     match &target_os as &str {
         "windows" => {
+            println!("cargo:rustc-link-lib=dylib=c++");
             println!("cargo:rustc-link-lib=dylib=msdmo");
             println!("cargo:rustc-link-lib=dylib=wmcodecdspuuid");
             println!("cargo:rustc-link-lib=dylib=dmoguids");
