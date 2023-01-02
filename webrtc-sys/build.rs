@@ -172,6 +172,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=ws2_32");
             println!("cargo:rustc-link-lib=dylib=strmiids");
             println!("cargo:rustc-link-lib=dylib=d3d11");
+            println!("cargo:rustc-link-lib=dylib=gdi32");
             println!("cargo:rustc-link-lib=dylib=dxgi");
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=static=webrtc");
