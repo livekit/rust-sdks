@@ -72,7 +72,7 @@ match event {
    RoomEvent::TrackSubscribed { track, publication, participant } => {
       if let RemoteTrackHandle::Video(video_track) => {
           let rtc_track = video_track.rtc_track();
-              rtc_track.on_frame(Box::new(move |frame, buffer| {
+          rtc_track.on_frame(Box::new(move |frame, buffer| {
               // Just received a video frame!
               // The buffer is YuvEncoded, you can decode it to ABGR by using our yuv_helper
               // See the simple_room example for the conversion 
