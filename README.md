@@ -19,7 +19,7 @@
 ## Crates
 - `livekit-core`: LiveKit protocol implementation
 - `livekit-utils`: Shared utilities between our crates
-- `livekit-ffi`: Use `livekit-core' on foreign languages
+- `livekit-ffi`: Use `livekit-core` on foreign languages
 - `livekit-webrtc`: Safe Rust bindings to libwebrtc 
 
 ## Design Goals
