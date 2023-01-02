@@ -20,7 +20,13 @@ fn download_prebuilt(
         _ => target_arch,
     };
 
-    let file_name = format!("webrtc.{}_{}.tar.gz", target_os, target_arch);
+    let file_ext = if target_os == "windows" {
+        "zip"
+    } else {
+        "tar.gz"
+    };
+
+    let file_name = format!("webrtc.{}_{}.{}", target_os, target_arch, file_ext);
     let file_url = format!(
         "https://github.com/webrtc-sdk/webrtc-build/releases/download/{}/{}",
         WEBRTC_TAG, file_name
@@ -166,7 +172,6 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=IOKit");
             println!("cargo:rustc-link-lib=framework=IOSurface");
             println!("cargo:rustc-link-lib=static=webrtc");
-            println!("cargo:rustc-link-lib=dylib=c++");
             println!("cargo:rustc-link-lib=clang_rt.osx");
 
             let output = Command::new("clang")
@@ -187,6 +192,7 @@ fn main() {
             builder
                 .flag("-stdlib=libc++")
                 .flag("-std=c++17")
+                .flag("-ObjC++")
                 .define("WEBRTC_ENABLE_OBJC_SYMBOL_EXPORT", None)
                 .define("WEBRTC_POSIX", None)
                 .define("WEBRTC_MAC", None);
