@@ -203,14 +203,21 @@ fn main() {
             println!("cargo:rustc-link-lib=clang_rt.osx");
             println!("cargo:rustc-link-arg=-ObjC");
 
-            let output = Command::new("clang")
-                .arg("--print-search-dirs")
+            let sysroot = Command::new("xcrun")
+                .args(&["--sdk", "macosx", "--show-sdk-path"])
                 .output()
-                .ok()
                 .unwrap();
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
+            let sysroot = String::from_utf8_lossy(&sysroot.stdout);
+            let sysroot = sysroot.trim();
+
+            let search_dirs = Command::new("clang")
+                .arg("--print-search-dirs")
+                .output()
+                .unwrap();
+
+            let search_dirs = String::from_utf8_lossy(&search_dirs.stdout);
+            for line in search_dirs.lines() {
                 if line.contains("libraries: =") {
                     let path = line.split('=').nth(1).unwrap();
                     let path = format!("{}/lib/darwin", path);
@@ -221,7 +228,11 @@ fn main() {
             builder
                 .flag("-stdlib=libc++")
                 .flag("-std=c++17")
+<<<<<<< Updated upstream
                 .flag("-ObjC++")
+=======
+                .flag(format!("-isysroot{}", sysroot).as_str())
+>>>>>>> Stashed changes
                 .define("WEBRTC_ENABLE_OBJC_SYMBOL_EXPORT", None)
                 .define("WEBRTC_POSIX", None)
                 .define("WEBRTC_MAC", None);
