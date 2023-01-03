@@ -228,11 +228,7 @@ fn main() {
             builder
                 .flag("-stdlib=libc++")
                 .flag("-std=c++17")
-<<<<<<< Updated upstream
-                .flag("-ObjC++")
-=======
                 .flag(format!("-isysroot{}", sysroot).as_str())
->>>>>>> Stashed changes
                 .define("WEBRTC_ENABLE_OBJC_SYMBOL_EXPORT", None)
                 .define("WEBRTC_POSIX", None)
                 .define("WEBRTC_MAC", None);
