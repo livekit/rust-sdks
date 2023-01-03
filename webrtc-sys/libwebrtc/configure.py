@@ -1,10 +1,11 @@
+import platform
 import subprocess
 
 GN_ARGS = [
-    "is_debug=false",
+    "is_debug=true",
     "treat_warnings_as_errors=false",
-    'target_os="win"',
-    'target_cpu="x64"',
+    'target_os="mac"',
+    'target_cpu="arm64"',
     "rtc_include_tests=false",
     "rtc_use_h264=false",
     "is_component_build=false",
@@ -12,8 +13,8 @@ GN_ARGS = [
     "use_rtti=true",
     "rtc_build_tools=false",
     "use_custom_libcxx=false",
-    "strip_debug_info=true",
-    "symbol_level=0"
 ]
 
-subprocess.call(["gn", "gen", "out/Default", "--args=" + ' '.join(GN_ARGS)], shell=True)
+cmd = ["gn", "gen", "out/Dev", "--args=" + ' '.join(GN_ARGS)]
+print("Executing:", cmd)
+subprocess.call(cmd, shell=platform.system() == "Windows")

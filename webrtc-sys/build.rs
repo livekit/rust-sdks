@@ -13,8 +13,8 @@ const WEBRTC_TAG: &str = "m104.5112.06";
 fn download_prebuilt(
     target_os: &str,
     target_arch: &str,
-    out_path: std::path::PathBuf,
-) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    out_path: path::PathBuf,
+) -> Result<path::PathBuf, Box<dyn std::error::Error>> {
     let target_arch = match target_arch {
         "aarch64" => "arm64",
         _ => target_arch,
@@ -96,20 +96,27 @@ fn download_prebuilt(
 }
 
 fn main() {
-    // Download the prebuilt WebRTC library.
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let install_directory = env::var("OUT_DIR").unwrap() + "/webrtc-sdk";
 
-    let webrtc_dir = download_prebuilt(
-        &target_os,
-        &target_arch,
-        path::PathBuf::from(install_directory),
-    )
-    .unwrap();
+    let use_custom_webrtc = {
+        let var = env::var("LK_CUSTOM_WEBRTC");
+        var.is_ok() && var.unwrap() == "true"
+    };
 
-    let webrtc_include = webrtc_dir.join("include");
-    let webrtc_lib = webrtc_dir.join("lib");
+    let (webrtc_include, webrtc_lib) = if use_custom_webrtc {
+        // Use a local WebRTC version (libwebrtc folder)
+        let webrtc_dir = path::PathBuf::from("./libwebrtc");
+        (webrtc_dir.join("src"), webrtc_dir.join("src/out/Dev/obj"))
+    } else {
+        // Download a prebuilt version of WebRTC
+        let download_dir = env::var("OUT_DIR").unwrap() + "/webrtc-sdk";
+        let webrtc_dir =
+            download_prebuilt(&target_os, &target_arch, path::PathBuf::from(download_dir)).unwrap();
+
+        (webrtc_dir.join("include"), webrtc_dir.join("lib"))
+    };
+    println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
 
     // Just required for the bridge build to succeed.
     let includes = &[
@@ -271,7 +278,7 @@ fn main() {
             println!("cargo:rustc-link-lib=OpenSLES");
 
             // Find JNI symbols
-            let readelf_output = std::process::Command::new(toolchain.join("bin/llvm-readelf"))
+            let readelf_output = Command::new(toolchain.join("bin/llvm-readelf"))
                 .arg("-Ws")
                 .arg(webrtc_lib.join("/libwebrtc.a"))
                 .output()
