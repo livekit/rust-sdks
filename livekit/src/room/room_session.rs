@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tracing::{error, instrument, Level};
+use tracing::{error, info, instrument, Level};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionState {
@@ -253,7 +253,7 @@ impl SessionInner {
     #[instrument(level = Level::DEBUG)]
     async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
         match event {
-            EngineEvent::ParticipantUpdate(update) => self.handle_participant_update(update),
+            EngineEvent::ParticipantUpdate { updates } => self.handle_participant_update(updates),
             EngineEvent::MediaTrack {
                 track,
                 stream,
@@ -352,8 +352,9 @@ impl SessionInner {
     /// It'll create, update or remove a participant
     /// It also update the participant tracks.
     #[instrument(level = Level::DEBUG)]
-    fn handle_participant_update(self: &Arc<Self>, update: proto::ParticipantUpdate) {
-        for pi in update.participants {
+    fn handle_participant_update(self: &Arc<Self>, updates: Vec<proto::ParticipantInfo>) {
+        for pi in updates {
+            info!("test");
             if pi.sid == self.local_participant.sid()
                 || pi.identity == self.local_participant.identity()
             {
@@ -366,6 +367,7 @@ impl SessionInner {
             if let Some(remote_participant) = remote_participant {
                 if pi.state == participant_info::State::Disconnected as i32 {
                     // Participant disconnected
+                    info!("Participant disconnected: {}", pi.sid);
                     self.clone()
                         .handle_participant_disconnect(remote_participant)
                 } else {
@@ -374,6 +376,7 @@ impl SessionInner {
                 }
             } else {
                 // Create a new participant
+                info!("Participant connected: {}", pi.sid);
                 let remote_participant = {
                     let pi = pi.clone();
                     self.create_participant(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata)
@@ -478,9 +481,7 @@ impl SessionInner {
             self.local_participant.update_info(pi, true); // The sid may have changed
         }
 
-        self.handle_participant_update(proto::ParticipantUpdate {
-            participants: join_response.other_participants,
-        });
+        self.handle_participant_update(join_response.other_participants);
 
         // TODO(theomonnom): unpublish & republish tracks
     }

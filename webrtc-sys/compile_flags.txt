@@ -4,5 +4,6 @@
 -Ilibwebrtc/src
 -Ilibwebrtc/src/third_party/abseil-cpp
 -Ilibwebrtc/src/third_party/libc++
--I../../../target/cxxbridge
--DWEBRTC_WIN
+-I../target/cxxbridge
+-DWEBRTC_MAC
+-DWEBRTC_POSIX

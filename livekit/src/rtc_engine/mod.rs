@@ -69,7 +69,9 @@ pub enum EngineError {
 
 #[derive(Debug)]
 pub enum EngineEvent {
-    ParticipantUpdate(ParticipantUpdate),
+    ParticipantUpdate {
+        updates: Vec<proto::ParticipantInfo>,
+    },
     MediaTrack {
         track: MediaStreamTrackHandle,
         stream: MediaStream,
@@ -280,6 +282,12 @@ impl EngineInner {
                         stream,
                         receiver,
                     })
+                    .await;
+            }
+            SessionEvent::ParticipantUpdate { updates } => {
+                let _ = self
+                    .engine_emitter
+                    .send(EngineEvent::ParticipantUpdate { updates })
                     .await;
             }
             SessionEvent::SpeakersChanged { speakers } => {
