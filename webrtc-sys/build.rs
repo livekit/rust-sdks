@@ -187,6 +187,7 @@ fn main() {
             builder
                 .flag("/std:c++17")
                 .flag("/EHsc")
+                .static_crt(true)
                 .define("WEBRTC_WIN", None)
                 //.define("WEBRTC_ENABLE_SYMBOL_EXPORT", None) Not necessary when using WebRTC as a static library
                 .define("NOMINMAX", None);
