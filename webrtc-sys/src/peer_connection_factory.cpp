@@ -12,9 +12,9 @@
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
-#include "webrtc-sys/src/peer_connection_factory.rs.h"
 #include "livekit/rtc_error.h"
 #include "media/engine/webrtc_media_engine.h"
+#include "webrtc-sys/src/peer_connection_factory.rs.h"
 
 namespace livekit {
 
@@ -81,22 +81,25 @@ std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(
     RTCConfiguration conf) {
   auto rtc =
       std::make_unique<webrtc::PeerConnectionInterface::RTCConfiguration>();
-  for (auto& item : conf.ice_servers) {
+
+  for (auto item : conf.ice_servers) {
     webrtc::PeerConnectionInterface::IceServer ice_server;
     ice_server.username = item.username.c_str();
     ice_server.password = item.password.c_str();
 
-    for (auto& url : item.urls) {
+    for (auto url : item.urls) {
       ice_server.urls.emplace_back(url.c_str());
     }
-    rtc->servers.push_back(ice_server);
-    rtc->continual_gathering_policy =
-        static_cast<webrtc::PeerConnectionInterface::ContinualGatheringPolicy>(
-            conf.continual_gathering_policy);
 
-    rtc->type = static_cast<webrtc::PeerConnectionInterface::IceTransportsType>(
-        conf.ice_transport_type);
+    rtc->servers.push_back(ice_server);
   }
+
+  rtc->continual_gathering_policy =
+      static_cast<webrtc::PeerConnectionInterface::ContinualGatheringPolicy>(
+          conf.continual_gathering_policy);
+
+  rtc->type = static_cast<webrtc::PeerConnectionInterface::IceTransportsType>(
+      conf.ice_transport_type);
 
   return rtc;
 }

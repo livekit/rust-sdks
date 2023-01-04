@@ -43,6 +43,9 @@ pub type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
 
 #[derive(Debug)]
 pub enum SessionEvent {
+    ParticipantUpdate {
+        updates: Vec<proto::ParticipantInfo>,
+    },
     Data {
         participant_sid: String,
         payload: Vec<u8>,
@@ -420,6 +423,11 @@ impl SessionInner {
                     true,
                     true,
                 );
+            }
+            signal_response::Message::Update(update) => {
+                let _ = self.emitter.send(SessionEvent::ParticipantUpdate {
+                    updates: update.participants,
+                });
             }
             signal_response::Message::SpeakersChanged(speaker) => {
                 let _ = self.emitter.send(SessionEvent::SpeakersChanged {
