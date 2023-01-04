@@ -3,6 +3,7 @@ use livekit::room::{RoomEvent, RoomResult, SimulateScenario};
 #[derive(Debug)]
 pub enum AsyncCmd {
     RoomConnect { url: String, token: String },
+    RoomDisconnect,
     SimulateScenario { scenario: SimulateScenario },
 }
 
