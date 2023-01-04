@@ -1,6 +1,7 @@
 use crate::events::UiCmd;
 use crate::video_renderer::VideoRenderer;
 use crate::{events::AsyncCmd, video_grid::VideoGrid};
+use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
 use livekit::room::track::remote_track::RemoteTrackHandle;
 use parking_lot::Mutex;
@@ -344,8 +345,16 @@ impl App {
                                 });
                             }
                         } else {
+                            // Render participant videos
                             for video_renderer in &self.video_renderers {
                                 ui.video_frame(|ui| {
+                                    ui.painter().rect(
+                                        ui.available_rect_before_wrap(),
+                                        Rounding::none(),
+                                        egui::Color32::BLUE,
+                                        Stroke::NONE
+                                    );
+
                                     if let Some(tex) = video_renderer.texture_id() {
                                         ui.painter().image(
                                             tex,
