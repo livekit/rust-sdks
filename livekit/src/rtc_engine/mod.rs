@@ -16,7 +16,7 @@ use tokio::time::{interval, Interval};
 
 use lazy_static::lazy_static;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::proto::{
     self as proto, data_packet, DataPacket, JoinResponse, ParticipantUpdate, SpeakerInfo,
@@ -253,7 +253,14 @@ impl EngineInner {
                 if can_reconnect {
                     self.clone().try_reconnect(retry_now, full_reconnect);
                 } else {
-                    self.close().await;
+                    // Spawning a new task because the close function wait for the engine_task to
+                    // finish.
+                    tokio::spawn({
+                        let inner = self.clone();
+                        async move {
+                            inner.close().await;
+                        }
+                    });
                 }
             }
             SessionEvent::Data {
@@ -327,7 +334,6 @@ impl EngineInner {
             let (close_sender, close_receiver) = oneshot::channel();
             let engine_task =
                 tokio::spawn(self.clone().engine_task(session_events, close_receiver));
-
             *self.session_info.lock() = Some(session.info().clone());
             *self.running_handle.write().await = Some(EngineHandle {
                 session,

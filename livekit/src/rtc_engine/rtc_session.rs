@@ -133,6 +133,7 @@ struct SessionInner {
     // so we can receive data from other participants
     subscriber_dc: Mutex<Vec<DataChannel>>,
 
+    closed: AtomicBool,
     emitter: SessionEmitter,
 }
 /// This struct holds a WebRTC session
@@ -143,7 +144,7 @@ struct SessionInner {
 pub struct RTCSession {
     lk_runtime: Arc<LKRuntime>,
     inner: Arc<SessionInner>,
-    close_emitter: watch::Sender<bool>, // false = is_running
+    close_tx: watch::Sender<bool>, // false = is_running
     signal_task: JoinHandle<()>,
     rtc_task: JoinHandle<()>,
 }
@@ -210,7 +211,7 @@ impl RTCSession {
             join_response,
         };
 
-        let (close_emitter, close_receiver) = watch::channel(false);
+        let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
             info: session_info,
             pc_state: AtomicU8::new(PCState::New as u8),
@@ -221,16 +222,13 @@ impl RTCSession {
             lossy_dc,
             reliable_dc,
             subscriber_dc: Default::default(),
+            closed: Default::default(),
             emitter: session_emitter,
         });
 
         // Start session tasks
-        let signal_task = tokio::spawn(
-            inner
-                .clone()
-                .signal_task(signal_events, close_receiver.clone()),
-        );
-        let rtc_task = tokio::spawn(inner.clone().rtc_task(rtc_events, close_receiver.clone()));
+        let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
+        let rtc_task = tokio::spawn(inner.clone().rtc_task(rtc_events, close_rx.clone()));
 
         if !inner.info.join_response.subscriber_primary {
             inner.negotiate_publisher().await?;
@@ -239,7 +237,7 @@ impl RTCSession {
         let session = Self {
             lk_runtime,
             inner: inner.clone(),
-            close_emitter,
+            close_tx,
             signal_task,
             rtc_task,
         };
@@ -251,10 +249,10 @@ impl RTCSession {
     #[tracing::instrument]
     pub async fn close(self) {
         // Close the tasks
-        let _ = self.close_emitter.send(true);
+        self.inner.close().await;
+        let _ = self.close_tx.send(true);
         let _ = self.rtc_task.await;
         let _ = self.signal_task.await;
-        self.inner.close().await;
     }
 
     pub async fn publish_data(
@@ -562,6 +560,7 @@ impl SessionInner {
 
     #[tracing::instrument]
     async fn close(&self) {
+        self.closed.store(true, Ordering::Release);
         self.signal_client.close().await;
         self.publisher_pc.lock().await.close();
         self.subscriber_pc.lock().await.close();
@@ -675,12 +674,18 @@ impl SessionInner {
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
             while self.pc_state.load(Ordering::Acquire) != PCState::Connected as u8 {
+                if self.closed.load(Ordering::Acquire) {
+                    return Err(EngineError::Connection("closed".to_string()));
+                }
+
                 tokio::task::yield_now().await;
             }
+
+            Ok(())
         };
 
         tokio::select! {
-            _ = wait_connected => Ok(()),
+            res = wait_connected => res,
             _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("wait_pc_connection timed out".to_string());
                 Err(err)
@@ -725,13 +730,18 @@ impl SessionInner {
         // Wait until the PeerConnection is connected
         let wait_connected = async {
             while self.publisher_pc.lock().await.is_connected() && dc.state() == DataState::Open {
+                if self.closed.load(Ordering::Acquire) {
+                    return Err(EngineError::Connection("closed".to_string()));
+                }
+
                 tokio::task::yield_now().await;
             }
+
+            Ok(())
         };
 
-        // TODO(theomonnom) Avoid 15 seconds deadlock on the RTCEngine by recv close here
         tokio::select! {
-            _ = wait_connected => Ok(()),
+            res = wait_connected => res,
             _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
                 error!(error = ?err);
