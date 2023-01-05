@@ -3,17 +3,19 @@ use crate::video_renderer::VideoRenderer;
 use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
+use livekit::room::id::{ParticipantSid, TrackSid};
+use livekit::room::participant::ParticipantTrait;
+use livekit::room::room_session::ConnectionState;
 use livekit::room::track::remote_track::RemoteTrackHandle;
+use livekit::room::track::TrackTrait;
+use livekit::room::{Room, RoomEvent, RoomEvents, SimulateScenario};
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use tokio::sync::{mpsc, oneshot};
-use tracing::error;
-
-use livekit::room::room_session::ConnectionState;
-use livekit::room::{Room, RoomEvent, RoomEvents, SimulateScenario};
 
 // Useful default constants for developing
 const DEFAULT_URL: &str = "ws://localhost:7880";
@@ -28,14 +30,15 @@ use winit::{
 };
 
 struct AppState {
-    room: Mutex<Option<(Room, oneshot::Sender<()>)>>,
+    room: Mutex<Option<Room>>,
+    close_tx: Mutex<Option<oneshot::Sender<()>>>,
     connecting: AtomicBool,
 }
 
 struct App {
     state: Arc<AppState>,
 
-    video_renderers: Vec<VideoRenderer>,
+    video_renderers: HashMap<(ParticipantSid, TrackSid), VideoRenderer>,
     egui_context: egui::Context,
     egui_state: egui_winit::State,
     egui_painter: egui_wgpu::winit::Painter,
@@ -71,12 +74,13 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
         let state = Arc::new(AppState {
             room: Default::default(),
+            close_tx: Default::default(),
             connecting: AtomicBool::new(false),
         });
 
         let mut app = App {
             state: state.clone(),
-            video_renderers: Vec::default(),
+            video_renderers: HashMap::default(),
             egui_context,
             egui_state,
             egui_painter,
@@ -94,9 +98,8 @@ pub fn run(rt: tokio::runtime::Runtime) {
             while let Some(event) = async_cmd_rx.recv().await {
                 match event {
                     AsyncCmd::RoomConnect { url, token } => {
-                        if let Some((room, close_tx)) = state.room.lock().take() {
-                            // Close the Room if already connected
-                            let _ = room.close().await;
+                        if let Some(close_tx) = state.close_tx.lock().take() {
+                            let _ = state.room.lock().take().unwrap().close().await;
                             let _ = close_tx.send(());
                         }
 
@@ -106,7 +109,8 @@ pub fn run(rt: tokio::runtime::Runtime) {
                         match res {
                             Ok((room, room_events)) => {
                                 let (close_tx, close_rx) = oneshot::channel();
-                                state.room.lock().replace((room, close_tx));
+                                state.room.lock().replace(room);
+                                state.close_tx.lock().replace(close_tx);
 
                                 tokio::spawn(room_task(
                                     state.clone(),
@@ -124,8 +128,14 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
                         state.connecting.store(false, Ordering::SeqCst);
                     }
+                    AsyncCmd::RoomDisconnect => {
+                        if let Some(close_tx) = state.close_tx.lock().take() {
+                            let _ = state.room.lock().take().unwrap().close().await;
+                            let _ = close_tx.send(());
+                        }
+                    }
                     AsyncCmd::SimulateScenario { scenario } => {
-                        if let Some((room, _)) = state.room.lock().as_ref() {
+                        if let Some(room) = state.room.lock().as_ref() {
                             let _ = room.session().simulate_scenario(scenario).await;
                         }
                     }
@@ -154,7 +164,7 @@ async fn room_task(
                 let _ = ui_cmd_tx.send(UiCmd::RoomEvent{event});
             }
             _ = &mut close_rx => {
-                //break;
+                break;
             }
         }
     }
@@ -173,20 +183,29 @@ impl App {
                 }
                 UiCmd::RoomEvent { event } => {
                     match event {
-                        RoomEvent::TrackSubscribed { track, .. } => {
-                            match track {
+                        RoomEvent::TrackSubscribed {
+                            track, participant, ..
+                        } => {
+                            match track.clone() {
                                 RemoteTrackHandle::Video(video_track) => {
                                     // Create a new VideoRenderer
                                     let video_renderer = VideoRenderer::new(
                                         self.egui_painter.render_state().clone().unwrap(),
                                         video_track.rtc_track(),
                                     );
-                                    self.video_renderers.push(video_renderer);
+                                    self.video_renderers
+                                        .insert((participant.sid(), track.sid()), video_renderer);
                                 }
                                 RemoteTrackHandle::Audio(_) => {
                                     // The demo doesn't support Audio rendering at the moment.
                                 }
                             };
+                        }
+                        RoomEvent::TrackUnsubscribed {
+                            track, participant, ..
+                        } => {
+                            self.video_renderers
+                                .remove(&(participant.sid(), track.sid()));
                         }
                         _ => {}
                     }
@@ -306,18 +325,26 @@ impl App {
 
                 ui.horizontal(|ui| {
                     let connecting = self.state.connecting.load(Ordering::SeqCst);
-                    ui.set_enabled(!connecting);
 
-                    if ui.button("Connect").clicked() {
-                        self.connection_failure = None;
-                        let _ = self.cmd_tx.send(AsyncCmd::RoomConnect {
-                            url: self.lk_url.clone(),
-                            token: self.lk_token.clone(),
-                        });
-                    }
+                    let room = self.state.room.lock();
+                    ui.add_enabled_ui(!connecting && room.is_none(), |ui| {
+                        if ui.button("Connect").clicked() {
+                            self.connection_failure = None;
+                            let _ = self.cmd_tx.send(AsyncCmd::RoomConnect {
+                                url: self.lk_url.clone(),
+                                token: self.lk_token.clone(),
+                            });
+                        }
+                    });
 
                     if connecting {
                         ui.spinner();
+                    }
+
+                    if room.is_some() {
+                        if ui.button("Disconnect").clicked() {
+                            let _ = self.cmd_tx.send(AsyncCmd::RoomDisconnect);
+                        }
                     }
                 });
 
@@ -326,6 +353,23 @@ impl App {
                 }
 
                 ui.separator();
+
+                {
+                    // Room Info
+                    let room = self.state.room.lock();
+                    if let Some(room) = room.as_ref() {
+                        ui.label(format!("Name: {}", room.session().name()));
+                        ui.label(format!("SID: {}", room.session().sid()));
+                        ui.label(format!(
+                            "ConnectionState: {:?}",
+                            room.session().connection_state()
+                        ));
+                        ui.label(format!(
+                            "ParticipantCount: {:?}",
+                            room.session().participants().read().len() + 1
+                        ));
+                    }
+                }
             });
 
         egui::CentralPanel::default().show(ui.ctx(), |ui| {
@@ -346,23 +390,42 @@ impl App {
                             }
                         } else {
                             // Render participant videos
-                            for video_renderer in &self.video_renderers {
+                            for ((participant_sid, _), video_renderer) in &self.video_renderers {
                                 ui.video_frame(|ui| {
+                                    let rect = ui.available_rect_before_wrap();
                                     ui.painter().rect(
-                                        ui.available_rect_before_wrap(),
+                                        rect,
                                         Rounding::none(),
-                                        egui::Color32::BLUE,
-                                        Stroke::NONE
+                                        egui::Color32::DARK_GRAY,
+                                        Stroke::NONE,
                                     );
 
                                     if let Some(tex) = video_renderer.texture_id() {
                                         ui.painter().image(
                                             tex,
-                                            ui.available_rect_before_wrap(),
+                                            rect,
                                             egui::Rect::from_min_max(
                                                 egui::pos2(0.0, 0.0),
                                                 egui::pos2(1.0, 1.0),
                                             ),
+                                            egui::Color32::WHITE,
+                                        );
+                                    }
+
+                                    let name = self.state.room.lock().as_ref().and_then(|room| {
+                                        room.session()
+                                            .participants()
+                                            .read()
+                                            .get(participant_sid)
+                                            .map(|p| p.name())
+                                    });
+
+                                    if let Some(name) = name {
+                                        ui.painter().text(
+                                            egui::pos2(rect.min.x + 5.0, rect.max.y - 5.0),
+                                            egui::Align2::LEFT_BOTTOM,
+                                            name,
+                                            egui::FontId::default(),
                                             egui::Color32::WHITE,
                                         );
                                     }
