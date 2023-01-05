@@ -2,6 +2,8 @@ use std::fmt::Debug;
 
 use std::time::Duration;
 
+use crate::proto::{signal_request, signal_response, JoinResponse};
+use crate::signal_client::signal_stream::SignalStream;
 use livekit_webrtc::peer_connection_factory::{
     ContinualGatheringPolicy, ICEServer, IceTransportsType, RTCConfiguration,
 };
@@ -9,9 +11,6 @@ use parking_lot::RwLock;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Error as WsError;
-
-use crate::proto::{signal_request, signal_response, JoinResponse};
-use crate::signal_client::signal_stream::SignalStream;
 use tracing::{instrument, Level};
 
 mod signal_stream;
