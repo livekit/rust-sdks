@@ -1,16 +1,12 @@
-//
-// Created by Théo Monnom on 30/08/2022.
-//
-
 #ifndef VIDEO_DECODER_FACTORY_H
 #define VIDEO_DECODER_FACTORY_H
 
 #include "api/video_codecs/video_decoder_factory.h"
+
 namespace livekit {
-class VideoDecoderFactory : webrtc::VideoDecoderFactory {
+class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
  public:
   VideoDecoderFactory();
-  ~VideoDecoderFactory() override = default;
 
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
 
