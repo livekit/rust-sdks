@@ -2,6 +2,7 @@
 #define VIDEO_ENCODER_FACTORY_H
 
 #include "api/video_codecs/video_encoder_factory.h"
+#include "api/video_codecs/video_encoder.h"
 
 namespace livekit {
 class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
