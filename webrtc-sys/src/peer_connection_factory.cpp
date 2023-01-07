@@ -13,6 +13,8 @@
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "livekit/rtc_error.h"
+#include "livekit/video_decoder_factory.h"
+#include "livekit/video_encoder_factory.h"
 #include "media/engine/webrtc_media_engine.h"
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
@@ -36,8 +38,10 @@ PeerConnectionFactory::PeerConnectionFactory(
 
   cricket::MediaEngineDependencies media_deps;
   media_deps.task_queue_factory = dependencies.task_queue_factory.get();
-  media_deps.video_encoder_factory = webrtc::CreateBuiltinVideoEncoderFactory();
-  media_deps.video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
+  media_deps.video_encoder_factory =
+      std::move(std::make_unique<livekit::VideoEncoderFactory>());
+  media_deps.video_decoder_factory =
+      std::move(std::make_unique<livekit::VideoDecoderFactory>());
   media_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   media_deps.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   media_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();

@@ -8,7 +8,7 @@ use std::path;
 use std::process::Command;
 use tar::Archive;
 
-const WEBRTC_TAG: &str = "m104.5112.06";
+const WEBRTC_TAG: &str = "m104.5112.07";
 
 fn download_prebuilt(
     target_os: &str,
@@ -156,6 +156,8 @@ fn main() {
     builder.file("src/rtp_transceiver.cpp");
     builder.file("src/rtc_error.cpp");
     builder.file("src/webrtc.cpp");
+    builder.file("src/video_encoder_factory.cpp");
+    builder.file("src/video_decoder_factory.cpp");
 
     for include in includes {
         builder.include(include);
@@ -231,6 +233,8 @@ fn main() {
                     println!("cargo:rustc-link-search={}", path);
                 }
             }
+
+            builder.file("src/objc_video_factory.mm");
 
             builder
                 .flag("-stdlib=libc++")
