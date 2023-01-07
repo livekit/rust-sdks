@@ -16,6 +16,8 @@ VideoEncoderFactory::VideoEncoderFactory() {
 #ifdef __APPLE__
   factories_.push_back(livekit::CreateObjCVideoEncoderFactory());
 #endif
+
+  // TODO(theomonnom): Add other HW encoders here
 }
 
 std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
