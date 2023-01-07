@@ -11,7 +11,7 @@
 
 ## Features
 
-- [x] Receiving tracks ( VP8, Software decoder only )
+- [x] Receiving tracks
 - [x] Cross-platform ( currently tested on Windows & MacOS )
 - [ ] Publishing tracks
 - [ ] Adaptive Streaming
@@ -19,7 +19,7 @@
 - [ ] Simulcast
 - [ ] Hardware video enc/dec
   - [ ] NvEnc for Windows
-  - [ ] VideoToolbox for MacOS/iOS
+  - [x] VideoToolbox for MacOS/iOS
 
 ## Crates
 
