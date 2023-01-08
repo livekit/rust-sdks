@@ -8,7 +8,6 @@
 
 namespace livekit {
 RTCRuntime::RTCRuntime() {
-  // rtc::LogMessage::LogToDebug(rtc::LS_INFO);
   RTC_LOG(LS_INFO) << "RTCRuntime()";
   RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
 
@@ -25,7 +24,13 @@ RTCRuntime::RTCRuntime() {
 
 RTCRuntime::~RTCRuntime() {
   RTC_LOG(LS_INFO) << "~RTCRuntime()";
+
+  rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
   RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+
+  worker_thread_->Stop();
+  signaling_thread_->Stop();
+  network_thread_->Stop();
 }
 
 rtc::Thread* RTCRuntime::network_thread() const {
