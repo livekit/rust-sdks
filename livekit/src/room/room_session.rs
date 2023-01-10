@@ -1,10 +1,8 @@
-use super::id::{ParticipantIdentity, ParticipantSid};
-use super::participant::{ConnectionQuality, Participant, ParticipantEvent};
-use super::participant::{ParticipantInternalTrait, ParticipantTrait};
-use super::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};
-use crate::proto::{self, participant_info, SpeakerInfo};
+use crate::participant::{ConnectionQuality, ParticipantInternalTrait};
+use crate::prelude::*;
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
 use crate::signal_client::SignalOptions;
+use crate::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};

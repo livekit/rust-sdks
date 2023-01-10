@@ -1,17 +1,9 @@
-use super::ConnectionQuality;
-use crate::proto::{data_packet, DataPacket, ParticipantInfo, UserPacket};
-use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
-use crate::room::participant::{
-    impl_participant_trait, ParticipantEvent, ParticipantInternalTrait, ParticipantShared,
-    ParticipantTrait,
+use super::{
+    impl_participant_trait, ConnectionQuality, ParticipantInternalTrait, ParticipantShared,
 };
-use crate::room::publication::{
-    RemoteTrackPublication, TrackPublication, TrackPublicationInternalTrait, TrackPublicationTrait,
-};
-use crate::room::track::remote_audio_track::RemoteAudioTrack;
-use crate::room::track::remote_track::RemoteTrackHandle;
-use crate::room::track::remote_video_track::RemoteVideoTrack;
-use crate::room::track::{TrackKind, TrackTrait};
+use crate::prelude::*;
+use crate::proto;
+use crate::room::publication::TrackPublicationInternalTrait;
 use crate::room::TrackError;
 use livekit_webrtc::media_stream::MediaStreamTrackHandle;
 use parking_lot::RwLockReadGuard;
@@ -55,7 +47,7 @@ impl RemoteParticipant {
 
     /// Called by the RoomSession when receiving data by the RTCSession
     /// It is just used to emit the Data event on the participant dispatcher.
-    pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: data_packet::Kind) {
+    pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: proto::data_packet::Kind) {
         self.shared
             .dispatcher
             .lock()
@@ -172,7 +164,7 @@ impl RemoteParticipant {
 }
 
 impl ParticipantInternalTrait for RemoteParticipant {
-    fn update_info(self: &Arc<Self>, info: ParticipantInfo, emit_events: bool) {
+    fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, emit_events: bool) {
         self.shared.update_info(info.clone());
 
         let mut valid_tracks = HashSet::<TrackSid>::new();

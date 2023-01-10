@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use thiserror::Error;
 
 pub mod audio_track;
 pub mod local_audio_track;
@@ -25,6 +26,12 @@ pub use remote_audio_track::*;
 pub use remote_track::*;
 pub use remote_video_track::*;
 pub use video_track::*;
+
+#[derive(Error, Debug, Clone)]
+pub enum TrackError {
+    #[error("could not find published track with sid: {0}")]
+    TrackNotFound(String),
+}
 
 #[derive(Debug)]
 pub enum TrackKind {

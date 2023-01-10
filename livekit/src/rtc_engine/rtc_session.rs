@@ -1,28 +1,5 @@
-use livekit_webrtc::media_stream::{MediaStream, MediaStreamTrackHandle};
-use livekit_webrtc::rtp_receiver::RtpReceiver;
-use parking_lot::Mutex;
-use std::convert::TryInto;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::task::JoinHandle;
-
-use tokio::sync::{mpsc, watch, Mutex as AsyncMutex};
-use tokio::time::sleep;
-
-use prost::Message;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace, warn};
-
-use crate::{proto, signal_client};
-use livekit_webrtc::data_channel::{DataChannel, DataChannelInit, DataState};
-use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
-use livekit_webrtc::peer_connection::{
-    IceConnectionState, PeerConnectionState, RTCOfferAnswerOptions,
-};
-use livekit_webrtc::peer_connection_factory::RTCConfiguration;
-
-use crate::proto::data_packet::Value;
+use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
+use crate::prelude::*;
 use crate::proto::{
     data_packet, signal_request, signal_response, CandidateProtocol, DataPacket, DisconnectReason,
     JoinResponse, SignalTarget, TrickleRequest,
@@ -31,8 +8,19 @@ use crate::rtc_engine::lk_runtime::LKRuntime;
 use crate::rtc_engine::pc_transport::PCTransport;
 use crate::rtc_engine::rtc_events::{RTCEvent, RTCEvents};
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
-
-use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
+use crate::{proto, signal_client};
+use livekit_webrtc::prelude::*;
+use parking_lot::Mutex;
+use prost::Message;
+use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{mpsc, watch, Mutex as AsyncMutex};
+use tokio::task::JoinHandle;
+use tokio::time::sleep;
+use tracing::{debug, error, trace, warn};
 
 pub const MAX_ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
@@ -524,14 +512,14 @@ impl SessionInner {
 
                 let data = DataPacket::decode(&*data)?;
                 match data.value.unwrap() {
-                    Value::User(user) => {
+                    data_packet::Value::User(user) => {
                         let _ = self.emitter.send(SessionEvent::Data {
                             participant_sid: user.participant_sid,
                             payload: user.payload,
                             kind: data_packet::Kind::from_i32(data.kind).unwrap(),
                         });
                     }
-                    Value::Speaker(_) => {}
+                    data_packet::Value::Speaker(_) => {}
                 }
             }
         }
