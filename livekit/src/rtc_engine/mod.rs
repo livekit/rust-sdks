@@ -127,21 +127,20 @@ pub struct RTCEngine {
 
 impl RTCEngine {
     pub fn new() -> (Self, EngineEvents) {
-        let mut lk_runtime = None;
-        {
+        let lk_runtime = {
             let mut lk_runtime_ref = LK_RUNTIME.lock();
-            lk_runtime = lk_runtime_ref.upgrade();
-
-            if lk_runtime.is_none() {
+            if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
+                lk_runtime
+            } else {
                 let new_runtime = Arc::new(LKRuntime::default());
                 *lk_runtime_ref = Arc::downgrade(&new_runtime);
-                lk_runtime = Some(new_runtime);
+                new_runtime
             }
-        }
+        };
 
         let (engine_emitter, engine_events) = mpsc::channel(8);
         let inner = Arc::new(EngineInner {
-            lk_runtime: lk_runtime.unwrap(),
+            lk_runtime,
             session_info: Default::default(),
             running_handle: Default::default(),
             opened: Default::default(),
