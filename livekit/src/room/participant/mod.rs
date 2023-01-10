@@ -3,8 +3,6 @@ use super::TrackError;
 use crate::proto;
 use crate::proto::ParticipantInfo;
 use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
-use crate::room::participant::local_participant::LocalParticipant;
-use crate::room::participant::remote_participant::RemoteParticipant;
 use crate::room::publication::{TrackPublication, TrackPublicationTrait};
 use crate::room::track::remote_track::RemoteTrackHandle;
 use livekit_utils::enum_dispatch;
@@ -16,8 +14,11 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-pub mod local_participant;
-pub mod remote_participant;
+mod local_participant;
+mod remote_participant;
+
+pub use local_participant::*;
+pub use remote_participant::*;
 
 #[derive(Debug, Clone)]
 pub enum ParticipantEvent {

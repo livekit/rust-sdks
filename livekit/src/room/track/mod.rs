@@ -1,9 +1,5 @@
 use crate::proto::{TrackSource as ProtoTrackSource, TrackType};
 use crate::room::id::TrackSid;
-use crate::room::track::local_audio_track::LocalAudioTrack;
-use crate::room::track::local_video_track::LocalVideoTrack;
-use crate::room::track::remote_audio_track::RemoteAudioTrack;
-use crate::room::track::remote_video_track::RemoteVideoTrack;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use livekit_webrtc::media_stream::{MediaStreamTrackHandle, MediaStreamTrackTrait};
@@ -20,6 +16,15 @@ pub mod remote_audio_track;
 pub mod remote_track;
 pub mod remote_video_track;
 pub mod video_track;
+
+pub use audio_track::*;
+pub use local_audio_track::*;
+pub use local_track::*;
+pub use local_video_track::*;
+pub use remote_audio_track::*;
+pub use remote_track::*;
+pub use remote_video_track::*;
+pub use video_track::*;
 
 #[derive(Debug)]
 pub enum TrackKind {

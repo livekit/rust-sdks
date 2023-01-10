@@ -15,11 +15,13 @@ use tokio::sync::mpsc;
 
 pub use crate::rtc_engine::SimulateScenario;
 
-pub mod id;
+mod id;
 pub mod participant;
 pub mod publication;
 pub mod room_session;
 pub mod track;
+
+pub use id::*;
 
 pub type RoomEvents = mpsc::UnboundedReceiver<RoomEvent>;
 pub type RoomEmitter = mpsc::UnboundedSender<RoomEvent>;
