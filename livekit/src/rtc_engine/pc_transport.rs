@@ -1,17 +1,10 @@
+use crate::proto;
+use livekit_webrtc::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
-
 use tracing::{event, Level};
-
-use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
-use livekit_webrtc::peer_connection::{
-    IceConnectionState, PeerConnection, RTCOfferAnswerOptions, SignalingState,
-};
-use livekit_webrtc::rtc_error::RTCError;
-
-use crate::proto::SignalTarget;
 
 const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
@@ -22,7 +15,7 @@ pub type OnOfferHandler = Box<
 >;
 
 pub struct PCTransport {
-    signal_target: SignalTarget,
+    signal_target: proto::SignalTarget,
     peer_connection: PeerConnection,
     pending_candidates: Vec<IceCandidate>,
     on_offer_handler: Option<OnOfferHandler>,
@@ -37,7 +30,7 @@ impl Debug for PCTransport {
 }
 
 impl PCTransport {
-    pub fn new(peer_connection: PeerConnection, signal_target: SignalTarget) -> Self {
+    pub fn new(peer_connection: PeerConnection, signal_target: proto::SignalTarget) -> Self {
         Self {
             signal_target,
             peer_connection,
@@ -58,7 +51,7 @@ impl PCTransport {
         &mut self.peer_connection
     }
 
-    pub fn signal_target(&self) -> SignalTarget {
+    pub fn signal_target(&self) -> proto::SignalTarget {
         self.signal_target.clone()
     }
 

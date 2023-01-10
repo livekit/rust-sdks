@@ -1,12 +1,6 @@
-use self::participant::ConnectionQuality;
-use self::room_session::{ConnectionState, RoomSession, SessionHandle};
-use crate::proto::data_packet;
-use crate::room::id::TrackSid;
-use crate::room::participant::remote_participant::RemoteParticipant;
-use crate::room::participant::Participant;
-use crate::room::publication::RemoteTrackPublication;
-use crate::room::publication::TrackPublication;
-use crate::room::track::remote_track::RemoteTrackHandle;
+use crate::prelude::*;
+use crate::participant::ConnectionQuality;
+use crate::proto;
 use crate::rtc_engine::EngineError;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -21,6 +15,8 @@ pub mod publication;
 pub mod room_session;
 pub mod track;
 
+pub use room_session::*;
+
 pub type RoomEvents = mpsc::UnboundedReceiver<RoomEvent>;
 pub type RoomEmitter = mpsc::UnboundedSender<RoomEvent>;
 pub type RoomResult<T> = Result<T, RoomError>;
@@ -31,12 +27,6 @@ pub enum RoomError {
     Engine(#[from] EngineError),
     #[error("room failure: {0}")]
     Internal(String),
-}
-
-#[derive(Error, Debug, Clone)]
-pub enum TrackError {
-    #[error("could not find published track with sid: {0}")]
-    TrackNotFound(String),
 }
 
 #[derive(Clone, Debug)]
@@ -62,7 +52,7 @@ pub enum RoomEvent {
         participant: Arc<RemoteParticipant>,
     },
     TrackSubscriptionFailed {
-        error: TrackError,
+        error: track::TrackError,
         sid: TrackSid,
         participant: Arc<RemoteParticipant>,
     },
@@ -83,7 +73,7 @@ pub enum RoomEvent {
     },
     DataReceived {
         payload: Arc<Vec<u8>>,
-        kind: data_packet::Kind,
+        kind: proto::data_packet::Kind,
         participant: Arc<RemoteParticipant>,
     },
     ConnectionStateChanged(ConnectionState),

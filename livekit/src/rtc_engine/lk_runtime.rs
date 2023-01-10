@@ -1,9 +1,7 @@
-use std::fmt::{Debug, Formatter};
-
-use tracing::trace;
-
 use livekit_webrtc::peer_connection_factory::PeerConnectionFactory;
 use livekit_webrtc::webrtc::RTCRuntime;
+use std::fmt::{Debug, Formatter};
+use tracing::trace;
 
 /// SAFETY: The order of initialization and deletion is important for LKRuntime.
 /// See the C++ constructors & destructors of these fields

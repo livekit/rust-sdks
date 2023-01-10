@@ -1,10 +1,5 @@
-use crate::proto::TrackType;
-use crate::proto::{TrackInfo, TrackSource as ProtoTrackSource};
-use crate::room::id::ParticipantSid;
-use crate::room::id::TrackSid;
-use crate::room::track::local_track::LocalTrackHandle;
-use crate::room::track::remote_track::RemoteTrackHandle;
-use crate::room::track::{TrackHandle, TrackKind, TrackSource, TrackTrait};
+use crate::prelude::*;
+use crate::proto;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::Mutex;
@@ -16,7 +11,7 @@ use super::track::{TrackDimension, TrackEvent};
 
 pub(crate) trait TrackPublicationInternalTrait {
     fn update_track(&self, track: Option<TrackHandle>);
-    fn update_info(&self, info: TrackInfo);
+    fn update_info(&self, info: proto::TrackInfo);
 }
 
 pub trait TrackPublicationTrait {
@@ -46,7 +41,7 @@ pub(super) struct TrackPublicationShared {
 
 impl TrackPublicationShared {
     pub fn new(
-        info: TrackInfo,
+        info: proto::TrackInfo,
         participant: ParticipantSid,
         track: Option<TrackHandle>,
     ) -> Arc<Self> {
@@ -54,9 +49,11 @@ impl TrackPublicationShared {
             track: Mutex::new(track),
             name: Mutex::new(info.name),
             sid: Mutex::new(info.sid.into()),
-            kind: AtomicU8::new(TrackKind::from(TrackType::from_i32(info.r#type).unwrap()) as u8),
+            kind: AtomicU8::new(
+                TrackKind::from(proto::TrackType::from_i32(info.r#type).unwrap()) as u8,
+            ),
             source: AtomicU8::new(TrackSource::from(
-                ProtoTrackSource::from_i32(info.source).unwrap(),
+                proto::TrackSource::from_i32(info.source).unwrap(),
             ) as u8),
             simulcasted: AtomicBool::new(info.simulcast),
             dimension: Mutex::new(TrackDimension(info.width, info.height)),
@@ -106,17 +103,17 @@ impl TrackPublicationShared {
         }
     }
 
-    pub fn update_info(&self, info: TrackInfo) {
+    pub fn update_info(&self, info: proto::TrackInfo) {
         *self.name.lock() = info.name;
         *self.sid.lock() = info.sid.into();
         *self.dimension.lock() = TrackDimension(info.width, info.height);
         *self.mime_type.lock() = info.mime_type;
         self.kind.store(
-            TrackKind::from(TrackType::from_i32(info.r#type).unwrap()) as u8,
+            TrackKind::from(proto::TrackType::from_i32(info.r#type).unwrap()) as u8,
             Ordering::SeqCst,
         );
         self.source.store(
-            TrackSource::from(ProtoTrackSource::from_i32(info.source).unwrap()) as u8,
+            TrackSource::from(proto::TrackSource::from_i32(info.source).unwrap()) as u8,
             Ordering::SeqCst,
         );
         self.simulcasted.store(info.simulcast, Ordering::SeqCst);
@@ -156,7 +153,7 @@ impl TrackPublicationInternalTrait for TrackPublication {
     enum_dispatch!(
         [Local, Remote]
         fnc!(update_track, &Self, [track: Option<TrackHandle>], ());
-        fnc!(update_info, &Self, [info: TrackInfo], ());
+        fnc!(update_info, &Self, [info: proto::TrackInfo], ());
     );
 }
 
@@ -222,7 +219,7 @@ impl TrackPublicationInternalTrait for LocalTrackPublication {
         self.shared.update_track(track);
     }
 
-    fn update_info(&self, info: TrackInfo) {
+    fn update_info(&self, info: proto::TrackInfo) {
         self.shared.update_info(info);
     }
 }
@@ -233,7 +230,11 @@ pub struct RemoteTrackPublication {
 }
 
 impl RemoteTrackPublication {
-    pub fn new(info: TrackInfo, participant: ParticipantSid, track: Option<TrackHandle>) -> Self {
+    pub fn new(
+        info: proto::TrackInfo,
+        participant: ParticipantSid,
+        track: Option<TrackHandle>,
+    ) -> Self {
         Self {
             shared: TrackPublicationShared::new(info, participant, track),
         }
@@ -253,7 +254,7 @@ impl TrackPublicationInternalTrait for RemoteTrackPublication {
         self.shared.update_track(track);
     }
 
-    fn update_info(&self, info: TrackInfo) {
+    fn update_info(&self, info: proto::TrackInfo) {
         self.shared.update_info(info);
     }
 }

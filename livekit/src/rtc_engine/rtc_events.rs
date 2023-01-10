@@ -1,18 +1,14 @@
-use livekit_webrtc::data_channel::{DataChannel, OnMessageHandler};
-use livekit_webrtc::jsep::{IceCandidate, SessionDescription};
-use livekit_webrtc::media_stream::MediaStream;
+use super::pc_transport::PCTransport;
+use crate::proto;
+use crate::rtc_engine::pc_transport::OnOfferHandler;
+use livekit_webrtc::data_channel::OnMessageHandler;
 use livekit_webrtc::peer_connection::{
     OnAddTrackHandler, OnConnectionChangeHandler, OnDataChannelHandler, OnIceCandidateErrorHandler,
     OnIceCandidateHandler, PeerConnectionState,
 };
-use livekit_webrtc::rtp_receiver::RtpReceiver;
+use livekit_webrtc::prelude::*;
 use tokio::sync::mpsc;
 use tracing::error;
-
-use crate::proto::SignalTarget;
-use crate::rtc_engine::pc_transport::OnOfferHandler;
-
-use super::pc_transport::PCTransport;
 
 pub type RTCEmitter = mpsc::UnboundedSender<RTCEvent>;
 pub type RTCEvents = mpsc::UnboundedReceiver<RTCEvent>;
@@ -21,25 +17,25 @@ pub type RTCEvents = mpsc::UnboundedReceiver<RTCEvent>;
 pub enum RTCEvent {
     IceCandidate {
         ice_candidate: IceCandidate,
-        target: SignalTarget,
+        target: proto::SignalTarget,
     },
     ConnectionChange {
         state: PeerConnectionState,
-        target: SignalTarget,
+        target: proto::SignalTarget,
     },
     DataChannel {
         data_channel: DataChannel,
-        target: SignalTarget,
+        target: proto::SignalTarget,
     },
     // TODO (theomonnom): Move Offer to PCTransport
     Offer {
         offer: SessionDescription,
-        target: SignalTarget,
+        target: proto::SignalTarget,
     },
     AddTrack {
         rtp_receiver: RtpReceiver,
         streams: Vec<MediaStream>,
-        target: SignalTarget,
+        target: proto::SignalTarget,
     },
     Data {
         data: Vec<u8>,
@@ -50,13 +46,16 @@ pub enum RTCEvent {
 /// Handlers used to forward events to a channel
 /// Every callback here is called on the signaling thread
 
-fn on_connection_change(target: SignalTarget, emitter: RTCEmitter) -> OnConnectionChangeHandler {
+fn on_connection_change(
+    target: proto::SignalTarget,
+    emitter: RTCEmitter,
+) -> OnConnectionChangeHandler {
     Box::new(move |state| {
         let _ = emitter.send(RTCEvent::ConnectionChange { state, target });
     })
 }
 
-fn on_ice_candidate(target: SignalTarget, emitter: RTCEmitter) -> OnIceCandidateHandler {
+fn on_ice_candidate(target: proto::SignalTarget, emitter: RTCEmitter) -> OnIceCandidateHandler {
     Box::new(move |ice_candidate| {
         let _ = emitter.send(RTCEvent::IceCandidate {
             ice_candidate,
@@ -65,7 +64,7 @@ fn on_ice_candidate(target: SignalTarget, emitter: RTCEmitter) -> OnIceCandidate
     })
 }
 
-fn on_offer(target: SignalTarget, emitter: RTCEmitter) -> OnOfferHandler {
+fn on_offer(target: proto::SignalTarget, emitter: RTCEmitter) -> OnOfferHandler {
     Box::new(move |offer| {
         let _ = emitter.send(RTCEvent::Offer { offer, target });
 
@@ -73,7 +72,7 @@ fn on_offer(target: SignalTarget, emitter: RTCEmitter) -> OnOfferHandler {
     })
 }
 
-fn on_data_channel(target: SignalTarget, emitter: RTCEmitter) -> OnDataChannelHandler {
+fn on_data_channel(target: proto::SignalTarget, emitter: RTCEmitter) -> OnDataChannelHandler {
     Box::new(move |mut data_channel| {
         data_channel.on_message(on_message(emitter.clone()));
 
@@ -84,7 +83,7 @@ fn on_data_channel(target: SignalTarget, emitter: RTCEmitter) -> OnDataChannelHa
     })
 }
 
-fn on_add_track(target: SignalTarget, emitter: RTCEmitter) -> OnAddTrackHandler {
+fn on_add_track(target: proto::SignalTarget, emitter: RTCEmitter) -> OnAddTrackHandler {
     Box::new(move |rtp_receiver, streams| {
         let _ = emitter.send(RTCEvent::AddTrack {
             rtp_receiver,
@@ -95,7 +94,7 @@ fn on_add_track(target: SignalTarget, emitter: RTCEmitter) -> OnAddTrackHandler 
 }
 
 fn on_ice_candidate_error(
-    target: SignalTarget,
+    target: proto::SignalTarget,
     _emitter: RTCEmitter,
 ) -> OnIceCandidateErrorHandler {
     Box::new(move |address, port, url, error_code, error_text| {

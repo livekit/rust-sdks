@@ -1,12 +1,9 @@
-use super::id::{ParticipantIdentity, ParticipantSid};
-use super::participant::local_participant::LocalParticipant;
-use super::participant::remote_participant::RemoteParticipant;
-use super::participant::{ConnectionQuality, Participant, ParticipantEvent};
-use super::participant::{ParticipantInternalTrait, ParticipantTrait};
-use super::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};
-use crate::proto::{self, participant_info, SpeakerInfo};
+use crate::participant::{ConnectionQuality, ParticipantInternalTrait};
+use crate::prelude::*;
+use crate::proto;
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
 use crate::signal_client::SignalOptions;
+use crate::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -365,7 +362,7 @@ impl SessionInner {
             let remote_participant = self.get_participant(&pi.sid.clone().into());
 
             if let Some(remote_participant) = remote_participant {
-                if pi.state == participant_info::State::Disconnected as i32 {
+                if pi.state == proto::participant_info::State::Disconnected as i32 {
                     // Participant disconnected
                     info!("Participant disconnected: {}", pi.sid);
                     self.clone()
@@ -394,7 +391,7 @@ impl SessionInner {
     /// Active speakers changed
     /// Update the participants & sort the active_speakers by audio_level
     #[instrument(level = Level::DEBUG)]
-    fn handle_speakers_changed(&self, speakers_info: Vec<SpeakerInfo>) {
+    fn handle_speakers_changed(&self, speakers_info: Vec<proto::SpeakerInfo>) {
         let mut speakers = Vec::new();
 
         for speaker in speakers_info {

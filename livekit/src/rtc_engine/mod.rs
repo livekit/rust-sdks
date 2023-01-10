@@ -1,30 +1,24 @@
+use crate::prelude::*;
+use crate::proto;
+use crate::rtc_engine::lk_runtime::LKRuntime;
+use crate::rtc_engine::rtc_session::{RTCSession, SessionEvent, SessionEvents, SessionInfo};
+use crate::signal_client::{SignalError, SignalOptions};
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use lazy_static::lazy_static;
 use livekit_webrtc::data_channel::DataSendError;
 use livekit_webrtc::jsep::SdpParseError;
-use livekit_webrtc::media_stream::{MediaStream, MediaStreamTrackHandle};
-use livekit_webrtc::rtc_error::RTCError;
-use livekit_webrtc::rtp_receiver::RtpReceiver;
+use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock as AsyncRwLock;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Interval};
-
-use lazy_static::lazy_static;
-use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info, trace, warn};
-
-use crate::proto::{
-    self as proto, data_packet, DataPacket, JoinResponse, ParticipantUpdate, SpeakerInfo,
-};
-use crate::rtc_engine::lk_runtime::LKRuntime;
-use crate::signal_client::{SignalError, SignalOptions};
-
-use self::rtc_session::{RTCSession, SessionEvent, SessionEvents, SessionInfo};
+use tracing::{error, info, warn};
 
 mod lk_runtime;
 mod pc_transport;
@@ -80,10 +74,10 @@ pub enum EngineEvent {
     Data {
         participant_sid: String,
         payload: Vec<u8>,
-        kind: data_packet::Kind,
+        kind: proto::data_packet::Kind,
     },
     SpeakersChanged {
-        speakers: Vec<SpeakerInfo>,
+        speakers: Vec<proto::SpeakerInfo>,
     },
     ConnectionQuality {
         updates: Vec<proto::ConnectionQualityInfo>,
@@ -133,21 +127,20 @@ pub struct RTCEngine {
 
 impl RTCEngine {
     pub fn new() -> (Self, EngineEvents) {
-        let mut lk_runtime = None;
-        {
+        let lk_runtime = {
             let mut lk_runtime_ref = LK_RUNTIME.lock();
-            lk_runtime = lk_runtime_ref.upgrade();
-
-            if lk_runtime.is_none() {
+            if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
+                lk_runtime
+            } else {
                 let new_runtime = Arc::new(LKRuntime::default());
                 *lk_runtime_ref = Arc::downgrade(&new_runtime);
-                lk_runtime = Some(new_runtime);
+                new_runtime
             }
-        }
+        };
 
         let (engine_emitter, engine_events) = mpsc::channel(8);
         let inner = Arc::new(EngineInner {
-            lk_runtime: lk_runtime.unwrap(),
+            lk_runtime,
             session_info: Default::default(),
             running_handle: Default::default(),
             opened: Default::default(),
@@ -178,8 +171,8 @@ impl RTCEngine {
     #[tracing::instrument(skip(data))]
     pub async fn publish_data(
         &self,
-        data: &DataPacket,
-        kind: data_packet::Kind,
+        data: &proto::DataPacket,
+        kind: proto::data_packet::Kind,
     ) -> EngineResult<()> {
         self.inner.wait_reconnection().await?;
         self.inner
@@ -207,7 +200,7 @@ impl RTCEngine {
         Ok(())
     }
 
-    pub fn join_response(&self) -> Option<JoinResponse> {
+    pub fn join_response(&self) -> Option<proto::JoinResponse> {
         if let Some(info) = self.inner.session_info.lock().as_ref() {
             Some(info.join_response.clone())
         } else {

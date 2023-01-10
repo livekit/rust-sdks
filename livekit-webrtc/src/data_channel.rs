@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use cxx::UniquePtr;
 use log::trace;

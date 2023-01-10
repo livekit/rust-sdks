@@ -1,18 +1,16 @@
+use crate::proto;
+use crate::signal_client::{SignalEmitter, SignalEvent, SignalOptions, SignalResult};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tracing::{event, Level};
-
-use crate::proto::{signal_request, SignalRequest, SignalResponse};
-use crate::signal_client::{SignalEmitter, SignalEvent, SignalOptions, SignalResult};
 
 pub const PROTOCOL_VERSION: u32 = 8;
 
@@ -21,7 +19,7 @@ type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 #[derive(Debug)]
 enum InternalMessage {
     Signal {
-        signal: signal_request::Message,
+        signal: proto::signal_request::Message,
         response_chn: oneshot::Sender<SignalResult<()>>,
     },
     Pong {
@@ -107,7 +105,7 @@ impl SignalStream {
 
     /// Send a SignalRequest to the websocket
     /// It also waits for the message to be sent
-    pub async fn send(&self, signal: signal_request::Message) -> SignalResult<()> {
+    pub async fn send(&self, signal: proto::signal_request::Message) -> SignalResult<()> {
         let (send, recv) = oneshot::channel();
         let msg = InternalMessage::Signal {
             signal,
@@ -133,7 +131,7 @@ impl SignalStream {
                     event!(Level::TRACE, "sending SignalRequest: {:?}", signal);
 
                     let data = Message::Binary(
-                        SignalRequest {
+                        proto::SignalRequest {
                             message: Some(signal),
                         }
                         .encode_to_vec(),
@@ -178,7 +176,7 @@ impl SignalStream {
         while let Some(msg) = ws_reader.next().await {
             match msg {
                 Ok(Message::Binary(data)) => {
-                    let res = SignalResponse::decode(data.as_slice())
+                    let res = proto::SignalResponse::decode(data.as_slice())
                         .expect("failed to decode SignalResponse");
 
                     let msg = res.message.unwrap();

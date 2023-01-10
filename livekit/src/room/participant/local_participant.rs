@@ -1,12 +1,9 @@
-use super::ConnectionQuality;
-use crate::proto::{data_packet, DataPacket, ParticipantInfo, UserPacket};
-use crate::room::id::{ParticipantIdentity, ParticipantSid, TrackSid};
-use crate::room::participant::{
-    impl_participant_trait, ParticipantEvent, ParticipantInternalTrait, ParticipantShared,
-    ParticipantTrait,
+use super::{
+    impl_participant_trait, ConnectionQuality, ParticipantInternalTrait, ParticipantShared,
 };
-use crate::room::publication::TrackPublication;
-use crate::room::RoomError;
+use crate::prelude::*;
+use crate::proto;
+use crate::publication::TrackPublication;
 use crate::rtc_engine::RTCEngine;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
@@ -37,11 +34,11 @@ impl LocalParticipant {
     pub async fn publish_data(
         &self,
         data: &[u8],
-        kind: data_packet::Kind,
+        kind: proto::data_packet::Kind,
     ) -> Result<(), RoomError> {
-        let data = DataPacket {
+        let data = proto::DataPacket {
             kind: kind as i32,
-            value: Some(data_packet::Value::User(UserPacket {
+            value: Some(proto::data_packet::Value::User(proto::UserPacket {
                 participant_sid: self.sid().to_string(),
                 payload: data.to_vec(),
                 destination_sids: vec![],
@@ -56,7 +53,7 @@ impl LocalParticipant {
 }
 
 impl ParticipantInternalTrait for LocalParticipant {
-    fn update_info(self: &Arc<Self>, info: ParticipantInfo, _emit_events: bool) {
+    fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, _emit_events: bool) {
         self.shared.update_info(info);
     }
 

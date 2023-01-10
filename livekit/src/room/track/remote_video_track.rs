@@ -1,7 +1,6 @@
-use livekit_webrtc::media_stream::{MediaStreamTrackHandle, VideoTrack};
+use super::{impl_track_trait, TrackShared};
+use crate::prelude::*;
 use std::sync::Arc;
-
-use crate::room::track::{impl_track_trait, TrackShared};
 
 #[derive(Debug)]
 pub struct RemoteVideoTrack {
