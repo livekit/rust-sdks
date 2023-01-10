@@ -1,13 +1,13 @@
-# LiveKit: Native SDK
+# 📹🎙️🦀 Rust Client SDK for LiveKit
 
 [![crates.io](https://img.shields.io/crates/v/livekit.svg)](https://crates.io/crates/livekit)
 [![Tests & Build](https://github.com/livekit/client-sdk-native/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/rust.yml)
 
-:: **Warning** ::
+⚠️ Warning
 
-> This SDK is currently in developer preview and is not ready for production use. There will be bugs and the APIs may change during this period.
+> This SDK is currently in Developer Preview mode and not ready for production use. There will be bugs and APIs may change during this period.
 >
-> All feedback and contributions are appreciated. You can create issues or discuss with us on the #rust-developer-preview channel in our [Slack](https://livekit.io/join-slack)
+> We welcome and appreciate any feedback or contributions. You can create issues here or chat live with us in the #rust-developer-preview channel within the [LiveKit Community Slack](https://livekit.io/join-slack).
 
 ## Features
 
@@ -25,29 +25,29 @@
 
 - `livekit-core`: LiveKit protocol implementation
 - `livekit-utils`: Shared utilities between our crates
-- `livekit-ffi`: Bindings for other languages. use `livekit-core`.
+- `livekit-ffi`: Bindings for other languages. Uses `livekit-core`.
 - `livekit-webrtc`: Safe Rust bindings to libwebrtc
 - `webrtc-sys`: Unsafe bindings to libwebrtc
 
 ## Motivation and Design Goals
 
-At LiveKit, we've developed a number of client SDKs for different platforms. This
-is necessary to our goal of providing an end-to-end WebRTC stack that works everywhere. However,
-we've encountered a few challenges during this process:
+LiveKit aims to provide an open source, end-to-end WebRTC stack that works everywhere. We have two goals in mind with this SDK:
 
-- There's significant of business/control logic with our signaling protocol and WebRTC. Currently they are re-written for each platform that we support.
-- Interactions with media devices and encoding/decoding are platform and framework specific.
-- Doing both of the above for multi-platform frameworks (like Unity, Flutter, and React-Native) proved to be extremely painful.
+1. Build a standalone, cross-platform LiveKit client SDK for Rustaceans.
+2. Build a common core for other platform-specific SDKs (e.g. Unity, Unreal, iOS, Android) 
 
-We would like this SDK to:
+Regarding (2), we've already developed a number of [client SDKs](https://github.com/livekit?q=client-sdk&type=all) for several platforms and encountered a few challenges in the process:
+- There's a significant amount of business/control logic in our signaling protocol and WebRTC. Currently, this logic needs to be implemented in every new platform we support.
+- Interactions with media devices and encoding/decoding are specific to each platform and framework.
+- For multi-platform frameworks (e.g. Unity, Flutter, React Native), the aforementioned tasks proved to be extremely painful.
 
-- Encapsulate all of the business logic and platform-specific APIs into a clean set of abstractions
-- Be a standalone cross-platform, native SDK for Rust and C/C++
-- Serve as a common core for other platform-specific SDKs (i.e. Unity, iOS, Android)
+Thus, we posited a Rust SDK, something we wanted build anyway, encapsulating all our business logic and platform-specific APIs into a clean set of abstractions, could also serve as the foundation for our other SDKs!
+
+We'll first use it as a basis for our Unity SDK (under development), but over time, it will power our other SDKs, as well.
 
 ## Getting started
 
-Tokio is required to use the SDK, we have plan to make the async executor agnostic
+Currently, Tokio is required to use this SDK, however we plan to make the async executor runtime agnostic.
 
 ### Connecting to a Room and listen to events:
 
@@ -91,4 +91,10 @@ match event {
 
 ## Examples
 
-We made [simple room](https://github.com/livekit/client-sdk-native/tree/main/examples/simple_room) demo using all features of the SDK. We render videos using wgpu and egui.
+We made a [simple room demo](https://github.com/livekit/client-sdk-native/tree/main/examples/simple_room) leveraging all the current SDK features. Videos are rendered using wgpu and egui.
+
+## FAQ
+
+### Did you consider C/C++ as your common core?
+
+Yes! In fact, we also plan to release an SDK for C++ in the coming months. However, the C++ SDK will use the Rust SDK. 🙂 
