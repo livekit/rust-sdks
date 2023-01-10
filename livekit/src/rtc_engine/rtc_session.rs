@@ -1,5 +1,4 @@
 use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
-use crate::prelude::*;
 use crate::rtc_engine::lk_runtime::LKRuntime;
 use crate::rtc_engine::pc_transport::PCTransport;
 use crate::rtc_engine::rtc_events::{RTCEvent, RTCEvents};

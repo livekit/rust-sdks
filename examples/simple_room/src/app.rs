@@ -3,12 +3,8 @@ use crate::video_renderer::VideoRenderer;
 use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
-use livekit::room::id::{ParticipantSid, TrackSid};
-use livekit::room::participant::ParticipantTrait;
-use livekit::room::room_session::ConnectionState;
-use livekit::room::track::remote_track::RemoteTrackHandle;
-use livekit::room::track::TrackTrait;
-use livekit::room::{Room, RoomEvent, RoomEvents, SimulateScenario};
+use livekit::prelude::*;
+use livekit::SimulateScenario;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::{
