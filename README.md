@@ -95,6 +95,18 @@ We made a [simple room demo](https://github.com/livekit/client-sdk-native/tree/m
 
 ## FAQ
 
+### Do you plan to offer a C/C++ SDK?
+
+Yes! In fact, we also plan to release an SDK for C++ in the coming months. It, like our other platform-specific SDKs, will use the Rust SDK. 🙂
+
 ### Did you consider C/C++ as your common core?
 
-Yes! In fact, we also plan to release an SDK for C++ in the coming months. However, the C++ SDK will use the Rust SDK. 🙂 
+Yes. We chose Rust over C++ for a few reasons:
+- Rust's memory management model leads to fewer crashes/issues
+- Rust's build system requires less configuration and is easier to work with
+- While we love C/C++, it's a bit nicer to write code in Rust
+- Having the WebAssembly target will be useful down the road, C++ has Emscripten but it's a bit harder to set up and doesn't yet have WebRTC support.
+
+### Did you look at Arcas for libwebrtc bindings?
+
+Yes. Our build system is inspired by LBL's work! Given that some of our logic (e.g. hardware decoder code) is in C++ and that we may need to bridge more/different things than Arcas, we decided it was better to have our own bindings for full control.
