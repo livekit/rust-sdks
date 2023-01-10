@@ -1,6 +1,4 @@
 use super::id::{ParticipantIdentity, ParticipantSid};
-use super::participant::local_participant::LocalParticipant;
-use super::participant::remote_participant::RemoteParticipant;
 use super::participant::{ConnectionQuality, Participant, ParticipantEvent};
 use super::participant::{ParticipantInternalTrait, ParticipantTrait};
 use super::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};

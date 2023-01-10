@@ -1,8 +1,6 @@
-use self::participant::ConnectionQuality;
-use self::room_session::{ConnectionState, RoomSession, SessionHandle};
+use crate::prelude::*;
 use crate::proto::data_packet;
 use crate::room::id::TrackSid;
-use crate::room::participant::remote_participant::RemoteParticipant;
 use crate::room::participant::Participant;
 use crate::room::publication::RemoteTrackPublication;
 use crate::room::publication::TrackPublication;
@@ -22,6 +20,7 @@ pub mod room_session;
 pub mod track;
 
 pub use id::*;
+pub use room_session::*;
 
 pub type RoomEvents = mpsc::UnboundedReceiver<RoomEvent>;
 pub type RoomEmitter = mpsc::UnboundedSender<RoomEvent>;

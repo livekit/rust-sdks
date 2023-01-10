@@ -4,5 +4,5 @@ pub use crate::{
     publication::TrackPublication, publication::TrackPublicationTrait, track::AudioTrackHandle,
     track::LocalAudioTrack, track::LocalTrackHandle, track::LocalVideoTrack,
     track::RemoteAudioTrack, track::RemoteTrackHandle, track::RemoteVideoTrack, track::TrackHandle,
-    track::TrackTrait, track::VideoTrackHandle, Room,
+    track::TrackTrait, track::VideoTrackHandle, Room, RoomEvent, RoomEvents, RoomSession,
 };
