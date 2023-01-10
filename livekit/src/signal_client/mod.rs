@@ -1,13 +1,9 @@
-use std::fmt::Debug;
-
-use std::time::Duration;
-
-use crate::proto::{signal_request, signal_response, JoinResponse};
+use crate::proto;
 use crate::signal_client::signal_stream::SignalStream;
-use livekit_webrtc::peer_connection_factory::{
-    ContinualGatheringPolicy, ICEServer, IceTransportsType, RTCConfiguration,
-};
+use livekit_webrtc::prelude::*;
 use parking_lot::RwLock;
+use std::fmt::Debug;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Error as WsError;
@@ -37,7 +33,7 @@ pub enum SignalError {
 #[derive(Debug)]
 pub enum SignalEvent {
     Open,
-    Signal(signal_response::Message),
+    Signal(proto::signal_response::Message),
     Close,
 }
 
@@ -98,7 +94,7 @@ impl SignalClient {
     }
 
     #[instrument(level = Level::DEBUG)]
-    pub async fn send(&self, signal: signal_request::Message) {
+    pub async fn send(&self, signal: proto::signal_request::Message) {
         if let Some(stream) = self.stream.read().as_ref() {
             if stream.send(signal).await.is_ok() {
                 return;
@@ -118,8 +114,8 @@ impl SignalClient {
     }
 }
 
-impl From<JoinResponse> for RTCConfiguration {
-    fn from(join_response: JoinResponse) -> Self {
+impl From<proto::JoinResponse> for RTCConfiguration {
+    fn from(join_response: proto::JoinResponse) -> Self {
         Self {
             ice_servers: {
                 let mut servers = vec![];

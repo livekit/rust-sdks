@@ -3,9 +3,9 @@ use super::{
 };
 use crate::prelude::*;
 use crate::proto;
-use crate::room::publication::TrackPublicationInternalTrait;
-use crate::room::TrackError;
-use livekit_webrtc::media_stream::MediaStreamTrackHandle;
+use crate::publication::TrackPublicationInternalTrait;
+use crate::track::TrackError;
+use livekit_webrtc::prelude::*;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
 use std::collections::HashSet;

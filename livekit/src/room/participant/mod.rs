@@ -1,10 +1,9 @@
-use super::TrackError;
 use crate::prelude::*;
 use crate::proto;
+use crate::track::TrackError;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
-use proto::data_packet;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -38,7 +37,7 @@ pub enum ParticipantEvent {
     },
     DataReceived {
         payload: Arc<Vec<u8>>,
-        kind: data_packet::Kind,
+        kind: proto::data_packet::Kind,
     },
     SpeakingChanged {
         speaking: bool,
@@ -117,7 +116,7 @@ impl ParticipantShared {
         }
     }
 
-    pub(crate) fn update_info(&self, info: ParticipantInfo) {
+    pub(crate) fn update_info(&self, info: proto::ParticipantInfo) {
         *self.sid.lock() = info.sid.into();
         *self.identity.lock() = info.identity.into();
         *self.name.lock() = info.name;
@@ -151,7 +150,7 @@ pub(crate) trait ParticipantInternalTrait {
     fn set_speaking(&self, speaking: bool);
     fn set_audio_level(&self, level: f32);
     fn set_connection_quality(&self, quality: ConnectionQuality);
-    fn update_info(self: &Arc<Self>, info: ParticipantInfo, emit_events: bool);
+    fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, emit_events: bool);
 }
 
 pub trait ParticipantTrait {
@@ -177,7 +176,7 @@ pub enum Participant {
 impl Participant {
     enum_dispatch!(
         [Local, Remote]
-        fnc!(pub(crate), update_info, &Self, [info: ParticipantInfo, emit_events: bool], ());
+        fnc!(pub(crate), update_info, &Self, [info: proto::ParticipantInfo, emit_events: bool], ());
         fnc!(pub(crate), set_speaking, &Self, [speaking: bool], ());
         fnc!(pub(crate), set_audio_level, &Self, [audio_level: f32], ());
         fnc!(pub(crate), set_connection_quality, &Self, [quality: ConnectionQuality], ());

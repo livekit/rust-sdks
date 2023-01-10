@@ -1,13 +1,12 @@
-use crate::proto::{TrackSource as ProtoTrackSource, TrackType};
-use crate::room::id::TrackSid;
+use crate::prelude::*;
+use crate::proto;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
-use livekit_webrtc::media_stream::{MediaStreamTrackHandle, MediaStreamTrackTrait};
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use thiserror::Error;
+use tokio::sync::mpsc;
 
 pub mod audio_track;
 pub mod local_audio_track;
@@ -50,11 +49,11 @@ impl From<u8> for TrackKind {
     }
 }
 
-impl From<TrackType> for TrackKind {
-    fn from(r#type: TrackType) -> Self {
+impl From<proto::TrackType> for TrackKind {
+    fn from(r#type: proto::TrackType) -> Self {
         match r#type {
-            TrackType::Audio => Self::Audio,
-            TrackType::Video => Self::Video,
+            proto::TrackType::Audio => Self::Audio,
+            proto::TrackType::Video => Self::Video,
             _ => Self::Unknown,
         }
     }
@@ -98,14 +97,14 @@ impl From<u8> for TrackSource {
     }
 }
 
-impl From<ProtoTrackSource> for TrackSource {
-    fn from(source: ProtoTrackSource) -> Self {
+impl From<proto::TrackSource> for TrackSource {
+    fn from(source: proto::TrackSource) -> Self {
         match source {
-            ProtoTrackSource::Camera => Self::Camera,
-            ProtoTrackSource::Microphone => Self::Microphone,
-            ProtoTrackSource::ScreenShare => Self::Screenshare,
-            ProtoTrackSource::ScreenShareAudio => Self::ScreenshareAudio,
-            ProtoTrackSource::Unknown => Self::Unknown,
+            proto::TrackSource::Camera => Self::Camera,
+            proto::TrackSource::Microphone => Self::Microphone,
+            proto::TrackSource::ScreenShare => Self::Screenshare,
+            proto::TrackSource::ScreenShareAudio => Self::ScreenshareAudio,
+            proto::TrackSource::Unknown => Self::Unknown,
         }
     }
 }

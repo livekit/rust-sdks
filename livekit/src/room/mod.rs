@@ -52,7 +52,7 @@ pub enum RoomEvent {
         participant: Arc<RemoteParticipant>,
     },
     TrackSubscriptionFailed {
-        error: TrackError,
+        error: track::TrackError,
         sid: TrackSid,
         participant: Arc<RemoteParticipant>,
     },

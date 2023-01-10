@@ -1,4 +1,4 @@
-use crate::room::track::{impl_track_trait, TrackShared};
+use crate::track::{impl_track_trait, TrackShared};
 
 #[derive(Debug)]
 pub struct LocalAudioTrack {
