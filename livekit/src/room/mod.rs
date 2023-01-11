@@ -1,5 +1,5 @@
-use crate::prelude::*;
 use crate::participant::ConnectionQuality;
+use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::EngineError;
 use std::fmt::Debug;
@@ -17,8 +17,6 @@ pub mod track;
 
 pub use room_session::*;
 
-pub type RoomEvents = mpsc::UnboundedReceiver<RoomEvent>;
-pub type RoomEmitter = mpsc::UnboundedSender<RoomEvent>;
 pub type RoomResult<T> = Result<T, RoomError>;
 
 #[derive(Error, Debug)]
@@ -89,14 +87,22 @@ pub struct Room {
 }
 
 impl Room {
-    pub async fn connect(url: &str, token: &str) -> RoomResult<(Self, RoomEvents)> {
-        let (emitter, events) = mpsc::unbounded_channel();
-        let handle = SessionHandle::connect(emitter, url, token).await?;
+    pub async fn connect(
+        url: &str,
+        token: &str,
+    ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
+        let handle = SessionHandle::connect(url, token).await?;
+        let events = handle.subscribe();
         Ok((Self { handle }, events))
     }
 
     pub async fn close(self) {
         self.handle.close().await;
+    }
+
+    /// Allow multiple subscribers/observers to receive events
+    pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {
+        self.handle.subscribe()
     }
 
     pub fn session(&self) -> RoomSession {
