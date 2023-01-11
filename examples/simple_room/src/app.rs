@@ -150,7 +150,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
 async fn room_task(
     _app_state: Arc<AppState>,
-    mut room_events: RoomEvents,
+    mut room_events: mpsc::UnboundedReceiver<RoomEvent>,
     mut close_rx: oneshot::Receiver<()>,
     ui_cmd_tx: mpsc::UnboundedSender<UiCmd>,
 ) {

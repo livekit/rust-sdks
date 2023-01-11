@@ -3,7 +3,8 @@ use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
 use crate::signal_client::SignalOptions;
-use crate::{RoomEmitter, RoomError, RoomEvent, RoomResult, SimulateScenario};
+use crate::{RoomError, RoomEvent, RoomResult, SimulateScenario};
+use livekit_utils::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -43,7 +44,7 @@ struct SessionInner {
     active_speakers: RwLock<Vec<Participant>>,
     rtc_engine: Arc<RTCEngine>,
     local_participant: Arc<LocalParticipant>,
-    room_emitter: RoomEmitter,
+    dispatcher: Mutex<Dispatcher<RoomEvent>>,
 }
 
 #[derive(Debug)]
@@ -61,7 +62,7 @@ pub struct RoomSession {
 }
 
 impl SessionHandle {
-    pub async fn connect(room_emitter: RoomEmitter, url: &str, token: &str) -> RoomResult<Self> {
+    pub async fn connect(url: &str, token: &str) -> RoomResult<Self> {
         let (rtc_engine, engine_events) = RTCEngine::new();
         let rtc_engine = Arc::new(rtc_engine);
         rtc_engine
@@ -88,7 +89,7 @@ impl SessionHandle {
             active_speakers: Default::default(),
             rtc_engine,
             local_participant,
-            room_emitter,
+            dispatcher: Default::default(),
         });
 
         for pi in join_response.other_participants {
@@ -116,6 +117,10 @@ impl SessionHandle {
         self.session.inner.close().await;
         let _ = self.close_emitter.send(());
         let _ = self.session_task.await;
+    }
+
+    pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {
+        self.session.inner.dispatcher.lock().register()
     }
 
     pub fn session(&self) -> RoomSession {
@@ -215,30 +220,36 @@ impl SessionInner {
         if let Participant::Remote(remote_participant) = participant {
             match event {
                 ParticipantEvent::TrackPublished { publication } => {
-                    let _ = self.room_emitter.send(RoomEvent::TrackPublished {
+                    self.dispatcher.lock().dispatch(&RoomEvent::TrackPublished {
                         participant: remote_participant.clone(),
                         publication,
                     });
                 }
                 ParticipantEvent::TrackUnpublished { publication } => {
-                    let _ = self.room_emitter.send(RoomEvent::TrackUnpublished {
-                        participant: remote_participant.clone(),
-                        publication,
-                    });
+                    self.dispatcher
+                        .lock()
+                        .dispatch(&RoomEvent::TrackUnpublished {
+                            participant: remote_participant.clone(),
+                            publication,
+                        });
                 }
                 ParticipantEvent::TrackSubscribed { track, publication } => {
-                    let _ = self.room_emitter.send(RoomEvent::TrackSubscribed {
-                        participant: remote_participant.clone(),
-                        track,
-                        publication,
-                    });
+                    self.dispatcher
+                        .lock()
+                        .dispatch(&RoomEvent::TrackSubscribed {
+                            participant: remote_participant.clone(),
+                            track,
+                            publication,
+                        });
                 }
                 ParticipantEvent::TrackUnsubscribed { track, publication } => {
-                    let _ = self.room_emitter.send(RoomEvent::TrackUnsubscribed {
-                        participant: remote_participant.clone(),
-                        track,
-                        publication,
-                    });
+                    self.dispatcher
+                        .lock()
+                        .dispatch(&RoomEvent::TrackUnsubscribed {
+                            participant: remote_participant.clone(),
+                            track,
+                            publication,
+                        });
                 }
                 _ => {}
             };
@@ -286,12 +297,12 @@ impl SessionInner {
             }
             EngineEvent::Resuming => {
                 if self.update_connection_state(ConnectionState::Reconnecting) {
-                    let _ = self.room_emitter.send(RoomEvent::Reconnecting);
+                    self.dispatcher.lock().dispatch(&RoomEvent::Reconnecting);
                 }
             }
             EngineEvent::Resumed => {
                 self.update_connection_state(ConnectionState::Connected);
-                let _ = self.room_emitter.send(RoomEvent::Reconnected);
+                self.dispatcher.lock().dispatch(&RoomEvent::Reconnected);
 
                 // TODO(theomonnom): Update subscriptions settings
                 // TODO(theomonnom): Send sync state
@@ -306,7 +317,7 @@ impl SessionInner {
             } => {
                 let payload = Arc::new(payload);
                 if let Some(participant) = self.get_participant(&participant_sid.into()) {
-                    let _ = self.room_emitter.send(RoomEvent::DataReceived {
+                    self.dispatcher.lock().dispatch(&RoomEvent::DataReceived {
                         payload: payload.clone(),
                         kind,
                         participant: participant.clone(),
@@ -339,9 +350,9 @@ impl SessionInner {
         }
 
         self.state.store(state as u8, Ordering::Release);
-        let _ = self
-            .room_emitter
-            .send(RoomEvent::ConnectionStateChanged(state));
+        self.dispatcher
+            .lock()
+            .dispatch(&RoomEvent::ConnectionStateChanged(state));
         return true;
     }
 
@@ -380,8 +391,9 @@ impl SessionInner {
                 };
 
                 let _ = self
-                    .room_emitter
-                    .send(RoomEvent::ParticipantConnected(remote_participant.clone()));
+                    .dispatcher
+                    .lock()
+                    .dispatch(&RoomEvent::ParticipantConnected(remote_participant.clone()));
 
                 remote_participant.update_info(pi.clone(), true);
             }
@@ -419,8 +431,9 @@ impl SessionInner {
         *self.active_speakers.write() = speakers.clone();
 
         let _ = self
-            .room_emitter
-            .send(RoomEvent::ActiveSpeakersChanged { speakers });
+            .dispatcher
+            .lock()
+            .dispatch(&RoomEvent::ActiveSpeakersChanged { speakers });
     }
 
     /// Handle a connection quality update
@@ -446,10 +459,12 @@ impl SessionInner {
                 .into();
 
             participant.set_connection_quality(quality);
-            let _ = self.room_emitter.send(RoomEvent::ConnectionQualityChanged {
-                participant,
-                quality,
-            });
+            self.dispatcher
+                .lock()
+                .dispatch(&RoomEvent::ConnectionQualityChanged {
+                    participant,
+                    quality,
+                });
         }
     }
 
@@ -462,7 +477,7 @@ impl SessionInner {
         }
 
         if self.update_connection_state(ConnectionState::Reconnecting) {
-            let _ = self.room_emitter.send(RoomEvent::Reconnecting);
+            self.dispatcher.lock().dispatch(&RoomEvent::Reconnecting);
         }
     }
 
@@ -472,7 +487,7 @@ impl SessionInner {
         let join_response = self.rtc_engine.join_response().unwrap();
 
         self.update_connection_state(ConnectionState::Connected);
-        let _ = self.room_emitter.send(RoomEvent::Reconnected);
+        self.dispatcher.lock().dispatch(&RoomEvent::Reconnected);
 
         if let Some(pi) = join_response.participant {
             self.local_participant.update_info(pi, true); // The sid may have changed
@@ -490,7 +505,7 @@ impl SessionInner {
         }
 
         self.update_connection_state(ConnectionState::Disconnected);
-        let _ = self.room_emitter.send(RoomEvent::Disconnected);
+        self.dispatcher.lock().dispatch(&RoomEvent::Disconnected);
     }
 
     /// Create a new participant
@@ -546,9 +561,11 @@ impl SessionInner {
 
             self.participants.write().remove(&remote_participant.sid());
 
-            let _ = self.room_emitter.send(RoomEvent::ParticipantDisconnected(
-                remote_participant.clone(),
-            ));
+            self.dispatcher
+                .lock()
+                .dispatch(&RoomEvent::ParticipantDisconnected(
+                    remote_participant.clone(),
+                ));
         });
     }
 
