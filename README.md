@@ -34,9 +34,10 @@
 LiveKit aims to provide an open source, end-to-end WebRTC stack that works everywhere. We have two goals in mind with this SDK:
 
 1. Build a standalone, cross-platform LiveKit client SDK for Rustaceans.
-2. Build a common core for other platform-specific SDKs (e.g. Unity, Unreal, iOS, Android) 
+2. Build a common core for other platform-specific SDKs (e.g. Unity, Unreal, iOS, Android)
 
 Regarding (2), we've already developed a number of [client SDKs](https://github.com/livekit?q=client-sdk&type=all) for several platforms and encountered a few challenges in the process:
+
 - There's a significant amount of business/control logic in our signaling protocol and WebRTC. Currently, this logic needs to be implemented in every new platform we support.
 - Interactions with media devices and encoding/decoding are specific to each platform and framework.
 - For multi-platform frameworks (e.g. Unity, Flutter, React Native), the aforementioned tasks proved to be extremely painful.
@@ -106,9 +107,11 @@ Yes! In fact, we also plan to release an SDK for C++ in the coming months. It, l
 ### Did you consider C/C++ as your common core?
 
 Yes. We chose Rust over C++ for a few reasons:
-- Rust's memory management model leads to fewer crashes/issues
+
+- Rust's ownership model and thread-safety leads to fewer crashes/issues
 - Rust's build system requires less configuration and is easier to work with
 - While we love C/C++, it's a bit nicer to write code in Rust
+- Rust has a rich ecosystem of tools (e.g. websockets, async executor)
 - Having the WebAssembly target will be useful down the road, C++ has Emscripten but it's a bit harder to set up and doesn't yet have WebRTC support.
 
 ### Did you look at Arcas for libwebrtc bindings?
