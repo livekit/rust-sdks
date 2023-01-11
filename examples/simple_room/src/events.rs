@@ -1,4 +1,5 @@
-use livekit::room::{RoomEvent, RoomResult, SimulateScenario};
+use livekit::prelude::*;
+use livekit::{RoomResult, SimulateScenario};
 
 #[derive(Debug)]
 pub enum AsyncCmd {

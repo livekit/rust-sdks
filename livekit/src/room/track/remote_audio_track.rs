@@ -1,5 +1,5 @@
-use crate::room::track::{impl_track_trait, TrackShared};
-use livekit_webrtc::media_stream::{AudioTrack, MediaStreamTrackHandle};
+use super::{impl_track_trait, TrackShared};
+use crate::prelude::*;
 use std::sync::Arc;
 
 #[derive(Debug)]
