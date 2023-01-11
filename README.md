@@ -92,3 +92,5 @@ match event {
 ## Examples
 
 We made [simple room](https://github.com/livekit/client-sdk-native/tree/main/examples/simple_room) demo using all features of the SDK. We render videos using wgpu and egui.
+
+![](https://github.com/livekit/client-sdk-rust/blob/main/examples/images/simple-room-demo.gif)
