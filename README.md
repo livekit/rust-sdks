@@ -108,10 +108,10 @@ Yes! In fact, we also plan to release an SDK for C++ in the coming months. It, l
 
 Yes. We chose Rust over C++ for a few reasons:
 
-- Rust's ownership model and thread-safety leads to fewer crashes/issues
-- Rust's build system requires less configuration and is easier to work with
-- While we love C/C++, it's a bit nicer to write code in Rust
-- Rust has a rich ecosystem of tools (e.g. websockets, async executor)
+- Rust's ownership model and thread-safety leads to fewer crashes/issues.
+- Rust's build system requires less configuration and is easier to work with.
+- While we love C/C++, it's a bit nicer to write code in Rust.
+- Rust has a rich ecosystem of tools (e.g. websockets, async executor).
 - Having the WebAssembly target will be useful down the road, C++ has Emscripten but it's a bit harder to set up and doesn't yet have WebRTC support.
 
 ### Did you look at Arcas for libwebrtc bindings?
