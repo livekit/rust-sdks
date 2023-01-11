@@ -52,6 +52,8 @@ Currently, Tokio is required to use this SDK, however we plan to make the async 
 ### Connecting to a Room and listen to events:
 
 ```rust
+use livekit::prelude::*;
+
 #[tokio::main]
 async fn main() -> Result<()> {
    let (room, room_events) = Room::connect(&url, &token).await?;
