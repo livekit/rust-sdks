@@ -4,6 +4,7 @@ version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Native SDK for LiveKit"
+repository = "https://github.com/livekit/client-sdk-rust" 
 
 [dependencies]
 livekit-webrtc = { path = "../livekit-webrtc", version = "0.1.1" }

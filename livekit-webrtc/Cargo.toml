@@ -5,6 +5,7 @@ edition = "2021"
 homepage = "https://livekit.io"
 license = "Apache-2.0"
 description = "Livekit safe bindings to libwebrtc"
+repository = "https://github.com/livekit/client-sdk-rust" 
 
 [dependencies]
 webrtc-sys = { path = "../webrtc-sys", version = "0.1.1" }
