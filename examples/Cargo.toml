@@ -1,4 +1,4 @@
 [workspace]
 members = ["*"]
-exclude = ["target", ".cargo"]
+exclude = ["target", "images", ".cargo"]
 resolver = "2"
