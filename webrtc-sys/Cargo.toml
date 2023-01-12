@@ -5,6 +5,7 @@ edition = "2021"
 homepage = "https://livekit.io"
 license = "Apache-2.0"
 description = "Unsafe bindings to libwebrtc"
+repository = "https://github.com/livekit/client-sdk-rust" 
 
 [dependencies]
 cxx = "1.0"
