@@ -8,7 +8,7 @@ use std::path;
 use std::process::Command;
 use tar::Archive;
 
-const WEBRTC_TAG: &str = "m104.5112.07";
+const WEBRTC_TAG: &str = "m104.5112.08";
 
 fn download_prebuilt(
     target_os: &str,
