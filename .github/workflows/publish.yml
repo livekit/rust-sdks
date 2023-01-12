@@ -25,4 +25,4 @@ jobs:
         cd livekit-utils && cargo publish
         cd ../webrtc-sys && cargo publish
         cd ../livekit-webrtc && cargo publish
-        cd ../livekit && cp ../README.md README.md && cargo publish
+        cd ../livekit && cp ../README.md README.md && cargo publish --allow-dirty
