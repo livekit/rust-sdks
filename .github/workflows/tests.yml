@@ -20,7 +20,7 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
 
-    name: Build (${{ matrix.target }})
+    name: Test (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Protoc
