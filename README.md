@@ -14,6 +14,7 @@
 
 - [x] Receiving tracks
 - [x] Cross-platform ( currently tested on Windows & MacOS )
+- [x] Data channels
 - [ ] Publishing tracks
 - [ ] Adaptive Streaming
 - [ ] Dynacast
