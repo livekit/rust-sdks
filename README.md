@@ -1,7 +1,8 @@
 # 📹🎙️🦀 Rust Client SDK for LiveKit
 
 [![crates.io](https://img.shields.io/crates/v/livekit.svg)](https://crates.io/crates/livekit)
-[![Tests & Build](https://github.com/livekit/client-sdk-native/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/rust.yml)
+[![Builds](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml)
+[![Tests](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml)
 
 ⚠️ Warning
 
