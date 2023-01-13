@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # Platform supports is limited for tests (no aarch64)
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: x86_64-apple-darwin
+
+    name: Test (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update --no-self-update stable
+          rustup target add ${{ matrix.target }}
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Build
+        run: cargo build --release --verbose --target ${{ matrix.target }}
+
+      - name: Test
+        run: cargo test --release --verbose --target ${{ matrix.target }}
+
+

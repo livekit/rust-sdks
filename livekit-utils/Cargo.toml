@@ -1,9 +1,10 @@
 [package]
 name = "livekit-utils"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Shared utilities for livekit"
+repository = "https://github.com/livekit/client-sdk-rust" 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -1,0 +1,28 @@
+name: Publish crates
+
+on:
+  push:
+    tags:
+      - v*
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Publish crates
+        run: |
+          cd livekit-utils && cargo publish
+          cd ../webrtc-sys && cargo publish
+          cd ../livekit-webrtc && cargo publish
+          cd ../livekit && cp ../README.md README.md && cargo publish --allow-dirty

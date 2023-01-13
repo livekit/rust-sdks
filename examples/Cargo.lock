@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "livekit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "futures-util",
@@ -1306,7 +1306,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-utils"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parking_lot",
  "tokio",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-webrtc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cxx",
  "livekit-utils",
@@ -2229,7 +2229,7 @@ dependencies = [
 
 [[package]]
 name = "simple_room"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -2905,7 +2905,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "curl",
  "cxx",
