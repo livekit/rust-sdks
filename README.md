@@ -116,6 +116,13 @@ Yes. We chose Rust over C++ for a few reasons:
 - Rust has a rich ecosystem of tools (e.g. websockets, async executor).
 - Having the WebAssembly target will be useful down the road, C++ has Emscripten but it's a bit harder to set up and doesn't yet have WebRTC support.
 
-### Did you look at Arcas for libwebrtc bindings?
+### Did you look at [Arcas](https://github.com/arcas-io/libwebrtc) for libwebrtc bindings?
 
 Yes. Our build system is inspired by LBL's work! Given that some of our logic (e.g. hardware decoder code) is in C++ and that we may need to bridge more/different things than Arcas, we decided it was better to have our own bindings for full control.
+
+### Did you consider using [webrtc.rs](https://webrtc.rs/) instead of libwebrtc?
+Yes! As webrtc.rs matures, we'll eventually migrate to a pure Rust stack. For now, we chose libwebrtc for a few reasons:
+
+- Chrome's adoption and usage means libwebrtc is thoroughly battle-tested.
+- webrtc.rs is ported from Pion (which [our SFU](https://github.com/livekit/livekit) is built on) and a better fit for server-side use.
+- libwebrtc currently supports more features like encoding/decoding and includes platform-specific code for dealing with media devices.
