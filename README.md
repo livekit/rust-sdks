@@ -59,7 +59,7 @@ use livekit::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-   let (room, room_events) = Room::connect(&url, &token).await?;
+   let (room, mut room_events) = Room::connect(&url, &token).await?;
 
    while let Some(event) = room_events.recv().await {
       match event {
