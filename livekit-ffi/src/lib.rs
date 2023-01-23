@@ -1,6 +1,8 @@
+pub type FFIHandle = u32;
 
-pub mod proto {
+mod proto {
     include!(concat!(env!("OUT_DIR"), "/livekit.rs"));
 }
 
-mod ffi;
+mod conversion;
+mod server;

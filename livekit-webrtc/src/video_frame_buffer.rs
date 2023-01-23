@@ -2,10 +2,12 @@ use cxx::UniquePtr;
 use livekit_utils::enum_dispatch;
 use std::pin::Pin;
 use std::slice;
-use vfb_sys::ffi::VideoFrameBufferType;
 use webrtc_sys::video_frame_buffer as vfb_sys;
 
+pub use vfb_sys::ffi::VideoFrameBufferType;
+
 pub trait VideoFrameBufferTrait {
+    fn buffer_type(&self) -> VideoFrameBufferType; // Useful for the FFI
     fn width(&self) -> i32;
     fn height(&self) -> i32;
     fn to_i420(self) -> I420Buffer;
@@ -23,6 +25,24 @@ pub trait PlanarYuv8Buffer: PlanarYuvBuffer {
     fn data_y(&self) -> &[u8];
     fn data_u(&self) -> &[u8];
     fn data_v(&self) -> &[u8];
+}
+
+pub trait PlanarYuv16BBuffer: PlanarYuvBuffer {
+    fn data_y(&self) -> &[u16];
+    fn data_u(&self) -> &[u16];
+    fn data_v(&self) -> &[u16];
+}
+
+pub trait BiplanarYuvBuffer: VideoFrameBufferTrait {
+    fn chroma_width(&self) -> i32;
+    fn chroma_height(&self) -> i32;
+    fn stride_y(&self) -> i32;
+    fn stride_uv(&self) -> i32;
+}
+
+pub trait BiplanarYuv8Buffer: BiplanarYuvBuffer {
+    fn data_y(&self) -> &[u8];
+    fn data_uv(&self) -> &[u8];
 }
 
 pub enum VideoFrameBuffer {
@@ -43,11 +63,21 @@ impl VideoFrameBuffer {
                 VideoFrameBufferType::I420 => {
                     Self::I420(I420Buffer::new(cxx_handle.pin_mut().get_i420()))
                 }
-                VideoFrameBufferType::I420A => Self::I420A(I420ABuffer::new(cxx_handle)),
-                VideoFrameBufferType::I422 => Self::I422(I422Buffer::new(cxx_handle)),
-                VideoFrameBufferType::I444 => Self::I444(I444Buffer::new(cxx_handle)),
-                VideoFrameBufferType::I010 => Self::I010(I010Buffer::new(cxx_handle)),
-                VideoFrameBufferType::NV12 => Self::NV12(NV12Buffer::new(cxx_handle)),
+                VideoFrameBufferType::I420A => {
+                    Self::I420A(I420ABuffer::new(cxx_handle.pin_mut().get_i420a()))
+                }
+                VideoFrameBufferType::I422 => {
+                    Self::I422(I422Buffer::new(cxx_handle.pin_mut().get_i422()))
+                }
+                VideoFrameBufferType::I444 => {
+                    Self::I444(I444Buffer::new(cxx_handle.pin_mut().get_i444()))
+                }
+                VideoFrameBufferType::I010 => {
+                    Self::I010(I010Buffer::new(cxx_handle.pin_mut().get_i010()))
+                }
+                VideoFrameBufferType::NV12 => {
+                    Self::NV12(NV12Buffer::new(cxx_handle.pin_mut().get_nv12()))
+                }
                 _ => unreachable!(), // VideoFrameBufferType is represented as i32
             }
         }
@@ -57,6 +87,7 @@ impl VideoFrameBuffer {
 impl VideoFrameBufferTrait for VideoFrameBuffer {
     enum_dispatch!(
         [Native, I420, I420A, I422, I444, I010, NV12]
+        fnc!(buffer_type, &Self, [], VideoFrameBufferType);
         fnc!(width, &Self, [], i32);
         fnc!(height, &Self, [], i32);
         fnc!(to_i420, Self, [], I420Buffer);
@@ -81,6 +112,13 @@ macro_rules! impl_video_frame_buffer {
         // Allow unused_unsafe when we don't do any cast ( e.g. NativeBuffer )
         #[allow(unused_unsafe)]
         impl VideoFrameBufferTrait for $x {
+            fn buffer_type(&self) -> VideoFrameBufferType {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    (*ptr).buffer_type()
+                }
+            }
+
             fn width(&self) -> i32 {
                 let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
                 unsafe {
@@ -179,6 +217,61 @@ macro_rules! impl_yuv8_buffer {
     };
 }
 
+macro_rules! impl_biyuv_buffer {
+    ($x:ty $(, $cast:ident)*) => {
+        impl BiplanarYuvBuffer for $x {
+            fn chroma_width(&self) -> i32 {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    (*ptr).chroma_width()
+                }
+            }
+
+            fn chroma_height(&self) -> i32 {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    (*ptr).chroma_height()
+                }
+            }
+
+            fn stride_y(&self) -> i32 {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    (*ptr).stride_y()
+                }
+            }
+
+            fn stride_uv(&self) -> i32 {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    (*ptr).stride_uv()
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_biyuv8_buffer {
+    ($x:ty $(, $cast:ident)*) => {
+        impl BiplanarYuv8Buffer for $x {
+            fn data_y(&self) -> &[u8] {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    slice::from_raw_parts((*ptr).data_y(), (self.width() * self.height()) as usize)
+                }
+            }
+
+            fn data_uv(&self) -> &[u8] {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    let chroma_height = (self.height() + 1) / 2;
+                    slice::from_raw_parts((*ptr).data_uv(), (self.stride_uv() * chroma_height) as usize)
+                }
+            }
+        }
+    };
+}
+
 pub struct NativeBuffer {
     cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
 }
@@ -188,36 +281,46 @@ pub struct I420Buffer {
 }
 
 pub struct I420ABuffer {
-    cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
+    cxx_handle: UniquePtr<vfb_sys::ffi::I420ABuffer>,
 }
 
 pub struct I422Buffer {
-    cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
+    cxx_handle: UniquePtr<vfb_sys::ffi::I422Buffer>,
 }
 
 pub struct I444Buffer {
-    cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
+    cxx_handle: UniquePtr<vfb_sys::ffi::I444Buffer>,
 }
 
 pub struct I010Buffer {
-    cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
+    cxx_handle: UniquePtr<vfb_sys::ffi::I010Buffer>,
 }
 
 pub struct NV12Buffer {
-    cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
+    cxx_handle: UniquePtr<vfb_sys::ffi::NV12Buffer>,
 }
 
 impl_video_frame_buffer!(NativeBuffer);
 impl_video_frame_buffer!(I420Buffer, i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
-impl_video_frame_buffer!(I420ABuffer);
-impl_video_frame_buffer!(I422Buffer);
-impl_video_frame_buffer!(I444Buffer);
-impl_video_frame_buffer!(I010Buffer);
-impl_video_frame_buffer!(NV12Buffer);
+impl_video_frame_buffer!(I420ABuffer, i420a_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+impl_video_frame_buffer!(I422Buffer, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+impl_video_frame_buffer!(I444Buffer, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+impl_video_frame_buffer!(I010Buffer, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb);
+impl_video_frame_buffer!(NV12Buffer, nv12_to_biyuv8, biyuv8_to_biyuv, biyuv_to_vfb);
 
 impl_yuv_buffer!(I420Buffer, i420_to_yuv8, yuv8_to_yuv);
+impl_yuv_buffer!(I420ABuffer, i420a_to_yuv8, yuv8_to_yuv);
+impl_yuv_buffer!(I422Buffer, i422_to_yuv8, yuv8_to_yuv);
+impl_yuv_buffer!(I444Buffer, i444_to_yuv8, yuv8_to_yuv);
 
 impl_yuv8_buffer!(I420Buffer, i420_to_yuv8);
+impl_yuv8_buffer!(I420ABuffer, i420a_to_yuv8);
+impl_yuv8_buffer!(I422Buffer, i422_to_yuv8);
+impl_yuv8_buffer!(I444Buffer, i444_to_yuv8);
+
+impl_biyuv_buffer!(NV12Buffer, nv12_to_biyuv8, biyuv8_to_biyuv);
+
+impl_biyuv8_buffer!(NV12Buffer, nv12_to_biyuv8);
 
 impl NativeBuffer {
     fn new(cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
@@ -232,31 +335,31 @@ impl I420Buffer {
 }
 
 impl I420ABuffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
+    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I420ABuffer>) -> Self {
         Self { cxx_handle }
     }
 }
 
 impl I422Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
+    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I422Buffer>) -> Self {
         Self { cxx_handle }
     }
 }
 
 impl I444Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
+    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I444Buffer>) -> Self {
         Self { cxx_handle }
     }
 }
 
 impl I010Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
+    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I010Buffer>) -> Self {
         Self { cxx_handle }
     }
 }
 
 impl NV12Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
+    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::NV12Buffer>) -> Self {
         Self { cxx_handle }
     }
 }

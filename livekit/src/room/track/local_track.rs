@@ -1,10 +1,27 @@
 use crate::prelude::*;
+use livekit_utils::enum_dispatch;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub enum LocalTrackHandle {
     Audio(Arc<LocalAudioTrack>),
     Video(Arc<LocalVideoTrack>),
+}
+
+impl TrackTrait for LocalTrackHandle {
+    enum_dispatch!(
+        [Audio, Video]
+        fnc!(sid, &Self, [], TrackSid);
+        fnc!(name, &Self, [], String);
+        fnc!(kind, &Self, [], TrackKind);
+        fnc!(stream_state, &Self, [], StreamState);
+        fnc!(muted, &Self, [], bool);
+        fnc!(start, &Self, [], ());
+        fnc!(stop, &Self, [], ());
+        fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
+        fnc!(set_muted, &Self, [muted: bool], ());
+    );
 }
 
 impl From<LocalTrackHandle> for TrackHandle {

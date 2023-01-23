@@ -117,6 +117,7 @@ pub trait TrackTrait {
     fn name(&self) -> String;
     fn kind(&self) -> TrackKind;
     fn stream_state(&self) -> StreamState;
+    fn muted(&self) -> bool;
     fn start(&self);
     fn stop(&self);
     fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent>;
@@ -201,6 +202,7 @@ impl TrackTrait for TrackHandle {
         fnc!(name, &Self, [], String);
         fnc!(kind, &Self, [], TrackKind);
         fnc!(stream_state, &Self, [], StreamState);
+        fnc!(muted, &Self, [], bool);
         fnc!(start, &Self, [], ());
         fnc!(stop, &Self, [], ());
         fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
@@ -244,6 +246,10 @@ macro_rules! impl_track_trait {
 
             fn stream_state(&self) -> StreamState {
                 self.shared.stream_state.load(Ordering::SeqCst).into()
+            }
+
+            fn muted(&self) -> bool {
+                self.shared.muted.load(Ordering::SeqCst)
             }
 
             fn start(&self) {

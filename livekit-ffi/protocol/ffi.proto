@@ -9,9 +9,7 @@ option csharp_namespace = "LiveKit.Proto";
 /// The foreign language is responsable for disposing an handle
 /// Forgetting to dispose the handle may lead to memory leaks
 /// Messages bellow can contain an FFIHandle
-message FFIHandle {
-  uint32 id = 1;
-}
+message FFIHandle { uint32 id = 1; }
 
 message FFIRequest {
   oneof message {
@@ -64,13 +62,15 @@ message ParticipantInfo {
 }
 
 enum TrackKind {
-  AUDIO = 0;
-  VIDEO = 1;
+  KIND_UNKNOWN = 0;
+  KIND_AUDIO = 1;
+  KIND_VIDEO = 2;
 }
 
 enum StreamState {
-  ACTIVE = 0;
-  PAUSED = 1;
+  STATE_UNKNOWN = 0;
+  STATE_ACTIVE = 1;
+  STATE_PAUSED = 2;
 }
 
 message TrackPublicationInfo {
@@ -136,12 +136,16 @@ message DataReceived {
   uint64 data_size = 4;
 }
 
-
 /// Track Events
 
 message TrackEvent {
   string track_sid = 1;
-  oneof message { VideoFrame video_frame = 2; }
+  oneof message { FrameReceived frame = 2; }
+}
+
+message FrameReceived {
+  VideoFrame frame = 1;
+  VideoFrameBuffer frame_buffer = 2;
 }
 
 message VideoFrame {
@@ -161,14 +165,38 @@ message VideoFrameBuffer {
   VideoFrameBufferType buffer_type = 2;
   int32 width = 3;
   int32 height = 4;
-  int32 chroma_width = 5;
-  int32 chroma_height = 6;
-  int32 stride_y = 7;
-  int32 stride_u = 8;
-  int32 strive_v = 9;
-  uint64 data_y_ptr = 10; // *const u8
-  uint64 data_u_ptr = 11; // *const u8
-  uint64 data_v_ptr = 12; // *const u8
+  oneof buffer {
+    PlanarYuvBuffer yuv = 5;
+    BiplanarYuvBuffer bi_yuv = 6;
+    NativeBuffer native = 7;
+  }
+}
+
+message PlanarYuvBuffer {
+  int32 chroma_width = 1;
+  int32 chroma_height = 2;
+  int32 stride_y = 3;
+  int32 stride_u = 4;
+  int32 stride_v = 5;
+
+  // *const u8 or *const u16
+  uint64 data_y_ptr = 6;
+  uint64 data_u_ptr = 7;
+  uint64 data_v_ptr = 8;
+}
+
+message BiplanarYuvBuffer {
+  int32 chroma_width = 1;
+  int32 chroma_height = 2;
+  int32 stride_y = 3;
+  int32 stride_uv = 4;
+
+  uint64 data_y_ptr = 5;
+  uint64 data_uv_ptr = 6;
+}
+
+message NativeBuffer {
+  // TODO(theomonnom): Expose graphic context?
 }
 
 enum VideoFrameBufferType {

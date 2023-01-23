@@ -5,7 +5,7 @@ use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
 use crate::signal_client::SignalOptions;
 use crate::{RoomError, RoomEvent, RoomResult, SimulateScenario};
 use livekit_utils::observer::Dispatcher;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
@@ -149,8 +149,8 @@ impl RoomSession {
         self.inner.state.load(Ordering::Acquire).try_into().unwrap()
     }
 
-    pub fn participants(&self) -> &RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>> {
-        &self.inner.participants
+    pub fn participants(&self) -> RwLockReadGuard<HashMap<ParticipantSid, Arc<RemoteParticipant>>> {
+        self.inner.participants.read()
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {

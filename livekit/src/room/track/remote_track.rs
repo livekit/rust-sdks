@@ -16,6 +16,7 @@ impl TrackTrait for RemoteTrackHandle {
         fnc!(name, &Self, [], String);
         fnc!(kind, &Self, [], TrackKind);
         fnc!(stream_state, &Self, [], StreamState);
+        fnc!(muted, &Self, [], bool);
         fnc!(start, &Self, [], ());
         fnc!(stop, &Self, [], ());
         fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
