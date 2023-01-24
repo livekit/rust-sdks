@@ -148,15 +148,23 @@ async fn room_task(connect: proto::ConnectRequest) {
                 let track_sid = track.sid();
                 match track {
                     RemoteTrackHandle::Video(video_track) => {
-                        video_track.rtc_track().on_frame(Box::new(|frame, buffer| {
-                            // Send frame event
-                            send_response(ResponseMessage::TrackEvent(proto::TrackEvent {
-                                track_sid,
-                                message: proto::track_event::Message::VideoFrame(
-                                    proto::VideoFrame {},
-                                ),
-                            }));
-                        }))
+                        video_track
+                            .rtc_track()
+                            .on_frame(Box::new(move |frame, buffer| {
+                                // Received a new VideoFrame
+                                let handle: FFIHandle = 56;
+                                send_response(ResponseMessage::TrackEvent(proto::TrackEvent {
+                                    track_sid: track_sid.to_string(),
+                                    message: Some(proto::track_event::Message::FrameReceived(
+                                        proto::FrameReceived {
+                                            frame: Some(frame.into()),
+                                            frame_buffer: Some(proto::VideoFrameBuffer::from(
+                                                handle, buffer,
+                                            )),
+                                        },
+                                    )),
+                                }));
+                            }))
                     }
                     RemoteTrackHandle::Audio(audio_track) => {}
                 }

@@ -1,7 +1,10 @@
 use crate::{proto, FFIHandle};
 use livekit::{
     prelude::*,
-    webrtc::video_frame_buffer::{PlanarYuv8Buffer, PlanarYuvBuffer, I420Buffer, I420ABuffer, I422Buffer, I444Buffer},
+    webrtc::video_frame_buffer::{
+        BiplanarYuv8Buffer, BiplanarYuvBuffer, I010Buffer, I420ABuffer, I420Buffer, I422Buffer,
+        I444Buffer, NV12Buffer, PlanarYuv16BBuffer, PlanarYuv8Buffer, PlanarYuvBuffer,
+    },
 };
 use std::{panic, sync::Arc};
 
@@ -32,7 +35,7 @@ impl_participant_into!(Participant);
 
 macro_rules! impl_publication_into {
     ($p:ty) => {
-        impl From<$p> for I’m always interested to learn new things proto::TrackPublicationInfo {
+        impl From<$p> for proto::TrackPublicationInfo {
             fn from(p: $p) -> Self {
                 Self {
                     name: p.name(),
@@ -199,8 +202,8 @@ impl From<VideoFrameBufferType> for proto::VideoFrameBufferType {
 macro_rules! impl_yuv_into {
     ($b:ty) => {
         impl From<$b> for proto::PlanarYuvBuffer {
-            fn from(buffer :$b) -> Self {
-                Self{ 
+            fn from(buffer: $b) -> Self {
+                Self {
                     chroma_width: buffer.chroma_width(),
                     chroma_height: buffer.chroma_height(),
                     stride_y: buffer.stride_y(),
@@ -219,30 +222,49 @@ impl_yuv_into!(I420Buffer);
 impl_yuv_into!(I420ABuffer);
 impl_yuv_into!(I422Buffer);
 impl_yuv_into!(I444Buffer);
+impl_yuv_into!(I010Buffer);
+
+macro_rules! impl_biyuv_into {
+    ($b:ty) => {
+        impl From<$b> for proto::BiplanarYuvBuffer {
+            fn from(buffer: $b) -> Self {
+                Self {
+                    chroma_width: buffer.chroma_width(),
+                    chroma_height: buffer.chroma_height(),
+                    stride_y: buffer.stride_y(),
+                    stride_uv: buffer.stride_uv(),
+                    data_y_ptr: buffer.data_y().as_ptr() as u64,
+                    data_uv_ptr: buffer.data_uv().as_ptr() as u64,
+                }
+            }
+        }
+    };
+}
+
+impl_biyuv_into!(NV12Buffer);
 
 impl proto::VideoFrameBuffer {
-    pub fn from(buffer: VideoFrameBuffer, handle: FFIHandle) -> Self {
-        let proto_buffer = {
-            match buffer {
-                VideoFrameBuffer::I420(i420) => proto::PlanarYuvBuffer {
-                    chroma_width: i420.chroma_width(),
-                    chroma_height: i420.chroma_height(),
-                    stride_y: i420.stride_y(),
-                    stride_u: i420.stride_u(),
-                    stride_v: i420.stride_v(),
-                    data_y_ptr: i420.data_y().as_ptr() as u64,
-                    data_u_ptr: i420.data_u().as_ptr() as u64,
-                    data_v_ptr: i420.data_v().as_ptr() as u64,
-                },
-                VideoFrameBuffer::I422(i422_buffer) => {}
-                VideoFrameBuffer::I444(i444_buffer) => {}
-            }
-        };
+    pub fn from(handle: FFIHandle, buffer: VideoFrameBuffer) -> Self {
         Self {
             handle: Some(handle.into()),
             buffer_type: proto::VideoFrameBufferType::from(buffer.buffer_type()).into(),
             width: buffer.width(),
             height: buffer.height(),
+            buffer: Some(match buffer {
+                VideoFrameBuffer::Native(native) => {
+                    proto::video_frame_buffer::Buffer::Native(proto::NativeBuffer {})
+                }
+                VideoFrameBuffer::I420(i420) => proto::video_frame_buffer::Buffer::Yuv(i420.into()),
+                VideoFrameBuffer::I420A(i420a) => {
+                    proto::video_frame_buffer::Buffer::Yuv(i420a.into())
+                }
+                VideoFrameBuffer::I422(i422) => proto::video_frame_buffer::Buffer::Yuv(i422.into()),
+                VideoFrameBuffer::I444(i444) => proto::video_frame_buffer::Buffer::Yuv(i444.into()),
+                VideoFrameBuffer::I010(i010) => proto::video_frame_buffer::Buffer::Yuv(i010.into()),
+                VideoFrameBuffer::NV12(nv12) => {
+                    proto::video_frame_buffer::Buffer::BiYuv(nv12.into())
+                }
+            }),
         }
     }
 }

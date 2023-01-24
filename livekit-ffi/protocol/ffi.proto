@@ -140,7 +140,7 @@ message DataReceived {
 
 message TrackEvent {
   string track_sid = 1;
-  oneof message { FrameReceived frame = 2; }
+  oneof message { FrameReceived frame_received = 2; }
 }
 
 message FrameReceived {

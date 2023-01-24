@@ -4,7 +4,31 @@ use std::pin::Pin;
 use std::slice;
 use webrtc_sys::video_frame_buffer as vfb_sys;
 
-pub use vfb_sys::ffi::VideoFrameBufferType;
+#[derive(Debug)]
+pub enum VideoFrameBufferType {
+    Native,
+    I420,
+    I420A,
+    I422,
+    I444,
+    I010,
+    NV12,
+}
+
+impl From<vfb_sys::ffi::VideoFrameBufferType> for VideoFrameBufferType {
+    fn from(buffer_type: vfb_sys::ffi::VideoFrameBufferType) -> Self {
+        match buffer_type {
+            vfb_sys::ffi::VideoFrameBufferType::Native => Self::Native,
+            vfb_sys::ffi::VideoFrameBufferType::I420 => Self::I420,
+            vfb_sys::ffi::VideoFrameBufferType::I420A => Self::I420A,
+            vfb_sys::ffi::VideoFrameBufferType::I422 => Self::I422,
+            vfb_sys::ffi::VideoFrameBufferType::I444 => Self::I444,
+            vfb_sys::ffi::VideoFrameBufferType::I010 => Self::I010,
+            vfb_sys::ffi::VideoFrameBufferType::NV12 => Self::NV12,
+            _ => unreachable!(),
+        }
+    }
+}
 
 pub trait VideoFrameBufferTrait {
     fn buffer_type(&self) -> VideoFrameBufferType; // Useful for the FFI
@@ -58,7 +82,7 @@ pub enum VideoFrameBuffer {
 impl VideoFrameBuffer {
     pub(crate) fn new(mut cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
         unsafe {
-            match cxx_handle.buffer_type() {
+            match cxx_handle.buffer_type().into() {
                 VideoFrameBufferType::Native => Self::Native(NativeBuffer::new(cxx_handle)),
                 VideoFrameBufferType::I420 => {
                     Self::I420(I420Buffer::new(cxx_handle.pin_mut().get_i420()))
@@ -115,7 +139,7 @@ macro_rules! impl_video_frame_buffer {
             fn buffer_type(&self) -> VideoFrameBufferType {
                 let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
                 unsafe {
-                    (*ptr).buffer_type()
+                    (*ptr).buffer_type().into()
                 }
             }
 
@@ -207,6 +231,35 @@ macro_rules! impl_yuv8_buffer {
             }
 
             fn data_v(&self) -> &[u8] {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    let chroma_height = (self.height() + 1) / 2;
+                    slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * chroma_height) as usize)
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_yuv16_buffer {
+    ($x:ty $(, $cast:ident)*) => {
+        impl PlanarYuv16BBuffer for $x {
+            fn data_y(&self) -> &[u16] {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    slice::from_raw_parts((*ptr).data_y(), (self.width() * self.height()) as usize)
+                }
+            }
+
+            fn data_u(&self) -> &[u16] {
+                let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
+                unsafe {
+                    let chroma_height = (self.height() + 1) / 2;
+                    slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * chroma_height) as usize)
+                }
+            }
+
+            fn data_v(&self) -> &[u16] {
                 let ptr = recursive_cast!(&*self.cxx_handle $(, $cast)*);
                 unsafe {
                     let chroma_height = (self.height() + 1) / 2;
@@ -312,11 +365,14 @@ impl_yuv_buffer!(I420Buffer, i420_to_yuv8, yuv8_to_yuv);
 impl_yuv_buffer!(I420ABuffer, i420a_to_yuv8, yuv8_to_yuv);
 impl_yuv_buffer!(I422Buffer, i422_to_yuv8, yuv8_to_yuv);
 impl_yuv_buffer!(I444Buffer, i444_to_yuv8, yuv8_to_yuv);
+impl_yuv_buffer!(I010Buffer, i010_to_yuv16b, yuv16b_to_yuv);
 
 impl_yuv8_buffer!(I420Buffer, i420_to_yuv8);
 impl_yuv8_buffer!(I420ABuffer, i420a_to_yuv8);
 impl_yuv8_buffer!(I422Buffer, i422_to_yuv8);
 impl_yuv8_buffer!(I444Buffer, i444_to_yuv8);
+
+impl_yuv16_buffer!(I010Buffer, i010_to_yuv16b);
 
 impl_biyuv_buffer!(NV12Buffer, nv12_to_biyuv8, biyuv8_to_biyuv);
 
