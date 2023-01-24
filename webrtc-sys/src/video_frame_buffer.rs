@@ -1,3 +1,5 @@
+use crate::impl_thread_safety;
+
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     #[derive(Debug)]
@@ -79,3 +81,16 @@ pub mod ffi {
         fn _unique_video_frame_buffer() -> UniquePtr<VideoFrameBuffer>;
     }
 }
+
+impl_thread_safety!(ffi::VideoFrameBuffer, Send + Sync);
+impl_thread_safety!(ffi::PlanarYuvBuffer, Send + Sync);
+impl_thread_safety!(ffi::PlanarYuv8Buffer, Send + Sync);
+impl_thread_safety!(ffi::PlanarYuv16BBuffer, Send + Sync);
+impl_thread_safety!(ffi::BiplanarYuvBuffer, Send + Sync);
+impl_thread_safety!(ffi::BiplanarYuv8Buffer, Send + Sync);
+impl_thread_safety!(ffi::I420Buffer, Send + Sync);
+impl_thread_safety!(ffi::I420ABuffer, Send + Sync);
+impl_thread_safety!(ffi::I422Buffer, Send + Sync);
+impl_thread_safety!(ffi::I444Buffer, Send + Sync);
+impl_thread_safety!(ffi::I010Buffer, Send + Sync);
+impl_thread_safety!(ffi::NV12Buffer, Send + Sync);

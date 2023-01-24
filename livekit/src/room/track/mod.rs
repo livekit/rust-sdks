@@ -269,6 +269,25 @@ macro_rules! impl_track_trait {
             }
         }
     };
+    ($x:ident, enum_dispatch, [$($variant:ident),+]) => {
+        use livekit_utils::enum_dispatch;
+        use tokio::sync::mpsc;
+
+        impl TrackTrait for $x {
+            enum_dispatch!(
+                [$($variant),+]
+                fnc!(sid, &Self, [], TrackSid);
+                fnc!(name, &Self, [], String);
+                fnc!(kind, &Self, [], TrackKind);
+                fnc!(stream_state, &Self, [], StreamState);
+                fnc!(muted, &Self, [], bool);
+                fnc!(start, &Self, [], ());
+                fnc!(stop, &Self, [], ());
+                fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
+                fnc!(set_muted, &Self, [muted: bool], ());
+            );
+        }
+    };
 }
 
 pub(super) use impl_track_trait;

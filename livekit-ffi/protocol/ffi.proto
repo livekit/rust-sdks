@@ -9,7 +9,7 @@ option csharp_namespace = "LiveKit.Proto";
 /// The foreign language is responsable for disposing an handle
 /// Forgetting to dispose the handle may lead to memory leaks
 /// Messages bellow can contain an FFIHandle
-message FFIHandle { uint32 id = 1; }
+message FFIHandleId { uint32 id = 1; }
 
 message FFIRequest {
   oneof message {
@@ -130,7 +130,7 @@ message TrackUnsubscribed {
 }
 
 message DataReceived {
-  FFIHandle handle = 1;
+  FFIHandleId handle = 1;
   string participant_sid = 2;
   uint64 data_ptr = 3;
   uint64 data_size = 4;
@@ -161,7 +161,7 @@ message VideoFrame {
 }
 
 message VideoFrameBuffer {
-  FFIHandle handle = 1;
+  FFIHandleId handle = 1;
   VideoFrameBufferType buffer_type = 2;
   int32 width = 3;
   int32 height = 4;

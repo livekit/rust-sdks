@@ -1,4 +1,4 @@
-use crate::{proto, FFIHandle};
+use crate::{proto, server::FFIHandleId};
 use livekit::{
     prelude::*,
     webrtc::video_frame_buffer::{
@@ -6,11 +6,11 @@ use livekit::{
         I444Buffer, NV12Buffer, PlanarYuv16BBuffer, PlanarYuv8Buffer, PlanarYuvBuffer,
     },
 };
-use std::{panic, sync::Arc};
+use std::sync::Arc;
 
-impl From<FFIHandle> for proto::FfiHandle {
-    fn from(handle: FFIHandle) -> Self {
-        Self { id: handle as u32 }
+impl From<FFIHandleId> for proto::FfiHandleId {
+    fn from(id: FFIHandleId) -> Self {
+        Self { id: id as u32 }
     }
 }
 
@@ -29,9 +29,9 @@ macro_rules! impl_participant_into {
     };
 }
 
-impl_participant_into!(Arc<LocalParticipant>);
-impl_participant_into!(Arc<RemoteParticipant>);
-impl_participant_into!(Participant);
+impl_participant_into!(&Arc<LocalParticipant>);
+impl_participant_into!(&Arc<RemoteParticipant>);
+impl_participant_into!(&Participant);
 
 macro_rules! impl_publication_into {
     ($p:ty) => {
@@ -47,9 +47,9 @@ macro_rules! impl_publication_into {
     };
 }
 
-impl_publication_into!(LocalTrackPublication);
-impl_publication_into!(RemoteTrackPublication);
-impl_publication_into!(TrackPublication);
+impl_publication_into!(&LocalTrackPublication);
+impl_publication_into!(&RemoteTrackPublication);
+impl_publication_into!(&TrackPublication);
 
 macro_rules! impl_track_into {
     ($t:ty) => {
@@ -67,13 +67,13 @@ macro_rules! impl_track_into {
     };
 }
 
-impl_track_into!(LocalAudioTrack);
-impl_track_into!(LocalVideoTrack);
-impl_track_into!(RemoteAudioTrack);
-impl_track_into!(RemoteVideoTrack);
-impl_track_into!(TrackHandle);
-impl_track_into!(LocalTrackHandle);
-impl_track_into!(RemoteTrackHandle);
+impl_track_into!(&LocalAudioTrack);
+impl_track_into!(&LocalVideoTrack);
+impl_track_into!(&RemoteAudioTrack);
+impl_track_into!(&RemoteVideoTrack);
+impl_track_into!(&TrackHandle);
+impl_track_into!(&LocalTrackHandle);
+impl_track_into!(&RemoteTrackHandle);
 
 impl From<TrackKind> for proto::TrackKind {
     fn from(kind: TrackKind) -> Self {
@@ -100,13 +100,13 @@ impl proto::RoomEvent {
         let message = match event {
             RoomEvent::ParticipantConnected(participant) => Some(
                 proto::room_event::Message::ParticipantConnected(proto::ParticipantConnected {
-                    info: Some(participant.into()),
+                    info: Some((&participant).into()),
                 }),
             ),
             RoomEvent::ParticipantDisconnected(participant) => {
                 Some(proto::room_event::Message::ParticipantDisconnected(
                     proto::ParticipantDisconnected {
-                        info: Some(participant.into()),
+                        info: Some((&participant).into()),
                     },
                 ))
             }
@@ -116,7 +116,7 @@ impl proto::RoomEvent {
             } => Some(proto::room_event::Message::TrackPublished(
                 proto::TrackPublished {
                     participant_sid: participant.sid().to_string(),
-                    publication: Some(publication.into()),
+                    publication: Some((&publication).into()),
                 },
             )),
             RoomEvent::TrackUnpublished {
@@ -125,7 +125,7 @@ impl proto::RoomEvent {
             } => Some(proto::room_event::Message::TrackUnpublished(
                 proto::TrackUnpublished {
                     participant_sid: participant.sid().to_string(),
-                    publication: Some(publication.into()),
+                    publication: Some((&publication).into()),
                 },
             )),
             RoomEvent::TrackSubscribed {
@@ -135,7 +135,7 @@ impl proto::RoomEvent {
             } => Some(proto::room_event::Message::TrackSubscribed(
                 proto::TrackSubscribed {
                     participant_sid: participant.sid().to_string(),
-                    track: Some(track.into()),
+                    track: Some((&track).into()),
                 },
             )),
             RoomEvent::TrackUnsubscribed {
@@ -145,7 +145,7 @@ impl proto::RoomEvent {
             } => Some(proto::room_event::Message::TrackUnsubscribed(
                 proto::TrackUnsubscribed {
                     participant_sid: participant.sid().to_string(),
-                    track: Some(track.into()),
+                    track: Some((&track).into()),
                 },
             )),
             _ => None,
@@ -218,11 +218,11 @@ macro_rules! impl_yuv_into {
     };
 }
 
-impl_yuv_into!(I420Buffer);
-impl_yuv_into!(I420ABuffer);
-impl_yuv_into!(I422Buffer);
-impl_yuv_into!(I444Buffer);
-impl_yuv_into!(I010Buffer);
+impl_yuv_into!(&I420Buffer);
+impl_yuv_into!(&I420ABuffer);
+impl_yuv_into!(&I422Buffer);
+impl_yuv_into!(&I444Buffer);
+impl_yuv_into!(&I010Buffer);
 
 macro_rules! impl_biyuv_into {
     ($b:ty) => {
@@ -241,17 +241,17 @@ macro_rules! impl_biyuv_into {
     };
 }
 
-impl_biyuv_into!(NV12Buffer);
+impl_biyuv_into!(&NV12Buffer);
 
 impl proto::VideoFrameBuffer {
-    pub fn from(handle: FFIHandle, buffer: VideoFrameBuffer) -> Self {
+    pub fn from(handle_id: FFIHandleId, buffer: &VideoFrameBuffer) -> Self {
         Self {
-            handle: Some(handle.into()),
+            handle: Some(handle_id.into()),
             buffer_type: proto::VideoFrameBufferType::from(buffer.buffer_type()).into(),
             width: buffer.width(),
             height: buffer.height(),
-            buffer: Some(match buffer {
-                VideoFrameBuffer::Native(native) => {
+            buffer: Some(match &buffer {
+                VideoFrameBuffer::Native(_) => {
                     proto::video_frame_buffer::Buffer::Native(proto::NativeBuffer {})
                 }
                 VideoFrameBuffer::I420(i420) => proto::video_frame_buffer::Buffer::Yuv(i420.into()),

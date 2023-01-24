@@ -1,27 +1,11 @@
+use super::impl_track_trait;
 use crate::prelude::*;
-use livekit_utils::enum_dispatch;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[derive(Clone, Debug)]
 pub enum RemoteTrackHandle {
     Audio(Arc<RemoteAudioTrack>),
     Video(Arc<RemoteVideoTrack>),
-}
-
-impl TrackTrait for RemoteTrackHandle {
-    enum_dispatch!(
-        [Audio, Video]
-        fnc!(sid, &Self, [], TrackSid);
-        fnc!(name, &Self, [], String);
-        fnc!(kind, &Self, [], TrackKind);
-        fnc!(stream_state, &Self, [], StreamState);
-        fnc!(muted, &Self, [], bool);
-        fnc!(start, &Self, [], ());
-        fnc!(stop, &Self, [], ());
-        fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
-        fnc!(set_muted, &Self, [muted: bool], ());
-    );
 }
 
 impl From<RemoteTrackHandle> for TrackHandle {
@@ -44,3 +28,5 @@ impl TryFrom<TrackHandle> for RemoteTrackHandle {
         }
     }
 }
+
+impl_track_trait!(RemoteTrackHandle, enum_dispatch, [Audio, Video]);

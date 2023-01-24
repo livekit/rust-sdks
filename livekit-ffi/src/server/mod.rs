@@ -1,31 +1,42 @@
-use crate::FFIHandle;
 use crate::{
     proto, proto::ffi_request::Message as RequestMessage,
     proto::ffi_response::Message as ResponseMessage,
 };
 use lazy_static::lazy_static;
 use livekit::prelude::*;
+use livekit::webrtc::media_stream::OnFrameHandler;
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
 use std::collections::HashMap;
 use std::panic;
 use std::slice;
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// The callback function must be thread safe
-type CallbackFn = unsafe extern "C" fn(*const u8, usize);
+mod conversion;
 
-struct FFIConfig {
+pub type FFIHandleId = u32;
+pub type FFIHandle = Box<dyn Any + Send + Sync>;
+
+type CallbackFn = unsafe extern "C" fn(*const u8, usize); // This "C" callback must be threadsafe
+
+lazy_static! {
+    static ref RUNTIME: FFIRuntime = FFIRuntime::default();
+}
+
+pub struct FFIConfig {
     callback_fn: CallbackFn,
 }
 
 /// To use the FFI, the foreign language and the FFI server must share
 /// the same memory space
-struct FFIRuntime {
+pub struct FFIRuntime {
     // Object owned by the foreign language
     // The foreign language is responsible for freeing this memory
-    ffi_owned: RwLock<HashMap<FFIHandle, Box<dyn Any + Send + Sync>>>,
+    ffi_owned: RwLock<HashMap<FFIHandleId, FFIHandle>>,
+    next_handle: AtomicU32, // FFIHandle
+
     rooms: RwLock<HashMap<RoomSid, Room>>,
     async_runtime: tokio::runtime::Runtime,
     initialized: AtomicBool,
@@ -36,6 +47,7 @@ impl Default for FFIRuntime {
     fn default() -> Self {
         Self {
             ffi_owned: RwLock::new(HashMap::new()),
+            next_handle: Default::default(),
             rooms: RwLock::new(HashMap::new()),
             async_runtime: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -47,8 +59,18 @@ impl Default for FFIRuntime {
     }
 }
 
-lazy_static! {
-    static ref RUNTIME: FFIRuntime = FFIRuntime::default();
+impl FFIRuntime {
+    pub fn next_handle_id(&self) -> FFIHandleId {
+        self.next_handle.fetch_add(1, Ordering::SeqCst) as FFIHandleId
+    }
+
+    pub fn insert_handle(&self, handle_id: FFIHandleId, handle: FFIHandle) {
+        self.ffi_owned.write().insert(handle_id, handle);
+    }
+
+    pub fn release_handle(&self, handle_id: FFIHandleId) -> Option<FFIHandle> {
+        self.ffi_owned.write().remove(&handle_id)
+    }
 }
 
 #[no_mangle]
@@ -116,12 +138,12 @@ async fn room_task(connect: proto::ConnectRequest) {
         room: Some(proto::RoomInfo {
             sid: session.sid(),
             name: session.name(),
-            local_participant: Some(room.session().local_participant().into()),
+            local_participant: Some((&room.session().local_participant()).into()),
             participants: room
                 .session()
                 .participants()
                 .iter()
-                .map(|(_, p)| p.clone().into())
+                .map(|(_, p)| p.into())
                 .collect(),
         }),
     }));
@@ -145,28 +167,9 @@ async fn room_task(connect: proto::ConnectRequest) {
                 publication,
                 participant,
             } => {
-                let track_sid = track.sid();
-                match track {
-                    RemoteTrackHandle::Video(video_track) => {
-                        video_track
-                            .rtc_track()
-                            .on_frame(Box::new(move |frame, buffer| {
-                                // Received a new VideoFrame
-                                let handle: FFIHandle = 56;
-                                send_response(ResponseMessage::TrackEvent(proto::TrackEvent {
-                                    track_sid: track_sid.to_string(),
-                                    message: Some(proto::track_event::Message::FrameReceived(
-                                        proto::FrameReceived {
-                                            frame: Some(frame.into()),
-                                            frame_buffer: Some(proto::VideoFrameBuffer::from(
-                                                handle, buffer,
-                                            )),
-                                        },
-                                    )),
-                                }));
-                            }))
-                    }
-                    RemoteTrackHandle::Audio(audio_track) => {}
+                if let RemoteTrackHandle::Video(video_track) = track {
+                    let rtc_track = video_track.rtc_track();
+                    rtc_track.on_frame(on_video_frame(video_track.sid()));
                 }
             }
             _ => {}
@@ -180,4 +183,22 @@ async fn participant_task(participant: Participant) {
     while let Some(event) = participant_events.recv().await {
         // TODO convert event to proto
     }
+}
+
+fn on_video_frame(track_sid: TrackSid) -> OnFrameHandler {
+    Box::new(move |frame, buffer| {
+        let handle_id = RUNTIME.next_handle_id();
+        let proto_buffer = proto::VideoFrameBuffer::from(handle_id, &buffer);
+        RUNTIME.insert_handle(handle_id, Box::new(buffer));
+
+        send_response(ResponseMessage::TrackEvent(proto::TrackEvent {
+            track_sid: track_sid.to_string(),
+            message: Some(proto::track_event::Message::FrameReceived(
+                proto::FrameReceived {
+                    frame: Some(frame.into()),
+                    frame_buffer: Some(proto_buffer),
+                },
+            )),
+        }));
+    })
 }
