@@ -362,7 +362,7 @@ impl App {
                         ));
                         ui.label(format!(
                             "ParticipantCount: {:?}",
-                            room.session().participants().read().len() + 1
+                            room.session().participants().len() + 1
                         ));
                     }
                 }
@@ -411,7 +411,6 @@ impl App {
                                     let name = self.state.room.lock().as_ref().and_then(|room| {
                                         room.session()
                                             .participants()
-                                            .read()
                                             .get(participant_sid)
                                             .map(|p| p.name())
                                     });

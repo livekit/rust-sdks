@@ -117,6 +117,7 @@ pub trait TrackTrait {
     fn name(&self) -> String;
     fn kind(&self) -> TrackKind;
     fn stream_state(&self) -> StreamState;
+    fn muted(&self) -> bool;
     fn start(&self);
     fn stop(&self);
     fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent>;
@@ -201,6 +202,7 @@ impl TrackTrait for TrackHandle {
         fnc!(name, &Self, [], String);
         fnc!(kind, &Self, [], TrackKind);
         fnc!(stream_state, &Self, [], StreamState);
+        fnc!(muted, &Self, [], bool);
         fnc!(start, &Self, [], ());
         fnc!(stop, &Self, [], ());
         fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
@@ -246,6 +248,10 @@ macro_rules! impl_track_trait {
                 self.shared.stream_state.load(Ordering::SeqCst).into()
             }
 
+            fn muted(&self) -> bool {
+                self.shared.muted.load(Ordering::SeqCst)
+            }
+
             fn start(&self) {
                 self.shared.start();
             }
@@ -261,6 +267,25 @@ macro_rules! impl_track_trait {
             fn set_muted(&self, muted: bool) {
                 self.shared.set_muted(muted);
             }
+        }
+    };
+    ($x:ident, enum_dispatch, [$($variant:ident),+]) => {
+        use livekit_utils::enum_dispatch;
+        use tokio::sync::mpsc;
+
+        impl TrackTrait for $x {
+            enum_dispatch!(
+                [$($variant),+]
+                fnc!(sid, &Self, [], TrackSid);
+                fnc!(name, &Self, [], String);
+                fnc!(kind, &Self, [], TrackKind);
+                fnc!(stream_state, &Self, [], StreamState);
+                fnc!(muted, &Self, [], bool);
+                fnc!(start, &Self, [], ());
+                fnc!(stop, &Self, [], ());
+                fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
+                fnc!(set_muted, &Self, [muted: bool], ());
+            );
         }
     };
 }

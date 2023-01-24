@@ -1,3 +1,5 @@
+use crate::impl_thread_safety;
+
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     #[derive(Debug)]
@@ -30,3 +32,5 @@ pub mod ffi {
         fn _unique_video_frame() -> UniquePtr<VideoFrame>; // Ignore
     }
 }
+
+impl_thread_safety!(ffi::VideoFrame, Send + Sync);

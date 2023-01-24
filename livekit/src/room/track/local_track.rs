@@ -1,3 +1,4 @@
+use super::impl_track_trait;
 use crate::prelude::*;
 use std::sync::Arc;
 
@@ -27,3 +28,5 @@ impl TryFrom<TrackHandle> for LocalTrackHandle {
         }
     }
 }
+
+impl_track_trait!(LocalTrackHandle, enum_dispatch, [Audio, Video]);

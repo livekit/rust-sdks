@@ -663,6 +663,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-ffi"
+version = "0.1.1"
+dependencies = [
+ "lazy_static",
+ "livekit",
+ "parking_lot",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "livekit-utils"
 version = "0.1.1"
 dependencies = [

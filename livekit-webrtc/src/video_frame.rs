@@ -1,9 +1,26 @@
+use crate::video_frame_buffer::VideoFrameBuffer;
 use cxx::UniquePtr;
 use webrtc_sys::video_frame as vf_sys;
 
-pub use vf_sys::ffi::VideoRotation;
+#[derive(Debug)]
+pub enum VideoRotation {
+    VideoRotation0 = 0,
+    VideoRotation90 = 90,
+    VideoRotation180 = 180,
+    VideoRotation270 = 270,
+}
 
-use crate::video_frame_buffer::VideoFrameBuffer;
+impl From<vf_sys::ffi::VideoRotation> for VideoRotation {
+    fn from(rotation: vf_sys::ffi::VideoRotation) -> Self {
+        match rotation {
+            vf_sys::ffi::VideoRotation::VideoRotation0 => Self::VideoRotation0,
+            vf_sys::ffi::VideoRotation::VideoRotation90 => Self::VideoRotation90,
+            vf_sys::ffi::VideoRotation::VideoRotation180 => Self::VideoRotation180,
+            vf_sys::ffi::VideoRotation::VideoRotation270 => Self::VideoRotation270,
+            _ => unreachable!(),
+        }
+    }
+}
 
 pub struct VideoFrame {
     cxx_handle: UniquePtr<vf_sys::ffi::VideoFrame>,
@@ -47,7 +64,7 @@ impl VideoFrame {
     }
 
     pub fn rotation(&self) -> VideoRotation {
-        self.cxx_handle.rotation()
+        self.cxx_handle.rotation().into()
     }
 
     /// # Safety

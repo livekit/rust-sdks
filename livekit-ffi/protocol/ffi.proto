@@ -1,0 +1,224 @@
+syntax = "proto3";
+
+package livekit;
+option csharp_namespace = "LiveKit.Proto";
+
+/// IPC
+
+/// # Safety
+/// The foreign language is responsable for disposing an handle
+/// Forgetting to dispose the handle may lead to memory leaks
+/// Messages bellow can contain an FFIHandle
+message FFIHandleId { uint32 id = 1; }
+
+message FFIRequest {
+  oneof message {
+    InitializeRequest configure = 1;
+    ConnectRequest async_connect = 2;
+    DisconnectRequest async_disconnect = 3;
+  }
+}
+
+message FFIResponse {
+  oneof message {
+    ConnectResponse async_connect = 1;
+    RoomEvent room_event = 2;
+    TrackEvent track_event = 3;
+    ParticipantEvent participant_event = 4;
+  }
+}
+
+message InitializeRequest { uint64 callback_ptr = 1; }
+
+message ConnectRequest {
+  string url = 1;
+  string token = 2;
+  RoomOptions options = 3;
+}
+
+message DisconnectRequest { string room_sid = 1; }
+
+message ConnectResponse {
+  bool success = 1;
+  optional RoomInfo room = 2;
+}
+
+/// Models
+
+message RoomOptions {
+  bool auto_subscribe = 1;
+  bool adaptive_stream = 2;
+}
+
+message RoomInfo {
+  string sid = 1;
+  string name = 2;
+  ParticipantInfo local_participant = 3;
+  repeated ParticipantInfo participants = 4;
+}
+
+message ParticipantInfo {
+  string sid = 1;
+  string name = 2;
+  string identity = 3;
+  string metadata = 4;
+}
+
+enum TrackKind {
+  KIND_UNKNOWN = 0;
+  KIND_AUDIO = 1;
+  KIND_VIDEO = 2;
+}
+
+enum StreamState {
+  STATE_UNKNOWN = 0;
+  STATE_ACTIVE = 1;
+  STATE_PAUSED = 2;
+}
+
+message TrackPublicationInfo {
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+}
+
+message TrackInfo {
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+  StreamState state = 4;
+  bool muted = 5;
+}
+
+/// Room Events
+
+message RoomEvent {
+  string room_sid = 1;
+  oneof message {
+    ParticipantConnected participant_connected = 2;
+    ParticipantDisconnected participant_disconnected = 3;
+    TrackPublished track_published = 4;
+    TrackUnpublished track_unpublished = 5;
+    TrackSubscribed track_subscribed = 6;
+    TrackUnsubscribed track_unsubscribed = 7;
+  }
+}
+
+message ParticipantConnected { ParticipantInfo info = 1; }
+
+message ParticipantDisconnected { ParticipantInfo info = 1; }
+
+message TrackPublished {
+  TrackPublicationInfo publication = 1;
+  string participant_sid = 2;
+}
+
+message TrackUnpublished {
+  TrackPublicationInfo publication = 1;
+  string participant_sid = 2;
+}
+
+// Publication isn't needed for subscription events on the FFI
+// The FFI will retrieve the publication using the Track sid
+message TrackSubscribed {
+  // TrackPublicationInfo publication = 1;
+  TrackInfo track = 1;
+  string participant_sid = 2;
+}
+
+message TrackUnsubscribed {
+  // TrackPublicationInfo publication = 1;
+  TrackInfo track = 1;
+  string participant_sid = 2;
+}
+
+message DataReceived {
+  FFIHandleId handle = 1;
+  string participant_sid = 2;
+  uint64 data_ptr = 3;
+  uint64 data_size = 4;
+}
+
+/// Track Events
+
+message TrackEvent {
+  string track_sid = 1;
+  oneof message { FrameReceived frame_received = 2; }
+}
+
+message FrameReceived {
+  VideoFrame frame = 1;
+  VideoFrameBuffer frame_buffer = 2;
+}
+
+message VideoFrame {
+  int32 width = 1;
+  int32 height = 2;
+  uint32 size = 3;
+  uint32 id = 4; // uint16
+  int64 timestamp_us = 5;
+  int64 ntp_time_ms = 6;
+  uint32 transport_frame_id = 7;
+  uint32 timestamp = 8;
+  VideoRotation rotation = 9;
+}
+
+message VideoFrameBuffer {
+  FFIHandleId handle = 1;
+  VideoFrameBufferType buffer_type = 2;
+  int32 width = 3;
+  int32 height = 4;
+  oneof buffer {
+    PlanarYuvBuffer yuv = 5;
+    BiplanarYuvBuffer bi_yuv = 6;
+    NativeBuffer native = 7;
+  }
+}
+
+message PlanarYuvBuffer {
+  int32 chroma_width = 1;
+  int32 chroma_height = 2;
+  int32 stride_y = 3;
+  int32 stride_u = 4;
+  int32 stride_v = 5;
+
+  // *const u8 or *const u16
+  uint64 data_y_ptr = 6;
+  uint64 data_u_ptr = 7;
+  uint64 data_v_ptr = 8;
+}
+
+message BiplanarYuvBuffer {
+  int32 chroma_width = 1;
+  int32 chroma_height = 2;
+  int32 stride_y = 3;
+  int32 stride_uv = 4;
+
+  uint64 data_y_ptr = 5;
+  uint64 data_uv_ptr = 6;
+}
+
+message NativeBuffer {
+  // TODO(theomonnom): Expose graphic context?
+}
+
+enum VideoFrameBufferType {
+  NATIVE = 0;
+  I420 = 1;
+  I420A = 2;
+  I422 = 3;
+  I444 = 4;
+  I010 = 5;
+  NV12 = 6;
+}
+
+enum VideoRotation {
+  VIDEO_ROTATION_0 = 0;
+  VIDEO_ROTATION_90 = 1;
+  VIDEO_ROTATION_180 = 2;
+  VIDEO_ROTATION_270 = 3;
+}
+
+/// Participant Events
+
+message ParticipantEvent { string participant_sid = 1; }

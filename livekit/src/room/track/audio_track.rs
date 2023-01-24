@@ -1,3 +1,4 @@
+use super::impl_track_trait;
 use crate::prelude::*;
 use std::sync::Arc;
 
@@ -27,3 +28,5 @@ impl TryFrom<TrackHandle> for AudioTrackHandle {
         }
     }
 }
+
+impl_track_trait!(AudioTrackHandle, enum_dispatch, [Local, Remote]);
