@@ -672,6 +672,7 @@ dependencies = [
  "prost",
  "prost-build",
  "prost-types",
+ "thiserror",
  "tokio",
 ]
 

@@ -1,6 +1,5 @@
 use crate::{
-    proto, proto::ffi_request::Message as RequestMessage,
-    proto::ffi_response::Message as ResponseMessage,
+    proto, proto::ffi_request::Message as FFIRequest, proto::ffi_response::Message as FFIResponse,
 };
 use lazy_static::lazy_static;
 use livekit::prelude::*;
@@ -13,8 +12,17 @@ use std::panic;
 use std::slice;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicBool, Ordering};
+use thiserror::Error;
 
 mod conversion;
+
+#[derive(Error, Debug)]
+pub enum FFIError {
+    #[error("the FFIServer isn't configured")]
+    NotConfigured,
+    #[error("failed to execute the ffi callback")]
+    CallbackFailed,
+}
 
 pub type FFIHandleId = u32;
 pub type FFIHandle = Box<dyn Any + Send + Sync>;
@@ -22,7 +30,7 @@ pub type FFIHandle = Box<dyn Any + Send + Sync>;
 type CallbackFn = unsafe extern "C" fn(*const u8, usize); // This "C" callback must be threadsafe
 
 lazy_static! {
-    static ref RUNTIME: FFIRuntime = FFIRuntime::default();
+    static ref FFI_SERVER: FFIServer = FFIServer::default();
 }
 
 pub struct FFIConfig {
@@ -31,7 +39,7 @@ pub struct FFIConfig {
 
 /// To use the FFI, the foreign language and the FFI server must share
 /// the same memory space
-pub struct FFIRuntime {
+pub struct FFIServer {
     // Object owned by the foreign language
     // The foreign language is responsible for freeing this memory
     ffi_owned: RwLock<HashMap<FFIHandleId, FFIHandle>>,
@@ -43,7 +51,7 @@ pub struct FFIRuntime {
     config: Mutex<Option<FFIConfig>>,
 }
 
-impl Default for FFIRuntime {
+impl Default for FFIServer {
     fn default() -> Self {
         Self {
             ffi_owned: RwLock::new(HashMap::new()),
@@ -59,7 +67,7 @@ impl Default for FFIRuntime {
     }
 }
 
-impl FFIRuntime {
+impl FFIServer {
     pub fn next_handle_id(&self) -> FFIHandleId {
         self.next_handle.fetch_add(1, Ordering::SeqCst) as FFIHandleId
     }
@@ -71,49 +79,58 @@ impl FFIRuntime {
     pub fn release_handle(&self, handle_id: FFIHandleId) -> Option<FFIHandle> {
         self.ffi_owned.write().remove(&handle_id)
     }
-}
 
-#[no_mangle]
-pub extern "C" fn livekit_ffi_init(callback_fn: CallbackFn) {
-    RUNTIME.initialized.store(true, Ordering::SeqCst);
-    *RUNTIME.config.lock() = Some(FFIConfig { callback_fn });
+    pub fn send_response(&self, message: FFIResponse) -> Result<(), FFIError> {
+        if !self.initialized.load(Ordering::SeqCst) {
+            Err(FFIError::NotConfigured)?
+        }
+
+        let message = proto::FfiResponse {
+            message: Some(message),
+        }
+        .encode_to_vec();
+
+        let callback_fn = self.config.lock().as_ref().unwrap().callback_fn;
+        if let Err(err) = panic::catch_unwind(|| unsafe {
+            callback_fn(message.as_ptr(), message.len());
+        }) {
+            eprintln!("panic when sending ffi response: {:?}", err);
+            Err(FFIError::CallbackFailed)?
+        }
+
+        Ok(())
+    }
+
+    pub fn on_request_received(&self, message: FFIRequest) -> Result<(), FFIError> {
+        if let FFIRequest::Configure(ref init) = message {
+            self.initialized.store(true, Ordering::SeqCst);
+            *self.config.lock() = Some(FFIConfig {
+                callback_fn: unsafe { std::mem::transmute(init.callback_ptr) },
+            });
+        }
+
+        if !self.initialized.load(Ordering::SeqCst) {
+            Err(FFIError::NotConfigured)?
+        }
+
+        match message {
+            proto::ffi_request::Message::AsyncConnect(connect) => {
+                self.async_runtime.spawn(room_task(connect));
+            }
+            _ => {}
+        };
+
+        Ok(())
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn livekit_ffi_request(data: *const u8, len: usize) {
-    assert!(
-        RUNTIME.initialized.load(Ordering::SeqCst),
-        "livekit_ffi_init() must be called first"
-    );
-
     let data = unsafe { slice::from_raw_parts(data, len) };
-    let request = proto::FfiRequest::decode(data)
-        .expect("Failed to decode the FFIRequest, does the protocol version mismatch?");
-
-    match request.message.unwrap() {
-        proto::ffi_request::Message::Connect(connect) => {
-            RUNTIME.async_runtime.spawn(room_task(connect))
-        }
-        _ => todo!(),
-    };
-}
-
-fn send_response(message: proto::ffi_response::Message) {
-    assert!(
-        RUNTIME.initialized.load(Ordering::SeqCst),
-        "livekit_ffi_init() must be called first"
-    );
-
-    let response = proto::FfiResponse {
-        message: Some(message),
-    };
-    let buf = response.encode_to_vec(); // TODO(theomonnom): mb avoid allocation
-    let res = panic::catch_unwind(|| unsafe {
-        (RUNTIME.config.lock().as_ref().unwrap().callback_fn)(buf.as_ptr(), buf.len());
-    });
-
+    let request = proto::FfiRequest::decode(data).expect("Failed to decode the FFIRequest");
+    let res = FFI_SERVER.on_request_received(request.message.unwrap());
     if let Err(err) = res {
-        eprintln!("panic when sending ffi response: {:?}", err);
+        eprintln!("failed to handle ffi request: {:?}", err);
     }
 }
 
@@ -122,7 +139,7 @@ async fn room_task(connect: proto::ConnectRequest) {
     let res = Room::connect(&connect.url, &connect.token).await;
 
     if res.is_err() {
-        send_response(ResponseMessage::Connect(proto::ConnectResponse {
+        let _ = FFI_SERVER.send_response(FFIResponse::AsyncConnect(proto::ConnectResponse {
             success: false,
             room: None,
         }));
@@ -133,7 +150,7 @@ async fn room_task(connect: proto::ConnectRequest) {
     let (room, mut events) = res.unwrap();
     let session = room.session();
 
-    send_response(ResponseMessage::Connect(proto::ConnectResponse {
+    let _ = FFI_SERVER.send_response(FFIResponse::AsyncConnect(proto::ConnectResponse {
         success: true,
         room: Some(proto::RoomInfo {
             sid: session.sid(),
@@ -155,7 +172,7 @@ async fn room_task(connect: proto::ConnectRequest) {
 
     while let Some(event) = events.recv().await {
         if let Some(event) = proto::RoomEvent::from(session.sid(), event.clone()) {
-            send_response(ResponseMessage::RoomEvent(event));
+            let _ = FFI_SERVER.send_response(FFIResponse::RoomEvent(event));
         }
 
         match event {
@@ -187,11 +204,11 @@ async fn participant_task(participant: Participant) {
 
 fn on_video_frame(track_sid: TrackSid) -> OnFrameHandler {
     Box::new(move |frame, buffer| {
-        let handle_id = RUNTIME.next_handle_id();
+        let handle_id = FFI_SERVER.next_handle_id();
         let proto_buffer = proto::VideoFrameBuffer::from(handle_id, &buffer);
-        RUNTIME.insert_handle(handle_id, Box::new(buffer));
+        FFI_SERVER.insert_handle(handle_id, Box::new(buffer));
 
-        send_response(ResponseMessage::TrackEvent(proto::TrackEvent {
+        let _ = FFI_SERVER.send_response(FFIResponse::TrackEvent(proto::TrackEvent {
             track_sid: track_sid.to_string(),
             message: Some(proto::track_event::Message::FrameReceived(
                 proto::FrameReceived {

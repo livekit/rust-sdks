@@ -13,27 +13,30 @@ message FFIHandleId { uint32 id = 1; }
 
 message FFIRequest {
   oneof message {
-    ConnectRequest connect = 1;
-    DisconnectRequest disconnect = 2;
+    InitializeRequest configure = 1;
+    ConnectRequest async_connect = 2;
+    DisconnectRequest async_disconnect = 3;
   }
 }
 
 message FFIResponse {
   oneof message {
-    ConnectResponse connect = 1;
+    ConnectResponse async_connect = 1;
     RoomEvent room_event = 2;
     TrackEvent track_event = 3;
     ParticipantEvent participant_event = 4;
   }
 }
 
-message DisconnectRequest { string room_sid = 1; }
+message InitializeRequest { uint64 callback_ptr = 1; }
 
 message ConnectRequest {
   string url = 1;
   string token = 2;
   RoomOptions options = 3;
 }
+
+message DisconnectRequest { string room_sid = 1; }
 
 message ConnectResponse {
   bool success = 1;

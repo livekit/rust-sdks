@@ -13,6 +13,7 @@ parking_lot = { version = "0.12.1", features = ["send_guard"] }
 prost = "0.11.0"
 prost-types = "0.11.1"
 lazy_static = "1.4.0"
+thiserror = "1.0.38"
 
 [build-dependencies]
 prost-build = { version = "0.11.1" }
