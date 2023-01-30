@@ -39,6 +39,7 @@ struct SessionInner {
     state: AtomicU8, // ConnectionState
     sid: Mutex<String>,
     name: Mutex<String>,
+    metadata: Mutex<String>,
     participants: RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>>,
     participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
     active_speakers: RwLock<Vec<Participant>>,
@@ -84,6 +85,7 @@ impl SessionHandle {
             state: AtomicU8::new(ConnectionState::Disconnected as u8),
             sid: Mutex::new(room_info.sid),
             name: Mutex::new(room_info.name),
+            metadata: Mutex::new(room_info.metadata),
             participants: Default::default(),
             participants_tasks: Default::default(),
             active_speakers: Default::default(),
@@ -139,6 +141,10 @@ impl RoomSession {
 
     pub fn name(&self) -> String {
         self.inner.name.lock().clone()
+    }
+
+    pub fn metadata(&self) -> String {
+        self.inner.metadata.lock().clone()
     }
 
     pub fn local_participant(&self) -> Arc<LocalParticipant> {
