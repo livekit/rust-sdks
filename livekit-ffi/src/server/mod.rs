@@ -80,12 +80,13 @@ impl FFIServer {
         self.ffi_owned.write().remove(&handle_id)
     }
 
-    pub fn send_response(&self, message: FFIResponse) -> Result<(), FFIError> {
+    pub fn send_response(&self, message: FFIResponse, req_id: Option<u32>) -> Result<(), FFIError> {
         if !self.initialized.load(Ordering::SeqCst) {
             Err(FFIError::NotConfigured)?
         }
 
         let message = proto::FfiResponse {
+            req_id,
             message: Some(message),
         }
         .encode_to_vec();
@@ -101,7 +102,7 @@ impl FFIServer {
         Ok(())
     }
 
-    pub fn on_request_received(&self, message: FFIRequest) -> Result<(), FFIError> {
+    pub fn on_request_received(&self, req_id: u32, message: FFIRequest) -> Result<(), FFIError> {
         if let FFIRequest::Configure(ref init) = message {
             self.initialized.store(true, Ordering::SeqCst);
             *self.config.lock() = Some(FFIConfig {
@@ -115,7 +116,7 @@ impl FFIServer {
 
         match message {
             proto::ffi_request::Message::AsyncConnect(connect) => {
-                self.async_runtime.spawn(room_task(connect));
+                self.async_runtime.spawn(room_task(req_id, connect));
             }
             _ => {}
         };
@@ -132,21 +133,25 @@ pub extern "C" fn livekit_ffi_request(data: *const u8, len: usize) {
         eprintln!("failed to decode FfiRequest: {:?}", err);
     }
 
-    let res = FFI_SERVER.on_request_received(res.unwrap().message.unwrap());
+    let res = res.unwrap();
+    let res = FFI_SERVER.on_request_received(res.req_id, res.message.unwrap());
     if let Err(ref err) = res {
         eprintln!("failed to handle ffi request: {:?}", err);
     }
 }
 
 // Connect a listen to Room events
-async fn room_task(connect: proto::ConnectRequest) {
+async fn room_task(req_id: u32, connect: proto::ConnectRequest) {
     let res = Room::connect(&connect.url, &connect.token).await;
 
     if res.is_err() {
-        let _ = FFI_SERVER.send_response(FFIResponse::AsyncConnect(proto::ConnectResponse {
-            success: false,
-            room: None,
-        }));
+        let _ = FFI_SERVER.send_response(
+            FFIResponse::AsyncConnect(proto::ConnectResponse {
+                success: false,
+                room: None,
+            }),
+            Some(req_id),
+        );
         return;
     }
 
@@ -154,20 +159,23 @@ async fn room_task(connect: proto::ConnectRequest) {
     let (room, mut events) = res.unwrap();
     let session = room.session();
 
-    let _ = FFI_SERVER.send_response(FFIResponse::AsyncConnect(proto::ConnectResponse {
-        success: true,
-        room: Some(proto::RoomInfo {
-            sid: session.sid(),
-            name: session.name(),
-            local_participant: Some((&room.session().local_participant()).into()),
-            participants: room
-                .session()
-                .participants()
-                .iter()
-                .map(|(_, p)| p.into())
-                .collect(),
+    let _ = FFI_SERVER.send_response(
+        FFIResponse::AsyncConnect(proto::ConnectResponse {
+            success: true,
+            room: Some(proto::RoomInfo {
+                sid: session.sid(),
+                name: session.name(),
+                local_participant: Some((&room.session().local_participant()).into()),
+                participants: room
+                    .session()
+                    .participants()
+                    .iter()
+                    .map(|(_, p)| p.into())
+                    .collect(),
+            }),
         }),
-    }));
+        Some(req_id),
+    );
 
     // Listen to events
     tokio::spawn(participant_task(Participant::Local(
@@ -176,7 +184,7 @@ async fn room_task(connect: proto::ConnectRequest) {
 
     while let Some(event) = events.recv().await {
         if let Some(event) = proto::RoomEvent::from(session.sid(), event.clone()) {
-            let _ = FFI_SERVER.send_response(FFIResponse::RoomEvent(event));
+            let _ = FFI_SERVER.send_response(FFIResponse::RoomEvent(event), None);
         }
 
         match event {
@@ -212,14 +220,17 @@ fn on_video_frame(track_sid: TrackSid) -> OnFrameHandler {
         let proto_buffer = proto::VideoFrameBuffer::from(handle_id, &buffer);
         FFI_SERVER.insert_handle(handle_id, Box::new(buffer));
 
-        let _ = FFI_SERVER.send_response(FFIResponse::TrackEvent(proto::TrackEvent {
-            track_sid: track_sid.to_string(),
-            message: Some(proto::track_event::Message::FrameReceived(
-                proto::FrameReceived {
-                    frame: Some(frame.into()),
-                    frame_buffer: Some(proto_buffer),
-                },
-            )),
-        }));
+        let _ = FFI_SERVER.send_response(
+            FFIResponse::TrackEvent(proto::TrackEvent {
+                track_sid: track_sid.to_string(),
+                message: Some(proto::track_event::Message::FrameReceived(
+                    proto::FrameReceived {
+                        frame: Some(frame.into()),
+                        frame_buffer: Some(proto_buffer),
+                    },
+                )),
+            }),
+            None,
+        );
     })
 }
