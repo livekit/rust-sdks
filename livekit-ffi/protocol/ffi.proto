@@ -12,19 +12,21 @@ option csharp_namespace = "LiveKit.Proto";
 message FFIHandleId { uint32 id = 1; }
 
 message FFIRequest {
+  uint32 req_id = 1;
   oneof message {
-    InitializeRequest configure = 1;
-    ConnectRequest async_connect = 2;
-    DisconnectRequest async_disconnect = 3;
+    InitializeRequest configure = 2;
+    ConnectRequest async_connect = 3;
+    DisconnectRequest async_disconnect = 4;
   }
 }
 
 message FFIResponse {
+  optional uint32 req_id = 1;
   oneof message {
-    ConnectResponse async_connect = 1;
-    RoomEvent room_event = 2;
-    TrackEvent track_event = 3;
-    ParticipantEvent participant_event = 4;
+    ConnectResponse async_connect = 2;
+    RoomEvent room_event = 3;
+    TrackEvent track_event = 4;
+    ParticipantEvent participant_event = 5;
   }
 }
 
