@@ -127,9 +127,13 @@ impl FFIServer {
 #[no_mangle]
 pub extern "C" fn livekit_ffi_request(data: *const u8, len: usize) {
     let data = unsafe { slice::from_raw_parts(data, len) };
-    let request = proto::FfiRequest::decode(data).expect("Failed to decode the FFIRequest");
-    let res = FFI_SERVER.on_request_received(request.message.unwrap());
-    if let Err(err) = res {
+    let res = proto::FfiRequest::decode(data);
+    if let Err(ref err) = res {
+        eprintln!("failed to decode FfiRequest: {:?}", err);
+    }
+
+    let res = FFI_SERVER.on_request_received(res.unwrap().message.unwrap());
+    if let Err(ref err) = res {
         eprintln!("failed to handle ffi request: {:?}", err);
     }
 }
