@@ -165,6 +165,7 @@ async fn room_task(req_id: u32, connect: proto::ConnectRequest) {
             room: Some(proto::RoomInfo {
                 sid: session.sid(),
                 name: session.name(),
+                metadata: session.metadata(),
                 local_participant: Some((&room.session().local_participant()).into()),
                 participants: room
                     .session()
