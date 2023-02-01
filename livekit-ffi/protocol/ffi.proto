@@ -193,7 +193,7 @@ message TrackUnmuted {
   string track_sid = 2;
 }
 
-message ActiveSpeakersChanged { repeated string participant_sid = 1; }
+message ActiveSpeakersChanged { repeated string participant_sids = 1; }
 
 message ConnectionQualityChanged {
   string participant_sid = 1;
