@@ -87,7 +87,7 @@ message TrackInfo {
   string sid = 1;
   string name = 2;
   TrackKind kind = 3;
-  StreamState state = 4;
+  StreamState stream_state = 4;
   bool muted = 5;
 }
 
