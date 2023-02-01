@@ -41,7 +41,7 @@ message ConnectRequest {
 
 message DisconnectRequest { string room_sid = 1; }
 
-message ReleaseHandleRequest { FFIHandleId handle; }
+message ReleaseHandleRequest { FFIHandleId handle = 1; }
 
 message ConnectResponse {
   bool success = 1;
