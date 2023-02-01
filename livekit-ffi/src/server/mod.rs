@@ -55,7 +55,7 @@ impl Default for FFIServer {
     fn default() -> Self {
         Self {
             ffi_owned: RwLock::new(HashMap::new()),
-            next_handle: Default::default(),
+            next_handle: AtomicU32::new(1), // 0 is considered invalid
             rooms: RwLock::new(HashMap::new()),
             async_runtime: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()

@@ -17,6 +17,7 @@ message FFIRequest {
     InitializeRequest configure = 2;
     ConnectRequest async_connect = 3;
     DisconnectRequest async_disconnect = 4;
+    ReleaseHandleRequest release_handle = 5;
   }
 }
 
@@ -39,6 +40,8 @@ message ConnectRequest {
 }
 
 message DisconnectRequest { string room_sid = 1; }
+
+message ReleaseHandleRequest { FFIHandleId handle; }
 
 message ConnectResponse {
   bool success = 1;
