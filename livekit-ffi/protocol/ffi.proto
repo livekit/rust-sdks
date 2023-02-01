@@ -166,7 +166,7 @@ message TrackPublished {
 
 message TrackUnpublished {
   string participant_sid = 1;
-  TrackPublicationInfo publication = 2;
+  string publication_sid = 2;
 }
 
 // Publication isn't needed for subscription events on the FFI
@@ -180,7 +180,7 @@ message TrackSubscribed {
 message TrackUnsubscribed {
   // TrackPublicationInfo publication = 1;
   string participant_sid = 1;
-  TrackInfo track = 2;
+  string track_sid = 2;
 }
 
 message TrackMuted {
