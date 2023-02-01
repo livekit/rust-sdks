@@ -134,6 +134,11 @@ enum VideoRotation {
   VIDEO_ROTATION_270 = 3;
 }
 
+enum DataPacketKind {
+  KIND_UNRELIABLE = 0;
+  KIND_RELIABLE = 1;
+}
+
 /// Room Events
 
 message RoomEvent {
@@ -208,6 +213,7 @@ message DataReceived {
   optional string participant_sid = 2;
   uint64 data_ptr = 3;
   uint64 data_size = 4;
+  DataPacketKind kind = 5;
 }
 
 message ConnectionStateChanged { ConnectionState state = 1; }
