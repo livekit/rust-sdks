@@ -202,7 +202,7 @@ message ConnectionQualityChanged {
 
 message DataReceived {
   FFIHandleId handle = 1;
-  string participant_sid = 2;
+  optional string participant_sid = 2;
   uint64 data_ptr = 3;
   uint64 data_size = 4;
 }
