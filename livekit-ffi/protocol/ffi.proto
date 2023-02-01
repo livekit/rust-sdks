@@ -47,6 +47,11 @@ message ConnectResponse {
 
 /// Models
 
+message Dimension {
+  uint32 width = 1;
+  uint32 height = 2;
+}
+
 message RoomOptions {
   bool auto_subscribe = 1;
   bool adaptive_stream = 2;
@@ -71,6 +76,11 @@ message TrackPublicationInfo {
   string sid = 1;
   string name = 2;
   TrackKind kind = 3;
+  TrackSource source = 4;
+  bool simulcasted = 5;
+  Dimension dimension = 6;
+  string mime_type = 7;
+  bool muted = 8;
 }
 
 message TrackInfo {
@@ -85,6 +95,14 @@ enum TrackKind {
   KIND_UNKNOWN = 0;
   KIND_AUDIO = 1;
   KIND_VIDEO = 2;
+}
+
+enum TrackSource {
+  SOURCE_UNKNOWN = 0;
+  SOURCE_CAMERA = 1;
+  SOURCE_MICROPHONE = 2;
+  SOURCE_SCREENSHARE = 3;
+  SOURCE_SCREENSHARE_AUDIO = 4;
 }
 
 enum ConnectionQuality {
@@ -104,6 +122,13 @@ enum StreamState {
   STATE_UNKNOWN = 0;
   STATE_ACTIVE = 1;
   STATE_PAUSED = 2;
+}
+
+enum VideoRotation {
+  VIDEO_ROTATION_0 = 0;
+  VIDEO_ROTATION_90 = 1;
+  VIDEO_ROTATION_180 = 2;
+  VIDEO_ROTATION_270 = 3;
 }
 
 /// Room Events
@@ -262,13 +287,11 @@ enum VideoFrameBufferType {
   NV12 = 6;
 }
 
-enum VideoRotation {
-  VIDEO_ROTATION_0 = 0;
-  VIDEO_ROTATION_90 = 1;
-  VIDEO_ROTATION_180 = 2;
-  VIDEO_ROTATION_270 = 3;
-}
-
 /// Participant Events
 
-message ParticipantEvent { string participant_sid = 1; }
+message ParticipantEvent {
+  string participant_sid = 1;
+  oneof message { IsSpeakingChanged speaking_changed = 2; }
+}
+
+message IsSpeakingChanged { bool speaking = 1; }
