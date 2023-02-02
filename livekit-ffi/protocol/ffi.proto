@@ -94,6 +94,11 @@ message TrackInfo {
   bool muted = 5;
 }
 
+message VideoSinkInfo {
+  string track_sid = 1;
+  // More info?
+}
+
 enum TrackKind {
   KIND_UNKNOWN = 0;
   KIND_AUDIO = 1;
@@ -180,13 +185,13 @@ message TrackUnpublished {
 // Publication isn't needed for subscription events on the FFI
 // The FFI will retrieve the publication using the Track sid
 message TrackSubscribed {
-  // TrackPublicationInfo publication = 1;
   string participant_sid = 1;
   TrackInfo track = 2;
+  VideoSinkInfo sink = 3;
 }
 
 message TrackUnsubscribed {
-  // TrackPublicationInfo publication = 1;
+  // The FFI language can dispose/remove the VideoSink here
   string participant_sid = 1;
   string track_sid = 2;
 }
