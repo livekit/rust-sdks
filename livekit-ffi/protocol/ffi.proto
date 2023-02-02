@@ -236,11 +236,11 @@ message TrackEvent {
 }
 
 message FrameReceived {
-  VideoFrame frame = 1;
-  VideoFrameBuffer frame_buffer = 2;
+  VideoFrameInfo frame = 1;
+  VideoFrameBufferInfo frame_buffer = 2;
 }
 
-message VideoFrame {
+message VideoFrameInfo {
   int32 width = 1;
   int32 height = 2;
   uint32 size = 3;
@@ -252,19 +252,19 @@ message VideoFrame {
   VideoRotation rotation = 9;
 }
 
-message VideoFrameBuffer {
+message VideoFrameBufferInfo {
   FFIHandleId handle = 1;
   VideoFrameBufferType buffer_type = 2;
   int32 width = 3;
   int32 height = 4;
   oneof buffer {
-    PlanarYuvBuffer yuv = 5;
-    BiplanarYuvBuffer bi_yuv = 6;
-    NativeBuffer native = 7;
+    PlanarYuvBufferInfo yuv = 5;
+    BiplanarYuvBufferInfo bi_yuv = 6;
+    NativeBufferInfo native = 7;
   }
 }
 
-message PlanarYuvBuffer {
+message PlanarYuvBufferInfo {
   int32 chroma_width = 1;
   int32 chroma_height = 2;
   int32 stride_y = 3;
@@ -277,7 +277,7 @@ message PlanarYuvBuffer {
   uint64 data_v_ptr = 8;
 }
 
-message BiplanarYuvBuffer {
+message BiplanarYuvBufferInfo {
   int32 chroma_width = 1;
   int32 chroma_height = 2;
   int32 stride_y = 3;
@@ -287,7 +287,7 @@ message BiplanarYuvBuffer {
   uint64 data_uv_ptr = 6;
 }
 
-message NativeBuffer {
+message NativeBufferInfo {
   // TODO(theomonnom): Expose graphic context?
 }
 
