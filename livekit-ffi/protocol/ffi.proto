@@ -8,29 +8,32 @@ option csharp_namespace = "LiveKit.Proto";
 /// # Safety
 /// The foreign language is responsable for disposing an handle
 /// Forgetting to dispose the handle may lead to memory leaks
-/// Messages bellow can contain an FFIHandle
-message FFIHandleId { uint32 id = 1; }
+/// Messages in this file can contain an FFIHandle
+message FFIHandleId { uint64 id = 1; }
 
 message FFIRequest {
-  uint32 req_id = 1;
   oneof message {
     InitializeRequest configure = 2;
     ConnectRequest async_connect = 3;
     DisconnectRequest async_disconnect = 4;
-    ReleaseHandleRequest release_handle = 5;
+    ToI420Request to_i420 = 5;
   }
 }
 
 message FFIResponse {
-  optional uint32 req_id = 1;
+  optional uint64 async_id = 1; // Recognize asynchronous requests
+  // if message is null, it means there's no operation to do.
+  // It happens on synchronous requests
   oneof message {
-    ConnectResponse async_connect = 2;
-    RoomEvent room_event = 3;
-    TrackEvent track_event = 4;
-    ParticipantEvent participant_event = 5;
+    ConnectResponse async_connect = 3;
+    RoomEvent room_event = 4;
+    TrackEvent track_event = 5;
+    ParticipantEvent participant_event = 6;
   }
 }
 
+// Setup the callback where the foreign language can receive events
+// and responses to asynchronous requests
 message InitializeRequest { uint64 callback_ptr = 1; }
 
 message ConnectRequest {
@@ -41,7 +44,11 @@ message ConnectRequest {
 
 message DisconnectRequest { string room_sid = 1; }
 
-message ReleaseHandleRequest { FFIHandleId handle = 1; }
+// Convert a VideoFrameBuffer to a I420Buffer
+message ToI420Request {
+  FFIHandleId buffer = 1; // NOTE: This buffer will be dropped!
+  FFIHandleId new_buffer = 2;
+}
 
 message ConnectResponse {
   bool success = 1;
