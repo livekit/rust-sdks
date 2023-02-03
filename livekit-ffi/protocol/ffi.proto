@@ -11,6 +11,7 @@ option csharp_namespace = "LiveKit.Proto";
 /// Messages in this file can contain an FFIHandle
 message FFIHandleId { uint64 id = 1; }
 
+/// This is the input of livekit_ffi_request function
 message FFIRequest {
   oneof message {
     InitializeRequest configure = 2;
@@ -20,12 +21,22 @@ message FFIRequest {
   }
 }
 
+/// This is the output of livekit_ffi_request function.
+/// The message field is mostly used to send result of a synchronous operation
+/// to the foreign language.
 message FFIResponse {
-  optional uint64 async_id = 1; // Recognize asynchronous requests
-  // if message is null, it means there's no operation to do.
-  // It happens on synchronous requests
+  optional uint64 async_id = 1;
+  oneof message { ToI420Response to_i420 = 2; }
+}
+
+/// This message is used to receive the result of asynchronous requests
+/// Or to receive events of a Room
+message FFIEvent {
+  // Used if the message is used to send the async result to the foreign
+  // language
+  optional uint64 async_id = 1;
   oneof message {
-    ConnectResponse async_connect = 3;
+    ConnectEvent connect = 3;
     RoomEvent room_event = 4;
     TrackEvent track_event = 5;
     ParticipantEvent participant_event = 6;
@@ -44,13 +55,14 @@ message ConnectRequest {
 
 message DisconnectRequest { string room_sid = 1; }
 
-// Convert a VideoFrameBuffer to a I420Buffer
+/// Convert a VideoFrameBuffer to a I420Buffer
 message ToI420Request {
   FFIHandleId buffer = 1; // NOTE: This buffer will be dropped!
-  FFIHandleId new_buffer = 2;
 }
 
-message ConnectResponse {
+message ToI420Response { FFIHandleId new_buffer = 1; }
+
+message ConnectEvent {
   bool success = 1;
   optional RoomInfo room = 2;
 }
