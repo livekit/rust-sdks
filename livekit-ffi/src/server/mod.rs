@@ -40,6 +40,8 @@ pub struct FFIConfig {
 pub struct FFIServer {
     // Object owned by the foreign language
     // The foreign language is responsible for freeing this memory
+    //
+    // NOTE: For VideoBuffers, we always store the enum type VideoFrameBuffer
     ffi_owned: RwLock<HashMap<FFIHandleId, FFIHandle>>,
     next_handle_id: AtomicU64, // FFIHandleId
     next_async_id: AtomicU64,
@@ -132,6 +134,32 @@ impl FFIServer {
             proto::ffi_request::Message::AsyncConnect(connect) => {
                 let async_id = self.next_async_id();
                 self.async_runtime.spawn(room_task(async_id, connect));
+                return proto::FfiResponse {
+                    async_id: Some(async_id),
+                    message: None,
+                };
+            }
+            proto::ffi_request::Message::ToI420(to_i420) => {
+                let mut handle_id = 0; // Invalid handle
+                if let Some(buffer) = self.release_handle(to_i420.buffer.unwrap().id as FFIHandleId)
+                {
+                    if let Ok(buffer) = buffer.downcast::<VideoFrameBuffer>() {
+                        let i420 = buffer.to_i420();
+                        handle_id = self.next_handle_id();
+                        self.insert_handle(handle_id, Box::new(i420));
+                    }
+                }
+
+                let res = proto::ToI420Response {
+                    new_buffer: Some(proto::FfiHandleId {
+                        id: handle_id as u64,
+                    }),
+                };
+
+                return proto::FfiResponse {
+                    async_id: None,
+                    message: Some(proto::ffi_response::Message::ToI420(res)),
+                };
             }
             _ => {}
         }
@@ -140,6 +168,7 @@ impl FFIServer {
     }
 }
 
+/// This function is threadsafe, this is useful to run synchronous requests in another thread
 #[no_mangle]
 pub extern "C" fn livekit_ffi_request(
     data: *const u8,
@@ -172,6 +201,7 @@ pub extern "C" fn livekit_ffi_request(
     ptr
 }
 
+// Free memory
 #[no_mangle]
 pub extern "C" fn livekit_ffi_drop_handle(handle_id: FFIHandleId) -> bool {
     FFI_SERVER.release_handle(handle_id).is_some()
