@@ -1,6 +1,4 @@
-use crate::{
-    proto, proto::ffi_request::Message as FFIRequest, proto::ffi_response::Message as FFIResponse,
-};
+use crate::proto;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
 use livekit::webrtc::media_stream::OnFrameHandler;
@@ -10,7 +8,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::panic;
 use std::slice;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 
@@ -24,7 +22,7 @@ pub enum FFIError {
     CallbackFailed,
 }
 
-pub type FFIHandleId = u32;
+pub type FFIHandleId = usize;
 pub type FFIHandle = Box<dyn Any + Send + Sync>;
 
 type CallbackFn = unsafe extern "C" fn(*const u8, usize); // This "C" callback must be threadsafe
@@ -43,7 +41,8 @@ pub struct FFIServer {
     // Object owned by the foreign language
     // The foreign language is responsible for freeing this memory
     ffi_owned: RwLock<HashMap<FFIHandleId, FFIHandle>>,
-    next_handle: AtomicU32, // FFIHandle
+    next_handle_id: AtomicU64, // FFIHandleId
+    next_async_id: AtomicU64,
 
     rooms: RwLock<HashMap<RoomSid, Room>>,
     async_runtime: tokio::runtime::Runtime,
@@ -55,7 +54,8 @@ impl Default for FFIServer {
     fn default() -> Self {
         Self {
             ffi_owned: RwLock::new(HashMap::new()),
-            next_handle: AtomicU32::new(1), // 0 is considered invalid
+            next_handle_id: AtomicU64::new(1), // 0 is considered invalid
+            next_async_id: AtomicU64::new(1),
             rooms: RwLock::new(HashMap::new()),
             async_runtime: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -69,7 +69,11 @@ impl Default for FFIServer {
 
 impl FFIServer {
     pub fn next_handle_id(&self) -> FFIHandleId {
-        self.next_handle.fetch_add(1, Ordering::SeqCst) as FFIHandleId
+        self.next_handle_id.fetch_add(1, Ordering::SeqCst) as FFIHandleId
+    }
+
+    pub fn next_async_id(&self) -> u64 {
+        self.next_async_id.fetch_add(1, Ordering::SeqCst)
     }
 
     pub fn insert_handle(&self, handle_id: FFIHandleId, handle: FFIHandle) {
@@ -80,13 +84,17 @@ impl FFIServer {
         self.ffi_owned.write().remove(&handle_id)
     }
 
-    pub fn send_response(&self, message: FFIResponse, req_id: Option<u32>) -> Result<(), FFIError> {
+    pub fn send_event(
+        &self,
+        message: proto::ffi_event::Message,
+        async_id: Option<u64>,
+    ) -> Result<(), FFIError> {
         if !self.initialized.load(Ordering::SeqCst) {
             Err(FFIError::NotConfigured)?
         }
 
-        let message = proto::FfiResponse {
-            req_id,
+        let message = proto::FfiEvent {
+            async_id,
             message: Some(message),
         }
         .encode_to_vec();
@@ -95,62 +103,91 @@ impl FFIServer {
         if let Err(err) = panic::catch_unwind(|| unsafe {
             callback_fn(message.as_ptr(), message.len());
         }) {
-            eprintln!("panic when sending ffi response: {:?}", err);
+            eprintln!("panic when sending ffi event: {:?}", err);
             Err(FFIError::CallbackFailed)?
         }
 
         Ok(())
     }
 
-    pub fn on_request_received(&self, req_id: u32, message: FFIRequest) -> Result<(), FFIError> {
-        if let FFIRequest::Configure(ref init) = message {
+    pub fn handle_request(&self, message: proto::ffi_request::Message) -> proto::FfiResponse {
+        const NOOP: proto::FfiResponse = proto::FfiResponse {
+            async_id: None,
+            message: None,
+        };
+
+        if let proto::ffi_request::Message::Configure(ref init) = message {
             self.initialized.store(true, Ordering::SeqCst);
             *self.config.lock() = Some(FFIConfig {
-                callback_fn: unsafe { std::mem::transmute(init.callback_ptr) },
+                callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr) },
             });
         }
 
         if !self.initialized.load(Ordering::SeqCst) {
-            Err(FFIError::NotConfigured)?
+            eprintln!("The FFIServer isn't initialized, we can't handle the request.");
+            return NOOP;
         }
 
         match message {
             proto::ffi_request::Message::AsyncConnect(connect) => {
-                self.async_runtime.spawn(room_task(req_id, connect));
+                let async_id = self.next_async_id();
+                self.async_runtime.spawn(room_task(async_id, connect));
             }
             _ => {}
-        };
+        }
 
-        Ok(())
+        NOOP
     }
 }
 
 #[no_mangle]
-pub extern "C" fn livekit_ffi_request(data: *const u8, len: usize) {
+pub extern "C" fn livekit_ffi_request(
+    data: *const u8,
+    len: usize,
+    handle_id_ptr: *mut FFIHandleId,
+) -> *const u8 {
     let data = unsafe { slice::from_raw_parts(data, len) };
     let res = proto::FfiRequest::decode(data);
     if let Err(ref err) = res {
         eprintln!("failed to decode FfiRequest: {:?}", err);
+        return std::ptr::null();
     }
 
-    let res = res.unwrap();
-    let res = FFI_SERVER.on_request_received(res.req_id, res.message.unwrap());
-    if let Err(ref err) = res {
-        eprintln!("failed to handle ffi request: {:?}", err);
+    let res = FFI_SERVER.handle_request(res.unwrap().message.unwrap());
+
+    // 4 first bytes are the length of the buffer
+    let mut buf = Vec::with_capacity(4 + res.encoded_len());
+    if let Err(err) = res.encode(&mut &mut buf[4..]) {
+        eprintln!("failed to encode FfiResponse: {:?}", err);
+        return std::ptr::null();
     }
+
+    let handle_id = FFI_SERVER.next_handle_id();
+    unsafe {
+        *handle_id_ptr = handle_id;
+    }
+
+    let ptr = buf.as_ptr();
+    FFI_SERVER.insert_handle(handle_id, Box::new(buf));
+    ptr
+}
+
+#[no_mangle]
+pub extern "C" fn livekit_ffi_drop_handle(handle_id: FFIHandleId) -> bool {
+    FFI_SERVER.release_handle(handle_id).is_some()
 }
 
 // Connect a listen to Room events
-async fn room_task(req_id: u32, connect: proto::ConnectRequest) {
+async fn room_task(async_id: u64, connect: proto::ConnectRequest) {
     let res = Room::connect(&connect.url, &connect.token).await;
 
     if res.is_err() {
-        let _ = FFI_SERVER.send_response(
-            FFIResponse::AsyncConnect(proto::ConnectResponse {
+        let _ = FFI_SERVER.send_event(
+            proto::ffi_event::Message::ConnectEvent(proto::ConnectEvent {
                 success: false,
                 room: None,
             }),
-            Some(req_id),
+            Some(async_id),
         );
         return;
     }
@@ -159,8 +196,8 @@ async fn room_task(req_id: u32, connect: proto::ConnectRequest) {
     let (room, mut events) = res.unwrap();
     let session = room.session();
 
-    let _ = FFI_SERVER.send_response(
-        FFIResponse::AsyncConnect(proto::ConnectResponse {
+    let _ = FFI_SERVER.send_event(
+        proto::ffi_event::Message::ConnectEvent(proto::ConnectEvent {
             success: true,
             room: Some(proto::RoomInfo {
                 sid: session.sid(),
@@ -175,7 +212,7 @@ async fn room_task(req_id: u32, connect: proto::ConnectRequest) {
                     .collect(),
             }),
         }),
-        Some(req_id),
+        Some(async_id),
     );
 
     // Listen to events
@@ -185,7 +222,7 @@ async fn room_task(req_id: u32, connect: proto::ConnectRequest) {
 
     while let Some(event) = events.recv().await {
         if let Some(event) = proto::RoomEvent::from(session.sid(), event.clone()) {
-            let _ = FFI_SERVER.send_response(FFIResponse::RoomEvent(event), None);
+            let _ = FFI_SERVER.send_event(proto::ffi_event::Message::RoomEvent(event), None);
         }
 
         match event {
@@ -216,13 +253,14 @@ async fn participant_task(participant: Participant) {
 }
 
 fn on_video_frame(track_sid: TrackSid) -> OnFrameHandler {
+    // TODO(theomonnom): Should I use VideoSinkInfo here?
     Box::new(move |frame, buffer| {
         let handle_id = FFI_SERVER.next_handle_id();
-        let proto_buffer = proto::VideoFrameBuffer::from(handle_id, &buffer);
+        let proto_buffer = proto::VideoFrameBufferInfo::from(handle_id, &buffer);
         FFI_SERVER.insert_handle(handle_id, Box::new(buffer));
 
-        let _ = FFI_SERVER.send_response(
-            FFIResponse::TrackEvent(proto::TrackEvent {
+        let _ = FFI_SERVER.send_event(
+            proto::ffi_event::Message::TrackEvent(proto::TrackEvent {
                 track_sid: track_sid.to_string(),
                 message: Some(proto::track_event::Message::FrameReceived(
                     proto::FrameReceived {

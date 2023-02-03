@@ -19,8 +19,10 @@ pub trait TrackPublicationTrait {
     fn sid(&self) -> TrackSid;
     fn kind(&self) -> TrackKind;
     fn source(&self) -> TrackSource;
-    fn muted(&self) -> bool;
     fn simulcasted(&self) -> bool;
+    fn dimension(&self) -> TrackDimension;
+    fn mime_type(&self) -> String;
+    fn muted(&self) -> bool;
 }
 
 #[derive(Debug)]
@@ -164,8 +166,10 @@ impl TrackPublicationTrait for TrackPublication {
         fnc!(name, &Self, [], String);
         fnc!(kind, &Self, [], TrackKind);
         fnc!(source, &Self, [], TrackSource);
-        fnc!(muted, &Self, [], bool);
         fnc!(simulcasted, &Self, [], bool);
+        fnc!(dimension, &Self, [], TrackDimension);
+        fnc!(mime_type, &Self, [], String);
+        fnc!(muted, &Self, [], bool);
     );
 }
 
@@ -190,6 +194,14 @@ macro_rules! impl_publication_trait {
 
             fn simulcasted(&self) -> bool {
                 self.shared.simulcasted.load(Ordering::SeqCst)
+            }
+
+            fn dimension(&self) -> TrackDimension {
+                self.shared.dimension.lock().clone()
+            }
+
+            fn mime_type(&self) -> String {
+                self.shared.mime_type.lock().clone()
             }
 
             fn muted(&self) -> bool {

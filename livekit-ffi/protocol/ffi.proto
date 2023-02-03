@@ -14,10 +14,10 @@ message FFIHandleId { uint64 id = 1; }
 /// This is the input of livekit_ffi_request function
 message FFIRequest {
   oneof message {
-    InitializeRequest configure = 2;
-    ConnectRequest async_connect = 3;
-    DisconnectRequest async_disconnect = 4;
-    ToI420Request to_i420 = 5;
+    InitializeRequest configure = 1;
+    ConnectRequest async_connect = 2;
+    DisconnectRequest async_disconnect = 3;
+    ToI420Request to_i420 = 4;
   }
 }
 
@@ -36,16 +36,16 @@ message FFIEvent {
   // language
   optional uint64 async_id = 1;
   oneof message {
-    ConnectResult connect = 3;
-    RoomEvent room_event = 4;
-    TrackEvent track_event = 5;
-    ParticipantEvent participant_event = 6;
+    ConnectEvent connect_event = 2;
+    RoomEvent room_event = 3;
+    TrackEvent track_event = 4;
+    ParticipantEvent participant_event = 5;
   }
 }
 
 // Setup the callback where the foreign language can receive events
 // and responses to asynchronous requests
-message InitializeRequest { uint64 callback_ptr = 1; }
+message InitializeRequest { uint64 event_callback_ptr = 1; }
 
 message ConnectRequest {
   string url = 1;
@@ -62,7 +62,7 @@ message ToI420Request {
 
 message ToI420Response { FFIHandleId new_buffer = 1; }
 
-message ConnectResult {
+message ConnectEvent {
   bool success = 1;
   optional RoomInfo room = 2;
 }
