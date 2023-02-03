@@ -2,6 +2,7 @@ use crate::proto;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
 use livekit::webrtc::media_stream::OnFrameHandler;
+use livekit::webrtc::yuv_helper;
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
@@ -144,9 +145,8 @@ impl FFIServer {
                 if let Some(buffer) = self.release_handle(to_i420.buffer.unwrap().id as FFIHandleId)
                 {
                     if let Ok(buffer) = buffer.downcast::<VideoFrameBuffer>() {
-                        let i420 = buffer.to_i420();
                         handle_id = self.next_handle_id();
-                        self.insert_handle(handle_id, Box::new(i420));
+                        self.insert_handle(handle_id, Box::new(buffer.to_i420()));
                     }
                 }
 
@@ -160,6 +160,47 @@ impl FFIServer {
                     async_id: None,
                     message: Some(proto::ffi_response::Message::ToI420(res)),
                 };
+            }
+            proto::ffi_request::Message::Convert(convert) => {
+                if let Some(message) = convert.message {
+                    match message {
+                        proto::convert_request::Message::I420ToAbgr(c) => unsafe {
+                            // Everything is unsafe here, we can't verify the FFI parameters here..
+                            let src_y = slice::from_raw_parts(
+                                c.src_y_ptr as *const u8,
+                                (c.src_stride_y * c.height) as usize,
+                            );
+
+                            let src_u = slice::from_raw_parts(
+                                c.src_u_ptr as *const u8,
+                                (c.src_stride_u * ((c.height + 1) / 2)) as usize,
+                            );
+
+                            let src_v = slice::from_raw_parts(
+                                c.src_v_ptr as *const u8,
+                                (c.src_stride_v * ((c.height + 1) / 2)) as usize,
+                            );
+
+                            let dst_rgb = &mut slice::from_raw_parts_mut(
+                                c.dst_abgr_ptr as *mut u8,
+                                (c.dst_stride_abgr * c.height) as usize,
+                            );
+
+                            yuv_helper::i420_to_abgr(
+                                src_y,
+                                c.src_stride_y,
+                                src_u,
+                                c.src_stride_u,
+                                src_v,
+                                c.src_stride_v,
+                                dst_rgb,
+                                c.dst_stride_abgr,
+                                c.width,
+                                c.height,
+                            );
+                        },
+                    }
+                }
             }
             _ => {}
         }

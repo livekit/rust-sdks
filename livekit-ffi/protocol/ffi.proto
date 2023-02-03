@@ -18,6 +18,7 @@ message FFIRequest {
     ConnectRequest async_connect = 2;
     DisconnectRequest async_disconnect = 3;
     ToI420Request to_i420 = 4;
+    ConvertRequest convert = 5;
   }
 }
 
@@ -58,6 +59,23 @@ message DisconnectRequest { string room_sid = 1; }
 /// Convert a VideoFrameBuffer to a I420Buffer
 message ToI420Request {
   FFIHandleId buffer = 1; // NOTE: This buffer will be dropped!
+}
+
+message ConvertRequest {
+  oneof message { I420ToABGR i420_to_abgr = 1; }
+}
+
+message I420ToABGR {
+  uint64 src_y_ptr = 1; // *const u8
+  int32 src_stride_y = 2;
+  uint64 src_u_ptr = 3; // *const u8
+  int32 src_stride_u = 4;
+  uint64 src_v_ptr = 5; // *const u8
+  int32 src_stride_v = 6;
+  uint64 dst_abgr_ptr = 7; // *mut u8
+  int32 dst_stride_abgr = 8;
+  int32 width = 9;
+  int32 height = 10;
 }
 
 message ToI420Response { FFIHandleId new_buffer = 1; }
