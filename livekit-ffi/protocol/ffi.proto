@@ -36,7 +36,7 @@ message FFIEvent {
   // language
   optional uint64 async_id = 1;
   oneof message {
-    ConnectEvent connect = 3;
+    ConnectResult connect = 3;
     RoomEvent room_event = 4;
     TrackEvent track_event = 5;
     ParticipantEvent participant_event = 6;
@@ -62,7 +62,7 @@ message ToI420Request {
 
 message ToI420Response { FFIHandleId new_buffer = 1; }
 
-message ConnectEvent {
+message ConnectResult {
   bool success = 1;
   optional RoomInfo room = 2;
 }
