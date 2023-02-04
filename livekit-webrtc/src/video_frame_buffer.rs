@@ -4,6 +4,8 @@ use std::pin::Pin;
 use std::slice;
 use webrtc_sys::video_frame_buffer as vfb_sys;
 
+use crate::yuv_helper::{self, ConvertError};
+
 #[derive(Debug)]
 pub enum VideoFrameBufferType {
     Native,
@@ -13,6 +15,15 @@ pub enum VideoFrameBufferType {
     I444,
     I010,
     NV12,
+}
+
+// types to convert to
+#[derive(Debug)]
+pub enum VideoFormatType {
+    ARGB,
+    BGRA,
+    ABGR,
+    RGBA,
 }
 
 impl From<vfb_sys::ffi::VideoFrameBufferType> for VideoFrameBufferType {
@@ -102,9 +113,75 @@ impl VideoFrameBuffer {
                 VideoFrameBufferType::NV12 => {
                     Self::NV12(NV12Buffer::new(cxx_handle.pin_mut().get_nv12()))
                 }
-                _ => unreachable!(), // VideoFrameBufferType is represented as i32
             }
         }
+    }
+
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: i32,
+        dst_width: i32,
+        dst_height: i32,
+    ) -> Result<(), ConvertError> {
+        match self {
+            Self::I420(i420) => match format {
+                VideoFormatType::ARGB => yuv_helper::i420_to_argb(
+                    i420.data_y(),
+                    i420.stride_y(),
+                    i420.data_u(),
+                    i420.stride_u(),
+                    i420.data_v(),
+                    i420.stride_v(),
+                    dst,
+                    dst_stride,
+                    dst_width,
+                    dst_height,
+                )?,
+                VideoFormatType::BGRA => yuv_helper::i420_to_bgra(
+                    i420.data_y(),
+                    i420.stride_y(),
+                    i420.data_u(),
+                    i420.stride_u(),
+                    i420.data_v(),
+                    i420.stride_v(),
+                    dst,
+                    dst_stride,
+                    dst_width,
+                    dst_height,
+                )?,
+                VideoFormatType::ABGR => yuv_helper::i420_to_abgr(
+                    i420.data_y(),
+                    i420.stride_y(),
+                    i420.data_u(),
+                    i420.stride_u(),
+                    i420.data_v(),
+                    i420.stride_v(),
+                    dst,
+                    dst_stride,
+                    dst_width,
+                    dst_height,
+                )?,
+                VideoFormatType::RGBA => yuv_helper::i420_to_rgba(
+                    i420.data_y(),
+                    i420.stride_y(),
+                    i420.data_u(),
+                    i420.stride_u(),
+                    i420.data_v(),
+                    i420.stride_v(),
+                    dst,
+                    dst_stride,
+                    dst_width,
+                    dst_height,
+                )?,
+            },
+            _ => {
+                // TODO(theomonnom): Support other buffer types
+            }
+        };
+
+        Ok(())
     }
 }
 

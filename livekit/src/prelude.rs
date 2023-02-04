@@ -24,5 +24,7 @@ pub use crate::webrtc::{
     rtp_receiver::RtpReceiver,
     rtp_transceiver::RtpTransceiver,
     video_frame::{VideoFrame, VideoRotation},
-    video_frame_buffer::{VideoFrameBuffer, VideoFrameBufferTrait, VideoFrameBufferType},
+    video_frame_buffer::{
+        VideoFormatType, VideoFrameBuffer, VideoFrameBufferTrait, VideoFrameBufferType,
+    },
 };

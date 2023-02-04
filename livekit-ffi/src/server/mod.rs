@@ -2,7 +2,6 @@ use crate::proto;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
 use livekit::webrtc::media_stream::OnFrameHandler;
-use livekit::webrtc::yuv_helper;
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
@@ -142,8 +141,8 @@ impl FFIServer {
             }
             proto::ffi_request::Message::ToI420(to_i420) => {
                 let mut handle_id = 0; // Invalid handle
-                if let Some(buffer) = self.release_handle(to_i420.buffer.unwrap().id as FFIHandleId)
-                {
+                let buffer = self.release_handle(to_i420.buffer.unwrap().id as FFIHandleId);
+                if let Some(buffer) = buffer {
                     if let Ok(buffer) = buffer.downcast::<VideoFrameBuffer>() {
                         handle_id = self.next_handle_id();
                         self.insert_handle(handle_id, Box::new(buffer.to_i420()));
@@ -161,44 +160,30 @@ impl FFIServer {
                     message: Some(proto::ffi_response::Message::ToI420(res)),
                 };
             }
-            proto::ffi_request::Message::Convert(convert) => {
-                if let Some(message) = convert.message {
-                    match message {
-                        proto::convert_request::Message::I420ToAbgr(c) => unsafe {
-                            // Everything is unsafe here, we can't verify the FFI parameters here..
-                            let src_y = slice::from_raw_parts(
-                                c.src_y_ptr as *const u8,
-                                (c.src_stride_y * c.height) as usize,
-                            );
+            proto::ffi_request::Message::ToArgb(to_argb) => {
+                let ffi_owned = self.ffi_owned.read();
+                let buffer = ffi_owned.get(&(to_argb.buffer.unwrap().id as FFIHandleId));
 
-                            let src_u = slice::from_raw_parts(
-                                c.src_u_ptr as *const u8,
-                                (c.src_stride_u * ((c.height + 1) / 2)) as usize,
-                            );
+                if let Some(buffer) = buffer {
+                    if let Some(buffer) = buffer.downcast_ref::<VideoFrameBuffer>() {
+                        let dst_buf = unsafe {
+                            slice::from_raw_parts_mut(
+                                to_argb.dst_ptr as *mut u8,
+                                (to_argb.dst_stride * to_argb.dst_height) as usize,
+                            )
+                        };
 
-                            let src_v = slice::from_raw_parts(
-                                c.src_v_ptr as *const u8,
-                                (c.src_stride_v * ((c.height + 1) / 2)) as usize,
-                            );
-
-                            let dst_rgb = &mut slice::from_raw_parts_mut(
-                                c.dst_abgr_ptr as *mut u8,
-                                (c.dst_stride_abgr * c.height) as usize,
-                            );
-
-                            yuv_helper::i420_to_abgr(
-                                src_y,
-                                c.src_stride_y,
-                                src_u,
-                                c.src_stride_u,
-                                src_v,
-                                c.src_stride_v,
-                                dst_rgb,
-                                c.dst_stride_abgr,
-                                c.width,
-                                c.height,
-                            );
-                        },
+                        if let Err(err) = buffer.to_argb(
+                            proto::VideoFormatType::from_i32(to_argb.dst_format)
+                                .unwrap()
+                                .into(),
+                            dst_buf,
+                            to_argb.dst_stride,
+                            to_argb.dst_width,
+                            to_argb.dst_height,
+                        ) {
+                            eprintln!("failed to convert videoframe to argb: {:?}", err);
+                        }
                     }
                 }
             }

@@ -16,3 +16,4 @@ pub use crate::rtp_transceiver::RtpTransceiver;
 pub use crate::video_frame::{VideoFrame, VideoRotation};
 pub use crate::video_frame_buffer::*;
 pub use crate::webrtc::RTCRuntime;
+pub use crate::yuv_helper::ConvertError;

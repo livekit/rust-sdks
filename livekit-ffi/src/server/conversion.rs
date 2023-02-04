@@ -299,3 +299,14 @@ impl proto::VideoFrameBufferInfo {
         }
     }
 }
+
+impl From<proto::VideoFormatType> for VideoFormatType {
+    fn from(format: proto::VideoFormatType) -> Self {
+        match format {
+            proto::VideoFormatType::FormatArgb => Self::ARGB,
+            proto::VideoFormatType::FormatBgra => Self::BGRA,
+            proto::VideoFormatType::FormatAbgr => Self::ABGR,
+            proto::VideoFormatType::FormatRgba => Self::RGBA,
+        }
+    }
+}

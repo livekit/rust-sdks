@@ -18,7 +18,7 @@ message FFIRequest {
     ConnectRequest async_connect = 2;
     DisconnectRequest async_disconnect = 3;
     ToI420Request to_i420 = 4;
-    ConvertRequest convert = 5;
+    ToARGBRequest to_argb = 5;
   }
 }
 
@@ -61,29 +61,21 @@ message ToI420Request {
   FFIHandleId buffer = 1; // NOTE: This buffer will be dropped!
 }
 
-message ConvertRequest {
-  oneof message { I420ToABGR i420_to_abgr = 1; }
+message ToARGBRequest {
+  FFIHandleId buffer = 1;
+  uint64 dst_ptr = 2;
+  VideoFormatType dst_format = 3;
+  int32 dst_stride = 4;
+  int32 dst_width = 5;
+  int32 dst_height = 6;
 }
-
-message I420ToABGR {
-  uint64 src_y_ptr = 1; // *const u8
-  int32 src_stride_y = 2;
-  uint64 src_u_ptr = 3; // *const u8
-  int32 src_stride_u = 4;
-  uint64 src_v_ptr = 5; // *const u8
-  int32 src_stride_v = 6;
-  uint64 dst_abgr_ptr = 7; // *mut u8
-  int32 dst_stride_abgr = 8;
-  int32 width = 9;
-  int32 height = 10;
-}
-
-message ToI420Response { FFIHandleId new_buffer = 1; }
 
 message ConnectEvent {
   bool success = 1;
   optional RoomInfo room = 2;
 }
+
+message ToI420Response { FFIHandleId new_buffer = 1; }
 
 /// Models
 
@@ -179,6 +171,13 @@ enum VideoRotation {
 enum DataPacketKind {
   KIND_UNRELIABLE = 0;
   KIND_RELIABLE = 1;
+}
+
+enum VideoFormatType {
+  FORMAT_ARGB = 0;
+  FORMAT_BGRA = 1;
+  FORMAT_ABGR = 2;
+  FORMAT_RGBA = 3;
 }
 
 /// Room Events
