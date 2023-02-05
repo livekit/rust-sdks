@@ -20,7 +20,7 @@ pub use crate::webrtc::{
     data_channel::DataChannel,
     media_stream::{
         AudioTrack, MediaStream, MediaStreamTrackHandle, MediaStreamTrackTrait,
-        OnConstraintsChangeHandler, OnDiscardedFrameHandler, OnFrameHandler, VideoTrack,
+        OnConstraintsChangedHandler, OnDiscardedFrameHandler, OnFrameHandler, VideoTrack,
     },
     rtp_receiver::RtpReceiver,
     rtp_transceiver::RtpTransceiver,

@@ -138,7 +138,7 @@ impl FFIServer {
         }
         .encode_to_vec();
 
-        let config = config.unwrap();
+        let config = config.as_ref().unwrap();
         if let Err(err) = panic::catch_unwind(|| unsafe {
             (config.callback_fn)(message.as_ptr(), message.len());
         }) {
@@ -233,7 +233,7 @@ pub extern "C" fn livekit_ffi_request(
         return 0;
     }
 
-    if res.unwrap().message.is_none() {
+    if res.as_ref().unwrap().message.is_none() {
         eprintln!("request message is empty");
         return 0;
     }
@@ -243,7 +243,7 @@ pub extern "C" fn livekit_ffi_request(
         FFI_SERVER.initialize(init);
     }
 
-    if let proto::ffi_request::Message::Dispose(ref dispose) = message {
+    if let proto::ffi_request::Message::Dispose(_) = message {
         FFI_SERVER.dispose();
     }
 

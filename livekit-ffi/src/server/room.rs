@@ -69,7 +69,7 @@ async fn room_task(
                     } => {
                         if let RemoteTrackHandle::Video(video_track) = track {
                             let rtc_track = video_track.rtc_track();
-                            rtc_track.on_frame(on_video_frame(video_track.sid()));
+                            rtc_track.on_frame(on_video_frame(server, video_track.sid()));
                         }
                     }
                     _ => {}
@@ -116,3 +116,4 @@ fn on_video_frame(server: &'static FFIServer, track_sid: TrackSid) -> OnFrameHan
         );
     })
 }
+//
