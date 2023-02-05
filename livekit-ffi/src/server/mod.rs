@@ -92,8 +92,8 @@ impl FFIServer {
     pub async fn close(&self) {
         // Close all rooms
         for (k, (handle, shutdown_tx)) in self.rooms.write().drain() {
-            shutdown_tx.send(());
-            handle.await;
+            let _ = shutdown_tx.send(());
+            let _ = handle.await;
         }
     }
 
@@ -153,9 +153,8 @@ impl FFIServer {
         match message {
             proto::ffi_request::Message::AsyncConnect(connect) => {
                 let async_id = self.next_async_id();
-                let room_handle =
-                    self.async_runtime
-                        .spawn(room::create_room(&FFI_SERVER, async_id, connect));
+                self.async_runtime
+                    .spawn(room::create_room(&FFI_SERVER, async_id, connect));
 
                 return proto::FfiResponse {
                     async_id: Some(async_id),
@@ -163,23 +162,24 @@ impl FFIServer {
                 };
             }
             proto::ffi_request::Message::ToI420(to_i420) => {
-                let mut handle_id = 0; // Invalid handle
+                let mut buffer_info = None;
                 let buffer = self.release_handle(to_i420.buffer.unwrap().id as FFIHandleId);
+
                 if let Some(buffer) = buffer {
                     if let Ok(buffer) = buffer.downcast::<VideoFrameBuffer>() {
-                        handle_id = self.next_handle_id();
-                        self.insert_handle(handle_id, Box::new(buffer.to_i420()));
+                        let handle_id = self.next_handle_id();
+                        let i420 = VideoFrameBuffer::I420(buffer.to_i420());
+                        buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &i420));
+                        self.insert_handle(handle_id, Box::new(i420));
                     }
                 }
 
-                let res = proto::ToI420Response {
-                    new_buffer: Some(proto::FfiHandleId {
-                        id: handle_id as u64,
-                    }),
-                };
-
                 return proto::FfiResponse {
-                    message: Some(proto::ffi_response::Message::ToI420(res)),
+                    message: Some(proto::ffi_response::Message::ToI420(
+                        proto::ToI420Response {
+                            new_buffer: buffer_info,
+                        },
+                    )),
                     ..Default::default()
                 };
             }

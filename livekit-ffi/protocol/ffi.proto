@@ -80,7 +80,7 @@ message ConnectEvent {
   optional RoomInfo room = 2;
 }
 
-message ToI420Response { FFIHandleId new_buffer = 1; }
+message ToI420Response { optional VideoFrameBufferInfo new_buffer = 1; }
 
 /// Models
 
