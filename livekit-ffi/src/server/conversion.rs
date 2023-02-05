@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 impl From<FFIHandleId> for proto::FfiHandleId {
     fn from(id: FFIHandleId) -> Self {
-        Self { id: id as u32 }
+        Self { id: id as u64 }
     }
 }
 
@@ -23,6 +23,7 @@ macro_rules! impl_participant_into {
                     sid: p.sid().to_string(),
                     identity: p.identity().to_string(),
                     metadata: p.metadata(),
+                    publications: p.tracks().iter().map(|(_, p)| p.into()).collect(),
                 }
             }
         }
@@ -33,6 +34,18 @@ impl_participant_into!(&Arc<LocalParticipant>);
 impl_participant_into!(&Arc<RemoteParticipant>);
 impl_participant_into!(&Participant);
 
+impl From<TrackSource> for proto::TrackSource {
+    fn from(source: TrackSource) -> proto::TrackSource {
+        match source {
+            TrackSource::Unknown => proto::TrackSource::SourceUnknown,
+            TrackSource::Camera => proto::TrackSource::SourceCamera,
+            TrackSource::Microphone => proto::TrackSource::SourceMicrophone,
+            TrackSource::Screenshare => proto::TrackSource::SourceScreenshare,
+            TrackSource::ScreenshareAudio => proto::TrackSource::SourceScreenshareAudio,
+        }
+    }
+}
+
 macro_rules! impl_publication_into {
     ($p:ty) => {
         impl From<$p> for proto::TrackPublicationInfo {
@@ -41,6 +54,14 @@ macro_rules! impl_publication_into {
                     name: p.name(),
                     sid: p.sid().to_string(),
                     kind: proto::TrackKind::from(p.kind()).into(),
+                    source: proto::TrackSource::from(p.source()).into(),
+                    dimension: Some(proto::Dimension {
+                        width: p.dimension().0,
+                        height: p.dimension().1,
+                    }),
+                    mime_type: p.mime_type(),
+                    simulcasted: p.simulcasted(),
+                    muted: p.muted(),
                 }
             }
         }
@@ -57,7 +78,7 @@ macro_rules! impl_track_into {
             fn from(track: $t) -> Self {
                 Self {
                     name: track.name(),
-                    state: proto::StreamState::from(track.stream_state()).into(),
+                    stream_state: proto::StreamState::from(track.stream_state()).into(),
                     sid: track.sid().to_string(),
                     kind: proto::TrackKind::from(track.kind()).into(),
                     muted: track.muted(),
@@ -125,7 +146,7 @@ impl proto::RoomEvent {
             } => Some(proto::room_event::Message::TrackUnpublished(
                 proto::TrackUnpublished {
                     participant_sid: participant.sid().to_string(),
-                    publication: Some((&publication).into()),
+                    publication_sid: publication.sid().into(),
                 },
             )),
             RoomEvent::TrackSubscribed {
@@ -136,6 +157,9 @@ impl proto::RoomEvent {
                 proto::TrackSubscribed {
                     participant_sid: participant.sid().to_string(),
                     track: Some((&track).into()),
+                    sink: Some(proto::VideoSinkInfo {
+                        track_sid: track.sid().to_string(),
+                    }),
                 },
             )),
             RoomEvent::TrackUnsubscribed {
@@ -145,7 +169,7 @@ impl proto::RoomEvent {
             } => Some(proto::room_event::Message::TrackUnsubscribed(
                 proto::TrackUnsubscribed {
                     participant_sid: participant.sid().to_string(),
-                    track: Some((&track).into()),
+                    track_sid: track.sid().to_string(),
                 },
             )),
             _ => None,
@@ -169,7 +193,7 @@ impl From<VideoRotation> for proto::VideoRotation {
     }
 }
 
-impl From<VideoFrame> for proto::VideoFrame {
+impl From<VideoFrame> for proto::VideoFrameInfo {
     fn from(frame: VideoFrame) -> Self {
         Self {
             width: frame.width(),
@@ -201,7 +225,7 @@ impl From<VideoFrameBufferType> for proto::VideoFrameBufferType {
 
 macro_rules! impl_yuv_into {
     ($b:ty) => {
-        impl From<$b> for proto::PlanarYuvBuffer {
+        impl From<$b> for proto::PlanarYuvBufferInfo {
             fn from(buffer: $b) -> Self {
                 Self {
                     chroma_width: buffer.chroma_width(),
@@ -226,7 +250,7 @@ impl_yuv_into!(&I010Buffer);
 
 macro_rules! impl_biyuv_into {
     ($b:ty) => {
-        impl From<$b> for proto::BiplanarYuvBuffer {
+        impl From<$b> for proto::BiplanarYuvBufferInfo {
             fn from(buffer: $b) -> Self {
                 Self {
                     chroma_width: buffer.chroma_width(),
@@ -243,7 +267,7 @@ macro_rules! impl_biyuv_into {
 
 impl_biyuv_into!(&NV12Buffer);
 
-impl proto::VideoFrameBuffer {
+impl proto::VideoFrameBufferInfo {
     pub fn from(handle_id: FFIHandleId, buffer: &VideoFrameBuffer) -> Self {
         Self {
             handle: Some(handle_id.into()),
@@ -252,19 +276,54 @@ impl proto::VideoFrameBuffer {
             height: buffer.height(),
             buffer: Some(match &buffer {
                 VideoFrameBuffer::Native(_) => {
-                    proto::video_frame_buffer::Buffer::Native(proto::NativeBuffer {})
+                    proto::video_frame_buffer_info::Buffer::Native(proto::NativeBufferInfo {})
                 }
-                VideoFrameBuffer::I420(i420) => proto::video_frame_buffer::Buffer::Yuv(i420.into()),
+                VideoFrameBuffer::I420(i420) => {
+                    proto::video_frame_buffer_info::Buffer::Yuv(i420.into())
+                }
                 VideoFrameBuffer::I420A(i420a) => {
-                    proto::video_frame_buffer::Buffer::Yuv(i420a.into())
+                    proto::video_frame_buffer_info::Buffer::Yuv(i420a.into())
                 }
-                VideoFrameBuffer::I422(i422) => proto::video_frame_buffer::Buffer::Yuv(i422.into()),
-                VideoFrameBuffer::I444(i444) => proto::video_frame_buffer::Buffer::Yuv(i444.into()),
-                VideoFrameBuffer::I010(i010) => proto::video_frame_buffer::Buffer::Yuv(i010.into()),
+                VideoFrameBuffer::I422(i422) => {
+                    proto::video_frame_buffer_info::Buffer::Yuv(i422.into())
+                }
+                VideoFrameBuffer::I444(i444) => {
+                    proto::video_frame_buffer_info::Buffer::Yuv(i444.into())
+                }
+                VideoFrameBuffer::I010(i010) => {
+                    proto::video_frame_buffer_info::Buffer::Yuv(i010.into())
+                }
                 VideoFrameBuffer::NV12(nv12) => {
-                    proto::video_frame_buffer::Buffer::BiYuv(nv12.into())
+                    proto::video_frame_buffer_info::Buffer::BiYuv(nv12.into())
                 }
             }),
+        }
+    }
+}
+
+impl From<proto::VideoFormatType> for VideoFormatType {
+    fn from(format: proto::VideoFormatType) -> Self {
+        match format {
+            proto::VideoFormatType::FormatArgb => Self::ARGB,
+            proto::VideoFormatType::FormatBgra => Self::BGRA,
+            proto::VideoFormatType::FormatAbgr => Self::ABGR,
+            proto::VideoFormatType::FormatRgba => Self::RGBA,
+        }
+    }
+}
+
+impl From<&RoomSession> for proto::RoomInfo {
+    fn from(session: &RoomSession) -> Self {
+        Self {
+            sid: session.sid().into(),
+            name: session.name(),
+            metadata: session.metadata(),
+            local_participant: Some((&session.local_participant()).into()),
+            participants: session
+                .participants()
+                .iter()
+                .map(|(_, p)| p.into())
+                .collect(),
         }
     }
 }

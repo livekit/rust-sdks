@@ -8,27 +8,50 @@ option csharp_namespace = "LiveKit.Proto";
 /// # Safety
 /// The foreign language is responsable for disposing an handle
 /// Forgetting to dispose the handle may lead to memory leaks
-/// Messages bellow can contain an FFIHandle
-message FFIHandleId { uint32 id = 1; }
+/// Messages in this file can contain an FFIHandle
+message FFIHandleId { uint64 id = 1; }
 
+/// This is the input of livekit_ffi_request function
 message FFIRequest {
   oneof message {
-    InitializeRequest configure = 1;
-    ConnectRequest async_connect = 2;
-    DisconnectRequest async_disconnect = 3;
+    InitializeRequest initialize = 1;
+    // Stop all rooms synchronously (Do we need async here?).
+    // e.g: This is used for the Unity Editor after each assemblies reload.
+    DisposeRequest dispose = 2;
+    ConnectRequest async_connect = 3;
+    DisconnectRequest async_disconnect = 4;
+    ToI420Request to_i420 = 5;
+    ToARGBRequest to_argb = 6;
   }
 }
 
+/// This is the output of livekit_ffi_request function.
+/// The message field is mostly used to send result of a synchronous operation
+/// to the foreign language.
 message FFIResponse {
+  optional uint64 async_id = 1;
+  oneof message { ToI420Response to_i420 = 2; }
+}
+
+/// This message is used to receive the result of asynchronous requests
+/// Or to receive events of a Room
+message FFIEvent {
+  // Used if the message is used to send the async result to the foreign
+  // language
+  optional uint64 async_id = 1;
   oneof message {
-    ConnectResponse async_connect = 1;
-    RoomEvent room_event = 2;
-    TrackEvent track_event = 3;
-    ParticipantEvent participant_event = 4;
+    ConnectEvent connect_event = 2;
+    RoomEvent room_event = 3;
+    TrackEvent track_event = 4;
+    ParticipantEvent participant_event = 5;
   }
 }
 
-message InitializeRequest { uint64 callback_ptr = 1; }
+// Setup the callback where the foreign language can receive events
+// and responses to asynchronous requests
+message InitializeRequest { uint64 event_callback_ptr = 1; }
+
+message DisposeRequest {}
 
 message ConnectRequest {
   string url = 1;
@@ -38,12 +61,33 @@ message ConnectRequest {
 
 message DisconnectRequest { string room_sid = 1; }
 
-message ConnectResponse {
+/// Convert a VideoFrameBuffer to a I420Buffer
+message ToI420Request {
+  FFIHandleId buffer = 1; // NOTE: This buffer will be dropped!
+}
+
+message ToARGBRequest {
+  FFIHandleId buffer = 1;
+  uint64 dst_ptr = 2;
+  VideoFormatType dst_format = 3;
+  int32 dst_stride = 4;
+  int32 dst_width = 5;
+  int32 dst_height = 6;
+}
+
+message ConnectEvent {
   bool success = 1;
   optional RoomInfo room = 2;
 }
 
+message ToI420Response { optional VideoFrameBufferInfo new_buffer = 1; }
+
 /// Models
+
+message Dimension {
+  uint32 width = 1;
+  uint32 height = 2;
+}
 
 message RoomOptions {
   bool auto_subscribe = 1;
@@ -53,8 +97,9 @@ message RoomOptions {
 message RoomInfo {
   string sid = 1;
   string name = 2;
-  ParticipantInfo local_participant = 3;
-  repeated ParticipantInfo participants = 4;
+  string metadata = 3;
+  ParticipantInfo local_participant = 4;
+  repeated ParticipantInfo participants = 5;
 }
 
 message ParticipantInfo {
@@ -62,6 +107,31 @@ message ParticipantInfo {
   string name = 2;
   string identity = 3;
   string metadata = 4;
+  repeated TrackPublicationInfo publications = 5;
+}
+
+message TrackPublicationInfo {
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+  TrackSource source = 4;
+  bool simulcasted = 5;
+  Dimension dimension = 6;
+  string mime_type = 7;
+  bool muted = 8;
+}
+
+message TrackInfo {
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+  StreamState stream_state = 4;
+  bool muted = 5;
+}
+
+message VideoSinkInfo {
+  string track_sid = 1;
+  // More info?
 }
 
 enum TrackKind {
@@ -70,24 +140,50 @@ enum TrackKind {
   KIND_VIDEO = 2;
 }
 
+enum TrackSource {
+  SOURCE_UNKNOWN = 0;
+  SOURCE_CAMERA = 1;
+  SOURCE_MICROPHONE = 2;
+  SOURCE_SCREENSHARE = 3;
+  SOURCE_SCREENSHARE_AUDIO = 4;
+}
+
+enum ConnectionQuality {
+  QUALITY_POOR = 0;
+  QUALITY_GOOD = 1;
+  QUALITY_EXCELLENT = 2;
+}
+
+enum ConnectionState {
+  CONN_DISCONNECTED = 0;
+  CONN_CONNECTED = 1;
+  CONN_RECONNECTING = 2;
+  CONN_UNKNOWN = 3;
+}
+
 enum StreamState {
   STATE_UNKNOWN = 0;
   STATE_ACTIVE = 1;
   STATE_PAUSED = 2;
 }
 
-message TrackPublicationInfo {
-  string sid = 1;
-  string name = 2;
-  TrackKind kind = 3;
+enum VideoRotation {
+  VIDEO_ROTATION_0 = 0;
+  VIDEO_ROTATION_90 = 1;
+  VIDEO_ROTATION_180 = 2;
+  VIDEO_ROTATION_270 = 3;
 }
 
-message TrackInfo {
-  string sid = 1;
-  string name = 2;
-  TrackKind kind = 3;
-  StreamState state = 4;
-  bool muted = 5;
+enum DataPacketKind {
+  KIND_UNRELIABLE = 0;
+  KIND_RELIABLE = 1;
+}
+
+enum VideoFormatType {
+  FORMAT_ARGB = 0;
+  FORMAT_BGRA = 1;
+  FORMAT_ABGR = 2;
+  FORMAT_RGBA = 3;
 }
 
 /// Room Events
@@ -101,6 +197,16 @@ message RoomEvent {
     TrackUnpublished track_unpublished = 5;
     TrackSubscribed track_subscribed = 6;
     TrackUnsubscribed track_unsubscribed = 7;
+    TrackMuted track_muted = 8;
+    TrackUnmuted track_unmuted = 9;
+    ActiveSpeakersChanged speakers_changed = 10;
+    ConnectionQualityChanged connection_quality_changed = 11;
+    DataReceived data_received = 12;
+    ConnectionStateChanged connection_state_changed = 13;
+    Connected connected = 14;
+    Disconnected disconnected = 15;
+    Reconnecting reconnecting = 16;
+    Reconnected reconnected = 17;
   }
 }
 
@@ -109,35 +215,60 @@ message ParticipantConnected { ParticipantInfo info = 1; }
 message ParticipantDisconnected { ParticipantInfo info = 1; }
 
 message TrackPublished {
-  TrackPublicationInfo publication = 1;
-  string participant_sid = 2;
+  string participant_sid = 1;
+  TrackPublicationInfo publication = 2;
 }
 
 message TrackUnpublished {
-  TrackPublicationInfo publication = 1;
-  string participant_sid = 2;
+  string participant_sid = 1;
+  string publication_sid = 2;
 }
 
 // Publication isn't needed for subscription events on the FFI
 // The FFI will retrieve the publication using the Track sid
 message TrackSubscribed {
-  // TrackPublicationInfo publication = 1;
-  TrackInfo track = 1;
-  string participant_sid = 2;
+  string participant_sid = 1;
+  TrackInfo track = 2;
+  VideoSinkInfo sink = 3;
 }
 
 message TrackUnsubscribed {
-  // TrackPublicationInfo publication = 1;
-  TrackInfo track = 1;
-  string participant_sid = 2;
+  // The FFI language can dispose/remove the VideoSink here
+  string participant_sid = 1;
+  string track_sid = 2;
+}
+
+message TrackMuted {
+  string participant_sid = 1;
+  string track_sid = 2;
+}
+
+message TrackUnmuted {
+  string participant_sid = 1;
+  string track_sid = 2;
+}
+
+message ActiveSpeakersChanged { repeated string participant_sids = 1; }
+
+message ConnectionQualityChanged {
+  string participant_sid = 1;
+  ConnectionQuality quality = 2;
 }
 
 message DataReceived {
   FFIHandleId handle = 1;
-  string participant_sid = 2;
+  optional string participant_sid = 2;
   uint64 data_ptr = 3;
   uint64 data_size = 4;
+  DataPacketKind kind = 5;
 }
+
+message ConnectionStateChanged { ConnectionState state = 1; }
+
+message Connected {}
+message Disconnected {}
+message Reconnecting {}
+message Reconnected {}
 
 /// Track Events
 
@@ -147,11 +278,11 @@ message TrackEvent {
 }
 
 message FrameReceived {
-  VideoFrame frame = 1;
-  VideoFrameBuffer frame_buffer = 2;
+  VideoFrameInfo frame = 1;
+  VideoFrameBufferInfo frame_buffer = 2;
 }
 
-message VideoFrame {
+message VideoFrameInfo {
   int32 width = 1;
   int32 height = 2;
   uint32 size = 3;
@@ -163,19 +294,19 @@ message VideoFrame {
   VideoRotation rotation = 9;
 }
 
-message VideoFrameBuffer {
+message VideoFrameBufferInfo {
   FFIHandleId handle = 1;
   VideoFrameBufferType buffer_type = 2;
   int32 width = 3;
   int32 height = 4;
   oneof buffer {
-    PlanarYuvBuffer yuv = 5;
-    BiplanarYuvBuffer bi_yuv = 6;
-    NativeBuffer native = 7;
+    PlanarYuvBufferInfo yuv = 5;
+    BiplanarYuvBufferInfo bi_yuv = 6;
+    NativeBufferInfo native = 7;
   }
 }
 
-message PlanarYuvBuffer {
+message PlanarYuvBufferInfo {
   int32 chroma_width = 1;
   int32 chroma_height = 2;
   int32 stride_y = 3;
@@ -188,7 +319,7 @@ message PlanarYuvBuffer {
   uint64 data_v_ptr = 8;
 }
 
-message BiplanarYuvBuffer {
+message BiplanarYuvBufferInfo {
   int32 chroma_width = 1;
   int32 chroma_height = 2;
   int32 stride_y = 3;
@@ -198,7 +329,7 @@ message BiplanarYuvBuffer {
   uint64 data_uv_ptr = 6;
 }
 
-message NativeBuffer {
+message NativeBufferInfo {
   // TODO(theomonnom): Expose graphic context?
 }
 
@@ -212,13 +343,11 @@ enum VideoFrameBufferType {
   NV12 = 6;
 }
 
-enum VideoRotation {
-  VIDEO_ROTATION_0 = 0;
-  VIDEO_ROTATION_90 = 1;
-  VIDEO_ROTATION_180 = 2;
-  VIDEO_ROTATION_270 = 3;
-}
-
 /// Participant Events
 
-message ParticipantEvent { string participant_sid = 1; }
+message ParticipantEvent {
+  string participant_sid = 1;
+  oneof message { IsSpeakingChanged speaking_changed = 2; }
+}
+
+message IsSpeakingChanged { bool speaking = 1; }

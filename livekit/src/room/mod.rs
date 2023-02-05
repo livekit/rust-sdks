@@ -55,12 +55,12 @@ pub enum RoomEvent {
         participant: Arc<RemoteParticipant>,
     },
     TrackMuted {
-        publication: TrackPublication,
         participant: Participant,
+        publication: TrackPublication,
     },
     TrackUnmuted {
-        publication: TrackPublication,
         participant: Participant,
+        publication: TrackPublication,
     },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,

@@ -19,10 +19,13 @@ pub use crate::id::*;
 pub use crate::webrtc::{
     data_channel::DataChannel,
     media_stream::{
-        AudioTrack, MediaStream, MediaStreamTrackHandle, MediaStreamTrackTrait, VideoTrack,
+        AudioTrack, MediaStream, MediaStreamTrackHandle, MediaStreamTrackTrait,
+        OnConstraintsChangedHandler, OnDiscardedFrameHandler, OnFrameHandler, VideoTrack,
     },
     rtp_receiver::RtpReceiver,
     rtp_transceiver::RtpTransceiver,
     video_frame::{VideoFrame, VideoRotation},
-    video_frame_buffer::{VideoFrameBuffer, VideoFrameBufferTrait, VideoFrameBufferType},
+    video_frame_buffer::{
+        VideoFormatType, VideoFrameBuffer, VideoFrameBufferTrait, VideoFrameBufferType,
+    },
 };
