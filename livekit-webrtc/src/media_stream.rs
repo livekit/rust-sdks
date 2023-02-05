@@ -122,13 +122,13 @@ impl_media_stream_track_trait!(AudioTrack, audio_to_media);
 
 pub type OnFrameHandler = Box<dyn FnMut(VideoFrame, VideoFrameBuffer) + Send + Sync>;
 pub type OnDiscardedFrameHandler = Box<dyn FnMut() + Send + Sync>;
-pub type OnConstraintsChanged = Box<dyn FnMut(VideoTrackSourceConstraints) + Send + Sync>;
+pub type OnConstraintsChangedHandler = Box<dyn FnMut(VideoTrackSourceConstraints) + Send + Sync>;
 
 #[derive(Default)]
 struct InternalVideoTrackSink {
     on_frame_handler: Mutex<Option<OnFrameHandler>>,
     on_discarded_frame_handler: Mutex<Option<OnDiscardedFrameHandler>>,
-    on_constraints_changed_handler: Mutex<Option<OnConstraintsChanged>>,
+    on_constraints_changed_handler: Mutex<Option<OnConstraintsChangedHandler>>,
 }
 
 pub struct VideoTrackSourceConstraints {
@@ -225,7 +225,7 @@ impl VideoTrack {
         *self.observer.on_discarded_frame_handler.lock().unwrap() = Some(handler);
     }
 
-    pub fn on_constraints_changed(&self, handler: OnConstraintsChanged) {
+    pub fn on_constraints_changed(&self, handler: OnConstraintsChangedHandler) {
         *self.observer.on_constraints_changed_handler.lock().unwrap() = Some(handler);
     }
 }

@@ -37,7 +37,7 @@ impl From<u8> for ConnectionState {
 #[derive(Debug)]
 struct SessionInner {
     state: AtomicU8, // ConnectionState
-    sid: Mutex<String>,
+    sid: Mutex<RoomSid>,
     name: Mutex<String>,
     metadata: Mutex<String>,
     participants: RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>>,
@@ -83,7 +83,7 @@ impl SessionHandle {
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(SessionInner {
             state: AtomicU8::new(ConnectionState::Disconnected as u8),
-            sid: Mutex::new(room_info.sid),
+            sid: Mutex::new(room_info.sid.into()),
             name: Mutex::new(room_info.name),
             metadata: Mutex::new(room_info.metadata),
             participants: Default::default(),
@@ -135,7 +135,7 @@ impl RoomSession {
         Self { inner }
     }
 
-    pub fn sid(&self) -> String {
+    pub fn sid(&self) -> RoomSid {
         self.inner.sid.lock().clone()
     }
 

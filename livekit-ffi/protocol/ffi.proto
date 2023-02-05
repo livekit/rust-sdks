@@ -14,11 +14,14 @@ message FFIHandleId { uint64 id = 1; }
 /// This is the input of livekit_ffi_request function
 message FFIRequest {
   oneof message {
-    InitializeRequest configure = 1;
-    ConnectRequest async_connect = 2;
-    DisconnectRequest async_disconnect = 3;
-    ToI420Request to_i420 = 4;
-    ToARGBRequest to_argb = 5;
+    InitializeRequest initialize = 1;
+    // Stop all rooms synchronously (Do we need async here?).
+    // e.g: This is used for the Unity Editor after each assemblies reload.
+    DisposeRequest dispose = 2;
+    ConnectRequest async_connect = 3;
+    DisconnectRequest async_disconnect = 4;
+    ToI420Request to_i420 = 5;
+    ToARGBRequest to_argb = 6;
   }
 }
 
@@ -47,6 +50,8 @@ message FFIEvent {
 // Setup the callback where the foreign language can receive events
 // and responses to asynchronous requests
 message InitializeRequest { uint64 event_callback_ptr = 1; }
+
+message DisposeRequest {}
 
 message ConnectRequest {
   string url = 1;

@@ -311,3 +311,19 @@ impl From<proto::VideoFormatType> for VideoFormatType {
         }
     }
 }
+
+impl From<&RoomSession> for proto::RoomInfo {
+    fn from(session: &RoomSession) -> Self {
+        Self {
+            sid: session.sid(),
+            name: session.name(),
+            metadata: session.metadata(),
+            local_participant: Some((&session.local_participant()).into()),
+            participants: session
+                .participants()
+                .iter()
+                .map(|(_, p)| p.into())
+                .collect(),
+        }
+    }
+}
