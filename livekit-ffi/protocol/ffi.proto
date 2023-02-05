@@ -102,6 +102,7 @@ message ParticipantInfo {
   string name = 2;
   string identity = 3;
   string metadata = 4;
+  repeated TrackPublicationInfo publications = 5;
 }
 
 message TrackPublicationInfo {

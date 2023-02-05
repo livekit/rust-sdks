@@ -199,32 +199,27 @@ impl FFIServer {
 pub extern "C" fn livekit_ffi_request(
     data: *const u8,
     len: usize,
-    handle_id_ptr: *mut FFIHandleId,
-) -> *const u8 {
+    data_ptr: *mut *const u8,
+    data_len: *mut usize,
+) -> FFIHandleId {
     let data = unsafe { slice::from_raw_parts(data, len) };
     let res = proto::FfiRequest::decode(data);
     if let Err(ref err) = res {
         eprintln!("failed to decode FfiRequest: {:?}", err);
-        return std::ptr::null();
+        return 0;
     }
 
     let res = FFI_SERVER.handle_request(res.unwrap().message.unwrap());
 
-    // 4 first bytes are the length of the buffer
-    let mut buf = Vec::with_capacity(4 + res.encoded_len());
-    if let Err(err) = res.encode(&mut &mut buf[4..]) {
-        eprintln!("failed to encode FfiResponse: {:?}", err);
-        return std::ptr::null();
+    let buf = res.encode_to_vec();
+    unsafe {
+        *data_ptr = buf.as_ptr();
+        *data_len = buf.len();
     }
 
     let handle_id = FFI_SERVER.next_handle_id();
-    unsafe {
-        *handle_id_ptr = handle_id;
-    }
-
-    let ptr = buf.as_ptr();
     FFI_SERVER.insert_handle(handle_id, Box::new(buf));
-    ptr
+    handle_id
 }
 
 // Free memory
