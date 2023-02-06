@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "api/media_stream_interface.h"
+#include "livekit/rtp_sender.h"
 #include "livekit/rust_types.h"
 #include "rust/cxx.h"
 
@@ -42,9 +43,11 @@ class MediaStreamTrack {
   rust::String id() const;
 
   bool enabled() const;
-  bool set_enabled(bool enable);
+  bool set_enabled(bool enable) const;
 
   TrackState state() const;
+
+  friend RtpSender;
 
  protected:
   rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
@@ -67,13 +70,13 @@ class VideoTrack : public MediaStreamTrack {
  public:
   explicit VideoTrack(rtc::scoped_refptr<webrtc::VideoTrackInterface> track);
 
-  void add_sink(NativeVideoFrameSink& sink);
-  void remove_sink(NativeVideoFrameSink& sink);
+  void add_sink(NativeVideoFrameSink& sink) const;
+  void remove_sink(NativeVideoFrameSink& sink) const;
 
-  void set_should_receive(bool should_receive);
+  void set_should_receive(bool should_receive) const;
   bool should_receive() const;
   ContentHint content_hint() const;
-  void set_content_hint(ContentHint hint);
+  void set_content_hint(ContentHint hint) const;
 
  private:
   webrtc::VideoTrackInterface* track() const {
@@ -115,7 +118,7 @@ static const VideoTrack* media_to_video(const MediaStreamTrack* track) {
 }
 
 static const AudioTrack* media_to_audio(const MediaStreamTrack* track) {
-  return static_cast<const AudioTrack*>(track); 
+  return static_cast<const AudioTrack*>(track);
 }
 
 }  // namespace livekit

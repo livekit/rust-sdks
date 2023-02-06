@@ -10,6 +10,7 @@
 #include "api/peer_connection_interface.h"
 #include "data_channel.h"
 #include "jsep.h"
+#include "livekit/media_stream.h"
 #include "rust/cxx.h"
 #include "rust_types.h"
 #include "webrtc.h"
@@ -36,6 +37,9 @@ class PeerConnection {
       std::unique_ptr<NativeDataChannelInit> init);
   void add_ice_candidate(std::unique_ptr<IceCandidate> candidate,
                          NativeAddIceCandidateObserver& observer);
+  std::unique_ptr<RtpSender> add_track(
+      std::unique_ptr<MediaStreamTrack> track,
+      const rust::Vec<rust::String>& stream_ids);
   std::unique_ptr<SessionDescription> local_description() const;
   std::unique_ptr<SessionDescription> remote_description() const;
   SignalingState signaling_state() const;

@@ -31,6 +31,8 @@ impl LocalParticipant {
         }
     }
 
+    pub async fn publish_track(&self) {}
+
     pub async fn publish_data(
         &self,
         data: &[u8],
