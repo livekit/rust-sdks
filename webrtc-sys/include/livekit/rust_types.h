@@ -28,6 +28,7 @@ enum class TrackState;
 enum class ContentHint;
 enum class VideoRotation;
 enum class VideoFrameBufferType;
+enum class MediaType;
 struct SdpParseError;
 struct RTCOfferAnswerOptions;
 struct RTCError;

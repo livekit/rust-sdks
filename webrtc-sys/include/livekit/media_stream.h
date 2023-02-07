@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "api/media_stream_interface.h"
-#include "livekit/rtp_sender.h"
 #include "livekit/rust_types.h"
 #include "rust/cxx.h"
 
@@ -46,8 +45,6 @@ class MediaStreamTrack {
   bool set_enabled(bool enable) const;
 
   TrackState state() const;
-
-  friend RtpSender;
 
  protected:
   rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
