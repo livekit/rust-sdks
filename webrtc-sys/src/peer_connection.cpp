@@ -3,10 +3,12 @@
 //
 
 #include "livekit/peer_connection.h"
-#include "livekit/media_stream.h"
 
-#include "webrtc-sys/src/peer_connection.rs.h"
+#include "livekit/media_stream.h"
 #include "livekit/rtc_error.h"
+#include "livekit/rtp_transceiver.h"
+#include "webrtc-sys/src/peer_connection.rs.h"
+#include "webrtc-sys/src/rtp_transceiver.rs.h"
 
 namespace livekit {
 
@@ -32,35 +34,35 @@ PeerConnection::PeerConnection(
 
 void PeerConnection::create_offer(
     NativeCreateSdpObserverHandle& observer_handle,
-    RTCOfferAnswerOptions options) {
+    RTCOfferAnswerOptions options) const {
   peer_connection_->CreateOffer(observer_handle.observer.get(),
                                 toNativeOfferAnswerOptions(options));
 }
 
 void PeerConnection::create_answer(
     NativeCreateSdpObserverHandle& observer_handle,
-    RTCOfferAnswerOptions options) {
+    RTCOfferAnswerOptions options) const {
   peer_connection_->CreateAnswer(observer_handle.observer.get(),
                                  toNativeOfferAnswerOptions(options));
 }
 
 void PeerConnection::set_local_description(
     std::unique_ptr<SessionDescription> desc,
-    NativeSetLocalSdpObserverHandle& observer) {
+    NativeSetLocalSdpObserverHandle& observer) const {
   peer_connection_->SetLocalDescription(desc->clone()->release(),
                                         observer.observer);
 }
 
 void PeerConnection::set_remote_description(
     std::unique_ptr<SessionDescription> desc,
-    NativeSetRemoteSdpObserverHandle& observer) {
+    NativeSetRemoteSdpObserverHandle& observer) const {
   peer_connection_->SetRemoteDescription(desc->clone()->release(),
                                          observer.observer);
 }
 
 std::unique_ptr<DataChannel> PeerConnection::create_data_channel(
     rust::String label,
-    std::unique_ptr<NativeDataChannelInit> init) {
+    std::unique_ptr<NativeDataChannelInit> init) const {
   auto result =
       peer_connection_->CreateDataChannelOrError(label.c_str(), init.get());
 
@@ -71,9 +73,71 @@ std::unique_ptr<DataChannel> PeerConnection::create_data_channel(
   return std::make_unique<DataChannel>(rtc_runtime_, result.value());
 }
 
+std::shared_ptr<RtpSender> PeerConnection::add_track(
+    std::shared_ptr<MediaStreamTrack> track,
+    const rust::Vec<rust::String>& stream_ids) const {
+  std::vector<std::string> std_stream_ids(stream_ids.begin(), stream_ids.end());
+  auto result = peer_connection_->AddTrack(track->get(), std_stream_ids);
+  if (!result.ok()) {
+    throw std::runtime_error(serialize_error(to_error(result.error())));
+  }
+
+  return std::make_shared<RtpSender>(result.value());
+}
+
+void PeerConnection::remove_track(std::shared_ptr<RtpSender> sender) const {
+  auto error = peer_connection_->RemoveTrackOrError(sender->get());
+  if (!error.ok()) {
+    throw std::runtime_error(serialize_error(to_error(error)));
+  }
+}
+
+std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver(
+    std::shared_ptr<MediaStreamTrack> track,
+    RtpTransceiverInit init) const {
+  auto result = peer_connection_->AddTransceiver(track->get(), init);
+  if (result.ok()) {
+    throw std::runtime_error(serialize_error(to_error(result.error())));
+  }
+
+  return std::make_shared<RtpTransceiver>(result.value());
+}
+
+std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver_for_media(
+    MediaType media_type,
+    RtpTransceiverInit init) const {
+  auto result = peer_connection_->AddTransceiver(
+      static_cast<cricket::MediaType>(media_type), init);
+}
+
+rust::Vec<std::shared_ptr<RtpSender>> PeerConnection::get_senders() const {
+  rust::Vec<std::shared_ptr<RtpSender>> vec;
+  for (auto sender : peer_connection_->GetSenders())
+    vec.push_back(std::make_shared<RtpSender>(sender));
+
+  return vec;
+}
+
+rust::Vec<std::shared_ptr<RtpReceiver>> PeerConnection::get_receivers() const {
+  rust::Vec<std::shared_ptr<RtpReceiver>> vec;
+  for (auto receiver : peer_connection_->GetReceivers())
+    vec.push_back(std::make_shared<RtpReceiver>(receiver));
+
+  return vec;
+}
+
+rust::Vec<std::shared_ptr<RtpTransceiver>> PeerConnection::get_transceivers()
+    const {
+  rust::Vec<std::shared_ptr<RtpTransceiver>> vec;
+  for (auto transceiver : peer_connection_->GetReceivers())
+    vec.push_back(std::make_shared<RtpTransceiver>(transceiver));
+
+  return vec;
+}
+
 void PeerConnection::add_ice_candidate(
     std::unique_ptr<IceCandidate> candidate,
-    NativeAddIceCandidateObserver& observer) {
+    NativeAddIceCandidateObserver& observer) const {
   peer_connection_->AddIceCandidate(
       candidate->release(),
       [&](const webrtc::RTCError& err) { observer.OnComplete(to_error(err)); });

@@ -121,7 +121,7 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as long as the operation ends
         unsafe fn create_offer(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             observer: Pin<&mut NativeCreateSdpObserverHandle>,
             options: RTCOfferAnswerOptions,
         );
@@ -129,7 +129,7 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as long as the operation ends
         unsafe fn create_answer(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             observer: Pin<&mut NativeCreateSdpObserverHandle>,
             options: RTCOfferAnswerOptions,
         );
@@ -137,7 +137,7 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as long as the operation ends
         unsafe fn set_local_description(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             desc: UniquePtr<SessionDescription>,
             observer: Pin<&mut NativeSetLocalSdpObserverHandle>,
         );
@@ -145,19 +145,19 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as long as the operation ends
         unsafe fn set_remote_description(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             desc: UniquePtr<SessionDescription>,
             observer: Pin<&mut NativeSetRemoteSdpObserverHandle>,
         );
 
         fn create_data_channel(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             label: String,
             init: UniquePtr<NativeDataChannelInit>,
         ) -> Result<UniquePtr<DataChannel>>;
 
         fn add_ice_candidate(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             candidate: UniquePtr<IceCandidate>,
             observer: Pin<&mut NativeAddIceCandidateObserver>,
         );

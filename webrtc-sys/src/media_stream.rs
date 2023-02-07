@@ -46,13 +46,13 @@ pub mod ffi {
         fn set_enabled(self: Pin<&mut MediaStreamTrack>, enable: bool) -> bool;
         fn state(self: &MediaStreamTrack) -> TrackState;
 
-        unsafe fn add_sink(self: Pin<&mut VideoTrack>, sink: Pin<&mut NativeVideoFrameSink>);
-        unsafe fn remove_sink(self: Pin<&mut VideoTrack>, sink: Pin<&mut NativeVideoFrameSink>);
+        unsafe fn add_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
+        unsafe fn remove_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
 
-        fn set_should_receive(self: Pin<&mut VideoTrack>, should_receive: bool);
+        fn set_should_receive(self: &VideoTrack, should_receive: bool);
         fn should_receive(self: &VideoTrack) -> bool;
         fn content_hint(self: &VideoTrack) -> ContentHint;
-        fn set_content_hint(self: Pin<&mut VideoTrack>, hint: ContentHint);
+        fn set_content_hint(self: &VideoTrack, hint: ContentHint);
 
         fn create_native_video_frame_sink(
             observer: Box<VideoFrameSinkWrapper>,

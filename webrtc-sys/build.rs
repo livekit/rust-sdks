@@ -137,6 +137,8 @@ fn main() {
         "src/data_channel.rs",
         "src/jsep.rs",
         "src/candidate.rs",
+        "src/rtp_parameters.rs",
+        "src/rtp_sender.rs",
         "src/rtp_receiver.rs",
         "src/rtp_transceiver.rs",
         "src/rtc_error.rs",

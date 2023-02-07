@@ -29,11 +29,14 @@ enum class ContentHint;
 enum class VideoRotation;
 enum class VideoFrameBufferType;
 enum class MediaType;
+enum class Priority;
+enum class RtpTransceiverDirection;
 struct SdpParseError;
 struct RTCOfferAnswerOptions;
 struct RTCError;
 struct DataChannelInit;
 struct DataBuffer;
+struct RtpTransceiverInit;
 }  // namespace livekit
 
 #endif  // RUST_TYPES_H

@@ -13,7 +13,9 @@ class RtpSender {
  public:
   explicit RtpSender(rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
-  bool set_track(MediaStreamTrack* track) const {}
+  bool set_track(std::shared_ptr<MediaStreamTrack> track) const {
+    return sender_->SetTrack(track->get().get());
+  }
 
   std::unique_ptr<MediaStreamTrack> track() const {
     return MediaStreamTrack::from(sender_->track());
@@ -41,11 +43,13 @@ class RtpSender {
     sender_->SetStreams(std_stream_ids);
   }
 
+  rtc::scoped_refptr<webrtc::RtpSenderInterface> get() const { return sender_; }
+
  private:
   rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
 };
 
-static std::unique_ptr<RtpSender> _unique_rtp_sender() {
+static std::shared_ptr<RtpSender> _shared_rtp_sender() {
   return nullptr;  // Ignore
 }
 }  // namespace livekit

@@ -23,10 +23,10 @@ pub mod ffi {
     #[repr(i32)]
     pub enum RtpTransceiverDirection {
         SendRecv,
-        SendOnly
+        SendOnly,
         RecvOnly,
         Inactive,
-        Stopped
+        Stopped,
     }
 
     unsafe extern "C++" {

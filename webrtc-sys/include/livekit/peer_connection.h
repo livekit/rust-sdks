@@ -11,8 +11,12 @@
 #include "data_channel.h"
 #include "jsep.h"
 #include "livekit/media_stream.h"
+#include "livekit/rtp_receiver.h"
+#include "livekit/rtp_sender.h"
+#include "livekit/rtp_transceiver.h"
 #include "rust/cxx.h"
 #include "rust_types.h"
+#include "webrtc-sys/src/rtp_transceiver.rs.h"
 #include "webrtc.h"
 
 namespace livekit {
@@ -25,26 +29,54 @@ class PeerConnection {
       rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   void create_offer(NativeCreateSdpObserverHandle& observer,
-                    RTCOfferAnswerOptions options);
+                    RTCOfferAnswerOptions options) const;
+
   void create_answer(NativeCreateSdpObserverHandle& observer,
-                     RTCOfferAnswerOptions options);
+                     RTCOfferAnswerOptions options) const;
+
   void set_local_description(std::unique_ptr<SessionDescription> desc,
-                             NativeSetLocalSdpObserverHandle& observer);
+                             NativeSetLocalSdpObserverHandle& observer) const;
+
   void set_remote_description(std::unique_ptr<SessionDescription> desc,
-                              NativeSetRemoteSdpObserverHandle& observer);
+                              NativeSetRemoteSdpObserverHandle& observer) const;
+
   std::unique_ptr<DataChannel> create_data_channel(
       rust::String label,
-      std::unique_ptr<NativeDataChannelInit> init);
+      std::unique_ptr<NativeDataChannelInit> init) const;
+
   void add_ice_candidate(std::unique_ptr<IceCandidate> candidate,
-                         NativeAddIceCandidateObserver& observer);
-  std::unique_ptr<RtpSender> add_track(
-      std::unique_ptr<MediaStreamTrack> track,
-      const rust::Vec<rust::String>& stream_ids);
+                         NativeAddIceCandidateObserver& observer) const;
+
+  std::shared_ptr<RtpSender> add_track(
+      std::shared_ptr<MediaStreamTrack> track,
+      const rust::Vec<rust::String>& stream_ids) const;
+
+  void remove_track(std::shared_ptr<RtpSender> sender) const;
+
+  std::shared_ptr<RtpTransceiver> add_transceiver(
+      std::shared_ptr<MediaStreamTrack> track,
+      RtpTransceiverInit init) const;
+
+  std::shared_ptr<RtpTransceiver> add_transceiver_for_media(
+      MediaType media_type,
+      RtpTransceiverInit init) const;
+
+  rust::Vec<std::shared_ptr<RtpSender>> get_senders() const;
+
+  rust::Vec<std::shared_ptr<RtpReceiver>> get_receivers() const;
+
+  rust::Vec<std::shared_ptr<RtpTransceiver>> get_transceivers() const;
+
   std::unique_ptr<SessionDescription> local_description() const;
+
   std::unique_ptr<SessionDescription> remote_description() const;
+
   SignalingState signaling_state() const;
+
   IceGatheringState ice_gathering_state() const;
+
   IceConnectionState ice_connection_state() const;
+
   void close();
 
  private:

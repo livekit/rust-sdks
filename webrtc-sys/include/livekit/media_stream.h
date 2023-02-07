@@ -46,6 +46,10 @@ class MediaStreamTrack {
 
   TrackState state() const;
 
+  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> get() const {
+    return track_;
+  }
+
  protected:
   rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
 };
