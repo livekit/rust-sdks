@@ -5,7 +5,10 @@
 
 #include "api/rtp_sender_interface.h"
 #include "livekit/media_stream.h"
+#include "livekit/rtc_error.h"
+#include "livekit/rtp_parameters.h"
 #include "rust/cxx.h"
+#include "webrtc-sys/src/rtp_parameters.rs.h"
 
 namespace livekit {
 
@@ -41,6 +44,23 @@ class RtpSender {
     std::vector<std::string> std_stream_ids(stream_ids.begin(),
                                             stream_ids.end());
     sender_->SetStreams(std_stream_ids);
+  }
+
+  rust::Vec<RtpEncodingParameters> init_send_encodings() const {
+    rust::Vec<RtpEncodingParameters> encodings;
+    for (auto encoding : sender_->init_send_encodings())
+      encodings.push_back(to_rust_rtp_encoding_parameters(encoding));
+    return encodings;
+  }
+
+  RtpParameters get_parameters() const {
+    return to_rust_rtp_parameters(sender_->GetParameters());
+  }
+
+  void set_parameters(RtpParameters params) const {
+    auto error = sender_->SetParameters(to_native_rtp_parameters(params));
+    if (!error.ok())
+      throw std::runtime_error(serialize_error(to_error(error)));
   }
 
   rtc::scoped_refptr<webrtc::RtpSenderInterface> get() const { return sender_; }

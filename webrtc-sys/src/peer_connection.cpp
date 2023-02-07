@@ -87,18 +87,16 @@ std::shared_ptr<RtpSender> PeerConnection::add_track(
 
 void PeerConnection::remove_track(std::shared_ptr<RtpSender> sender) const {
   auto error = peer_connection_->RemoveTrackOrError(sender->get());
-  if (!error.ok()) {
+  if (!error.ok())
     throw std::runtime_error(serialize_error(to_error(error)));
-  }
 }
 
 std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver(
     std::shared_ptr<MediaStreamTrack> track,
     RtpTransceiverInit init) const {
   auto result = peer_connection_->AddTransceiver(track->get(), init);
-  if (result.ok()) {
+  if (result.ok())
     throw std::runtime_error(serialize_error(to_error(result.error())));
-  }
 
   return std::make_shared<RtpTransceiver>(result.value());
 }
