@@ -94,7 +94,8 @@ void PeerConnection::remove_track(std::shared_ptr<RtpSender> sender) const {
 std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver(
     std::shared_ptr<MediaStreamTrack> track,
     RtpTransceiverInit init) const {
-  auto result = peer_connection_->AddTransceiver(track->get(), init);
+  auto result = peer_connection_->AddTransceiver(
+      track->get(), to_native_rtp_transceiver_init(init));
   if (result.ok())
     throw std::runtime_error(serialize_error(to_error(result.error())));
 
@@ -105,7 +106,13 @@ std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver_for_media(
     MediaType media_type,
     RtpTransceiverInit init) const {
   auto result = peer_connection_->AddTransceiver(
-      static_cast<cricket::MediaType>(media_type), init);
+      static_cast<cricket::MediaType>(media_type),
+      to_native_rtp_transceiver_init(init));
+
+  if (result.ok())
+    throw std::runtime_error(serialize_error(to_error(result.error())));
+
+  return std::make_shared<RtpTransceiver>(result.value());
 }
 
 rust::Vec<std::shared_ptr<RtpSender>> PeerConnection::get_senders() const {

@@ -9,18 +9,82 @@
 
 namespace livekit {
 
+MediaStream::MediaStream(
+    rtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
+    : media_stream_(std::move(stream)) {}
+
+rust::String MediaStream::id() const {
+  return media_stream_->id();
+}
+
+rust::Vec<std::shared_ptr<VideoTrack>> MediaStream::get_video_tracks() const {
+  rust::Vec<std::shared_ptr<VideoTrack>> rust;
+  for (auto video : media_stream_->GetVideoTracks())
+    rust.push_back(std::make_shared<VideoTrack>(video));
+
+  return rust;
+}
+
+rust::Vec<std::shared_ptr<AudioTrack>> MediaStream::get_audio_tracks() const {
+  rust::Vec<std::shared_ptr<AudioTrack>> rust;
+  for (auto audio : media_stream_->GetAudioTracks())
+    rust.push_back(std::make_shared<AudioTrack>(audio));
+
+  return rust;
+}
+
+std::shared_ptr<AudioTrack> MediaStream::find_audio_track(
+    rust::String track_id) const {
+  return std::make_shared<AudioTrack>(
+      media_stream_->FindAudioTrack(track_id.c_str()));
+}
+
+std::shared_ptr<VideoTrack> MediaStream::find_video_track(
+    rust::String track_id) const {
+  return std::make_shared<VideoTrack>(
+      media_stream_->FindVideoTrack(track_id.c_str()));
+}
+
+bool MediaStream::add_audio_track(
+    std::shared_ptr<AudioTrack> audio_track) const {
+  return media_stream_->AddTrack(
+      rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+          static_cast<webrtc::AudioTrackInterface*>(audio_track->get().get())));
+}
+
+bool MediaStream::add_video_track(
+    std::shared_ptr<VideoTrack> video_track) const {
+  return media_stream_->AddTrack(
+      rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+          static_cast<webrtc::VideoTrackInterface*>(video_track->get().get())));
+}
+
+bool MediaStream::remove_audio_track(
+    std::shared_ptr<AudioTrack> audio_track) const {
+  return media_stream_->RemoveTrack(
+      rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+          static_cast<webrtc::AudioTrackInterface*>(audio_track->get().get())));
+}
+
+bool MediaStream::remove_video_track(
+    std::shared_ptr<VideoTrack> video_track) const {
+  return media_stream_->RemoveTrack(
+      rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+          static_cast<webrtc::VideoTrackInterface*>(video_track->get().get())));
+}
+
 MediaStreamTrack::MediaStreamTrack(
     rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track)
     : track_(std::move(track)) {}
 
-std::unique_ptr<MediaStreamTrack> MediaStreamTrack::from(
+std::shared_ptr<MediaStreamTrack> MediaStreamTrack::from(
     rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track) {
   if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
-    return std::make_unique<VideoTrack>(
+    return std::make_shared<VideoTrack>(
         rtc::scoped_refptr<webrtc::VideoTrackInterface>(
             static_cast<webrtc::VideoTrackInterface*>(track.get())));
   } else {
-    return std::make_unique<AudioTrack>(
+    return std::make_shared<AudioTrack>(
         rtc::scoped_refptr<webrtc::AudioTrackInterface>(
             static_cast<webrtc::AudioTrackInterface*>(track.get())));
   }
@@ -38,20 +102,12 @@ bool MediaStreamTrack::enabled() const {
   return track_->enabled();
 }
 
-bool MediaStreamTrack::set_enabled(bool enable) {
+bool MediaStreamTrack::set_enabled(bool enable) const {
   return track_->set_enabled(enable);
 }
 
 TrackState MediaStreamTrack::state() const {
   return static_cast<TrackState>(track_->state());
-}
-
-MediaStream::MediaStream(
-    rtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
-    : media_stream_(std::move(stream)) {}
-
-rust::String MediaStream::id() const {
-  return media_stream_->id();
 }
 
 AudioTrack::AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track)
@@ -60,15 +116,15 @@ AudioTrack::AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track)
 VideoTrack::VideoTrack(rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
     : MediaStreamTrack(std::move(track)) {}
 
-void VideoTrack::add_sink(NativeVideoFrameSink& sink) {
+void VideoTrack::add_sink(NativeVideoFrameSink& sink) const {
   track()->AddOrUpdateSink(&sink, rtc::VideoSinkWants());
 }
 
-void VideoTrack::remove_sink(NativeVideoFrameSink& sink) {
+void VideoTrack::remove_sink(NativeVideoFrameSink& sink) const {
   track()->RemoveSink(&sink);
 }
 
-void VideoTrack::set_should_receive(bool should_receive) {
+void VideoTrack::set_should_receive(bool should_receive) const {
   track()->set_should_receive(should_receive);
 }
 
@@ -80,7 +136,7 @@ ContentHint VideoTrack::content_hint() const {
   return static_cast<ContentHint>(track()->content_hint());
 }
 
-void VideoTrack::set_content_hint(ContentHint hint) {
+void VideoTrack::set_content_hint(ContentHint hint) const {
   track()->set_content_hint(
       static_cast<webrtc::VideoTrackInterface::ContentHint>(hint));
 }

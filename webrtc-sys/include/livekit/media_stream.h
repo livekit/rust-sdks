@@ -14,20 +14,28 @@
 namespace livekit {
 
 class NativeVideoFrameSink;
+class VideoTrack;
+class AudioTrack;
 
 class MediaStream {
  public:
   explicit MediaStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
 
   rust::String id() const;
+  rust::Vec<std::shared_ptr<VideoTrack>> get_video_tracks() const;
+  rust::Vec<std::shared_ptr<AudioTrack>> get_audio_tracks() const;
+
+  std::shared_ptr<AudioTrack> find_audio_track(rust::String track_id) const;
+  std::shared_ptr<VideoTrack> find_video_track(rust::String track_id) const;
+
+  bool add_audio_track(std::shared_ptr<AudioTrack> audio_track) const;
+  bool add_video_track(std::shared_ptr<VideoTrack> video_track) const;
+  bool remove_audio_track(std::shared_ptr<AudioTrack> audio_track) const;
+  bool remove_video_track(std::shared_ptr<VideoTrack> video_track) const;
 
  private:
   rtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;
 };
-
-static std::unique_ptr<MediaStream> _unique_media_stream() {
-  return nullptr;  // Ignore
-}
 
 class MediaStreamTrack {
  protected:
@@ -35,7 +43,7 @@ class MediaStreamTrack {
       rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
 
  public:
-  static std::unique_ptr<MediaStreamTrack> from(
+  static std::shared_ptr<MediaStreamTrack> from(
       rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
 
   rust::String kind() const;
@@ -54,18 +62,10 @@ class MediaStreamTrack {
   rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
 };
 
-static std::unique_ptr<MediaStreamTrack> _unique_media_stream_track() {
-  return nullptr;  // Ignore
-}
-
 class AudioTrack : public MediaStreamTrack {
  public:
   explicit AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track);
 };
-
-static std::unique_ptr<AudioTrack> _unique_audio_track() {
-  return nullptr;  // Ignore
-}
 
 class VideoTrack : public MediaStreamTrack {
  public:
@@ -84,10 +84,6 @@ class VideoTrack : public MediaStreamTrack {
     return static_cast<webrtc::VideoTrackInterface*>(track_.get());
   }
 };
-
-static std::unique_ptr<VideoTrack> _unique_video_track() {
-  return nullptr;  // Ignore
-}
 
 class NativeVideoFrameSink
     : public rtc::VideoSinkInterface<webrtc::VideoFrame> {

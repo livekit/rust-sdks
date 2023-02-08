@@ -12,56 +12,30 @@
 
 namespace livekit {
 
+// TODO(theomonnom): FrameTransformer & FrameEncryptor interface
 class RtpSender {
  public:
   explicit RtpSender(rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
-  bool set_track(std::shared_ptr<MediaStreamTrack> track) const {
-    return sender_->SetTrack(track->get().get());
-  }
+  bool set_track(std::shared_ptr<MediaStreamTrack> track) const;
 
-  std::unique_ptr<MediaStreamTrack> track() const {
-    return MediaStreamTrack::from(sender_->track());
-  }
+  std::shared_ptr<MediaStreamTrack> track() const;
 
-  uint32_t ssrc() const { return sender_->ssrc(); }
+  uint32_t ssrc() const;
 
-  MediaType media_type() const {
-    return static_cast<MediaType>(sender_->media_type());
-  }
+  MediaType media_type() const;
 
-  rust::String id() const { return sender_->id(); }
+  rust::String id() const;
 
-  rust::Vec<rust::String> stream_ids() const {
-    rust::Vec<rust::String> vec;
-    for (auto str : sender_->stream_ids())
-      vec.push_back(str);
+  rust::Vec<rust::String> stream_ids() const;
 
-    return vec;
-  }
+  void set_streams(const rust::Vec<rust::String>& stream_ids) const;
 
-  void set_streams(const rust::Vec<rust::String>& stream_ids) const {
-    std::vector<std::string> std_stream_ids(stream_ids.begin(),
-                                            stream_ids.end());
-    sender_->SetStreams(std_stream_ids);
-  }
+  rust::Vec<RtpEncodingParameters> init_send_encodings() const;
 
-  rust::Vec<RtpEncodingParameters> init_send_encodings() const {
-    rust::Vec<RtpEncodingParameters> encodings;
-    for (auto encoding : sender_->init_send_encodings())
-      encodings.push_back(to_rust_rtp_encoding_parameters(encoding));
-    return encodings;
-  }
+  RtpParameters get_parameters() const;
 
-  RtpParameters get_parameters() const {
-    return to_rust_rtp_parameters(sender_->GetParameters());
-  }
-
-  void set_parameters(RtpParameters params) const {
-    auto error = sender_->SetParameters(to_native_rtp_parameters(params));
-    if (!error.ok())
-      throw std::runtime_error(serialize_error(to_error(error)));
-  }
+  void set_parameters(RtpParameters params) const;
 
   rtc::scoped_refptr<webrtc::RtpSenderInterface> get() const { return sender_; }
 

@@ -11,6 +11,7 @@
 #include "api/rtp_transceiver_direction.h"
 #include "api/rtp_transceiver_interface.h"
 #include "livekit/rtc_error.h"
+#include "livekit/rtp_parameters.h"
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "rust/cxx.h"
@@ -20,75 +21,51 @@
 
 namespace livekit {
 
+webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
+    RtpTransceiverInit init);
+
 class RtpTransceiver {
  public:
   explicit RtpTransceiver(
       rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver);
 
-  MediaType media_type() const {
-    return static_cast<MediaType>(transceiver_->media_type());
-  }
+  MediaType media_type() const;
 
-  rust::String mid() const {
-    // The Result is converted into an Option in Rust (Wait for Option suport in
-    // cxx.rs)
-    return transceiver_->mid().value();
-  }
+  rust::String mid() const;
 
-  std::shared_ptr<RtpSender> sender() const {
-    return std::make_shared<RtpSender>(transceiver_->sender());
-  }
+  std::shared_ptr<RtpSender> sender() const;
 
-  std::shared_ptr<RtpReceiver> receiver() const {
-    return std::make_shared<RtpReceiver>(transceiver_->receiver());
-  }
+  std::shared_ptr<RtpReceiver> receiver() const;
 
-  bool stopped() const { return transceiver_->stopped(); }
+  bool stopped() const;
 
-  bool stopping() const { return transceiver_->stopping(); }
+  bool stopping() const;
 
-  RtpTransceiverDirection direction() const {
-    return static_cast<RtpTransceiverDirection>(transceiver_->direction());
-  }
+  RtpTransceiverDirection direction() const;
 
-  void set_direction(RtpTransceiverDirection direction) const {
-    auto error = transceiver_->SetDirectionWithError(
-        static_cast<webrtc::RtpTransceiverDirection>(direction));
+  void set_direction(RtpTransceiverDirection direction) const;
 
-    if (!error.ok()) {
-      throw std::runtime_error(serialize_error(to_error(error)));
-    }
-  }
+  RtpTransceiverDirection current_direction() const;
 
-  RtpTransceiverDirection current_direction() const {
-    return static_cast<RtpTransceiverDirection>(
-        transceiver_->current_direction().value());
-  }
+  RtpTransceiverDirection fired_direection() const;
 
-  RtpTransceiverDirection fired_direection() const {
-    return static_cast<RtpTransceiverDirection>(
-        transceiver_->fired_direction().value());
-  }
+  void stop_standard() const;
 
-  void stop_standard() const {
-    auto error = transceiver_->StopStandard();
-    if (!error.ok())
-      throw std::runtime_error(serialize_error(to_error(error)));
-  }
+  void set_codec_preferences(rust::Vec<RtpCodecCapability> codecs) const;
 
-  void set_codec_preferences(rust::Vec<RtpCodecCapability> codecs) const {
-    // TODO Convert RtpCodecCapability
-  }
+  rust::Vec<RtpCodecCapability> codec_preferences() const;
 
-  // TODO Other functions
+  rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_offer() const;
+
+  rust::Vec<RtpHeaderExtensionCapability> header_extensions_negotiated() const;
+
+  void set_offered_rtp_header_extensions(
+      rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_offer) const;
 
  private:
   rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver_;
 };
 
-static std::shared_ptr<RtpTransceiver> _shared_rtp_transceiver() {
-  return nullptr;  // Ignore
-}
 }  // namespace livekit
 
 #endif  // CLIENT_SDK_NATIVE_RTP_TRANSCEIVER_H
