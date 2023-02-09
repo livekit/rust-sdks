@@ -16,7 +16,6 @@
 #include "livekit/rtp_transceiver.h"
 #include "rust/cxx.h"
 #include "rust_types.h"
-#include "webrtc-sys/src/rtp_transceiver.rs.h"
 #include "webrtc.h"
 
 namespace livekit {

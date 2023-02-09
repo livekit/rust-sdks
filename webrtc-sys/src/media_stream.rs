@@ -22,6 +22,7 @@ pub mod ffi {
     }
 
     // -1 = optional
+    #[derive(Debug)]
     pub struct VideoTrackSourceConstraints {
         pub min_fps: f64,
         pub max_fps: f64,

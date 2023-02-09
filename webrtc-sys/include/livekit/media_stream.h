@@ -8,7 +8,10 @@
 #include <memory>
 
 #include "api/media_stream_interface.h"
+#include "api/video/video_frame.h"
 #include "livekit/rust_types.h"
+#include "media/base/adapted_video_track_source.h"
+#include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
 
 namespace livekit {
@@ -101,6 +104,21 @@ class NativeVideoFrameSink
 
 std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
     rust::Box<VideoFrameSinkWrapper> observer);
+
+class NativeAdaptedVideoTrackSource : public rtc::AdaptedVideoTrackSource {
+  NativeAdaptedVideoTrackSource();
+
+  bool is_screencast() const override;
+  absl::optional<bool> needs_denoising() const override;
+  webrtc::MediaSourceInterface::SourceState state() const override;
+  bool remote() const override;
+
+  // frames pushed from Rust (this fnc isn't threadsafe)
+  bool on_captured_frame(const webrtc::VideoFrame& frame);
+
+ private:
+  rtc::TimestampAligner timestamp_aligner_;
+};
 
 static const MediaStreamTrack* video_to_media(const VideoTrack* track) {
   return track;

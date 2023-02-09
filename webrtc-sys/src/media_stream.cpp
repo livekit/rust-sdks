@@ -5,6 +5,7 @@
 #include "livekit/media_stream.h"
 
 #include "api/media_stream_interface.h"
+#include "livekit/rust_types.h"
 #include "webrtc-sys/src/media_stream.rs.h"
 
 namespace livekit {
@@ -164,6 +165,62 @@ void NativeVideoFrameSink::OnConstraintsChanged(
 std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
     rust::Box<VideoFrameSinkWrapper> observer) {
   return std::make_unique<NativeVideoFrameSink>(std::move(observer));
+}
+
+NativeAdaptedVideoTrackSource::NativeAdaptedVideoTrackSource()
+    : rtc::AdaptedVideoTrackSource(1) {}
+
+bool NativeAdaptedVideoTrackSource::is_screencast() const {
+  return false;
+}
+
+absl::optional<bool> NativeAdaptedVideoTrackSource::needs_denoising() const {
+  return false;
+}
+
+webrtc::MediaSourceInterface::SourceState NativeAdaptedVideoTrackSource::state()
+    const {
+  // TODO(theomonnom): expose source state to Rust
+  return SourceState::kLive;
+}
+
+bool NativeAdaptedVideoTrackSource::remote() const {
+  return false;
+}
+
+bool NativeAdaptedVideoTrackSource::on_captured_frame(
+    const webrtc::VideoFrame& frame) {
+  int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
+      frame.timestamp_us(), rtc::TimeMicros());
+
+  int adapted_width, adapted_height, crop_width, crop_height, crop_x, crop_y;
+  if (!AdaptFrame(frame.width(), frame.height(), frame.timestamp_us(),
+                  &adapted_width, &adapted_height, &crop_width, &crop_height,
+                  &crop_x, &crop_y)) {
+    return false;
+  }
+
+  // TODO(theomonnom): Should this be handled by the users?
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
+      frame.video_frame_buffer();
+  if (adapted_width != frame.width() || adapted_height != frame.height()) {
+    buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
+                                  adapted_width, adapted_height);
+  }
+
+  if (apply_rotation() && frame.rotation() != webrtc::kVideoRotation_0) {
+    // If the buffer is I420, rtc::AdaptedVideoTrackSource will handle the
+    // rotation for us.
+    buffer = buffer->ToI420();
+  }
+
+  OnFrame(webrtc::VideoFrame::Builder()
+              .set_video_frame_buffer(buffer)
+              .set_rotation(frame.rotation())
+              .set_timestamp_us(aligned_timestamp_us)
+              .build());
+
+  return true;
 }
 
 }  // namespace livekit
