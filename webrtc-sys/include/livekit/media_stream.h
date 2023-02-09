@@ -11,6 +11,7 @@
 #include "api/video/video_frame.h"
 #include "livekit/rust_types.h"
 #include "media/base/adapted_video_track_source.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
 
@@ -105,19 +106,32 @@ class NativeVideoFrameSink
 std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
     rust::Box<VideoFrameSinkWrapper> observer);
 
-class NativeAdaptedVideoTrackSource : public rtc::AdaptedVideoTrackSource {
-  NativeAdaptedVideoTrackSource();
+// Native impl of the WebRTC interface
+class NativeVideoTrackSource : public rtc::AdaptedVideoTrackSource {
+ public:
+  NativeVideoTrackSource();
+  ~NativeVideoTrackSource() override;
 
   bool is_screencast() const override;
   absl::optional<bool> needs_denoising() const override;
   webrtc::MediaSourceInterface::SourceState state() const override;
   bool remote() const override;
 
-  // frames pushed from Rust (this fnc isn't threadsafe)
   bool on_captured_frame(const webrtc::VideoFrame& frame);
 
  private:
+  mutable webrtc::Mutex mutex_;
   rtc::TimestampAligner timestamp_aligner_;
+};
+
+class AdaptedVideoTrackSource {
+  AdaptedVideoTrackSource(rtc::scoped_refptr<NativeVideoTrackSource> source);
+
+  bool on_captured_frame(const webrtc::VideoFrame& frame)
+      const;  // frames pushed from Rust (+interior mutability)
+
+ private:
+  rtc::scoped_refptr<NativeVideoTrackSource> source_;
 };
 
 static const MediaStreamTrack* video_to_media(const VideoTrack* track) {

@@ -5,7 +5,9 @@
 #include "livekit/media_stream.h"
 
 #include "api/media_stream_interface.h"
+#include "api/video/video_frame.h"
 #include "livekit/rust_types.h"
+#include "rtc_base/ref_counted_object.h"
 #include "webrtc-sys/src/media_stream.rs.h"
 
 namespace livekit {
@@ -167,29 +169,33 @@ std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
   return std::make_unique<NativeVideoFrameSink>(std::move(observer));
 }
 
-NativeAdaptedVideoTrackSource::NativeAdaptedVideoTrackSource()
+NativeVideoTrackSource::NativeVideoTrackSource()
     : rtc::AdaptedVideoTrackSource(1) {}
 
-bool NativeAdaptedVideoTrackSource::is_screencast() const {
+NativeVideoTrackSource::~NativeVideoTrackSource() {}
+
+bool NativeVideoTrackSource::is_screencast() const {
   return false;
 }
 
-absl::optional<bool> NativeAdaptedVideoTrackSource::needs_denoising() const {
+absl::optional<bool> NativeVideoTrackSource::needs_denoising() const {
   return false;
 }
 
-webrtc::MediaSourceInterface::SourceState NativeAdaptedVideoTrackSource::state()
+webrtc::MediaSourceInterface::SourceState NativeVideoTrackSource::state()
     const {
   // TODO(theomonnom): expose source state to Rust
   return SourceState::kLive;
 }
 
-bool NativeAdaptedVideoTrackSource::remote() const {
+bool NativeVideoTrackSource::remote() const {
   return false;
 }
 
-bool NativeAdaptedVideoTrackSource::on_captured_frame(
+bool NativeVideoTrackSource::on_captured_frame(
     const webrtc::VideoFrame& frame) {
+  webrtc::MutexLock lock(&mutex_);
+
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       frame.timestamp_us(), rtc::TimeMicros());
 
@@ -221,6 +227,15 @@ bool NativeAdaptedVideoTrackSource::on_captured_frame(
               .build());
 
   return true;
+}
+
+AdaptedVideoTrackSource::AdaptedVideoTrackSource(
+    rtc::scoped_refptr<NativeVideoTrackSource> source)
+    : source_(source) {}
+
+bool AdaptedVideoTrackSource::on_captured_frame(
+    const webrtc::VideoFrame& frame) const {
+  return source_->on_captured_frame(frame);
 }
 
 }  // namespace livekit
