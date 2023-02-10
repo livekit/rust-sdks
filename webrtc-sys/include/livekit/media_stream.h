@@ -121,7 +121,7 @@ class NativeVideoTrackSource : public rtc::AdaptedVideoTrackSource {
   bool on_captured_frame(const webrtc::VideoFrame& frame);
 
  private:
-  mutable webrtc::Mutex mutex_;
+  webrtc::Mutex mutex_;
   rtc::TimestampAligner timestamp_aligner_;
 };
 

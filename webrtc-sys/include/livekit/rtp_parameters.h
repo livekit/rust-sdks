@@ -7,9 +7,11 @@
 #include "api/priority.h"
 #include "api/rtp_parameters.h"
 #include "api/rtp_transceiver_direction.h"
-#include "webrtc-sys/src/rtp_parameters.rs.h"
+#include "livekit/rust_types.h"
 
 namespace livekit {
+
+struct KeyValue;
 
 webrtc::RtcpFeedback to_native_rtcp_feedback(RtcpFeedback feedback);
 webrtc::RtpCodecCapability to_native_rtp_codec_capability(

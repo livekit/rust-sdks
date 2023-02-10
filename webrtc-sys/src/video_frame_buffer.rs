@@ -66,6 +66,8 @@ pub mod ffi {
         fn data_y(self: &BiplanarYuv8Buffer) -> *const u8;
         fn data_uv(self: &BiplanarYuv8Buffer) -> *const u8;
 
+        fn create_i420_buffer(width: i32, height: i32) -> UniquePtr<I420Buffer>;
+
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn yuv8_to_yuv(yuv8: *const PlanarYuv8Buffer) -> *const PlanarYuvBuffer;

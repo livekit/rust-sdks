@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "api/video/i420_buffer.h"
 #include "api/video/video_frame_buffer.h"
 #include "rust_types.h"
 
@@ -29,6 +30,7 @@ class VideoFrameBuffer {
   int width() const;
   int height() const;
 
+  // Takes ownership
   std::unique_ptr<I420Buffer> to_i420();
   std::unique_ptr<I420Buffer> get_i420();
   std::unique_ptr<I420ABuffer> get_i420a();
@@ -110,6 +112,8 @@ class BiplanarYuv8Buffer : public BiplanarYuvBuffer {
   webrtc::BiplanarYuv8Buffer* buffer() const;
 };
 
+std::unique_ptr<I420Buffer> create_i420_buffer(int width, int height);
+
 class I420Buffer : public PlanarYuv8Buffer {
  public:
   explicit I420Buffer(rtc::scoped_refptr<webrtc::I420BufferInterface> buffer);
@@ -183,6 +187,10 @@ static const PlanarYuv16BBuffer* i010_to_yuv16b(const I010Buffer* i010) {
 
 static const BiplanarYuv8Buffer* nv12_to_biyuv8(const NV12Buffer* nv12) {
   return nv12;
+}
+
+static std::unique_ptr<VideoFrameBuffer> _unique_video_frame_buffer() {
+  return nullptr;
 }
 
 }  // namespace livekit

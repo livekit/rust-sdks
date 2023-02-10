@@ -1,8 +1,3 @@
-use std::fmt::Debug;
-use std::mem::ManuallyDrop;
-
-use cxx::UniquePtr;
-
 use crate::candidate::ffi::Candidate;
 use crate::data_channel::ffi::DataChannel;
 use crate::jsep::ffi::IceCandidate;
@@ -10,12 +5,14 @@ use crate::media_stream::ffi::MediaStream;
 use crate::rtc_error::ffi::RTCError;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
+use cxx::UniquePtr;
+use std::mem::ManuallyDrop;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     struct CandidatePair {
-        local: UniquePtr<Candidate>,
-        remote: UniquePtr<Candidate>,
+        local: SharedPtr<Candidate>,
+        remote: SharedPtr<Candidate>,
     }
 
     struct CandidatePairChangeEvent {
@@ -83,11 +80,11 @@ pub mod ffi {
     // Wrapper to opaque C++ objects
     // https://github.com/dtolnay/cxx/issues/741
     struct MediaStreamPtr {
-        pub ptr: UniquePtr<MediaStream>,
+        pub ptr: SharedPtr<MediaStream>,
     }
 
     struct CandidatePtr {
-        pub ptr: UniquePtr<Candidate>,
+        pub ptr: SharedPtr<Candidate>,
     }
 
     unsafe extern "C++" {
@@ -220,7 +217,7 @@ pub mod ffi {
         );
         fn on_ice_candidate(
             self: &PeerConnectionObserverWrapper,
-            candidate: UniquePtr<IceCandidate>,
+            candidate: SharedPtr<IceCandidate>,
         );
         fn on_ice_candidate_error(
             self: &PeerConnectionObserverWrapper,

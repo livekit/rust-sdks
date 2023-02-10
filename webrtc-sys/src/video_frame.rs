@@ -30,11 +30,11 @@ pub mod ffi {
         fn rotation(self: &VideoFrame) -> VideoRotation;
         fn video_frame_buffer(self: &VideoFrame) -> UniquePtr<VideoFrameBuffer>;
 
-        fn set_video_frame_builder(buffer: UniquePtr<VideoFrameBuffer>);
-        fn set_timestamp_us(timestamp_us: i64);
-        fn set_rotation(rotation: VideoRotation);
-        fn set_id(id: u16);
-        fn build() -> UniquePtr<VideoFrame>;
+        fn set_video_frame_buffer(self: Pin<&mut VideoFrameBuilder>, buffer: UniquePtr<VideoFrameBuffer>);
+        fn set_timestamp_us(self: Pin<&mut VideoFrameBuilder>, timestamp_us: i64);
+        fn set_rotation(self: Pin<&mut VideoFrameBuilder>, rotation: VideoRotation);
+        fn set_id(self: Pin<&mut VideoFrameBuilder>, id: u16);
+        fn build(self: Pin<&mut VideoFrameBuilder>, ) -> UniquePtr<VideoFrame>;
 
         fn create_video_frame_builder() -> UniquePtr<VideoFrameBuilder>;
     }

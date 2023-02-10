@@ -9,6 +9,8 @@
 
 #include "api/jsep.h"
 #include "api/ref_counted_base.h"
+#include "api/set_local_description_observer_interface.h"
+#include "api/set_remote_description_observer_interface.h"
 #include "rust/cxx.h"
 #include "rust_types.h"
 

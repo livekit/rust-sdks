@@ -8,6 +8,8 @@
 #include <sstream>
 #include <string>
 
+#include "webrtc-sys/src/rtc_error.rs.h"
+
 namespace livekit {
 
 RTCError to_error(const webrtc::RTCError& error) {

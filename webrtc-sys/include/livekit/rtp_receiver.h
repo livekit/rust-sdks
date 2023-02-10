@@ -15,6 +15,8 @@
 
 namespace livekit {
 
+struct MediaStreamPtr;
+
 // TODO(theomonnom): Implement RtpReceiverObserverInterface?
 // TODO(theomonnom): RtpSource
 // TODO(theomonnom): FrameTransformer & FrameDecryptor interface
@@ -26,7 +28,7 @@ class RtpReceiver {
   std::shared_ptr<MediaStreamTrack> track() const;
 
   rust::Vec<rust::String> stream_ids() const;
-  rust::Vec<std::shared_ptr<MediaStream>> streams() const;
+  rust::Vec<MediaStreamPtr> streams() const;
 
   MediaType media_type() const;
   rust::String id() const;

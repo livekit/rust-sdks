@@ -6,7 +6,6 @@
 #define CLIENT_SDK_NATIVE_RTC_ERROR_H
 
 #include "api/rtc_error.h"
-#include "webrtc-sys/src/rtc_error.rs.h"
 #include "rust/cxx.h"
 #include "rust_types.h"
 

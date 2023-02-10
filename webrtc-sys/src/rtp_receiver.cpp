@@ -11,6 +11,7 @@
 #include "livekit/rtp_transceiver.h"
 #include "webrtc-sys/src/media_stream.rs.h"
 #include "webrtc-sys/src/rtp_parameters.rs.h"
+#include "webrtc-sys/src/rtp_receiver.rs.h"
 #include "webrtc-sys/src/rtp_transceiver.rs.h"
 
 namespace livekit {
@@ -45,10 +46,10 @@ rust::Vec<rust::String> RtpReceiver::stream_ids() const {
   return rust;
 }
 
-rust::Vec<std::shared_ptr<MediaStream>> RtpReceiver::streams() const {
-  rust::Vec<std::shared_ptr<MediaStream>> rust;
+rust::Vec<MediaStreamPtr> RtpReceiver::streams() const {
+  rust::Vec<MediaStreamPtr> rust;
   for (auto stream : receiver_->streams())
-    rust.push_back(std::make_shared<MediaStream>(stream));
+    rust.push_back(MediaStreamPtr{std::make_shared<MediaStream>(stream)});
   return rust;
 }
 
