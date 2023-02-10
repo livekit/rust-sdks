@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use crate::impl_thread_safety;
 use std::slice;
 
 #[cxx::bridge(namespace = "livekit")]

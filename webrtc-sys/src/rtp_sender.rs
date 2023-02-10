@@ -27,5 +27,7 @@ pub mod ffi {
         fn init_send_encodings(self: &RtpSender) -> Vec<RtpEncodingParameters>;
         fn get_parameters(self: &RtpSender) -> RtpParameters;
         fn set_parameters(self: &RtpSender, parameters: RtpParameters) -> Result<()>;
+
+        fn _shared_rtp_sender() -> SharedPtr<RtpSender>;
     }
 }

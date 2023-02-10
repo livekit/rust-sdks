@@ -5,6 +5,6 @@ pub mod ffi {
 
         type Candidate; // cricket::Candidate
 
-        // TODO SHARED
+        fn _shared_candidate() -> SharedPtr<Candidate>;
     }
 }

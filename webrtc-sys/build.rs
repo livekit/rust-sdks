@@ -146,6 +146,7 @@ fn main() {
         "src/video_frame.rs",
         "src/video_frame_buffer.rs",
         "src/yuv_helper.rs",
+        "src/helper.rs",
     ]);
 
     builder.file("src/peer_connection.cpp");

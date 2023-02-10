@@ -33,11 +33,11 @@ class IceCandidate {
   std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate_;
 };
 
-std::unique_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
+std::shared_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
                                                    int sdp_mline_index,
                                                    rust::String sdp);
 
-static std::unique_ptr<IceCandidate> _unique_ice_candidate() {
+static std::shared_ptr<IceCandidate> _shared_ice_candidate() {
   return nullptr;  // Ignore
 }
 

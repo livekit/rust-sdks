@@ -66,6 +66,10 @@ class RtpTransceiver {
   rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver_;
 };
 
+static std::shared_ptr<RtpTransceiver> _shared_rtp_transceiver() {
+  return nullptr;
+}
+
 }  // namespace livekit
 
 #endif  // CLIENT_SDK_NATIVE_RTP_TRANSCEIVER_H

@@ -1,9 +1,9 @@
+use crate::impl_thread_safety;
+use cxx::UniquePtr;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Display, Formatter};
 use std::mem::ManuallyDrop;
 use std::str::FromStr;
-
-use cxx::UniquePtr;
 
 use crate::rtc_error::ffi::RTCError;
 

@@ -141,7 +141,7 @@ rust::Vec<std::shared_ptr<RtpTransceiver>> PeerConnection::get_transceivers()
 }
 
 void PeerConnection::add_ice_candidate(
-    std::unique_ptr<IceCandidate> candidate,
+    std::shared_ptr<IceCandidate> candidate,
     NativeAddIceCandidateObserver& observer) const {
   peer_connection_->AddIceCandidate(
       candidate->release(),

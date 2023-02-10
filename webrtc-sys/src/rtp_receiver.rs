@@ -1,16 +1,16 @@
+use crate::impl_thread_safety;
+
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-
-    struct MediaStreamPtr {
-        pub ptr: SharedPtr<MediaStream>,
-    }
 
     extern "C++" {
         include!("webrtc-sys/src/webrtc.rs.h");
         include!("webrtc-sys/src/rtp_parameters.rs.h");
+        include!("webrtc-sys/src/helper.rs.h");
 
         type MediaType = crate::webrtc::ffi::MediaType;
         type RtpParameters = crate::rtp_parameters::ffi::RtpParameters;
+        type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
     }
 
     unsafe extern "C++" {
@@ -28,6 +28,8 @@ pub mod ffi {
         fn id(self: &RtpReceiver) -> String;
         fn get_parameters(self: &RtpReceiver) -> RtpParameters;
         fn set_jitter_buffer_minimum_delay(self: &RtpReceiver, is_some: bool, delay_seconds: f64);
+
+        fn _shared_rtp_receiver() -> SharedPtr<RtpReceiver>;
     }
 }
 

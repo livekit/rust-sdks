@@ -22,8 +22,8 @@ class DataChannel {
       std::shared_ptr<RTCRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel);
 
-  void register_observer(NativeDataChannelObserver& observer);
-  void unregister_observer();
+  void register_observer(NativeDataChannelObserver& observer) const;
+  void unregister_observer() const;
   bool send(const DataBuffer& buffer) const;
   rust::String label() const;
   DataState state() const;

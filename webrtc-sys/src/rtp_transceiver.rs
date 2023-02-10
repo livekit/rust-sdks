@@ -1,3 +1,5 @@
+use crate::impl_thread_safety;
+
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
 
@@ -51,6 +53,8 @@ pub mod ffi {
             self: &RtpTransceiver,
             headers: Vec<RtpHeaderExtensionCapability>,
         ) -> Result<()>;
+
+        fn _shared_rtp_transceiver() -> SharedPtr<RtpTransceiver>;
     }
 }
 

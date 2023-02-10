@@ -1,3 +1,5 @@
+use crate::impl_thread_safety;
+
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     #[derive(Debug, Clone)]

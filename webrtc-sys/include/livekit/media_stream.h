@@ -156,6 +156,14 @@ static const AudioTrack* media_to_audio(const MediaStreamTrack* track) {
   return static_cast<const AudioTrack*>(track);
 }
 
+static std::shared_ptr<MediaStreamTrack> _shared_media_stream_track() {
+  return nullptr;  // Ignore
+}
+
+static std::shared_ptr<MediaStream> _shared_media_stream() {
+  return nullptr;  // Ignore
+}
+
 }  // namespace livekit
 
 #endif  // CLIENT_SDK_NATIVE_MEDIA_STREAM_INTERFACE_H

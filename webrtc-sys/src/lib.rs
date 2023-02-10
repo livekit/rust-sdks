@@ -1,5 +1,6 @@
 pub mod candidate;
 pub mod data_channel;
+pub mod helper;
 pub mod jsep;
 pub mod media_stream;
 pub mod peer_connection;

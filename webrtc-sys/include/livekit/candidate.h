@@ -20,7 +20,7 @@ class Candidate {
   cricket::Candidate candidate_;
 };
 
-static std::unique_ptr<Candidate> _unique_candidate() {
+static std::shared_ptr<Candidate> _shared_candidate() {
   return nullptr;
 }
 

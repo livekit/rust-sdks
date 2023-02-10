@@ -43,7 +43,7 @@ class PeerConnection {
       rust::String label,
       std::unique_ptr<NativeDataChannelInit> init) const;
 
-  void add_ice_candidate(std::unique_ptr<IceCandidate> candidate,
+  void add_ice_candidate(std::shared_ptr<IceCandidate> candidate,
                          NativeAddIceCandidateObserver& observer) const;
 
   std::shared_ptr<RtpSender> add_track(

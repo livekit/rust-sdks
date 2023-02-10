@@ -1,11 +1,12 @@
 use crate::candidate::ffi::Candidate;
 use crate::data_channel::ffi::DataChannel;
+use crate::impl_thread_safety;
 use crate::jsep::ffi::IceCandidate;
 use crate::media_stream::ffi::MediaStream;
 use crate::rtc_error::ffi::RTCError;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
-use cxx::UniquePtr;
+use cxx::{SharedPtr, UniquePtr};
 use std::mem::ManuallyDrop;
 
 #[cxx::bridge(namespace = "livekit")]
@@ -77,14 +78,13 @@ pub mod ffi {
         use_obsolete_sctp_sdp: bool,
     }
 
-    // Wrapper to opaque C++ objects
-    // https://github.com/dtolnay/cxx/issues/741
-    struct MediaStreamPtr {
-        pub ptr: SharedPtr<MediaStream>,
-    }
+    extern "C++" {
+        include!("webrtc-sys/src/rtc_error.rs.h");
+        include!("webrtc-sys/src/helper.rs.h");
 
-    struct CandidatePtr {
-        pub ptr: SharedPtr<Candidate>,
+        type RTCError = crate::rtc_error::ffi::RTCError;
+        type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
+        type CandidatePtr = crate::helper::ffi::CandidatePtr;
     }
 
     unsafe extern "C++" {
@@ -95,9 +95,7 @@ pub mod ffi {
         include!("livekit/rtp_transceiver.h");
         include!("livekit/media_stream.h");
         include!("livekit/candidate.h");
-        include!("webrtc-sys/src/rtc_error.rs.h");
 
-        type RTCError = crate::rtc_error::ffi::RTCError;
         type Candidate = crate::candidate::ffi::Candidate;
         type IceCandidate = crate::jsep::ffi::IceCandidate;
         type DataChannel = crate::data_channel::ffi::DataChannel;
