@@ -155,7 +155,7 @@ pub mod ffi {
 
         fn add_ice_candidate(
             self: &PeerConnection,
-            candidate: UniquePtr<IceCandidate>,
+            candidate: SharedPtr<IceCandidate>,
             observer: Pin<&mut NativeAddIceCandidateObserver>,
         );
 
@@ -191,8 +191,8 @@ pub mod ffi {
         type PeerConnectionObserverWrapper;
 
         fn on_signaling_change(self: &PeerConnectionObserverWrapper, new_state: SignalingState);
-        fn on_add_stream(self: &PeerConnectionObserverWrapper, stream: UniquePtr<MediaStream>);
-        fn on_remove_stream(self: &PeerConnectionObserverWrapper, stream: UniquePtr<MediaStream>);
+        fn on_add_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
+        fn on_remove_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
         fn on_data_channel(
             self: &PeerConnectionObserverWrapper,
             data_channel: UniquePtr<DataChannel>,
@@ -241,11 +241,11 @@ pub mod ffi {
         );
         fn on_add_track(
             self: &PeerConnectionObserverWrapper,
-            receiver: UniquePtr<RtpReceiver>,
+            receiver: SharedPtr<RtpReceiver>,
             streams: Vec<MediaStreamPtr>,
         );
-        fn on_track(self: &PeerConnectionObserverWrapper, transceiver: UniquePtr<RtpTransceiver>);
-        fn on_remove_track(self: &PeerConnectionObserverWrapper, receiver: UniquePtr<RtpReceiver>);
+        fn on_track(self: &PeerConnectionObserverWrapper, transceiver: SharedPtr<RtpTransceiver>);
+        fn on_remove_track(self: &PeerConnectionObserverWrapper, receiver: SharedPtr<RtpReceiver>);
         fn on_interesting_usage(self: &PeerConnectionObserverWrapper, usage_pattern: i32);
     }
 }
@@ -291,8 +291,8 @@ impl AddIceCandidateObserverWrapper {
 
 pub trait PeerConnectionObserver: Send + Sync {
     fn on_signaling_change(&self, new_state: ffi::SignalingState);
-    fn on_add_stream(&self, stream: UniquePtr<MediaStream>);
-    fn on_remove_stream(&self, stream: UniquePtr<MediaStream>);
+    fn on_add_stream(&self, stream: SharedPtr<MediaStream>);
+    fn on_remove_stream(&self, stream: SharedPtr<MediaStream>);
     fn on_data_channel(&self, data_channel: UniquePtr<DataChannel>);
     fn on_renegotiation_needed(&self);
     fn on_negotiation_needed_event(&self, event: u32);
@@ -300,7 +300,7 @@ pub trait PeerConnectionObserver: Send + Sync {
     fn on_standardized_ice_connection_change(&self, new_state: ffi::IceConnectionState);
     fn on_connection_change(&self, new_state: ffi::PeerConnectionState);
     fn on_ice_gathering_change(&self, new_state: ffi::IceGatheringState);
-    fn on_ice_candidate(&self, candidate: UniquePtr<IceCandidate>);
+    fn on_ice_candidate(&self, candidate: SharedPtr<IceCandidate>);
     fn on_ice_candidate_error(
         &self,
         address: String,
@@ -309,12 +309,12 @@ pub trait PeerConnectionObserver: Send + Sync {
         error_code: i32,
         error_text: String,
     );
-    fn on_ice_candidates_removed(&self, removed: Vec<UniquePtr<Candidate>>);
+    fn on_ice_candidates_removed(&self, removed: Vec<SharedPtr<Candidate>>);
     fn on_ice_connection_receiving_change(&self, receiving: bool);
     fn on_ice_selected_candidate_pair_changed(&self, event: ffi::CandidatePairChangeEvent);
-    fn on_add_track(&self, receiver: UniquePtr<RtpReceiver>, streams: Vec<UniquePtr<MediaStream>>);
-    fn on_track(&self, transceiver: UniquePtr<RtpTransceiver>);
-    fn on_remove_track(&self, receiver: UniquePtr<RtpReceiver>);
+    fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<SharedPtr<MediaStream>>);
+    fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>);
+    fn on_remove_track(&self, receiver: SharedPtr<RtpReceiver>);
     fn on_interesting_usage(&self, usage_pattern: i32);
 }
 
@@ -336,13 +336,13 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_add_stream(&self, stream: UniquePtr<MediaStream>) {
+    fn on_add_stream(&self, stream: SharedPtr<MediaStream>) {
         unsafe {
             (*self.observer).on_add_stream(stream);
         }
     }
 
-    fn on_remove_stream(&self, stream: UniquePtr<MediaStream>) {
+    fn on_remove_stream(&self, stream: SharedPtr<MediaStream>) {
         unsafe {
             (*self.observer).on_remove_stream(stream);
         }
@@ -390,7 +390,7 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_ice_candidate(&self, candidate: UniquePtr<IceCandidate>) {
+    fn on_ice_candidate(&self, candidate: SharedPtr<IceCandidate>) {
         unsafe {
             (*self.observer).on_ice_candidate(candidate);
         }
@@ -433,7 +433,7 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_add_track(&self, receiver: UniquePtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
+    fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
         let mut vec = Vec::new();
 
         for v in streams {
@@ -445,13 +445,13 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_track(&self, transceiver: UniquePtr<RtpTransceiver>) {
+    fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>) {
         unsafe {
             (*self.observer).on_track(transceiver);
         }
     }
 
-    fn on_remove_track(&self, receiver: UniquePtr<RtpReceiver>) {
+    fn on_remove_track(&self, receiver: SharedPtr<RtpReceiver>) {
         unsafe {
             (*self.observer).on_remove_track(receiver);
         }

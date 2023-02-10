@@ -63,12 +63,12 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as the datachannel uses it
         unsafe fn register_observer(
-            self: Pin<&mut DataChannel>,
+            self: &DataChannel,
             observer: Pin<&mut NativeDataChannelObserver>,
         );
 
-        fn unregister_observer(self: Pin<&mut DataChannel>);
-        fn send(self:  &DataChannel, data: &DataBuffer) -> bool;
+        fn unregister_observer(self: &DataChannel);
+        fn send(self: &DataChannel, data: &DataBuffer) -> bool;
         fn label(self: &DataChannel) -> String;
         fn state(self: &DataChannel) -> DataState;
         fn close(self: &DataChannel);
@@ -82,11 +82,8 @@ pub mod ffi {
     }
 }
 
-unsafe impl Send for ffi::DataChannel {}
-unsafe impl Sync for ffi::DataChannel {}
-
-unsafe impl Send for ffi::NativeDataChannelObserver {}
-unsafe impl Sync for ffi::NativeDataChannelObserver {}
+impl_thread_safety!(ffi::DataChannel, Send + Sync);
+impl_thread_safety!(ffi::NativeDataChannelObserver, Send + Sync);
 
 // DataChannelObserver
 

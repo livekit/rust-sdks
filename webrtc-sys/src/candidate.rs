@@ -5,6 +5,6 @@ pub mod ffi {
 
         type Candidate; // cricket::Candidate
 
-        fn _unique_candidate() -> UniquePtr<Candidate>; // Ignore
+        // TODO SHARED
     }
 }

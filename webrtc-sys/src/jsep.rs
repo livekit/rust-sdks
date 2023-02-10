@@ -72,13 +72,13 @@ pub mod ffi {
             sdp_mid: String,
             sdp_mline_index: i32,
             sdp: String,
-        ) -> Result<UniquePtr<IceCandidate>>;
+        ) -> Result<SharedPtr<IceCandidate>>;
         fn create_session_description(
             sdp_type: SdpType,
             sdp: String,
         ) -> Result<UniquePtr<SessionDescription>>;
 
-        fn _unique_ice_candidate() -> UniquePtr<IceCandidate>; // Ignore
+        fn _shared_ice_candidate() -> SharedPtr<IceCandidate>; // Ignore
         fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
     }
 }
