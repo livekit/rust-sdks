@@ -62,12 +62,12 @@ pub mod ffi {
 
         fn on_captured_frame(self: &AdaptedVideoTrackSource, frame: UniquePtr<VideoFrame>) -> bool;
 
-        unsafe fn video_to_media(track: *const VideoTrack) -> *const MediaStreamTrack;
-        unsafe fn audio_to_media(track: *const AudioTrack) -> *const MediaStreamTrack;
         unsafe fn media_to_video(track: *const MediaStreamTrack) -> *const VideoTrack;
         unsafe fn media_to_audio(track: *const MediaStreamTrack) -> *const AudioTrack;
 
         fn _shared_media_stream_track() -> SharedPtr<MediaStreamTrack>;
+        fn _shared_audio_track() -> SharedPtr<AudioTrack>;
+        fn _shared_video_track() -> SharedPtr<VideoTrack>;
         fn _shared_media_stream() -> SharedPtr<MediaStream>;
     }
 

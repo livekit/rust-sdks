@@ -11,11 +11,10 @@
 #include "livekit/media_stream.h"
 #include "livekit/rtp_parameters.h"
 #include "rust/cxx.h"
+#include "webrtc-sys/src/helper.rs.h"
 #include "webrtc-sys/src/rtp_parameters.rs.h"
 
 namespace livekit {
-
-struct MediaStreamPtr;
 
 // TODO(theomonnom): Implement RtpReceiverObserverInterface?
 // TODO(theomonnom): RtpSource

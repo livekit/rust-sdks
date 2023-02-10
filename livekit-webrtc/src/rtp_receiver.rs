@@ -1,10 +1,10 @@
 use crate::media_stream::{MediaStreamTrackHandle, MediaStreamTrackTrait};
-use cxx::UniquePtr;
+use cxx::SharedPtr;
 use std::fmt::{Debug, Formatter};
 use webrtc_sys::rtp_receiver as sys_rec;
 
 pub struct RtpReceiver {
-    cxx_handle: UniquePtr<sys_rec::ffi::RtpReceiver>,
+    cxx_handle: SharedPtr<sys_rec::ffi::RtpReceiver>,
 }
 
 impl Debug for RtpReceiver {
@@ -16,7 +16,7 @@ impl Debug for RtpReceiver {
 }
 
 impl RtpReceiver {
-    pub(crate) fn new(cxx_handle: UniquePtr<sys_rec::ffi::RtpReceiver>) -> Self {
+    pub(crate) fn new(cxx_handle: SharedPtr<sys_rec::ffi::RtpReceiver>) -> Self {
         Self { cxx_handle }
     }
 

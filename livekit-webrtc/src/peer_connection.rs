@@ -1,27 +1,25 @@
+use crate::prelude::*;
+use cxx::{SharedPtr, UniquePtr};
+use log::trace;
 use std::fmt::{Debug, Formatter};
 use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
-
-use cxx::UniquePtr;
-use log::trace;
 use tokio::sync::{mpsc, oneshot};
 
+use webrtc_sys::candidate as sys_ca;
 use webrtc_sys::data_channel as sys_dc;
 use webrtc_sys::jsep as sys_jsep;
+use webrtc_sys::media_stream as sys_ms;
 use webrtc_sys::peer_connection as sys_pc;
+use webrtc_sys::rtp_receiver as sys_rr;
+use webrtc_sys::rtp_sender as sys_rs;
+use webrtc_sys::rtp_transceiver as sys_rt;
+
 pub use webrtc_sys::peer_connection::ffi::IceConnectionState;
 pub use webrtc_sys::peer_connection::ffi::IceGatheringState;
-use webrtc_sys::peer_connection::ffi::NativeCreateSdpObserverHandle;
 pub use webrtc_sys::peer_connection::ffi::PeerConnectionState;
 pub use webrtc_sys::peer_connection::ffi::RTCOfferAnswerOptions;
 pub use webrtc_sys::peer_connection::ffi::SignalingState;
-
-use crate::data_channel::{DataChannel, DataChannelInit};
-use crate::jsep::{IceCandidate, SessionDescription};
-use crate::media_stream::{AudioTrack, MediaStream, VideoTrack};
-use crate::rtc_error::RTCError;
-use crate::rtp_receiver::RtpReceiver;
-use crate::rtp_transceiver::RtpTransceiver;
 
 pub struct PeerConnection {
     cxx_handle: UniquePtr<sys_pc::ffi::PeerConnection>,
@@ -58,7 +56,7 @@ impl PeerConnection {
     }
 
     fn create_sdp_observer() -> (
-        UniquePtr<NativeCreateSdpObserverHandle>,
+        UniquePtr<sys_pc::ffi::NativeCreateSdpObserverHandle>,
         mpsc::Receiver<Result<SessionDescription, RTCError>>,
     ) {
         let (tx, rx) = mpsc::channel(1);
@@ -415,7 +413,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_add_stream(&self, stream: UniquePtr<webrtc_sys::media_stream::ffi::MediaStream>) {
+    fn on_add_stream(&self, stream: SharedPtr<sys_ms::ffi::MediaStream>) {
         trace!("on_add_stream");
         let mut handler = self.on_add_stream_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -423,7 +421,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_remove_stream(&self, stream: UniquePtr<webrtc_sys::media_stream::ffi::MediaStream>) {
+    fn on_remove_stream(&self, stream: SharedPtr<sys_ms::ffi::MediaStream>) {
         trace!("on_remove_stream");
         let mut handler = self.on_remove_stream_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -431,7 +429,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_data_channel(&self, data_channel: UniquePtr<webrtc_sys::data_channel::ffi::DataChannel>) {
+    fn on_data_channel(&self, data_channel: UniquePtr<sys_dc::ffi::DataChannel>) {
         trace!("on_data_channel");
         let mut handler = self.on_data_channel_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -493,7 +491,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_ice_candidate(&self, candidate: UniquePtr<webrtc_sys::jsep::ffi::IceCandidate>) {
+    fn on_ice_candidate(&self, candidate: SharedPtr<sys_jsep::ffi::IceCandidate>) {
         trace!("on_ice_candidate");
         let mut handler = self.on_ice_candidate_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -516,10 +514,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_ice_candidates_removed(
-        &self,
-        removed: Vec<UniquePtr<webrtc_sys::candidate::ffi::Candidate>>,
-    ) {
+    fn on_ice_candidates_removed(&self, removed: Vec<SharedPtr<sys_ca::ffi::Candidate>>) {
         trace!("on_ice_candidates_removed");
         let mut handler = self.on_ice_candidates_removed_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -538,10 +533,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_ice_selected_candidate_pair_changed(
-        &self,
-        event: webrtc_sys::peer_connection::ffi::CandidatePairChangeEvent,
-    ) {
+    fn on_ice_selected_candidate_pair_changed(&self, event: sys_pc::ffi::CandidatePairChangeEvent) {
         trace!("on_ice_selected_candidate_pair_changed");
         let mut handler = self
             .on_ice_selected_candidate_pair_changed_handler
@@ -554,8 +546,8 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
 
     fn on_add_track(
         &self,
-        receiver: UniquePtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>,
-        streams: Vec<UniquePtr<webrtc_sys::media_stream::ffi::MediaStream>>,
+        receiver: SharedPtr<sys_rr::ffi::RtpReceiver>,
+        streams: Vec<SharedPtr<sys_ms::ffi::MediaStream>>,
     ) {
         trace!("on_add_track");
         let mut handler = self.on_add_track_handler.lock().unwrap();
@@ -565,7 +557,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_track(&self, transceiver: UniquePtr<webrtc_sys::rtp_transceiver::ffi::RtpTransceiver>) {
+    fn on_track(&self, transceiver: SharedPtr<sys_rt::ffi::RtpTransceiver>) {
         trace!("on_track");
         let mut handler = self.on_track_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -573,7 +565,7 @@ impl sys_pc::PeerConnectionObserver for InternalObserver {
         }
     }
 
-    fn on_remove_track(&self, receiver: UniquePtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {
+    fn on_remove_track(&self, receiver: SharedPtr<sys_rr::ffi::RtpReceiver>) {
         trace!("on_remove_track");
         let mut handler = self.on_remove_track_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {

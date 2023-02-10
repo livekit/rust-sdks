@@ -78,15 +78,6 @@ pub mod ffi {
         use_obsolete_sctp_sdp: bool,
     }
 
-    extern "C++" {
-        include!("webrtc-sys/src/rtc_error.rs.h");
-        include!("webrtc-sys/src/helper.rs.h");
-
-        type RTCError = crate::rtc_error::ffi::RTCError;
-        type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
-        type CandidatePtr = crate::helper::ffi::CandidatePtr;
-    }
-
     unsafe extern "C++" {
         include!("livekit/peer_connection.h");
         include!("livekit/jsep.h");
@@ -95,7 +86,13 @@ pub mod ffi {
         include!("livekit/rtp_transceiver.h");
         include!("livekit/media_stream.h");
         include!("livekit/candidate.h");
+        include!("webrtc-sys/src/rtc_error.rs.h");
+        include!("webrtc-sys/src/helper.rs.h");
 
+        type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
+        type CandidatePtr = crate::helper::ffi::CandidatePtr;
+
+        type RTCError = crate::rtc_error::ffi::RTCError;
         type Candidate = crate::candidate::ffi::Candidate;
         type IceCandidate = crate::jsep::ffi::IceCandidate;
         type DataChannel = crate::data_channel::ffi::DataChannel;

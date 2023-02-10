@@ -6,6 +6,7 @@
 
 #include "absl/types/optional.h"
 #include "api/rtp_transceiver_interface.h"
+#include "livekit/helper.h"
 #include "livekit/media_stream.h"
 #include "livekit/rtp_parameters.h"
 #include "livekit/rtp_transceiver.h"

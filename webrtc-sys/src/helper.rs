@@ -12,11 +12,15 @@ pub mod ffi {
         pub ptr: SharedPtr<Candidate>,
     }
 
-    extern "C++" {
+    unsafe extern "C++" {
         include!("livekit/media_stream.h");
         include!("livekit/candidate.h");
+        include!("livekit/helper.h");
 
         type MediaStream = crate::media_stream::ffi::MediaStream;
         type Candidate = crate::candidate::ffi::Candidate;
+
+        fn _vec_media_stream_ptr() -> Vec<MediaStreamPtr>;
+        fn _vec_candidate_ptr() -> Vec<CandidatePtr>;
     }
 }
