@@ -10,6 +10,7 @@
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
 #include "livekit/rust_types.h"
+#include "livekit/video_frame.h"
 #include "media/base/adapted_video_track_source.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/timestamp_aligner.h"
@@ -125,14 +126,19 @@ class NativeVideoTrackSource : public rtc::AdaptedVideoTrackSource {
 };
 
 class AdaptedVideoTrackSource {
+ public:
   AdaptedVideoTrackSource(rtc::scoped_refptr<NativeVideoTrackSource> source);
 
-  bool on_captured_frame(const webrtc::VideoFrame& frame)
+  bool on_captured_frame(std::unique_ptr<VideoFrame> frame)
       const;  // frames pushed from Rust (+interior mutability)
+
+  rtc::scoped_refptr<NativeVideoTrackSource> get() const;
 
  private:
   rtc::scoped_refptr<NativeVideoTrackSource> source_;
 };
+
+std::unique_ptr<AdaptedVideoTrackSource> create_adapted_video_track_source();
 
 static const MediaStreamTrack* video_to_media(const VideoTrack* track) {
   return track;

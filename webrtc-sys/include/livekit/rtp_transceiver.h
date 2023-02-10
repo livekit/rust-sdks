@@ -47,7 +47,7 @@ class RtpTransceiver {
 
   RtpTransceiverDirection current_direction() const;
 
-  RtpTransceiverDirection fired_direection() const;
+  RtpTransceiverDirection fired_direction() const;
 
   void stop_standard() const;
 

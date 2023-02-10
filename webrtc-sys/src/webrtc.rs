@@ -38,6 +38,4 @@ pub mod ffi {
     }
 }
 
-unsafe impl Send for ffi::RTCRuntime {}
-
-unsafe impl Sync for ffi::RTCRuntime {}
+impl_thread_safety!(ffi::RTCRuntime, Send + Sync);

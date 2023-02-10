@@ -16,6 +16,7 @@ pub mod ffi {
         include!("livekit/video_frame_buffer.h");
 
         type VideoFrame;
+        type VideoFrameBuilder;
         type VideoFrameBuffer = crate::video_frame_buffer::ffi::VideoFrameBuffer;
 
         fn width(self: &VideoFrame) -> i32;
@@ -29,7 +30,13 @@ pub mod ffi {
         fn rotation(self: &VideoFrame) -> VideoRotation;
         fn video_frame_buffer(self: &VideoFrame) -> UniquePtr<VideoFrameBuffer>;
 
-        fn _unique_video_frame() -> UniquePtr<VideoFrame>; // Ignore
+        fn set_video_frame_builder(buffer: UniquePtr<VideoFrameBuffer>);
+        fn set_timestamp_us(timestamp_us: i64);
+        fn set_rotation(rotation: VideoRotation);
+        fn set_id(id: u16);
+        fn build() -> UniquePtr<VideoFrame>;
+
+        fn create_video_frame_builder() -> UniquePtr<VideoFrameBuilder>;
     }
 }
 

@@ -8,40 +8,50 @@
 #include "api/video/video_frame.h"
 #include "livekit/rust_types.h"
 #include "livekit/video_frame_buffer.h"
+#include "rtc_base/checks.h"
 
 namespace livekit {
 
 class VideoFrame {
  public:
-  explicit VideoFrame(const webrtc::VideoFrame& frame)
-      : frame_(std::move(frame)) {}
+  explicit VideoFrame(const webrtc::VideoFrame& frame);
 
-  int width() const { return frame_.width(); }
-  int height() const { return frame_.height(); }
-  uint32_t size() const { return frame_.size(); }
-  uint16_t id() const { return frame_.id(); }
-  int64_t timestamp_us() const { return frame_.timestamp_us(); }
-  int64_t ntp_time_ms() const { return frame_.ntp_time_ms(); }
-  uint32_t transport_frame_id() const { return frame_.transport_frame_id(); }
-  uint32_t timestamp() const { return frame_.timestamp(); }
+  int width() const;
+  int height() const;
+  uint32_t size() const;
+  uint16_t id() const;
+  int64_t timestamp_us() const;
+  int64_t ntp_time_ms() const;
+  uint32_t transport_frame_id() const;
+  uint32_t timestamp() const;
 
-  VideoRotation rotation() const {
-    return static_cast<VideoRotation>(frame_.rotation());
-  }
+  VideoRotation rotation() const;
+  std::unique_ptr<VideoFrameBuffer> video_frame_buffer() const;
 
-  // TODO(theomonnom) This shouldn't create a new shared_ptr at each call
-  std::unique_ptr<VideoFrameBuffer> video_frame_buffer() const {
-    return std::make_unique<VideoFrameBuffer>(frame_.video_frame_buffer());
-  }
+  webrtc::VideoFrame get() const;
 
  private:
   webrtc::VideoFrame frame_;
 };
 
-static std::unique_ptr<VideoFrame> _unique_video_frame() {
-  return nullptr;  // Ignore
-}
+// Allow to create VideoFrames from Rust,
+// the builder pattern will be redone in Rust
+class VideoFrameBuilder {
+ public:
+  VideoFrameBuilder() = default;
 
+  // TODO(theomonnom): other setters?
+  void set_video_frame_buffer(std::unique_ptr<VideoFrameBuffer> buffer);
+  void set_timestamp_us(int64_t timestamp_us);
+  void set_rotation(VideoRotation rotation);
+  void set_id(uint16_t id);
+  std::unique_ptr<VideoFrame> build();
+
+ private:
+  webrtc::VideoFrame::Builder builder_;
+};
+
+std::unique_ptr<VideoFrameBuilder> create_video_frame_builder();
 
 }  // namespace livekit
 

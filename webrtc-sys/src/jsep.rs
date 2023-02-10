@@ -95,13 +95,8 @@ impl Display for ffi::SdpParseError {
     }
 }
 
-unsafe impl Send for ffi::SessionDescription {}
-
-unsafe impl Sync for ffi::SessionDescription {}
-
-unsafe impl Send for ffi::IceCandidate {}
-
-unsafe impl Sync for ffi::IceCandidate {}
+impl_thread_safety!(ffi::SessionDescription, Send + Sync);
+impl_thread_safety!(ffi::IceCandidate, Send + Sync);
 
 impl ffi::SdpParseError {
     /// # Safety

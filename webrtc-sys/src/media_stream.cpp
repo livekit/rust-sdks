@@ -4,6 +4,9 @@
 
 #include "livekit/media_stream.h"
 
+#include <algorithm>
+#include <memory>
+
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
 #include "livekit/rust_types.h"
@@ -234,8 +237,18 @@ AdaptedVideoTrackSource::AdaptedVideoTrackSource(
     : source_(source) {}
 
 bool AdaptedVideoTrackSource::on_captured_frame(
-    const webrtc::VideoFrame& frame) const {
-  return source_->on_captured_frame(frame);
+    std::unique_ptr<VideoFrame> frame) const {
+  return source_->on_captured_frame(frame->get());
+}
+
+rtc::scoped_refptr<NativeVideoTrackSource> AdaptedVideoTrackSource::get()
+    const {
+  return source_;
+}
+
+std::unique_ptr<AdaptedVideoTrackSource> create_adapted_video_track_source() {
+  return std::make_unique<AdaptedVideoTrackSource>(
+      rtc::make_ref_counted<NativeVideoTrackSource>());
 }
 
 }  // namespace livekit

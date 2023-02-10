@@ -38,13 +38,14 @@ pub mod ffi {
         type AudioTrack;
         type VideoTrack;
         type VideoFrame = crate::video_frame::ffi::VideoFrame;
+        type AdaptedVideoTrackSource;
 
         fn id(self: &MediaStream) -> String;
 
         fn kind(self: &MediaStreamTrack) -> String;
         fn id(self: &MediaStreamTrack) -> String;
         fn enabled(self: &MediaStreamTrack) -> bool;
-        fn set_enabled(self: Pin<&mut MediaStreamTrack>, enable: bool) -> bool;
+        fn set_enabled(self: &MediaStreamTrack, enable: bool) -> bool;
         fn state(self: &MediaStreamTrack) -> TrackState;
 
         unsafe fn add_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
@@ -59,22 +60,19 @@ pub mod ffi {
             observer: Box<VideoFrameSinkWrapper>,
         ) -> UniquePtr<NativeVideoFrameSink>;
 
+        fn on_captured_frame(self: &AdaptedVideoTrackSource, frame: UniquePtr<VideoFrame>) -> bool;
+
         unsafe fn video_to_media(track: *const VideoTrack) -> *const MediaStreamTrack;
         unsafe fn audio_to_media(track: *const AudioTrack) -> *const MediaStreamTrack;
         unsafe fn media_to_video(track: *const MediaStreamTrack) -> *const VideoTrack;
         unsafe fn media_to_audio(track: *const MediaStreamTrack) -> *const AudioTrack;
-
-        fn _unique_media_stream_track() -> UniquePtr<MediaStreamTrack>; // Ignore
-        fn _unique_media_stream() -> UniquePtr<MediaStream>; // Ignore
-        fn _unique_audio_track() -> UniquePtr<AudioTrack>; // Ignore
-        fn _unique_video_track() -> UniquePtr<VideoTrack>; // Ignore
     }
 
     extern "Rust" {
         type VideoFrameSinkWrapper;
 
         fn on_frame(self: &VideoFrameSinkWrapper, frame: UniquePtr<VideoFrame>);
-        fn on_discarded_frame(self: &VideoFrameSinkWrapper);
+           fn on_discarded_frame(self: &VideoFrameSinkWrapper);
         fn on_constraints_changed(
             self: &VideoFrameSinkWrapper,
             constraints: VideoTrackSourceConstraints,
@@ -82,16 +80,11 @@ pub mod ffi {
     }
 }
 
-unsafe impl Sync for ffi::MediaStreamTrack {}
-unsafe impl Send for ffi::MediaStreamTrack {}
-unsafe impl Sync for ffi::MediaStream {}
-unsafe impl Send for ffi::MediaStream {}
-unsafe impl Send for ffi::AudioTrack {}
-unsafe impl Sync for ffi::AudioTrack {}
-unsafe impl Send for ffi::VideoTrack {}
-unsafe impl Sync for ffi::VideoTrack {}
-unsafe impl Send for ffi::NativeVideoFrameSink {}
-unsafe impl Sync for ffi::NativeVideoFrameSink {}
+impl_thread_safety!(ffi::MediaStreamTrack, Send + Sync);
+impl_thread_safety!(ffi::MediaStream, Send + Sync);
+impl_thread_safety!(ffi::AudioTrack, Send + Sync);
+impl_thread_safety!(ffi::VideoTrack, Send + Sync);
+impl_thread_safety!(ffi::NativeVideoFrameSink, Send + Sync);
 
 pub trait VideoFrameSink: Send + Sync {
     fn on_frame(&self, frame: UniquePtr<VideoFrame>);

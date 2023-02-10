@@ -30,10 +30,11 @@ class RTCRuntime {
   std::unique_ptr<rtc::Thread> network_thread_;
   std::unique_ptr<rtc::Thread> worker_thread_;
   std::unique_ptr<rtc::Thread> signaling_thread_;
+
 #ifdef WEBRTC_WIN
   rtc::WinsockInitializer winsock_;
   rtc::PhysicalSocketServer ss_;
-  rtc::AutoSocketServerThread main_thread_ {&ss_};
+  rtc::AutoSocketServerThread main_thread_{&ss_};
 #endif
 };
 

@@ -254,29 +254,12 @@ pub mod ffi {
 }
 
 // https://webrtc.github.io/webrtc-org/native-code/native-apis/
-unsafe impl Send for ffi::PeerConnection {}
-
-unsafe impl Sync for ffi::PeerConnection {}
-
-unsafe impl Send for ffi::NativePeerConnectionObserver {}
-
-unsafe impl Sync for ffi::NativePeerConnectionObserver {}
-
-unsafe impl Sync for ffi::NativeAddIceCandidateObserver {}
-
-unsafe impl Send for ffi::NativeAddIceCandidateObserver {}
-
-unsafe impl Sync for ffi::NativeSetRemoteSdpObserverHandle {}
-
-unsafe impl Send for ffi::NativeSetRemoteSdpObserverHandle {}
-
-unsafe impl Sync for ffi::NativeSetLocalSdpObserverHandle {}
-
-unsafe impl Send for ffi::NativeSetLocalSdpObserverHandle {}
-
-unsafe impl Sync for ffi::NativeCreateSdpObserverHandle {}
-
-unsafe impl Send for ffi::NativeCreateSdpObserverHandle {}
+impl_thread_safety!(ffi::PeerConnection, Send + Sync);
+impl_thread_safety!(ffi::NativePeerConnectionObserver, Send + Sync);
+impl_thread_safety!(ffi::NativeAddIceCandidateObserver, Send + Sync);
+impl_thread_safety!(ffi::NativeSetRemoteSdpObserverHandle, Send + Sync);
+impl_thread_safety!(ffi::NativeSetLocalSdpObserverHandle, Send + Sync);
+impl_thread_safety!(ffi::NativeCreateSdpObserverHandle, Send + Sync);
 
 impl Default for ffi::RTCOfferAnswerOptions {
     /*

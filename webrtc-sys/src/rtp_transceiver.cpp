@@ -55,7 +55,7 @@ RtpTransceiverDirection RtpTransceiver::current_direction() const {
       transceiver_->current_direction().value());
 }
 
-RtpTransceiverDirection RtpTransceiver::fired_direection() const {
+RtpTransceiverDirection RtpTransceiver::fired_direction() const {
   return static_cast<RtpTransceiverDirection>(
       transceiver_->fired_direction().value());
 }

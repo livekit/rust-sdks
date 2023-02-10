@@ -7,6 +7,7 @@ pub mod peer_connection_factory;
 pub mod rtc_error;
 pub mod rtp_parameters;
 pub mod rtp_receiver;
+pub mod rtp_sender;
 pub mod rtp_transceiver;
 pub mod video_frame;
 pub mod video_frame_buffer;

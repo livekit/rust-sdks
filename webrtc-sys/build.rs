@@ -155,9 +155,12 @@ fn main() {
     builder.file("src/jsep.cpp");
     builder.file("src/candidate.cpp");
     builder.file("src/rtp_receiver.cpp");
+    builder.file("src/rtp_sender.cpp");
     builder.file("src/rtp_transceiver.cpp");
     builder.file("src/rtc_error.cpp");
     builder.file("src/webrtc.cpp");
+    builder.file("src/video_frame.cpp");
+    builder.file("src/video_frame_buffer.cpp");
     builder.file("src/video_encoder_factory.cpp");
     builder.file("src/video_decoder_factory.cpp");
 

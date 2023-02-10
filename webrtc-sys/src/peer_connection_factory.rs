@@ -55,6 +55,4 @@ pub mod ffi {
     }
 }
 
-unsafe impl Send for ffi::PeerConnectionFactory {}
-
-unsafe impl Sync for ffi::PeerConnectionFactory {}
+impl_thread_safety!(ffi::PeerConnectionFactory, Send + Sync);

@@ -134,7 +134,7 @@ rust::Vec<std::shared_ptr<RtpReceiver>> PeerConnection::get_receivers() const {
 rust::Vec<std::shared_ptr<RtpTransceiver>> PeerConnection::get_transceivers()
     const {
   rust::Vec<std::shared_ptr<RtpTransceiver>> vec;
-  for (auto transceiver : peer_connection_->GetReceivers())
+  for (auto transceiver : peer_connection_->GetTransceivers())
     vec.push_back(std::make_shared<RtpTransceiver>(transceiver));
 
   return vec;

@@ -7,12 +7,8 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type RtpReceiver;
 
-        fn track(self: &RtpReceiver) -> UniquePtr<MediaStreamTrack>;
-
-        fn _unique_rtp_receiver() -> UniquePtr<RtpReceiver>; // Ignore
+        fn track(self: &RtpReceiver) -> SharedPtr<MediaStreamTrack>;
     }
 }
 
-unsafe impl Sync for ffi::RtpReceiver {}
-
-unsafe impl Send for ffi::RtpReceiver {}
+impl_thread_safety!(ffi::RtpReceiver, Send + Sync);
