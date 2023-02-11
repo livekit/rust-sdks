@@ -30,8 +30,11 @@ pub mod ffi {
 
     extern "C++" {
         include!("livekit/video_frame.h");
+        include!("livekit/helper.h");
 
         type VideoFrame = crate::video_frame::ffi::VideoFrame;
+        type VideoTrackPtr = crate::helper::ffi::VideoTrackPtr;
+        type AudioTrackPtr = crate::helper::ffi::AudioTrackPtr;
     }
 
     unsafe extern "C++" {
@@ -45,6 +48,14 @@ pub mod ffi {
         type AdaptedVideoTrackSource;
 
         fn id(self: &MediaStream) -> String;
+        fn get_audio_tracks(self: &MediaStream) -> Vec<AudioTrackPtr>;
+        fn get_video_tracks(self: &MediaStream) -> Vec<VideoTrackPtr>;
+        fn find_audio_track(self: &MediaStream, track_id: String) -> SharedPtr<AudioTrack>;
+        fn find_video_track(self: &MediaStream, track_id: String) -> SharedPtr<VideoTrack>;
+        fn add_audio_track(self: &MediaStream, audio_track: SharedPtr<AudioTrack>) -> bool;
+        fn add_video_track(self: &MediaStream, video_track: SharedPtr<VideoTrack>) -> bool;
+        fn remove_audio_track(self: &MediaStream, audio_track: SharedPtr<AudioTrack>) -> bool;
+        fn remove_video_track(self: &MediaStream, video_track: SharedPtr<VideoTrack>) -> bool;
 
         fn kind(self: &MediaStreamTrack) -> String;
         fn id(self: &MediaStreamTrack) -> String;

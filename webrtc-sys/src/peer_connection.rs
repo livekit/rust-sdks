@@ -84,6 +84,7 @@ pub mod ffi {
         include!("livekit/candidate.h");
         include!("livekit/media_stream.h");
         include!("livekit/rtp_transceiver.h");
+        include!("livekit/rtp_sender.h");
         include!("livekit/rtp_receiver.h");
         include!("livekit/data_channel.h");
         include!("livekit/jsep.h");
@@ -91,18 +92,25 @@ pub mod ffi {
 
         type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
         type CandidatePtr = crate::helper::ffi::CandidatePtr;
+        type RtpSenderPtr = crate::helper::ffi::RtpSenderPtr;
+        type RtpReceiverPtr = crate::helper::ffi::RtpReceiverPtr;
+        type RtpTransceiverPtr = crate::helper::ffi::RtpTransceiverPtr;
         type RTCError = crate::rtc_error::ffi::RTCError;
         type Candidate = crate::candidate::ffi::Candidate;
         type IceCandidate = crate::jsep::ffi::IceCandidate;
         type DataChannel = crate::data_channel::ffi::DataChannel;
+        type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
         type RtpTransceiver = crate::rtp_transceiver::ffi::RtpTransceiver;
+        type RtpTransceiverInit = crate::rtp_transceiver::ffi::RtpTransceiverInit;
         type MediaStream = crate::media_stream::ffi::MediaStream;
+        type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type NativeCreateSdpObserverHandle = crate::jsep::ffi::NativeCreateSdpObserverHandle;
         type NativeSetLocalSdpObserverHandle = crate::jsep::ffi::NativeSetLocalSdpObserverHandle;
         type NativeSetRemoteSdpObserverHandle = crate::jsep::ffi::NativeSetRemoteSdpObserverHandle;
         type NativeDataChannelInit = crate::data_channel::ffi::NativeDataChannelInit;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
+        type MediaType = crate::webrtc::ffi::MediaType;
         type RTCRuntime = crate::webrtc::ffi::RTCRuntime;
     }
 
@@ -144,6 +152,31 @@ pub mod ffi {
             desc: UniquePtr<SessionDescription>,
             observer: Pin<&mut NativeSetRemoteSdpObserverHandle>,
         );
+
+        fn add_track(
+            self: &PeerConnection,
+            track: SharedPtr<MediaStreamTrack>,
+        ) -> Result<SharedPtr<RtpSender>>;
+
+        fn remove_track(self: &PeerConnection, sender: SharedPtr<RtpSender>) -> Result<()>;
+
+        fn add_transceiver(
+            self: &PeerConnection,
+            track: SharedPtr<MediaStreamTrack>,
+            init: RtpTransceiverInit,
+        ) -> Result<SharedPtr<RtpTransceiver>>;
+
+        fn add_transceiver_for_media(
+            self: &PeerConnection,
+            media_type: MediaType,
+            init: RtpTransceiverInit,
+        ) -> Result<SharedPtr<RtpTransceiver>>;
+
+        fn get_senders(self: &PeerConnection) -> Vec<RtpSenderPtr>;
+
+        fn get_receivers(self: &PeerConnection) -> Vec<RtpReceiverPtr>;
+
+        fn get_transceivers(self: &PeerConnection) -> Vec<RtpTransceiverPtr>;
 
         fn create_data_channel(
             self: &PeerConnection,
