@@ -39,10 +39,10 @@ webrtc::RtpCodecCapability to_native_rtp_codec_capability(
     native.rtcp_feedback.push_back(to_native_rtcp_feedback(feedback));
 
   for (auto pair : capability.parameters)
-    native.parameters.insert(pair.key, pair.value);
+    native.parameters.insert(std::pair(pair.key, pair.value));
 
   for (auto pair : capability.options)
-    native.options.insert(pair.key, pair.value);
+    native.options.insert(std::pair(pair.key, pair.value));
 
   native.max_temporal_layer_extensions =
       capability.max_temporal_layer_extensions;
@@ -137,7 +137,7 @@ webrtc::RtpCodecParameters to_native_rtp_codec_parameters(
   native.payload_type = params.payload_type;
 
   for (auto pair : params.parameters)
-    native.parameters.insert(pair.key, pair.value);
+    native.parameters.insert(std::pair(pair.key, pair.value));
 
   for (auto feedback : params.rtcp_feedback)
     native.rtcp_feedback.push_back(to_native_rtcp_feedback(feedback));
