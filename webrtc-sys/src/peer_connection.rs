@@ -156,6 +156,7 @@ pub mod ffi {
         fn add_track(
             self: &PeerConnection,
             track: SharedPtr<MediaStreamTrack>,
+            stream_ids: &Vec<String>,
         ) -> Result<SharedPtr<RtpSender>>;
 
         fn remove_track(self: &PeerConnection, sender: SharedPtr<RtpSender>) -> Result<()>;

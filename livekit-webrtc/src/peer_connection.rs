@@ -79,14 +79,13 @@ impl PeerConnection {
     }
 
     pub async fn create_offer(
-        &mut self,
+        &self,
         options: RTCOfferAnswerOptions,
     ) -> Result<SessionDescription, RTCError> {
         let (mut native_wrapper, mut rx) = Self::create_sdp_observer();
 
         unsafe {
             self.cxx_handle
-                .pin_mut()
                 .create_offer(native_wrapper.pin_mut(), options);
         }
 
@@ -94,24 +93,20 @@ impl PeerConnection {
     }
 
     pub async fn create_answer(
-        &mut self,
+        &self,
         options: RTCOfferAnswerOptions,
     ) -> Result<SessionDescription, RTCError> {
         let (mut native_wrapper, mut rx) = Self::create_sdp_observer();
 
         unsafe {
             self.cxx_handle
-                .pin_mut()
                 .create_answer(native_wrapper.pin_mut(), options);
         }
 
         rx.recv().await.unwrap()
     }
 
-    pub async fn set_local_description(
-        &mut self,
-        desc: SessionDescription,
-    ) -> Result<(), RTCError> {
+    pub async fn set_local_description(&self, desc: SessionDescription) -> Result<(), RTCError> {
         let (tx, rx) = oneshot::channel();
         let wrapper =
             sys_jsep::SetLocalSdpObserverWrapper(ManuallyDrop::new(Box::new(move |error| {
@@ -122,17 +117,13 @@ impl PeerConnection {
 
         unsafe {
             self.cxx_handle
-                .pin_mut()
                 .set_local_description(desc.release(), native_wrapper.pin_mut());
         }
 
         rx.await.unwrap()
     }
 
-    pub async fn set_remote_description(
-        &mut self,
-        desc: SessionDescription,
-    ) -> Result<(), RTCError> {
+    pub async fn set_remote_description(&self, desc: SessionDescription) -> Result<(), RTCError> {
         let (tx, rx) = oneshot::channel();
         let wrapper =
             sys_jsep::SetRemoteSdpObserverWrapper(ManuallyDrop::new(Box::new(move |error| {
@@ -143,7 +134,6 @@ impl PeerConnection {
 
         unsafe {
             self.cxx_handle
-                .pin_mut()
                 .set_remote_description(desc.release(), native_wrapper.pin_mut());
         }
 
@@ -151,14 +141,13 @@ impl PeerConnection {
     }
 
     pub fn create_data_channel(
-        &mut self,
+        &self,
         label: &str,
         init: DataChannelInit,
     ) -> Result<DataChannel, RTCError> {
         let native_init = sys_dc::ffi::create_data_channel_init(init.into());
         let res = self
             .cxx_handle
-            .pin_mut()
             .create_data_channel(label.to_string(), native_init);
 
         match res {
@@ -168,7 +157,7 @@ impl PeerConnection {
     }
 
     // TODO(theomonnom) Use IceCandidateInit instead of IceCandidate
-    pub async fn add_ice_candidate(&mut self, candidate: IceCandidate) -> Result<(), RTCError> {
+    pub async fn add_ice_candidate(&self, candidate: IceCandidate) -> Result<(), RTCError> {
         let (tx, rx) = oneshot::channel();
         let observer =
             sys_pc::AddIceCandidateObserverWrapper(ManuallyDrop::new(Box::new(|error| {
@@ -178,7 +167,6 @@ impl PeerConnection {
         let mut native_observer =
             sys_pc::ffi::create_native_add_ice_candidate_observer(Box::new(observer));
         self.cxx_handle
-            .pin_mut()
             .add_ice_candidate(candidate.release(), native_observer.pin_mut());
 
         rx.await.unwrap()
