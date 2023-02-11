@@ -1,7 +1,5 @@
 #include "livekit/rtp_parameters.h"
 
-#include "webrtc-sys/src/rtp_parameters.rs.h"
-
 namespace livekit {
 
 webrtc::RtcpFeedback to_native_rtcp_feedback(RtcpFeedback feedback) {

@@ -2,23 +2,30 @@
 // Created by theom on 14/11/2022.
 //
 
-#ifndef LIVEKIT_WEBRTC_VIDEO_FRAME_BUFFER_H
-#define LIVEKIT_WEBRTC_VIDEO_FRAME_BUFFER_H
+#pragma once
 
 #include <memory>
 
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame_buffer.h"
-#include "rust_types.h"
 
 namespace livekit {
-
+class VideoFrameBuffer;
+class PlanarYuvBuffer;
+class PlanarYuv8Buffer;
+class PlanarYuv16BBuffer;
+class BiplanarYuvBuffer;
+class BiplanarYuv8Buffer;
 class I420Buffer;
 class I420ABuffer;
 class I422Buffer;
 class I444Buffer;
 class I010Buffer;
 class NV12Buffer;
+}  // namespace livekit
+#include "webrtc-sys/src/video_frame_buffer.rs.h"
+
+namespace livekit {
 
 class VideoFrameBuffer {
  public:
@@ -194,5 +201,3 @@ static std::unique_ptr<VideoFrameBuffer> _unique_video_frame_buffer() {
 }
 
 }  // namespace livekit
-
-#endif  // LIVEKIT_WEBRTC_VIDEO_FRAME_BUFFER_H

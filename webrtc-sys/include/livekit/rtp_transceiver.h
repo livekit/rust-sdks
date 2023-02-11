@@ -2,8 +2,7 @@
 // Created by Théo Monnom on 02/09/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_RTP_TRANSCEIVER_H
-#define CLIENT_SDK_NATIVE_RTP_TRANSCEIVER_H
+#pragma once
 
 #include <memory>
 
@@ -15,9 +14,11 @@
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "rust/cxx.h"
-#include "rust_types.h"
-#include "webrtc-sys/src/rtc_error.rs.h"
-#include "webrtc-sys/src/rtp_parameters.rs.h"
+
+namespace livekit {
+class RtpTransceiver;
+}
+#include "webrtc-sys/src/rtp_transceiver.rs.h"
 
 namespace livekit {
 
@@ -71,5 +72,3 @@ static std::shared_ptr<RtpTransceiver> _shared_rtp_transceiver() {
 }
 
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_RTP_TRANSCEIVER_H

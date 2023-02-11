@@ -2,13 +2,18 @@
 // Created by theom on 14/11/2022.
 //
 
-#ifndef LIVEKIT_WEBRTC_VIDEO_FRAME_H
-#define LIVEKIT_WEBRTC_VIDEO_FRAME_H
+#pragma once
 
 #include "api/video/video_frame.h"
-#include "livekit/rust_types.h"
 #include "livekit/video_frame_buffer.h"
 #include "rtc_base/checks.h"
+
+namespace livekit {
+class VideoFrame;
+class VideoFrameBuilder;
+}  // namespace livekit
+
+#include "webrtc-sys/src/video_frame.rs.h"
 
 namespace livekit {
 
@@ -54,5 +59,3 @@ class VideoFrameBuilder {
 std::unique_ptr<VideoFrameBuilder> create_video_frame_builder();
 
 }  // namespace livekit
-
-#endif  // LIVEKIT_WEBRTC_VIDEO_FRAME_H

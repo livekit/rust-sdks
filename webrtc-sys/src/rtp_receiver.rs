@@ -4,21 +4,21 @@ use crate::impl_thread_safety;
 pub mod ffi {
 
     extern "C++" {
-        include!("webrtc-sys/src/webrtc.rs.h");
-        include!("webrtc-sys/src/rtp_parameters.rs.h");
-        include!("webrtc-sys/src/helper.rs.h");
+        include!("livekit/webrtc.h");
+        include!("livekit/rtp_parameters.h");
+        include!("livekit/helper.h");
+        include!("livekit/media_stream.h");
 
         type MediaType = crate::webrtc::ffi::MediaType;
         type RtpParameters = crate::rtp_parameters::ffi::RtpParameters;
         type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
+        type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
+        type MediaStream = crate::media_stream::ffi::MediaStream;
     }
 
     unsafe extern "C++" {
         include!("livekit/rtp_receiver.h");
-        include!("livekit/media_stream.h");
 
-        type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
-        type MediaStream = crate::media_stream::ffi::MediaStream;
         type RtpReceiver;
 
         fn track(self: &RtpReceiver) -> SharedPtr<MediaStreamTrack>;

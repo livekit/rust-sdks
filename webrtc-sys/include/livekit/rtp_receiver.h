@@ -2,17 +2,20 @@
 // Created by Théo Monnom on 01/09/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_RTP_RECEIVER_H
-#define CLIENT_SDK_NATIVE_RTP_RECEIVER_H
+#pragma once
 
 #include <memory>
 
 #include "api/rtp_receiver_interface.h"
+#include "livekit/helper.h"
 #include "livekit/media_stream.h"
 #include "livekit/rtp_parameters.h"
 #include "rust/cxx.h"
-#include "webrtc-sys/src/helper.rs.h"
-#include "webrtc-sys/src/rtp_parameters.rs.h"
+
+namespace livekit {
+class RtpReceiver;
+}
+#include "webrtc-sys/src/rtp_receiver.rs.h"
 
 namespace livekit {
 
@@ -48,5 +51,3 @@ static std::shared_ptr<RtpReceiver> _shared_rtp_receiver() {
 }
 
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_RTP_RECEIVER_H

@@ -16,7 +16,6 @@
 #include "livekit/video_decoder_factory.h"
 #include "livekit/video_encoder_factory.h"
 #include "media/engine/webrtc_media_engine.h"
-#include "webrtc-sys/src/peer_connection_factory.rs.h"
 
 namespace livekit {
 

@@ -2,12 +2,11 @@
 // Created by theom on 04/09/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_RTC_ERROR_H
-#define CLIENT_SDK_NATIVE_RTC_ERROR_H
+#pragma once
 
 #include "api/rtc_error.h"
 #include "rust/cxx.h"
-#include "rust_types.h"
+#include "webrtc-sys/src/rtc_error.rs.h"
 
 namespace livekit {
 
@@ -21,5 +20,3 @@ void throw_error();
 #endif
 
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_RTC_ERROR_H

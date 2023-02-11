@@ -1,8 +1,7 @@
-#ifndef VIDEO_DECODER_FACTORY_H
-#define VIDEO_DECODER_FACTORY_H
+#pragma once
 
-#include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_decoder.h"
+#include "api/video_codecs/video_decoder_factory.h"
 
 namespace livekit {
 class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
@@ -18,5 +17,3 @@ class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
   std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories_;
 };
 }  // namespace livekit
-
-#endif  // VIDEO_DECODER_FACTORY_H

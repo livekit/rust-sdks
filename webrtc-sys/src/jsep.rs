@@ -39,11 +39,15 @@ pub mod ffi {
         fn on_set_remote_description_complete(self: &SetRemoteSdpObserverWrapper, error: RTCError);
     }
 
-    unsafe extern "C++" {
-        include!("webrtc-sys/src/rtc_error.rs.h");
-        include!("livekit/jsep.h");
+    extern "C++" {
+        include!("livekit/rtc_error.h");
 
         type RTCError = crate::rtc_error::ffi::RTCError;
+    }
+
+    unsafe extern "C++" {
+        include!("livekit/jsep.h");
+
         type IceCandidate;
         type SessionDescription;
         type NativeCreateSdpObserverHandle;

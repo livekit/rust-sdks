@@ -1,5 +1,4 @@
-#ifndef CLIENT_SDK_NATIVE_RTP_PARAMETERS_H
-#define CLIENT_SDK_NATIVE_RTP_PARAMETERS_H
+#pragma once
 
 #include <memory>
 
@@ -7,7 +6,7 @@
 #include "api/priority.h"
 #include "api/rtp_parameters.h"
 #include "api/rtp_transceiver_direction.h"
-#include "livekit/rust_types.h"
+#include "webrtc-sys/src/rtp_parameters.rs.h"
 
 namespace livekit {
 
@@ -46,4 +45,3 @@ RtcpParameters to_rust_rtcp_parameters(webrtc::RtcpParameters params);
 RtpParameters to_rust_rtp_parameters(webrtc::RtpParameters params);
 
 }  // namespace livekit
-#endif  // CLIENT_SDK_NATIVE_RTP_PARAMETERS_H

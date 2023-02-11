@@ -2,14 +2,12 @@
 // Created by Théo Monnom on 31/08/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_MEDIA_STREAM_INTERFACE_H
-#define CLIENT_SDK_NATIVE_MEDIA_STREAM_INTERFACE_H
+#pragma once
 
 #include <memory>
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
-#include "livekit/rust_types.h"
 #include "livekit/video_frame.h"
 #include "media/base/adapted_video_track_source.h"
 #include "rtc_base/synchronization/mutex.h"
@@ -17,10 +15,16 @@
 #include "rust/cxx.h"
 
 namespace livekit {
-
-class NativeVideoFrameSink;
+class MediaStream;
+class MediaStreamTrack;
 class VideoTrack;
 class AudioTrack;
+class NativeVideoFrameSink;
+class AdaptedVideoTrackSource;
+}  // namespace livekit
+#include "webrtc-sys/src/media_stream.rs.h"
+
+namespace livekit {
 
 class MediaStream {
  public:
@@ -165,5 +169,3 @@ static std::shared_ptr<MediaStream> _shared_media_stream() {
 }
 
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_MEDIA_STREAM_INTERFACE_H

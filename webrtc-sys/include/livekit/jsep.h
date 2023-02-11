@@ -2,8 +2,7 @@
 // Created by Théo Monnom on 01/09/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_JSEP_H
-#define CLIENT_SDK_NATIVE_JSEP_H
+#pragma once
 
 #include <memory>
 
@@ -12,7 +11,15 @@
 #include "api/set_local_description_observer_interface.h"
 #include "api/set_remote_description_observer_interface.h"
 #include "rust/cxx.h"
-#include "rust_types.h"
+
+namespace livekit {
+class IceCandidate;
+class SessionDescription;
+struct NativeCreateSdpObserverHandle;
+struct NativeSetLocalSdpObserverHandle;
+struct NativeSetRemoteSdpObserverHandle;
+};  // namespace livekit
+#include "webrtc-sys/src/jsep.rs.h"
 
 namespace livekit {
 
@@ -128,5 +135,3 @@ std::unique_ptr<NativeSetRemoteSdpObserverHandle>
 create_native_set_remote_sdp_observer(
     rust::Box<SetRemoteSdpObserverWrapper> observer);
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_JSEP_H

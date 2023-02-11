@@ -9,7 +9,6 @@
 
 #include "livekit/rtc_error.h"
 #include "rtc_base/ref_counted_object.h"
-#include "webrtc-sys/src/jsep.rs.h"
 
 namespace livekit {
 

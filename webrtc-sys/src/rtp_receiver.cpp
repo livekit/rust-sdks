@@ -6,14 +6,9 @@
 
 #include "absl/types/optional.h"
 #include "api/rtp_transceiver_interface.h"
-#include "livekit/helper.h"
 #include "livekit/media_stream.h"
 #include "livekit/rtp_parameters.h"
 #include "livekit/rtp_transceiver.h"
-#include "webrtc-sys/src/media_stream.rs.h"
-#include "webrtc-sys/src/rtp_parameters.rs.h"
-#include "webrtc-sys/src/rtp_receiver.rs.h"
-#include "webrtc-sys/src/rtp_transceiver.rs.h"
 
 namespace livekit {
 

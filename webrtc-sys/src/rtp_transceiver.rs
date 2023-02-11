@@ -11,8 +11,10 @@ pub mod ffi {
     }
 
     extern "C++" {
-        include!("webrtc-sys/src/webrtc.rs.h");
-        include!("webrtc-sys/src/rtp_parameters.rs.h");
+        include!("livekit/webrtc.h");
+        include!("livekit/rtp_parameters.h");
+        include!("livekit/rtp_sender.h");
+        include!("livekit/rtp_receiver.h");
 
         type MediaType = crate::webrtc::ffi::MediaType;
         type RtpTransceiverDirection = crate::webrtc::ffi::RtpTransceiverDirection;
@@ -20,16 +22,14 @@ pub mod ffi {
         type RtpCodecCapability = crate::rtp_parameters::ffi::RtpCodecCapability;
         type RtpHeaderExtensionCapability =
             crate::rtp_parameters::ffi::RtpHeaderExtensionCapability;
+        type RtpSender = crate::rtp_sender::ffi::RtpSender;
+        type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
     }
 
     unsafe extern "C++" {
         include!("livekit/rtp_transceiver.h");
-        include!("livekit/rtp_sender.h");
-        include!("livekit/rtp_receiver.h");
 
         type RtpTransceiver;
-        type RtpSender = crate::rtp_sender::ffi::RtpSender;
-        type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
 
         fn media_type(self: &RtpTransceiver) -> MediaType;
         fn mid(self: &RtpTransceiver) -> Result<String>;

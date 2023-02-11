@@ -1,5 +1,4 @@
-#ifndef CLIENT_SDK_NATIVE_RTP_SENDER_H
-#define CLIENT_SDK_NATIVE_RTP_SENDER_H
+#pragma once
 
 #include <memory>
 
@@ -8,7 +7,11 @@
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_parameters.h"
 #include "rust/cxx.h"
-#include "webrtc-sys/src/rtp_parameters.rs.h"
+
+namespace livekit {
+class RtpSender;
+}
+#include "webrtc-sys/src/rtp_sender.rs.h"
 
 namespace livekit {
 
@@ -47,5 +50,3 @@ static std::shared_ptr<RtpSender> _shared_rtp_sender() {
   return nullptr;  // Ignore
 }
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_RTP_SENDER_H

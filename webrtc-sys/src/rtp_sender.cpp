@@ -1,7 +1,5 @@
 #include "livekit/rtp_sender.h"
 
-#include "webrtc-sys/src/rtc_error.rs.h"
-
 namespace livekit {
 
 RtpSender::RtpSender(rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)

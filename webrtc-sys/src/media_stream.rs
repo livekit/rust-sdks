@@ -28,16 +28,20 @@ pub mod ffi {
         pub max_fps: f64,
     }
 
+    extern "C++" {
+        include!("livekit/video_frame.h");
+
+        type VideoFrame = crate::video_frame::ffi::VideoFrame;
+    }
+
     unsafe extern "C++" {
         include!("livekit/media_stream.h");
-        include!("livekit/video_frame.h");
 
         type NativeVideoFrameSink;
         type MediaStreamTrack;
         type MediaStream;
         type AudioTrack;
         type VideoTrack;
-        type VideoFrame = crate::video_frame::ffi::VideoFrame;
         type AdaptedVideoTrackSource;
 
         fn id(self: &MediaStream) -> String;

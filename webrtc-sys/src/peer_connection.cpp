@@ -7,8 +7,6 @@
 #include "livekit/media_stream.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_transceiver.h"
-#include "webrtc-sys/src/peer_connection.rs.h"
-#include "webrtc-sys/src/rtp_transceiver.rs.h"
 
 namespace livekit {
 

@@ -6,8 +6,6 @@
 
 #include <utility>
 
-#include "webrtc-sys/src/data_channel.rs.h"
-
 namespace livekit {
 
 DataChannel::DataChannel(

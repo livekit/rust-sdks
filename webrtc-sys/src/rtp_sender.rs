@@ -2,20 +2,20 @@
 pub mod ffi {
 
     extern "C++" {
-        include!("webrtc-sys/src/webrtc.rs.h");
-        include!("webrtc-sys/src/rtp_parameters.rs.h");
+        include!("livekit/webrtc.h");
+        include!("livekit/rtp_parameters.h");
+        include!("livekit/media_stream.h");
 
         type MediaType = crate::webrtc::ffi::MediaType;
         type RtpEncodingParameters = crate::rtp_parameters::ffi::RtpEncodingParameters;
         type RtpParameters = crate::rtp_parameters::ffi::RtpParameters;
+        type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
     }
 
     unsafe extern "C++" {
-        include!("livekit/media_stream.h");
         include!("livekit/rtp_sender.h");
 
         type RtpSender;
-        type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
 
         fn set_track(self: &RtpSender, track: SharedPtr<MediaStreamTrack>) -> bool;
         fn track(self: &RtpSender) -> SharedPtr<MediaStreamTrack>;

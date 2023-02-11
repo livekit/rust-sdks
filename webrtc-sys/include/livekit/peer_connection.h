@@ -2,25 +2,29 @@
 // Created by Théo Monnom on 30/08/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_PEER_CONNECTION_H
-#define CLIENT_SDK_NATIVE_PEER_CONNECTION_H
+#pragma once
 
 #include <memory>
 
 #include "api/peer_connection_interface.h"
-#include "data_channel.h"
-#include "jsep.h"
+#include "livekit/data_channel.h"
+#include "livekit/jsep.h"
 #include "livekit/media_stream.h"
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "livekit/rtp_transceiver.h"
+#include "livekit/webrtc.h"
 #include "rust/cxx.h"
-#include "rust_types.h"
-#include "webrtc-sys/src/helper.rs.h"
-#include "webrtc.h"
 
 namespace livekit {
 class NativeAddIceCandidateObserver;
+class PeerConnection;
+class NativeAddIceCandidateObserver;
+class NativePeerConnectionObserver;
+}  // namespace livekit
+#include "webrtc-sys/src/peer_connection.rs.h"
+
+namespace livekit {
 
 class PeerConnection {
  public:
@@ -176,5 +180,3 @@ create_native_peer_connection_observer(
     std::shared_ptr<RTCRuntime> rtc_runtime,
     rust::Box<PeerConnectionObserverWrapper> observer);
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_PEER_CONNECTION_H

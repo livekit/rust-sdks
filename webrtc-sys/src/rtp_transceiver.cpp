@@ -4,8 +4,6 @@
 
 #include "livekit/rtp_transceiver.h"
 
-#include "webrtc-sys/src/rtp_transceiver.rs.h"
-
 namespace livekit {
 RtpTransceiver::RtpTransceiver(
     rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver)

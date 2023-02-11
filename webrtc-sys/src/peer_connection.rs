@@ -78,20 +78,19 @@ pub mod ffi {
         use_obsolete_sctp_sdp: bool,
     }
 
-    unsafe extern "C++" {
-        include!("livekit/peer_connection.h");
-        include!("livekit/jsep.h");
-        include!("livekit/data_channel.h");
-        include!("livekit/rtp_receiver.h");
-        include!("livekit/rtp_transceiver.h");
-        include!("livekit/media_stream.h");
+    extern "C++" {
+        include!("livekit/rtc_error.h");
+        include!("livekit/helper.h");
         include!("livekit/candidate.h");
-        include!("webrtc-sys/src/rtc_error.rs.h");
-        include!("webrtc-sys/src/helper.rs.h");
+        include!("livekit/media_stream.h");
+        include!("livekit/rtp_transceiver.h");
+        include!("livekit/rtp_receiver.h");
+        include!("livekit/data_channel.h");
+        include!("livekit/jsep.h");
+        include!("livekit/webrtc.h");
 
         type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
         type CandidatePtr = crate::helper::ffi::CandidatePtr;
-
         type RTCError = crate::rtc_error::ffi::RTCError;
         type Candidate = crate::candidate::ffi::Candidate;
         type IceCandidate = crate::jsep::ffi::IceCandidate;
@@ -105,6 +104,10 @@ pub mod ffi {
         type NativeDataChannelInit = crate::data_channel::ffi::NativeDataChannelInit;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
         type RTCRuntime = crate::webrtc::ffi::RTCRuntime;
+    }
+
+    unsafe extern "C++" {
+        include!("livekit/peer_connection.h");
 
         type NativeAddIceCandidateObserver;
         type NativePeerConnectionObserver;

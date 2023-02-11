@@ -2,12 +2,12 @@
 // Created by Théo Monnom on 01/12/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_YUV_HELPER_H
-#define CLIENT_SDK_NATIVE_YUV_HELPER_H
+#pragma once
 
 #include <memory>
 
 #include "api/video/yuv_helper.h"
+#include "webrtc-sys/src/yuv_helper.rs.h"
 
 namespace livekit {
 
@@ -68,5 +68,3 @@ static void i420_to_rgba(const uint8_t* src_y,
 }
 
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_YUV_HELPER_H

@@ -2,12 +2,16 @@
 // Created by Théo Monnom on 01/09/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_CANDIDATE_H
-#define CLIENT_SDK_NATIVE_CANDIDATE_H
+#pragma once
 
 #include <memory>
 
 #include "api/candidate.h"
+
+namespace livekit {
+class Candidate;
+}
+#include "webrtc-sys/src/candidate.rs.h"
 
 // cricket::Candidate
 namespace livekit {
@@ -25,5 +29,3 @@ static std::shared_ptr<Candidate> _shared_candidate() {
 }
 
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_CANDIDATE_H

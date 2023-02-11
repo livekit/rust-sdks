@@ -9,9 +9,7 @@
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
-#include "livekit/rust_types.h"
 #include "rtc_base/ref_counted_object.h"
-#include "webrtc-sys/src/media_stream.rs.h"
 
 namespace livekit {
 

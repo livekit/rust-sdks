@@ -1,16 +1,9 @@
-///
-/// This file should not be included in other headers
-///
-
-#ifndef RUST_HELPER_H
-#define RUST_HELPER_H
+#pragma once
 
 #include "rust/cxx.h"
+#include "webrtc-sys/src/helper.rs.h"
 
 namespace livekit {
-
-struct MediaStreamPtr;
-struct CandidatePtr;
 
 // Impl not needed
 static rust::Vec<MediaStreamPtr> _vec_media_stream_ptr() {
@@ -21,5 +14,3 @@ static rust::Vec<CandidatePtr> _vec_candidate_ptr() {
 }
 
 }  // namespace livekit
-
-#endif  // RUST_HELPER_H
