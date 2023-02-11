@@ -5,6 +5,22 @@
 #include "livekit/rtp_transceiver.h"
 
 namespace livekit {
+
+webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
+    RtpTransceiverInit init) {
+  {
+    webrtc::RtpTransceiverInit native;
+    native.direction =
+        static_cast<webrtc::RtpTransceiverDirection>(init.direction);
+    native.stream_ids = std::vector<std::string>(init.stream_ids.begin(),
+                                                 init.stream_ids.end());
+    for (auto encoding : init.send_encodings)
+      native.send_encodings.push_back(
+          to_native_rtp_encoding_paramters(encoding));
+    return native;
+  }
+}
+
 RtpTransceiver::RtpTransceiver(
     rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver)
     : transceiver_(std::move(transceiver)) {}
