@@ -10,8 +10,6 @@
 
 namespace livekit {
 
-struct KeyValue;
-
 webrtc::RtcpFeedback to_native_rtcp_feedback(RtcpFeedback feedback);
 webrtc::RtpCodecCapability to_native_rtp_codec_capability(
     RtpCodecCapability capability);

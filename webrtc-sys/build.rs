@@ -158,6 +158,7 @@ fn main() {
     builder.file("src/rtp_receiver.cpp");
     builder.file("src/rtp_sender.cpp");
     builder.file("src/rtp_transceiver.cpp");
+    builder.file("src/rtp_parameters.cpp");
     builder.file("src/rtc_error.cpp");
     builder.file("src/webrtc.cpp");
     builder.file("src/video_frame.cpp");
