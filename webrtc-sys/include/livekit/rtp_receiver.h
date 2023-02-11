@@ -16,7 +16,6 @@ namespace livekit {
 class RtpReceiver;
 }
 #include "webrtc-sys/src/rtp_receiver.rs.h"
-
 namespace livekit {
 
 // TODO(theomonnom): Implement RtpReceiverObserverInterface?

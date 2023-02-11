@@ -113,27 +113,27 @@ std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver_for_media(
   return std::make_shared<RtpTransceiver>(result.value());
 }
 
-rust::Vec<std::shared_ptr<RtpSender>> PeerConnection::get_senders() const {
-  rust::Vec<std::shared_ptr<RtpSender>> vec;
+rust::Vec<RtpSenderPtr> PeerConnection::get_senders() const {
+  rust::Vec<RtpSenderPtr> vec;
   for (auto sender : peer_connection_->GetSenders())
-    vec.push_back(std::make_shared<RtpSender>(sender));
+    vec.push_back(RtpSenderPtr{std::make_shared<RtpSender>(sender)});
 
   return vec;
 }
 
-rust::Vec<std::shared_ptr<RtpReceiver>> PeerConnection::get_receivers() const {
-  rust::Vec<std::shared_ptr<RtpReceiver>> vec;
+rust::Vec<RtpReceiverPtr> PeerConnection::get_receivers() const {
+  rust::Vec<RtpReceiverPtr> vec;
   for (auto receiver : peer_connection_->GetReceivers())
-    vec.push_back(std::make_shared<RtpReceiver>(receiver));
+    vec.push_back(RtpReceiverPtr{std::make_shared<RtpReceiver>(receiver)});
 
   return vec;
 }
 
-rust::Vec<std::shared_ptr<RtpTransceiver>> PeerConnection::get_transceivers()
-    const {
-  rust::Vec<std::shared_ptr<RtpTransceiver>> vec;
+rust::Vec<RtpTransceiverPtr> PeerConnection::get_transceivers() const {
+  rust::Vec<RtpTransceiverPtr> vec;
   for (auto transceiver : peer_connection_->GetTransceivers())
-    vec.push_back(std::make_shared<RtpTransceiver>(transceiver));
+    vec.push_back(
+        RtpTransceiverPtr{std::make_shared<RtpTransceiver>(transceiver)});
 
   return vec;
 }

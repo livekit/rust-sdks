@@ -12,7 +12,6 @@ namespace livekit {
 class VideoFrame;
 class VideoFrameBuilder;
 }  // namespace livekit
-
 #include "webrtc-sys/src/video_frame.rs.h"
 
 namespace livekit {

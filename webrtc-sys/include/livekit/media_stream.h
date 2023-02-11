@@ -8,6 +8,7 @@
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
+#include "livekit/helper.h"
 #include "livekit/video_frame.h"
 #include "media/base/adapted_video_track_source.h"
 #include "rtc_base/synchronization/mutex.h"
@@ -31,8 +32,8 @@ class MediaStream {
   explicit MediaStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
 
   rust::String id() const;
-  rust::Vec<std::shared_ptr<VideoTrack>> get_video_tracks() const;
-  rust::Vec<std::shared_ptr<AudioTrack>> get_audio_tracks() const;
+  rust::Vec<VideoTrackPtr> get_video_tracks() const;
+  rust::Vec<AudioTrackPtr> get_audio_tracks() const;
 
   std::shared_ptr<AudioTrack> find_audio_track(rust::String track_id) const;
   std::shared_ptr<VideoTrack> find_video_track(rust::String track_id) const;

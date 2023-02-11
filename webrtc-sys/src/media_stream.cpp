@@ -21,18 +21,18 @@ rust::String MediaStream::id() const {
   return media_stream_->id();
 }
 
-rust::Vec<std::shared_ptr<VideoTrack>> MediaStream::get_video_tracks() const {
-  rust::Vec<std::shared_ptr<VideoTrack>> rust;
+rust::Vec<VideoTrackPtr> MediaStream::get_video_tracks() const {
+  rust::Vec<VideoTrackPtr> rust;
   for (auto video : media_stream_->GetVideoTracks())
-    rust.push_back(std::make_shared<VideoTrack>(video));
+    rust.push_back(VideoTrackPtr{std::make_shared<VideoTrack>(video)});
 
   return rust;
 }
 
-rust::Vec<std::shared_ptr<AudioTrack>> MediaStream::get_audio_tracks() const {
-  rust::Vec<std::shared_ptr<AudioTrack>> rust;
+rust::Vec<AudioTrackPtr> MediaStream::get_audio_tracks() const {
+  rust::Vec<AudioTrackPtr> rust;
   for (auto audio : media_stream_->GetAudioTracks())
-    rust.push_back(std::make_shared<AudioTrack>(audio));
+    rust.push_back(AudioTrackPtr{std::make_shared<AudioTrack>(audio)});
 
   return rust;
 }

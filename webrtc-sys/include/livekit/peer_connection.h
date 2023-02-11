@@ -8,6 +8,7 @@
 
 #include "api/peer_connection_interface.h"
 #include "livekit/data_channel.h"
+#include "livekit/helper.h"
 #include "livekit/jsep.h"
 #include "livekit/media_stream.h"
 #include "livekit/rtp_receiver.h"
@@ -65,11 +66,11 @@ class PeerConnection {
       MediaType media_type,
       RtpTransceiverInit init) const;
 
-  rust::Vec<std::shared_ptr<RtpSender>> get_senders() const;
+  rust::Vec<RtpSenderPtr> get_senders() const;
 
-  rust::Vec<std::shared_ptr<RtpReceiver>> get_receivers() const;
+  rust::Vec<RtpReceiverPtr> get_receivers() const;
 
-  rust::Vec<std::shared_ptr<RtpTransceiver>> get_transceivers() const;
+  rust::Vec<RtpTransceiverPtr> get_transceivers() const;
 
   std::unique_ptr<SessionDescription> local_description() const;
 
