@@ -15,7 +15,7 @@ pub use crate::rtc_error::RTCError;
 pub use crate::rtp_parameters::*;
 pub use crate::rtp_receiver::RtpReceiver;
 pub use crate::rtp_sender::RtpSender;
-pub use crate::rtp_transceiver::RtpTransceiver;
+pub use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverInit};
 pub use crate::video_frame::{VideoFrame, VideoRotation};
 pub use crate::video_frame_buffer::*;
 pub use crate::webrtc::*;

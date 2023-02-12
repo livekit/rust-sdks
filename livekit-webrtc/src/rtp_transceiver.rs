@@ -3,6 +3,23 @@ use cxx::SharedPtr;
 use std::fmt::{Debug, Formatter};
 use webrtc_sys::rtp_transceiver as sys_rt;
 
+#[derive(Debug)]
+pub struct RtpTransceiverInit {
+    pub direction: RtpTransceiverDirection,
+    pub stream_ids: Vec<String>,
+    pub send_encodings: Vec<RtpEncodingParameters>,
+}
+
+impl From<RtpTransceiverInit> for sys_rt::ffi::RtpTransceiverInit {
+    fn from(value: RtpTransceiverInit) -> Self {
+        Self {
+            direction: value.direction,
+            stream_ids: value.stream_ids,
+            send_encodings: value.send_encodings.into_iter().map(Into::into).collect()
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RtpTransceiver {
     cxx_handle: SharedPtr<sys_rt::ffi::RtpTransceiver>,

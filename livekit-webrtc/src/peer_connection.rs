@@ -156,6 +156,60 @@ impl PeerConnection {
             .map_err(|e| unsafe { RTCError::from(e.what()) })
     }
 
+    pub fn add_transceiver(
+        &self,
+        track: MediaStreamTrackHandle,
+        init: RtpTransceiverInit,
+    ) -> Result<RtpTransceiver, RTCError> {
+        let res = self
+            .cxx_handle
+            .add_transceiver(track.cxx_handle(), init.into());
+
+        match res {
+            Ok(cxx_handle) => Ok(RtpTransceiver::new(cxx_handle)),
+            Err(e) => unsafe { Err(RTCError::from(e.what())) },
+        }
+    }
+
+    pub fn add_transceiver_for_media(
+        &self,
+        media_type: MediaType,
+        init: RtpTransceiverInit,
+    ) -> Result<RtpTransceiver, RTCError> {
+        let res = self
+            .cxx_handle
+            .add_transceiver_for_media(media_type, init.into());
+
+        match res {
+            Ok(cxx_handle) => Ok(RtpTransceiver::new(cxx_handle)),
+            Err(e) => unsafe { Err(RTCError::from(e.what())) },
+        }
+    }
+
+    pub fn senders(&self) -> Vec<RtpSender> {
+        self.cxx_handle
+            .get_senders()
+            .into_iter()
+            .map(|sender| RtpSender::new(sender.ptr))
+            .collect()
+    }
+
+    pub fn receivers(&self) -> Vec<RtpReceiver> {
+        self.cxx_handle
+            .get_receivers()
+            .into_iter()
+            .map(|receiver| RtpReceiver::new(receiver.ptr))
+            .collect()
+    }
+
+    pub fn transceivers(&self) -> Vec<RtpTransceiver> {
+        self.cxx_handle
+            .get_transceivers()
+            .into_iter()
+            .map(|transceiver| RtpTransceiver::new(transceiver.ptr))
+            .collect()
+    }
+
     pub fn create_data_channel(
         &self,
         label: &str,
