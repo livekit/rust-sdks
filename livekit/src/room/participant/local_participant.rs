@@ -1,6 +1,7 @@
 use super::{
     impl_participant_trait, ConnectionQuality, ParticipantInternalTrait, ParticipantShared,
 };
+use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::proto;
 use crate::publication::TrackPublication;
@@ -31,7 +32,7 @@ impl LocalParticipant {
         }
     }
 
-    pub async fn publish_track(&self) {}
+    pub async fn publish_track(&self, track: LocalTrackHandle, options: TrackPublishOptions) {}
 
     pub async fn publish_data(
         &self,
