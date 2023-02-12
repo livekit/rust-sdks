@@ -1,13 +1,13 @@
 use std::fmt::{Debug, Formatter};
 
-use cxx::UniquePtr;
+use cxx::{SharedPtr, UniquePtr};
 
 pub use sys_jsep::ffi::{SdpParseError, SdpType};
 use webrtc_sys::jsep as sys_jsep;
 
-// TODO Maybe we can replace that by a serialized IceCandidateInit
+#[derive(Clone)]
 pub struct IceCandidate {
-    cxx_handle: UniquePtr<sys_jsep::ffi::IceCandidate>,
+    cxx_handle: SharedPtr<sys_jsep::ffi::IceCandidate>,
 }
 
 impl Debug for IceCandidate {
@@ -34,11 +34,11 @@ impl IceCandidate {
         }
     }
 
-    pub(crate) fn new(cxx_handle: UniquePtr<sys_jsep::ffi::IceCandidate>) -> Self {
+    pub(crate) fn new(cxx_handle: SharedPtr<sys_jsep::ffi::IceCandidate>) -> Self {
         Self { cxx_handle }
     }
 
-    pub(crate) fn release(self) -> UniquePtr<sys_jsep::ffi::IceCandidate> {
+    pub(crate) fn release(self) -> SharedPtr<sys_jsep::ffi::IceCandidate> {
         self.cxx_handle
     }
 

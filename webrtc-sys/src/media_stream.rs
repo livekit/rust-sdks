@@ -1,6 +1,6 @@
-use cxx::UniquePtr;
-
+use crate::impl_thread_safety;
 use crate::video_frame::ffi::VideoFrame;
+use cxx::UniquePtr;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -22,51 +22,68 @@ pub mod ffi {
     }
 
     // -1 = optional
+    #[derive(Debug)]
     pub struct VideoTrackSourceConstraints {
         pub min_fps: f64,
         pub max_fps: f64,
     }
 
+    extern "C++" {
+        include!("livekit/video_frame.h");
+        include!("livekit/helper.h");
+
+        type VideoFrame = crate::video_frame::ffi::VideoFrame;
+        type VideoTrackPtr = crate::helper::ffi::VideoTrackPtr;
+        type AudioTrackPtr = crate::helper::ffi::AudioTrackPtr;
+    }
+
     unsafe extern "C++" {
         include!("livekit/media_stream.h");
-        include!("livekit/video_frame.h");
 
         type NativeVideoFrameSink;
         type MediaStreamTrack;
         type MediaStream;
         type AudioTrack;
         type VideoTrack;
-        type VideoFrame = crate::video_frame::ffi::VideoFrame;
+        type AdaptedVideoTrackSource;
 
         fn id(self: &MediaStream) -> String;
+        fn get_audio_tracks(self: &MediaStream) -> Vec<AudioTrackPtr>;
+        fn get_video_tracks(self: &MediaStream) -> Vec<VideoTrackPtr>;
+        fn find_audio_track(self: &MediaStream, track_id: String) -> SharedPtr<AudioTrack>;
+        fn find_video_track(self: &MediaStream, track_id: String) -> SharedPtr<VideoTrack>;
+        fn add_audio_track(self: &MediaStream, audio_track: SharedPtr<AudioTrack>) -> bool;
+        fn add_video_track(self: &MediaStream, video_track: SharedPtr<VideoTrack>) -> bool;
+        fn remove_audio_track(self: &MediaStream, audio_track: SharedPtr<AudioTrack>) -> bool;
+        fn remove_video_track(self: &MediaStream, video_track: SharedPtr<VideoTrack>) -> bool;
 
         fn kind(self: &MediaStreamTrack) -> String;
         fn id(self: &MediaStreamTrack) -> String;
         fn enabled(self: &MediaStreamTrack) -> bool;
-        fn set_enabled(self: Pin<&mut MediaStreamTrack>, enable: bool) -> bool;
+        fn set_enabled(self: &MediaStreamTrack, enable: bool) -> bool;
         fn state(self: &MediaStreamTrack) -> TrackState;
 
-        unsafe fn add_sink(self: Pin<&mut VideoTrack>, sink: Pin<&mut NativeVideoFrameSink>);
-        unsafe fn remove_sink(self: Pin<&mut VideoTrack>, sink: Pin<&mut NativeVideoFrameSink>);
+        unsafe fn add_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
+        unsafe fn remove_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
 
-        fn set_should_receive(self: Pin<&mut VideoTrack>, should_receive: bool);
+        fn set_should_receive(self: &VideoTrack, should_receive: bool);
         fn should_receive(self: &VideoTrack) -> bool;
         fn content_hint(self: &VideoTrack) -> ContentHint;
-        fn set_content_hint(self: Pin<&mut VideoTrack>, hint: ContentHint);
+        fn set_content_hint(self: &VideoTrack, hint: ContentHint);
 
         fn create_native_video_frame_sink(
             observer: Box<VideoFrameSinkWrapper>,
         ) -> UniquePtr<NativeVideoFrameSink>;
 
-        unsafe fn video_to_media(track: *const VideoTrack) -> *const MediaStreamTrack;
-        unsafe fn audio_to_media(track: *const AudioTrack) -> *const MediaStreamTrack;
+        fn on_captured_frame(self: &AdaptedVideoTrackSource, frame: UniquePtr<VideoFrame>) -> bool;
+
         unsafe fn media_to_video(track: *const MediaStreamTrack) -> *const VideoTrack;
         unsafe fn media_to_audio(track: *const MediaStreamTrack) -> *const AudioTrack;
 
-        fn _unique_media_stream_track() -> UniquePtr<MediaStreamTrack>; // Ignore
-        fn _unique_media_stream() -> UniquePtr<MediaStream>; // Ignore
-        fn _unique_audio_track() -> UniquePtr<AudioTrack>; // Ignore
-        fn _unique_video_track() -> UniquePtr<VideoTrack>; // Ignore
+        fn _shared_media_stream_track() -> SharedPtr<MediaStreamTrack>;
+        fn _shared_audio_track() -> SharedPtr<AudioTrack>;
+        fn _shared_video_track() -> SharedPtr<VideoTrack>;
+        fn _shared_media_stream() -> SharedPtr<MediaStream>;
     }
 
     extern "Rust" {
@@ -81,16 +98,11 @@ pub mod ffi {
     }
 }
 
-unsafe impl Sync for ffi::MediaStreamTrack {}
-unsafe impl Send for ffi::MediaStreamTrack {}
-unsafe impl Sync for ffi::MediaStream {}
-unsafe impl Send for ffi::MediaStream {}
-unsafe impl Send for ffi::AudioTrack {}
-unsafe impl Sync for ffi::AudioTrack {}
-unsafe impl Send for ffi::VideoTrack {}
-unsafe impl Sync for ffi::VideoTrack {}
-unsafe impl Send for ffi::NativeVideoFrameSink {}
-unsafe impl Sync for ffi::NativeVideoFrameSink {}
+impl_thread_safety!(ffi::MediaStreamTrack, Send + Sync);
+impl_thread_safety!(ffi::MediaStream, Send + Sync);
+impl_thread_safety!(ffi::AudioTrack, Send + Sync);
+impl_thread_safety!(ffi::VideoTrack, Send + Sync);
+impl_thread_safety!(ffi::NativeVideoFrameSink, Send + Sync);
 
 pub trait VideoFrameSink: Send + Sync {
     fn on_frame(&self, frame: UniquePtr<VideoFrame>);

@@ -7,8 +7,8 @@
 #include <iomanip>
 #include <memory>
 
-#include "webrtc-sys/src/jsep.rs.h"
 #include "livekit/rtc_error.h"
+#include "rtc_base/ref_counted_object.h"
 
 namespace livekit {
 
@@ -47,7 +47,7 @@ std::unique_ptr<webrtc::IceCandidateInterface> IceCandidate::release() {
   return std::move(ice_candidate_);
 }
 
-std::unique_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
+std::shared_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
                                                    int sdp_mline_index,
                                                    rust::String sdp) {
   webrtc::SdpParseError error;
@@ -57,7 +57,7 @@ std::unique_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
     throw std::runtime_error(serialize_sdp_error(error));
   }
 
-  return std::make_unique<IceCandidate>(
+  return std::make_shared<IceCandidate>(
       std::unique_ptr<webrtc::IceCandidateInterface>(ice_rtc));
 }
 

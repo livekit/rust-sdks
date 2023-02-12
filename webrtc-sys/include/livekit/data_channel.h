@@ -2,19 +2,22 @@
 // Created by Théo Monnom on 01/09/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_DATA_CHANNEL_H
-#define CLIENT_SDK_NATIVE_DATA_CHANNEL_H
+#pragma once
 
 #include <memory>
 
 #include "api/data_channel_interface.h"
+#include "livekit/webrtc.h"
 #include "rust/cxx.h"
-#include "rust_types.h"
-#include "webrtc.h"
 
 namespace livekit {
+class DataChannel;
 using NativeDataChannelInit = webrtc::DataChannelInit;
 class NativeDataChannelObserver;
+}  // namespace livekit
+#include "webrtc-sys/src/data_channel.rs.h"
+
+namespace livekit {
 
 class DataChannel {
  public:
@@ -22,8 +25,8 @@ class DataChannel {
       std::shared_ptr<RTCRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel);
 
-  void register_observer(NativeDataChannelObserver& observer);
-  void unregister_observer();
+  void register_observer(NativeDataChannelObserver& observer) const;
+  void unregister_observer() const;
   bool send(const DataBuffer& buffer) const;
   rust::String label() const;
   DataState state() const;
@@ -57,5 +60,3 @@ class NativeDataChannelObserver : public webrtc::DataChannelObserver {
 std::unique_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
     rust::Box<DataChannelObserverWrapper> observer);
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_DATA_CHANNEL_H

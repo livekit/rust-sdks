@@ -1,21 +1,19 @@
-use std::fmt::Debug;
-use std::mem::ManuallyDrop;
-
-use cxx::UniquePtr;
-
 use crate::candidate::ffi::Candidate;
 use crate::data_channel::ffi::DataChannel;
+use crate::impl_thread_safety;
 use crate::jsep::ffi::IceCandidate;
 use crate::media_stream::ffi::MediaStream;
 use crate::rtc_error::ffi::RTCError;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
+use cxx::{SharedPtr, UniquePtr};
+use std::mem::ManuallyDrop;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     struct CandidatePair {
-        local: UniquePtr<Candidate>,
-        remote: UniquePtr<Candidate>,
+        local: SharedPtr<Candidate>,
+        remote: SharedPtr<Candidate>,
     }
 
     struct CandidatePairChangeEvent {
@@ -80,39 +78,44 @@ pub mod ffi {
         use_obsolete_sctp_sdp: bool,
     }
 
-    // Wrapper to opaque C++ objects
-    // https://github.com/dtolnay/cxx/issues/741
-    struct MediaStreamPtr {
-        pub ptr: UniquePtr<MediaStream>,
-    }
-
-    struct CandidatePtr {
-        pub ptr: UniquePtr<Candidate>,
-    }
-
-    unsafe extern "C++" {
-        include!("livekit/peer_connection.h");
-        include!("livekit/jsep.h");
-        include!("livekit/data_channel.h");
-        include!("livekit/rtp_receiver.h");
-        include!("livekit/rtp_transceiver.h");
-        include!("livekit/media_stream.h");
+    extern "C++" {
+        include!("livekit/rtc_error.h");
+        include!("livekit/helper.h");
         include!("livekit/candidate.h");
-        include!("webrtc-sys/src/rtc_error.rs.h");
+        include!("livekit/media_stream.h");
+        include!("livekit/rtp_transceiver.h");
+        include!("livekit/rtp_sender.h");
+        include!("livekit/rtp_receiver.h");
+        include!("livekit/data_channel.h");
+        include!("livekit/jsep.h");
+        include!("livekit/webrtc.h");
 
+        type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
+        type CandidatePtr = crate::helper::ffi::CandidatePtr;
+        type RtpSenderPtr = crate::helper::ffi::RtpSenderPtr;
+        type RtpReceiverPtr = crate::helper::ffi::RtpReceiverPtr;
+        type RtpTransceiverPtr = crate::helper::ffi::RtpTransceiverPtr;
         type RTCError = crate::rtc_error::ffi::RTCError;
         type Candidate = crate::candidate::ffi::Candidate;
         type IceCandidate = crate::jsep::ffi::IceCandidate;
         type DataChannel = crate::data_channel::ffi::DataChannel;
+        type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
         type RtpTransceiver = crate::rtp_transceiver::ffi::RtpTransceiver;
+        type RtpTransceiverInit = crate::rtp_transceiver::ffi::RtpTransceiverInit;
         type MediaStream = crate::media_stream::ffi::MediaStream;
+        type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type NativeCreateSdpObserverHandle = crate::jsep::ffi::NativeCreateSdpObserverHandle;
         type NativeSetLocalSdpObserverHandle = crate::jsep::ffi::NativeSetLocalSdpObserverHandle;
         type NativeSetRemoteSdpObserverHandle = crate::jsep::ffi::NativeSetRemoteSdpObserverHandle;
         type NativeDataChannelInit = crate::data_channel::ffi::NativeDataChannelInit;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
+        type MediaType = crate::webrtc::ffi::MediaType;
         type RTCRuntime = crate::webrtc::ffi::RTCRuntime;
+    }
+
+    unsafe extern "C++" {
+        include!("livekit/peer_connection.h");
 
         type NativeAddIceCandidateObserver;
         type NativePeerConnectionObserver;
@@ -121,7 +124,7 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as long as the operation ends
         unsafe fn create_offer(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             observer: Pin<&mut NativeCreateSdpObserverHandle>,
             options: RTCOfferAnswerOptions,
         );
@@ -129,7 +132,7 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as long as the operation ends
         unsafe fn create_answer(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             observer: Pin<&mut NativeCreateSdpObserverHandle>,
             options: RTCOfferAnswerOptions,
         );
@@ -137,7 +140,7 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as long as the operation ends
         unsafe fn set_local_description(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             desc: UniquePtr<SessionDescription>,
             observer: Pin<&mut NativeSetLocalSdpObserverHandle>,
         );
@@ -145,20 +148,46 @@ pub mod ffi {
         /// SAFETY
         /// The observer must live as long as the operation ends
         unsafe fn set_remote_description(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             desc: UniquePtr<SessionDescription>,
             observer: Pin<&mut NativeSetRemoteSdpObserverHandle>,
         );
 
+        fn add_track(
+            self: &PeerConnection,
+            track: SharedPtr<MediaStreamTrack>,
+            stream_ids: &Vec<String>,
+        ) -> Result<SharedPtr<RtpSender>>;
+
+        fn remove_track(self: &PeerConnection, sender: SharedPtr<RtpSender>) -> Result<()>;
+
+        fn add_transceiver(
+            self: &PeerConnection,
+            track: SharedPtr<MediaStreamTrack>,
+            init: RtpTransceiverInit,
+        ) -> Result<SharedPtr<RtpTransceiver>>;
+
+        fn add_transceiver_for_media(
+            self: &PeerConnection,
+            media_type: MediaType,
+            init: RtpTransceiverInit,
+        ) -> Result<SharedPtr<RtpTransceiver>>;
+
+        fn get_senders(self: &PeerConnection) -> Vec<RtpSenderPtr>;
+
+        fn get_receivers(self: &PeerConnection) -> Vec<RtpReceiverPtr>;
+
+        fn get_transceivers(self: &PeerConnection) -> Vec<RtpTransceiverPtr>;
+
         fn create_data_channel(
-            self: Pin<&mut PeerConnection>,
+            self: &PeerConnection,
             label: String,
             init: UniquePtr<NativeDataChannelInit>,
         ) -> Result<UniquePtr<DataChannel>>;
 
         fn add_ice_candidate(
-            self: Pin<&mut PeerConnection>,
-            candidate: UniquePtr<IceCandidate>,
+            self: &PeerConnection,
+            candidate: SharedPtr<IceCandidate>,
             observer: Pin<&mut NativeAddIceCandidateObserver>,
         );
 
@@ -194,8 +223,8 @@ pub mod ffi {
         type PeerConnectionObserverWrapper;
 
         fn on_signaling_change(self: &PeerConnectionObserverWrapper, new_state: SignalingState);
-        fn on_add_stream(self: &PeerConnectionObserverWrapper, stream: UniquePtr<MediaStream>);
-        fn on_remove_stream(self: &PeerConnectionObserverWrapper, stream: UniquePtr<MediaStream>);
+        fn on_add_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
+        fn on_remove_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
         fn on_data_channel(
             self: &PeerConnectionObserverWrapper,
             data_channel: UniquePtr<DataChannel>,
@@ -220,7 +249,7 @@ pub mod ffi {
         );
         fn on_ice_candidate(
             self: &PeerConnectionObserverWrapper,
-            candidate: UniquePtr<IceCandidate>,
+            candidate: SharedPtr<IceCandidate>,
         );
         fn on_ice_candidate_error(
             self: &PeerConnectionObserverWrapper,
@@ -244,39 +273,22 @@ pub mod ffi {
         );
         fn on_add_track(
             self: &PeerConnectionObserverWrapper,
-            receiver: UniquePtr<RtpReceiver>,
+            receiver: SharedPtr<RtpReceiver>,
             streams: Vec<MediaStreamPtr>,
         );
-        fn on_track(self: &PeerConnectionObserverWrapper, transceiver: UniquePtr<RtpTransceiver>);
-        fn on_remove_track(self: &PeerConnectionObserverWrapper, receiver: UniquePtr<RtpReceiver>);
+        fn on_track(self: &PeerConnectionObserverWrapper, transceiver: SharedPtr<RtpTransceiver>);
+        fn on_remove_track(self: &PeerConnectionObserverWrapper, receiver: SharedPtr<RtpReceiver>);
         fn on_interesting_usage(self: &PeerConnectionObserverWrapper, usage_pattern: i32);
     }
 }
 
 // https://webrtc.github.io/webrtc-org/native-code/native-apis/
-unsafe impl Send for ffi::PeerConnection {}
-
-unsafe impl Sync for ffi::PeerConnection {}
-
-unsafe impl Send for ffi::NativePeerConnectionObserver {}
-
-unsafe impl Sync for ffi::NativePeerConnectionObserver {}
-
-unsafe impl Sync for ffi::NativeAddIceCandidateObserver {}
-
-unsafe impl Send for ffi::NativeAddIceCandidateObserver {}
-
-unsafe impl Sync for ffi::NativeSetRemoteSdpObserverHandle {}
-
-unsafe impl Send for ffi::NativeSetRemoteSdpObserverHandle {}
-
-unsafe impl Sync for ffi::NativeSetLocalSdpObserverHandle {}
-
-unsafe impl Send for ffi::NativeSetLocalSdpObserverHandle {}
-
-unsafe impl Sync for ffi::NativeCreateSdpObserverHandle {}
-
-unsafe impl Send for ffi::NativeCreateSdpObserverHandle {}
+impl_thread_safety!(ffi::PeerConnection, Send + Sync);
+impl_thread_safety!(ffi::NativePeerConnectionObserver, Send + Sync);
+impl_thread_safety!(ffi::NativeAddIceCandidateObserver, Send + Sync);
+impl_thread_safety!(ffi::NativeSetRemoteSdpObserverHandle, Send + Sync);
+impl_thread_safety!(ffi::NativeSetLocalSdpObserverHandle, Send + Sync);
+impl_thread_safety!(ffi::NativeCreateSdpObserverHandle, Send + Sync);
 
 impl Default for ffi::RTCOfferAnswerOptions {
     /*
@@ -311,8 +323,8 @@ impl AddIceCandidateObserverWrapper {
 
 pub trait PeerConnectionObserver: Send + Sync {
     fn on_signaling_change(&self, new_state: ffi::SignalingState);
-    fn on_add_stream(&self, stream: UniquePtr<MediaStream>);
-    fn on_remove_stream(&self, stream: UniquePtr<MediaStream>);
+    fn on_add_stream(&self, stream: SharedPtr<MediaStream>);
+    fn on_remove_stream(&self, stream: SharedPtr<MediaStream>);
     fn on_data_channel(&self, data_channel: UniquePtr<DataChannel>);
     fn on_renegotiation_needed(&self);
     fn on_negotiation_needed_event(&self, event: u32);
@@ -320,7 +332,7 @@ pub trait PeerConnectionObserver: Send + Sync {
     fn on_standardized_ice_connection_change(&self, new_state: ffi::IceConnectionState);
     fn on_connection_change(&self, new_state: ffi::PeerConnectionState);
     fn on_ice_gathering_change(&self, new_state: ffi::IceGatheringState);
-    fn on_ice_candidate(&self, candidate: UniquePtr<IceCandidate>);
+    fn on_ice_candidate(&self, candidate: SharedPtr<IceCandidate>);
     fn on_ice_candidate_error(
         &self,
         address: String,
@@ -329,12 +341,12 @@ pub trait PeerConnectionObserver: Send + Sync {
         error_code: i32,
         error_text: String,
     );
-    fn on_ice_candidates_removed(&self, removed: Vec<UniquePtr<Candidate>>);
+    fn on_ice_candidates_removed(&self, removed: Vec<SharedPtr<Candidate>>);
     fn on_ice_connection_receiving_change(&self, receiving: bool);
     fn on_ice_selected_candidate_pair_changed(&self, event: ffi::CandidatePairChangeEvent);
-    fn on_add_track(&self, receiver: UniquePtr<RtpReceiver>, streams: Vec<UniquePtr<MediaStream>>);
-    fn on_track(&self, transceiver: UniquePtr<RtpTransceiver>);
-    fn on_remove_track(&self, receiver: UniquePtr<RtpReceiver>);
+    fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<SharedPtr<MediaStream>>);
+    fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>);
+    fn on_remove_track(&self, receiver: SharedPtr<RtpReceiver>);
     fn on_interesting_usage(&self, usage_pattern: i32);
 }
 
@@ -356,13 +368,13 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_add_stream(&self, stream: UniquePtr<MediaStream>) {
+    fn on_add_stream(&self, stream: SharedPtr<MediaStream>) {
         unsafe {
             (*self.observer).on_add_stream(stream);
         }
     }
 
-    fn on_remove_stream(&self, stream: UniquePtr<MediaStream>) {
+    fn on_remove_stream(&self, stream: SharedPtr<MediaStream>) {
         unsafe {
             (*self.observer).on_remove_stream(stream);
         }
@@ -410,7 +422,7 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_ice_candidate(&self, candidate: UniquePtr<IceCandidate>) {
+    fn on_ice_candidate(&self, candidate: SharedPtr<IceCandidate>) {
         unsafe {
             (*self.observer).on_ice_candidate(candidate);
         }
@@ -453,7 +465,7 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_add_track(&self, receiver: UniquePtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
+    fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
         let mut vec = Vec::new();
 
         for v in streams {
@@ -465,13 +477,13 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_track(&self, transceiver: UniquePtr<RtpTransceiver>) {
+    fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>) {
         unsafe {
             (*self.observer).on_track(transceiver);
         }
     }
 
-    fn on_remove_track(&self, receiver: UniquePtr<RtpReceiver>) {
+    fn on_remove_track(&self, receiver: SharedPtr<RtpReceiver>) {
         unsafe {
             (*self.observer).on_remove_track(receiver);
         }

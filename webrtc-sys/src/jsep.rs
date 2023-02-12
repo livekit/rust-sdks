@@ -1,9 +1,9 @@
+use crate::impl_thread_safety;
+use cxx::UniquePtr;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Display, Formatter};
 use std::mem::ManuallyDrop;
 use std::str::FromStr;
-
-use cxx::UniquePtr;
 
 use crate::rtc_error::ffi::RTCError;
 
@@ -39,11 +39,15 @@ pub mod ffi {
         fn on_set_remote_description_complete(self: &SetRemoteSdpObserverWrapper, error: RTCError);
     }
 
-    unsafe extern "C++" {
-        include!("webrtc-sys/src/rtc_error.rs.h");
-        include!("livekit/jsep.h");
+    extern "C++" {
+        include!("livekit/rtc_error.h");
 
         type RTCError = crate::rtc_error::ffi::RTCError;
+    }
+
+    unsafe extern "C++" {
+        include!("livekit/jsep.h");
+
         type IceCandidate;
         type SessionDescription;
         type NativeCreateSdpObserverHandle;
@@ -72,13 +76,13 @@ pub mod ffi {
             sdp_mid: String,
             sdp_mline_index: i32,
             sdp: String,
-        ) -> Result<UniquePtr<IceCandidate>>;
+        ) -> Result<SharedPtr<IceCandidate>>;
         fn create_session_description(
             sdp_type: SdpType,
             sdp: String,
         ) -> Result<UniquePtr<SessionDescription>>;
 
-        fn _unique_ice_candidate() -> UniquePtr<IceCandidate>; // Ignore
+        fn _shared_ice_candidate() -> SharedPtr<IceCandidate>; // Ignore
         fn _unique_session_description() -> UniquePtr<SessionDescription>; // Ignore
     }
 }
@@ -95,13 +99,8 @@ impl Display for ffi::SdpParseError {
     }
 }
 
-unsafe impl Send for ffi::SessionDescription {}
-
-unsafe impl Sync for ffi::SessionDescription {}
-
-unsafe impl Send for ffi::IceCandidate {}
-
-unsafe impl Sync for ffi::IceCandidate {}
+impl_thread_safety!(ffi::SessionDescription, Send + Sync);
+impl_thread_safety!(ffi::IceCandidate, Send + Sync);
 
 impl ffi::SdpParseError {
     /// # Safety

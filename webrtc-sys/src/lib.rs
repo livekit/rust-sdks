@@ -1,11 +1,14 @@
 pub mod candidate;
 pub mod data_channel;
+pub mod helper;
 pub mod jsep;
 pub mod media_stream;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod rtc_error;
+pub mod rtp_parameters;
 pub mod rtp_receiver;
+pub mod rtp_sender;
 pub mod rtp_transceiver;
 pub mod video_frame;
 pub mod video_frame_buffer;

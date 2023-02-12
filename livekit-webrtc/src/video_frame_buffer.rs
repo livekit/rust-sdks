@@ -6,6 +6,18 @@ use webrtc_sys::video_frame_buffer as vfb_sys;
 
 use crate::yuv_helper::{self, ConvertError};
 
+macro_rules! recursive_cast {
+    ($ptr:expr $(, $fnc:ident)*) => {
+        {
+            let ptr = $ptr;
+            $(
+                let ptr = unsafe { vfb_sys::ffi::$fnc(ptr) };
+            )*
+            ptr
+        }
+    };
+}
+
 #[derive(Debug)]
 pub enum VideoFrameBufferType {
     Native,
@@ -94,25 +106,70 @@ impl VideoFrameBuffer {
     pub(crate) fn new(mut cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
         unsafe {
             match cxx_handle.buffer_type().into() {
-                VideoFrameBufferType::Native => Self::Native(NativeBuffer::new(cxx_handle)),
+                VideoFrameBufferType::Native => Self::Native(NativeBuffer::from(cxx_handle)),
                 VideoFrameBufferType::I420 => {
-                    Self::I420(I420Buffer::new(cxx_handle.pin_mut().get_i420()))
+                    Self::I420(I420Buffer::from(cxx_handle.pin_mut().get_i420()))
                 }
                 VideoFrameBufferType::I420A => {
-                    Self::I420A(I420ABuffer::new(cxx_handle.pin_mut().get_i420a()))
+                    Self::I420A(I420ABuffer::from(cxx_handle.pin_mut().get_i420a()))
                 }
                 VideoFrameBufferType::I422 => {
-                    Self::I422(I422Buffer::new(cxx_handle.pin_mut().get_i422()))
+                    Self::I422(I422Buffer::from(cxx_handle.pin_mut().get_i422()))
                 }
                 VideoFrameBufferType::I444 => {
-                    Self::I444(I444Buffer::new(cxx_handle.pin_mut().get_i444()))
+                    Self::I444(I444Buffer::from(cxx_handle.pin_mut().get_i444()))
                 }
                 VideoFrameBufferType::I010 => {
-                    Self::I010(I010Buffer::new(cxx_handle.pin_mut().get_i010()))
+                    Self::I010(I010Buffer::from(cxx_handle.pin_mut().get_i010()))
                 }
                 VideoFrameBufferType::NV12 => {
-                    Self::NV12(NV12Buffer::new(cxx_handle.pin_mut().get_nv12()))
+                    Self::NV12(NV12Buffer::from(cxx_handle.pin_mut().get_nv12()))
                 }
+            }
+        }
+    }
+
+    #[allow(unused_unsafe)]
+    pub(crate) fn release(self) -> UniquePtr<vfb_sys::ffi::VideoFrameBuffer> {
+        unsafe {
+            match self {
+                VideoFrameBuffer::Native(native) => native.release(),
+                VideoFrameBuffer::I420(i420) => UniquePtr::from_raw(recursive_cast!(
+                    i420.release().into_raw(),
+                    i420_to_yuv8,
+                    yuv8_to_yuv,
+                    yuv_to_vfb
+                ) as *mut _),
+                VideoFrameBuffer::I420A(i420a) => UniquePtr::from_raw(recursive_cast!(
+                    i420a.release().into_raw(),
+                    i420a_to_yuv8,
+                    yuv8_to_yuv,
+                    yuv_to_vfb
+                ) as *mut _),
+                VideoFrameBuffer::I422(i422) => UniquePtr::from_raw(recursive_cast!(
+                    i422.release().into_raw(),
+                    i422_to_yuv8,
+                    yuv8_to_yuv,
+                    yuv_to_vfb
+                ) as *mut _),
+                VideoFrameBuffer::I444(i444) => UniquePtr::from_raw(recursive_cast!(
+                    i444.release().into_raw(),
+                    i444_to_yuv8,
+                    yuv8_to_yuv,
+                    yuv_to_vfb
+                ) as *mut _),
+                VideoFrameBuffer::I010(i010) => UniquePtr::from_raw(recursive_cast!(
+                    i010.release().into_raw(),
+                    i010_to_yuv16b,
+                    yuv16b_to_yuv,
+                    yuv_to_vfb
+                ) as *mut _),
+                VideoFrameBuffer::NV12(nv12) => UniquePtr::from_raw(recursive_cast!(
+                    nv12.release().into_raw(),
+                    nv12_to_biyuv8,
+                    biyuv8_to_biyuv,
+                    biyuv_to_vfb
+                ) as *mut _),
             }
         }
     }
@@ -195,18 +252,6 @@ impl VideoFrameBufferTrait for VideoFrameBuffer {
     );
 }
 
-macro_rules! recursive_cast {
-    ($ptr:expr $(, $fnc:ident)*) => {
-        {
-            let ptr = $ptr;
-            $(
-                let ptr = unsafe { vfb_sys::ffi::$fnc(ptr) };
-            )*
-            ptr
-        }
-    };
-}
-
 macro_rules! impl_video_frame_buffer {
     ($x:ty $(, $cast:ident)*) => {
 
@@ -241,7 +286,7 @@ macro_rules! impl_video_frame_buffer {
                     as *mut vfb_sys::ffi::VideoFrameBuffer;
 
                 unsafe {
-                    I420Buffer::new(Pin::new_unchecked(&mut *ptr).to_i420())
+                    I420Buffer::from(Pin::new_unchecked(&mut *ptr).to_i420())
                 }
             }
         }
@@ -456,43 +501,78 @@ impl_biyuv_buffer!(NV12Buffer, nv12_to_biyuv8, biyuv8_to_biyuv);
 impl_biyuv8_buffer!(NV12Buffer, nv12_to_biyuv8);
 
 impl NativeBuffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
+    fn from(cxx_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>) -> Self {
         Self { cxx_handle }
+    }
+
+    pub(crate) fn release(self) -> UniquePtr<vfb_sys::ffi::VideoFrameBuffer> {
+        self.cxx_handle
     }
 }
 
 impl I420Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I420Buffer>) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self::from(vfb_sys::ffi::create_i420_buffer(
+            width as i32,
+            height as i32,
+        ))
+    }
+
+    fn from(cxx_handle: UniquePtr<vfb_sys::ffi::I420Buffer>) -> Self {
         Self { cxx_handle }
+    }
+
+    pub(crate) fn release(self) -> UniquePtr<vfb_sys::ffi::I420Buffer> {
+        self.cxx_handle
     }
 }
 
 impl I420ABuffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I420ABuffer>) -> Self {
+    fn from(cxx_handle: UniquePtr<vfb_sys::ffi::I420ABuffer>) -> Self {
         Self { cxx_handle }
+    }
+
+    pub(crate) fn release(self) -> UniquePtr<vfb_sys::ffi::I420ABuffer> {
+        self.cxx_handle
     }
 }
 
 impl I422Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I422Buffer>) -> Self {
+    fn from(cxx_handle: UniquePtr<vfb_sys::ffi::I422Buffer>) -> Self {
         Self { cxx_handle }
+    }
+
+    pub(crate) fn release(self) -> UniquePtr<vfb_sys::ffi::I422Buffer> {
+        self.cxx_handle
     }
 }
 
 impl I444Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I444Buffer>) -> Self {
+    fn from(cxx_handle: UniquePtr<vfb_sys::ffi::I444Buffer>) -> Self {
         Self { cxx_handle }
+    }
+
+    pub(crate) fn release(self) -> UniquePtr<vfb_sys::ffi::I444Buffer> {
+        self.cxx_handle
     }
 }
 
 impl I010Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::I010Buffer>) -> Self {
+    fn from(cxx_handle: UniquePtr<vfb_sys::ffi::I010Buffer>) -> Self {
         Self { cxx_handle }
+    }
+
+    pub(crate) fn release(self) -> UniquePtr<vfb_sys::ffi::I010Buffer> {
+        self.cxx_handle
     }
 }
 
 impl NV12Buffer {
-    fn new(cxx_handle: UniquePtr<vfb_sys::ffi::NV12Buffer>) -> Self {
+    fn from(cxx_handle: UniquePtr<vfb_sys::ffi::NV12Buffer>) -> Self {
         Self { cxx_handle }
+    }
+
+    pub(crate) fn release(self) -> UniquePtr<vfb_sys::ffi::NV12Buffer> {
+        self.cxx_handle
     }
 }

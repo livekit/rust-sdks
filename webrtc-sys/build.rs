@@ -137,6 +137,8 @@ fn main() {
         "src/data_channel.rs",
         "src/jsep.rs",
         "src/candidate.rs",
+        "src/rtp_parameters.rs",
+        "src/rtp_sender.rs",
         "src/rtp_receiver.rs",
         "src/rtp_transceiver.rs",
         "src/rtc_error.rs",
@@ -144,6 +146,7 @@ fn main() {
         "src/video_frame.rs",
         "src/video_frame_buffer.rs",
         "src/yuv_helper.rs",
+        "src/helper.rs",
     ]);
 
     builder.file("src/peer_connection.cpp");
@@ -153,9 +156,13 @@ fn main() {
     builder.file("src/jsep.cpp");
     builder.file("src/candidate.cpp");
     builder.file("src/rtp_receiver.cpp");
+    builder.file("src/rtp_sender.cpp");
     builder.file("src/rtp_transceiver.cpp");
+    builder.file("src/rtp_parameters.cpp");
     builder.file("src/rtc_error.cpp");
     builder.file("src/webrtc.cpp");
+    builder.file("src/video_frame.cpp");
+    builder.file("src/video_frame_buffer.cpp");
     builder.file("src/video_encoder_factory.cpp");
     builder.file("src/video_decoder_factory.cpp");
 

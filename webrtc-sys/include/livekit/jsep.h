@@ -2,15 +2,24 @@
 // Created by Théo Monnom on 01/09/2022.
 //
 
-#ifndef CLIENT_SDK_NATIVE_JSEP_H
-#define CLIENT_SDK_NATIVE_JSEP_H
+#pragma once
 
 #include <memory>
 
 #include "api/jsep.h"
 #include "api/ref_counted_base.h"
+#include "api/set_local_description_observer_interface.h"
+#include "api/set_remote_description_observer_interface.h"
 #include "rust/cxx.h"
-#include "rust_types.h"
+
+namespace livekit {
+class IceCandidate;
+class SessionDescription;
+struct NativeCreateSdpObserverHandle;
+struct NativeSetLocalSdpObserverHandle;
+struct NativeSetRemoteSdpObserverHandle;
+};  // namespace livekit
+#include "webrtc-sys/src/jsep.rs.h"
 
 namespace livekit {
 
@@ -31,11 +40,11 @@ class IceCandidate {
   std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate_;
 };
 
-std::unique_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
+std::shared_ptr<IceCandidate> create_ice_candidate(rust::String sdp_mid,
                                                    int sdp_mline_index,
                                                    rust::String sdp);
 
-static std::unique_ptr<IceCandidate> _unique_ice_candidate() {
+static std::shared_ptr<IceCandidate> _shared_ice_candidate() {
   return nullptr;  // Ignore
 }
 
@@ -126,5 +135,3 @@ std::unique_ptr<NativeSetRemoteSdpObserverHandle>
 create_native_set_remote_sdp_observer(
     rust::Box<SetRemoteSdpObserverWrapper> observer);
 }  // namespace livekit
-
-#endif  // CLIENT_SDK_NATIVE_JSEP_H

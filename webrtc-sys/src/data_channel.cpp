@@ -6,8 +6,6 @@
 
 #include <utility>
 
-#include "webrtc-sys/src/data_channel.rs.h"
-
 namespace livekit {
 
 DataChannel::DataChannel(
@@ -16,11 +14,11 @@ DataChannel::DataChannel(
     : rtc_runtime_(std::move(rtc_runtime)),
       data_channel_(std::move(data_channel)) {}
 
-void DataChannel::register_observer(NativeDataChannelObserver& observer) {
+void DataChannel::register_observer(NativeDataChannelObserver& observer) const {
   data_channel_->RegisterObserver(&observer);
 }
 
-void DataChannel::unregister_observer() {
+void DataChannel::unregister_observer() const {
   data_channel_->UnregisterObserver();
 }
 

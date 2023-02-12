@@ -2,17 +2,21 @@
 // Created by Théo Monnom on 03/08/2022.
 //
 
-#ifndef PEER_CONNECTION_FACTORY_H
-#define PEER_CONNECTION_FACTORY_H
+#pragma once
 
 #include "api/peer_connection_interface.h"
 #include "peer_connection.h"
-#include "rust_types.h"
 #include "webrtc.h"
 
 namespace livekit {
 using NativeRTCConfiguration =
     webrtc::PeerConnectionInterface::RTCConfiguration;
+
+class PeerConnectionFactory;
+}  // namespace livekit
+#include "webrtc-sys/src/peer_connection_factory.rs.h"
+
+namespace livekit {
 
 class PeerConnectionFactory {
  public:
@@ -33,5 +37,3 @@ std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory(
 std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(
     RTCConfiguration conf);
 }  // namespace livekit
-
-#endif  // PEER_CONNECTION_FACTORY_H

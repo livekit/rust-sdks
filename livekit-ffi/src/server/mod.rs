@@ -91,7 +91,7 @@ impl FFIServer {
 
     pub async fn close(&self) {
         // Close all rooms
-        for (k, (handle, shutdown_tx)) in self.rooms.write().drain() {
+        for (_, (handle, shutdown_tx)) in self.rooms.write().drain() {
             let _ = shutdown_tx.send(());
             let _ = handle.await;
         }
