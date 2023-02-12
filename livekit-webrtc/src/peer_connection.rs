@@ -36,8 +36,6 @@ impl Debug for PeerConnection {
             .field("signaling_state", &self.signaling_state())
             .field("ice_connection_state", &self.ice_connection_state())
             .field("ice_gathering_state", &self.ice_gathering_state())
-            .field("local_description", &self.local_description())
-            .field("remote_description", &self.remote_description())
             .finish()
     }
 }
@@ -138,6 +136,24 @@ impl PeerConnection {
         }
 
         rx.await.unwrap()
+    }
+
+    pub fn add_track(
+        &self,
+        track: MediaStreamTrackHandle,
+        stream_ids: &Vec<String>,
+    ) -> Result<RtpSender, RTCError> {
+        let res = self.cxx_handle.add_track(track.cxx_handle(), stream_ids);
+        match res {
+            Ok(cxx_handle) => Ok(RtpSender::new(cxx_handle)),
+            Err(e) => unsafe { Err(RTCError::from(e.what())) },
+        }
+    }
+
+    pub fn remove_track(&self, sender: RtpSender) -> Result<(), RTCError> {
+        self.cxx_handle
+            .remove_track(sender.cxx_handle())
+            .map_err(|e| unsafe { RTCError::from(e.what()) })
     }
 
     pub fn create_data_channel(

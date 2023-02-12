@@ -2,6 +2,10 @@ use cxx::SharedPtr;
 
 use webrtc_sys::webrtc as sys_rtc;
 
+pub use sys_rtc::ffi::MediaType;
+pub use sys_rtc::ffi::Priority;
+pub use sys_rtc::ffi::RtpTransceiverDirection;
+
 #[derive(Clone)]
 pub struct RTCRuntime {
     cxx_handle: SharedPtr<sys_rtc::ffi::RTCRuntime>,

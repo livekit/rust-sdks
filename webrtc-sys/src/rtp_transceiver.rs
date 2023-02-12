@@ -34,6 +34,7 @@ pub mod ffi {
         fn media_type(self: &RtpTransceiver) -> MediaType;
         fn mid(self: &RtpTransceiver) -> Result<String>;
         fn sender(self: &RtpTransceiver) -> SharedPtr<RtpSender>;
+        fn receiver(self: &RtpTransceiver) -> SharedPtr<RtpReceiver>;
         fn stopped(self: &RtpTransceiver) -> bool;
         fn stopping(self: &RtpTransceiver) -> bool;
         fn direction(self: &RtpTransceiver) -> RtpTransceiverDirection;

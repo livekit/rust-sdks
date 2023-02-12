@@ -33,6 +33,14 @@ impl MediaStreamTrackHandle {
             Self::Audio(AudioTrack::new(cxx_handle))
         }
     }
+
+    // TODO(theomonnom): enum_dispatch with visibility support?
+    pub(crate) fn cxx_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {
+        match self {
+            Self::Video(video) => video.cxx_handle(),
+            Self::Audio(audio) => audio.cxx_handle(),
+        }
+    }
 }
 
 impl Debug for MediaStreamTrackHandle {
@@ -62,8 +70,12 @@ pub struct AudioTrack {
 }
 
 impl AudioTrack {
-    pub(crate) fn new(cxx_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>) -> Arc<Self> {
+    fn new(cxx_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>) -> Arc<Self> {
         Arc::new(Self { cxx_handle })
+    }
+
+    pub(crate) fn cxx_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {
+        self.cxx_handle.clone()
     }
 }
 
@@ -96,6 +108,10 @@ impl VideoTrack {
         }
 
         Arc::new(track)
+    }
+
+    pub(crate) fn cxx_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {
+        self.cxx_handle.clone()
     }
 
     fn video_handle(&self) -> *const sys_ms::ffi::VideoTrack {
