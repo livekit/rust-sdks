@@ -1,5 +1,6 @@
 use crate::video_frame_buffer::VideoFrameBuffer;
 use cxx::UniquePtr;
+use std::fmt::{Debug, Formatter};
 use webrtc_sys::video_frame as vf_sys;
 
 #[derive(Debug)]
@@ -22,8 +23,31 @@ impl From<vf_sys::ffi::VideoRotation> for VideoRotation {
     }
 }
 
+impl From<VideoRotation> for vf_sys::ffi::VideoRotation {
+    fn from(rotation: VideoRotation) -> Self {
+        match rotation {
+            VideoRotation::VideoRotation0 => Self::VideoRotation0,
+            VideoRotation::VideoRotation90 => Self::VideoRotation90,
+            VideoRotation::VideoRotation180 => Self::VideoRotation180,
+            VideoRotation::VideoRotation270 => Self::VideoRotation270,
+        }
+    }
+}
+
 pub struct VideoFrame {
     cxx_handle: UniquePtr<vf_sys::ffi::VideoFrame>,
+}
+
+impl Debug for VideoFrame {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("VideoFrame")
+            .field("width", &self.width())
+            .field("height", &self.height())
+            .field("id", &self.id())
+            .field("rotation", &self.rotation())
+            .field("timestamp", &self.timestamp())
+            .finish()
+    }
 }
 
 impl VideoFrame {
@@ -73,5 +97,55 @@ impl VideoFrame {
     /// Only one wrapper musts exist at a time.
     pub(crate) unsafe fn video_frame_buffer(&self) -> VideoFrameBuffer {
         VideoFrameBuffer::new(self.cxx_handle.video_frame_buffer())
+    }
+
+    pub fn builder() -> VideoFrameBuilder {
+        VideoFrameBuilder::default()
+    }
+}
+
+pub struct VideoFrameBuilder {
+    cxx_handle: UniquePtr<vf_sys::ffi::VideoFrameBuilder>,
+}
+
+impl Debug for VideoFrameBuilder {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("VideoFrameBuilder").finish()
+    }
+}
+
+impl Default for VideoFrameBuilder {
+    fn default() -> Self {
+        Self {
+            cxx_handle: vf_sys::ffi::create_video_frame_builder(),
+        }
+    }
+}
+
+impl VideoFrameBuilder {
+    pub fn set_video_frame_buffer(mut self, buffer: VideoFrameBuffer) -> Self {
+        self.cxx_handle
+            .pin_mut()
+            .set_video_frame_buffer(buffer.release());
+        self
+    }
+
+    pub fn set_timestamp_us(mut self, ts_us: i64) -> Self {
+        self.cxx_handle.pin_mut().set_timestamp_us(ts_us);
+        self
+    }
+
+    pub fn set_rotation(mut self, rotation: VideoRotation) -> Self {
+        self.cxx_handle.pin_mut().set_rotation(rotation.into());
+        self
+    }
+
+    pub fn set_id(mut self, id: u16) -> Self {
+        self.cxx_handle.pin_mut().set_id(id);
+        self
+    }
+
+    pub fn build(mut self) -> VideoFrame {
+        VideoFrame::new(self.cxx_handle.pin_mut().build())
     }
 }
