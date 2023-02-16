@@ -13,3 +13,26 @@ pub mod video_frame;
 pub mod video_frame_buffer;
 pub mod webrtc;
 pub mod yuv_helper;
+
+macro_rules! impl_sys_conversion {
+    ($sys:ty, $safe:ty, [$($variant:ident),+]) => {
+        impl From<$sys> for $safe {
+            fn from(value: $sys) -> Self {
+                match value {
+                    $(<$sys>::$variant => Self::$variant,)+
+                    _ => panic!("invalid value from sys"),
+                }
+            }
+        }
+
+        impl From<$safe> for $sys {
+            fn from(value: $safe) -> Self {
+                match value {
+                    $(<$safe>::$variant => Self::$variant,)+
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use impl_sys_conversion;

@@ -1,8 +1,31 @@
 use super::{impl_track_trait, TrackShared};
+use crate::prelude::*;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LocalAudioTrack {
     shared: TrackShared,
+}
+
+impl LocalAudioTrack {
+    pub(crate) fn new(sid: TrackSid, name: String, track: Arc<AudioTrack>) -> Self {
+        Self {
+            shared: TrackShared::new(
+                sid,
+                name,
+                TrackKind::Audio,
+                MediaStreamTrackHandle::Audio(track),
+            ),
+        }
+    }
+
+    pub fn rtc_track(&self) -> Arc<AudioTrack> {
+        if let MediaStreamTrackHandle::Audio(audio) = &self.shared.rtc_track {
+            audio.clone()
+        } else {
+            unreachable!()
+        }
+    }
 }
 
 impl_track_trait!(LocalAudioTrack);

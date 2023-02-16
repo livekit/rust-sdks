@@ -8,6 +8,15 @@ pub enum LocalTrackHandle {
     Video(Arc<LocalVideoTrack>),
 }
 
+impl LocalTrackHandle {
+    pub fn rtc_track(&self) -> MediaStreamTrackHandle {
+        match self {
+            Self::Video(video) => MediaStreamTrackHandle::Video(video.rtc_track()),
+            Self::Audio(audio) => MediaStreamTrackHandle::Audio(audio.rtc_track()),
+        }
+    }
+}
+
 impl From<LocalTrackHandle> for TrackHandle {
     fn from(local_track: LocalTrackHandle) -> Self {
         match local_track {
@@ -29,4 +38,9 @@ impl TryFrom<TrackHandle> for LocalTrackHandle {
     }
 }
 
-impl_track_trait!(LocalTrackHandle, enum_dispatch, [Audio, Video]);
+impl_track_trait!(
+    LocalTrackHandle,
+    MediaStreamTrackHandle,
+    enum_dispatch,
+    [Audio, Video]
+);

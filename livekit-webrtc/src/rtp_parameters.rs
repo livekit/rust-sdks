@@ -1,13 +1,82 @@
+use crate::impl_sys_conversion;
 use crate::prelude::*;
 use std::collections::HashMap;
 use std::vec::Vec;
 use webrtc_sys::rtp_parameters as ps_sys;
 
-// Don't exporting structs here (only enum), cxx doesn't support Option and HashMap
-pub use ps_sys::ffi::{
-    DegradationPreference, FecMechanism, RtcpFeedbackMessageType, RtcpFeedbackType,
+pub use ps_sys::DEFAULT_BITRATE_PRIORITY;
+
+#[derive(Debug, Clone, Copy)]
+pub enum FecMechanism {
+    Red,
+    RedAndUlpfec,
+    FlexFec,
+}
+
+impl_sys_conversion!(
+    ps_sys::ffi::FecMechanism,
+    FecMechanism,
+    [Red, RedAndUlpfec, FlexFec]
+);
+
+#[derive(Debug, Clone, Copy)]
+pub enum RtcpFeedbackType {
+    Ccm,
+    Lntf,
+    Nack,
+    Remb,
+    TransportCC,
+}
+
+impl_sys_conversion!(
+    ps_sys::ffi::RtcpFeedbackType,
+    RtcpFeedbackType,
+    [Ccm, Lntf, Nack, Remb, TransportCC]
+);
+
+#[derive(Debug, Clone, Copy)]
+pub enum RtcpFeedbackMessageType {
+    GenericNack,
+    Pli,
+    Fir,
+}
+
+impl_sys_conversion!(
+    ps_sys::ffi::RtcpFeedbackMessageType,
+    RtcpFeedbackMessageType,
+    [GenericNack, Pli, Fir]
+);
+
+#[derive(Debug, Clone, Copy)]
+pub enum DegradationPreference {
+    Disabled,
+    MaintainFramerate,
+    MaintainResolution,
+    Balanced,
+}
+
+impl_sys_conversion!(
+    ps_sys::ffi::DegradationPreference,
+    DegradationPreference,
+    [Disabled, MaintainFramerate, MaintainResolution, Balanced]
+);
+
+#[derive(Debug)]
+pub enum RtpExtensionFilter {
+    DiscardEncryptedExtension,
+    PreferEncryptedExtension,
+    RequireEncryptedExtension,
+}
+
+impl_sys_conversion!(
+    ps_sys::ffi::RtpExtensionFilter,
     RtpExtensionFilter,
-};
+    [
+        DiscardEncryptedExtension,
+        PreferEncryptedExtension,
+        RequireEncryptedExtension
+    ]
+);
 
 #[derive(Debug, Clone)]
 pub struct RtcpFeedback {
@@ -126,8 +195,11 @@ fn into_map(vec: Vec<ps_sys::ffi::StringKeyValue>) -> HashMap<String, String> {
 impl From<ps_sys::ffi::RtcpFeedback> for RtcpFeedback {
     fn from(value: ps_sys::ffi::RtcpFeedback) -> Self {
         Self {
-            feedback_type: value.feedback_type,
-            message_type: value.has_message_type.then_some(value.message_type),
+            feedback_type: value.feedback_type.into(),
+            message_type: value
+                .has_message_type
+                .then_some(value.message_type)
+                .map(Into::into),
         }
     }
 }
@@ -137,7 +209,7 @@ impl From<ps_sys::ffi::RtpCodecCapability> for RtpCodecCapability {
         Self {
             mime_type: value.mime_type,
             name: value.name,
-            kind: value.kind,
+            kind: value.kind.into(),
             clock_rate: value.has_clock_rate.then_some(value.clock_rate),
             preferred_payload_type: value
                 .has_preferred_payload_type
@@ -161,7 +233,7 @@ impl From<ps_sys::ffi::RtpHeaderExtensionCapability> for RtpHeaderExtensionCapab
             uri: value.uri,
             preferred_id: value.has_preferred_id.then_some(value.preferred_id),
             preferred_encrypt: value.preferred_encrypt,
-            direction: value.direction,
+            direction: value.direction.into(),
         }
     }
 }
@@ -180,7 +252,7 @@ impl From<ps_sys::ffi::RtpFecParameters> for RtpFecParameters {
     fn from(value: ps_sys::ffi::RtpFecParameters) -> Self {
         Self {
             ssrc: value.has_ssrc.then_some(value.ssrc),
-            mechanism: value.mechanism,
+            mechanism: value.mechanism.into(),
         }
     }
 }
@@ -198,7 +270,7 @@ impl From<ps_sys::ffi::RtpEncodingParameters> for RtpEncodingParameters {
         Self {
             ssrc: value.has_ssrc.then_some(value.ssrc),
             bitrate_priority: value.bitrate_priority,
-            network_priority: value.network_priority,
+            network_priority: value.network_priority.into(),
             max_bitrate_bps: value.has_max_bitrate_bps.then_some(value.max_bitrate_bps),
             min_bitrate_bps: value.has_min_bitrate_bps.then_some(value.min_bitrate_bps),
             max_framerate: value.has_max_framerate.then_some(value.max_framerate),
@@ -221,7 +293,7 @@ impl From<ps_sys::ffi::RtpCodecParameters> for RtpCodecParameters {
         Self {
             mime_type: value.mime_type,
             name: value.name,
-            kind: value.kind,
+            kind: value.kind.into(),
             payload_type: value.payload_type,
             clock_rate: value.has_clock_rate.then_some(value.clock_rate),
             num_channels: value.has_num_channels.then_some(value.num_channels),
@@ -273,7 +345,8 @@ impl From<ps_sys::ffi::RtpParameters> for RtpParameters {
             rtcp: value.rtcp.into(),
             degradation_preference: value
                 .has_degradation_preference
-                .then_some(value.degradation_preference),
+                .then_some(value.degradation_preference)
+                .map(Into::into),
         }
     }
 }
@@ -291,11 +364,12 @@ fn into_vec(map: HashMap<String, String>) -> Vec<ps_sys::ffi::StringKeyValue> {
 impl From<RtcpFeedback> for ps_sys::ffi::RtcpFeedback {
     fn from(value: RtcpFeedback) -> Self {
         Self {
-            feedback_type: value.feedback_type,
+            feedback_type: value.feedback_type.into(),
             has_message_type: value.message_type.is_some(),
             message_type: value
                 .message_type
-                .unwrap_or(RtcpFeedbackMessageType::GenericNACK),
+                .unwrap_or(RtcpFeedbackMessageType::GenericNack)
+                .into(),
         }
     }
 }
@@ -305,7 +379,7 @@ impl From<RtpCodecCapability> for ps_sys::ffi::RtpCodecCapability {
         Self {
             mime_type: value.mime_type,
             name: value.name,
-            kind: value.kind,
+            kind: value.kind.into(),
             has_clock_rate: value.clock_rate.is_some(),
             clock_rate: value.clock_rate.unwrap_or(0),
             has_preferred_payload_type: value.preferred_payload_type.is_some(),
@@ -333,7 +407,7 @@ impl From<RtpHeaderExtensionCapability> for ps_sys::ffi::RtpHeaderExtensionCapab
             has_preferred_id: value.preferred_id.is_some(),
             preferred_id: value.preferred_id.unwrap_or(0),
             preferred_encrypt: value.preferred_encrypt,
-            direction: value.direction,
+            direction: value.direction.into(),
         }
     }
 }
@@ -353,7 +427,7 @@ impl From<RtpFecParameters> for ps_sys::ffi::RtpFecParameters {
         Self {
             has_ssrc: value.ssrc.is_some(),
             ssrc: value.ssrc.unwrap_or(0),
-            mechanism: value.mechanism,
+            mechanism: value.mechanism.into(),
         }
     }
 }
@@ -373,7 +447,7 @@ impl From<RtpEncodingParameters> for ps_sys::ffi::RtpEncodingParameters {
             has_ssrc: value.ssrc.is_some(),
             ssrc: value.ssrc.unwrap_or(0),
             bitrate_priority: value.bitrate_priority,
-            network_priority: value.network_priority,
+            network_priority: value.network_priority.into(),
             has_max_bitrate_bps: value.max_bitrate_bps.is_some(),
             max_bitrate_bps: value.max_bitrate_bps.unwrap_or(0),
             has_min_bitrate_bps: value.min_bitrate_bps.is_some(),
@@ -398,7 +472,7 @@ impl From<RtpCodecParameters> for ps_sys::ffi::RtpCodecParameters {
         Self {
             mime_type: value.mime_type,
             name: value.name,
-            kind: value.kind,
+            kind: value.kind.into(),
             payload_type: value.payload_type,
             has_clock_rate: value.clock_rate.is_some(),
             clock_rate: value.clock_rate.unwrap_or(0),
@@ -456,7 +530,27 @@ impl From<RtpParameters> for ps_sys::ffi::RtpParameters {
             has_degradation_preference: value.degradation_preference.is_some(),
             degradation_preference: value
                 .degradation_preference
-                .unwrap_or(DegradationPreference::Balanced),
+                .unwrap_or(DegradationPreference::Balanced)
+                .into(),
+        }
+    }
+}
+
+impl Default for RtpEncodingParameters {
+    fn default() -> Self {
+        Self {
+            ssrc: None,
+            bitrate_priority: DEFAULT_BITRATE_PRIORITY,
+            network_priority: Priority::Low,
+            active: true,
+            max_bitrate_bps: None,
+            min_bitrate_bps: None,
+            max_framerate: None,
+            num_temporal_layers: None,
+            scale_resolution_down_by: None,
+            scalability_mode: None,
+            adaptive_ptime: false,
+            rid: String::default(),
         }
     }
 }

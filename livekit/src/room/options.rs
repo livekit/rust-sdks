@@ -1,11 +1,6 @@
 use crate::prelude::*;
-
-pub const TELEPHONE_BITRATE: u32 = 12_000;
-pub const SPEECH_BITRATE: u32 = 20_000;
-pub const MUSIC_BITRATE: u32 = 32_000;
-pub const MUSIC_STEREO_BITRATE: u32 = 48_000;
-pub const MUSIC_HIGH_QUALITY_BITRATE: u32 = 64_000;
-pub const MUSIC_HIGH_QUALITY_STEREO_BITRATE: u32 = 96_000;
+use livekit_webrtc::prelude::*;
+use std::borrow::Cow;
 
 #[derive(Debug)]
 pub enum VideoCodec {
@@ -24,14 +19,46 @@ impl From<VideoCodec> for &'static str {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct VideoResolution {
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: f64,
+    pub aspect_ratio: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct VideoEncoding {
+    pub max_bitrate: i32,
+    pub max_framerate: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct VideoPreset {
+    pub encoding: VideoEncoding,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct AudioPreset {
+    pub max_bitrate: u32,
+}
+
+impl AudioPreset {
+    pub const fn new(max_bitrate: u32) -> Self {
+        Self { max_bitrate }
+    }
+}
+
 #[derive(Debug)]
 pub struct TrackPublishOptions {
     pub dynacast: bool,
     pub codec: VideoCodec,
-    pub audio_bitrate: u32,
     pub dtx: bool,
     pub red: bool,
     pub simulcast: bool,
+    pub screenshare: bool,
     pub name: String,
     pub source: TrackSource,
 }
@@ -41,12 +68,248 @@ impl Default for TrackPublishOptions {
         Self {
             dynacast: false,
             codec: VideoCodec::VP8,
-            audio_bitrate: SPEECH_BITRATE,
             dtx: true,
             red: true,
             simulcast: true,
+            screenshare: true,
             name: "unnamed track".to_owned(),
             source: TrackSource::Unknown,
         }
+    }
+}
+
+impl VideoPreset {
+    pub const fn new(width: u32, height: u32, max_bitrate: i32, max_framerate: f64) -> Self {
+        Self {
+            width,
+            height,
+            encoding: VideoEncoding {
+                max_bitrate,
+                max_framerate,
+            },
+        }
+    }
+
+    pub fn resolution(&self) -> VideoResolution {
+        VideoResolution {
+            width: self.width,
+            height: self.height,
+            frame_rate: self.encoding.max_framerate,
+            aspect_ratio: self.width as f32 / self.height as f32,
+        }
+    }
+}
+
+/// Compute appropriate RtpEncodingParameters from the video resolution.
+/// TrackPublishOptions helps to find the most appropriate encodings
+pub fn compute_video_encodings(
+    width: u32,
+    height: u32,
+    options: TrackPublishOptions,
+) -> Vec<RtpEncodingParameters> {
+    let encoding = compute_appropriate_encoding(options.screenshare, width, height);
+
+    let initial_preset = VideoPreset {
+        width,
+        height,
+        encoding: VideoEncoding {
+            max_bitrate: encoding.max_bitrate,
+            max_framerate: encoding.max_framerate,
+        },
+    };
+
+    if !options.simulcast {
+        return vec![];
+    }
+
+    let mut simulcast_presets =
+        compute_default_simulcast_presets(options.screenshare, &initial_preset);
+
+    let mid_preset = simulcast_presets.pop();
+    let low_preset = simulcast_presets.pop();
+
+    let size = u32::max(width, height);
+    if size >= 960 && low_preset.is_some() {
+        return into_rtp_encodings(
+            width,
+            height,
+            &[low_preset.unwrap(), mid_preset.unwrap(), initial_preset],
+        );
+    } else if size >= 480 {
+        return into_rtp_encodings(width, height, &[mid_preset.unwrap(), initial_preset]);
+    }
+
+    // Other layers not needed
+    into_rtp_encodings(width, height, &[initial_preset])
+}
+
+/// Return an appropriate VideoEncdoding for the specified resolution based on our presets
+fn compute_appropriate_encoding(is_screenshare: bool, width: u32, height: u32) -> VideoEncoding {
+    let presets = compute_presets_for_resolution(is_screenshare, width, height);
+    let size = u32::max(width, height);
+
+    for preset in presets {
+        if preset.width >= size {
+            return preset.encoding.clone();
+        }
+    }
+
+    unreachable!()
+}
+
+fn compute_presets_for_resolution(
+    is_screenshare: bool,
+    width: u32,
+    height: u32,
+) -> &'static [VideoPreset] {
+    if is_screenshare {
+        return screenshare::PRESETS;
+    }
+
+    // Check how close width & height are from 16/9 or 4/3
+    let ar = landscape_aspect_ratio(width, height);
+    if f32::abs(ar - 16.0 / 9.0) < f32::abs(ar - 4.0 / 3.0) {
+        return video::PRESETS;
+    }
+
+    video43::PRESETS
+}
+
+/// Returns our most appropriate default presets
+fn compute_default_simulcast_presets(
+    is_screenshare: bool,
+    initial: &VideoPreset,
+) -> Vec<VideoPreset> {
+    if is_screenshare {
+        return vec![screenshare::compute_default_simulcast_preset(initial)];
+    }
+
+    let ar = landscape_aspect_ratio(initial.width, initial.height);
+    if f32::abs(ar - 16.0 / 9.0) < f32::abs(ar - 4.0 / 3.0) {
+        return video::DEFAULT_SIMULCAST_PRESETS.to_owned();
+    }
+
+    video43::DEFAULT_SIMULCAST_PRESETS.to_owned()
+}
+
+fn landscape_aspect_ratio(width: u32, height: u32) -> f32 {
+    if width > height {
+        width as f32 / height as f32
+    } else {
+        height as f32 / width as f32
+    }
+}
+
+fn into_rtp_encodings(
+    initial_width: u32,
+    initial_height: u32,
+    presets: &[VideoPreset],
+) -> Vec<RtpEncodingParameters> {
+    let mut encodings = Vec::with_capacity(presets.len());
+    let size = u32::min(initial_width, initial_height);
+    for (i, preset) in presets.iter().enumerate() {
+        encodings.push(RtpEncodingParameters {
+            rid: VIDEO_RIDS[i].to_string(),
+            scale_resolution_down_by: Some(f64::max(
+                1.0,
+                size as f64 / u32::min(preset.width, preset.height) as f64,
+            )),
+            max_bitrate_bps: Some(preset.encoding.max_bitrate),
+            max_framerate: Some(preset.encoding.max_framerate),
+            ..Default::default()
+        })
+    }
+
+    encodings
+}
+
+const VIDEO_RIDS: &[char] = &['q', 'h', 'f'];
+
+pub mod audio {
+    use super::AudioPreset;
+
+    pub const TELEPHONE: AudioPreset = AudioPreset::new(12_000);
+    pub const SPEECH: AudioPreset = AudioPreset::new(20_000);
+    pub const MUSIC: AudioPreset = AudioPreset::new(32_000);
+    pub const MUSIC_STEREO: AudioPreset = AudioPreset::new(48_000);
+    pub const MUSIC_HIGH_QUALITY: AudioPreset = AudioPreset::new(64_000);
+    pub const MUSIC_HIGH_QUALITY_STEREO: AudioPreset = AudioPreset::new(96_000);
+
+    pub const PRESETS: &[AudioPreset] = &[
+        TELEPHONE,
+        SPEECH,
+        MUSIC,
+        MUSIC_STEREO,
+        MUSIC_HIGH_QUALITY,
+        MUSIC_HIGH_QUALITY_STEREO,
+    ];
+}
+
+pub mod video {
+    use super::VideoPreset;
+
+    pub const H90: VideoPreset = VideoPreset::new(160, 90, 60_000, 15.0);
+    pub const H180: VideoPreset = VideoPreset::new(320, 180, 120_000, 15.0);
+    pub const H216: VideoPreset = VideoPreset::new(384, 216, 180_000, 15.0);
+    pub const H360: VideoPreset = VideoPreset::new(640, 360, 300_000, 20.0);
+    pub const H540: VideoPreset = VideoPreset::new(960, 540, 600_000, 25.0);
+    pub const H720: VideoPreset = VideoPreset::new(1280, 720, 1_700_000, 30.0);
+    pub const H1080: VideoPreset = VideoPreset::new(1920, 1080, 3_000_000, 30.0);
+    pub const H1440: VideoPreset = VideoPreset::new(2560, 1440, 5_000_000, 30.0);
+    pub const H2160: VideoPreset = VideoPreset::new(3840, 2160, 8_000_000, 30.0);
+
+    pub const PRESETS: &[VideoPreset] = &[H90, H180, H216, H360, H540, H720, H1080, H1440, H2160];
+
+    pub const DEFAULT_SIMULCAST_PRESETS: &[VideoPreset] = &[H180, H360];
+}
+
+pub mod video43 {
+    use super::VideoPreset;
+
+    pub const H120: VideoPreset = VideoPreset::new(160, 120, 80_000, 15.0);
+    pub const H180: VideoPreset = VideoPreset::new(240, 180, 100_000, 15.0);
+    pub const H240: VideoPreset = VideoPreset::new(320, 240, 150_000, 15.0);
+    pub const H360: VideoPreset = VideoPreset::new(480, 360, 225_000, 20.0);
+    pub const H480: VideoPreset = VideoPreset::new(640, 480, 300_000, 20.0);
+    pub const H540: VideoPreset = VideoPreset::new(720, 540, 450_000, 25.0);
+    pub const H720: VideoPreset = VideoPreset::new(960, 720, 1_500_000, 30.0);
+    pub const H1080: VideoPreset = VideoPreset::new(1440, 1080, 2_500_000, 30.0);
+    pub const H1440: VideoPreset = VideoPreset::new(1920, 1440, 3_500_000, 30.0);
+
+    pub const PRESETS: &[VideoPreset] = &[H120, H180, H240, H360, H480, H540, H720, H1080, H1440];
+
+    pub const DEFAULT_SIMULCAST_PRESETS: &[VideoPreset] = &[H180, H360];
+}
+
+pub mod screenshare {
+    /// The screenshare presets are optimized for quality.
+    /// When simulcasting, we prefer to reduce the FPS.
+    use super::VideoPreset;
+
+    pub const H360_FPS3: VideoPreset = VideoPreset::new(640, 360, 200_000, 3.0);
+    pub const H720_FPS5: VideoPreset = VideoPreset::new(1280, 720, 400_000, 5.0);
+    pub const H720_FPS15: VideoPreset = VideoPreset::new(1280, 720, 1_000_000, 15.0);
+    pub const H1080_FPS15: VideoPreset = VideoPreset::new(1920, 1080, 1_500_000, 15.0);
+    pub const H1080_FPS30: VideoPreset = VideoPreset::new(1920, 1080, 3_000_000, 30.0);
+
+    pub const PRESETS: &[VideoPreset] =
+        &[H360_FPS3, H720_FPS5, H720_FPS15, H1080_FPS15, H1080_FPS30];
+
+    /// Only one additional layer for screenshares. (Prioritize quality)
+    pub fn compute_default_simulcast_preset(initial: &VideoPreset) -> VideoPreset {
+        const SCALE_DOWN_FACTOR: u32 = 2;
+        const FPS: f64 = 3.0;
+
+        VideoPreset::new(
+            initial.width / SCALE_DOWN_FACTOR,
+            initial.height / SCALE_DOWN_FACTOR,
+            i32::max(
+                150_000,
+                initial.encoding.max_bitrate as i32
+                    / (SCALE_DOWN_FACTOR.pow(2) as i32
+                        * (initial.encoding.max_framerate / FPS) as i32),
+            ),
+            FPS,
+        )
     }
 }

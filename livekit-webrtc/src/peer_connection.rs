@@ -178,7 +178,7 @@ impl PeerConnection {
     ) -> Result<RtpTransceiver, RTCError> {
         let res = self
             .cxx_handle
-            .add_transceiver_for_media(media_type, init.into());
+            .add_transceiver_for_media(media_type.into(), init.into());
 
         match res {
             Ok(cxx_handle) => Ok(RtpTransceiver::new(cxx_handle)),

@@ -169,6 +169,7 @@ impl TrackPublicationTrait for TrackPublication {
         fnc!(simulcasted, &Self, [], bool);
         fnc!(dimension, &Self, [], TrackDimension);
         fnc!(mime_type, &Self, [], String);
+        fnc!(track, &Self, [], Option<TrackHandle>);
         fnc!(muted, &Self, [], bool);
     );
 }
@@ -217,12 +218,21 @@ pub struct LocalTrackPublication {
 }
 
 impl LocalTrackPublication {
-    pub fn track(&self) -> Option<LocalTrackHandle> {
+    pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: TrackHandle) -> Self {
+        Self {
+            shared: TrackPublicationShared::new(info, participant, Some(track)),
+        }
+    }
+
+    pub fn track(&self) -> LocalTrackHandle {
+        // LocalPublication always have a track
         self.shared
             .track
             .lock()
             .clone()
-            .map(|local_track| local_track.try_into().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
     }
 }
 

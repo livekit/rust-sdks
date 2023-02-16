@@ -4,7 +4,7 @@ use super::{
 use crate::prelude::*;
 use crate::proto;
 use crate::publication::TrackPublicationInternalTrait;
-use crate::track::TrackError;
+use crate::track::{TrackError, TrackInternalTrait};
 use livekit_webrtc::prelude::*;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
@@ -110,6 +110,9 @@ impl RemoteParticipant {
             debug!("starting track: {:?}", sid);
 
             remote_publication.update_track(Some(track.clone().into()));
+            track.update_muted(remote_publication.muted(), false);
+            track.update_source(remote_publication.source());
+
             self.shared
                 .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
             track.start();

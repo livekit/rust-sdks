@@ -26,6 +26,8 @@ pub enum RoomError {
     Engine(#[from] EngineError),
     #[error("room failure: {0}")]
     Internal(String),
+    #[error("this track or a track of the same source is already published")]
+    TrackAlreadyPublished,
 }
 
 #[derive(Clone, Debug)]

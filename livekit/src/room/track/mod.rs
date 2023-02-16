@@ -32,7 +32,7 @@ pub enum TrackError {
     TrackNotFound(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackKind {
     Unknown,
     Audio,
@@ -59,7 +59,7 @@ impl From<proto::TrackType> for TrackKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamState {
     Unknown,
     Active,
@@ -76,7 +76,7 @@ impl From<u8> for StreamState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackSource {
     Unknown,
     Camera,
@@ -112,16 +112,26 @@ impl From<proto::TrackSource> for TrackSource {
 #[derive(Clone, Copy, Debug)]
 pub struct TrackDimension(pub u32, pub u32);
 
-pub trait TrackTrait {
+pub trait TrackTrait<T>
+where
+    T: MediaStreamTrackTrait,
+{
     fn sid(&self) -> TrackSid;
     fn name(&self) -> String;
     fn kind(&self) -> TrackKind;
+    fn source(&self) -> TrackSource;
     fn stream_state(&self) -> StreamState;
     fn muted(&self) -> bool;
     fn start(&self);
     fn stop(&self);
     fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent>;
     fn set_muted(&self, muted: bool);
+    fn rtc_track(&self) -> T;
+}
+
+pub(crate) trait TrackInternalTrait {
+    fn update_muted(&self, muted: bool, dispatch: bool);
+    fn update_source(&self, source: TrackSource);
 }
 
 #[derive(Debug, Clone)]
@@ -135,6 +145,7 @@ pub(super) struct TrackShared {
     pub(super) sid: Mutex<TrackSid>,
     pub(super) name: Mutex<String>,
     pub(super) kind: AtomicU8,         // TrackKind
+    pub(super) source: AtomicU8,       // TrackSource
     pub(super) stream_state: AtomicU8, // StreamState
     pub(super) muted: AtomicBool,
     pub(super) rtc_track: MediaStreamTrackHandle,
@@ -152,6 +163,7 @@ impl TrackShared {
             sid: Mutex::new(sid),
             name: Mutex::new(name),
             kind: AtomicU8::new(kind as u8),
+            source: AtomicU8::new(TrackSource::Unknown as u8),
             stream_state: AtomicU8::new(StreamState::Active as u8),
             muted: AtomicBool::new(false),
             rtc_track,
@@ -167,7 +179,13 @@ impl TrackShared {
         self.rtc_track.set_enabled(false);
     }
 
-    pub(crate) fn set_muted(&self, muted: bool) {
+    pub(crate) fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
+        self.dispatcher.lock().register()
+    }
+}
+
+impl TrackInternalTrait for TrackShared {
+    fn update_muted(&self, muted: bool, dispatch: bool) {
         if self.muted.load(Ordering::SeqCst) == muted {
             return;
         }
@@ -182,8 +200,8 @@ impl TrackShared {
         });
     }
 
-    pub(crate) fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.dispatcher.lock().register()
+    fn update_source(&self, source: TrackSource) {
+        self.source.store(source as u8, Ordering::SeqCst);
     }
 }
 
@@ -195,43 +213,31 @@ pub enum TrackHandle {
     RemoteAudio(Arc<RemoteAudioTrack>),
 }
 
-impl TrackTrait for TrackHandle {
+impl TrackTrait<MediaStreamTrackHandle> for TrackHandle {
     enum_dispatch!(
         [LocalVideo, LocalAudio, RemoteVideo, RemoteAudio]
         fnc!(sid, &Self, [], TrackSid);
         fnc!(name, &Self, [], String);
         fnc!(kind, &Self, [], TrackKind);
+        fnc!(source, &Self, [], TrackSource);
         fnc!(stream_state, &Self, [], StreamState);
         fnc!(muted, &Self, [], bool);
         fnc!(start, &Self, [], ());
         fnc!(stop, &Self, [], ());
         fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
         fnc!(set_muted, &Self, [muted: bool], ());
+        fnc!(rtc_track, &Self, [], MediaStreamTrackHandle);
     );
 }
 
-impl TrackHandle {
-    pub fn rtc_track(&self) -> MediaStreamTrackHandle {
-        match self {
-            Self::RemoteVideo(remote_video) => {
-                MediaStreamTrackHandle::Video(remote_video.rtc_track())
-            }
-            Self::RemoteAudio(remote_audio) => {
-                MediaStreamTrackHandle::Audio(remote_audio.rtc_track())
-            }
-            _ => todo!(),
-        }
-    }
-}
-
 macro_rules! impl_track_trait {
-    ($x:ident) => {
+    ($x:ident, $rtc_track:ty) => {
         use std::sync::atomic::Ordering;
         use tokio::sync::mpsc;
         use $crate::room::id::TrackSid;
-        use $crate::room::track::{StreamState, TrackEvent, TrackKind, TrackTrait};
+        use $crate::room::track::{StreamState, TrackEvent, TrackKind, TrackSource, TrackTrait, TrackInternalTrait};
 
-        impl TrackTrait for $x {
+        impl TrackTrait<$rtc_track> for $x {
             fn sid(&self) -> TrackSid {
                 self.shared.sid.lock().clone()
             }
@@ -242,6 +248,10 @@ macro_rules! impl_track_trait {
 
             fn kind(&self) -> TrackKind {
                 self.shared.kind.load(Ordering::SeqCst).into()
+            }
+
+            fn source(&self) -> TrackSource {
+                self.shared.source.load(Ordering::SeqCst).into()
             }
 
             fn stream_state(&self) -> StreamState {
@@ -265,27 +275,49 @@ macro_rules! impl_track_trait {
             }
 
             fn set_muted(&self, muted: bool) {
-                self.shared.set_muted(muted);
+                self.shared.update_muted(muted, true);
+            }
+        }
+
+        impl TrackInternalTrait for $x {
+            fn update_muted(&self, muted: bool, dispatch: bool) {
+                self.shared.update_muted(muted, dispatch);
+            }
+
+            fn update_source(&self, source: TrackSource) {
+                self.shared.update_source(source);
             }
         }
     };
-    ($x:ident, enum_dispatch, [$($variant:ident),+]) => {
+    ($x:ident, $rtc_track:ty, enum_dispatch, [$($variant:ident),+]) => {
         use livekit_utils::enum_dispatch;
+        use $crate::room::track::{TrackTrait, TrackInternalTrait};
         use tokio::sync::mpsc;
 
-        impl TrackTrait for $x {
+        impl TrackTrait<$rtc_track> for $x {
             enum_dispatch!(
                 [$($variant),+]
                 fnc!(sid, &Self, [], TrackSid);
                 fnc!(name, &Self, [], String);
                 fnc!(kind, &Self, [], TrackKind);
+                fnc!(source, &Self, [], TrackSource);
                 fnc!(stream_state, &Self, [], StreamState);
                 fnc!(muted, &Self, [], bool);
                 fnc!(start, &Self, [], ());
                 fnc!(stop, &Self, [], ());
                 fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
                 fnc!(set_muted, &Self, [muted: bool], ());
+                fnc!(rtc_track, &Self, [], $rtc_track);
             );
+        }
+
+        impl TrackInternalTrait for $x {
+            enum_dispatch!(
+                [$($variant),+]
+                fnc!(update_muted, &Self, [muted: bool, dispatch: bool], ());
+                fnc!(update_source, &Self, [source: TrackSource], ());
+            );
+
         }
     };
 }

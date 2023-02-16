@@ -32,7 +32,29 @@ impl LocalParticipant {
         }
     }
 
-    pub async fn publish_track(&self, track: LocalTrackHandle, options: TrackPublishOptions) {}
+    pub async fn publish_track(
+        &self,
+        track: LocalTrackHandle,
+        options: TrackPublishOptions,
+    ) -> RoomResult<()> {
+        let tracks = self.shared.tracks.write();
+
+        if track.source() != TrackSource::Unknown {
+            for publication in tracks.values() {
+                if publication.source() == track.source() {
+                    return Err(RoomError::TrackAlreadyPublished);
+                }
+
+                if let Some(existing_track) = publication.track() {
+                    // TODO: Compare
+                }
+            }
+        }
+
+        let req = proto::AddTrackRequest {};
+
+        Ok(())
+    }
 
     pub async fn publish_data(
         &self,

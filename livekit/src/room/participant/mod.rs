@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 mod local_participant;
+mod publish_utils;
 mod remote_participant;
 
 pub use local_participant::*;
