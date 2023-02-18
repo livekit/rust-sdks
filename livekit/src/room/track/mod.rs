@@ -26,6 +26,31 @@ pub use remote_track::*;
 pub use remote_video_track::*;
 pub use video_track::*;
 
+pub trait Track<T>
+where
+    T: MediaStreamTrackTrait,
+{
+    fn sid(&self) -> TrackSid;
+    fn name(&self) -> String;
+    fn kind(&self) -> TrackKind;
+    fn source(&self) -> TrackSource;
+    fn stream_state(&self) -> StreamState;
+    fn muted(&self) -> bool;
+    fn start(&self);
+    fn stop(&self);
+    fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent>;
+    fn set_muted(&self, muted: bool);
+    fn rtc_track(&self) -> T;
+}
+
+pub trait LocalTrack: Track {}
+
+pub trait RemoteTrack: Track {}
+
+pub trait AudioTrack: Track {}
+
+pub trait VideoTrack: Track {}
+
 #[derive(Error, Debug, Clone)]
 pub enum TrackError {
     #[error("could not find published track with sid: {0}")]
@@ -112,7 +137,7 @@ impl From<proto::TrackSource> for TrackSource {
 #[derive(Clone, Copy, Debug)]
 pub struct TrackDimension(pub u32, pub u32);
 
-pub trait TrackTrait<T>
+pub trait Track<T>
 where
     T: MediaStreamTrackTrait,
 {
@@ -128,6 +153,8 @@ where
     fn set_muted(&self, muted: bool);
     fn rtc_track(&self) -> T;
 }
+
+pub trait VideoTrack: Track<VideoTrack> {}
 
 pub(crate) trait TrackInternalTrait {
     fn update_muted(&self, muted: bool, dispatch: bool);

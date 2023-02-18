@@ -157,12 +157,24 @@ class AdaptedVideoTrackSource {
 
 std::unique_ptr<AdaptedVideoTrackSource> create_adapted_video_track_source();
 
-static const VideoTrack* media_to_video(const MediaStreamTrack* track) {
-  return static_cast<const VideoTrack*>(track);
+static std::shared_ptr<MediaStreamTrack> video_to_media(
+    std::shared_ptr<VideoTrack> track) {
+  return track;
 }
 
-static const AudioTrack* media_to_audio(const MediaStreamTrack* track) {
-  return static_cast<const AudioTrack*>(track);
+static std::shared_ptr<MediaStreamTrack> audio_to_media(
+    std::shared_ptr<AudioTrack> track) {
+  return track;
+}
+
+static std::shared_ptr<VideoTrack> media_to_video(
+    std::shared_ptr<MediaStreamTrack> track) {
+  return std::static_pointer_cast<VideoTrack>(track);
+}
+
+static std::shared_ptr<AudioTrack> media_to_audio(
+    std::shared_ptr<MediaStreamTrack> track) {
+  return std::static_pointer_cast<AudioTrack>(track);
 }
 
 static std::shared_ptr<MediaStreamTrack> _shared_media_stream_track() {

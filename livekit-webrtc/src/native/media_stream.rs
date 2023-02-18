@@ -1,5 +1,4 @@
 use cxx::{SharedPtr, UniquePtr};
-use livekit_utils::enum_dispatch;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
 use webrtc_sys::media_stream as sys_ms;
@@ -11,7 +10,11 @@ pub use sys_ms::ffi::TrackState;
 use crate::video_frame::VideoFrame;
 use crate::video_frame_buffer::VideoFrameBuffer;
 
-pub trait MediaStreamTrackTrait {
+pub trait MediaStreamTrackInternal {
+    fn cxx_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack>;
+}
+
+pub trait MediaStreamTrack {
     fn kind(&self) -> String;
     fn id(&self) -> String;
     fn enabled(&self) -> bool;
@@ -19,50 +22,14 @@ pub trait MediaStreamTrackTrait {
     fn state(&self) -> TrackState;
 }
 
-#[derive(Clone)]
-pub enum MediaStreamTrackHandle {
-    Audio(Arc<AudioTrack>),
-    Video(Arc<VideoTrack>),
-}
-
-impl MediaStreamTrackHandle {
-    pub(crate) fn new(cxx_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>) -> Self {
-        if cxx_handle.kind() == MEDIA_TYPE_VIDEO {
-            Self::Video(VideoTrack::new(cxx_handle))
-        } else {
-            Self::Audio(AudioTrack::new(cxx_handle))
-        }
+pub(crate) fn new_track(
+    cxx_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>,
+) -> Arc<dyn MediaStreamTrack> {
+    if cxx_handle.kind() == MEDIA_TYPE_VIDEO {
+        VideoTrack::new(cxx_handle)
+    } else {
+        AudioTrack::new(cxx_handle)
     }
-
-    // TODO(theomonnom): enum_dispatch with visibility support?
-    pub(crate) fn cxx_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {
-        match self {
-            Self::Video(video) => video.cxx_handle(),
-            Self::Audio(audio) => audio.cxx_handle(),
-        }
-    }
-}
-
-impl Debug for MediaStreamTrackHandle {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.debug_struct("MediaStreamTrack")
-            .field("id", &self.id())
-            .field("kind", &self.kind())
-            .field("enabled", &self.enabled())
-            .field("state", &self.state())
-            .finish()
-    }
-}
-
-impl MediaStreamTrackTrait for MediaStreamTrackHandle {
-    enum_dispatch!(
-        [Audio, Video]
-        fnc!(kind, &Self, [], String);
-        fnc!(id, &Self, [], String);
-        fnc!(enabled, &Self, [], bool);
-        fnc!(state, &Self, [], TrackState);
-        fnc!(set_enabled, &Self, [enabled: bool], bool);
-    );
 }
 
 pub struct AudioTrack {
@@ -72,10 +39,6 @@ pub struct AudioTrack {
 impl AudioTrack {
     fn new(cxx_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>) -> Arc<Self> {
         Arc::new(Self { cxx_handle })
-    }
-
-    pub(crate) fn cxx_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {
-        self.cxx_handle.clone()
     }
 }
 
@@ -89,10 +52,9 @@ pub struct VideoTrack {
 
 impl VideoTrack {
     fn new(cxx_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>) -> Arc<Self> {
-        let mut observer = Box::new(InternalVideoTrackSink::default());
-
-        let mut track = unsafe {
-            Self {
+        unsafe {
+            let mut observer = Box::new(InternalVideoTrackSink::default());
+            let mut track = Self {
                 cxx_handle,
                 native_observer: {
                     sys_ms::ffi::create_native_video_frame_sink(Box::new(
@@ -100,38 +62,31 @@ impl VideoTrack {
                     ))
                 },
                 observer,
-            }
-        };
+            };
 
-        unsafe {
             (*track.video_handle()).add_sink(track.native_observer.pin_mut());
+            Arc::new(track)
         }
-
-        Arc::new(track)
     }
 
-    pub(crate) fn cxx_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {
-        self.cxx_handle.clone()
-    }
-
-    fn video_handle(&self) -> *const sys_ms::ffi::VideoTrack {
-        unsafe { sys_ms::ffi::media_to_video(&*self.cxx_handle) }
+    fn video_handle(&self) -> SharedPtr<sys_ms::ffi::VideoTrack> {
+        sys_ms::ffi::media_to_video(self.cxx_handle)
     }
 
     pub fn set_should_receive(&self, should_receive: bool) {
-        unsafe { (*self.video_handle()).set_should_receive(should_receive) }
+        self.video_handle().set_should_receive(should_receive)
     }
 
     pub fn set_content_hint(&self, hint: ContentHint) {
-        unsafe { (*self.video_handle()).set_content_hint(hint) }
+        self.video_handle().set_content_hint(hint)
     }
 
     pub fn should_receive(&self) -> bool {
-        unsafe { (*self.video_handle()).should_receive() }
+        self.video_handle().should_receive()
     }
 
     pub fn content_hint(&self) -> ContentHint {
-        unsafe { (*self.video_handle()).content_hint() }
+        self.video_handle().content_hint()
     }
 
     pub fn on_frame(&self, handler: OnFrameHandler) {
@@ -157,7 +112,7 @@ impl Drop for VideoTrack {
 
 macro_rules! impl_media_stream_track_trait {
     ($x:ty) => {
-        impl MediaStreamTrackTrait for $x {
+        impl MediaStreamTrack for $x {
             fn kind(&self) -> String {
                 self.cxx_handle.kind()
             }
@@ -176,6 +131,23 @@ macro_rules! impl_media_stream_track_trait {
 
             fn state(&self) -> TrackState {
                 self.cxx_handle.state()
+            }
+        }
+
+        impl MediaStreamTrackInternal for $x {
+            fn cxx_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {
+                self.cxx_handle.clone()
+            }
+        }
+
+        impl Debug for $x {
+            fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+                f.debug_struct(stringify!($x))
+                    .field("id", &self.id())
+                    .field("kind", &self.kind())
+                    .field("enabled", &self.enabled())
+                    .field("state", &self.state())
+                    .finish()
             }
         }
     };
@@ -235,14 +207,6 @@ pub struct MediaStream {
     cxx_handle: SharedPtr<sys_ms::ffi::MediaStream>,
 }
 
-impl Debug for MediaStream {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.debug_struct("MediaStream")
-            .field("id", &self.id())
-            .finish()
-    }
-}
-
 impl MediaStream {
     pub(crate) fn new(cxx_handle: SharedPtr<sys_ms::ffi::MediaStream>) -> Self {
         Self { cxx_handle }
@@ -250,5 +214,61 @@ impl MediaStream {
 
     pub fn id(&self) -> String {
         self.cxx_handle.id()
+    }
+
+    pub fn audio_tracks(&self) -> Vec<Arc<AudioTrack>> {
+        self.cxx_handle
+            .get_audio_tracks()
+            .into_iter()
+            .map(|audio_track| AudioTrack::new(sys_ms::ffi::audio_to_media(audio_track.ptr)))
+            .collect()
+    }
+
+    pub fn video_tracks(&self) -> Vec<Arc<VideoTrack>> {
+        self.cxx_handle
+            .get_video_tracks()
+            .into_iter()
+            .map(|video_track| VideoTrack::new(sys_ms::ffi::video_to_media(video_track.ptr)))
+            .collect()
+    }
+
+    pub fn find_audio_track(&self, track_id: String) -> Arc<AudioTrack> {
+        AudioTrack::new(sys_ms::ffi::audio_to_media(
+            self.cxx_handle.find_audio_track(track_id),
+        ))
+    }
+
+    pub fn find_video_track(&self, track_id: String) -> Arc<VideoTrack> {
+        VideoTrack::new(sys_ms::ffi::video_to_media(
+            self.cxx_handle.find_video_track(track_id),
+        ))
+    }
+
+    pub fn add_audio_track(&self, audio_track: Arc<AudioTrack>) -> bool {
+        self.cxx_handle
+            .add_audio_track(sys_ms::ffi::media_to_audio(audio_track.cxx_handle()))
+    }
+
+    pub fn add_video_track(&self, video_track: Arc<VideoTrack>) -> bool {
+        self.cxx_handle
+            .add_video_track(sys_ms::ffi::media_to_video(video_track.cxx_handle()))
+    }
+
+    pub fn remove_audio_track(&self, audio_track: Arc<AudioTrack>) -> bool {
+        self.cxx_handle
+            .remove_audio_track(sys_ms::ffi::media_to_audio(audio_track.cxx_handle()))
+    }
+
+    pub fn remove_video_track(&self, video_track: Arc<VideoTrack>) -> bool {
+        self.cxx_handle
+            .remove_video_track(sys_ms::ffi::media_to_video(video_track.cxx_handle()))
+    }
+}
+
+impl Debug for MediaStream {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("MediaStream")
+            .field("id", &self.id())
+            .finish()
     }
 }

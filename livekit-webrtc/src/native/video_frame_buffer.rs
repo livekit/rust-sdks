@@ -29,7 +29,6 @@ pub enum VideoFrameBufferType {
     NV12,
 }
 
-// types to convert to
 #[derive(Debug)]
 pub enum VideoFormatType {
     ARGB,

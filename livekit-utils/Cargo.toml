@@ -8,6 +8,7 @@ repository = "https://github.com/livekit/client-sdk-rust"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 parking_lot = "0.12.1"
 tokio = { version = "1", features = ["full"] }

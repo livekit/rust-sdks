@@ -1,8 +1,9 @@
-use crate::media_stream::{MediaStream, MediaStreamTrackHandle};
+use crate::media_stream::MediaStreamTrackInternal;
 use crate::prelude::*;
 use crate::rtp_parameters::{RtpEncodingParameters, RtpParameters};
 use cxx::SharedPtr;
 use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 use webrtc_sys::rtp_sender as sys_rs;
 use webrtc_sys::webrtc as sys_webrtc;
 
@@ -16,7 +17,6 @@ pub struct RtpSender {
 impl Debug for RtpSender {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         f.debug_struct("RtpSender")
-            .field("track", &self.track())
             .field("media_type", &self.media_type())
             .field("ssrc", &self.ssrc())
             .field("id", &self.id())
@@ -33,12 +33,12 @@ impl RtpSender {
         self.cxx_handle.clone()
     }
 
-    pub fn set_track(&self, track: MediaStreamTrackHandle) -> bool {
+    pub fn set_track(&self, track: Arc<dyn MediaStreamTrackInternal>) -> bool {
         self.cxx_handle.set_track(track.cxx_handle())
     }
 
-    pub fn track(&self) -> MediaStreamTrackHandle {
-        MediaStreamTrackHandle::new(self.cxx_handle.track())
+    pub fn track(&self) -> Arc<dyn MediaStreamTrack> {
+        crate::media_stream::new_track(self.cxx_handle.track())
     }
 
     pub fn ssrc(&self) -> u32 {
