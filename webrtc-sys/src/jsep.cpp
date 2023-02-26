@@ -77,6 +77,10 @@ SessionDescription::SessionDescription(
     std::unique_ptr<webrtc::SessionDescriptionInterface> session_description)
     : session_description_(std::move(session_description)) {}
 
+SdpType SessionDescription::sdp_type() const {
+  return static_cast<SdpType>(session_description_->GetType());
+}
+
 rust::String SessionDescription::stringify() const {
   std::string str;
   session_description_->ToString(&str);

@@ -24,6 +24,7 @@ pub mod ffi {
             crate::rtp_parameters::ffi::RtpHeaderExtensionCapability;
         type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
+        type RTCError = crate::rtc_error::ffi::RTCError;
     }
 
     unsafe extern "C++" {
@@ -37,6 +38,7 @@ pub mod ffi {
         fn receiver(self: &RtpTransceiver) -> SharedPtr<RtpReceiver>;
         fn stopped(self: &RtpTransceiver) -> bool;
         fn stopping(self: &RtpTransceiver) -> bool;
+        fn stop(self: &RtpTransceiver) -> RTCError;
         fn direction(self: &RtpTransceiver) -> RtpTransceiverDirection;
         fn set_direction(self: &RtpTransceiver, direction: RtpTransceiverDirection) -> Result<()>;
         fn current_direction(self: &RtpTransceiver) -> Result<RtpTransceiverDirection>;

@@ -34,7 +34,7 @@ int VideoFrameBuffer::height() const {
   return buffer_->height();
 }
 
-std::unique_ptr<I420Buffer> VideoFrameBuffer::to_i420() {
+std::unique_ptr<I420Buffer> VideoFrameBuffer::to_i420() const {
   return std::make_unique<I420Buffer>(buffer_->ToI420());
 }
 
@@ -192,12 +192,29 @@ std::unique_ptr<I420Buffer> create_i420_buffer(int width, int height) {
       webrtc::I420Buffer::Create(width, height));
 }
 
+std::unique_ptr<I420Buffer> copy_i420_buffer(
+    const std::unique_ptr<I420Buffer>& i420) {
+  return std::make_unique<I420Buffer>(webrtc::I420Buffer::Copy(*i420->get()));
+}
+
 I420Buffer::I420Buffer(rtc::scoped_refptr<webrtc::I420BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}
 
 I420ABuffer::I420ABuffer(
     rtc::scoped_refptr<webrtc::I420ABufferInterface> buffer)
     : I420Buffer(buffer) {}
+
+int I420ABuffer::stride_a() const {
+  return buffer()->StrideA();
+}
+
+const uint8_t* I420ABuffer::data_a() const {
+  return buffer()->DataA();
+}
+
+webrtc::I420ABufferInterface* I420ABuffer::buffer() const {
+  return static_cast<webrtc::I420ABufferInterface*>(buffer_.get());
+}
 
 I422Buffer::I422Buffer(rtc::scoped_refptr<webrtc::I422BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}

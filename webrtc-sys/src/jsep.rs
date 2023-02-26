@@ -59,6 +59,7 @@ pub mod ffi {
         fn candidate(self: &IceCandidate) -> String;
         fn stringify(self: &IceCandidate) -> String;
 
+        fn sdp_type(self: &SessionDescription) -> SdpType;
         fn stringify(self: &SessionDescription) -> String;
         fn clone(self: &SessionDescription) -> UniquePtr<SessionDescription>;
 

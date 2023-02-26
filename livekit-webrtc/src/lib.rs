@@ -1,54 +1,44 @@
-#[cfg(not(target_arch = "wasm32"))]
-#[path = ""]
-mod platform {
-    mod native;
-    pub use native::*;
+use thiserror::Error;
+
+#[cfg_attr(target_arch = "wasm32", path = "web/mod.rs")]
+#[cfg_attr(not(target_arch = "wasm32"), path = "native/mod.rs")]
+mod imp;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum MediaType {
+    Audio,
+    Video,
+    Data,
+    Unsupported,
 }
 
-#[cfg(target_arch = "wasm32")]
-#[path = ""]
-mod platform {
-    mod web;
-    pub use web::*;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RtcErrorType {
+    Internal,
+    InvalidSdp,
+    InvalidState,
+}
+
+#[derive(Error, Debug)]
+#[error("an RtcError occured: {error_type:?} - {message}")]
+pub struct RtcError {
+    pub error_type: RtcErrorType,
+    pub message: String,
 }
 
 pub mod data_channel;
+pub mod ice_candidate;
+pub mod media_stream;
+pub mod peer_connection;
+pub mod peer_connection_factory;
+pub mod rtp_parameters;
+pub mod rtp_receiver;
+pub mod rtp_sender;
+pub mod rtp_transceiver;
+pub mod session_description;
+pub mod video_frame;
 
-// pub mod data_channel;
-// pub mod jsep;
-// pub mod media_stream;
-// pub mod peer_connection;
-// pub mod peer_connection_factory;
-// pub mod prelude;
-// pub mod rtc_error;
-// pub mod rtp_parameters;
-// pub mod rtp_receiver;
-// pub mod rtp_sender;
-// pub mod rtp_transceiver;
-// pub mod video_frame;
-// pub mod video_frame_buffer;
-// pub mod webrtc;
-// pub mod yuv_helper;
-
-macro_rules! impl_sys_conversion {
-    ($sys:ty, $safe:ty, [$($variant:ident),+]) => {
-        impl From<$sys> for $safe {
-            fn from(value: $sys) -> Self {
-                match value {
-                    $(<$sys>::$variant => Self::$variant,)+
-                    _ => panic!("invalid value from sys"),
-                }
-            }
-        }
-
-        impl From<$safe> for $sys {
-            fn from(value: $safe) -> Self {
-                match value {
-                    $(<$safe>::$variant => Self::$variant,)+
-                }
-            }
-        }
-    };
+#[cfg(not(target_arch = "wasm32"))]
+mod native {
+    pub use crate::imp::yuv_helper;
 }
-
-pub(crate) use impl_sys_conversion;

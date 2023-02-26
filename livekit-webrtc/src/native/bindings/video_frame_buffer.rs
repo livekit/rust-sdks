@@ -18,6 +18,23 @@ macro_rules! recursive_cast {
     };
 }
 
+macro_rules! impl_to_argb {
+    (i420: $fnc:ty, $dst:ident, $dst_stride:ident, $dst_width:ident, $dst_height:ident) => {
+        yuv_helper::$fnc(
+            self.data_y(),
+            self.stride_y(),
+            self.data_u(),
+            self.stride_u(),
+            self.data_v(),
+            self.stride_v(),
+            $dst,
+            $dst_stride,
+            $dst_width,
+            $dst_height,
+        )
+    };
+}
+
 #[derive(Debug)]
 pub enum VideoFrameBufferType {
     Native,

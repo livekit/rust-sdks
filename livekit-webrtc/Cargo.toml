@@ -30,6 +30,10 @@ web-sys = { version = "0.3.22", features=[
   "RtcIceCandidate",
   "RtcDataChannel",
   "RtcDataChannelEvent",
+  "RtcDataChannelState",
+  "EventTarget",
+  "WebGlRenderingContext",
+  "WebGlTexture",
 ] }
 
 [dev-dependencies]

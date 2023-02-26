@@ -73,11 +73,12 @@ std::unique_ptr<NativeDataChannelInit> create_data_channel_init(
 }
 
 NativeDataChannelObserver::NativeDataChannelObserver(
-    rust::Box<DataChannelObserverWrapper> observer)
-    : observer_(std::move(observer)) {}
+    rust::Box<DataChannelObserverWrapper> observer,
+    DataChannel* dc)
+    : observer_(std::move(observer)), dc_(dc) {}
 
 void NativeDataChannelObserver::OnStateChange() {
-  observer_->on_state_change();
+  observer_->on_state_change(dc_->state());
 }
 
 void NativeDataChannelObserver::OnMessage(const webrtc::DataBuffer& buffer) {
@@ -93,8 +94,9 @@ void NativeDataChannelObserver::OnBufferedAmountChange(
   observer_->on_buffered_amount_change(sent_data_size);
 }
 
-std::unique_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
-    rust::Box<DataChannelObserverWrapper> observer) {
-  return std::make_unique<NativeDataChannelObserver>(std::move(observer));
+std::shared_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
+    rust::Box<DataChannelObserverWrapper> observer,
+    DataChannel* dc) {
+  return std::make_shared<NativeDataChannelObserver>(std::move(observer), dc);
 }
 }  // namespace livekit

@@ -1,5 +1,4 @@
 use thiserror::Error;
-
 use webrtc_sys::yuv_helper as yuv_sys;
 
 #[derive(Error, Debug)]
@@ -8,7 +7,7 @@ pub enum ConvertError {
     Convert(&'static str),
 }
 
-fn i420_safety(
+fn i420_verify_length(
     src_y: &[u8],
     src_stride_y: i32,
     src_u: &[u8],
@@ -59,7 +58,7 @@ macro_rules! i420_to_x {
             width: i32,
             height: i32,
         ) -> Result<(), ConvertError> {
-            i420_safety(
+            i420_verify_length(
                 src_y,
                 src_stride_y,
                 src_u,

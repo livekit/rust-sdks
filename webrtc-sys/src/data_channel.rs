@@ -48,7 +48,7 @@ pub mod ffi {
     extern "Rust" {
         type DataChannelObserverWrapper;
 
-        fn on_state_change(self: &DataChannelObserverWrapper);
+        fn on_state_change(self: &DataChannelObserverWrapper, state: DataState);
         fn on_message(self: &DataChannelObserverWrapper, buffer: DataBuffer);
         fn on_buffered_amount_change(self: &DataChannelObserverWrapper, sent_data_size: u64);
     }
@@ -61,7 +61,7 @@ pub mod ffi {
         type NativeDataChannelObserver;
 
         /// SAFETY
-        /// The observer must live as the datachannel uses it
+        /// The observer must live as long as the datachannel uses it
         unsafe fn register_observer(
             self: &DataChannel,
             observer: Pin<&mut NativeDataChannelObserver>,
@@ -74,11 +74,12 @@ pub mod ffi {
         fn close(self: &DataChannel);
 
         fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;
-        fn create_native_data_channel_observer(
+        unsafe fn create_native_data_channel_observer(
             observer: Box<DataChannelObserverWrapper>,
-        ) -> UniquePtr<NativeDataChannelObserver>;
+            dc: *mut DataChannel,
+        ) -> SharedPtr<NativeDataChannelObserver>;
 
-        fn _unique_data_channel() -> UniquePtr<DataChannel>; // Ignore
+        fn _shared_data_channel() -> SharedPtr<DataChannel>; // Ignore
     }
 }
 
@@ -87,8 +88,8 @@ impl_thread_safety!(ffi::NativeDataChannelObserver, Send + Sync);
 
 // DataChannelObserver
 
-pub trait DataChannelObserver: Send {
-    fn on_state_change(&self);
+pub trait DataChannelObserver: Send + Sync {
+    fn on_state_change(&self, state: ffi::DataState);
     fn on_message(&self, data: &[u8], is_binary: bool);
     fn on_buffered_amount_change(&self, sent_data_size: u64);
 }
@@ -104,9 +105,9 @@ impl DataChannelObserverWrapper {
         Self { observer }
     }
 
-    fn on_state_change(&self) {
+    fn on_state_change(&self, state: ffi::DataState) {
         unsafe {
-            (*self.observer).on_state_change();
+            (*self.observer).on_state_change(state);
         }
     }
 

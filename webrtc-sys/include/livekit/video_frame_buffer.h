@@ -49,8 +49,9 @@ class VideoFrameBuffer {
   int width() const;
   int height() const;
 
-  // Takes ownership
-  std::unique_ptr<I420Buffer> to_i420();
+  std::unique_ptr<I420Buffer> to_i420() const;
+
+  // Requires ownership
   std::unique_ptr<I420Buffer> get_i420();
   std::unique_ptr<I420ABuffer> get_i420a();
   std::unique_ptr<I422Buffer> get_i422();
@@ -132,6 +133,8 @@ class BiplanarYuv8Buffer : public BiplanarYuvBuffer {
 };
 
 std::unique_ptr<I420Buffer> create_i420_buffer(int width, int height);
+std::unique_ptr<I420Buffer> copy_i420_buffer(
+    const std::unique_ptr<I420Buffer>& i420);
 
 class I420Buffer : public PlanarYuv8Buffer {
  public:
@@ -141,6 +144,12 @@ class I420Buffer : public PlanarYuv8Buffer {
 class I420ABuffer : public I420Buffer {
  public:
   explicit I420ABuffer(rtc::scoped_refptr<webrtc::I420ABufferInterface> buffer);
+
+  int stride_a() const;
+  const uint8_t* data_a() const;
+
+ private:
+  webrtc::I420ABufferInterface* buffer() const;
 };
 
 class I422Buffer : public PlanarYuv8Buffer {

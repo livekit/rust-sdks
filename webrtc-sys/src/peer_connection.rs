@@ -183,7 +183,7 @@ pub mod ffi {
             self: &PeerConnection,
             label: String,
             init: UniquePtr<NativeDataChannelInit>,
-        ) -> Result<UniquePtr<DataChannel>>;
+        ) -> Result<SharedPtr<DataChannel>>;
 
         fn add_ice_candidate(
             self: &PeerConnection,
@@ -191,9 +191,9 @@ pub mod ffi {
             observer: Pin<&mut NativeAddIceCandidateObserver>,
         );
 
-        fn local_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
+        fn current_local_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
 
-        fn remote_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
+        fn current_remote_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
 
         fn signaling_state(self: &PeerConnection) -> SignalingState;
 
@@ -227,7 +227,7 @@ pub mod ffi {
         fn on_remove_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
         fn on_data_channel(
             self: &PeerConnectionObserverWrapper,
-            data_channel: UniquePtr<DataChannel>,
+            data_channel: SharedPtr<DataChannel>,
         );
         fn on_renegotiation_needed(self: &PeerConnectionObserverWrapper);
         fn on_negotiation_needed_event(self: &PeerConnectionObserverWrapper, event: u32);
@@ -325,7 +325,7 @@ pub trait PeerConnectionObserver: Send + Sync {
     fn on_signaling_change(&self, new_state: ffi::SignalingState);
     fn on_add_stream(&self, stream: SharedPtr<MediaStream>);
     fn on_remove_stream(&self, stream: SharedPtr<MediaStream>);
-    fn on_data_channel(&self, data_channel: UniquePtr<DataChannel>);
+    fn on_data_channel(&self, data_channel: SharedPtr<DataChannel>);
     fn on_renegotiation_needed(&self);
     fn on_negotiation_needed_event(&self, event: u32);
     fn on_ice_connection_change(&self, new_state: ffi::IceConnectionState);
@@ -380,7 +380,7 @@ impl PeerConnectionObserverWrapper {
         }
     }
 
-    fn on_data_channel(&self, data_channel: UniquePtr<DataChannel>) {
+    fn on_data_channel(&self, data_channel: SharedPtr<DataChannel>) {
         unsafe {
             (*self.observer).on_data_channel(data_channel);
         }

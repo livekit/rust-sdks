@@ -52,14 +52,15 @@ class DataChannel {
 std::unique_ptr<NativeDataChannelInit> create_data_channel_init(
     DataChannelInit init);
 
-static std::unique_ptr<DataChannel> _unique_data_channel() {
+static std::shared_ptr<DataChannel> _shared_data_channel() {
   return nullptr;  // Ignore
 }
 
 class NativeDataChannelObserver : public webrtc::DataChannelObserver {
  public:
   explicit NativeDataChannelObserver(
-      rust::Box<DataChannelObserverWrapper> observer);
+      rust::Box<DataChannelObserverWrapper> observer,
+      DataChannel* dc);
 
   void OnStateChange() override;
   void OnMessage(const webrtc::DataBuffer& buffer) override;
@@ -67,8 +68,10 @@ class NativeDataChannelObserver : public webrtc::DataChannelObserver {
 
  private:
   rust::Box<DataChannelObserverWrapper> observer_;
+  DataChannel* dc_;
 };
 
-std::unique_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
-    rust::Box<DataChannelObserverWrapper> observer);
+std::shared_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
+    rust::Box<DataChannelObserverWrapper> observer,
+    DataChannel* dc);
 }  // namespace livekit
