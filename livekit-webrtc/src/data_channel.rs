@@ -1,5 +1,5 @@
 use crate::{imp::data_channel as dc_imp, rtp_parameters::Priority};
-use std::str::Utf8Error;
+use std::{fmt::Debug, str::Utf8Error};
 use thiserror::Error;
 
 #[derive(Clone, Debug)]
@@ -71,5 +71,14 @@ impl DataChannel {
 
     pub fn on_buffered_amount_change(&self, callback: Option<OnBufferedAmountChange>) {
         self.handle.on_buffered_amount_change(callback)
+    }
+}
+
+impl Debug for DataChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataChannel")
+            .field("label", &self.label())
+            .field("state", &self.state())
+            .finish()
     }
 }

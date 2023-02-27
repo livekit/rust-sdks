@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::imp::peer_connection_factory as imp_pcf;
 use crate::peer_connection::PeerConnection;
 use crate::RtcError;
@@ -41,5 +43,11 @@ impl PeerConnectionFactory {
         config: RtcConfiguration,
     ) -> Result<PeerConnection, RtcError> {
         self.handle.create_peer_connection(config)
+    }
+}
+
+impl Debug for PeerConnectionFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeerConnectionFactory").finish()
     }
 }

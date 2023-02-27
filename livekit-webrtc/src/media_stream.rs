@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::imp::media_stream as imp_ms;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -28,6 +30,16 @@ impl MediaStream {
 
     pub fn video_tracks(&self) -> Vec<VideoTrack> {
         self.handle.video_tracks()
+    }
+}
+
+impl Debug for MediaStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaStream")
+            .field("id", &self.id())
+            .field("audio_tracks", &self.audio_tracks())
+            .field("video_tracks", &self.video_tracks())
+            .finish()
     }
 }
 
@@ -63,7 +75,7 @@ pub(crate) mod internal {
     }
 }
 
-pub trait MediaStreamTrack: internal::MediaStreamTrackInternal {
+pub trait MediaStreamTrack: internal::MediaStreamTrackInternal + Debug {
     fn kind(&self) -> TrackKind;
     fn id(&self) -> String;
     fn enabled(&self) -> bool;
@@ -116,5 +128,25 @@ impl MediaStreamTrack for AudioTrack {
 
     fn as_audio_track(&self) -> Option<&AudioTrack> {
         Some(self)
+    }
+}
+
+impl Debug for AudioTrack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AudioTrack")
+            .field("id", &self.id())
+            .field("enabled", &self.enabled())
+            .field("state", &self.state())
+            .finish()
+    }
+}
+
+impl Debug for VideoTrack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VideoTrack")
+            .field("id", &self.id())
+            .field("enabled", &self.enabled())
+            .field("state", &self.state())
+            .finish()
     }
 }

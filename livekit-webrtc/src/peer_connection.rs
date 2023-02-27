@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::ice_candidate::IceCandidate;
 use crate::imp::peer_connection as imp_pc;
@@ -217,5 +219,14 @@ impl PeerConnection {
 
     pub fn on_track(&self, f: Option<OnTrack>) {
         self.handle.on_track(f)
+    }
+}
+
+impl Debug for PeerConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeerConnection")
+            .field("state", &self.connection_state())
+            .field("ice_state", &self.ice_connection_state())
+            .finish()
     }
 }

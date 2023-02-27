@@ -1,4 +1,5 @@
 use crate::imp::video_frame as vf_imp;
+use std::fmt::Debug;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -33,7 +34,7 @@ where
     pub buffer: T,
 }
 
-pub trait VideoFrameBuffer {
+pub trait VideoFrameBuffer: Debug {
     fn width(&self) -> i32;
     fn height(&self) -> i32;
 }
@@ -190,6 +191,15 @@ impl_video_frame_buffer!(I420Buffer);
 impl_planar_yuv_buffer!(I420Buffer);
 impl_planar_yuv8_buffer!(I420Buffer);
 
+impl Debug for I420Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("I420Buffer")
+            .field("width", &self.width())
+            .field("height", &self.height())
+            .finish()
+    }
+}
+
 pub struct I420ABuffer {
     pub(crate) handle: vf_imp::I420ABuffer,
 }
@@ -208,6 +218,16 @@ impl_video_frame_buffer!(I420ABuffer);
 impl_planar_yuv_buffer!(I420ABuffer);
 impl_planar_yuv8_buffer!(I420ABuffer);
 
+impl Debug for I420ABuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("I420ABuffer")
+            .field("width", &self.width())
+            .field("height", &self.height())
+            .field("data_a", &self.data_a())
+            .finish()
+    }
+}
+
 pub struct I422Buffer {
     pub(crate) handle: vf_imp::I422Buffer,
 }
@@ -215,6 +235,15 @@ pub struct I422Buffer {
 impl_video_frame_buffer!(I422Buffer);
 impl_planar_yuv_buffer!(I422Buffer);
 impl_planar_yuv8_buffer!(I422Buffer);
+
+impl Debug for I422Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("I422Buffer")
+            .field("width", &self.width())
+            .field("height", &self.height())
+            .finish()
+    }
+}
 
 pub struct I444Buffer {
     pub(crate) handle: vf_imp::I444Buffer,
@@ -224,6 +253,15 @@ impl_video_frame_buffer!(I444Buffer);
 impl_planar_yuv_buffer!(I444Buffer);
 impl_planar_yuv8_buffer!(I444Buffer);
 
+impl Debug for I444Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("I444Buffer")
+            .field("width", &self.width())
+            .field("height", &self.height())
+            .finish()
+    }
+}
+
 pub struct I010Buffer {
     pub(crate) handle: vf_imp::I010Buffer,
 }
@@ -231,6 +269,15 @@ pub struct I010Buffer {
 impl_video_frame_buffer!(I010Buffer);
 impl_planar_yuv_buffer!(I010Buffer);
 impl_planar_yuv16b_buffer!(I010Buffer);
+
+impl Debug for I010Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("I010Buffer")
+            .field("width", &self.width())
+            .field("height", &self.height())
+            .finish()
+    }
+}
 
 pub struct NV12Buffer {
     pub(crate) handle: vf_imp::NV12Buffer,
@@ -240,8 +287,19 @@ impl_video_frame_buffer!(NV12Buffer);
 impl_biplanar_yuv_buffer!(NV12Buffer);
 impl_biplanar_yuv8_buffer!(NV12Buffer);
 
+impl Debug for NV12Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NV12Buffer")
+            .field("width", &self.width())
+            .field("height", &self.height())
+            .finish()
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
+    use std::fmt::Debug;
+
     use super::{
         vf_imp, I010Buffer, I420ABuffer, I420Buffer, I422Buffer, I444Buffer, NV12Buffer,
         VideoFormatType, VideoFrameBuffer,
@@ -249,7 +307,7 @@ pub mod native {
 
     pub use crate::imp::yuv_helper::ConvertError;
 
-    pub trait VideoFrameBufferExt: VideoFrameBuffer {
+    pub trait VideoFrameBufferExt: VideoFrameBuffer + Debug {
         fn to_i420(&self) -> I420Buffer;
         fn to_argb(
             &self,
@@ -290,6 +348,15 @@ pub mod native {
     }
 
     impl_video_frame_buffer!(NativeBuffer);
+
+    impl Debug for NativeBuffer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("NativeBuffer")
+                .field("width", &self.width())
+                .field("height", &self.height())
+                .finish()
+        }
+    }
 
     impl_video_frame_buffer_winext!(NativeBuffer);
     impl_video_frame_buffer_winext!(I420Buffer);

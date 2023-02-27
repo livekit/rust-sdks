@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::imp::ice_candidate as imp_ic;
 
 pub struct IceCandidate {
@@ -21,5 +23,11 @@ impl IceCandidate {
 impl ToString for IceCandidate {
     fn to_string(&self) -> String {
         self.handle.to_string()
+    }
+}
+
+impl Debug for IceCandidate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IceCandidate").finish()
     }
 }

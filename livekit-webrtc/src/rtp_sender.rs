@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::{
     imp::rtp_sender as imp_rs, media_stream::MediaStreamTrack, rtp_parameters::RtpParameters,
     RtcError,
@@ -23,5 +25,13 @@ impl RtpSender {
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         self.handle.set_parameters(parameters)
+    }
+}
+
+impl Debug for RtpSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RtpReceiver")
+            .field("cname", &self.parameters().rtcp.cname)
+            .finish()
     }
 }

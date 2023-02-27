@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::imp::rtp_transceiver as imp_rt;
 use crate::rtp_parameters::RtpEncodingParameters;
 use crate::rtp_receiver::RtpReceiver;
@@ -48,5 +50,16 @@ impl RtpTransceiver {
 
     pub fn stop(&self) -> Result<(), RtcError> {
         self.handle.stop()
+    }
+}
+
+impl Debug for RtpTransceiver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RtpTransceiver")
+            .field("mid", &self.mid())
+            .field("direction", &self.direction())
+            .field("sender", &self.sender())
+            .field("receiver", &self.receiver())
+            .finish()
     }
 }
