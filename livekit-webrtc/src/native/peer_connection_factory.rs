@@ -61,6 +61,14 @@ pub struct RTCRuntime {
     pub(crate) sys_handle: SharedPtr<sys_webrtc::ffi::RTCRuntime>,
 }
 
+impl Default for RTCRuntime {
+    fn default() -> Self {
+        Self {
+            sys_handle: sys_webrtc::ffi::create_rtc_runtime(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PeerConnectionFactory {
     sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
@@ -69,14 +77,17 @@ pub struct PeerConnectionFactory {
     runtime: RTCRuntime,
 }
 
-impl PeerConnectionFactory {
-    pub fn new(runtime: RTCRuntime) -> Self {
+impl Default for PeerConnectionFactory {
+    fn default() -> Self {
+        let runtime = RTCRuntime::default();
         Self {
             sys_handle: sys_pcf::ffi::create_peer_connection_factory(runtime.sys_handle.clone()),
             runtime,
         }
     }
+}
 
+impl PeerConnectionFactory {
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,

@@ -30,9 +30,9 @@ pub struct RtcConfiguration {
     pub ice_transport_type: IceTransportsType,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PeerConnectionFactory {
-    handle: imp_pcf::PeerConnectionFactory,
+    pub(crate) handle: imp_pcf::PeerConnectionFactory,
 }
 
 impl PeerConnectionFactory {
