@@ -31,6 +31,7 @@ pub mod ice_candidate;
 pub mod media_stream;
 pub mod peer_connection;
 pub mod peer_connection_factory;
+pub mod prelude;
 pub mod rtp_parameters;
 pub mod rtp_receiver;
 pub mod rtp_sender;
