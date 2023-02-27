@@ -61,32 +61,28 @@ std::shared_ptr<VideoTrack> MediaStream::find_video_track(
       media_stream_->FindVideoTrack(track_id.c_str()));
 }
 
-bool MediaStream::add_audio_track(
-    std::shared_ptr<AudioTrack> audio_track) const {
-  return media_stream_->AddTrack(
-      rtc::scoped_refptr<webrtc::AudioTrackInterface>(
-          static_cast<webrtc::AudioTrackInterface*>(audio_track->get().get())));
+bool MediaStream::add_track(std::shared_ptr<MediaStreamTrack> track) const {
+  if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+    return media_stream_->AddTrack(
+        rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+            static_cast<webrtc::VideoTrackInterface*>(track->get().get())));
+  } else {
+    return media_stream_->AddTrack(
+        rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+            static_cast<webrtc::AudioTrackInterface*>(track->get().get())));
+  }
 }
 
-bool MediaStream::add_video_track(
-    std::shared_ptr<VideoTrack> video_track) const {
-  return media_stream_->AddTrack(
-      rtc::scoped_refptr<webrtc::VideoTrackInterface>(
-          static_cast<webrtc::VideoTrackInterface*>(video_track->get().get())));
-}
-
-bool MediaStream::remove_audio_track(
-    std::shared_ptr<AudioTrack> audio_track) const {
-  return media_stream_->RemoveTrack(
-      rtc::scoped_refptr<webrtc::AudioTrackInterface>(
-          static_cast<webrtc::AudioTrackInterface*>(audio_track->get().get())));
-}
-
-bool MediaStream::remove_video_track(
-    std::shared_ptr<VideoTrack> video_track) const {
-  return media_stream_->RemoveTrack(
-      rtc::scoped_refptr<webrtc::VideoTrackInterface>(
-          static_cast<webrtc::VideoTrackInterface*>(video_track->get().get())));
+bool MediaStream::remove_track(std::shared_ptr<MediaStreamTrack> track) const {
+  if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+    return media_stream_->RemoveTrack(
+        rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+            static_cast<webrtc::VideoTrackInterface*>(track->get().get())));
+  } else {
+    return media_stream_->RemoveTrack(
+        rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+            static_cast<webrtc::AudioTrackInterface*>(track->get().get())));
+  }
 }
 
 MediaStreamTrack::MediaStreamTrack(

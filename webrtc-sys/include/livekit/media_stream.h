@@ -50,10 +50,8 @@ class MediaStream {
   std::shared_ptr<AudioTrack> find_audio_track(rust::String track_id) const;
   std::shared_ptr<VideoTrack> find_video_track(rust::String track_id) const;
 
-  bool add_audio_track(std::shared_ptr<AudioTrack> audio_track) const;
-  bool add_video_track(std::shared_ptr<VideoTrack> video_track) const;
-  bool remove_audio_track(std::shared_ptr<AudioTrack> audio_track) const;
-  bool remove_video_track(std::shared_ptr<VideoTrack> video_track) const;
+  bool add_track(std::shared_ptr<MediaStreamTrack> track) const;
+  bool remove_track(std::shared_ptr<MediaStreamTrack> track) const;
 
  private:
   rtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;

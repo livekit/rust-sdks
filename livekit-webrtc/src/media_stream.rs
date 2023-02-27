@@ -13,6 +13,25 @@ pub enum TrackKind {
 }
 
 #[derive(Clone)]
+pub struct MediaStream {
+    pub(crate) handle: imp_ms::MediaStream,
+}
+
+impl MediaStream {
+    pub fn id(&self) -> String {
+        self.handle.id()
+    }
+
+    pub fn audio_tracks(&self) -> Vec<AudioTrack> {
+        self.handle.audio_tracks()
+    }
+
+    pub fn video_tracks(&self) -> Vec<VideoTrack> {
+        self.handle.video_tracks()
+    }
+}
+
+#[derive(Clone)]
 pub struct VideoTrack {
     pub(crate) handle: imp_ms::VideoTrack,
 }

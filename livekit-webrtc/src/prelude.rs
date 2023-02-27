@@ -1,6 +1,8 @@
 pub use crate::data_channel::{DataBuffer, DataChannel, DataChannelInit, DataState};
 pub use crate::ice_candidate::IceCandidate;
-pub use crate::media_stream::{AudioTrack, MediaStreamTrack, TrackKind, TrackState, VideoTrack};
+pub use crate::media_stream::{
+    AudioTrack, MediaStream, MediaStreamTrack, TrackKind, TrackState, VideoTrack,
+};
 pub use crate::peer_connection::{
     IceConnectionState, IceGatheringState, PeerConnection, PeerConnectionState, SignalingState,
 };

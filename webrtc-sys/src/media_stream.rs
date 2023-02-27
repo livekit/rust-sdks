@@ -52,10 +52,8 @@ pub mod ffi {
         fn get_video_tracks(self: &MediaStream) -> Vec<VideoTrackPtr>;
         fn find_audio_track(self: &MediaStream, track_id: String) -> SharedPtr<AudioTrack>;
         fn find_video_track(self: &MediaStream, track_id: String) -> SharedPtr<VideoTrack>;
-        fn add_audio_track(self: &MediaStream, audio_track: SharedPtr<AudioTrack>) -> bool;
-        fn add_video_track(self: &MediaStream, video_track: SharedPtr<VideoTrack>) -> bool;
-        fn remove_audio_track(self: &MediaStream, audio_track: SharedPtr<AudioTrack>) -> bool;
-        fn remove_video_track(self: &MediaStream, video_track: SharedPtr<VideoTrack>) -> bool;
+        fn add_track(self: &MediaStream, audio_track: SharedPtr<MediaStreamTrack>) -> bool;
+        fn remove_track(self: &MediaStream, audio_track: SharedPtr<MediaStreamTrack>) -> bool;
 
         fn kind(self: &MediaStreamTrack) -> String;
         fn id(self: &MediaStreamTrack) -> String;

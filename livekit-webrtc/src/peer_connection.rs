@@ -47,14 +47,14 @@ pub enum SignalingState {
     Closed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OfferOptions {
     pub ice_restart: bool,
     pub offer_to_receive_audio: bool,
     pub offer_to_receive_video: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AnswerOptions {}
 
 #[derive(Debug, Clone)]

@@ -16,6 +16,37 @@ impl From<sys_ms::ffi::TrackState> for TrackState {
     }
 }
 
+#[derive(Clone)]
+pub struct MediaStream {
+    sys_handle: SharedPtr<sys_ms::ffi::MediaStream>,
+}
+
+impl MediaStream {
+    pub fn id(&self) -> String {
+        self.sys_handle.id()
+    }
+
+    pub fn audio_tracks(&self) -> Vec<media_stream::AudioTrack> {
+        self.sys_handle
+            .get_audio_tracks()
+            .into_iter()
+            .map(|t| media_stream::AudioTrack {
+                handle: AudioTrack { sys_handle: t.ptr },
+            })
+            .collect()
+    }
+
+    pub fn video_tracks(&self) -> Vec<media_stream::VideoTrack> {
+        self.sys_handle
+            .get_video_tracks()
+            .into_iter()
+            .map(|t| media_stream::VideoTrack {
+                handle: VideoTrack { sys_handle: t.ptr },
+            })
+            .collect()
+    }
+}
+
 pub fn new_media_stream_track(
     sys_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>,
 ) -> Box<dyn MediaStreamTrack> {
