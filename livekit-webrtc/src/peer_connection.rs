@@ -20,21 +20,21 @@ pub enum PeerConnectionState {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum IceConnectionState {
-    IceConnectionNew,
-    IceConnectionChecking,
-    IceConnectionConnected,
-    IceConnectionCompleted,
-    IceConnectionFailed,
-    IceConnectionDisconnected,
-    IceConnectionClosed,
-    IceConnectionMax,
+    New,
+    Checking,
+    Connected,
+    Completed,
+    Failed,
+    Disconnected,
+    Closed,
+    Max,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum IceGatheringState {
-    IceGatheringNew,
-    IceGatheringGathering,
-    IceGatheringComplete,
+    New,
+    Gathering,
+    Complete,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -57,9 +57,28 @@ pub struct OfferOptions {
 #[derive(Debug, Clone)]
 pub struct AnswerOptions {}
 
+#[derive(Debug, Clone)]
+pub struct IceCandidateError {
+    address: String,
+    port: i32,
+    url: String,
+    error_code: i32,
+    error_text: String,
+}
+
+pub type OnConnectionChange = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
+pub type OnDataChannel = Box<dyn FnMut(DataChannel) + Send + Sync>;
+pub type OnIceCandidate = Box<dyn FnMut(IceCandidate) + Send + Sync>;
+pub type OnIceCandidateError = Box<dyn FnMut(IceCandidateError) + Send + Sync>;
+pub type OnIceConnectionChange = Box<dyn FnMut(IceConnectionState) + Send + Sync>;
+pub type OnIceGatheringChange = Box<dyn FnMut(IceGatheringState) + Send + Sync>;
+pub type OnNegotiationNeeded = Box<dyn FnMut(u32) + Send + Sync>;
+pub type OnSignalingChange = Box<dyn FnMut(SignalingState) + Send + Sync>;
+pub type OnTrack = Box<dyn FnMut(RtpTransceiver) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct PeerConnection {
-    sys_handle: imp_pc::PeerConnection,
+    handle: imp_pc::PeerConnection,
 }
 
 impl PeerConnection {
@@ -162,5 +181,41 @@ impl PeerConnection {
 
     pub fn transceivers(&self) -> Vec<RtpTransceiver> {
         self.handle.transceivers()
+    }
+
+    pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
+        self.handle.on_connection_state_change(f)
+    }
+
+    pub fn on_data_channel(&self, f: Option<OnDataChannel>) {
+        self.handle.on_data_channel(f)
+    }
+
+    pub fn on_ice_candidate(&self, f: Option<OnIceCandidate>) {
+        self.handle.on_ice_candidate(f)
+    }
+
+    pub fn on_ice_candidate_error(&self, f: Option<OnIceCandidateError>) {
+        self.handle.on_ice_candidate_error(f)
+    }
+
+    pub fn on_ice_connection_state_change(&self, f: Option<OnIceConnectionChange>) {
+        self.handle.on_ice_connection_state_change(f)
+    }
+
+    pub fn on_ice_gathering_state_change(&self, f: Option<OnIceGatheringChange>) {
+        self.handle.on_ice_gathering_state_change(f)
+    }
+
+    pub fn on_negotiation_needed(&self, f: Option<OnNegotiationNeeded>) {
+        self.handle.on_negotiation_needed(f)
+    }
+
+    pub fn on_signaling_state_change(&self, f: Option<OnSignalingChange>) {
+        self.handle.on_signaling_state_change(f)
+    }
+
+    pub fn on_track(&self, f: Option<OnTrack>) {
+        self.handle.on_track(f)
     }
 }

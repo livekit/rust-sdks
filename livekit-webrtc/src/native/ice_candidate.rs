@@ -3,7 +3,7 @@ use webrtc_sys::jsep as sys_jsep;
 
 #[derive(Clone)]
 pub struct IceCandidate {
-    sys_handle: SharedPtr<sys_jsep::ffi::IceCandidate>,
+    pub(crate) sys_handle: SharedPtr<sys_jsep::ffi::IceCandidate>,
 }
 
 impl IceCandidate {

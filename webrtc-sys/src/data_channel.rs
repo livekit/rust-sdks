@@ -14,9 +14,6 @@ pub mod ffi {
 
     #[derive(Debug)]
     pub struct DataChannelInit {
-        #[allow(deprecated)]
-        #[deprecated]
-        pub reliable: bool,
         pub ordered: bool,
         pub has_max_retransmit_time: bool,
         pub max_retransmit_time: i32,
@@ -62,10 +59,7 @@ pub mod ffi {
 
         /// SAFETY
         /// The observer must live as long as the datachannel uses it
-        unsafe fn register_observer(
-            self: &DataChannel,
-            observer: Pin<&mut NativeDataChannelObserver>,
-        );
+        unsafe fn register_observer(self: &DataChannel, observer: *const NativeDataChannelObserver);
 
         fn unregister_observer(self: &DataChannel);
         fn send(self: &DataChannel, data: &DataBuffer) -> bool;
@@ -76,7 +70,7 @@ pub mod ffi {
         fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;
         unsafe fn create_native_data_channel_observer(
             observer: Box<DataChannelObserverWrapper>,
-            dc: *mut DataChannel,
+            dc: *const DataChannel,
         ) -> SharedPtr<NativeDataChannelObserver>;
 
         fn _shared_data_channel() -> SharedPtr<DataChannel>; // Ignore

@@ -11,8 +11,10 @@ pub mod session_description;
 pub mod video_frame;
 pub mod yuv_helper;
 
+use crate::MediaType;
 use crate::{RtcError, RtcErrorType};
 use webrtc_sys::rtc_error as sys_err;
+use webrtc_sys::webrtc as sys_rtc;
 
 impl From<sys_err::ffi::RTCErrorType> for RtcErrorType {
     fn from(value: sys_err::ffi::RTCErrorType) -> Self {
@@ -28,6 +30,17 @@ impl From<sys_err::ffi::RTCError> for RtcError {
         Self {
             error_type: value.error_type.into(),
             message: value.message,
+        }
+    }
+}
+
+impl From<MediaType> for sys_rtc::ffi::MediaType {
+    fn from(value: MediaType) -> Self {
+        match value {
+            MediaType::Audio => Self::Audio,
+            MediaType::Video => Self::Video,
+            MediaType::Data => Self::Data,
+            MediaType::Unsupported => Self::Unsupported,
         }
     }
 }

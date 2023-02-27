@@ -44,7 +44,7 @@ pub mod ffi {
 
         fn create_peer_connection_factory(
             runtime: SharedPtr<RTCRuntime>,
-        ) -> UniquePtr<PeerConnectionFactory>;
+        ) -> SharedPtr<PeerConnectionFactory>;
         fn create_rtc_configuration(conf: RTCConfiguration) -> UniquePtr<NativeRTCConfiguration>;
 
         /// # Safety
@@ -52,8 +52,8 @@ pub mod ffi {
         unsafe fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: UniquePtr<NativeRTCConfiguration>,
-            observer: Pin<&mut NativePeerConnectionObserver>,
-        ) -> Result<UniquePtr<PeerConnection>>;
+            observer: *const NativePeerConnectionObserver,
+        ) -> Result<SharedPtr<PeerConnection>>;
     }
 }
 

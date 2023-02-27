@@ -4,7 +4,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct RtpReceiver {
-    handle: imp_rr::RtpReceiver,
+    pub(crate) handle: imp_rr::RtpReceiver,
 }
 
 impl RtpReceiver {

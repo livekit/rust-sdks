@@ -3,6 +3,7 @@ use crate::imp::rtp_sender::RtpSender;
 use crate::rtp_receiver;
 use crate::rtp_sender;
 use crate::rtp_transceiver::RtpTransceiverDirection;
+use crate::rtp_transceiver::RtpTransceiverInit;
 use crate::RtcError;
 use cxx::SharedPtr;
 use webrtc_sys::rtp_transceiver as sys_rt;
@@ -15,6 +16,27 @@ impl From<sys_webrtc::ffi::RtpTransceiverDirection> for RtpTransceiverDirection 
             sys_webrtc::ffi::RtpTransceiverDirection::SendOnly => Self::SendOnly,
             sys_webrtc::ffi::RtpTransceiverDirection::RecvOnly => Self::RecvOnly,
             sys_webrtc::ffi::RtpTransceiverDirection::Inactive => Self::Inactive,
+        }
+    }
+}
+
+impl From<RtpTransceiverDirection> for sys_webrtc::ffi::RtpTransceiverDirection {
+    fn from(value: RtpTransceiverDirection) -> Self {
+        match value {
+            RtpTransceiverDirection::SendRecv => Self::SendRecv,
+            RtpTransceiverDirection::SendOnly => Self::SendOnly,
+            RtpTransceiverDirection::RecvOnly => Self::RecvOnly,
+            RtpTransceiverDirection::Inactive => Self::Inactive,
+        }
+    }
+}
+
+impl From<RtpTransceiverInit> for sys_rt::ffi::RtpTransceiverInit {
+    fn from(value: RtpTransceiverInit) -> Self {
+        Self {
+            direction: value.direction.into(),
+            stream_ids: value.stream_ids,
+            send_encodings: value.send_encodings.into_iter().map(Into::into).collect(),
         }
     }
 }

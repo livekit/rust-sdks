@@ -5,14 +5,11 @@ use thiserror::Error;
 #[derive(Clone, Debug)]
 pub struct DataChannelInit {
     pub ordered: bool,
-    pub has_max_retransmit_time: bool,
-    pub max_retransmit_time: i32,
-    pub has_max_retransmits: bool,
-    pub max_retransmits: i32,
+    pub max_retransmit_time: Option<i32>,
+    pub max_retransmits: Option<i32>,
     pub protocol: String,
     pub negotiated: bool,
     pub id: i32,
-    pub has_priority: bool,
     pub priority: Priority,
 }
 
@@ -44,7 +41,7 @@ pub type OnBufferedAmountChange = Box<dyn FnMut(u64) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct DataChannel {
-    handle: dc_imp::DataChannel,
+    pub(crate) handle: dc_imp::DataChannel,
 }
 
 impl DataChannel {

@@ -22,7 +22,7 @@ pub enum RtpTransceiverDirection {
 
 #[derive(Clone)]
 pub struct RtpTransceiver {
-    handle: imp_rt::RtpTransceiver,
+    pub(crate) handle: imp_rt::RtpTransceiver,
 }
 
 impl RtpTransceiver {

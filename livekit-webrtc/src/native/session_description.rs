@@ -14,7 +14,7 @@ impl From<sys_jsep::ffi::SdpType> for SdpType {
 }
 
 pub struct SessionDescription {
-    sys_handle: UniquePtr<sys_jsep::ffi::SessionDescription>,
+    pub(crate) sys_handle: UniquePtr<sys_jsep::ffi::SessionDescription>,
 }
 
 impl SessionDescription {

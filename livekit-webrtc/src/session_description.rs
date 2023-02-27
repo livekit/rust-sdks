@@ -10,7 +10,7 @@ pub enum SdpType {
 
 #[derive(Clone)]
 pub struct SessionDescription {
-    handle: sd_imp::SessionDescription,
+    pub(crate) handle: sd_imp::SessionDescription,
 }
 
 impl SessionDescription {

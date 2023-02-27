@@ -1,7 +1,7 @@
 use crate::imp::ice_candidate as imp_ic;
 
 pub struct IceCandidate {
-    handle: imp_ic::IceCandidate,
+    pub(crate) handle: imp_ic::IceCandidate,
 }
 
 impl IceCandidate {

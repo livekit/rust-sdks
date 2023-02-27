@@ -1,5 +1,6 @@
 use crate::data_channel::{
-    DataBuffer, DataChannelError, DataState, OnBufferedAmountChange, OnMessage, OnStateChange,
+    DataBuffer, DataChannelError, DataChannelInit, DataState, OnBufferedAmountChange, OnMessage,
+    OnStateChange,
 };
 use cxx::SharedPtr;
 use std::str;
@@ -18,9 +19,26 @@ impl From<sys_dc::ffi::DataState> for DataState {
     }
 }
 
+impl From<DataChannelInit> for sys_dc::ffi::DataChannelInit {
+    fn from(value: DataChannelInit) -> Self {
+        Self {
+            ordered: value.ordered,
+            has_max_retransmit_time: value.max_retransmit_time.is_some(),
+            max_retransmit_time: value.max_retransmit_time.unwrap_or_default(),
+            has_max_retransmits: value.max_retransmits.is_some(),
+            max_retransmits: value.max_retransmits.unwrap_or_default(),
+            protocol: value.protocol,
+            id: value.id,
+            has_priority: false,
+            priority: sys_dc::ffi::Priority::Medium,
+            negotiated: value.negotiated,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct DataChannel {
-    sys_handle: SharedPtr<sys_dc::ffi::DataChannel>,
+    pub(crate) sys_handle: SharedPtr<sys_dc::ffi::DataChannel>,
     observer: Arc<Box<DataChannelObserver>>,
 
     // Keep alive for C++
@@ -29,6 +47,23 @@ pub struct DataChannel {
 }
 
 impl DataChannel {
+    pub fn configure(sys_handle: SharedPtr<sys_dc::ffi::DataChannel>) -> Self {
+        unsafe {
+            let mut observer = Box::new(DataChannelObserver::default());
+            let mut dc = Self {
+                sys_handle: sys_handle.clone(),
+                native_observer: sys_dc::ffi::create_native_data_channel_observer(
+                    Box::new(sys_dc::DataChannelObserverWrapper::new(&mut *observer)),
+                    &*sys_handle,
+                ),
+                observer: Arc::new(observer),
+            };
+
+            dc.sys_handle.register_observer(&*dc.native_observer);
+            dc
+        }
+    }
+
     pub fn send(&self, data: &[u8], binary: bool) -> Result<(), DataChannelError> {
         if !binary {
             str::from_utf8(data)?;

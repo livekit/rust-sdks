@@ -6,8 +6,9 @@ use crate::media_stream::ffi::MediaStream;
 use crate::rtc_error::ffi::RTCError;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
-use cxx::{SharedPtr, UniquePtr};
+use cxx::SharedPtr;
 use std::mem::ManuallyDrop;
+use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -195,24 +196,26 @@ pub mod ffi {
 
         fn current_remote_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
 
+        fn connection_state(self: &PeerConnection) -> PeerConnectionState;
+
         fn signaling_state(self: &PeerConnection) -> SignalingState;
 
         fn ice_gathering_state(self: &PeerConnection) -> IceGatheringState;
 
         fn ice_connection_state(self: &PeerConnection) -> IceConnectionState;
 
-        fn close(self: Pin<&mut PeerConnection>);
+        fn close(self: &PeerConnection);
 
         fn create_native_peer_connection_observer(
             rtc_runtime: SharedPtr<RTCRuntime>,
             observer: Box<PeerConnectionObserverWrapper>,
-        ) -> UniquePtr<NativePeerConnectionObserver>;
+        ) -> SharedPtr<NativePeerConnectionObserver>;
 
         fn create_native_add_ice_candidate_observer(
             observer: Box<AddIceCandidateObserverWrapper>,
         ) -> UniquePtr<NativeAddIceCandidateObserver>;
 
-        fn _unique_peer_connection() -> UniquePtr<PeerConnection>; // Ignore
+        fn _shared_peer_connection() -> SharedPtr<PeerConnection>; // Ignore
     }
 
     extern "Rust" {
@@ -352,80 +355,57 @@ pub trait PeerConnectionObserver: Send + Sync {
 
 // Thread safety is handled inside PeerConnectionObserver
 pub struct PeerConnectionObserverWrapper {
-    observer: *mut dyn PeerConnectionObserver,
+    observer: Arc<dyn PeerConnectionObserver>,
 }
 
 impl PeerConnectionObserverWrapper {
-    /// # Safety
-    /// PeerConnectionObserver must lives as long as PeerConnectionObserverWrapper does
-    pub unsafe fn new(observer: *mut dyn PeerConnectionObserver) -> Self {
+    pub fn new(observer: Arc<dyn PeerConnectionObserver>) -> Self {
         Self { observer }
     }
 
     fn on_signaling_change(&self, new_state: ffi::SignalingState) {
-        unsafe {
-            (*self.observer).on_signaling_change(new_state);
-        }
+        self.observer.on_signaling_change(new_state);
     }
 
     fn on_add_stream(&self, stream: SharedPtr<MediaStream>) {
-        unsafe {
-            (*self.observer).on_add_stream(stream);
-        }
+        self.observer.on_add_stream(stream);
     }
 
     fn on_remove_stream(&self, stream: SharedPtr<MediaStream>) {
-        unsafe {
-            (*self.observer).on_remove_stream(stream);
-        }
+        self.observer.on_remove_stream(stream);
     }
 
     fn on_data_channel(&self, data_channel: SharedPtr<DataChannel>) {
-        unsafe {
-            (*self.observer).on_data_channel(data_channel);
-        }
+        self.observer.on_data_channel(data_channel);
     }
 
     fn on_renegotiation_needed(&self) {
-        unsafe {
-            (*self.observer).on_renegotiation_needed();
-        }
+        self.observer.on_renegotiation_needed();
     }
 
     fn on_negotiation_needed_event(&self, event: u32) {
-        unsafe {
-            (*self.observer).on_negotiation_needed_event(event);
-        }
+        self.observer.on_negotiation_needed_event(event);
     }
 
     fn on_ice_connection_change(&self, new_state: ffi::IceConnectionState) {
-        unsafe {
-            (*self.observer).on_ice_connection_change(new_state);
-        }
+        self.observer.on_ice_connection_change(new_state);
     }
 
     fn on_standardized_ice_connection_change(&self, new_state: ffi::IceConnectionState) {
-        unsafe {
-            (*self.observer).on_standardized_ice_connection_change(new_state);
-        }
+        self.observer
+            .on_standardized_ice_connection_change(new_state);
     }
 
     fn on_connection_change(&self, new_state: ffi::PeerConnectionState) {
-        unsafe {
-            (*self.observer).on_connection_change(new_state);
-        }
+        self.observer.on_connection_change(new_state);
     }
 
     fn on_ice_gathering_change(&self, new_state: ffi::IceGatheringState) {
-        unsafe {
-            (*self.observer).on_ice_gathering_change(new_state);
-        }
+        self.observer.on_ice_gathering_change(new_state);
     }
 
     fn on_ice_candidate(&self, candidate: SharedPtr<IceCandidate>) {
-        unsafe {
-            (*self.observer).on_ice_candidate(candidate);
-        }
+        self.observer.on_ice_candidate(candidate);
     }
 
     fn on_ice_candidate_error(
@@ -436,9 +416,8 @@ impl PeerConnectionObserverWrapper {
         error_code: i32,
         error_text: String,
     ) {
-        unsafe {
-            (*self.observer).on_ice_candidate_error(address, port, url, error_code, error_text);
-        }
+        self.observer
+            .on_ice_candidate_error(address, port, url, error_code, error_text);
     }
 
     fn on_ice_candidates_removed(&self, removed: Vec<ffi::CandidatePtr>) {
@@ -448,21 +427,15 @@ impl PeerConnectionObserverWrapper {
             vec.push(v.ptr);
         }
 
-        unsafe {
-            (*self.observer).on_ice_candidates_removed(vec);
-        }
+        self.observer.on_ice_candidates_removed(vec);
     }
 
     fn on_ice_connection_receiving_change(&self, receiving: bool) {
-        unsafe {
-            (*self.observer).on_ice_connection_receiving_change(receiving);
-        }
+        self.observer.on_ice_connection_receiving_change(receiving);
     }
 
     fn on_ice_selected_candidate_pair_changed(&self, event: ffi::CandidatePairChangeEvent) {
-        unsafe {
-            (*self.observer).on_ice_selected_candidate_pair_changed(event);
-        }
+        self.observer.on_ice_selected_candidate_pair_changed(event);
     }
 
     fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
@@ -472,26 +445,18 @@ impl PeerConnectionObserverWrapper {
             vec.push(v.ptr);
         }
 
-        unsafe {
-            (*self.observer).on_add_track(receiver, vec);
-        }
+        self.observer.on_add_track(receiver, vec);
     }
 
     fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>) {
-        unsafe {
-            (*self.observer).on_track(transceiver);
-        }
+        self.observer.on_track(transceiver);
     }
 
     fn on_remove_track(&self, receiver: SharedPtr<RtpReceiver>) {
-        unsafe {
-            (*self.observer).on_remove_track(receiver);
-        }
+        self.observer.on_remove_track(receiver);
     }
 
     fn on_interesting_usage(&self, usage_pattern: i32) {
-        unsafe {
-            (*self.observer).on_interesting_usage(usage_pattern);
-        }
+        self.observer.on_interesting_usage(usage_pattern);
     }
 }
