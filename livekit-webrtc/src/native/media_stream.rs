@@ -11,6 +11,7 @@ impl From<sys_ms::ffi::TrackState> for TrackState {
         match state {
             sys_ms::ffi::TrackState::Live => TrackState::Live,
             sys_ms::ffi::TrackState::Ended => TrackState::Ended,
+            _ => panic!("unknown TrackState"),
         }
     }
 }

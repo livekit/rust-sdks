@@ -37,7 +37,7 @@ class DataChannel {
       std::shared_ptr<RTCRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel);
 
-  void register_observer(NativeDataChannelObserver& observer) const;
+  void register_observer(NativeDataChannelObserver* observer) const;
   void unregister_observer() const;
   bool send(const DataBuffer& buffer) const;
   rust::String label() const;
@@ -62,16 +62,18 @@ class NativeDataChannelObserver : public webrtc::DataChannelObserver {
       rust::Box<DataChannelObserverWrapper> observer,
       DataChannel* dc);
 
+  ~NativeDataChannelObserver();
+
   void OnStateChange() override;
   void OnMessage(const webrtc::DataBuffer& buffer) override;
   void OnBufferedAmountChange(uint64_t sent_data_size) override;
 
  private:
   rust::Box<DataChannelObserverWrapper> observer_;
-  DataChannel* dc_;
+  const DataChannel* dc_;
 };
 
 std::shared_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
     rust::Box<DataChannelObserverWrapper> observer,
-    DataChannel* dc);
+    const DataChannel* dc);
 }  // namespace livekit

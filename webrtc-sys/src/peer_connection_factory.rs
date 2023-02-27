@@ -52,7 +52,7 @@ pub mod ffi {
         unsafe fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: UniquePtr<NativeRTCConfiguration>,
-            observer: *const NativePeerConnectionObserver,
+            observer: *mut NativePeerConnectionObserver,
         ) -> Result<SharedPtr<PeerConnection>>;
     }
 }

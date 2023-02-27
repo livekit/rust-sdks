@@ -158,20 +158,27 @@ void PeerConnection::add_ice_candidate(
       [&](const webrtc::RTCError& err) { observer.OnComplete(to_error(err)); });
 }
 
-std::unique_ptr<SessionDescription> PeerConnection::local_description() const {
+std::unique_ptr<SessionDescription> PeerConnection::current_local_description()
+    const {
   auto local_description = peer_connection_->local_description();
   if (local_description)
     return std::make_unique<SessionDescription>(local_description->Clone());
 
-  return std::unique_ptr<SessionDescription>();
+  return nullptr;
 }
 
-std::unique_ptr<SessionDescription> PeerConnection::remote_description() const {
+std::unique_ptr<SessionDescription> PeerConnection::current_remote_description()
+    const {
   auto remote_description = peer_connection_->remote_description();
   if (remote_description)
     return std::make_unique<SessionDescription>(remote_description->Clone());
 
-  return std::unique_ptr<SessionDescription>();
+  return nullptr;
+}
+
+PeerConnectionState PeerConnection::connection_state() const {
+  return static_cast<PeerConnectionState>(
+      peer_connection_->peer_connection_state());
 }
 
 SignalingState PeerConnection::signaling_state() const {
@@ -188,7 +195,7 @@ IceConnectionState PeerConnection::ice_connection_state() const {
       peer_connection_->ice_connection_state());
 }
 
-void PeerConnection::close() {
+void PeerConnection::close() const {
   peer_connection_->Close();
 }
 
@@ -342,11 +349,11 @@ void NativePeerConnectionObserver::OnInterestingUsage(int usage_pattern) {
   observer_->on_interesting_usage(usage_pattern);
 }
 
-std::unique_ptr<NativePeerConnectionObserver>
+std::shared_ptr<NativePeerConnectionObserver>
 create_native_peer_connection_observer(
     std::shared_ptr<RTCRuntime> rtc_runtime,
     rust::Box<PeerConnectionObserverWrapper> observer) {
-  return std::make_unique<NativePeerConnectionObserver>(rtc_runtime,
+  return std::make_shared<NativePeerConnectionObserver>(rtc_runtime,
                                                         std::move(observer));
 }
 }  // namespace livekit

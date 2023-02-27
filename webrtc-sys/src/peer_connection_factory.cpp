@@ -73,10 +73,10 @@ PeerConnectionFactory::~PeerConnectionFactory() {
   RTC_LOG(LS_INFO) << "PeerConnectionFactory::~PeerConnectionFactory()";
 }
 
-std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
+std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     std::unique_ptr<webrtc::PeerConnectionInterface::RTCConfiguration> config,
-    NativePeerConnectionObserver& observer) const {
-  webrtc::PeerConnectionDependencies deps{&observer};
+    NativePeerConnectionObserver* observer) const {
+  webrtc::PeerConnectionDependencies deps{observer};
   auto result =
       peer_factory_->CreatePeerConnectionOrError(*config, std::move(deps));
 
@@ -84,12 +84,12 @@ std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     throw std::runtime_error(serialize_error(to_error(result.error())));
   }
 
-  return std::make_unique<PeerConnection>(rtc_runtime_, result.value());
+  return std::make_shared<PeerConnection>(rtc_runtime_, result.value());
 }
 
-std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory(
+std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory(
     std::shared_ptr<RTCRuntime> rtc_runtime) {
-  return std::make_unique<PeerConnectionFactory>(std::move(rtc_runtime));
+  return std::make_shared<PeerConnectionFactory>(std::move(rtc_runtime));
 }
 
 std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(

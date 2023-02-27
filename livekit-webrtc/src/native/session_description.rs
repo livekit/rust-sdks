@@ -9,6 +9,7 @@ impl From<sys_jsep::ffi::SdpType> for SdpType {
             sys_jsep::ffi::SdpType::PrAnswer => SdpType::PrAnswer,
             sys_jsep::ffi::SdpType::Answer => SdpType::Answer,
             sys_jsep::ffi::SdpType::Rollback => SdpType::Rollback,
+            _ => panic!("unknown SdpType"),
         }
     }
 }

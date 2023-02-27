@@ -84,9 +84,11 @@ class PeerConnection {
 
   rust::Vec<RtpTransceiverPtr> get_transceivers() const;
 
-  std::unique_ptr<SessionDescription> local_description() const;
+  std::unique_ptr<SessionDescription> current_local_description() const;
 
-  std::unique_ptr<SessionDescription> remote_description() const;
+  std::unique_ptr<SessionDescription> current_remote_description() const;
+
+  PeerConnectionState connection_state() const;
 
   SignalingState signaling_state() const;
 
@@ -94,14 +96,14 @@ class PeerConnection {
 
   IceConnectionState ice_connection_state() const;
 
-  void close();
+  void close() const;
 
  private:
   std::shared_ptr<RTCRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
-static std::unique_ptr<PeerConnection> _unique_peer_connection() {
+static std::shared_ptr<PeerConnection> _shared_peer_connection() {
   return nullptr;  // Ignore
 }
 
@@ -188,7 +190,7 @@ class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
   rust::Box<PeerConnectionObserverWrapper> observer_;
 };
 
-std::unique_ptr<NativePeerConnectionObserver>
+std::shared_ptr<NativePeerConnectionObserver>
 create_native_peer_connection_observer(
     std::shared_ptr<RTCRuntime> rtc_runtime,
     rust::Box<PeerConnectionObserverWrapper> observer);

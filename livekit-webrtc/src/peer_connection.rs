@@ -59,11 +59,11 @@ pub struct AnswerOptions {}
 
 #[derive(Debug, Clone)]
 pub struct IceCandidateError {
-    address: String,
-    port: i32,
-    url: String,
-    error_code: i32,
-    error_text: String,
+    pub address: String,
+    pub port: i32,
+    pub url: String,
+    pub error_code: i32,
+    pub error_text: String,
 }
 
 pub type OnConnectionChange = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
@@ -78,7 +78,7 @@ pub type OnTrack = Box<dyn FnMut(RtpTransceiver) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct PeerConnection {
-    handle: imp_pc::PeerConnection,
+    pub(crate) handle: imp_pc::PeerConnection,
 }
 
 impl PeerConnection {

@@ -9,6 +9,7 @@ impl From<sys_webrtc::ffi::Priority> for Priority {
             sys_webrtc::ffi::Priority::Low => Self::Low,
             sys_webrtc::ffi::Priority::Medium => Self::Medium,
             sys_webrtc::ffi::Priority::High => Self::High,
+            _ => panic!("unknown Priority"),
         }
     }
 }

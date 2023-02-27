@@ -38,7 +38,6 @@ pub mod ffi {
         fn receiver(self: &RtpTransceiver) -> SharedPtr<RtpReceiver>;
         fn stopped(self: &RtpTransceiver) -> bool;
         fn stopping(self: &RtpTransceiver) -> bool;
-        fn stop(self: &RtpTransceiver) -> RTCError;
         fn direction(self: &RtpTransceiver) -> RtpTransceiverDirection;
         fn set_direction(self: &RtpTransceiver, direction: RtpTransceiverDirection) -> Result<()>;
         fn current_direction(self: &RtpTransceiver) -> Result<RtpTransceiverDirection>;

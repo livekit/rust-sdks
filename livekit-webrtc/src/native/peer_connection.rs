@@ -45,7 +45,7 @@ impl From<OfferOptions> for sys_pc::ffi::RTCOfferAnswerOptions {
 }
 
 impl From<AnswerOptions> for sys_pc::ffi::RTCOfferAnswerOptions {
-    fn from(options: AnswerOptions) -> Self {
+    fn from(_options: AnswerOptions) -> Self {
         Self::default()
     }
 }
@@ -59,6 +59,7 @@ impl From<sys_pc::ffi::PeerConnectionState> for PeerConnectionState {
             sys_pc::ffi::PeerConnectionState::Disconnected => PeerConnectionState::Disconnected,
             sys_pc::ffi::PeerConnectionState::Failed => PeerConnectionState::Failed,
             sys_pc::ffi::PeerConnectionState::Closed => PeerConnectionState::Closed,
+            _ => panic!("unknown PeerConnectionState"),
         }
     }
 }
@@ -71,7 +72,7 @@ impl From<sys_pc::ffi::IceConnectionState> for IceConnectionState {
             sys_pc::ffi::IceConnectionState::IceConnectionConnected => {
                 IceConnectionState::Connected
             }
-            sys_pc::ffi::IceConnectionState::IceConnectionConnected => {
+            sys_pc::ffi::IceConnectionState::IceConnectionCompleted => {
                 IceConnectionState::Completed
             }
             sys_pc::ffi::IceConnectionState::IceConnectionFailed => IceConnectionState::Failed,
@@ -80,6 +81,7 @@ impl From<sys_pc::ffi::IceConnectionState> for IceConnectionState {
             }
             sys_pc::ffi::IceConnectionState::IceConnectionClosed => IceConnectionState::Closed,
             sys_pc::ffi::IceConnectionState::IceConnectionMax => IceConnectionState::Max,
+            _ => panic!("unknown IceConnectionState"),
         }
     }
 }
@@ -90,6 +92,7 @@ impl From<sys_pc::ffi::IceGatheringState> for IceGatheringState {
             sys_pc::ffi::IceGatheringState::IceGatheringNew => IceGatheringState::New,
             sys_pc::ffi::IceGatheringState::IceGatheringGathering => IceGatheringState::Gathering,
             sys_pc::ffi::IceGatheringState::IceGatheringComplete => IceGatheringState::Complete,
+            _ => panic!("unknown IceGatheringState"),
         }
     }
 }
@@ -103,23 +106,24 @@ impl From<sys_pc::ffi::SignalingState> for SignalingState {
             sys_pc::ffi::SignalingState::HaveLocalPrAnswer => SignalingState::HaveLocalPrAnswer,
             sys_pc::ffi::SignalingState::HaveRemotePrAnswer => SignalingState::HaveRemotePrAnswer,
             sys_pc::ffi::SignalingState::Closed => SignalingState::Closed,
+            _ => panic!("unknown SignalingState"),
         }
     }
 }
 
 #[derive(Clone)]
 pub struct PeerConnection {
-    pub(crate) sys_handle: SharedPtr<sys_pc::ffi::PeerConnection>,
-    observer: Arc<Box<PeerObserver>>,
-
     #[allow(unused)]
     native_observer: SharedPtr<sys_pc::ffi::NativePeerConnectionObserver>,
+    observer: Arc<PeerObserver>,
+
+    pub(crate) sys_handle: SharedPtr<sys_pc::ffi::PeerConnection>,
 }
 
 impl PeerConnection {
     pub fn configure(
         sys_handle: SharedPtr<sys_pc::ffi::PeerConnection>,
-        observer: Arc<Box<PeerObserver>>,
+        observer: Arc<PeerObserver>,
         native_observer: SharedPtr<sys_pc::ffi::NativePeerConnectionObserver>,
     ) -> Self {
         Self {
@@ -141,8 +145,8 @@ impl PeerConnection {
         }
 
         futures::select! {
-            Ok(sdp) = sdp_rx => Ok(sdp),
-            Ok(err) = err_rx => Err(err),
+            sdp = sdp_rx => Ok(sdp.unwrap()),
+            err = err_rx => Err(err.unwrap()),
         }
     }
 
@@ -158,8 +162,8 @@ impl PeerConnection {
         }
 
         futures::select! {
-            Ok(sdp) = sdp_rx => Ok(sdp),
-            Ok(err) = err_rx => Err(err),
+            sdp = sdp_rx => Ok(sdp.unwrap()),
+            err = err_rx => Err(err.unwrap()),
         }
     }
 
@@ -436,7 +440,7 @@ fn create_sdp_observer() -> (
 }
 
 #[derive(Default)]
-pub(crate) struct PeerObserver {
+pub struct PeerObserver {
     pub connection_change_handler: Mutex<Option<OnConnectionChange>>,
     pub data_channel_handler: Mutex<Option<OnDataChannel>>,
     pub ice_candidate_handler: Mutex<Option<OnIceCandidate>>,
@@ -450,17 +454,17 @@ pub(crate) struct PeerObserver {
 
 impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_signaling_change(&self, new_state: sys_pc::ffi::SignalingState) {
-        if let Some(f) = &*self.signaling_change_handler.lock().unwrap() {
+        if let Some(f) = self.signaling_change_handler.lock().unwrap().as_mut() {
             f(new_state.into());
         }
     }
 
-    fn on_add_stream(&self, stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
+    fn on_add_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
 
-    fn on_remove_stream(&self, stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
+    fn on_remove_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
 
     fn on_data_channel(&self, data_channel: SharedPtr<sys_dc::ffi::DataChannel>) {
-        if let Some(f) = &*self.data_channel_handler.lock().unwrap() {
+        if let Some(f) = self.data_channel_handler.lock().unwrap().as_mut() {
             f(DataChannel {
                 handle: imp_dc::DataChannel::configure(data_channel),
             });
@@ -470,33 +474,33 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_renegotiation_needed(&self) {}
 
     fn on_negotiation_needed_event(&self, event: u32) {
-        if let Some(f) = &*self.negotiation_needed_handler.lock().unwrap() {
+        if let Some(f) = self.negotiation_needed_handler.lock().unwrap().as_mut() {
             f(event);
         }
     }
 
-    fn on_ice_connection_change(&self, new_state: sys_pc::ffi::IceConnectionState) {}
+    fn on_ice_connection_change(&self, _new_state: sys_pc::ffi::IceConnectionState) {}
 
     fn on_standardized_ice_connection_change(&self, new_state: sys_pc::ffi::IceConnectionState) {
-        if let Some(f) = &*self.ice_connection_change_handler.lock().unwrap() {
+        if let Some(f) = self.ice_connection_change_handler.lock().unwrap().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_connection_change(&self, new_state: sys_pc::ffi::PeerConnectionState) {
-        if let Some(f) = &*self.connection_change_handler.lock().unwrap() {
+        if let Some(f) = self.connection_change_handler.lock().unwrap().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_ice_gathering_change(&self, new_state: sys_pc::ffi::IceGatheringState) {
-        if let Some(f) = &*self.ice_gathering_change_handler.lock().unwrap() {
+        if let Some(f) = self.ice_gathering_change_handler.lock().unwrap().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_ice_candidate(&self, candidate: SharedPtr<sys_jsep::ffi::IceCandidate>) {
-        if let Some(f) = &*self.ice_candidate_handler.lock().unwrap() {
+        if let Some(f) = self.ice_candidate_handler.lock().unwrap().as_mut() {
             f(IceCandidate {
                 handle: imp_ic::IceCandidate {
                     sys_handle: candidate,
@@ -513,7 +517,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
         error_code: i32,
         error_text: String,
     ) {
-        if let Some(f) = &*self.ice_candidate_error_handler.lock().unwrap() {
+        if let Some(f) = self.ice_candidate_error_handler.lock().unwrap().as_mut() {
             f(IceCandidateError {
                 address,
                 port,
@@ -526,24 +530,27 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
 
     fn on_ice_candidates_removed(
         &self,
-        removed: Vec<SharedPtr<webrtc_sys::candidate::ffi::Candidate>>,
+        _removed: Vec<SharedPtr<webrtc_sys::candidate::ffi::Candidate>>,
     ) {
     }
 
-    fn on_ice_connection_receiving_change(&self, receiving: bool) {}
+    fn on_ice_connection_receiving_change(&self, _receiving: bool) {}
 
-    fn on_ice_selected_candidate_pair_changed(&self, event: sys_pc::ffi::CandidatePairChangeEvent) {
+    fn on_ice_selected_candidate_pair_changed(
+        &self,
+        _event: sys_pc::ffi::CandidatePairChangeEvent,
+    ) {
     }
 
     fn on_add_track(
         &self,
-        receiver: SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>,
-        streams: Vec<SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>>,
+        _receiver: SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>,
+        _streams: Vec<SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>>,
     ) {
     }
 
     fn on_track(&self, transceiver: SharedPtr<webrtc_sys::rtp_transceiver::ffi::RtpTransceiver>) {
-        if let Some(f) = &*self.track_handler.lock().unwrap() {
+        if let Some(f) = self.track_handler.lock().unwrap().as_mut() {
             f(RtpTransceiver {
                 handle: imp_rt::RtpTransceiver {
                     sys_handle: transceiver,
@@ -552,7 +559,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
         }
     }
 
-    fn on_remove_track(&self, receiver: SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {}
+    fn on_remove_track(&self, _receiver: SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {}
 
-    fn on_interesting_usage(&self, usage_pattern: i32) {}
+    fn on_interesting_usage(&self, _usage_pattern: i32) {}
 }

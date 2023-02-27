@@ -1,5 +1,6 @@
 use crate::impl_thread_safety;
 use std::slice;
+use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -59,7 +60,7 @@ pub mod ffi {
 
         /// SAFETY
         /// The observer must live as long as the datachannel uses it
-        unsafe fn register_observer(self: &DataChannel, observer: *const NativeDataChannelObserver);
+        unsafe fn register_observer(self: &DataChannel, observer: *mut NativeDataChannelObserver);
 
         fn unregister_observer(self: &DataChannel);
         fn send(self: &DataChannel, data: &DataBuffer) -> bool;
@@ -89,30 +90,26 @@ pub trait DataChannelObserver: Send + Sync {
 }
 
 pub struct DataChannelObserverWrapper {
-    observer: *mut dyn DataChannelObserver,
+    observer: Arc<dyn DataChannelObserver>,
 }
 
 impl DataChannelObserverWrapper {
-    /// SAFETY
-    /// DataChannelObserver must lives as long as DataChannelObserverWrapper does
-    pub unsafe fn new(observer: *mut dyn DataChannelObserver) -> Self {
+    pub fn new(observer: Arc<dyn DataChannelObserver>) -> Self {
         Self { observer }
     }
 
     fn on_state_change(&self, state: ffi::DataState) {
-        unsafe {
-            (*self.observer).on_state_change(state);
-        }
+        self.observer.on_state_change(state);
     }
 
     fn on_message(&self, buffer: ffi::DataBuffer) {
         unsafe {
             let data = slice::from_raw_parts(buffer.ptr, buffer.len);
-            (*self.observer).on_message(data, buffer.binary);
+            self.observer.on_message(data, buffer.binary);
         }
     }
 
     fn on_buffered_amount_change(&self, sent_data_size: u64) {
-        unsafe { (*self.observer).on_buffered_amount_change(sent_data_size) };
+        self.observer.on_buffered_amount_change(sent_data_size);
     }
 }

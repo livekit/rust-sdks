@@ -8,6 +8,7 @@ use crate::RtcError;
 use cxx::SharedPtr;
 use webrtc_sys::rtp_transceiver as sys_rt;
 use webrtc_sys::webrtc as sys_webrtc;
+use webrtc_sys::rtc_error as sys_err;
 
 impl From<sys_webrtc::ffi::RtpTransceiverDirection> for RtpTransceiverDirection {
     fn from(value: sys_webrtc::ffi::RtpTransceiverDirection) -> Self {
@@ -16,6 +17,7 @@ impl From<sys_webrtc::ffi::RtpTransceiverDirection> for RtpTransceiverDirection 
             sys_webrtc::ffi::RtpTransceiverDirection::SendOnly => Self::SendOnly,
             sys_webrtc::ffi::RtpTransceiverDirection::RecvOnly => Self::RecvOnly,
             sys_webrtc::ffi::RtpTransceiverDirection::Inactive => Self::Inactive,
+            _ => panic!("unknown RtpTransceiverDirection"),
         }
     }
 }
@@ -27,6 +29,7 @@ impl From<RtpTransceiverDirection> for sys_webrtc::ffi::RtpTransceiverDirection 
             RtpTransceiverDirection::SendOnly => Self::SendOnly,
             RtpTransceiverDirection::RecvOnly => Self::RecvOnly,
             RtpTransceiverDirection::Inactive => Self::Inactive,
+            _ => panic!("unknown RtpTransceiverDirection"),
         }
     }
 }
@@ -76,7 +79,7 @@ impl RtpTransceiver {
     }
 
     pub fn stop(&self) -> Result<(), RtcError> {
-        self.sys_handle.stop();
-        Ok(())
+        self.sys_handle.stop_standard().
+            map_err(|e| unsafe { sys_err::ffi::RTCError::from(e.what()).into() })
     }
 }

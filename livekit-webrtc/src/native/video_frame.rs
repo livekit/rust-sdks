@@ -1,5 +1,5 @@
 use super::yuv_helper::{self, ConvertError};
-use crate::video_frame::{self as vf, VideoFormatType, VideoFrameBuffer};
+use crate::video_frame::{self as vf, VideoFormatType};
 use cxx::UniquePtr;
 use std::slice;
 use webrtc_sys::video_frame_buffer as vfb_sys;
@@ -182,6 +182,7 @@ pub struct NativeBuffer {
     sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
 }
 
+#[allow(unused_unsafe)]
 impl NativeBuffer {
     impl_vfb_buffer!();
 

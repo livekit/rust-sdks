@@ -7,6 +7,7 @@ use crate::RtcError;
 use cxx::SharedPtr;
 use std::sync::Arc;
 use webrtc_sys::peer_connection as sys_pc;
+use webrtc_sys::peer_connection::ffi::NativePeerConnectionObserver;
 use webrtc_sys::peer_connection_factory as sys_pcf;
 use webrtc_sys::rtc_error as sys_err;
 use webrtc_sys::webrtc as sys_webrtc;
@@ -83,21 +84,21 @@ impl PeerConnectionFactory {
         let native_config = sys_pcf::ffi::create_rtc_configuration(config.into());
 
         unsafe {
-            let mut observer = Box::new(imp_pc::PeerObserver::default());
+            let observer = Arc::new(imp_pc::PeerObserver::default());
             let native_observer = sys_pc::ffi::create_native_peer_connection_observer(
                 self.runtime.clone().sys_handle,
-                Box::new(sys_pc::PeerConnectionObserverWrapper::new(&mut *observer)),
+                Box::new(sys_pc::PeerConnectionObserverWrapper::new(observer.clone())),
             );
 
             let res = self
                 .sys_handle
-                .create_peer_connection(native_config, &*native_observer);
+                .create_peer_connection(native_config, &native_observer as *const _ as *mut _);
 
             match res {
                 Ok(sys_handle) => Ok(PeerConnection {
                     handle: imp_pc::PeerConnection::configure(
                         sys_handle,
-                        observer: Arc::new(observer),
+                        observer,
                         native_observer,
                     ),
                 }),
