@@ -49,15 +49,15 @@ impl MediaStream {
 
 pub fn new_media_stream_track(
     sys_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>,
-) -> Box<dyn MediaStreamTrack> {
+) -> MediaStreamTrack {
     if sys_handle.kind() == MEDIA_TYPE_AUDIO {
-        Box::new(media_stream::AudioTrack {
+        MediaStreamTrack::Audio(media_stream::AudioTrack {
             handle: AudioTrack {
                 sys_handle: media_to_audio(sys_handle),
             },
         })
     } else if sys_handle.kind() == MEDIA_TYPE_VIDEO {
-        Box::new(media_stream::VideoTrack {
+        MediaStreamTrack::Video(media_stream::VideoTrack {
             handle: VideoTrack {
                 sys_handle: media_to_video(sys_handle),
             },

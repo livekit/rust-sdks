@@ -9,7 +9,7 @@ pub struct RtpReceiver {
 }
 
 impl RtpReceiver {
-    pub fn track(&self) -> Option<Box<dyn MediaStreamTrack>> {
+    pub fn track(&self) -> Option<MediaStreamTrack> {
         let track_handle = self.sys_handle.track();
         if track_handle.is_null() {
             return None;

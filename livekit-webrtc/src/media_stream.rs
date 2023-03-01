@@ -1,6 +1,6 @@
-use std::fmt::Debug;
-
 use crate::imp::media_stream as imp_ms;
+use livekit_utils::enum_dispatch;
+use std::fmt::Debug;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TrackState {
@@ -53,82 +53,68 @@ pub struct AudioTrack {
     pub(crate) handle: imp_ms::AudioTrack,
 }
 
-pub(crate) mod internal {
-    #[doc(hidden)]
-    pub trait MediaStreamTrackInternal {
-        #[cfg(not(target_arch = "wasm32"))]
-        fn sys_handle(&self) -> cxx::SharedPtr<webrtc_sys::media_stream::ffi::MediaStreamTrack>;
-    }
-
-    impl MediaStreamTrackInternal for super::VideoTrack {
-        #[cfg(not(target_arch = "wasm32"))]
-        fn sys_handle(&self) -> cxx::SharedPtr<webrtc_sys::media_stream::ffi::MediaStreamTrack> {
-            self.handle.sys_handle()
-        }
-    }
-
-    impl MediaStreamTrackInternal for super::AudioTrack {
-        #[cfg(not(target_arch = "wasm32"))]
-        fn sys_handle(&self) -> cxx::SharedPtr<webrtc_sys::media_stream::ffi::MediaStreamTrack> {
-            self.handle.sys_handle()
-        }
-    }
+#[derive(Debug, Clone)]
+pub enum MediaStreamTrack {
+    Video(VideoTrack),
+    Audio(AudioTrack),
 }
 
-pub trait MediaStreamTrack: internal::MediaStreamTrackInternal + Debug {
-    fn kind(&self) -> TrackKind;
-    fn id(&self) -> String;
-    fn enabled(&self) -> bool;
-    fn set_enabled(&self, enabled: bool) -> bool;
-    fn state(&self) -> TrackState;
-
-    fn as_video_track(&self) -> Option<&VideoTrack> {
-        None
-    }
-
-    fn as_audio_track(&self) -> Option<&AudioTrack> {
-        None
-    }
+#[cfg(not(target_arch = "wasm32"))]
+impl MediaStreamTrack {
+    enum_dispatch!(
+        [Video, Audio];
+        pub(crate) fn sys_handle(self: &Self) -> cxx::SharedPtr<webrtc_sys::media_stream::ffi::MediaStreamTrack>;
+    );
 }
 
-macro_rules! impl_media_stream_track {
+impl MediaStreamTrack {
+    enum_dispatch!(
+        [Video, Audio];
+        pub fn kind(self: &Self) -> TrackKind;
+        pub fn id(self: &Self) -> String;
+        pub fn enabled(self: &Self) -> bool;
+        pub fn set_enabled(self: &Self, enabled: bool) -> bool;
+        pub fn state(self: &Self) -> TrackState;
+    );
+}
+
+macro_rules! media_stream_track {
     () => {
-        fn kind(&self) -> TrackKind {
+        pub fn kind(&self) -> TrackKind {
             self.handle.kind()
         }
 
-        fn id(&self) -> String {
+        pub fn id(&self) -> String {
             self.handle.id()
         }
 
-        fn enabled(&self) -> bool {
+        pub fn enabled(&self) -> bool {
             self.handle.enabled()
         }
 
-        fn set_enabled(&self, enabled: bool) -> bool {
+        pub fn set_enabled(&self, enabled: bool) -> bool {
             self.handle.set_enabled(enabled)
         }
 
-        fn state(&self) -> TrackState {
+        pub fn state(&self) -> TrackState {
             self.handle.state().into()
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        pub(crate) fn sys_handle(
+            &self,
+        ) -> cxx::SharedPtr<webrtc_sys::media_stream::ffi::MediaStreamTrack> {
+            self.handle.sys_handle()
         }
     };
 }
 
-impl MediaStreamTrack for VideoTrack {
-    impl_media_stream_track!();
-
-    fn as_video_track(&self) -> Option<&VideoTrack> {
-        Some(self)
-    }
+impl VideoTrack {
+    media_stream_track!();
 }
 
-impl MediaStreamTrack for AudioTrack {
-    impl_media_stream_track!();
-
-    fn as_audio_track(&self) -> Option<&AudioTrack> {
-        Some(self)
-    }
+impl AudioTrack {
+    media_stream_track!();
 }
 
 impl Debug for AudioTrack {

@@ -1,10 +1,13 @@
-pub use crate::data_channel::{DataBuffer, DataChannel, DataChannelInit, DataState};
+pub use crate::data_channel::{
+    DataBuffer, DataChannel, DataChannelError, DataChannelInit, DataState,
+};
 pub use crate::ice_candidate::IceCandidate;
 pub use crate::media_stream::{
     AudioTrack, MediaStream, MediaStreamTrack, TrackKind, TrackState, VideoTrack,
 };
 pub use crate::peer_connection::{
-    IceConnectionState, IceGatheringState, PeerConnection, PeerConnectionState, SignalingState,
+    AnswerOptions, IceConnectionState, IceGatheringState, OfferOptions, PeerConnection,
+    PeerConnectionState, SignalingState,
 };
 pub use crate::peer_connection_factory::{
     ContinualGatheringPolicy, IceServer, IceTransportsType, PeerConnectionFactory, RtcConfiguration,

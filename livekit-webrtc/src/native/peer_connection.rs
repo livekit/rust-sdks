@@ -238,7 +238,7 @@ impl PeerConnection {
 
     pub fn add_track<T: AsRef<str>>(
         &self,
-        track: Box<dyn MediaStreamTrack>,
+        track: MediaStreamTrack,
         stream_ids: &[T],
     ) -> Result<RtpSender, RtcError> {
         let stream_ids = stream_ids.iter().map(|s| s.as_ref().to_owned()).collect();
@@ -254,7 +254,7 @@ impl PeerConnection {
 
     pub fn add_transceiver(
         &self,
-        track: Box<dyn MediaStreamTrack>,
+        track: MediaStreamTrack,
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
         let res = self

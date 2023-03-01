@@ -1,20 +1,17 @@
-use super::{
-    impl_participant_trait, ConnectionQuality, ParticipantInternalTrait, ParticipantShared,
-};
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::proto;
-use crate::publication::TrackPublication;
 use crate::rtc_engine::RTCEngine;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
-#[derive(Debug)]
+use super::ConnectionQuality;
+use super::ParticipantInner;
+
+#[derive(Debug, Clone)]
 pub struct LocalParticipant {
-    shared: ParticipantShared,
+    inner: Arc<ParticipantInner>,
     rtc_engine: Arc<RTCEngine>,
 }
 
@@ -27,9 +24,57 @@ impl LocalParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata),
+            shared: ParticipantInner::new(sid, identity, name, metadata),
             rtc_engine,
         }
+    }
+
+    pub(crate) fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, _emit_events: bool) {
+        self.inner.update_info(info);
+    }
+
+    pub(crate) fn set_speaking(&self, speaking: bool) {
+        self.inner.set_speaking(speaking);
+    }
+
+    pub(crate) fn set_audio_level(&self, level: f32) {
+        self.inner.set_audio_level(level);
+    }
+
+    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
+        self.inner.set_connection_quality(quality);
+    }
+
+    pub fn sid(&self) -> ParticipantSid {
+        self.inner.sid()
+    }
+
+    pub fn identity(&self) -> ParticipantIdentity {
+        self.inner.identity()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    pub fn metadata(&self) -> String {
+        self.inner.metadata()
+    }
+
+    pub fn speaking(&self) -> bool {
+        self.inner.speaking()
+    }
+
+    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
+        self.inner.tracks()
+    }
+
+    pub fn audio_level(&self) -> f32 {
+        self.inner.audio_level()
+    }
+
+    pub fn connection_quality(&self) -> ConnectionQuality {
+        self.inner.connection_quality()
     }
 
     pub async fn publish_track(
@@ -76,23 +121,3 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 }
-
-impl ParticipantInternalTrait for LocalParticipant {
-    fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, _emit_events: bool) {
-        self.shared.update_info(info);
-    }
-
-    fn set_speaking(&self, speaking: bool) {
-        self.shared.set_speaking(speaking);
-    }
-
-    fn set_audio_level(&self, level: f32) {
-        self.shared.set_audio_level(level);
-    }
-
-    fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.shared.set_connection_quality(quality);
-    }
-}
-
-impl_participant_trait!(LocalParticipant);

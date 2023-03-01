@@ -1,35 +1,28 @@
-use livekit_webrtc::peer_connection_factory::PeerConnectionFactory;
-use livekit_webrtc::webrtc::RTCRuntime;
+use livekit_webrtc::prelude::*;
 use std::fmt::{Debug, Formatter};
 use tracing::trace;
 
-/// SAFETY: The order of initialization and deletion is important for LKRuntime.
-/// See the C++ constructors & destructors of these fields
-
-pub struct LKRuntime {
+pub struct LkRuntime {
     pub pc_factory: PeerConnectionFactory,
-    pub rtc_runtime: RTCRuntime,
 }
 
-impl Debug for LKRuntime {
+impl Debug for LkRuntime {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "LKRuntime")
     }
 }
 
-impl Default for LKRuntime {
+impl Default for LkRuntime {
     fn default() -> Self {
-        trace!("LKRuntime::default()");
-        let rtc_runtime = RTCRuntime::new();
+        trace!("LkRuntime::default()");
         Self {
-            pc_factory: PeerConnectionFactory::new(rtc_runtime.clone()),
-            rtc_runtime,
+            pc_factory: PeerConnectionFactory::default(),
         }
     }
 }
 
-impl Drop for LKRuntime {
+impl Drop for LkRuntime {
     fn drop(&mut self) {
-        trace!("LKRuntime::drop()");
+        trace!("LkRuntime::drop()");
     }
 }

@@ -11,7 +11,7 @@ pub struct RtpSender {
 }
 
 impl RtpSender {
-    pub fn track(&self) -> Option<Box<dyn MediaStreamTrack>> {
+    pub fn track(&self) -> Option<MediaStreamTrack> {
         let track_handle = self.sys_handle.track();
         if track_handle.is_null() {
             return None;
@@ -20,7 +20,7 @@ impl RtpSender {
         Some(new_media_stream_track(track_handle))
     }
 
-    pub fn set_track(&self, track: Option<Box<dyn MediaStreamTrack>>) -> Result<(), RtcError> {
+    pub fn set_track(&self, track: Option<MediaStreamTrack>) -> Result<(), RtcError> {
         if !self
             .sys_handle
             .set_track(track.map_or(SharedPtr::null(), |t| t.sys_handle()))

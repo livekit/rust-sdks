@@ -1,31 +1,71 @@
-use super::{impl_track_trait, TrackShared};
+use super::TrackInner;
 use crate::prelude::*;
-use std::sync::Arc;
+use livekit_webrtc as rtc;
+use std::sync::{mpsc, Arc};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LocalVideoTrack {
-    shared: TrackShared,
+    pub(crate) inner: Arc<TrackInner>,
 }
 
 impl LocalVideoTrack {
-    pub(crate) fn new(sid: TrackSid, name: String, track: Arc<VideoTrack>) -> Self {
+    pub(crate) fn new(
+        sid: TrackSid,
+        name: String,
+        rtc_track: rtc::media_stream::VideoTrack,
+    ) -> Self {
         Self {
-            shared: TrackShared::new(
+            inner: Arc::new(TrackInner::new(
                 sid,
                 name,
                 TrackKind::Video,
-                MediaStreamTrackHandle::Video(track),
-            ),
+                rtc::media_stream::MediaStreamTrack::Video(rtc_track),
+            )),
         }
     }
 
-    pub fn rtc_track(&self) -> Arc<VideoTrack> {
-        if let MediaStreamTrackHandle::Video(video) = &self.shared.rtc_track {
-            video.clone()
-        } else {
-            unreachable!()
-        }
+    pub fn sid(&self) -> TrackSid {
+        self.inner.sid()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.inner.kind()
+    }
+
+    pub fn source(&self) -> TrackSource {
+        self.inner.source()
+    }
+
+    pub fn stream_state(&self) -> StreamState {
+        self.inner.stream_state()
+    }
+
+    pub fn start(&self) {
+        self.inner.start()
+    }
+
+    pub fn stop(&self) {
+        self.inner.stop()
+    }
+
+    pub fn muted(&self) -> bool {
+        self.inner.muted()
+    }
+
+    pub fn set_muted(&self, muted: bool) {
+        self.inner.set_muted(muted)
+    }
+
+    pub fn rtc_track(&self) -> rtc::media_stream::VideoTrack {
+        let rtc::media_stream::MediaStreamTrack::Video(video) = self.inner.rtc_track();
+        video
+    }
+
+    pub fn register_observer(&self) -> mpsc::Receiver<TrackEvent> {
+        self.inner.register_observer()
     }
 }
-
-impl_track_trait!(LocalVideoTrack, VideoTrack);

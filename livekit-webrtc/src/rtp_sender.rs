@@ -11,11 +11,11 @@ pub struct RtpSender {
 }
 
 impl RtpSender {
-    pub fn track(&self) -> Option<Box<dyn MediaStreamTrack>> {
+    pub fn track(&self) -> Option<MediaStreamTrack> {
         self.handle.track()
     }
 
-    pub fn set_track(&self, track: Option<Box<dyn MediaStreamTrack>>) -> Result<(), RtcError> {
+    pub fn set_track(&self, track: Option<MediaStreamTrack>) -> Result<(), RtcError> {
         self.handle.set_track(track)
     }
 

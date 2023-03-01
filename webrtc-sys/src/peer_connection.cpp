@@ -176,6 +176,24 @@ std::unique_ptr<SessionDescription> PeerConnection::current_remote_description()
   return nullptr;
 }
 
+std::unique_ptr<SessionDescription> PeerConnection::pending_local_description()
+    const {
+  auto local_description = peer_connection_->pending_local_description();
+  if (local_description)
+    return std::make_unique<SessionDescription>(local_description->Clone());
+
+  return nullptr;
+}
+
+std::unique_ptr<SessionDescription> PeerConnection::pending_remote_description()
+    const {
+  auto remote_description = peer_connection_->pending_remote_description();
+  if (remote_description)
+    return std::make_unique<SessionDescription>(remote_description->Clone());
+
+  return nullptr;
+}
+
 PeerConnectionState PeerConnection::connection_state() const {
   return static_cast<PeerConnectionState>(
       peer_connection_->peer_connection_state());

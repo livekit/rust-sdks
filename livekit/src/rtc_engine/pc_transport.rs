@@ -14,7 +14,7 @@ pub type OnOfferHandler = Box<
         + Sync,
 >;
 
-pub struct PCTransport {
+pub struct PeerTransport {
     signal_target: proto::SignalTarget,
     peer_connection: PeerConnection,
     pending_candidates: Vec<IceCandidate>,
@@ -23,13 +23,15 @@ pub struct PCTransport {
     restarting_ice: bool,
 }
 
-impl Debug for PCTransport {
+impl Debug for PeerTransport {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.write_str("PCTransport")
+        f.debug_struct("PeerTransport")
+            .field("target", &self.signal_target)
+            .finish()
     }
 }
 
-impl PCTransport {
+impl PeerTransport {
     pub fn new(peer_connection: PeerConnection, signal_target: proto::SignalTarget) -> Self {
         Self {
             signal_target,
@@ -42,9 +44,10 @@ impl PCTransport {
     }
 
     pub fn is_connected(&self) -> bool {
-        self.peer_connection.ice_connection_state() == IceConnectionState::IceConnectionConnected
-            || self.peer_connection.ice_connection_state()
-                == IceConnectionState::IceConnectionCompleted
+        matches!(
+            self.peer_connection.ice_connection_state(),
+            IceConnectionState::Connected | IceConnectionState::Completed
+        )
     }
 
     pub fn peer_connection(&mut self) -> &mut PeerConnection {
@@ -68,8 +71,8 @@ impl PCTransport {
     }
 
     #[tracing::instrument(level = Level::DEBUG)]
-    pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RTCError> {
-        if self.peer_connection.remote_description().is_some() && !self.restarting_ice {
+    pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RtcError> {
+        if self.peer_connection.current_remote_description().is_some() && !self.restarting_ice {
             self.peer_connection
                 .add_ice_candidate(ice_candidate)
                 .await?;
@@ -85,7 +88,7 @@ impl PCTransport {
     pub async fn set_remote_description(
         &mut self,
         remote_description: SessionDescription,
-    ) -> Result<(), RTCError> {
+    ) -> Result<(), RtcError> {
         self.peer_connection
             .set_remote_description(remote_description)
             .await?;
@@ -97,30 +100,28 @@ impl PCTransport {
 
         if self.renegotiate {
             self.renegotiate = false;
-            self.create_and_send_offer(RTCOfferAnswerOptions::default())
-                .await?;
+            self.create_and_send_offer(OfferOptions::default()).await?;
         }
 
         Ok(())
     }
 
     #[tracing::instrument(level = Level::DEBUG)]
-    pub async fn negotiate(&mut self) -> Result<(), RTCError> {
+    pub async fn negotiate(&mut self) -> Result<(), RtcError> {
         // TODO(theomonnom) Debounce here with NEGOTIATION_FREQUENCY
-        self.create_and_send_offer(RTCOfferAnswerOptions::default())
-            .await
+        self.create_and_send_offer(OfferOptions::default()).await
     }
 
     #[tracing::instrument(level = Level::DEBUG)]
     pub async fn create_anwser(
         &mut self,
         offer: SessionDescription,
-        options: RTCOfferAnswerOptions,
-    ) -> Result<SessionDescription, RTCError> {
+        options: OfferOptions,
+    ) -> Result<SessionDescription, RtcError> {
         self.set_remote_description(offer).await?;
         let answer = self
             .peer_connection()
-            .create_answer(RTCOfferAnswerOptions::default())
+            .create_answer(AnswerOptions::default())
             .await?;
         self.peer_connection()
             .set_local_description(answer.clone())
@@ -130,10 +131,7 @@ impl PCTransport {
     }
 
     #[tracing::instrument(level = Level::DEBUG)]
-    pub async fn create_and_send_offer(
-        &mut self,
-        options: RTCOfferAnswerOptions,
-    ) -> Result<(), RTCError> {
+    pub async fn create_and_send_offer(&mut self, options: OfferOptions) -> Result<(), RtcError> {
         if self.on_offer_handler.is_none() {
             return Ok(());
         }
@@ -145,7 +143,8 @@ impl PCTransport {
 
         if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
             if options.ice_restart {
-                if let Some(remote_description) = self.peer_connection.remote_description() {
+                if let Some(remote_description) = self.peer_connection.current_remote_description()
+                {
                     self.peer_connection
                         .set_remote_description(remote_description)
                         .await?;

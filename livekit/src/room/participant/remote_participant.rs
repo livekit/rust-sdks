@@ -1,26 +1,24 @@
-use super::{
-    impl_participant_trait, ConnectionQuality, ParticipantInternalTrait, ParticipantShared,
-};
+use super::ConnectionQuality;
+use super::ParticipantInner;
 use crate::prelude::*;
 use crate::proto;
 use crate::publication::TrackPublicationInternalTrait;
-use crate::track::{TrackError, TrackInternalTrait};
-use livekit_webrtc::prelude::*;
+use crate::track::TrackError;
+use livekit_webrtc as rtc;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tracing::{debug, error, instrument, Level};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RemoteParticipant {
-    shared: ParticipantShared,
+    shared: Arc<ParticipantInner>,
 }
 
 impl RemoteParticipant {
@@ -31,7 +29,7 @@ impl RemoteParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata),
+            shared: Arc::new(ParticipantInner::new(sid, identity, name, metadata)),
         }
     }
 
@@ -164,10 +162,8 @@ impl RemoteParticipant {
             publication.update_track(None);
         }
     }
-}
 
-impl ParticipantInternalTrait for RemoteParticipant {
-    fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, emit_events: bool) {
+    pub(crate) fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, emit_events: bool) {
         self.shared.update_info(info.clone());
 
         let mut valid_tracks = HashSet::<TrackSid>::new();
@@ -201,17 +197,15 @@ impl ParticipantInternalTrait for RemoteParticipant {
         }
     }
 
-    fn set_speaking(&self, speaking: bool) {
+    pub(crate) fn set_speaking(&self, speaking: bool) {
         self.shared.set_speaking(speaking);
     }
 
-    fn set_audio_level(&self, level: f32) {
+    pub(crate) fn set_audio_level(&self, level: f32) {
         self.shared.set_audio_level(level);
     }
 
-    fn set_connection_quality(&self, quality: ConnectionQuality) {
+    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
         self.shared.set_connection_quality(quality);
     }
 }
-
-impl_participant_trait!(RemoteParticipant);

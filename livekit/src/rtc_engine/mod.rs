@@ -1,13 +1,11 @@
 use crate::prelude::*;
 use crate::proto;
-use crate::rtc_engine::lk_runtime::LKRuntime;
+use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RTCSession, SessionEvent, SessionEvents, SessionInfo};
 use crate::signal_client::{SignalError, SignalOptions};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use lazy_static::lazy_static;
-use livekit_webrtc::data_channel::DataSendError;
-use livekit_webrtc::jsep::SdpParseError;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -46,13 +44,13 @@ pub enum EngineError {
     #[error("signal failure: {0}")]
     Signal(#[from] SignalError),
     #[error("internal webrtc failure")]
-    Rtc(#[from] RTCError),
+    Rtc(#[from] RtcError),
     #[error("failed to parse sdp")]
     Parse(#[from] SdpParseError),
     #[error("serde error")]
     Serde(#[from] serde_json::Error),
     #[error("failed to send data to the datachannel")]
-    Data(#[from] DataSendError),
+    Data(#[from] DataChannelError),
     #[error("connection error: {0}")]
     Connection(String),
     #[error("decode error")]
@@ -94,7 +92,7 @@ pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 
 lazy_static! {
     // Share one LKRuntime across all RTCEngine instances
-    static ref LK_RUNTIME: Mutex<Weak<LKRuntime>> = Mutex::new(Weak::new());
+    static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
 }
 ///
 /// Represents a running RTCSession with the ability to close the session
@@ -108,7 +106,7 @@ struct EngineHandle {
 
 #[derive(Debug)]
 struct EngineInner {
-    lk_runtime: Arc<LKRuntime>,
+    lk_runtime: Arc<LkRuntime>,
     session_info: Mutex<Option<SessionInfo>>, // Last/Current Sessioninfo
     running_handle: AsyncRwLock<Option<EngineHandle>>,
     opened: AtomicBool,
@@ -132,7 +130,7 @@ impl RTCEngine {
             if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
                 lk_runtime
             } else {
-                let new_runtime = Arc::new(LKRuntime::default());
+                let new_runtime = Arc::new(LkRuntime::default());
                 *lk_runtime_ref = Arc::downgrade(&new_runtime);
                 new_runtime
             }

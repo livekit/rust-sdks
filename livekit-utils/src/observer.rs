@@ -1,7 +1,4 @@
-// Really basic implementation of the observer pattern using mpsc channels.
-// Currently unbounded channels
-
-use tokio::sync::mpsc;
+use futures::channel::mpsc;
 
 #[derive(Debug)]
 pub struct Dispatcher<T>
@@ -27,13 +24,13 @@ where
     T: Clone,
 {
     pub fn register(&mut self) -> mpsc::UnboundedReceiver<T> {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::unbounded();
         self.senders.push(tx);
         rx
     }
 
     pub fn dispatch(&mut self, msg: &T) {
         self.senders
-            .retain(|sender| sender.send(msg.clone()).is_ok());
+            .retain(|sender| sender.unbounded_send(msg.clone()).is_ok());
     }
 }

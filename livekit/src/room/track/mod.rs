@@ -2,54 +2,21 @@ use crate::prelude::*;
 use crate::proto;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
+use livekit_webrtc as rtc;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::mpsc;
 use thiserror::Error;
-use tokio::sync::mpsc;
 
-pub mod audio_track;
 pub mod local_audio_track;
-pub mod local_track;
 pub mod local_video_track;
 pub mod remote_audio_track;
-pub mod remote_track;
 pub mod remote_video_track;
-pub mod video_track;
 
-pub use audio_track::*;
 pub use local_audio_track::*;
-pub use local_track::*;
 pub use local_video_track::*;
 pub use remote_audio_track::*;
-pub use remote_track::*;
 pub use remote_video_track::*;
-pub use video_track::*;
-
-pub trait Track<T>
-where
-    T: MediaStreamTrackTrait,
-{
-    fn sid(&self) -> TrackSid;
-    fn name(&self) -> String;
-    fn kind(&self) -> TrackKind;
-    fn source(&self) -> TrackSource;
-    fn stream_state(&self) -> StreamState;
-    fn muted(&self) -> bool;
-    fn start(&self);
-    fn stop(&self);
-    fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent>;
-    fn set_muted(&self, muted: bool);
-    fn rtc_track(&self) -> T;
-}
-
-pub trait LocalTrack: Track {}
-
-pub trait RemoteTrack: Track {}
-
-pub trait AudioTrack: Track {}
-
-pub trait VideoTrack: Track {}
 
 #[derive(Error, Debug, Clone)]
 pub enum TrackError {
@@ -137,54 +104,137 @@ impl From<proto::TrackSource> for TrackSource {
 #[derive(Clone, Copy, Debug)]
 pub struct TrackDimension(pub u32, pub u32);
 
-pub trait Track<T>
-where
-    T: MediaStreamTrackTrait,
-{
-    fn sid(&self) -> TrackSid;
-    fn name(&self) -> String;
-    fn kind(&self) -> TrackKind;
-    fn source(&self) -> TrackSource;
-    fn stream_state(&self) -> StreamState;
-    fn muted(&self) -> bool;
-    fn start(&self);
-    fn stop(&self);
-    fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent>;
-    fn set_muted(&self, muted: bool);
-    fn rtc_track(&self) -> T;
-}
-
-pub trait VideoTrack: Track<VideoTrack> {}
-
-pub(crate) trait TrackInternalTrait {
-    fn update_muted(&self, muted: bool, dispatch: bool);
-    fn update_source(&self, source: TrackSource);
-}
-
 #[derive(Debug, Clone)]
 pub enum TrackEvent {
     Mute,
     Unmute,
 }
 
-#[derive(Debug)]
-pub(super) struct TrackShared {
-    pub(super) sid: Mutex<TrackSid>,
-    pub(super) name: Mutex<String>,
-    pub(super) kind: AtomicU8,         // TrackKind
-    pub(super) source: AtomicU8,       // TrackSource
-    pub(super) stream_state: AtomicU8, // StreamState
-    pub(super) muted: AtomicBool,
-    pub(super) rtc_track: MediaStreamTrackHandle,
-    pub(super) dispatcher: Mutex<Dispatcher<TrackEvent>>,
+#[derive(Clone)]
+pub enum Track {
+    LocalAudio(LocalAudioTrack),
+    LocalVideo(LocalVideoTrack),
+    RemoteAudio(RemoteAudioTrack),
+    RemoteVideo(RemoteVideoTrack),
 }
 
-impl TrackShared {
-    pub(crate) fn new(
+#[derive(Clone)]
+pub enum LocalTrack {
+    Audio(LocalAudioTrack),
+    Video(LocalVideoTrack),
+}
+
+#[derive(Clone)]
+pub enum RemoteTrack {
+    Audio(RemoteAudioTrack),
+    Video(RemoteVideoTrack),
+}
+
+#[derive(Clone)]
+pub enum VideoTrack {
+    Local(LocalVideoTrack),
+    Remote(RemoteVideoTrack),
+}
+
+#[derive(Clone)]
+pub enum AudioTrack {
+    Local(LocalAudioTrack),
+    Remote(RemoteAudioTrack),
+}
+
+macro_rules! track_dispatch {
+    ([$($variant:ident),+]) => {
+        enum_dispatch!(
+            [$($variant),+];
+            pub fn sid(self: &Self) -> TrackSid;
+            pub fn name(self: &Self) -> String;
+            pub fn kind(self: &Self) -> TrackKind;
+            pub fn source(self: &Self) -> TrackSource;
+            pub fn stream_state(self: &Self) -> StreamState;
+            pub fn start(self: &Self) -> ();
+            pub fn stop(self: &Self) -> ();
+            pub fn muted(self: &Self) -> bool;
+            pub fn set_muted(self: &Self, muted: bool) -> ();
+            pub fn register_observer(self: &Self) -> mpsc::Receiver<TrackEvent>;
+        );
+    };
+}
+
+impl Track {
+    track_dispatch!([LocalAudio, LocalVideo, RemoteAudio, RemoteVideo]);
+
+    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+        match self {
+            Self::LocalAudio(track) => track.inner.rtc_track(),
+            Self::LocalVideo(track) => track.inner.rtc_track(),
+            Self::RemoteAudio(track) => track.inner.rtc_track(),
+            Self::RemoteVideo(track) => track.inner.rtc_track(),
+        }
+    }
+}
+
+impl LocalTrack {
+    track_dispatch!([Audio, Video]);
+
+    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+        match self {
+            Self::Audio(track) => track.inner.rtc_track(),
+            Self::Video(track) => track.inner.rtc_track(),
+        }
+    }
+}
+
+impl RemoteTrack {
+    track_dispatch!([Audio, Video]);
+
+    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+        match self {
+            Self::Audio(track) => track.inner.rtc_track(),
+            Self::Video(track) => track.inner.rtc_track(),
+        }
+    }
+}
+
+impl VideoTrack {
+    track_dispatch!([Local, Remote]);
+
+    pub fn rtc_track(&self) -> rtc::media_stream::VideoTrack {
+        match self {
+            Self::Local(track) => track.rtc_track(),
+            Self::Remote(track) => track.rtc_track(),
+        }
+    }
+}
+
+impl AudioTrack {
+    track_dispatch!([Local, Remote]);
+
+    pub fn rtc_track(&self) -> rtc::media_stream::AudioTrack {
+        match self {
+            Self::Local(track) => track.rtc_track(),
+            Self::Remote(track) => track.rtc_track(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct TrackInner {
+    pub sid: Mutex<TrackSid>,
+    pub name: Mutex<String>,
+    pub kind: AtomicU8,         // TrackKind
+    pub source: AtomicU8,       // TrackSource
+    pub stream_state: AtomicU8, // StreamState
+    pub muted: AtomicBool,
+    pub rtc_track: rtc::media_stream::MediaStreamTrack,
+    pub dispatcher: Mutex<Dispatcher<TrackEvent>>,
+}
+
+impl TrackInner {
+    pub fn new(
         sid: TrackSid,
         name: String,
         kind: TrackKind,
-        rtc_track: MediaStreamTrackHandle,
+        rtc_track: rtc::media_stream::MediaStreamTrack,
     ) -> Self {
         Self {
             sid: Mutex::new(sid),
@@ -198,155 +248,71 @@ impl TrackShared {
         }
     }
 
-    pub(crate) fn start(&self) {
+    pub fn sid(&self) -> TrackSid {
+        self.sid.lock().clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.name.lock().clone()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.kind.load(Ordering::SeqCst).into()
+    }
+
+    pub fn source(&self) -> TrackSource {
+        self.source.load(Ordering::SeqCst).into()
+    }
+
+    pub fn stream_state(&self) -> StreamState {
+        self.stream_state.load(Ordering::SeqCst).into()
+    }
+
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::SeqCst)
+    }
+
+    pub fn start(&self) {
         self.rtc_track.set_enabled(true);
     }
 
-    pub(crate) fn stop(&self) {
+    pub fn stop(&self) {
         self.rtc_track.set_enabled(false);
     }
 
-    pub(crate) fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.dispatcher.lock().register()
-    }
-}
-
-impl TrackInternalTrait for TrackShared {
-    fn update_muted(&self, muted: bool, dispatch: bool) {
-        if self.muted.load(Ordering::SeqCst) == muted {
+    pub fn set_muted(&self, muted: bool) {
+        if self
+            .muted
+            .compare_exchange(!muted, muted, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             return;
         }
 
-        self.muted.store(muted, Ordering::SeqCst);
-        self.rtc_track.set_enabled(!muted);
-
-        self.dispatcher.lock().dispatch(if muted {
-            &TrackEvent::Mute
+        if !muted {
+            self.start();
         } else {
-            &TrackEvent::Unmute
-        });
+            self.stop();
+        }
+
+        let event = if muted {
+            TrackEvent::Mute
+        } else {
+            TrackEvent::Unmute
+        };
+
+        self.dispatcher.lock().dispatch(&event);
     }
 
-    fn update_source(&self, source: TrackSource) {
+    pub fn set_source(&self, source: TrackSource) {
         self.source.store(source as u8, Ordering::SeqCst);
     }
+
+    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+        self.rtc_track.clone()
+    }
+
+    pub fn register_observer(&self) -> mpsc::Receiver<TrackEvent> {
+        self.dispatcher.lock().register()
+    }
 }
-
-#[derive(Clone, Debug)]
-pub enum TrackHandle {
-    LocalVideo(Arc<LocalVideoTrack>),
-    LocalAudio(Arc<LocalAudioTrack>),
-    RemoteVideo(Arc<RemoteVideoTrack>),
-    RemoteAudio(Arc<RemoteAudioTrack>),
-}
-
-impl TrackTrait<MediaStreamTrackHandle> for TrackHandle {
-    enum_dispatch!(
-        [LocalVideo, LocalAudio, RemoteVideo, RemoteAudio]
-        fnc!(sid, &Self, [], TrackSid);
-        fnc!(name, &Self, [], String);
-        fnc!(kind, &Self, [], TrackKind);
-        fnc!(source, &Self, [], TrackSource);
-        fnc!(stream_state, &Self, [], StreamState);
-        fnc!(muted, &Self, [], bool);
-        fnc!(start, &Self, [], ());
-        fnc!(stop, &Self, [], ());
-        fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
-        fnc!(set_muted, &Self, [muted: bool], ());
-        fnc!(rtc_track, &Self, [], MediaStreamTrackHandle);
-    );
-}
-
-macro_rules! impl_track_trait {
-    ($x:ident, $rtc_track:ty) => {
-        use std::sync::atomic::Ordering;
-        use tokio::sync::mpsc;
-        use $crate::room::id::TrackSid;
-        use $crate::room::track::{StreamState, TrackEvent, TrackKind, TrackSource, TrackTrait, TrackInternalTrait};
-
-        impl TrackTrait<$rtc_track> for $x {
-            fn sid(&self) -> TrackSid {
-                self.shared.sid.lock().clone()
-            }
-
-            fn name(&self) -> String {
-                self.shared.name.lock().clone()
-            }
-
-            fn kind(&self) -> TrackKind {
-                self.shared.kind.load(Ordering::SeqCst).into()
-            }
-
-            fn source(&self) -> TrackSource {
-                self.shared.source.load(Ordering::SeqCst).into()
-            }
-
-            fn stream_state(&self) -> StreamState {
-                self.shared.stream_state.load(Ordering::SeqCst).into()
-            }
-
-            fn muted(&self) -> bool {
-                self.shared.muted.load(Ordering::SeqCst)
-            }
-
-            fn start(&self) {
-                self.shared.start();
-            }
-
-            fn stop(&self) {
-                self.shared.stop();
-            }
-
-            fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-                self.shared.register_observer()
-            }
-
-            fn set_muted(&self, muted: bool) {
-                self.shared.update_muted(muted, true);
-            }
-        }
-
-        impl TrackInternalTrait for $x {
-            fn update_muted(&self, muted: bool, dispatch: bool) {
-                self.shared.update_muted(muted, dispatch);
-            }
-
-            fn update_source(&self, source: TrackSource) {
-                self.shared.update_source(source);
-            }
-        }
-    };
-    ($x:ident, $rtc_track:ty, enum_dispatch, [$($variant:ident),+]) => {
-        use livekit_utils::enum_dispatch;
-        use $crate::room::track::{TrackTrait, TrackInternalTrait};
-        use tokio::sync::mpsc;
-
-        impl TrackTrait<$rtc_track> for $x {
-            enum_dispatch!(
-                [$($variant),+]
-                fnc!(sid, &Self, [], TrackSid);
-                fnc!(name, &Self, [], String);
-                fnc!(kind, &Self, [], TrackKind);
-                fnc!(source, &Self, [], TrackSource);
-                fnc!(stream_state, &Self, [], StreamState);
-                fnc!(muted, &Self, [], bool);
-                fnc!(start, &Self, [], ());
-                fnc!(stop, &Self, [], ());
-                fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
-                fnc!(set_muted, &Self, [muted: bool], ());
-                fnc!(rtc_track, &Self, [], $rtc_track);
-            );
-        }
-
-        impl TrackInternalTrait for $x {
-            enum_dispatch!(
-                [$($variant),+]
-                fnc!(update_muted, &Self, [muted: bool, dispatch: bool], ());
-                fnc!(update_source, &Self, [source: TrackSource], ());
-            );
-
-        }
-    };
-}
-
-pub(super) use impl_track_trait;

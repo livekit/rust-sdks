@@ -120,7 +120,7 @@ impl PeerConnection {
 
     pub fn add_track<T: AsRef<str>>(
         &self,
-        track: Box<dyn MediaStreamTrack>,
+        track: MediaStreamTrack,
         streams_ids: &[T],
     ) -> Result<RtpSender, RtcError> {
         self.handle.add_track(track, streams_ids)
@@ -132,7 +132,7 @@ impl PeerConnection {
 
     pub fn add_transceiver(
         &self,
-        track: Box<dyn MediaStreamTrack>,
+        track: MediaStreamTrack,
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
         self.handle.add_transceiver(track, init)
