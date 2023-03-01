@@ -1,3 +1,4 @@
+use self::track::RemoteTrack;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::proto;
@@ -32,30 +33,30 @@ pub enum RoomError {
 
 #[derive(Clone, Debug)]
 pub enum RoomEvent {
-    ParticipantConnected(Arc<RemoteParticipant>),
-    ParticipantDisconnected(Arc<RemoteParticipant>),
+    ParticipantConnected(RemoteParticipant),
+    ParticipantDisconnected(RemoteParticipant),
     TrackSubscribed {
-        track: RemoteTrackHandle,
+        track: RemoteTrack,
         publication: RemoteTrackPublication,
-        participant: Arc<RemoteParticipant>,
+        participant: RemoteParticipant,
     },
     TrackPublished {
         publication: RemoteTrackPublication,
-        participant: Arc<RemoteParticipant>,
+        participant: RemoteParticipant,
     },
     TrackUnpublished {
         publication: RemoteTrackPublication,
-        participant: Arc<RemoteParticipant>,
+        participant: RemoteParticipant,
     },
     TrackUnsubscribed {
         track: RemoteTrackHandle,
         publication: RemoteTrackPublication,
-        participant: Arc<RemoteParticipant>,
+        participant: RemoteParticipant,
     },
     TrackSubscriptionFailed {
         error: track::TrackError,
         sid: TrackSid,
-        participant: Arc<RemoteParticipant>,
+        participant: RemoteParticipant,
     },
     TrackMuted {
         participant: Participant,
@@ -75,7 +76,7 @@ pub enum RoomEvent {
     DataReceived {
         payload: Arc<Vec<u8>>,
         kind: proto::data_packet::Kind,
-        participant: Arc<RemoteParticipant>,
+        participant: RemoteParticipant,
     },
     ConnectionStateChanged(ConnectionState),
     Connected,

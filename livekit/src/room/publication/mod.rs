@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use crate::proto;
+use crate::track::Track;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::Mutex;
@@ -252,11 +253,7 @@ pub struct RemoteTrackPublication {
 }
 
 impl RemoteTrackPublication {
-    pub fn new(
-        info: proto::TrackInfo,
-        participant: ParticipantSid,
-        track: Option<TrackHandle>,
-    ) -> Self {
+    pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: Option<Track>) -> Self {
         Self {
             shared: TrackPublicationShared::new(info, participant, track),
         }

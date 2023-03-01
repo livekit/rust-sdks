@@ -1,7 +1,7 @@
 use super::TrackInner;
 use crate::prelude::*;
+use futures::channel::mpsc;
 use livekit_webrtc as rtc;
-use std::sync::mpsc;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -66,7 +66,7 @@ impl RemoteVideoTrack {
         video
     }
 
-    pub fn register_observer(&self) -> mpsc::Receiver<TrackEvent> {
+    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
         self.inner.register_observer()
     }
 }

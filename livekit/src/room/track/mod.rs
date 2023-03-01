@@ -1,11 +1,11 @@
 use crate::prelude::*;
 use crate::proto;
+use futures::channel::mpsc;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::mpsc;
 use thiserror::Error;
 
 pub mod local_audio_track;
@@ -110,7 +110,7 @@ pub enum TrackEvent {
     Unmute,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Track {
     LocalAudio(LocalAudioTrack),
     LocalVideo(LocalVideoTrack),
@@ -118,25 +118,25 @@ pub enum Track {
     RemoteVideo(RemoteVideoTrack),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum LocalTrack {
     Audio(LocalAudioTrack),
     Video(LocalVideoTrack),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum RemoteTrack {
     Audio(RemoteAudioTrack),
     Video(RemoteVideoTrack),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum VideoTrack {
     Local(LocalVideoTrack),
     Remote(RemoteVideoTrack),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum AudioTrack {
     Local(LocalAudioTrack),
     Remote(RemoteAudioTrack),
@@ -155,7 +155,7 @@ macro_rules! track_dispatch {
             pub fn stop(self: &Self) -> ();
             pub fn muted(self: &Self) -> bool;
             pub fn set_muted(self: &Self, muted: bool) -> ();
-            pub fn register_observer(self: &Self) -> mpsc::Receiver<TrackEvent>;
+            pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
         );
     };
 }
@@ -312,7 +312,7 @@ impl TrackInner {
         self.rtc_track.clone()
     }
 
-    pub fn register_observer(&self) -> mpsc::Receiver<TrackEvent> {
+    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
         self.dispatcher.lock().register()
     }
 }

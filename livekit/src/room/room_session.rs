@@ -1,15 +1,16 @@
-use crate::participant::{ConnectionQuality, ParticipantInternalTrait};
+use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
 use crate::signal_client::SignalOptions;
 use crate::{RoomError, RoomEvent, RoomResult, SimulateScenario};
+use futures::channel::mpsc;
+use futures::StreamExt;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument, Level};
@@ -40,11 +41,11 @@ struct SessionInner {
     sid: Mutex<RoomSid>,
     name: Mutex<String>,
     metadata: Mutex<String>,
-    participants: RwLock<HashMap<ParticipantSid, Arc<RemoteParticipant>>>,
+    participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
     participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
     active_speakers: RwLock<Vec<Participant>>,
     rtc_engine: Arc<RTCEngine>,
-    local_participant: Arc<LocalParticipant>,
+    local_participant: LocalParticipant,
     dispatcher: Mutex<Dispatcher<RoomEvent>>,
 }
 
@@ -72,13 +73,13 @@ impl SessionHandle {
 
         let join_response = rtc_engine.join_response().unwrap();
         let pi = join_response.participant.unwrap().clone();
-        let local_participant = Arc::new(LocalParticipant::new(
+        let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
             pi.sid.into(),
             pi.identity.into(),
             pi.name,
             pi.metadata,
-        ));
+        );
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(SessionInner {
@@ -99,7 +100,7 @@ impl SessionHandle {
                 let pi = pi.clone();
                 inner.create_participant(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata)
             };
-            participant.update_info(pi.clone(), false);
+            participant.update_info(pi.clone());
         }
 
         let (close_emitter, close_receiver) = oneshot::channel();
@@ -147,7 +148,7 @@ impl RoomSession {
         self.inner.metadata.lock().clone()
     }
 
-    pub fn local_participant(&self) -> Arc<LocalParticipant> {
+    pub fn local_participant(&self) -> LocalParticipant {
         self.inner.local_participant.clone()
     }
 
@@ -155,7 +156,7 @@ impl RoomSession {
         self.inner.state.load(Ordering::Acquire).try_into().unwrap()
     }
 
-    pub fn participants(&self) -> RwLockReadGuard<HashMap<ParticipantSid, Arc<RemoteParticipant>>> {
+    pub fn participants(&self) -> RwLockReadGuard<HashMap<ParticipantSid, RemoteParticipant>> {
         self.inner.participants.read()
     }
 
@@ -200,7 +201,7 @@ impl SessionInner {
     ) {
         loop {
             tokio::select! {
-                res = participant_events.recv() => {
+                res = participant_events.next() => {
                     match res {
                         Some(event) => {
                             if let Err(err) = self.on_participant_event(&participant, event).await {
@@ -496,7 +497,7 @@ impl SessionInner {
         self.dispatcher.lock().dispatch(&RoomEvent::Reconnected);
 
         if let Some(pi) = join_response.participant {
-            self.local_participant.update_info(pi, true); // The sid may have changed
+            self.local_participant.update_info(pi); // The sid may have changed
         }
 
         self.handle_participant_update(join_response.other_participants);
@@ -523,13 +524,8 @@ impl SessionInner {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
-    ) -> Arc<RemoteParticipant> {
-        let participant = Arc::new(RemoteParticipant::new(
-            sid.clone(),
-            identity,
-            name,
-            metadata,
-        ));
+    ) -> RemoteParticipant {
+        let participant = RemoteParticipant::new(sid.clone(), identity, name, metadata);
 
         // Create the participant task
         let (close_tx, close_rx) = oneshot::channel();
@@ -549,10 +545,10 @@ impl SessionInner {
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     #[instrument(level = Level::DEBUG)]
-    fn handle_participant_disconnect(self: Arc<Self>, remote_participant: Arc<RemoteParticipant>) {
+    fn handle_participant_disconnect(self: Arc<Self>, remote_participant: RemoteParticipant) {
         tokio::spawn(async move {
             for (sid, _) in &*remote_participant.tracks() {
-                remote_participant.unpublish_track(&sid, true);
+                remote_participant.unpublish_track(&sid);
             }
 
             // Close the participant task
@@ -566,16 +562,13 @@ impl SessionInner {
             }
 
             self.participants.write().remove(&remote_participant.sid());
-
             self.dispatcher
                 .lock()
-                .dispatch(&RoomEvent::ParticipantDisconnected(
-                    remote_participant.clone(),
-                ));
+                .dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
         });
     }
 
-    fn get_participant(&self, sid: &ParticipantSid) -> Option<Arc<RemoteParticipant>> {
+    fn get_participant(&self, sid: &ParticipantSid) -> Option<RemoteParticipant> {
         self.participants.read().get(sid).cloned()
     }
 }

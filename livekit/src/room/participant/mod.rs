@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
 
 mod local_participant;
-mod publish_utils;
 mod remote_participant;
 
 pub use local_participant::*;
@@ -107,7 +106,7 @@ impl Participant {
         pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
-        pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo, emit_events: bool) -> ();
+        pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
     );
 }
 

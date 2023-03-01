@@ -2,6 +2,7 @@ use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::RTCEngine;
+use futures::channel::mpsc;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,25 +25,9 @@ impl LocalParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            shared: ParticipantInner::new(sid, identity, name, metadata),
+            inner: Arc::new(ParticipantInner::new(sid, identity, name, metadata)),
             rtc_engine,
         }
-    }
-
-    pub(crate) fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, _emit_events: bool) {
-        self.inner.update_info(info);
-    }
-
-    pub(crate) fn set_speaking(&self, speaking: bool) {
-        self.inner.set_speaking(speaking);
-    }
-
-    pub(crate) fn set_audio_level(&self, level: f32) {
-        self.inner.set_audio_level(level);
-    }
-
-    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.inner.set_connection_quality(quality);
     }
 
     pub fn sid(&self) -> ParticipantSid {
@@ -61,8 +46,8 @@ impl LocalParticipant {
         self.inner.metadata()
     }
 
-    pub fn speaking(&self) -> bool {
-        self.inner.speaking()
+    pub fn is_speaking(&self) -> bool {
+        self.inner.is_speaking()
     }
 
     pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
@@ -77,12 +62,25 @@ impl LocalParticipant {
         self.inner.connection_quality()
     }
 
+    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
+        self.inner.register_observer()
+    }
+
+    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
+        self.inner.tracks.read().get(sid).map(|track| {
+            if let TrackPublication::Local(local) = track {
+                return local.clone();
+            }
+            unreachable!()
+        })
+    }
+
     pub async fn publish_track(
         &self,
         track: LocalTrackHandle,
         options: TrackPublishOptions,
     ) -> RoomResult<()> {
-        let tracks = self.shared.tracks.write();
+        let tracks = self.inner.tracks.write();
 
         if track.source() != TrackSource::Unknown {
             for publication in tracks.values() {
@@ -119,5 +117,21 @@ impl LocalParticipant {
             .publish_data(&data, kind)
             .await
             .map_err(Into::into)
+    }
+
+    pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
+        self.inner.update_info(info);
+    }
+
+    pub(crate) fn set_speaking(&self, speaking: bool) {
+        self.inner.set_speaking(speaking);
+    }
+
+    pub(crate) fn set_audio_level(&self, level: f32) {
+        self.inner.set_audio_level(level);
+    }
+
+    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
+        self.inner.set_connection_quality(quality);
     }
 }
