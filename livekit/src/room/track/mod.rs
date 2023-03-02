@@ -316,3 +316,87 @@ impl TrackInner {
         self.dispatcher.lock().register()
     }
 }
+
+impl From<RemoteTrack> for Track {
+    fn from(track: RemoteTrack) -> Self {
+        match track {
+            RemoteTrack::Audio(track) => Self::RemoteAudio(track),
+            RemoteTrack::Video(track) => Self::RemoteVideo(track),
+        }
+    }
+}
+
+impl From<LocalTrack> for Track {
+    fn from(track: LocalTrack) -> Self {
+        match track {
+            LocalTrack::Audio(track) => Self::LocalAudio(track),
+            LocalTrack::Video(track) => Self::LocalVideo(track),
+        }
+    }
+}
+
+impl From<VideoTrack> for Track {
+    fn from(track: VideoTrack) -> Self {
+        match track {
+            VideoTrack::Local(track) => Self::LocalVideo(track),
+            VideoTrack::Remote(track) => Self::RemoteVideo(track),
+        }
+    }
+}
+
+impl From<AudioTrack> for Track {
+    fn from(track: AudioTrack) -> Self {
+        match track {
+            AudioTrack::Local(track) => Self::LocalAudio(track),
+            AudioTrack::Remote(track) => Self::RemoteAudio(track),
+        }
+    }
+}
+
+impl TryFrom<Track> for RemoteTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::RemoteAudio(track) => Ok(Self::Audio(track)),
+            Track::RemoteVideo(track) => Ok(Self::Video(track)),
+            _ => Err("not a remote track"),
+        }
+    }
+}
+
+impl TryFrom<Track> for LocalTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::LocalAudio(track) => Ok(Self::Audio(track)),
+            Track::LocalVideo(track) => Ok(Self::Video(track)),
+            _ => Err("not a local track"),
+        }
+    }
+}
+
+impl TryFrom<Track> for VideoTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::LocalVideo(track) => Ok(Self::Local(track)),
+            Track::RemoteVideo(track) => Ok(Self::Remote(track)),
+            _ => Err("not a video track"),
+        }
+    }
+}
+
+impl TryFrom<Track> for AudioTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::LocalAudio(track) => Ok(Self::Local(track)),
+            Track::RemoteAudio(track) => Ok(Self::Remote(track)),
+            _ => Err("not an audio track"),
+        }
+    }
+}

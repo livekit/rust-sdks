@@ -373,7 +373,7 @@ impl SessionInner {
             if pi.sid == self.local_participant.sid()
                 || pi.identity == self.local_participant.identity()
             {
-                self.local_participant.clone().update_info(pi, true);
+                self.local_participant.clone().update_info(pi);
                 continue;
             }
 
@@ -387,7 +387,7 @@ impl SessionInner {
                         .handle_participant_disconnect(remote_participant)
                 } else {
                     // Participant is already connected, update the it
-                    remote_participant.update_info(pi.clone(), true);
+                    remote_participant.update_info(pi.clone());
                 }
             } else {
                 // Create a new participant
@@ -402,7 +402,7 @@ impl SessionInner {
                     .lock()
                     .dispatch(&RoomEvent::ParticipantConnected(remote_participant.clone()));
 
-                remote_participant.update_info(pi.clone(), true);
+                remote_participant.update_info(pi.clone());
             }
         }
     }

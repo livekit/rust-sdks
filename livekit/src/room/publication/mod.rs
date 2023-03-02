@@ -1,5 +1,8 @@
+use super::track::{TrackDimension, TrackEvent};
 use crate::prelude::*;
 use crate::proto;
+use crate::track::LocalTrack;
+use crate::track::RemoteTrack;
 use crate::track::Track;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
@@ -8,47 +11,29 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-use super::track::{TrackDimension, TrackEvent};
-
-pub(crate) trait TrackPublicationInternalTrait {
-    fn update_track(&self, track: Option<TrackHandle>);
-    fn update_info(&self, info: proto::TrackInfo);
-}
-
-pub trait TrackPublicationTrait {
-    fn name(&self) -> String;
-    fn sid(&self) -> TrackSid;
-    fn kind(&self) -> TrackKind;
-    fn source(&self) -> TrackSource;
-    fn simulcasted(&self) -> bool;
-    fn dimension(&self) -> TrackDimension;
-    fn mime_type(&self) -> String;
-    fn muted(&self) -> bool;
-}
-
 #[derive(Debug)]
-pub(super) struct TrackPublicationShared {
-    pub(super) track: Mutex<Option<TrackHandle>>,
-    pub(super) name: Mutex<String>,
-    pub(super) sid: Mutex<TrackSid>,
-    pub(super) kind: AtomicU8,   // Casted to TrackKind
-    pub(super) source: AtomicU8, // Casted to TrackSource
-    pub(super) simulcasted: AtomicBool,
-    pub(super) dimension: Mutex<TrackDimension>,
-    pub(super) mime_type: Mutex<String>,
-    pub(super) muted: AtomicBool,
-    pub(super) participant: ParticipantSid,
-    pub(super) dispatcher: Mutex<Dispatcher<TrackEvent>>,
-    pub(super) close_sender: Mutex<Option<oneshot::Sender<()>>>,
+pub(crate) struct TrackPublicationInner {
+    track: Mutex<Option<Track>>,
+    name: Mutex<String>,
+    sid: Mutex<TrackSid>,
+    kind: AtomicU8,   // Casted to TrackKind
+    source: AtomicU8, // Casted to TrackSource
+    simulcasted: AtomicBool,
+    dimension: Mutex<TrackDimension>,
+    mime_type: Mutex<String>,
+    muted: AtomicBool,
+    participant: ParticipantSid,
+    dispatcher: Mutex<Dispatcher<TrackEvent>>,
+    close_sender: Mutex<Option<oneshot::Sender<()>>>,
 }
 
-impl TrackPublicationShared {
+impl TrackPublicationInner {
     pub fn new(
         info: proto::TrackInfo,
         participant: ParticipantSid,
         track: Option<TrackHandle>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
+    ) -> Self {
+        Self {
             track: Mutex::new(track),
             name: Mutex::new(info.name),
             sid: Mutex::new(info.sid.into()),
@@ -65,7 +50,43 @@ impl TrackPublicationShared {
             dispatcher: Default::default(),
             close_sender: Default::default(),
             participant,
-        })
+        }
+    }
+
+    pub fn sid(&self) -> TrackSid {
+        self.sid.lock().clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.name.lock().clone()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.kind.load(Ordering::SeqCst).into()
+    }
+
+    pub fn source(&self) -> TrackSource {
+        self.source.load(Ordering::SeqCst).into()
+    }
+
+    pub fn simulcasted(&self) -> bool {
+        self.simulcasted.load(Ordering::Relaxed)
+    }
+
+    pub fn dimension(&self) -> TrackDimension {
+        self.dimension.lock().clone()
+    }
+
+    pub fn mime_type(&self) -> String {
+        self.mime_type.lock().clone()
+    }
+
+    pub fn track(&self) -> Option<Track> {
+        self.track.lock().clone()
+    }
+
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
     }
 
     pub fn update_track(self: &Arc<Self>, track: Option<TrackHandle>) {
@@ -85,24 +106,6 @@ impl TrackPublicationShared {
                 self.clone()
                     .publication_task(close_receiver, track_receiver),
             );
-        }
-    }
-
-    /// Task used to forward TrackHandle's events to the TrackPublications's dispatcher
-    async fn publication_task(
-        self: Arc<Self>,
-        mut close_receiver: oneshot::Receiver<()>,
-        mut track_receiver: mpsc::UnboundedReceiver<TrackEvent>,
-    ) {
-        loop {
-            tokio::select! {
-                Some(event) = track_receiver.recv() => {
-                    self.dispatcher.lock().dispatch(&event);
-                }
-                _ = &mut close_receiver => {
-                    break;
-                }
-            }
         }
     }
 
@@ -126,9 +129,27 @@ impl TrackPublicationShared {
             track.set_muted(info.muted);
         }
     }
+
+    /// Task used to forward TrackHandle's events to the TrackPublications's dispatcher
+    async fn publication_task(
+        self: Arc<Self>,
+        mut close_receiver: oneshot::Receiver<()>,
+        mut track_receiver: mpsc::UnboundedReceiver<TrackEvent>,
+    ) {
+        loop {
+            tokio::select! {
+                Some(event) = track_receiver.recv() => {
+                    self.dispatcher.lock().dispatch(&event);
+                }
+                _ = &mut close_receiver => {
+                    break;
+                }
+            }
+        }
+    }
 }
 
-impl Drop for TrackPublicationShared {
+impl Drop for TrackPublicationInner {
     fn drop(&mut self) {
         if let Some(close_sender) = self.close_sender.lock().take() {
             let _ = close_sender.send(());
@@ -143,140 +164,140 @@ pub enum TrackPublication {
 }
 
 impl TrackPublication {
+    enum_dispatch!(
+        [Local, Remote];
+        pub fn sid(self: &Self) -> TrackSid;
+        pub fn name(self: &Self) -> String;
+        pub fn kind(self: &Self) -> TrackKind;
+        pub fn source(self: &Self) -> TrackSource;
+        pub fn simulcasted(self: &Self) -> bool;
+        pub fn dimension(self: &Self) -> TrackDimension;
+        pub fn mime_type(self: &Self) -> String;
+        pub fn muted(self: &Self) -> bool;
+    );
+
     pub fn track(&self) -> Option<TrackHandle> {
-        // Not calling Local/Remote function here, we don't need "cast"
         match self {
-            TrackPublication::Local(p) => p.shared.track.lock().clone(),
-            TrackPublication::Remote(p) => p.shared.track.lock().clone(),
+            TrackPublication::Local(p) => p.inner.track.lock().clone(),
+            TrackPublication::Remote(p) => p.inner.track.lock().clone(),
         }
     }
 }
 
-impl TrackPublicationInternalTrait for TrackPublication {
-    enum_dispatch!(
-        [Local, Remote]
-        fnc!(update_track, &Self, [track: Option<TrackHandle>], ());
-        fnc!(update_info, &Self, [info: proto::TrackInfo], ());
-    );
-}
-
-impl TrackPublicationTrait for TrackPublication {
-    enum_dispatch!(
-        [Local, Remote]
-        fnc!(sid, &Self, [], TrackSid);
-        fnc!(name, &Self, [], String);
-        fnc!(kind, &Self, [], TrackKind);
-        fnc!(source, &Self, [], TrackSource);
-        fnc!(simulcasted, &Self, [], bool);
-        fnc!(dimension, &Self, [], TrackDimension);
-        fnc!(mime_type, &Self, [], String);
-        fnc!(track, &Self, [], Option<TrackHandle>);
-        fnc!(muted, &Self, [], bool);
-    );
-}
-
-macro_rules! impl_publication_trait {
-    ($x:ident) => {
-        impl TrackPublicationTrait for $x {
-            fn name(&self) -> String {
-                self.shared.name.lock().clone()
-            }
-
-            fn sid(&self) -> TrackSid {
-                self.shared.sid.lock().clone()
-            }
-
-            fn kind(&self) -> TrackKind {
-                self.shared.kind.load(Ordering::SeqCst).into()
-            }
-
-            fn source(&self) -> TrackSource {
-                self.shared.source.load(Ordering::SeqCst).into()
-            }
-
-            fn simulcasted(&self) -> bool {
-                self.shared.simulcasted.load(Ordering::SeqCst)
-            }
-
-            fn dimension(&self) -> TrackDimension {
-                self.shared.dimension.lock().clone()
-            }
-
-            fn mime_type(&self) -> String {
-                self.shared.mime_type.lock().clone()
-            }
-
-            fn muted(&self) -> bool {
-                self.shared.muted.load(Ordering::SeqCst)
-            }
-        }
-    };
-}
-
 #[derive(Clone, Debug)]
 pub struct LocalTrackPublication {
-    shared: Arc<TrackPublicationShared>,
+    inner: Arc<TrackPublicationInner>,
 }
 
 impl LocalTrackPublication {
     pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: TrackHandle) -> Self {
         Self {
-            shared: TrackPublicationShared::new(info, participant, Some(track)),
+            inner: Arc::new(TrackPublicationInner::new(info, participant, Some(track))),
         }
     }
 
-    pub fn track(&self) -> LocalTrackHandle {
-        // LocalPublication always have a track
-        self.shared
-            .track
-            .lock()
-            .clone()
-            .unwrap()
-            .try_into()
-            .unwrap()
-    }
-}
-
-impl TrackPublicationInternalTrait for LocalTrackPublication {
-    fn update_track(&self, track: Option<TrackHandle>) {
-        self.shared.update_track(track);
+    pub fn sid(&self) -> TrackSid {
+        self.inner.sid()
     }
 
-    fn update_info(&self, info: proto::TrackInfo) {
-        self.shared.update_info(info);
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.inner.kind()
+    }
+
+    pub fn source(&self) -> TrackSource {
+        self.inner.source()
+    }
+
+    pub fn simulcasted(&self) -> bool {
+        self.inner.simulcasted()
+    }
+
+    pub fn dimension(&self) -> TrackDimension {
+        self.inner.dimension()
+    }
+
+    pub fn track(&self) -> LocalTrack {
+        self.inner.track.lock().clone().unwrap().try_into().unwrap()
+    }
+
+    pub fn mime_type(&self) -> String {
+        self.inner.mime_type()
+    }
+
+    pub fn muted(&self) -> bool {
+        self.inner.muted()
+    }
+
+    pub(crate) fn update_track(&self, track: Option<TrackHandle>) {
+        self.inner.update_track(track);
+    }
+
+    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+        self.inner.update_info(info);
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct RemoteTrackPublication {
-    shared: Arc<TrackPublicationShared>,
+    inner: Arc<TrackPublicationInner>,
 }
 
 impl RemoteTrackPublication {
     pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: Option<Track>) -> Self {
         Self {
-            shared: TrackPublicationShared::new(info, participant, track),
+            inner: Arc::new(TrackPublicationInner::new(info, participant, track)),
         }
     }
 
-    pub fn track(&self) -> Option<RemoteTrackHandle> {
-        self.shared
+    pub fn sid(&self) -> TrackSid {
+        self.inner.sid()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.inner.kind()
+    }
+
+    pub fn source(&self) -> TrackSource {
+        self.inner.source()
+    }
+
+    pub fn simulcasted(&self) -> bool {
+        self.inner.simulcasted()
+    }
+
+    pub fn dimension(&self) -> TrackDimension {
+        self.inner.dimension()
+    }
+
+    pub fn track(&self) -> Option<RemoteTrack> {
+        self.inner
             .track
             .lock()
             .clone()
             .map(|track| track.try_into().unwrap())
     }
-}
 
-impl TrackPublicationInternalTrait for RemoteTrackPublication {
-    fn update_track(&self, track: Option<TrackHandle>) {
-        self.shared.update_track(track);
+    pub fn mime_type(&self) -> String {
+        self.inner.mime_type()
     }
 
-    fn update_info(&self, info: proto::TrackInfo) {
-        self.shared.update_info(info);
+    pub fn muted(&self) -> bool {
+        self.inner.muted()
+    }
+
+    pub(crate) fn update_track(&self, track: Option<TrackHandle>) {
+        self.inner.update_track(track);
+    }
+
+    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+        self.inner.update_info(info);
     }
 }
-
-impl_publication_trait!(LocalTrackPublication);
-impl_publication_trait!(RemoteTrackPublication);
