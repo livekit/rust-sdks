@@ -18,7 +18,7 @@ impl From<sys_ms::ffi::TrackState> for TrackState {
 
 #[derive(Clone)]
 pub struct MediaStream {
-    sys_handle: SharedPtr<sys_ms::ffi::MediaStream>,
+    pub(crate) sys_handle: SharedPtr<sys_ms::ffi::MediaStream>,
 }
 
 impl MediaStream {

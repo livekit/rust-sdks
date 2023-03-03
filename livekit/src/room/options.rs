@@ -1,6 +1,5 @@
 use crate::prelude::*;
 use livekit_webrtc::prelude::*;
-use std::borrow::Cow;
 
 #[derive(Debug)]
 pub enum VideoCodec {
@@ -29,7 +28,7 @@ pub struct VideoResolution {
 
 #[derive(Debug, Clone)]
 pub struct VideoEncoding {
-    pub max_bitrate: i32,
+    pub max_bitrate: u64,
     pub max_framerate: f64,
 }
 
@@ -79,7 +78,7 @@ impl Default for TrackPublishOptions {
 }
 
 impl VideoPreset {
-    pub const fn new(width: u32, height: u32, max_bitrate: i32, max_framerate: f64) -> Self {
+    pub const fn new(width: u32, height: u32, max_bitrate: u64, max_framerate: f64) -> Self {
         Self {
             width,
             height,
@@ -214,7 +213,7 @@ fn into_rtp_encodings(
                 1.0,
                 size as f64 / u32::min(preset.width, preset.height) as f64,
             )),
-            max_bitrate_bps: Some(preset.encoding.max_bitrate),
+            max_bitrate: Some(preset.encoding.max_bitrate),
             max_framerate: Some(preset.encoding.max_framerate),
             ..Default::default()
         })
@@ -303,11 +302,11 @@ pub mod screenshare {
         VideoPreset::new(
             initial.width / SCALE_DOWN_FACTOR,
             initial.height / SCALE_DOWN_FACTOR,
-            i32::max(
+            u64::max(
                 150_000,
-                initial.encoding.max_bitrate as i32
-                    / (SCALE_DOWN_FACTOR.pow(2) as i32
-                        * (initial.encoding.max_framerate / FPS) as i32),
+                initial.encoding.max_bitrate as u64
+                    / (SCALE_DOWN_FACTOR.pow(2) as u64
+                        * (initial.encoding.max_framerate / FPS) as u64),
             ),
             FPS,
         )

@@ -3,27 +3,24 @@ use crate::data_channel::DataChannelInit;
 use crate::ice_candidate::IceCandidate;
 use crate::imp::data_channel as imp_dc;
 use crate::imp::ice_candidate as imp_ic;
+use crate::imp::media_stream as imp_ms;
 use crate::imp::rtp_receiver as imp_rr;
 use crate::imp::rtp_sender as imp_rs;
 use crate::imp::rtp_transceiver as imp_rt;
 use crate::imp::session_description as imp_sdp;
-use crate::media_stream::MediaStreamTrack;
-use crate::peer_connection::AnswerOptions;
-use crate::peer_connection::IceCandidateError;
-use crate::peer_connection::IceConnectionState;
-use crate::peer_connection::IceGatheringState;
-use crate::peer_connection::PeerConnectionState;
-use crate::peer_connection::SignalingState;
+use crate::media_stream::{MediaStream, MediaStreamTrack};
 use crate::peer_connection::{
+    AnswerOptions, IceCandidateError, IceConnectionState, IceGatheringState, OfferOptions,
     OnConnectionChange, OnDataChannel, OnIceCandidate, OnIceCandidateError, OnIceConnectionChange,
-    OnIceGatheringChange, OnNegotiationNeeded, OnSignalingChange, OnTrack,
+    OnIceGatheringChange, OnNegotiationNeeded, OnSignalingChange, OnTrack, PeerConnectionState,
+    SignalingState, TrackEvent,
 };
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::RtpTransceiver;
 use crate::rtp_transceiver::RtpTransceiverInit;
 use crate::MediaType;
-use crate::{peer_connection::OfferOptions, session_description::SessionDescription, RtcError};
+use crate::{session_description::SessionDescription, RtcError};
 use cxx::{SharedPtr, UniquePtr};
 use futures::channel::oneshot;
 use std::mem::ManuallyDrop;
@@ -551,9 +548,27 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
 
     fn on_track(&self, transceiver: SharedPtr<webrtc_sys::rtp_transceiver::ffi::RtpTransceiver>) {
         if let Some(f) = self.track_handler.lock().unwrap().as_mut() {
-            f(RtpTransceiver {
-                handle: imp_rt::RtpTransceiver {
-                    sys_handle: transceiver,
+            let receiver = transceiver.receiver();
+            let streams = receiver.streams();
+            let track = receiver.track();
+
+            f(TrackEvent {
+                receiver: RtpReceiver {
+                    handle: imp_rr::RtpReceiver {
+                        sys_handle: receiver,
+                    },
+                },
+                streams: streams
+                    .into_iter()
+                    .map(|s| MediaStream {
+                        handle: imp_ms::MediaStream { sys_handle: s.ptr },
+                    })
+                    .collect(),
+                track: imp_ms::new_media_stream_track(track),
+                transceiver: RtpTransceiver {
+                    handle: imp_rt::RtpTransceiver {
+                        sys_handle: transceiver,
+                    },
                 },
             });
         }

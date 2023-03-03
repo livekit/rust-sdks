@@ -4,12 +4,13 @@ use crate::proto;
 use crate::track::LocalTrack;
 use crate::track::RemoteTrack;
 use crate::track::Track;
+use futures::channel::{mpsc, oneshot};
+use futures::StreamExt;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 pub(crate) struct TrackPublicationInner {
@@ -28,11 +29,7 @@ pub(crate) struct TrackPublicationInner {
 }
 
 impl TrackPublicationInner {
-    pub fn new(
-        info: proto::TrackInfo,
-        participant: ParticipantSid,
-        track: Option<TrackHandle>,
-    ) -> Self {
+    pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: Option<Track>) -> Self {
         Self {
             track: Mutex::new(track),
             name: Mutex::new(info.name),
@@ -89,7 +86,7 @@ impl TrackPublicationInner {
         self.muted.load(Ordering::Relaxed)
     }
 
-    pub fn update_track(self: &Arc<Self>, track: Option<TrackHandle>) {
+    pub fn update_track(self: &Arc<Self>, track: Option<Track>) {
         let mut old_track = self.track.lock();
 
         if let Some(close_sender) = self.close_sender.lock().take() {
@@ -137,8 +134,8 @@ impl TrackPublicationInner {
         mut track_receiver: mpsc::UnboundedReceiver<TrackEvent>,
     ) {
         loop {
-            tokio::select! {
-                Some(event) = track_receiver.recv() => {
+            futures::select! {
+                Some(event) = track_receiver.next() => {
                     self.dispatcher.lock().dispatch(&event);
                 }
                 _ = &mut close_receiver => {
@@ -176,7 +173,7 @@ impl TrackPublication {
         pub fn muted(self: &Self) -> bool;
     );
 
-    pub fn track(&self) -> Option<TrackHandle> {
+    pub fn track(&self) -> Option<Track> {
         match self {
             TrackPublication::Local(p) => p.inner.track.lock().clone(),
             TrackPublication::Remote(p) => p.inner.track.lock().clone(),
@@ -190,7 +187,7 @@ pub struct LocalTrackPublication {
 }
 
 impl LocalTrackPublication {
-    pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: TrackHandle) -> Self {
+    pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: Track) -> Self {
         Self {
             inner: Arc::new(TrackPublicationInner::new(info, participant, Some(track))),
         }
@@ -232,7 +229,7 @@ impl LocalTrackPublication {
         self.inner.muted()
     }
 
-    pub(crate) fn update_track(&self, track: Option<TrackHandle>) {
+    pub(crate) fn update_track(&self, track: Option<Track>) {
         self.inner.update_track(track);
     }
 
@@ -293,7 +290,7 @@ impl RemoteTrackPublication {
         self.inner.muted()
     }
 
-    pub(crate) fn update_track(&self, track: Option<TrackHandle>) {
+    pub(crate) fn update_track(&self, track: Option<Track>) {
         self.inner.update_track(track);
     }
 

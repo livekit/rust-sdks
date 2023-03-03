@@ -156,6 +156,8 @@ macro_rules! track_dispatch {
             pub fn muted(self: &Self) -> bool;
             pub fn set_muted(self: &Self, muted: bool) -> ();
             pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
+
+            pub(crate) fn set_source(self: &Self, source: TrackSource) -> ();
         );
     };
 }

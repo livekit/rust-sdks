@@ -116,13 +116,10 @@ impl PeerTransport {
     pub async fn create_anwser(
         &mut self,
         offer: SessionDescription,
-        options: OfferOptions,
+        options: AnswerOptions,
     ) -> Result<SessionDescription, RtcError> {
         self.set_remote_description(offer).await?;
-        let answer = self
-            .peer_connection()
-            .create_answer(AnswerOptions::default())
-            .await?;
+        let answer = self.peer_connection().create_answer(options).await?;
         self.peer_connection()
             .set_local_description(answer.clone())
             .await?;

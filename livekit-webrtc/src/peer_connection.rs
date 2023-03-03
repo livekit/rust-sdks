@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::ice_candidate::IceCandidate;
 use crate::imp::peer_connection as imp_pc;
-use crate::media_stream::MediaStreamTrack;
+use crate::media_stream::{MediaStream, MediaStreamTrack};
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverInit};
@@ -68,6 +68,14 @@ pub struct IceCandidateError {
     pub error_text: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct TrackEvent {
+    pub receiver: RtpReceiver,
+    pub streams: Vec<MediaStream>,
+    pub track: MediaStreamTrack,
+    pub transceiver: RtpTransceiver,
+}
+
 pub type OnConnectionChange = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
 pub type OnDataChannel = Box<dyn FnMut(DataChannel) + Send + Sync>;
 pub type OnIceCandidate = Box<dyn FnMut(IceCandidate) + Send + Sync>;
@@ -76,7 +84,7 @@ pub type OnIceConnectionChange = Box<dyn FnMut(IceConnectionState) + Send + Sync
 pub type OnIceGatheringChange = Box<dyn FnMut(IceGatheringState) + Send + Sync>;
 pub type OnNegotiationNeeded = Box<dyn FnMut(u32) + Send + Sync>;
 pub type OnSignalingChange = Box<dyn FnMut(SignalingState) + Send + Sync>;
-pub type OnTrack = Box<dyn FnMut(RtpTransceiver) + Send + Sync>;
+pub type OnTrack = Box<dyn FnMut(TrackEvent) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct PeerConnection {

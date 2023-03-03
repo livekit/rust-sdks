@@ -24,11 +24,11 @@ pub enum ParticipantEvent {
         publication: RemoteTrackPublication,
     },
     TrackSubscribed {
-        track: RemoteTrackHandle,
+        track: RemoteTrack,
         publication: RemoteTrackPublication,
     },
     TrackUnsubscribed {
-        track: RemoteTrackHandle,
+        track: RemoteTrack,
         publication: RemoteTrackPublication,
     },
     TrackSubscriptionFailed {

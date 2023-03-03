@@ -10,7 +10,21 @@ pub struct DataChannelInit {
     pub protocol: String,
     pub negotiated: bool,
     pub id: i32,
-    pub priority: Priority,
+    pub priority: Option<Priority>,
+}
+
+impl Default for DataChannelInit {
+    fn default() -> Self {
+        Self {
+            ordered: true,
+            max_retransmit_time: None,
+            max_retransmits: None,
+            protocol: String::new(),
+            negotiated: false,
+            id: -1,
+            priority: None,
+        }
+    }
 }
 
 #[derive(Debug, Error)]

@@ -1,11 +1,11 @@
 use super::{ConnectionQuality, ParticipantInner};
 use crate::prelude::*;
 use crate::proto;
-use crate::publication::TrackPublicationInternalTrait;
 use crate::track::TrackError;
 use futures::channel::mpsc;
 use livekit_webrtc as rtc;
 use parking_lot::RwLockReadGuard;
+use rtc::prelude::MediaStreamTrack;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -112,25 +112,25 @@ impl RemoteParticipant {
         if let Ok(remote_publication) = timeout(ADD_TRACK_TIMEOUT, wait_publication).await {
             let track = match remote_publication.kind() {
                 TrackKind::Audio => {
-                    if let MediaStreamTrackHandle::Audio(rtc_track) = media_track {
+                    if let MediaStreamTrack::Audio(rtc_track) = media_track {
                         let audio_track = RemoteAudioTrack::new(
                             remote_publication.sid().into(),
                             remote_publication.name(),
                             rtc_track,
                         );
-                        RemoteTrackHandle::Audio(Arc::new(audio_track))
+                        RemoteTrack::Audio(audio_track)
                     } else {
                         unreachable!();
                     }
                 }
                 TrackKind::Video => {
-                    if let MediaStreamTrackHandle::Video(rtc_track) = media_track {
+                    if let MediaStreamTrack::Video(rtc_track) = media_track {
                         let video_track = RemoteVideoTrack::new(
                             remote_publication.sid().into(),
                             remote_publication.name(),
                             rtc_track,
                         );
-                        RemoteTrackHandle::Video(Arc::new(video_track))
+                        RemoteTrack::Video(video_track)
                     } else {
                         unreachable!()
                     }
@@ -141,8 +141,8 @@ impl RemoteParticipant {
             debug!("starting track: {:?}", sid);
 
             remote_publication.update_track(Some(track.clone().into()));
-            track.update_muted(remote_publication.muted(), false);
-            track.update_source(remote_publication.source());
+            track.set_muted(remote_publication.muted());
+            track.set_source(remote_publication.source());
 
             self.inner
                 .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
@@ -152,7 +152,7 @@ impl RemoteParticipant {
                 .dispatcher
                 .lock()
                 .dispatch(&ParticipantEvent::TrackSubscribed {
-                    track: track,
+                    track,
                     publication: remote_publication,
                 });
         } else {

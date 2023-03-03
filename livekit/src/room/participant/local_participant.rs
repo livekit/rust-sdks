@@ -77,7 +77,7 @@ impl LocalParticipant {
 
     pub async fn publish_track(
         &self,
-        track: LocalTrackHandle,
+        track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<()> {
         let tracks = self.inner.tracks.write();

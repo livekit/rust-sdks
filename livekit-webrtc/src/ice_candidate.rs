@@ -1,12 +1,19 @@
+use crate::{imp::ice_candidate as imp_ic, session_description::SdpParseError};
 use std::fmt::Debug;
-
-use crate::imp::ice_candidate as imp_ic;
 
 pub struct IceCandidate {
     pub(crate) handle: imp_ic::IceCandidate,
 }
 
 impl IceCandidate {
+    pub fn parse(
+        sdp_mid: &str,
+        sdp_mline_index: i32,
+        sdp: &str,
+    ) -> Result<IceCandidate, SdpParseError> {
+        imp_ic::IceCandidate::parse(sdp_mid, sdp_mline_index, sdp)
+    }
+
     pub fn sdp_mid(&self) -> String {
         self.handle.sdp_mid()
     }

@@ -1,7 +1,7 @@
 use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
-use crate::rtc_engine::lk_runtime::LKRuntime;
-use crate::rtc_engine::pc_transport::PCTransport;
-use crate::rtc_engine::rtc_events::{RTCEvent, RTCEvents};
+use crate::rtc_engine::lk_runtime::LkRuntime;
+use crate::rtc_engine::peer_transport::PeerTransport;
+use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
 use crate::{proto, signal_client};
 use livekit_webrtc::prelude::*;
@@ -35,7 +35,7 @@ pub enum SessionEvent {
         kind: proto::data_packet::Kind,
     },
     MediaTrack {
-        track: MediaStreamTrackHandle,
+        track: MediaStreamTrack,
         stream: MediaStream,
         receiver: RtpReceiver,
     },
@@ -104,8 +104,8 @@ struct SessionInner {
     pc_state: AtomicU8, // PCState
     has_published: AtomicBool,
 
-    publisher_pc: AsyncMutex<PCTransport>,
-    subscriber_pc: AsyncMutex<PCTransport>,
+    publisher_pc: AsyncMutex<PeerTransport>,
+    subscriber_pc: AsyncMutex<PeerTransport>,
 
     // Publisher data channels
     // used to send data to other participants ( The SFU forwards the messages )
@@ -125,7 +125,7 @@ struct SessionInner {
 /// RTCSession is also responsable for the signaling and the negotation
 #[derive(Debug)]
 pub struct RTCSession {
-    lk_runtime: Arc<LKRuntime>,
+    lk_runtime: Arc<LkRuntime>,
     inner: Arc<SessionInner>,
     close_tx: watch::Sender<bool>, // false = is_running
     signal_task: JoinHandle<()>,
@@ -137,7 +137,7 @@ impl RTCSession {
         url: &str,
         token: &str,
         options: SignalOptions,
-        lk_runtime: Arc<LKRuntime>,
+        lk_runtime: Arc<LkRuntime>,
         session_emitter: SessionEmitter,
     ) -> EngineResult<Self> {
         // Connect to the SignalClient
@@ -148,16 +148,16 @@ impl RTCSession {
         debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = RTCConfiguration::from(join_response.clone());
+        let rtc_config = RtcConfiguration::from(join_response.clone());
 
-        let mut publisher_pc = PCTransport::new(
+        let mut publisher_pc = PeerTransport::new(
             lk_runtime
                 .pc_factory
                 .create_peer_connection(rtc_config.clone())?,
             proto::SignalTarget::Publisher,
         );
 
-        let mut subscriber_pc = PCTransport::new(
+        let mut subscriber_pc = PeerTransport::new(
             lk_runtime
                 .pc_factory
                 .create_peer_connection(rtc_config.clone())?,
@@ -272,11 +272,11 @@ impl RTCSession {
             .unwrap()
     }
 
-    pub fn publisher(&self) -> &AsyncMutex<PCTransport> {
+    pub fn publisher(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.publisher_pc
     }
 
-    pub fn subscriber(&self) -> &AsyncMutex<PCTransport> {
+    pub fn subscriber(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.subscriber_pc
     }
 
@@ -292,7 +292,7 @@ impl RTCSession {
 impl SessionInner {
     async fn rtc_task(
         self: Arc<Self>,
-        mut rtc_events: RTCEvents,
+        mut rtc_events: RtcEvents,
         mut close_receiver: watch::Receiver<bool>,
     ) {
         loop {
@@ -355,7 +355,8 @@ impl SessionInner {
         match event {
             proto::signal_response::Message::Answer(answer) => {
                 trace!("received publisher answer: {:?}", answer);
-                let answer = SessionDescription::from(answer.r#type.parse().unwrap(), &answer.sdp)?;
+                let answer =
+                    SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap())?;
                 self.publisher_pc
                     .lock()
                     .await
@@ -364,12 +365,12 @@ impl SessionInner {
             }
             proto::signal_response::Message::Offer(offer) => {
                 trace!("received subscriber offer: {:?}", offer);
-                let offer = SessionDescription::from(offer.r#type.parse().unwrap(), &offer.sdp)?;
+                let offer = SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap())?;
                 let answer = self
                     .subscriber_pc
                     .lock()
                     .await
-                    .create_anwser(offer, RTCOfferAnswerOptions::default())
+                    .create_anwser(offer, AnswerOptions::default())
                     .await?;
 
                 self.signal_client
@@ -385,7 +386,7 @@ impl SessionInner {
                 let target = proto::SignalTarget::from_i32(trickle.target).unwrap();
                 let ice_candidate = {
                     let json = serde_json::from_str::<IceCandidateJSON>(&trickle.candidate_init)?;
-                    IceCandidate::from(&json.sdpMid, json.sdpMLineIndex, &json.candidate)?
+                    IceCandidate::parse(&json.sdpMid, json.sdpMLineIndex, &json.candidate)?
                 };
 
                 trace!("received ice_candidate {:?} {:?}", target, ice_candidate);
@@ -434,9 +435,9 @@ impl SessionInner {
         Ok(())
     }
 
-    async fn on_rtc_event(&self, event: RTCEvent) -> EngineResult<()> {
+    async fn on_rtc_event(&self, event: RtcEvent) -> EngineResult<()> {
         match event {
-            RTCEvent::IceCandidate {
+            RtcEvent::IceCandidate {
                 ice_candidate,
                 target,
             } => {
@@ -453,7 +454,7 @@ impl SessionInner {
                     ))
                     .await;
             }
-            RTCEvent::ConnectionChange { state, target } => {
+            RtcEvent::ConnectionChange { state, target } => {
                 trace!("connection change, {:?} {:?}", state, target);
                 let is_primary = self.info.join_response.subscriber_primary
                     && target == proto::SignalTarget::Subscriber;
@@ -478,13 +479,13 @@ impl SessionInner {
                     );
                 }
             }
-            RTCEvent::DataChannel {
+            RtcEvent::DataChannel {
                 data_channel,
                 target: _,
             } => {
                 self.subscriber_dc.lock().push(data_channel);
             }
-            RTCEvent::Offer { offer, target: _ } => {
+            RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
                 self.signal_client
                     .send(proto::signal_request::Message::Offer(
@@ -495,22 +496,24 @@ impl SessionInner {
                     ))
                     .await;
             }
-            RTCEvent::AddTrack {
-                rtp_receiver,
+            RtcEvent::Track {
+                receiver,
                 mut streams,
+                track,
+                transceiver,
                 target: _,
             } => {
                 if !streams.is_empty() {
                     let _ = self.emitter.send(SessionEvent::MediaTrack {
-                        track: rtp_receiver.track(),
                         stream: streams.remove(0),
-                        receiver: rtp_receiver,
+                        track,
+                        receiver,
                     });
                 } else {
-                    warn!("AddTrack event with no streams");
+                    warn!("Track event with no streams");
                 }
             }
-            RTCEvent::Data { data, binary } => {
+            RtcEvent::Data { data, binary } => {
                 if !binary {
                     Err(EngineError::Internal(
                         "text messages aren't supported".to_string(),
@@ -663,7 +666,7 @@ impl SessionInner {
             self.publisher_pc
                 .lock()
                 .await
-                .create_and_send_offer(RTCOfferAnswerOptions {
+                .create_and_send_offer(OfferOptions {
                     ice_restart: true,
                     ..Default::default()
                 })
@@ -724,7 +727,7 @@ impl SessionInner {
                 .await
                 .peer_connection()
                 .ice_connection_state()
-                != IceConnectionState::IceConnectionChecking
+                != IceConnectionState::Checking
         {
             let _ = self.negotiate_publisher().await;
         }

@@ -69,4 +69,8 @@ impl LocalAudioTrack {
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
         self.inner.register_observer()
     }
+
+    pub(crate) fn set_source(&self, source: TrackSource) {
+        self.inner.set_source(source)
+    }
 }

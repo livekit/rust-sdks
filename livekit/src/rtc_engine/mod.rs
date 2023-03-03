@@ -1,4 +1,3 @@
-use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RTCSession, SessionEvent, SessionEvents, SessionInfo};
@@ -7,6 +6,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use lazy_static::lazy_static;
 use livekit_webrtc::prelude::*;
+use livekit_webrtc::session_description::SdpParseError;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
@@ -19,7 +19,7 @@ use tokio::time::{interval, Interval};
 use tracing::{error, info, warn};
 
 mod lk_runtime;
-mod pc_transport;
+mod peer_transport;
 mod rtc_events;
 mod rtc_session;
 
@@ -65,7 +65,7 @@ pub enum EngineEvent {
         updates: Vec<proto::ParticipantInfo>,
     },
     MediaTrack {
-        track: MediaStreamTrackHandle,
+        track: MediaStreamTrack,
         stream: MediaStream,
         receiver: RtpReceiver,
     },
