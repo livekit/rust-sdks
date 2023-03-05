@@ -1,8 +1,6 @@
 use super::track::{TrackDimension, TrackEvent};
 use crate::prelude::*;
 use crate::proto;
-use crate::track::LocalTrack;
-use crate::track::RemoteTrack;
 use crate::track::Track;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
@@ -10,6 +8,12 @@ use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
+
+mod local;
+pub use local::*;
+
+mod remote;
+pub use remote::*;
 
 #[derive(Debug)]
 pub(crate) struct TrackPublicationInner {
@@ -22,13 +26,12 @@ pub(crate) struct TrackPublicationInner {
     dimension: Mutex<TrackDimension>,
     mime_type: Mutex<String>,
     muted: AtomicBool,
-    participant: ParticipantSid,
     dispatcher: Mutex<Dispatcher<TrackEvent>>,
     close_sender: Mutex<Option<oneshot::Sender<()>>>,
 }
 
 impl TrackPublicationInner {
-    pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: Option<Track>) -> Self {
+    pub fn new(info: proto::TrackInfo, track: Option<Track>) -> Self {
         Self {
             track: Mutex::new(track),
             name: Mutex::new(info.name),
@@ -46,7 +49,6 @@ impl TrackPublicationInner {
             muted: AtomicBool::new(info.muted),
             dispatcher: Default::default(),
             close_sender: Default::default(),
-            participant,
         }
     }
 
@@ -114,47 +116,38 @@ impl TrackPublicationInner {
         }
     }
 
-    #[inline]
     pub fn sid(&self) -> TrackSid {
         self.sid.lock().clone()
     }
 
-    #[inline]
     pub fn name(&self) -> String {
         self.name.lock().clone()
     }
 
-    #[inline]
     pub fn kind(&self) -> TrackKind {
         self.kind.load(Ordering::SeqCst).try_into().unwrap()
     }
 
-    #[inline]
     pub fn source(&self) -> TrackSource {
         self.source.load(Ordering::SeqCst).into()
     }
 
-    #[inline]
     pub fn simulcasted(&self) -> bool {
         self.simulcasted.load(Ordering::Relaxed)
     }
 
-    #[inline]
     pub fn dimension(&self) -> TrackDimension {
         self.dimension.lock().clone()
     }
 
-    #[inline]
     pub fn mime_type(&self) -> String {
         self.mime_type.lock().clone()
     }
 
-    #[inline]
     pub fn track(&self) -> Option<Track> {
         self.track.lock().clone()
     }
 
-    #[inline]
     pub fn muted(&self) -> bool {
         self.muted.load(Ordering::Relaxed)
     }
@@ -192,123 +185,5 @@ impl TrackPublication {
             TrackPublication::Local(p) => p.inner.track.lock().clone(),
             TrackPublication::Remote(p) => p.inner.track.lock().clone(),
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct LocalTrackPublication {
-    inner: Arc<TrackPublicationInner>,
-}
-
-impl LocalTrackPublication {
-    pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: Track) -> Self {
-        Self {
-            inner: Arc::new(TrackPublicationInner::new(info, participant, Some(track))),
-        }
-    }
-
-    pub fn sid(&self) -> TrackSid {
-        self.inner.sid()
-    }
-
-    pub fn name(&self) -> String {
-        self.inner.name()
-    }
-
-    pub fn kind(&self) -> TrackKind {
-        self.inner.kind()
-    }
-
-    pub fn source(&self) -> TrackSource {
-        self.inner.source()
-    }
-
-    pub fn simulcasted(&self) -> bool {
-        self.inner.simulcasted()
-    }
-
-    pub fn dimension(&self) -> TrackDimension {
-        self.inner.dimension()
-    }
-
-    pub fn track(&self) -> LocalTrack {
-        self.inner.track.lock().clone().unwrap().try_into().unwrap()
-    }
-
-    pub fn mime_type(&self) -> String {
-        self.inner.mime_type()
-    }
-
-    pub fn muted(&self) -> bool {
-        self.inner.muted()
-    }
-
-    pub(crate) fn update_track(&self, track: Option<Track>) {
-        self.inner.update_track(track);
-    }
-
-    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info);
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct RemoteTrackPublication {
-    inner: Arc<TrackPublicationInner>,
-}
-
-impl RemoteTrackPublication {
-    pub fn new(info: proto::TrackInfo, participant: ParticipantSid, track: Option<Track>) -> Self {
-        Self {
-            inner: Arc::new(TrackPublicationInner::new(info, participant, track)),
-        }
-    }
-
-    pub fn sid(&self) -> TrackSid {
-        self.inner.sid()
-    }
-
-    pub fn name(&self) -> String {
-        self.inner.name()
-    }
-
-    pub fn kind(&self) -> TrackKind {
-        self.inner.kind()
-    }
-
-    pub fn source(&self) -> TrackSource {
-        self.inner.source()
-    }
-
-    pub fn simulcasted(&self) -> bool {
-        self.inner.simulcasted()
-    }
-
-    pub fn dimension(&self) -> TrackDimension {
-        self.inner.dimension()
-    }
-
-    pub fn track(&self) -> Option<RemoteTrack> {
-        self.inner
-            .track
-            .lock()
-            .clone()
-            .map(|track| track.try_into().unwrap())
-    }
-
-    pub fn mime_type(&self) -> String {
-        self.inner.mime_type()
-    }
-
-    pub fn muted(&self) -> bool {
-        self.inner.muted()
-    }
-
-    pub(crate) fn update_track(&self, track: Option<Track>) {
-        self.inner.update_track(track);
-    }
-
-    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info);
     }
 }

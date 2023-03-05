@@ -190,7 +190,6 @@ impl RemoteParticipant {
             self.unpublish_track(sid);
         }
     }
-    
 
     #[inline]
     pub fn sid(&self) -> ParticipantSid {
@@ -236,7 +235,6 @@ impl RemoteParticipant {
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
         self.inner.register_observer()
     }
-
 
     #[inline]
     pub(crate) fn set_speaking(&self, speaking: bool) {

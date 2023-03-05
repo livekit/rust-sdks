@@ -199,6 +199,19 @@ impl RtcEngine {
         Ok(())
     }
 
+    pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
+        self.inner.wait_reconnection().await?;
+        self.inner
+            .running_handle
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .session
+            .add_track(req)
+            .await
+    }
+
     pub fn join_response(&self) -> Option<proto::JoinResponse> {
         if let Some(info) = self.inner.session_info.lock().as_ref() {
             Some(info.join_response.clone())
@@ -359,7 +372,7 @@ impl EngineInner {
         }
 
         while self.reconnecting.load(Ordering::Acquire) {
-            tokio::task::yield_now().await;
+            tokio::task::yield_now().await; // TODO(theomonnom): Remove yield
         }
 
         if self.running_handle.read().await.is_none() {

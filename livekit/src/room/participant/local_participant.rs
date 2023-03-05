@@ -71,7 +71,7 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        match track {
+        match &track {
             LocalTrack::Video(video_track) => {
                 // Get the video dimension
                 // TODO(theomonnom): Use MediaStreamTrack::getSettings() on web
@@ -84,6 +84,12 @@ impl LocalParticipant {
             }
             LocalTrack::Audio(_audio_track) => {}
         }
+
+        let track_info = self.rtc_engine.add_track(req).await?;
+        let publication = LocalTrackPublication::new(
+            track_info.clone(), track
+        );
+        track.update_info(track_info); // Update SID
 
         Ok(())
     }
@@ -172,4 +178,4 @@ impl LocalParticipant {
     pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
         self.inner.set_connection_quality(quality);
     }
-}
+

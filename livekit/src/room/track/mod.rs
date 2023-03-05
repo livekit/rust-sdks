@@ -4,9 +4,9 @@ use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
-use tokio::sync::mpsc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use thiserror::Error;
+use tokio::sync::mpsc;
 
 pub mod local_audio_track;
 pub mod local_video_track;

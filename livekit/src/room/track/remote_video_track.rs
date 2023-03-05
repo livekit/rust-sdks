@@ -1,8 +1,8 @@
 use super::TrackInner;
 use crate::prelude::*;
-use tokio::sync::mpsc;
 use livekit_webrtc as rtc;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 #[derive(Clone, Debug)]
 pub struct RemoteVideoTrack {

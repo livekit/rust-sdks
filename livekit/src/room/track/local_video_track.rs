@@ -2,11 +2,11 @@ use super::TrackInner;
 use crate::options::video_quality_for_rid;
 use crate::proto;
 use crate::{options::VideoCaptureOptions, prelude::*};
-use tokio::sync::mpsc;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
 use rtc::rtp_parameters::RtpEncodingParameters;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 #[derive(Debug)]
 struct LocalVideoTrackInner {

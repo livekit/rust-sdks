@@ -19,7 +19,8 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, error, trace, warn};
 
-pub const MAX_ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 
@@ -129,6 +130,7 @@ struct SessionInner {
 /// RTCSession is also responsable for the signaling and the negotation
 #[derive(Debug)]
 pub struct RtcSession {
+    #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     inner: Arc<SessionInner>,
     close_tx: watch::Sender<bool>, // false = is_running
@@ -185,7 +187,7 @@ impl RtcSession {
             },
         )?;
 
-        // Forward events received in the Signaling Thread to our rtc channel
+        // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
         rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut lossy_dc, rtc_emitter.clone());
@@ -233,6 +235,14 @@ impl RtcSession {
         Ok(session)
     }
 
+    #[inline]
+    pub async fn add_track(
+        &self,
+        req: proto::AddTrackRequest,
+    ) -> EngineResult<proto::TrackInfo> {
+        self.inner.add_track(req).await
+    }
+
     /// Close the PeerConnections and the SignalClient
     #[tracing::instrument]
     pub async fn close(self) {
@@ -243,6 +253,7 @@ impl RtcSession {
         let _ = self.signal_task.await;
     }
 
+    #[inline]
     pub async fn publish_data(
         &self,
         data: &proto::DataPacket,
@@ -251,24 +262,27 @@ impl RtcSession {
         self.inner.publish_data(data, kind).await
     }
 
+    #[inline]
     pub async fn restart(&self) -> EngineResult<()> {
         self.inner.restart_session().await
     }
 
+    #[inline]
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
     }
 
+    #[inline]
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) {
         self.inner.simulate_scenario(scenario).await
     }
-}
 
-impl RtcSession {
+    #[inline]
     pub fn info(&self) -> &SessionInfo {
         &self.inner.info
     }
 
+    #[inline]
     pub fn state(&self) -> PeerState {
         self.inner
             .pc_state
@@ -277,18 +291,22 @@ impl RtcSession {
             .unwrap()
     }
 
+    #[inline]
     pub fn publisher(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.publisher_pc
     }
 
+    #[inline]
     pub fn subscriber(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.subscriber_pc
     }
 
+    #[inline]
     pub fn signal_client(&self) -> &Arc<SignalClient> {
         &self.inner.signal_client
     }
 
+    #[inline]
     pub fn data_channel(&self, kind: proto::data_packet::Kind) -> &DataChannel {
         &self.inner.data_channel(kind)
     }
@@ -434,6 +452,13 @@ impl SessionInner {
                     updates: quality.updates,
                 });
             }
+            proto::signal_response::Message::TrackPublished(publish_res) => {
+                let mut pending_tracks = self.pending_tracks.lock();
+                if let Some(tx) = pending_tracks.remove(&publish_res.cid) {
+                    let _ = tx.send(publish_res.track.unwrap());
+                }
+            }
+
             _ => {}
         }
 
@@ -542,7 +567,36 @@ impl SessionInner {
         Ok(())
     }
 
-    pub async fn add_track(req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {}
+    async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
+        let (tx, rx) = oneshot::channel();
+        let cid = req.cid.clone();
+        {
+            let mut pendings_tracks = self.pending_tracks.lock();
+            if pendings_tracks.contains_key(&req.cid) {
+                Err(EngineError::Internal("track already published".to_string()))?;
+            }
+
+            pendings_tracks.insert(cid.clone(), tx);
+        }
+
+        self.signal_client
+            .send(proto::signal_request::Message::AddTrack(req))
+            .await;
+
+        // Wait the result from the server (TrackInfo)
+        tokio::select! {
+            Ok(info) = rx => Ok(info),
+            _ = sleep(TRACK_PUBLISH_TIMEOUT) => {
+                self.pending_tracks.lock().remove(&cid);
+                Err(EngineError::Internal("track publication timed out, no response received from the server".to_string()))
+            },
+            else => {
+                Err(EngineError::Internal(
+                    "track publication cancelled".to_string(),
+                ))
+            }
+        }
+    }
 
     /// Called when the SignalClient or one of the PeerConnection has lost the connection
     /// The RTCEngine may try a reconnect.
@@ -703,7 +757,7 @@ impl SessionInner {
 
         tokio::select! {
             res = wait_connected => res,
-            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
+            _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("wait_pc_connection timed out".to_string());
                 Err(err)
             }
@@ -759,7 +813,7 @@ impl SessionInner {
 
         tokio::select! {
             res = wait_connected => res,
-            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
+            _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
                 error!(error = ?err);
                 Err(err)
