@@ -1,7 +1,7 @@
+use crate::observer::Dispatcher;
 use crate::prelude::*;
 use crate::proto;
 use livekit_utils::enum_dispatch;
-use livekit_utils::observer::Dispatcher;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -177,7 +177,7 @@ pub(crate) struct TrackInner {
     pub stream_state: AtomicU8, // StreamState
     pub muted: AtomicBool,
     pub rtc_track: rtc::media_stream::MediaStreamTrack,
-    pub dispatcher: Mutex<Dispatcher<TrackEvent>>,
+    pub dispatcher: Dispatcher<TrackEvent>,
 }
 
 impl TrackInner {
@@ -252,7 +252,7 @@ impl TrackInner {
             TrackEvent::Unmute
         };
 
-        self.dispatcher.lock().dispatch(&event);
+        self.dispatcher.dispatch(&event);
     }
 
     pub fn set_source(&self, source: TrackSource) {
@@ -264,7 +264,7 @@ impl TrackInner {
     }
 
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.dispatcher.lock().register()
+        self.dispatcher.register()
     }
 }
 

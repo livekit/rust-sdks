@@ -1,71 +1,91 @@
 use super::TrackPublicationInner;
+use crate::id::TrackSid;
+use crate::options::TrackPublishOptions;
+use crate::proto;
+use crate::track::{LocalTrack, Track, TrackDimension, TrackKind, TrackSource};
+use parking_lot::Mutex;
 use std::sync::Arc;
-use crate::track::LocalTrack;
+
+#[derive(Debug)]
+struct LocalTrackPublicationInner {
+    publication_inner: TrackPublicationInner,
+    options: Mutex<TrackPublishOptions>,
+}
 
 #[derive(Clone, Debug)]
 pub struct LocalTrackPublication {
-    inner: Arc<TrackPublicationInner>,
+    inner: Arc<LocalTrackPublicationInner>,
 }
 
 impl LocalTrackPublication {
-    pub fn new(info: proto::TrackInfo, track: LocalTrack) -> Self {
+    pub fn new(info: proto::TrackInfo, track: LocalTrack, options: TrackPublishOptions) -> Self {
         Self {
-            inner: Arc::new(TrackPublicationInner::new(info, Some(track.into()))),
+            inner: Arc::new(LocalTrackPublicationInner {
+                publication_inner: TrackPublicationInner::new(info, Some(track.into())),
+                options: Mutex::new(options),
+            }),
         }
     }
 
     #[inline]
     pub fn sid(&self) -> TrackSid {
-        self.inner.sid()
+        self.inner.publication_inner.sid()
     }
 
     #[inline]
     pub fn name(&self) -> String {
-        self.inner.name()
+        self.inner.publication_inner.name()
     }
 
     #[inline]
     pub fn kind(&self) -> TrackKind {
-        self.inner.kind()
+        self.inner.publication_inner.kind()
     }
 
     #[inline]
     pub fn source(&self) -> TrackSource {
-        self.inner.source()
+        self.inner.publication_inner.source()
     }
 
     #[inline]
     pub fn simulcasted(&self) -> bool {
-        self.inner.simulcasted()
+        self.inner.publication_inner.simulcasted()
     }
 
     #[inline]
     pub fn dimension(&self) -> TrackDimension {
-        self.inner.dimension()
+        self.inner.publication_inner.dimension()
     }
 
     #[inline]
     pub fn track(&self) -> LocalTrack {
-        self.inner.track.lock().clone().unwrap().try_into().unwrap()
+        self.inner
+            .publication_inner
+            .track
+            .lock()
+            .clone()
+            .unwrap()
+            .try_into()
+            .unwrap()
     }
 
     #[inline]
     pub fn mime_type(&self) -> String {
-        self.inner.mime_type()
+        self.inner.publication_inner.mime_type()
     }
 
     #[inline]
     pub fn muted(&self) -> bool {
-        self.inner.muted()
+        self.inner.publication_inner.muted()
     }
 
     #[inline]
     pub(crate) fn update_track(&self, track: Option<Track>) {
-        self.inner.update_track(track);
+        self.inner.publication_inner.update_track(track);
     }
 
     #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info);
+        self.inner.publication_inner.update_info(info);
     }
 }

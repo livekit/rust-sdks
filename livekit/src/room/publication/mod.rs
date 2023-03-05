@@ -1,13 +1,14 @@
 use super::track::{TrackDimension, TrackEvent};
+use crate::observer::Dispatcher;
 use crate::prelude::*;
 use crate::proto;
 use crate::track::Track;
+use futures_util::stream::StreamExt;
 use livekit_utils::enum_dispatch;
-use livekit_utils::observer::Dispatcher;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::Notify;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 mod local;
 pub use local::*;
@@ -26,8 +27,8 @@ pub(crate) struct TrackPublicationInner {
     dimension: Mutex<TrackDimension>,
     mime_type: Mutex<String>,
     muted: AtomicBool,
-    dispatcher: Mutex<Dispatcher<TrackEvent>>,
-    close_sender: Mutex<Option<oneshot::Sender<()>>>,
+    dispatcher: Dispatcher<TrackEvent>,
+    close_notifier: Notify,
 }
 
 impl TrackPublicationInner {
@@ -48,27 +49,25 @@ impl TrackPublicationInner {
             mime_type: Mutex::new(info.mime_type),
             muted: AtomicBool::new(info.muted),
             dispatcher: Default::default(),
-            close_sender: Default::default(),
+            close_notifier: Default::default(),
         }
     }
 
-    pub fn update_track(self: &Arc<Self>, track: Option<Track>) {
-        let mut old_track = self.track.lock();
+    pub fn update_track(&self, track: Option<Track>) {
+        let mut track = self.track.lock();
+        *track = track.clone();
 
-        if let Some(close_sender) = self.close_sender.lock().take() {
-            let _ = close_sender.send(());
-        }
+        self.close_notifier.notify_waiters();
 
-        *old_track = track.clone();
-        if let Some(track) = track {
-            let (close_sender, close_receiver) = oneshot::channel();
-            self.close_sender.lock().replace(close_sender);
+        if let Some(track) = track.as_ref() {
+            let track_stream = UnboundedReceiverStream::new(track.register_observer());
+            let notified = self.close_notifier.notified();
+            futures_util::pin_mut!(notified);
 
-            let track_receiver = track.register_observer();
-            tokio::spawn(
-                self.clone()
-                    .publication_task(close_receiver, track_receiver),
-            );
+            tokio::spawn(futures_util::future::select(
+                track_stream.map(Ok).forward(self.dispatcher.clone()),
+                notified,
+            ));
         }
     }
 
@@ -90,29 +89,6 @@ impl TrackPublicationInner {
 
         if let Some(track) = self.track.lock().as_ref() {
             track.set_muted(info.muted);
-        }
-    }
-
-    /// Task used to forward TrackHandle's events to the TrackPublications's dispatcher
-    async fn publication_task(
-        self: Arc<Self>,
-        mut close_receiver: oneshot::Receiver<()>,
-        mut track_receiver: mpsc::UnboundedReceiver<TrackEvent>,
-    ) {
-        loop {
-            tokio::select! {
-                event = track_receiver.recv() => {
-                    match event {
-                        Some(event) => {
-                            self.dispatcher.lock().dispatch(&event);
-                        },
-                        None => break,
-                    }
-                }
-                _ = &mut close_receiver => {
-                    break;
-                }
-            }
         }
     }
 

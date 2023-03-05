@@ -671,6 +671,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tokio-tungstenite",
  "tracing",
  "url",
@@ -693,9 +694,6 @@ dependencies = [
 [[package]]
 name = "livekit-utils"
 version = "0.1.1"
-dependencies = [
- "tokio",
-]
 
 [[package]]
 name = "livekit-webrtc"
@@ -1374,6 +1372,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7d995660bd2b7f8c1568414c1126076c13fbb725c40112dc0120b78eb9b717b"
 dependencies = [
  "native-tls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fb52b74f05dbf495a8fba459fdc331812b96aa086d9eb78101fa0d4569c3313"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
  "tokio",
 ]
 

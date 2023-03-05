@@ -1,12 +1,18 @@
+use super::TrackPublicationInner;
+use crate::id::TrackSid;
+use crate::proto;
+use crate::track::{RemoteTrack, Track, TrackDimension, TrackKind, TrackSource};
+use std::sync::Arc;
+
 #[derive(Clone, Debug)]
 pub struct RemoteTrackPublication {
     inner: Arc<TrackPublicationInner>,
 }
 
 impl RemoteTrackPublication {
-    pub fn new(info: proto::TrackInfo, track: Option<Track>) -> Self {
+    pub fn new(info: proto::TrackInfo, track: Option<RemoteTrack>) -> Self {
         Self {
-            inner: Arc::new(TrackPublicationInner::new(info, track)),
+            inner: Arc::new(TrackPublicationInner::new(info, track.map(Into::into))),
         }
     }
 

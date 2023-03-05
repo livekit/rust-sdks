@@ -236,10 +236,7 @@ impl RtcSession {
     }
 
     #[inline]
-    pub async fn add_track(
-        &self,
-        req: proto::AddTrackRequest,
-    ) -> EngineResult<proto::TrackInfo> {
+    pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         self.inner.add_track(req).await
     }
 

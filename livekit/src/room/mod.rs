@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 pub use crate::rtc_engine::SimulateScenario;
 
 pub mod id;
+pub mod observer;
 pub mod options;
 pub mod participant;
 pub mod publication;

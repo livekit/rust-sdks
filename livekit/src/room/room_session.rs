@@ -1,10 +1,10 @@
+use crate::observer::Dispatcher;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use crate::signal_client::SignalOptions;
 use crate::{RoomError, RoomEvent, RoomResult, SimulateScenario};
-use livekit_utils::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -33,7 +33,7 @@ struct SessionInner {
     active_speakers: RwLock<Vec<Participant>>,
     rtc_engine: Arc<RtcEngine>,
     local_participant: LocalParticipant,
-    dispatcher: Mutex<Dispatcher<RoomEvent>>,
+    dispatcher: Dispatcher<RoomEvent>,
 }
 
 #[derive(Debug)]
@@ -110,7 +110,7 @@ impl SessionHandle {
     }
 
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {
-        self.session.inner.dispatcher.lock().register()
+        self.session.inner.dispatcher.register()
     }
 
     pub fn session(&self) -> RoomSession {
