@@ -3,10 +3,10 @@ use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::EngineError;
-use futures::channel::mpsc;
 use std::fmt::Debug;
 use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::mpsc;
 
 pub use crate::rtc_engine::SimulateScenario;
 

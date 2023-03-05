@@ -1,17 +1,15 @@
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::proto;
-use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RTCEngine};
+use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use crate::signal_client::SignalOptions;
 use crate::{RoomError, RoomEvent, RoomResult, SimulateScenario};
-use futures::channel::mpsc;
-use futures::StreamExt;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument, Level};
 
@@ -21,17 +19,6 @@ pub enum ConnectionState {
     Connected,
     Reconnecting,
     Unknown,
-}
-
-impl From<u8> for ConnectionState {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => ConnectionState::Disconnected,
-            1 => ConnectionState::Connected,
-            2 => ConnectionState::Reconnecting,
-            _ => ConnectionState::Unknown,
-        }
-    }
 }
 
 /// Internal representation of a RoomSession
@@ -44,7 +31,7 @@ struct SessionInner {
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
     participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
     active_speakers: RwLock<Vec<Participant>>,
-    rtc_engine: Arc<RTCEngine>,
+    rtc_engine: Arc<RtcEngine>,
     local_participant: LocalParticipant,
     dispatcher: Mutex<Dispatcher<RoomEvent>>,
 }
@@ -65,7 +52,7 @@ pub struct RoomSession {
 
 impl SessionHandle {
     pub async fn connect(url: &str, token: &str) -> RoomResult<Self> {
-        let (rtc_engine, engine_events) = RTCEngine::new();
+        let (rtc_engine, engine_events) = RtcEngine::new();
         let rtc_engine = Arc::new(rtc_engine);
         rtc_engine
             .connect(url, token, SignalOptions::default())
@@ -201,7 +188,7 @@ impl SessionInner {
     ) {
         loop {
             tokio::select! {
-                res = participant_events.next() => {
+                res = participant_events.recv() => {
                     match res {
                         Some(event) => {
                             if let Err(err) = self.on_participant_event(&participant, event).await {
@@ -581,5 +568,16 @@ fn unpack_stream_id(stream_id: &str) -> Option<(&str, &str)> {
         Some((participant_sid, track_sid))
     } else {
         None
+    }
+}
+
+impl From<u8> for ConnectionState {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ConnectionState::Disconnected,
+            1 => ConnectionState::Connected,
+            2 => ConnectionState::Reconnecting,
+            _ => ConnectionState::Unknown,
+        }
     }
 }

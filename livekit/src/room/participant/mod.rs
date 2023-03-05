@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use crate::proto;
 use crate::track::TrackError;
-use futures::channel::mpsc;
+use tokio::sync::mpsc;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};

@@ -1,13 +1,14 @@
 use crate::proto;
 use crate::rtc_engine::lk_runtime::LkRuntime;
-use crate::rtc_engine::rtc_session::{RTCSession, SessionEvent, SessionEvents, SessionInfo};
+use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents, SessionInfo};
 use crate::signal_client::{SignalError, SignalOptions};
-use futures::future::BoxFuture;
-use futures::FutureExt;
 use lazy_static::lazy_static;
 use livekit_webrtc::prelude::*;
 use livekit_webrtc::session_description::SdpParseError;
 use parking_lot::Mutex;
+use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -99,7 +100,7 @@ lazy_static! {
 /// and the engine_task
 #[derive(Debug)]
 struct EngineHandle {
-    session: RTCSession,
+    session: RtcSession,
     engine_task: JoinHandle<()>,
     close_sender: oneshot::Sender<()>,
 }
@@ -119,11 +120,11 @@ struct EngineInner {
 }
 
 #[derive(Debug)]
-pub struct RTCEngine {
+pub struct RtcEngine {
     inner: Arc<EngineInner>,
 }
 
-impl RTCEngine {
+impl RtcEngine {
     pub fn new() -> (Self, EngineEvents) {
         let lk_runtime = {
             let mut lk_runtime_ref = LK_RUNTIME.lock();
@@ -305,37 +306,35 @@ impl EngineInner {
         Ok(())
     }
 
-    fn connect<'a>(
-        self: &'a Arc<Self>,
-        url: &'a str,
-        token: &'a str,
+    async fn connect(
+        self: &Arc<Self>,
+        url: &str,
+        token: &str,
         options: SignalOptions,
-    ) -> BoxFuture<'a, EngineResult<()>> {
-        async {
-            let (session_emitter, session_events) = mpsc::unbounded_channel();
-            let session = RTCSession::connect(
-                url,
-                token,
-                options,
-                self.lk_runtime.clone(),
-                session_emitter,
-            )
-            .await?;
+    ) -> EngineResult<()> /*Pin<Box<dyn Future<Output = EngineResult<()>> + Send>>*/ {
+        //Box::pin(async {
+        let (session_emitter, session_events) = mpsc::unbounded_channel();
+        let session = RtcSession::connect(
+            url,
+            token,
+            options,
+            self.lk_runtime.clone(),
+            session_emitter,
+        )
+        .await?;
 
-            let (close_sender, close_receiver) = oneshot::channel();
-            let engine_task =
-                tokio::spawn(self.clone().engine_task(session_events, close_receiver));
-            *self.session_info.lock() = Some(session.info().clone());
-            *self.running_handle.write().await = Some(EngineHandle {
-                session,
-                engine_task,
-                close_sender,
-            });
+        let (close_sender, close_receiver) = oneshot::channel();
+        let engine_task = tokio::spawn(self.clone().engine_task(session_events, close_receiver));
+        *self.session_info.lock() = Some(session.info().clone());
+        *self.running_handle.write().await = Some(EngineHandle {
+            session,
+            engine_task,
+            close_sender,
+        });
 
-            self.opened.store(true, Ordering::SeqCst);
-            Ok(())
-        }
-        .boxed()
+        self.opened.store(true, Ordering::SeqCst);
+        Ok(())
+        //})
     }
 
     async fn terminate_session(&self) {

@@ -136,3 +136,15 @@ impl Debug for VideoTrack {
             .finish()
     }
 }
+
+impl From<AudioTrack> for MediaStreamTrack {
+    fn from(track: AudioTrack) -> Self {
+        Self::Audio(track)
+    }
+}
+
+impl From<VideoTrack> for MediaStreamTrack {
+    fn from(track: VideoTrack) -> Self {
+        Self::Video(track)
+    }
+}

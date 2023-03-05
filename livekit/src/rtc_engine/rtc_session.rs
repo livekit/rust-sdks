@@ -8,11 +8,13 @@ use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, watch, Mutex as AsyncMutex};
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, error, trace, warn};
@@ -56,8 +58,8 @@ pub enum SessionEvent {
     Connected,
 }
 
-#[repr(u8)]
-pub enum PCState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerState {
     New,
     Connected,
     Disconnected,
@@ -65,27 +67,27 @@ pub enum PCState {
     Closed,
 }
 
-impl TryInto<PCState> for u8 {
+impl TryFrom<u8> for PeerState {
     type Error = &'static str;
 
-    fn try_into(self) -> Result<PCState, Self::Error> {
-        match self {
-            0 => Ok(PCState::New),
-            1 => Ok(PCState::Connected),
-            2 => Ok(PCState::Disconnected),
-            3 => Ok(PCState::Reconnecting),
-            4 => Ok(PCState::Closed),
-            _ => Err("invalid PCState"),
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0 => Ok(Self::New),
+            1 => Ok(Self::Connected),
+            2 => Ok(Self::Disconnected),
+            3 => Ok(Self::Reconnecting),
+            4 => Ok(Self::Closed),
+            _ => Err("invalid PeerState"),
         }
     }
 }
 
 #[derive(Serialize, Deserialize)]
-#[allow(non_snake_case)]
-struct IceCandidateJSON {
-    sdpMid: String,
-    sdpMLineIndex: i32,
-    candidate: String,
+#[serde(rename_all = "camelCase")]
+struct IceCandidateJson {
+    pub sdp_mid: String,
+    pub sdp_m_line_index: i32,
+    pub candidate: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -107,6 +109,8 @@ struct SessionInner {
     publisher_pc: AsyncMutex<PeerTransport>,
     subscriber_pc: AsyncMutex<PeerTransport>,
 
+    pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
+
     // Publisher data channels
     // used to send data to other participants ( The SFU forwards the messages )
     lossy_dc: DataChannel,
@@ -124,7 +128,7 @@ struct SessionInner {
 ///
 /// RTCSession is also responsable for the signaling and the negotation
 #[derive(Debug)]
-pub struct RTCSession {
+pub struct RtcSession {
     lk_runtime: Arc<LkRuntime>,
     inner: Arc<SessionInner>,
     close_tx: watch::Sender<bool>, // false = is_running
@@ -132,7 +136,7 @@ pub struct RTCSession {
     rtc_task: JoinHandle<()>,
 }
 
-impl RTCSession {
+impl RtcSession {
     pub async fn connect(
         url: &str,
         token: &str,
@@ -197,11 +201,12 @@ impl RTCSession {
         let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
             info: session_info,
-            pc_state: AtomicU8::new(PCState::New as u8),
+            pc_state: AtomicU8::new(PeerState::New as u8),
             has_published: Default::default(),
             signal_client,
             publisher_pc: AsyncMutex::new(publisher_pc),
             subscriber_pc: AsyncMutex::new(subscriber_pc),
+            pending_tracks: Default::default(),
             lossy_dc,
             reliable_dc,
             subscriber_dc: Default::default(),
@@ -259,12 +264,12 @@ impl RTCSession {
     }
 }
 
-impl RTCSession {
+impl RtcSession {
     pub fn info(&self) -> &SessionInfo {
         &self.inner.info
     }
 
-    pub fn state(&self) -> PCState {
+    pub fn state(&self) -> PeerState {
         self.inner
             .pc_state
             .load(Ordering::SeqCst)
@@ -385,8 +390,8 @@ impl SessionInner {
             proto::signal_response::Message::Trickle(trickle) => {
                 let target = proto::SignalTarget::from_i32(trickle.target).unwrap();
                 let ice_candidate = {
-                    let json = serde_json::from_str::<IceCandidateJSON>(&trickle.candidate_init)?;
-                    IceCandidate::parse(&json.sdpMid, json.sdpMLineIndex, &json.candidate)?
+                    let json = serde_json::from_str::<IceCandidateJson>(&trickle.candidate_init)?;
+                    IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)?
                 };
 
                 trace!("received ice_candidate {:?} {:?}", target, ice_candidate);
@@ -444,9 +449,9 @@ impl SessionInner {
                 self.signal_client
                     .send(proto::signal_request::Message::Trickle(
                         proto::TrickleRequest {
-                            candidate_init: serde_json::to_string(&IceCandidateJSON {
-                                sdpMid: ice_candidate.sdp_mid(),
-                                sdpMLineIndex: ice_candidate.sdp_mline_index(),
+                            candidate_init: serde_json::to_string(&IceCandidateJson {
+                                sdp_mid: ice_candidate.sdp_mid(),
+                                sdp_m_line_index: ice_candidate.sdp_mline_index(),
                                 candidate: ice_candidate.candidate(),
                             })?,
                             target: target as i32,
@@ -462,13 +467,13 @@ impl SessionInner {
                 if is_primary && state == PeerConnectionState::Connected {
                     let old_state = self
                         .pc_state
-                        .swap(PCState::Connected as u8, Ordering::SeqCst);
-                    if old_state == PCState::New as u8 {
+                        .swap(PeerState::Connected as u8, Ordering::SeqCst);
+                    if old_state == PeerState::New as u8 {
                         let _ = self.emitter.send(SessionEvent::Connected);
                     }
                 } else if state == PeerConnectionState::Failed {
                     self.pc_state
-                        .store(PCState::Disconnected as u8, Ordering::SeqCst);
+                        .store(PeerState::Disconnected as u8, Ordering::SeqCst);
 
                     self.on_session_disconnected(
                         "pc_state failed",
@@ -536,6 +541,8 @@ impl SessionInner {
 
         Ok(())
     }
+
+    pub async fn add_track(req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {}
 
     /// Called when the SignalClient or one of the PeerConnection has lost the connection
     /// The RTCEngine may try a reconnect.
@@ -683,7 +690,7 @@ impl SessionInner {
     // Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
-            while self.pc_state.load(Ordering::Acquire) != PCState::Connected as u8 {
+            while self.pc_state.load(Ordering::Acquire) != PeerState::Connected as u8 {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".to_string()));
                 }

@@ -4,13 +4,12 @@ use crate::proto;
 use crate::track::LocalTrack;
 use crate::track::RemoteTrack;
 use crate::track::Track;
-use futures::channel::{mpsc, oneshot};
-use futures::StreamExt;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 pub(crate) struct TrackPublicationInner {
@@ -35,7 +34,8 @@ impl TrackPublicationInner {
             name: Mutex::new(info.name),
             sid: Mutex::new(info.sid.into()),
             kind: AtomicU8::new(
-                TrackKind::from(proto::TrackType::from_i32(info.r#type).unwrap()) as u8,
+                TrackKind::try_from(proto::TrackType::from_i32(info.r#type).unwrap()).unwrap()
+                    as u8,
             ),
             source: AtomicU8::new(TrackSource::from(
                 proto::TrackSource::from_i32(info.source).unwrap(),
@@ -48,42 +48,6 @@ impl TrackPublicationInner {
             close_sender: Default::default(),
             participant,
         }
-    }
-
-    pub fn sid(&self) -> TrackSid {
-        self.sid.lock().clone()
-    }
-
-    pub fn name(&self) -> String {
-        self.name.lock().clone()
-    }
-
-    pub fn kind(&self) -> TrackKind {
-        self.kind.load(Ordering::SeqCst).into()
-    }
-
-    pub fn source(&self) -> TrackSource {
-        self.source.load(Ordering::SeqCst).into()
-    }
-
-    pub fn simulcasted(&self) -> bool {
-        self.simulcasted.load(Ordering::Relaxed)
-    }
-
-    pub fn dimension(&self) -> TrackDimension {
-        self.dimension.lock().clone()
-    }
-
-    pub fn mime_type(&self) -> String {
-        self.mime_type.lock().clone()
-    }
-
-    pub fn track(&self) -> Option<Track> {
-        self.track.lock().clone()
-    }
-
-    pub fn muted(&self) -> bool {
-        self.muted.load(Ordering::Relaxed)
     }
 
     pub fn update_track(self: &Arc<Self>, track: Option<Track>) {
@@ -112,7 +76,7 @@ impl TrackPublicationInner {
         *self.dimension.lock() = TrackDimension(info.width, info.height);
         *self.mime_type.lock() = info.mime_type;
         self.kind.store(
-            TrackKind::from(proto::TrackType::from_i32(info.r#type).unwrap()) as u8,
+            TrackKind::try_from(proto::TrackType::from_i32(info.r#type).unwrap()).unwrap() as u8,
             Ordering::SeqCst,
         );
         self.source.store(
@@ -134,15 +98,65 @@ impl TrackPublicationInner {
         mut track_receiver: mpsc::UnboundedReceiver<TrackEvent>,
     ) {
         loop {
-            futures::select! {
-                Some(event) = track_receiver.next() => {
-                    self.dispatcher.lock().dispatch(&event);
+            tokio::select! {
+                event = track_receiver.recv() => {
+                    match event {
+                        Some(event) => {
+                            self.dispatcher.lock().dispatch(&event);
+                        },
+                        None => break,
+                    }
                 }
                 _ = &mut close_receiver => {
                     break;
                 }
             }
         }
+    }
+
+    #[inline]
+    pub fn sid(&self) -> TrackSid {
+        self.sid.lock().clone()
+    }
+
+    #[inline]
+    pub fn name(&self) -> String {
+        self.name.lock().clone()
+    }
+
+    #[inline]
+    pub fn kind(&self) -> TrackKind {
+        self.kind.load(Ordering::SeqCst).try_into().unwrap()
+    }
+
+    #[inline]
+    pub fn source(&self) -> TrackSource {
+        self.source.load(Ordering::SeqCst).into()
+    }
+
+    #[inline]
+    pub fn simulcasted(&self) -> bool {
+        self.simulcasted.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn dimension(&self) -> TrackDimension {
+        self.dimension.lock().clone()
+    }
+
+    #[inline]
+    pub fn mime_type(&self) -> String {
+        self.mime_type.lock().clone()
+    }
+
+    #[inline]
+    pub fn track(&self) -> Option<Track> {
+        self.track.lock().clone()
+    }
+
+    #[inline]
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
     }
 }
 

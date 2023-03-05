@@ -1,10 +1,10 @@
 use crate::prelude::*;
 use crate::proto;
-use futures::channel::mpsc;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
+use tokio::sync::mpsc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use thiserror::Error;
 
@@ -26,46 +26,14 @@ pub enum TrackError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackKind {
-    Unknown,
     Audio,
     Video,
 }
 
-impl From<u8> for TrackKind {
-    fn from(val: u8) -> Self {
-        match val {
-            1 => Self::Audio,
-            2 => Self::Video,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-impl From<proto::TrackType> for TrackKind {
-    fn from(r#type: proto::TrackType) -> Self {
-        match r#type {
-            proto::TrackType::Audio => Self::Audio,
-            proto::TrackType::Video => Self::Video,
-            _ => Self::Unknown,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamState {
-    Unknown,
     Active,
     Paused,
-}
-
-impl From<u8> for StreamState {
-    fn from(val: u8) -> Self {
-        match val {
-            1 => Self::Active,
-            2 => Self::Paused,
-            _ => Self::Unknown,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,38 +45,14 @@ pub enum TrackSource {
     ScreenshareAudio,
 }
 
-impl From<u8> for TrackSource {
-    fn from(val: u8) -> Self {
-        match val {
-            1 => Self::Camera,
-            2 => Self::Microphone,
-            3 => Self::Screenshare,
-            4 => Self::ScreenshareAudio,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-impl From<proto::TrackSource> for TrackSource {
-    fn from(source: proto::TrackSource) -> Self {
-        match source {
-            proto::TrackSource::Camera => Self::Camera,
-            proto::TrackSource::Microphone => Self::Microphone,
-            proto::TrackSource::ScreenShare => Self::Screenshare,
-            proto::TrackSource::ScreenShareAudio => Self::ScreenshareAudio,
-            proto::TrackSource::Unknown => Self::Unknown,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct TrackDimension(pub u32, pub u32);
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackEvent {
     Mute,
     Unmute,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct TrackDimension(pub u32, pub u32);
 
 #[derive(Clone, Debug)]
 pub enum Track {
@@ -165,12 +109,13 @@ macro_rules! track_dispatch {
 impl Track {
     track_dispatch!([LocalAudio, LocalVideo, RemoteAudio, RemoteVideo]);
 
+    #[inline]
     pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
         match self {
-            Self::LocalAudio(track) => track.inner.rtc_track(),
-            Self::LocalVideo(track) => track.inner.rtc_track(),
-            Self::RemoteAudio(track) => track.inner.rtc_track(),
-            Self::RemoteVideo(track) => track.inner.rtc_track(),
+            Self::LocalAudio(track) => track.rtc_track().into(),
+            Self::LocalVideo(track) => track.rtc_track().into(),
+            Self::RemoteAudio(track) => track.rtc_track().into(),
+            Self::RemoteVideo(track) => track.rtc_track().into(),
         }
     }
 }
@@ -178,10 +123,11 @@ impl Track {
 impl LocalTrack {
     track_dispatch!([Audio, Video]);
 
+    #[inline]
     pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
         match self {
-            Self::Audio(track) => track.inner.rtc_track(),
-            Self::Video(track) => track.inner.rtc_track(),
+            Self::Audio(track) => track.rtc_track().into(),
+            Self::Video(track) => track.rtc_track().into(),
         }
     }
 }
@@ -189,10 +135,11 @@ impl LocalTrack {
 impl RemoteTrack {
     track_dispatch!([Audio, Video]);
 
+    #[inline]
     pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
         match self {
-            Self::Audio(track) => track.inner.rtc_track(),
-            Self::Video(track) => track.inner.rtc_track(),
+            Self::Audio(track) => track.rtc_track().into(),
+            Self::Video(track) => track.rtc_track().into(),
         }
     }
 }
@@ -200,6 +147,7 @@ impl RemoteTrack {
 impl VideoTrack {
     track_dispatch!([Local, Remote]);
 
+    #[inline]
     pub fn rtc_track(&self) -> rtc::media_stream::VideoTrack {
         match self {
             Self::Local(track) => track.rtc_track(),
@@ -211,10 +159,11 @@ impl VideoTrack {
 impl AudioTrack {
     track_dispatch!([Local, Remote]);
 
+    #[inline]
     pub fn rtc_track(&self) -> rtc::media_stream::AudioTrack {
         match self {
-            Self::Local(track) => track.rtc_track(),
-            Self::Remote(track) => track.rtc_track(),
+            Self::Local(track) => track.rtc_track().into(),
+            Self::Remote(track) => track.rtc_track().into(),
         }
     }
 }
@@ -259,7 +208,7 @@ impl TrackInner {
     }
 
     pub fn kind(&self) -> TrackKind {
-        self.kind.load(Ordering::SeqCst).into()
+        self.kind.load(Ordering::SeqCst).try_into().unwrap()
     }
 
     pub fn source(&self) -> TrackSource {
@@ -267,7 +216,7 @@ impl TrackInner {
     }
 
     pub fn stream_state(&self) -> StreamState {
-        self.stream_state.load(Ordering::SeqCst).into()
+        self.stream_state.load(Ordering::SeqCst).try_into().unwrap()
     }
 
     pub fn muted(&self) -> bool {
@@ -399,6 +348,44 @@ impl TryFrom<Track> for AudioTrack {
             Track::LocalAudio(track) => Ok(Self::Local(track)),
             Track::RemoteAudio(track) => Ok(Self::Remote(track)),
             _ => Err("not an audio track"),
+        }
+    }
+}
+
+// Conversions from integers (Useful since we're using atomic values to represent our enums)
+
+impl TryFrom<u8> for TrackKind {
+    type Error = &'static str;
+
+    fn try_from(kind: u8) -> Result<Self, Self::Error> {
+        match kind {
+            0 => Ok(Self::Audio),
+            1 => Ok(Self::Video),
+            _ => Err("invalid track kind"),
+        }
+    }
+}
+
+impl TryFrom<u8> for StreamState {
+    type Error = &'static str;
+
+    fn try_from(state: u8) -> Result<Self, Self::Error> {
+        match state {
+            0 => Ok(Self::Active),
+            1 => Ok(Self::Paused),
+            _ => Err("invalid stream state"),
+        }
+    }
+}
+
+impl From<u8> for TrackSource {
+    fn from(source: u8) -> Self {
+        match source {
+            1 => Self::Camera,
+            2 => Self::Microphone,
+            3 => Self::Screenshare,
+            4 => Self::ScreenshareAudio,
+            _ => Self::Unknown,
         }
     }
 }

@@ -2,13 +2,13 @@ use super::{ConnectionQuality, ParticipantInner};
 use crate::prelude::*;
 use crate::proto;
 use crate::track::TrackError;
-use futures::channel::mpsc;
 use livekit_webrtc as rtc;
 use parking_lot::RwLockReadGuard;
 use rtc::prelude::MediaStreamTrack;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tracing::{debug, error, instrument, Level};
 
@@ -31,42 +31,7 @@ impl RemoteParticipant {
         }
     }
 
-    pub fn sid(&self) -> ParticipantSid {
-        self.inner.sid()
-    }
-
-    pub fn identity(&self) -> ParticipantIdentity {
-        self.inner.identity()
-    }
-
-    pub fn name(&self) -> String {
-        self.inner.name()
-    }
-
-    pub fn metadata(&self) -> String {
-        self.inner.metadata()
-    }
-
-    pub fn is_speaking(&self) -> bool {
-        self.inner.is_speaking()
-    }
-
-    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
-        self.inner.tracks()
-    }
-
-    pub fn audio_level(&self) -> f32 {
-        self.inner.audio_level()
-    }
-
-    pub fn connection_quality(&self) -> ConnectionQuality {
-        self.inner.connection_quality()
-    }
-
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
-        self.inner.register_observer()
-    }
-
+    #[inline]
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
         self.inner.tracks.read().get(sid).map(|track| {
             if let TrackPublication::Remote(remote) = track {
@@ -225,15 +190,65 @@ impl RemoteParticipant {
             self.unpublish_track(sid);
         }
     }
+    
 
+    #[inline]
+    pub fn sid(&self) -> ParticipantSid {
+        self.inner.sid()
+    }
+
+    #[inline]
+    pub fn identity(&self) -> ParticipantIdentity {
+        self.inner.identity()
+    }
+
+    #[inline]
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    #[inline]
+    pub fn metadata(&self) -> String {
+        self.inner.metadata()
+    }
+
+    #[inline]
+    pub fn is_speaking(&self) -> bool {
+        self.inner.is_speaking()
+    }
+
+    #[inline]
+    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
+        self.inner.tracks()
+    }
+
+    #[inline]
+    pub fn audio_level(&self) -> f32 {
+        self.inner.audio_level()
+    }
+
+    #[inline]
+    pub fn connection_quality(&self) -> ConnectionQuality {
+        self.inner.connection_quality()
+    }
+
+    #[inline]
+    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
+        self.inner.register_observer()
+    }
+
+
+    #[inline]
     pub(crate) fn set_speaking(&self, speaking: bool) {
         self.inner.set_speaking(speaking);
     }
 
+    #[inline]
     pub(crate) fn set_audio_level(&self, level: f32) {
         self.inner.set_audio_level(level);
     }
 
+    #[inline]
     pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
         self.inner.set_connection_quality(quality);
     }

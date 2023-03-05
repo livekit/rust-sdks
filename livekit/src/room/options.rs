@@ -1,7 +1,8 @@
 use crate::prelude::*;
+use crate::proto;
 use livekit_webrtc::prelude::*;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum VideoCodec {
     VP8,
     H264,
@@ -50,7 +51,20 @@ impl AudioPreset {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+pub struct VideoCaptureOptions {
+    pub preset: VideoPreset,
+}
+
+impl Default for VideoCaptureOptions {
+    fn default() -> Self {
+        Self {
+            preset: video::H720,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct TrackPublishOptions {
     pub dynacast: bool,
     pub codec: VideoCodec,
@@ -104,7 +118,7 @@ impl VideoPreset {
 pub fn compute_video_encodings(
     width: u32,
     height: u32,
-    options: TrackPublishOptions,
+    options: &TrackPublishOptions,
 ) -> Vec<RtpEncodingParameters> {
     let encoding = compute_appropriate_encoding(options.screenshare, width, height);
 
@@ -143,7 +157,11 @@ pub fn compute_video_encodings(
 }
 
 /// Return an appropriate VideoEncdoding for the specified resolution based on our presets
-fn compute_appropriate_encoding(is_screenshare: bool, width: u32, height: u32) -> VideoEncoding {
+pub fn compute_appropriate_encoding(
+    is_screenshare: bool,
+    width: u32,
+    height: u32,
+) -> VideoEncoding {
     let presets = compute_presets_for_resolution(is_screenshare, width, height);
     let size = u32::max(width, height);
 
@@ -156,7 +174,7 @@ fn compute_appropriate_encoding(is_screenshare: bool, width: u32, height: u32) -
     unreachable!()
 }
 
-fn compute_presets_for_resolution(
+pub fn compute_presets_for_resolution(
     is_screenshare: bool,
     width: u32,
     height: u32,
@@ -175,7 +193,7 @@ fn compute_presets_for_resolution(
 }
 
 /// Returns our most appropriate default presets
-fn compute_default_simulcast_presets(
+pub fn compute_default_simulcast_presets(
     is_screenshare: bool,
     initial: &VideoPreset,
 ) -> Vec<VideoPreset> {
@@ -191,7 +209,7 @@ fn compute_default_simulcast_presets(
     video43::DEFAULT_SIMULCAST_PRESETS.to_owned()
 }
 
-fn landscape_aspect_ratio(width: u32, height: u32) -> f32 {
+pub fn landscape_aspect_ratio(width: u32, height: u32) -> f32 {
     if width > height {
         width as f32 / height as f32
     } else {
@@ -199,7 +217,8 @@ fn landscape_aspect_ratio(width: u32, height: u32) -> f32 {
     }
 }
 
-fn into_rtp_encodings(
+/// Presets must be ordered
+pub fn into_rtp_encodings(
     initial_width: u32,
     initial_height: u32,
     presets: &[VideoPreset],
@@ -220,6 +239,15 @@ fn into_rtp_encodings(
     }
 
     encodings
+}
+
+pub fn video_quality_for_rid(rid: &str) -> Option<proto::VideoQuality> {
+    match rid {
+        "f" => Some(proto::VideoQuality::High),
+        "h" => Some(proto::VideoQuality::Medium),
+        "q" => Some(proto::VideoQuality::Low),
+        _ => None,
+    }
 }
 
 const VIDEO_RIDS: &[char] = &['q', 'h', 'f'];
@@ -258,7 +286,6 @@ pub mod video {
     pub const H2160: VideoPreset = VideoPreset::new(3840, 2160, 8_000_000, 30.0);
 
     pub const PRESETS: &[VideoPreset] = &[H90, H180, H216, H360, H540, H720, H1080, H1440, H2160];
-
     pub const DEFAULT_SIMULCAST_PRESETS: &[VideoPreset] = &[H180, H360];
 }
 
@@ -276,7 +303,6 @@ pub mod video43 {
     pub const H1440: VideoPreset = VideoPreset::new(1920, 1440, 3_500_000, 30.0);
 
     pub const PRESETS: &[VideoPreset] = &[H120, H180, H240, H360, H480, H540, H720, H1080, H1440];
-
     pub const DEFAULT_SIMULCAST_PRESETS: &[VideoPreset] = &[H180, H360];
 }
 

@@ -1,4 +1,4 @@
-use futures::channel::mpsc;
+use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub struct Dispatcher<T>
@@ -24,13 +24,13 @@ where
     T: Clone,
 {
     pub fn register(&mut self) -> mpsc::UnboundedReceiver<T> {
-        let (tx, rx) = mpsc::unbounded();
+        let (tx, rx) = mpsc::unbounded_channel();
         self.senders.push(tx);
         rx
     }
 
     pub fn dispatch(&mut self, msg: &T) {
         self.senders
-            .retain(|sender| sender.unbounded_send(msg.clone()).is_ok());
+            .retain(|sender| sender.send(msg.clone()).is_ok());
     }
 }
