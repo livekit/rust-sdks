@@ -7,6 +7,7 @@ use futures_util::stream::StreamExt;
 use livekit_utils::enum_dispatch;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Arc;
 use tokio::sync::Notify;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -28,7 +29,7 @@ pub(crate) struct TrackPublicationInner {
     mime_type: Mutex<String>,
     muted: AtomicBool,
     dispatcher: Dispatcher<TrackEvent>,
-    close_notifier: Notify,
+    close_notifier: Arc<Notify>,
 }
 
 impl TrackPublicationInner {
@@ -54,20 +55,27 @@ impl TrackPublicationInner {
     }
 
     pub fn update_track(&self, track: Option<Track>) {
-        let mut track = self.track.lock();
-        *track = track.clone();
+        let mut old_track = self.track.lock();
+        *old_track = track.clone();
 
         self.close_notifier.notify_waiters();
 
         if let Some(track) = track.as_ref() {
             let track_stream = UnboundedReceiverStream::new(track.register_observer());
-            let notified = self.close_notifier.notified();
-            futures_util::pin_mut!(notified);
+            tokio::spawn({
+                let dispatcher = self.dispatcher.clone();
+                let notifier = self.close_notifier.clone();
 
-            tokio::spawn(futures_util::future::select(
-                track_stream.map(Ok).forward(self.dispatcher.clone()),
-                notified,
-            ));
+                async move {
+                    let notified = notifier.notified();
+                    futures_util::pin_mut!(notified);
+                    futures_util::future::select(
+                        track_stream.map(Ok).forward(dispatcher),
+                        notified,
+                    )
+                    .await;
+                }
+            });
         }
     }
 

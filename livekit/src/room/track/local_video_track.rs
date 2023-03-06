@@ -105,8 +105,8 @@ impl LocalVideoTrack {
     }
 
     #[inline]
-    pub(crate) fn set_source(&self, source: TrackSource) {
-        self.inner.track_inner.set_source(source)
+    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+        self.inner.track_inner.update_info(info)
     }
 }
 

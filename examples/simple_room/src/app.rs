@@ -183,7 +183,7 @@ impl App {
                             track, participant, ..
                         } => {
                             match track.clone() {
-                                RemoteTrackHandle::Video(video_track) => {
+                                RemoteTrack::Video(video_track) => {
                                     // Create a new VideoRenderer
                                     let video_renderer = VideoRenderer::new(
                                         self.egui_painter.render_state().clone().unwrap(),
@@ -192,7 +192,7 @@ impl App {
                                     self.video_renderers
                                         .insert((participant.sid(), track.sid()), video_renderer);
                                 }
-                                RemoteTrackHandle::Audio(_) => {
+                                RemoteTrack::Audio(_) => {
                                     // The demo doesn't support Audio rendering at the moment.
                                 }
                             };

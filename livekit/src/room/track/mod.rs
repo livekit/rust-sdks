@@ -101,7 +101,7 @@ macro_rules! track_dispatch {
             pub fn set_muted(self: &Self, muted: bool) -> ();
             pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
 
-            pub(crate) fn set_source(self: &Self, source: TrackSource) -> ();
+            pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
         );
     };
 }
@@ -255,16 +255,26 @@ impl TrackInner {
         self.dispatcher.dispatch(&event);
     }
 
-    pub fn set_source(&self, source: TrackSource) {
-        self.source.store(source as u8, Ordering::SeqCst);
-    }
-
     pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
         self.rtc_track.clone()
     }
 
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
         self.dispatcher.register()
+    }
+
+    pub fn update_info(&self, info: proto::TrackInfo) {
+        *self.name.lock() = info.name;
+        *self.sid.lock() = info.sid.into();
+        self.kind.store(
+            TrackKind::try_from(proto::TrackType::from_i32(info.r#type).unwrap()).unwrap() as u8,
+            Ordering::SeqCst,
+        );
+        self.source.store(
+            TrackSource::from(proto::TrackSource::from_i32(info.source).unwrap()) as u8,
+            Ordering::SeqCst,
+        );
+        // Muted and StreamState are not handled separately (events)
     }
 }
 

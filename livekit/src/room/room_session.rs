@@ -214,36 +214,30 @@ impl SessionInner {
         if let Participant::Remote(remote_participant) = participant {
             match event {
                 ParticipantEvent::TrackPublished { publication } => {
-                    self.dispatcher.lock().dispatch(&RoomEvent::TrackPublished {
+                    self.dispatcher.dispatch(&RoomEvent::TrackPublished {
                         participant: remote_participant.clone(),
                         publication,
                     });
                 }
                 ParticipantEvent::TrackUnpublished { publication } => {
-                    self.dispatcher
-                        .lock()
-                        .dispatch(&RoomEvent::TrackUnpublished {
-                            participant: remote_participant.clone(),
-                            publication,
-                        });
+                    self.dispatcher.dispatch(&RoomEvent::TrackUnpublished {
+                        participant: remote_participant.clone(),
+                        publication,
+                    });
                 }
                 ParticipantEvent::TrackSubscribed { track, publication } => {
-                    self.dispatcher
-                        .lock()
-                        .dispatch(&RoomEvent::TrackSubscribed {
-                            participant: remote_participant.clone(),
-                            track,
-                            publication,
-                        });
+                    self.dispatcher.dispatch(&RoomEvent::TrackSubscribed {
+                        participant: remote_participant.clone(),
+                        track,
+                        publication,
+                    });
                 }
                 ParticipantEvent::TrackUnsubscribed { track, publication } => {
-                    self.dispatcher
-                        .lock()
-                        .dispatch(&RoomEvent::TrackUnsubscribed {
-                            participant: remote_participant.clone(),
-                            track,
-                            publication,
-                        });
+                    self.dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
+                        participant: remote_participant.clone(),
+                        track,
+                        publication,
+                    });
                 }
                 _ => {}
             };
@@ -291,12 +285,12 @@ impl SessionInner {
             }
             EngineEvent::Resuming => {
                 if self.update_connection_state(ConnectionState::Reconnecting) {
-                    self.dispatcher.lock().dispatch(&RoomEvent::Reconnecting);
+                    self.dispatcher.dispatch(&RoomEvent::Reconnecting);
                 }
             }
             EngineEvent::Resumed => {
                 self.update_connection_state(ConnectionState::Connected);
-                self.dispatcher.lock().dispatch(&RoomEvent::Reconnected);
+                self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
                 // TODO(theomonnom): Update subscriptions settings
                 // TODO(theomonnom): Send sync state
@@ -311,7 +305,7 @@ impl SessionInner {
             } => {
                 let payload = Arc::new(payload);
                 if let Some(participant) = self.get_participant(&participant_sid.into()) {
-                    self.dispatcher.lock().dispatch(&RoomEvent::DataReceived {
+                    self.dispatcher.dispatch(&RoomEvent::DataReceived {
                         payload: payload.clone(),
                         kind,
                         participant: participant.clone(),
@@ -345,7 +339,6 @@ impl SessionInner {
 
         self.state.store(state as u8, Ordering::Release);
         self.dispatcher
-            .lock()
             .dispatch(&RoomEvent::ConnectionStateChanged(state));
         return true;
     }
@@ -356,7 +349,6 @@ impl SessionInner {
     #[instrument(level = Level::DEBUG)]
     fn handle_participant_update(self: &Arc<Self>, updates: Vec<proto::ParticipantInfo>) {
         for pi in updates {
-            info!("test");
             if pi.sid == self.local_participant.sid()
                 || pi.identity == self.local_participant.identity()
             {
@@ -386,7 +378,6 @@ impl SessionInner {
 
                 let _ = self
                     .dispatcher
-                    .lock()
                     .dispatch(&RoomEvent::ParticipantConnected(remote_participant.clone()));
 
                 remote_participant.update_info(pi.clone());
@@ -426,7 +417,6 @@ impl SessionInner {
 
         let _ = self
             .dispatcher
-            .lock()
             .dispatch(&RoomEvent::ActiveSpeakersChanged { speakers });
     }
 
@@ -454,7 +444,6 @@ impl SessionInner {
 
             participant.set_connection_quality(quality);
             self.dispatcher
-                .lock()
                 .dispatch(&RoomEvent::ConnectionQualityChanged {
                     participant,
                     quality,
@@ -471,7 +460,7 @@ impl SessionInner {
         }
 
         if self.update_connection_state(ConnectionState::Reconnecting) {
-            self.dispatcher.lock().dispatch(&RoomEvent::Reconnecting);
+            self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
     }
 
@@ -481,7 +470,7 @@ impl SessionInner {
         let join_response = self.rtc_engine.join_response().unwrap();
 
         self.update_connection_state(ConnectionState::Connected);
-        self.dispatcher.lock().dispatch(&RoomEvent::Reconnected);
+        self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
         if let Some(pi) = join_response.participant {
             self.local_participant.update_info(pi); // The sid may have changed
@@ -499,7 +488,7 @@ impl SessionInner {
         }
 
         self.update_connection_state(ConnectionState::Disconnected);
-        self.dispatcher.lock().dispatch(&RoomEvent::Disconnected);
+        self.dispatcher.dispatch(&RoomEvent::Disconnected);
     }
 
     /// Create a new participant
@@ -550,7 +539,6 @@ impl SessionInner {
 
             self.participants.write().remove(&remote_participant.sid());
             self.dispatcher
-                .lock()
                 .dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
         });
     }

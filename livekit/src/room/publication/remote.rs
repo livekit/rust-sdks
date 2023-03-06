@@ -48,11 +48,7 @@ impl RemoteTrackPublication {
 
     #[inline]
     pub fn track(&self) -> Option<RemoteTrack> {
-        self.inner
-            .track
-            .lock()
-            .clone()
-            .map(|track| track.try_into().unwrap())
+        self.inner.track().map(|track| track.try_into().unwrap())
     }
 
     #[inline]

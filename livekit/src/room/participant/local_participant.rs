@@ -75,13 +75,19 @@ impl LocalParticipant {
         }
 
         let track_info = self.rtc_engine.add_track(req).await?;
-        let publication = LocalTrackPublication::new(
-            track_info.clone(), track, options
-        );
+        let publication = LocalTrackPublication::new(track_info.clone(), track.clone(), options);
         track.update_info(track_info); // Update SID
-        
-        tokio::spawn(self.rtc_engine.negotiate_publisher());
-        self.inner.add_track_publication(TrackPublication::Local(publication.clone()));
+
+        tokio::spawn({
+        // Renegotiate in background
+            let rtc_engine = self.rtc_engine.clone();
+            async move {
+                let _ = rtc_engine.negotiate_publisher().await;
+            }
+        });
+
+        self.inner
+            .add_track_publication(TrackPublication::Local(publication.clone()));
         Ok(publication)
     }
 
@@ -180,4 +186,4 @@ impl LocalParticipant {
     pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
         self.inner.set_connection_quality(quality);
     }
-
+}

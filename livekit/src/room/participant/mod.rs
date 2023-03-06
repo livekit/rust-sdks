@@ -1,8 +1,8 @@
+use crate::observer::Dispatcher;
 use crate::prelude::*;
 use crate::proto;
 use crate::track::TrackError;
 use livekit_utils::enum_dispatch;
-use livekit_utils::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
@@ -120,7 +120,7 @@ pub(crate) struct ParticipantInner {
     pub tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
     pub audio_level: AtomicU32,
     pub connection_quality: AtomicU8,
-    pub dispatcher: Mutex<Dispatcher<ParticipantEvent>>,
+    pub dispatcher: Dispatcher<ParticipantEvent>,
 }
 
 impl ParticipantInner {
@@ -176,7 +176,7 @@ impl ParticipantInner {
     }
 
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
-        self.dispatcher.lock().register()
+        self.dispatcher.register()
     }
 
     pub fn update_info(&self, info: proto::ParticipantInfo) {

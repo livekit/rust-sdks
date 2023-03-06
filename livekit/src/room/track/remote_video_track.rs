@@ -1,5 +1,6 @@
 use super::TrackInner;
 use crate::prelude::*;
+use crate::proto;
 use livekit_webrtc as rtc;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -85,7 +86,7 @@ impl RemoteVideoTrack {
     }
 
     #[inline]
-    pub(crate) fn set_source(&self, source: TrackSource) {
-        self.inner.set_source(source)
+    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+        self.inner.update_info(info);
     }
 }

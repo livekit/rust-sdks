@@ -46,7 +46,6 @@ impl RemoteParticipant {
     pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: proto::data_packet::Kind) {
         self.inner
             .dispatcher
-            .lock()
             .dispatch(&ParticipantEvent::DataReceived {
                 payload: data,
                 kind,
@@ -69,7 +68,7 @@ impl RemoteParticipant {
                         return publication;
                     }
 
-                    tokio::task::yield_now().await;
+                    tokio::task::yield_now().await; // Remove yield
                 }
             }
         };
@@ -107,7 +106,13 @@ impl RemoteParticipant {
 
             remote_publication.update_track(Some(track.clone().into()));
             track.set_muted(remote_publication.muted());
-            track.set_source(remote_publication.source());
+            track.update_info(proto::TrackInfo {
+                sid: remote_publication.sid().to_string(),
+                name: remote_publication.name().to_string(),
+                r#type: proto::TrackType::from(remote_publication.kind()) as i32,
+                source: proto::TrackSource::from(remote_publication.source()) as i32,
+                ..Default::default()
+            });
 
             self.inner
                 .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
@@ -115,7 +120,6 @@ impl RemoteParticipant {
 
             self.inner
                 .dispatcher
-                .lock()
                 .dispatch(&ParticipantEvent::TrackSubscribed {
                     track,
                     publication: remote_publication,
@@ -125,7 +129,6 @@ impl RemoteParticipant {
 
             self.inner
                 .dispatcher
-                .lock()
                 .dispatch(&ParticipantEvent::TrackSubscriptionFailed {
                     sid: sid.clone(),
                     error: TrackError::TrackNotFound(sid.clone().to_string()),
@@ -141,7 +144,6 @@ impl RemoteParticipant {
 
                 self.inner
                     .dispatcher
-                    .lock()
                     .dispatch(&ParticipantEvent::TrackUnsubscribed {
                         track: track.clone(),
                         publication: publication.clone(),
@@ -150,7 +152,6 @@ impl RemoteParticipant {
 
             self.inner
                 .dispatcher
-                .lock()
                 .dispatch(&ParticipantEvent::TrackUnpublished {
                     publication: publication.clone(),
                 });
@@ -167,14 +168,13 @@ impl RemoteParticipant {
             if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
                 publication.update_info(track.clone());
             } else {
-                let publication = RemoteTrackPublication::new(track.clone(), self.sid(), None);
+                let publication = RemoteTrackPublication::new(track.clone(), None);
                 self.inner
                     .add_track_publication(TrackPublication::Remote(publication.clone()));
 
                 // This is a new track, dispatch publish event
                 self.inner
                     .dispatcher
-                    .lock()
                     .dispatch(&ParticipantEvent::TrackPublished { publication });
             }
 

@@ -61,9 +61,7 @@ impl LocalTrackPublication {
     pub fn track(&self) -> LocalTrack {
         self.inner
             .publication_inner
-            .track
-            .lock()
-            .clone()
+            .track()
             .unwrap()
             .try_into()
             .unwrap()
