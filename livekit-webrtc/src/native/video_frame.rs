@@ -1,7 +1,9 @@
 use super::yuv_helper::{self, ConvertError};
+use crate::video_frame::VideoRotation;
 use crate::video_frame::{self as vf, VideoFormatType};
 use cxx::UniquePtr;
 use std::slice;
+use webrtc_sys::video_frame as vf_sys;
 use webrtc_sys::video_frame_buffer as vfb_sys;
 
 /// We don't use vf::VideoFrameBuffer trait for the types inside this module to avoid confusion
@@ -47,6 +49,18 @@ pub fn new_video_frame_buffer(
                 },
             }),
             _ => unreachable!(),
+        }
+    }
+}
+
+impl From<vf_sys::ffi::VideoRotation> for VideoRotation {
+    fn from(rotation: vf_sys::ffi::VideoRotation) -> Self {
+        match rotation {
+            vf_sys::ffi::VideoRotation::VideoRotation0 => Self::VideoRotation0,
+            vf_sys::ffi::VideoRotation::VideoRotation90 => Self::VideoRotation90,
+            vf_sys::ffi::VideoRotation::VideoRotation180 => Self::VideoRotation180,
+            vf_sys::ffi::VideoRotation::VideoRotation270 => Self::VideoRotation270,
+            _ => panic!("invalid VideoRotation"),
         }
     }
 }

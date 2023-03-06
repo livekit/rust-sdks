@@ -32,7 +32,7 @@ pub mod ffi {
         fn transport_frame_id(self: &VideoFrame) -> u32;
         fn timestamp(self: &VideoFrame) -> u32;
         fn rotation(self: &VideoFrame) -> VideoRotation;
-        fn video_frame_buffer(self: &VideoFrame) -> UniquePtr<VideoFrameBuffer>;
+        unsafe fn video_frame_buffer(self: &VideoFrame) -> UniquePtr<VideoFrameBuffer>;
 
         fn set_video_frame_buffer(
             self: Pin<&mut VideoFrameBuilder>,

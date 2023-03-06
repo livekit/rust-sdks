@@ -1,4 +1,5 @@
 pub mod data_channel;
+pub mod video_sink;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod peer_connection;

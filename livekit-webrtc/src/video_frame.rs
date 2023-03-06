@@ -1,5 +1,6 @@
 use crate::imp::video_frame as vf_imp;
 use std::fmt::Debug;
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -34,7 +35,9 @@ where
     pub buffer: T,
 }
 
-pub trait VideoFrameBuffer: Debug {
+pub type BoxVideoFrame = VideoFrame<Box<dyn VideoFrameBuffer>>;
+
+pub trait VideoFrameBuffer: Send + Sync + Debug {
     fn width(&self) -> i32;
     fn height(&self) -> i32;
 }
@@ -69,6 +72,16 @@ pub trait BiplanarYuvBuffer: VideoFrameBuffer {
 pub trait BiplanarYuv8Buffer: BiplanarYuvBuffer {
     fn data_y(&self) -> &[u8];
     fn data_uv(&self) -> &[u8];
+}
+
+impl<T: ?Sized + VideoFrameBuffer> VideoFrameBuffer for Box<T> {
+    fn width(&self) -> i32 {
+        self.as_ref().width()
+    }
+
+    fn height(&self) -> i32 {
+        self.as_ref().height()
+    }
 }
 
 macro_rules! impl_video_frame_buffer {

@@ -28,6 +28,7 @@ pub struct RtcError {
 
 pub mod data_channel;
 pub mod ice_candidate;
+pub mod video_sink;
 pub mod media_stream;
 pub mod peer_connection;
 pub mod peer_connection_factory;

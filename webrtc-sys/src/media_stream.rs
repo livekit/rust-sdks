@@ -104,7 +104,7 @@ impl_thread_safety!(ffi::AudioTrack, Send + Sync);
 impl_thread_safety!(ffi::VideoTrack, Send + Sync);
 impl_thread_safety!(ffi::NativeVideoFrameSink, Send + Sync);
 
-pub trait VideoFrameSink: Send + Sync {
+pub trait VideoFrameSink: Send {
     fn on_frame(&self, frame: UniquePtr<VideoFrame>);
     fn on_discarded_frame(&self);
     fn on_constraints_changed(&self, constraints: ffi::VideoTrackSourceConstraints);
