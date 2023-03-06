@@ -71,7 +71,7 @@ pub mod ffi {
         fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;
         unsafe fn create_native_data_channel_observer(
             observer: Box<DataChannelObserverWrapper>,
-            dc: *const DataChannel,
+            dc: *mut DataChannel,
         ) -> SharedPtr<NativeDataChannelObserver>;
 
         fn _shared_data_channel() -> SharedPtr<DataChannel>; // Ignore

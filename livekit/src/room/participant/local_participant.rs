@@ -79,7 +79,7 @@ impl LocalParticipant {
         track.update_info(track_info); // Update SID
 
         tokio::spawn({
-        // Renegotiate in background
+            // Renegotiate in background
             let rtc_engine = self.rtc_engine.clone();
             async move {
                 let _ = rtc_engine.negotiate_publisher().await;

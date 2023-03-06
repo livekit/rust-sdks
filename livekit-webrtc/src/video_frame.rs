@@ -1,6 +1,6 @@
 use crate::imp::video_frame as vf_imp;
 use std::fmt::Debug;
-use std::sync::Arc;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -37,7 +37,27 @@ where
 
 pub type BoxVideoFrame = VideoFrame<Box<dyn VideoFrameBuffer>>;
 
-pub trait VideoFrameBuffer: Send + Sync + Debug {
+mod internal {
+    use super::{I420Buffer, VideoFormatType};
+    use std::fmt::Debug;
+
+    pub trait VideoFrameBufferInternal: Send + Sync + Debug {
+        #[cfg(not(target_arch = "wasm32"))]
+        fn to_i420(&self) -> I420Buffer;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        fn to_argb(
+            &self,
+            format: VideoFormatType,
+            dst: &mut [u8],
+            dst_stride: i32,
+            dst_width: i32,
+            dst_height: i32,
+        ) -> Result<(), super::native::ConvertError>;
+    }
+}
+
+pub trait VideoFrameBuffer: internal::VideoFrameBufferInternal {
     fn width(&self) -> i32;
     fn height(&self) -> i32;
 }
@@ -74,6 +94,24 @@ pub trait BiplanarYuv8Buffer: BiplanarYuvBuffer {
     fn data_uv(&self) -> &[u8];
 }
 
+impl<T: ?Sized + internal::VideoFrameBufferInternal> internal::VideoFrameBufferInternal for Box<T> {
+    fn to_i420(&self) -> I420Buffer {
+        self.as_ref().to_i420()
+    }
+
+    fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: i32,
+        dst_width: i32,
+        dst_height: i32,
+    ) -> Result<(), native::ConvertError> {
+        self.as_ref()
+            .to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
+}
+
 impl<T: ?Sized + VideoFrameBuffer> VideoFrameBuffer for Box<T> {
     fn width(&self) -> i32 {
         self.as_ref().width()
@@ -82,6 +120,32 @@ impl<T: ?Sized + VideoFrameBuffer> VideoFrameBuffer for Box<T> {
     fn height(&self) -> i32 {
         self.as_ref().height()
     }
+}
+
+macro_rules! impl_video_frame_buffer_internal {
+    ($x:ty) => {
+        impl crate::video_frame::internal::VideoFrameBufferInternal for $x {
+            #[cfg(not(target_arch = "wasm32"))]
+            fn to_i420(&self) -> I420Buffer {
+                I420Buffer {
+                    handle: self.handle.to_i420(),
+                }
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            fn to_argb(
+                &self,
+                format: VideoFormatType,
+                dst: &mut [u8],
+                dst_stride: i32,
+                dst_width: i32,
+                dst_height: i32,
+            ) -> Result<(), crate::video_frame::native::ConvertError> {
+                self.handle
+                    .to_argb(format, dst, dst_stride, dst_width, dst_height)
+            }
+        }
+    };
 }
 
 macro_rules! impl_video_frame_buffer {
@@ -200,6 +264,7 @@ pub struct I420Buffer {
     pub(crate) handle: vf_imp::I420Buffer,
 }
 
+impl_video_frame_buffer_internal!(I420Buffer);
 impl_video_frame_buffer!(I420Buffer);
 impl_planar_yuv_buffer!(I420Buffer);
 impl_planar_yuv8_buffer!(I420Buffer);
@@ -227,6 +292,7 @@ impl I420ABuffer {
     }
 }
 
+impl_video_frame_buffer_internal!(I420ABuffer);
 impl_video_frame_buffer!(I420ABuffer);
 impl_planar_yuv_buffer!(I420ABuffer);
 impl_planar_yuv8_buffer!(I420ABuffer);
@@ -245,6 +311,7 @@ pub struct I422Buffer {
     pub(crate) handle: vf_imp::I422Buffer,
 }
 
+impl_video_frame_buffer_internal!(I422Buffer);
 impl_video_frame_buffer!(I422Buffer);
 impl_planar_yuv_buffer!(I422Buffer);
 impl_planar_yuv8_buffer!(I422Buffer);
@@ -262,6 +329,7 @@ pub struct I444Buffer {
     pub(crate) handle: vf_imp::I444Buffer,
 }
 
+impl_video_frame_buffer_internal!(I444Buffer);
 impl_video_frame_buffer!(I444Buffer);
 impl_planar_yuv_buffer!(I444Buffer);
 impl_planar_yuv8_buffer!(I444Buffer);
@@ -279,6 +347,7 @@ pub struct I010Buffer {
     pub(crate) handle: vf_imp::I010Buffer,
 }
 
+impl_video_frame_buffer_internal!(I010Buffer);
 impl_video_frame_buffer!(I010Buffer);
 impl_planar_yuv_buffer!(I010Buffer);
 impl_planar_yuv16b_buffer!(I010Buffer);
@@ -296,6 +365,7 @@ pub struct NV12Buffer {
     pub(crate) handle: vf_imp::NV12Buffer,
 }
 
+impl_video_frame_buffer_internal!(NV12Buffer);
 impl_video_frame_buffer!(NV12Buffer);
 impl_biplanar_yuv_buffer!(NV12Buffer);
 impl_biplanar_yuv8_buffer!(NV12Buffer);
@@ -313,14 +383,11 @@ impl Debug for NV12Buffer {
 pub mod native {
     use std::fmt::Debug;
 
-    use super::{
-        vf_imp, I010Buffer, I420ABuffer, I420Buffer, I422Buffer, I444Buffer, NV12Buffer,
-        VideoFormatType, VideoFrameBuffer,
-    };
+    use super::{vf_imp, I420Buffer, VideoFormatType, VideoFrameBuffer};
 
     pub use crate::imp::yuv_helper::ConvertError;
 
-    pub trait VideoFrameBufferExt: VideoFrameBuffer + Debug {
+    pub trait VideoFrameBufferExt: VideoFrameBuffer {
         fn to_i420(&self) -> I420Buffer;
         fn to_argb(
             &self,
@@ -332,34 +399,28 @@ pub mod native {
         ) -> Result<(), ConvertError>;
     }
 
-    macro_rules! impl_video_frame_buffer_winext {
-        ($x:ty) => {
-            impl VideoFrameBufferExt for $x {
-                fn to_i420(&self) -> I420Buffer {
-                    I420Buffer {
-                        handle: self.handle.to_i420(),
-                    }
-                }
+    impl<T: VideoFrameBuffer> VideoFrameBufferExt for T {
+        fn to_i420(&self) -> I420Buffer {
+            self.to_i420()
+        }
 
-                fn to_argb(
-                    &self,
-                    format: VideoFormatType,
-                    dst: &mut [u8],
-                    dst_stride: i32,
-                    dst_width: i32,
-                    dst_height: i32,
-                ) -> Result<(), ConvertError> {
-                    self.handle
-                        .to_argb(format, dst, dst_stride, dst_width, dst_height)
-                }
-            }
-        };
+        fn to_argb(
+            &self,
+            format: VideoFormatType,
+            dst: &mut [u8],
+            dst_stride: i32,
+            dst_width: i32,
+            dst_height: i32,
+        ) -> Result<(), ConvertError> {
+            self.to_argb(format, dst, dst_stride, dst_width, dst_height)
+        }
     }
 
     pub struct NativeBuffer {
         pub(crate) handle: vf_imp::NativeBuffer,
     }
 
+    impl_video_frame_buffer_internal!(NativeBuffer);
     impl_video_frame_buffer!(NativeBuffer);
 
     impl Debug for NativeBuffer {
@@ -370,14 +431,6 @@ pub mod native {
                 .finish()
         }
     }
-
-    impl_video_frame_buffer_winext!(NativeBuffer);
-    impl_video_frame_buffer_winext!(I420Buffer);
-    impl_video_frame_buffer_winext!(I420ABuffer);
-    impl_video_frame_buffer_winext!(I422Buffer);
-    impl_video_frame_buffer_winext!(I444Buffer);
-    impl_video_frame_buffer_winext!(I010Buffer);
-    impl_video_frame_buffer_winext!(NV12Buffer);
 }
 
 #[cfg(target_arch = "wasm32")]

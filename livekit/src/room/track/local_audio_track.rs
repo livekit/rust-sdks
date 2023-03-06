@@ -1,6 +1,6 @@
 use super::TrackInner;
-use crate::proto;
 use crate::prelude::*;
+use crate::proto;
 use livekit_webrtc as rtc;
 use std::sync::Arc;
 use tokio::sync::mpsc;

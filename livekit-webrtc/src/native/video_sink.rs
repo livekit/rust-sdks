@@ -1,12 +1,13 @@
+use super::video_frame::new_video_frame_buffer;
 use crate::media_stream::VideoTrack;
-use crate::video_frame::{BoxVideoFrame, VideoFrame, VideoFrameBuffer};
+use crate::video_frame::{BoxVideoFrame, VideoFrame};
 use cxx::UniquePtr;
 use livekit_utils::observer::Dispatcher;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use webrtc_sys::media_stream as sys_ms;
 
-use super::video_frame::new_video_frame_buffer;
-
+#[allow(dead_code)] // Keep the C++ handles alive
 pub struct NativeVideoSink {
     native_observer: UniquePtr<sys_ms::ffi::NativeVideoFrameSink>,
     observer: Box<VideoTrackSink>,
@@ -38,6 +39,10 @@ impl NativeVideoSink {
 
     pub fn track(&self) -> VideoTrack {
         self.video_track.clone()
+    }
+
+    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<Arc<BoxVideoFrame>> {
+        self.dispatcher.register()
     }
 }
 

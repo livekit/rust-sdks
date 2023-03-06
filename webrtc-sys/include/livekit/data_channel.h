@@ -70,10 +70,10 @@ class NativeDataChannelObserver : public webrtc::DataChannelObserver {
 
  private:
   rust::Box<DataChannelObserverWrapper> observer_;
-  const DataChannel* dc_;
+  DataChannel* dc_;
 };
 
 std::shared_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
     rust::Box<DataChannelObserverWrapper> observer,
-    const DataChannel* dc);
+    DataChannel* dc);
 }  // namespace livekit

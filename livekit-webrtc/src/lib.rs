@@ -28,7 +28,6 @@ pub struct RtcError {
 
 pub mod data_channel;
 pub mod ice_candidate;
-pub mod video_sink;
 pub mod media_stream;
 pub mod peer_connection;
 pub mod peer_connection_factory;
@@ -39,8 +38,9 @@ pub mod rtp_sender;
 pub mod rtp_transceiver;
 pub mod session_description;
 pub mod video_frame;
+pub mod video_sink;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod native {
+pub mod native {
     pub use crate::imp::yuv_helper;
 }

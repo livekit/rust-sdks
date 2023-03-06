@@ -53,7 +53,7 @@ impl DataChannel {
                 sys_handle: sys_handle.clone(),
                 native_observer: sys_dc::ffi::create_native_data_channel_observer(
                     Box::new(sys_dc::DataChannelObserverWrapper::new(observer.clone())),
-                    &*sys_handle,
+                    &*sys_handle as *const _ as *mut _,
                 ),
                 observer,
             };

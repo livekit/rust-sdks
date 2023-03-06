@@ -1,5 +1,4 @@
 pub mod data_channel;
-pub mod video_sink;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod peer_connection;
@@ -10,6 +9,7 @@ pub mod rtp_sender;
 pub mod rtp_transceiver;
 pub mod session_description;
 pub mod video_frame;
+pub mod video_sink;
 pub mod yuv_helper;
 
 use crate::MediaType;

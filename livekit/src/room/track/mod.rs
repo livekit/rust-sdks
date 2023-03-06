@@ -1,7 +1,7 @@
-use crate::observer::Dispatcher;
 use crate::prelude::*;
 use crate::proto;
 use livekit_utils::enum_dispatch;
+use livekit_utils::observer::Dispatcher;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};

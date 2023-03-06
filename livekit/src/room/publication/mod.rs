@@ -1,5 +1,5 @@
 use super::track::{TrackDimension, TrackEvent};
-use crate::observer::Dispatcher;
+use livekit_utils::observer::Dispatcher;
 use crate::prelude::*;
 use crate::proto;
 use crate::track::Track;

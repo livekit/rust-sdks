@@ -711,6 +711,7 @@ dependencies = [
  "livekit-utils",
  "log",
  "thiserror",
+ "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

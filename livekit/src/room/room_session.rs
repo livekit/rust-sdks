@@ -1,4 +1,4 @@
-use crate::observer::Dispatcher;
+use livekit_utils::observer::Dispatcher;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::proto;
