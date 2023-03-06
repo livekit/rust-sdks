@@ -59,7 +59,7 @@ impl DataChannel {
             };
 
             dc.sys_handle
-                .register_observer(&dc.native_observer as *const _ as *mut _);
+                .register_observer(&*dc.native_observer as *const _ as *mut _);
             dc
         }
     }

@@ -110,7 +110,6 @@ impl From<sys_pc::ffi::SignalingState> for SignalingState {
 
 #[derive(Clone)]
 pub struct PeerConnection {
-    #[allow(unused)]
     native_observer: SharedPtr<sys_pc::ffi::NativePeerConnectionObserver>,
     observer: Arc<PeerObserver>,
 

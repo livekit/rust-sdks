@@ -103,7 +103,7 @@ impl PeerConnectionFactory {
 
             let res = self
                 .sys_handle
-                .create_peer_connection(native_config, &native_observer as *const _ as *mut _);
+                .create_peer_connection(native_config, &*native_observer as *const _ as *mut _);
 
             match res {
                 Ok(sys_handle) => Ok(PeerConnection {
