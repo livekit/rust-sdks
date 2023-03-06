@@ -154,7 +154,7 @@ impl PeerConnection {
 
         unsafe {
             self.sys_handle
-                .create_offer(native_wrapper.pin_mut(), options.into());
+                .create_answer(native_wrapper.pin_mut(), options.into());
         }
 
         futures::select! {
