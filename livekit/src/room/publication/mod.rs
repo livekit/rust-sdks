@@ -129,14 +129,6 @@ impl TrackPublicationInner {
     }
 }
 
-impl Drop for TrackPublicationInner {
-    fn drop(&mut self) {
-        if let Some(close_sender) = self.close_sender.lock().take() {
-            let _ = close_sender.send(());
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub enum TrackPublication {
     Local(LocalTrackPublication),
@@ -158,8 +150,8 @@ impl TrackPublication {
 
     pub fn track(&self) -> Option<Track> {
         match self {
-            TrackPublication::Local(p) => p.inner.track.lock().clone(),
-            TrackPublication::Remote(p) => p.inner.track.lock().clone(),
+            TrackPublication::Local(p) => Some(p.track().into()),
+            TrackPublication::Remote(p) => p.track().map(Into::into),
         }
     }
 }

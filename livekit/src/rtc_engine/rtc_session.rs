@@ -1,8 +1,10 @@
 use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
+use crate::options::TrackPublishOptions;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
+use crate::track::LocalTrack;
 use crate::{proto, signal_client};
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
@@ -238,6 +240,11 @@ impl RtcSession {
     #[inline]
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         self.inner.add_track(req).await
+    }
+
+    #[inline]
+    pub async fn negotiate_publisher(&self) -> EngineResult<()> {
+        self.inner.negotiate_publisher().await
     }
 
     /// Close the PeerConnections and the SignalClient
@@ -593,6 +600,27 @@ impl SessionInner {
                 ))
             }
         }
+    }
+
+    async fn create_sender(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+        encodings: Vec<RtpEncodingParameters>,
+    ) -> Result<RtpTransceiver, RtcError> {
+        let init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::SendOnly,
+            stream_ids: Default::default(),
+            send_encodings: encodings,
+        };
+
+        self.publisher_pc
+            .lock()
+            .await
+            .peer_connection()
+            .add_transceiver(track.rtc_track(), init)
+
+        // TODO(theomonnom): set_preferred_codecs
     }
 
     /// Called when the SignalClient or one of the PeerConnection has lost the connection

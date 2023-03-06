@@ -30,22 +30,11 @@ impl LocalParticipant {
         }
     }
 
-    #[inline]
-    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
-        self.inner.tracks.read().get(sid).map(|track| {
-            if let TrackPublication::Local(local) = track {
-                return local.clone();
-            }
-
-            unreachable!()
-        })
-    }
-
     pub async fn publish_track(
         &self,
         track: LocalTrack,
         options: TrackPublishOptions,
-    ) -> RoomResult<()> {
+    ) -> RoomResult<LocalTrackPublication> {
         let tracks = self.inner.tracks.write();
 
         if track.source() != TrackSource::Unknown {
@@ -87,11 +76,13 @@ impl LocalParticipant {
 
         let track_info = self.rtc_engine.add_track(req).await?;
         let publication = LocalTrackPublication::new(
-            track_info.clone(), track
+            track_info.clone(), track, options
         );
         track.update_info(track_info); // Update SID
-
-        Ok(())
+        
+        tokio::spawn(self.rtc_engine.negotiate_publisher());
+        self.inner.add_track_publication(TrackPublication::Local(publication.clone()));
+        Ok(publication)
     }
 
     pub async fn publish_data(
@@ -112,6 +103,17 @@ impl LocalParticipant {
             .publish_data(&data, kind)
             .await
             .map_err(Into::into)
+    }
+
+    #[inline]
+    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
+        self.inner.tracks.read().get(sid).map(|track| {
+            if let TrackPublication::Local(local) = track {
+                return local.clone();
+            }
+
+            unreachable!()
+        })
     }
 
     #[inline]

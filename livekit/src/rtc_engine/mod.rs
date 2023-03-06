@@ -212,6 +212,20 @@ impl RtcEngine {
             .await
     }
 
+    pub async fn negotiate_publisher(&self) -> EngineResult<()> {
+        // TODO(theomonnom): guard for reconnection
+        self.inner.wait_reconnection().await?;
+        self.inner
+            .running_handle
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .session
+            .negotiate_publisher()
+            .await
+    }
+
     pub fn join_response(&self) -> Option<proto::JoinResponse> {
         if let Some(info) = self.inner.session_info.lock().as_ref() {
             Some(info.join_response.clone())
