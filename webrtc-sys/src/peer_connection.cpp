@@ -160,7 +160,7 @@ void PeerConnection::add_ice_candidate(
 
 std::unique_ptr<SessionDescription> PeerConnection::current_local_description()
     const {
-  auto local_description = peer_connection_->local_description();
+  auto local_description = peer_connection_->current_local_description();
   if (local_description)
     return std::make_unique<SessionDescription>(local_description->Clone());
 
@@ -169,7 +169,7 @@ std::unique_ptr<SessionDescription> PeerConnection::current_local_description()
 
 std::unique_ptr<SessionDescription> PeerConnection::current_remote_description()
     const {
-  auto remote_description = peer_connection_->remote_description();
+  auto remote_description = peer_connection_->current_remote_description();
   if (remote_description)
     return std::make_unique<SessionDescription>(remote_description->Clone());
 
@@ -188,6 +188,22 @@ std::unique_ptr<SessionDescription> PeerConnection::pending_local_description()
 std::unique_ptr<SessionDescription> PeerConnection::pending_remote_description()
     const {
   auto remote_description = peer_connection_->pending_remote_description();
+  if (remote_description)
+    return std::make_unique<SessionDescription>(remote_description->Clone());
+
+  return nullptr;
+}
+
+std::unique_ptr<SessionDescription> PeerConnection::local_description() const {
+  auto local_description = peer_connection_->local_description();
+  if (local_description)
+    return std::make_unique<SessionDescription>(local_description->Clone());
+
+  return nullptr;
+}
+
+std::unique_ptr<SessionDescription> PeerConnection::remote_description() const {
+  auto remote_description = peer_connection_->remote_description();
   if (remote_description)
     return std::make_unique<SessionDescription>(remote_description->Clone());
 
@@ -238,7 +254,13 @@ create_native_add_ice_candidate_observer(
 NativePeerConnectionObserver::NativePeerConnectionObserver(
     std::shared_ptr<RTCRuntime> rtc_runtime,
     rust::Box<PeerConnectionObserverWrapper> observer)
-    : rtc_runtime_(std::move(rtc_runtime)), observer_(std::move(observer)) {}
+    : rtc_runtime_(std::move(rtc_runtime)), observer_(std::move(observer)) {
+  RTC_LOG(LS_INFO) << "NativePeerConnectionObserver()";
+}
+
+NativePeerConnectionObserver::~NativePeerConnectionObserver() {
+  RTC_LOG(LS_INFO) << "~NativePeerConnectionObserver()";
+}
 
 void NativePeerConnectionObserver::OnSignalingChange(
     webrtc::PeerConnectionInterface::SignalingState new_state) {

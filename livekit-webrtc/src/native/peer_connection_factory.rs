@@ -1,13 +1,15 @@
+use crate::imp::media_stream as imp_ms;
 use crate::imp::peer_connection as imp_pc;
+use crate::media_stream::VideoTrack;
 use crate::peer_connection::PeerConnection;
 use crate::peer_connection_factory::{
     ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration,
 };
+use crate::video_source::native::NativeVideoSource;
 use crate::RtcError;
 use cxx::SharedPtr;
 use std::sync::Arc;
 use webrtc_sys::peer_connection as sys_pc;
-use webrtc_sys::peer_connection::ffi::NativePeerConnectionObserver;
 use webrtc_sys::peer_connection_factory as sys_pcf;
 use webrtc_sys::rtc_error as sys_err;
 use webrtc_sys::webrtc as sys_webrtc;
@@ -115,6 +117,16 @@ impl PeerConnectionFactory {
                 }),
                 Err(e) => Err(sys_err::ffi::RTCError::from(e.what()).into()),
             }
+        }
+    }
+
+    pub fn create_video_track(&self, label: &str, source: NativeVideoSource) -> VideoTrack {
+        VideoTrack {
+            handle: imp_ms::VideoTrack {
+                sys_handle: self
+                    .sys_handle
+                    .create_video_track(label.to_string(), source.handle.sys_handle()),
+            },
         }
     }
 }

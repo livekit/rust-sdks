@@ -69,11 +69,13 @@ pub mod ffi {
         fn content_hint(self: &VideoTrack) -> ContentHint;
         fn set_content_hint(self: &VideoTrack, hint: ContentHint);
 
-        fn create_native_video_frame_sink(
+        fn new_native_video_frame_sink(
             observer: Box<VideoFrameSinkWrapper>,
         ) -> UniquePtr<NativeVideoFrameSink>;
 
         fn on_captured_frame(self: &AdaptedVideoTrackSource, frame: UniquePtr<VideoFrame>) -> bool;
+
+        fn new_adapted_video_track_source() -> SharedPtr<AdaptedVideoTrackSource>;
 
         fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
         fn audio_to_media(track: SharedPtr<AudioTrack>) -> SharedPtr<MediaStreamTrack>;

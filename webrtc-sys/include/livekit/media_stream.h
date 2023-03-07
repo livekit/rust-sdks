@@ -119,7 +119,7 @@ class NativeVideoFrameSink
   rust::Box<VideoFrameSinkWrapper> observer_;
 };
 
-std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
+std::unique_ptr<NativeVideoFrameSink> new_native_video_frame_sink(
     rust::Box<VideoFrameSinkWrapper> observer);
 
 // Native impl of the WebRTC interface
@@ -153,7 +153,7 @@ class AdaptedVideoTrackSource {
   rtc::scoped_refptr<NativeVideoTrackSource> source_;
 };
 
-std::unique_ptr<AdaptedVideoTrackSource> create_adapted_video_track_source();
+std::shared_ptr<AdaptedVideoTrackSource> new_adapted_video_track_source();
 
 static std::shared_ptr<MediaStreamTrack> video_to_media(
     std::shared_ptr<VideoTrack> track) {

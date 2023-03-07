@@ -11,7 +11,6 @@ use webrtc_sys::media_stream as sys_ms;
 pub struct NativeVideoSink {
     native_observer: UniquePtr<sys_ms::ffi::NativeVideoFrameSink>,
     observer: Box<VideoTrackSink>,
-    dispatcher: Dispatcher<Arc<BoxVideoFrame>>,
     video_track: VideoTrack,
 }
 
@@ -19,9 +18,9 @@ impl NativeVideoSink {
     pub fn new(video_track: VideoTrack) -> Self {
         let mut observer = Box::new(VideoTrackSink::default());
         let mut native_observer = unsafe {
-            sys_ms::ffi::create_native_video_frame_sink(Box::new(
-                sys_ms::VideoFrameSinkWrapper::new(&mut *observer),
-            ))
+            sys_ms::ffi::new_native_video_frame_sink(Box::new(sys_ms::VideoFrameSinkWrapper::new(
+                &mut *observer,
+            )))
         };
 
         unsafe {
@@ -32,7 +31,6 @@ impl NativeVideoSink {
         Self {
             native_observer,
             observer,
-            dispatcher: Default::default(),
             video_track,
         }
     }
@@ -42,7 +40,7 @@ impl NativeVideoSink {
     }
 
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<Arc<BoxVideoFrame>> {
-        self.dispatcher.register()
+        self.observer.dispatcher.register()
     }
 }
 

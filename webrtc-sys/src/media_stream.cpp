@@ -173,7 +173,7 @@ void NativeVideoFrameSink::OnConstraintsChanged(
   observer_->on_constraints_changed(cst);
 }
 
-std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
+std::unique_ptr<NativeVideoFrameSink> new_native_video_frame_sink(
     rust::Box<VideoFrameSinkWrapper> observer) {
   return std::make_unique<NativeVideoFrameSink>(std::move(observer));
 }
@@ -252,8 +252,8 @@ rtc::scoped_refptr<NativeVideoTrackSource> AdaptedVideoTrackSource::get()
   return source_;
 }
 
-std::unique_ptr<AdaptedVideoTrackSource> create_adapted_video_track_source() {
-  return std::make_unique<AdaptedVideoTrackSource>(
+std::shared_ptr<AdaptedVideoTrackSource> new_adapted_video_track_source() {
+  return std::make_shared<AdaptedVideoTrackSource>(
       rtc::make_ref_counted<NativeVideoTrackSource>());
 }
 

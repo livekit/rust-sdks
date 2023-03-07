@@ -17,7 +17,9 @@
 #pragma once
 
 #include "api/peer_connection_interface.h"
+#include "media_stream.h"
 #include "peer_connection.h"
+#include "rust/cxx.h"
 #include "webrtc.h"
 
 namespace livekit {
@@ -38,6 +40,10 @@ class PeerConnectionFactory {
   std::shared_ptr<PeerConnection> create_peer_connection(
       std::unique_ptr<NativeRTCConfiguration> config,
       NativePeerConnectionObserver* observer) const;
+
+  std::shared_ptr<VideoTrack> create_video_track(
+      rust::String label,
+      std::shared_ptr<AdaptedVideoTrackSource> source) const;
 
  private:
   std::shared_ptr<RTCRuntime> rtc_runtime_;

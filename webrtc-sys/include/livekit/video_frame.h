@@ -67,6 +67,6 @@ class VideoFrameBuilder {
   webrtc::VideoFrame::Builder builder_;
 };
 
-std::unique_ptr<VideoFrameBuilder> create_video_frame_builder();
+std::unique_ptr<VideoFrameBuilder> new_video_frame_builder();
 
 }  // namespace livekit

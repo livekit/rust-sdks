@@ -104,7 +104,7 @@ macro_rules! impl_media_stream_track {
 
 #[derive(Clone)]
 pub struct VideoTrack {
-    sys_handle: SharedPtr<sys_ms::ffi::VideoTrack>,
+    pub(crate) sys_handle: SharedPtr<sys_ms::ffi::VideoTrack>,
 }
 
 impl VideoTrack {
@@ -117,7 +117,7 @@ impl VideoTrack {
 
 #[derive(Clone)]
 pub struct AudioTrack {
-    sys_handle: SharedPtr<sys_ms::ffi::AudioTrack>,
+    pub(crate) sys_handle: SharedPtr<sys_ms::ffi::AudioTrack>,
 }
 
 impl AudioTrack {

@@ -32,6 +32,11 @@ pub mod ffi {
         pub ice_transport_type: IceTransportsType,
     }
 
+    extern "C++" {
+        type AdaptedVideoTrackSource = crate::media_stream::ffi::AdaptedVideoTrackSource;
+        type VideoTrack = crate::media_stream::ffi::VideoTrack;
+    }
+
     unsafe extern "C++" {
         include!("livekit/peer_connection_factory.h");
 
@@ -54,6 +59,12 @@ pub mod ffi {
             config: UniquePtr<NativeRTCConfiguration>,
             observer: *mut NativePeerConnectionObserver,
         ) -> Result<SharedPtr<PeerConnection>>;
+
+        fn create_video_track(
+            self: &PeerConnectionFactory,
+            label: String,
+            source: SharedPtr<AdaptedVideoTrackSource>,
+        ) -> SharedPtr<VideoTrack>;
     }
 }
 

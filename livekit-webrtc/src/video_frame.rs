@@ -35,13 +35,16 @@ where
     pub buffer: T,
 }
 
-pub type BoxVideoFrame = VideoFrame<Box<dyn VideoFrameBuffer>>;
+pub type BoxVideoFrame = VideoFrame<Box<dyn VideoFrameBuffer + Send + Sync>>;
 
-mod internal {
+pub(crate) mod internal {
     use super::{I420Buffer, VideoFormatType};
-    use std::fmt::Debug;
+    use cxx::UniquePtr;
 
-    pub trait VideoFrameBufferInternal: Send + Sync + Debug {
+    pub trait VideoFrameBufferInternal {
+        #[cfg(not(target_arch = "wasm32"))]
+        fn sys_handle(self) -> UniquePtr<webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer>;
+
         #[cfg(not(target_arch = "wasm32"))]
         fn to_i420(&self) -> I420Buffer;
 
@@ -57,7 +60,7 @@ mod internal {
     }
 }
 
-pub trait VideoFrameBuffer: internal::VideoFrameBufferInternal {
+pub trait VideoFrameBuffer: internal::VideoFrameBufferInternal+ Debug {
     fn width(&self) -> i32;
     fn height(&self) -> i32;
 }
@@ -94,37 +97,16 @@ pub trait BiplanarYuv8Buffer: BiplanarYuvBuffer {
     fn data_uv(&self) -> &[u8];
 }
 
-impl<T: ?Sized + internal::VideoFrameBufferInternal> internal::VideoFrameBufferInternal for Box<T> {
-    fn to_i420(&self) -> I420Buffer {
-        self.as_ref().to_i420()
-    }
-
-    fn to_argb(
-        &self,
-        format: VideoFormatType,
-        dst: &mut [u8],
-        dst_stride: i32,
-        dst_width: i32,
-        dst_height: i32,
-    ) -> Result<(), native::ConvertError> {
-        self.as_ref()
-            .to_argb(format, dst, dst_stride, dst_width, dst_height)
-    }
-}
-
-impl<T: ?Sized + VideoFrameBuffer> VideoFrameBuffer for Box<T> {
-    fn width(&self) -> i32 {
-        self.as_ref().width()
-    }
-
-    fn height(&self) -> i32 {
-        self.as_ref().height()
-    }
-}
-
 macro_rules! impl_video_frame_buffer_internal {
     ($x:ty) => {
         impl crate::video_frame::internal::VideoFrameBufferInternal for $x {
+            #[cfg(not(target_arch = "wasm32"))]
+            fn sys_handle(
+                self,
+            ) -> cxx::UniquePtr<webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer> {
+                self.handle.sys_handle()
+            }
+
             #[cfg(not(target_arch = "wasm32"))]
             fn to_i420(&self) -> I420Buffer {
                 I420Buffer {
@@ -441,4 +423,36 @@ pub mod web {
     pub struct WebGlBuffer {}
 
     impl VideoFrameBuffer for WebGlBuffer {}
+}
+
+impl internal::VideoFrameBufferInternal for Box<dyn VideoFrameBuffer + Send + Sync> {
+    fn sys_handle(self) -> cxx::UniquePtr<webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer> {
+        self.sys_handle()
+    }
+
+    fn to_i420(&self) -> I420Buffer {
+        self.as_ref().to_i420()
+    }
+
+    fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: i32,
+        dst_width: i32,
+        dst_height: i32,
+    ) -> Result<(), self::native::ConvertError> {
+        self.as_ref()
+            .to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
+}
+
+impl VideoFrameBuffer for Box<dyn VideoFrameBuffer + Send + Sync> {
+    fn width(&self) -> i32 {
+        self.as_ref().width()
+    }
+
+    fn height(&self) -> i32 {
+        self.as_ref().height()
+    }
 }

@@ -12,7 +12,7 @@ use webrtc_sys::video_frame_buffer as vfb_sys;
 
 pub fn new_video_frame_buffer(
     mut sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
-) -> Box<dyn vf::VideoFrameBuffer> {
+) -> Box<dyn vf::VideoFrameBuffer + Send + Sync> {
     unsafe {
         match sys_handle.buffer_type().into() {
             vfb_sys::ffi::VideoFrameBufferType::Native => Box::new(vf::native::NativeBuffer {
@@ -65,6 +65,17 @@ impl From<vf_sys::ffi::VideoRotation> for VideoRotation {
     }
 }
 
+impl From<VideoRotation> for vf_sys::ffi::VideoRotation {
+    fn from(rotation: VideoRotation) -> Self {
+        match rotation {
+            VideoRotation::VideoRotation0 => Self::VideoRotation0,
+            VideoRotation::VideoRotation90 => Self::VideoRotation90,
+            VideoRotation::VideoRotation180 => Self::VideoRotation180,
+            VideoRotation::VideoRotation270 => Self::VideoRotation270,
+        }
+    }
+}
+
 macro_rules! recursive_cast {
     ($ptr:expr $(, $fnc:ident)*) => {
         {
@@ -105,6 +116,13 @@ macro_rules! impl_to_argb {
 
 macro_rules! impl_vfb_buffer {
     ($($cast:ident),*) => {
+        pub fn sys_handle(self) -> UniquePtr<vfb_sys::ffi::VideoFrameBuffer> {
+            unsafe {
+                let ptr = recursive_cast!(self.sys_handle.into_raw() $(, $cast)*);
+                UniquePtr::from_raw(ptr as *mut _)
+            }
+        }
+
         pub fn width(&self) -> i32 {
             unsafe {
                 let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);

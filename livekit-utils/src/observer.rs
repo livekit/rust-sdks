@@ -5,12 +5,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Dispatcher<T>
 where
     T: Clone,
 {
-    senders: Arc<Mutex<Vec<mpsc::UnboundedSender<T>>>>,
+    senders: Mutex<Vec<mpsc::UnboundedSender<T>>>,
 }
 
 impl<T> Default for Dispatcher<T>

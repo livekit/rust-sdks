@@ -7,7 +7,7 @@ use crate::imp::video_sink as sink_imp;
 pub mod native {
     use super::sink_imp;
     use crate::media_stream::VideoTrack;
-    use crate::video_frame::{BoxVideoFrame};
+    use crate::video_frame::BoxVideoFrame;
     use std::fmt::Debug;
     use std::sync::Arc;
     use tokio::sync::mpsc;

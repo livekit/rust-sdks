@@ -140,7 +140,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
         });
 
         tokio::task::block_in_place(move || loop {
-            // UI/Main Thread
+            // ui/main thread
             event_loop.run(move |event, _, control_flow| {
                 app.update(event, control_flow);
             });

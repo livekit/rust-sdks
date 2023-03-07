@@ -136,6 +136,8 @@ class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
       std::shared_ptr<RTCRuntime> rtc_runtime,
       rust::Box<PeerConnectionObserverWrapper> observer);
 
+  ~NativePeerConnectionObserver();
+
   void OnSignalingChange(
       webrtc::PeerConnectionInterface::SignalingState new_state) override;
 
