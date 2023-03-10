@@ -17,10 +17,12 @@
 #include "livekit/media_stream.h"
 
 #include <algorithm>
+#include <iostream>
 #include <memory>
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
+#include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
 
 namespace livekit {
@@ -243,8 +245,10 @@ AdaptedVideoTrackSource::AdaptedVideoTrackSource(
     : source_(source) {}
 
 bool AdaptedVideoTrackSource::on_captured_frame(
-    std::unique_ptr<VideoFrame> frame) const {
-  return source_->on_captured_frame(frame->get());
+    const std::unique_ptr<VideoFrame>& frame) const {
+  auto rtc_frame = frame->get();
+  rtc_frame.set_timestamp_us(clock_->TimeInMicroseconds());
+  return source_->on_captured_frame(rtc_frame);
 }
 
 rtc::scoped_refptr<NativeVideoTrackSource> AdaptedVideoTrackSource::get()

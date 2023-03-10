@@ -1,24 +1,18 @@
 use crate::proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
-use tracing::{event, Level};
+use tracing::{debug, event, Level};
 
 const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
-pub type OnOfferHandler = Box<
-    dyn (FnMut(SessionDescription) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-        + Send
-        + Sync,
->;
+pub type OnOfferCreated = Box<dyn FnMut(SessionDescription) + Send + Sync>;
 
 pub struct PeerTransport {
     signal_target: proto::SignalTarget,
     peer_connection: PeerConnection,
     pending_candidates: Vec<IceCandidate>,
-    on_offer_handler: Option<OnOfferHandler>,
+    on_offer_handler: Option<OnOfferCreated>,
     renegotiate: bool,
     restarting_ice: bool,
 }
@@ -58,8 +52,8 @@ impl PeerTransport {
         self.signal_target.clone()
     }
 
-    pub fn on_offer(&mut self, handler: OnOfferHandler) {
-        self.on_offer_handler = Some(handler);
+    pub fn on_offer(&mut self, handler: Option<OnOfferCreated>) {
+        self.on_offer_handler = handler;
     }
 
     pub fn prepare_ice_restart(&mut self) {
@@ -161,7 +155,7 @@ impl PeerTransport {
         self.peer_connection
             .set_local_description(offer.clone())
             .await?;
-        self.on_offer_handler.as_mut().unwrap()(offer).await;
+        self.on_offer_handler.as_mut().unwrap()(offer);
         Ok(())
     }
 }

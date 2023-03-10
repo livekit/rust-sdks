@@ -54,5 +54,27 @@ pub mod ffi {
             width: i32,
             height: i32,
         );
+
+        unsafe fn argb_to_i420(
+            src_argb: *const u8,
+            src_stride_argb: i32,
+            dst_y: *mut u8,
+            dst_stride_y: i32,
+            dst_u: *mut u8,
+            dst_stride_u: i32,
+            dst_v: *mut u8,
+            dst_stride_v: i32,
+            width: i32,
+            height: i32,
+        );
+
+        unsafe fn argb_to_rgb24(
+            src_argb: *const u8,
+            src_stride_argb: i32,
+            dst_rgb24: *mut u8,
+            dst_stride_rgb24: i32,
+            width: i32,
+            height: i32,
+        );
     }
 }

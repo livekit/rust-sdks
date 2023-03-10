@@ -187,7 +187,7 @@ webrtc::BiplanarYuv8Buffer* BiplanarYuv8Buffer::buffer() const {
   return static_cast<webrtc::BiplanarYuv8Buffer*>(buffer_.get());
 }
 
-std::unique_ptr<I420Buffer> create_i420_buffer(int width, int height) {
+std::unique_ptr<I420Buffer> new_i420_buffer(int width, int height) {
   return std::make_unique<I420Buffer>(
       webrtc::I420Buffer::Create(width, height));
 }

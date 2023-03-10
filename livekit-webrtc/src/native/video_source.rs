@@ -3,6 +3,7 @@ use cxx::SharedPtr;
 use webrtc_sys::media_stream as ms_sys;
 use webrtc_sys::video_frame as vf_sys;
 
+#[derive(Clone)]
 pub struct NativeVideoSource {
     sys_handle: SharedPtr<ms_sys::ffi::AdaptedVideoTrackSource>,
 }
@@ -20,15 +21,14 @@ impl NativeVideoSource {
         self.sys_handle.clone()
     }
 
-    pub fn capture_frame<T: VideoFrameBuffer>(&self, frame: VideoFrame<T>) {
+    pub fn capture_frame<T: VideoFrameBuffer>(&self, frame: &VideoFrame<T>) {
         let mut builder = vf_sys::ffi::new_video_frame_builder();
-        builder.pin_mut().set_id(frame.id);
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder
             .pin_mut()
             .set_video_frame_buffer(frame.buffer.sys_handle());
 
         let frame = builder.pin_mut().build();
-        self.sys_handle.on_captured_frame(frame);
+        self.sys_handle.on_captured_frame(&frame);
     }
 }

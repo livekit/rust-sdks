@@ -44,4 +44,5 @@ pub mod video_source;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     pub use crate::imp::yuv_helper;
+    pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 }

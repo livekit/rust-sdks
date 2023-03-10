@@ -57,7 +57,7 @@ class VideoFrameBuilder {
   VideoFrameBuilder() = default;
 
   // TODO(theomonnom): other setters?
-  void set_video_frame_buffer(std::unique_ptr<VideoFrameBuffer> buffer);
+  void set_video_frame_buffer(const VideoFrameBuffer& buffer);
   void set_timestamp_us(int64_t timestamp_us);
   void set_rotation(VideoRotation rotation);
   void set_id(uint16_t id);

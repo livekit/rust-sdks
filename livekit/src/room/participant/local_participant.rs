@@ -1,14 +1,15 @@
 use super::{ConnectionQuality, ParticipantInner};
 use crate::options::compute_video_encodings;
+use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::RtcEngine;
-use crate::track::video_layers_from_encodings;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tracing::{debug, trace};
 
 #[derive(Debug, Clone)]
 pub struct LocalParticipant {
@@ -35,7 +36,7 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
-        let tracks = self.inner.tracks.write();
+        /*let tracks = self.inner.tracks.write();
 
         if track.source() != TrackSource::Unknown {
             for publication in tracks.values() {
@@ -47,7 +48,7 @@ impl LocalParticipant {
                     // TODO: Compare
                 }
             }
-        }
+        }*/
 
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
@@ -60,6 +61,7 @@ impl LocalParticipant {
             ..Default::default()
         };
 
+        let mut encodings = Vec::default();
         match &track {
             LocalTrack::Video(video_track) => {
                 // Get the video dimension
@@ -68,15 +70,24 @@ impl LocalParticipant {
                 req.width = capture_options.preset.width;
                 req.height = capture_options.preset.height;
 
-                let encodings = compute_video_encodings(req.width, req.height, &options);
+                encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
             }
             LocalTrack::Audio(_audio_track) => {}
         }
 
         let track_info = self.rtc_engine.add_track(req).await?;
-        let publication = LocalTrackPublication::new(track_info.clone(), track.clone(), options);
+        let publication =
+            LocalTrackPublication::new(track_info.clone(), track.clone(), options.clone());
         track.update_info(track_info); // Update SID
+        trace!("publishing track with cid {:?}", track.rtc_track().id());
+        std::mem::forget(
+            self.rtc_engine
+                .create_sender(track.clone(), options, encodings)
+                .await?,
+        );
+
+        track.start();
 
         tokio::spawn({
             // Renegotiate in background

@@ -3,7 +3,13 @@ use crate::video_renderer::VideoRenderer;
 use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
+use image::ImageFormat;
+use livekit::options::{TrackPublishOptions, VideoCaptureOptions};
 use livekit::prelude::*;
+use livekit::webrtc::native::yuv_helper;
+use livekit::webrtc::video_frame::native::I420BufferExt;
+use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
+use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::SimulateScenario;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -11,6 +17,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
 // Useful default constants for developing
@@ -41,7 +48,6 @@ struct App {
     window: winit::window::Window,
     cmd_tx: mpsc::UnboundedSender<AsyncCmd>,
     cmd_rx: mpsc::UnboundedReceiver<UiCmd>,
-
     // UI State
     lk_url: String,
     lk_token: String,
@@ -300,6 +306,12 @@ impl App {
                         });
                     }
                 });
+
+                ui.menu_button("Publish", |ui| {
+                    if ui.button("CustomTrack - LK Logo").clicked() {
+                        self.publish_track();
+                    }
+                });
             });
         });
 
@@ -456,5 +468,121 @@ impl App {
             &self.egui_context,
             full_output.platform_output,
         );
+    }
+
+    fn publish_track(&self) {
+        let session = {
+            let room = self.state.room.lock();
+            let Some(room) = room.as_ref() else { return; };
+            room.session()
+        };
+
+        tokio::spawn(async move {
+            let source = NativeVideoSource::default();
+            let track = LocalVideoTrack::create_video_track(
+                "livekit_logo",
+                VideoCaptureOptions::default(),
+                source.clone(),
+            );
+
+            session
+                .local_participant()
+                .publish_track(
+                    LocalTrack::Video(track),
+                    TrackPublishOptions {
+                        simulcast: false,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+
+            // Load logo data
+            let image = tokio::task::spawn_blocking(|| {
+                image::load_from_memory_with_format(
+                    include_bytes!("moving-logo.png"),
+                    ImageFormat::Png,
+                )
+                .unwrap()
+                .to_rgb8()
+            })
+            .await
+            .unwrap();
+
+            let logo_width = image.width() as usize;
+            let logo_height = image.height() as usize;
+            let image = image.into_raw();
+
+            // Move the logo
+            const MOVE_SPEED: i32 = 1;
+            const FB_WIDTH: usize = 1280; // The logo can't be bigger
+            const FB_HEIGHT: usize = 720;
+
+            let mut interval = tokio::time::interval(Duration::from_millis(1000 / 30));
+            let (mut dir_x, mut dir_y) = (1i32, 0i32);
+            let (mut x, mut y) = (0u32, 0u32);
+
+            // allocate buffers once
+            let mut framebuffer = vec![0u32; FB_WIDTH * FB_HEIGHT];
+            let mut i420_frame = VideoFrame {
+                rotation: VideoRotation::VideoRotation0,
+                buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
+            };
+
+            loop {
+                interval.tick().await;
+                /*x = (x as i32 + dir_x * MOVE_SPEED) as u32;
+                y = (y as i32 + dir_y * MOVE_SPEED) as u32;
+
+                if x >= (FB_WIDTH - logo_width) as u32 {
+                    dir_x = -1;
+                } else if x <= 0 {
+                    dir_x = 1;
+                }
+
+                if y >= (FB_HEIGHT - logo_height) as u32 {
+                    dir_y = -1;
+                } else if y <= 0 {
+                    dir_y = 1;
+                }
+
+                for i in 0..logo_height {
+                    let row_start = x as usize + (i * FB_WIDTH);
+                    let row_end = row_start + logo_width;
+                    framebuffer[row_start..row_end]
+                        .clone_from_slice(&image[i * logo_width..i * logo_width + logo_width]);
+                }*/
+
+                framebuffer.fill(0xff0000ff);
+
+                let stride_y = i420_frame.buffer.stride_y();
+                let stride_u = i420_frame.buffer.stride_u();
+                let stride_v = i420_frame.buffer.stride_v();
+                let (data_y, data_u, data_v) = i420_frame.buffer.data_mut();
+
+                let u8_slice = unsafe {
+                    std::slice::from_raw_parts(
+                        framebuffer.as_ptr() as *const u8,
+                        FB_HEIGHT * FB_WIDTH * 4,
+                    )
+                };
+
+                yuv_helper::argb_to_i420(
+                    u8_slice,
+                    (FB_WIDTH * 4) as i32,
+                    data_y,
+                    stride_y,
+                    data_u,
+                    stride_u,
+                    data_v,
+                    stride_v,
+                    FB_WIDTH as i32,
+                    FB_HEIGHT as i32,
+                )
+                .unwrap();
+
+                source.capture_frame(&i420_frame);
+            }
+        });
     }
 }

@@ -1,9 +1,9 @@
 use super::peer_transport::PeerTransport;
 use crate::proto;
-use crate::rtc_engine::peer_transport::OnOfferHandler;
+use crate::rtc_engine::peer_transport::OnOfferCreated;
 use livekit_webrtc::{self as rtc, prelude::*};
 use tokio::sync::mpsc;
-use tracing::error;
+use tracing::{debug, error};
 
 pub type RtcEmitter = mpsc::UnboundedSender<RtcEvent>;
 pub type RtcEvents = mpsc::UnboundedReceiver<RtcEvent>;
@@ -22,7 +22,7 @@ pub enum RtcEvent {
         data_channel: DataChannel,
         target: proto::SignalTarget,
     },
-    // TODO (theomonnom): Move Offer to PCTransport
+    // TODO (theomonnom): Move Offer to PeerTransport
     Offer {
         offer: SessionDescription,
         target: proto::SignalTarget,
@@ -64,11 +64,9 @@ fn on_ice_candidate(
     })
 }
 
-fn on_offer(target: proto::SignalTarget, emitter: RtcEmitter) -> OnOfferHandler {
+fn on_offer(target: proto::SignalTarget, emitter: RtcEmitter) -> OnOfferCreated {
     Box::new(move |offer| {
         let _ = emitter.send(RtcEvent::Offer { offer, target });
-
-        Box::pin(async {})
     })
 }
 
@@ -76,7 +74,7 @@ fn on_data_channel(
     target: proto::SignalTarget,
     emitter: RtcEmitter,
 ) -> rtc::peer_connection::OnDataChannel {
-    Box::new(move |mut data_channel| {
+    Box::new(move |data_channel| {
         data_channel.on_message(Some(on_message(emitter.clone())));
 
         let _ = emitter.send(RtcEvent::DataChannel {
@@ -99,7 +97,7 @@ fn on_track(target: proto::SignalTarget, emitter: RtcEmitter) -> rtc::peer_conne
 }
 
 fn on_ice_candidate_error(
-    target: proto::SignalTarget,
+    _target: proto::SignalTarget,
     _emitter: RtcEmitter,
 ) -> rtc::peer_connection::OnIceCandidateError {
     Box::new(move |ice_error| {
@@ -135,7 +133,7 @@ pub fn forward_pc_events(transport: &mut PeerTransport, rtc_emitter: RtcEmitter)
             rtc_emitter.clone(),
         )));
 
-    transport.on_offer(on_offer(transport.signal_target(), rtc_emitter.clone()));
+    transport.on_offer(Some(on_offer(signal_target, rtc_emitter.clone())));
 }
 
 fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {

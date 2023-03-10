@@ -16,6 +16,7 @@
 
 #include "livekit/webrtc.h"
 
+#include "rtc_base/helpers.h"
 #include "rtc_base/logging.h"
 
 namespace livekit {
@@ -56,6 +57,10 @@ rtc::Thread* RTCRuntime::worker_thread() const {
 
 rtc::Thread* RTCRuntime::signaling_thread() const {
   return signaling_thread_.get();
+}
+
+rust::String create_random_uuid() {
+  return rtc::CreateRandomUuid();
 }
 
 std::shared_ptr<RTCRuntime> create_rtc_runtime() {

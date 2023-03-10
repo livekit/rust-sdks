@@ -1,10 +1,11 @@
 use super::TrackInner;
-use crate::options::video_quality_for_rid;
 use crate::proto;
+use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::{options::VideoCaptureOptions, prelude::*};
 use livekit_webrtc as rtc;
+use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 use parking_lot::Mutex;
-use rtc::rtp_parameters::RtpEncodingParameters;
+use rtc::video_source::native::NativeVideoSource;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -21,7 +22,6 @@ pub struct LocalVideoTrack {
 
 impl LocalVideoTrack {
     pub fn new(
-        sid: TrackSid,
         name: String,
         rtc_track: rtc::media_stream::VideoTrack,
         capture_options: VideoCaptureOptions,
@@ -29,7 +29,7 @@ impl LocalVideoTrack {
         Self {
             inner: Arc::new(LocalVideoTrackInner {
                 track_inner: TrackInner::new(
-                    sid,
+                    "unknown".to_string().into(), // sid
                     name,
                     TrackKind::Video,
                     rtc::media_stream::MediaStreamTrack::Video(rtc_track),
@@ -110,34 +110,16 @@ impl LocalVideoTrack {
     }
 }
 
-pub fn video_layers_from_encodings(
-    width: u32,
-    height: u32,
-    encodings: &[RtpEncodingParameters],
-) -> Vec<proto::VideoLayer> {
-    if encodings.is_empty() {
-        return vec![proto::VideoLayer {
-            quality: proto::VideoQuality::High as i32,
-            width,
-            height,
-            bitrate: 0,
-            ssrc: 0,
-        }];
+impl LocalVideoTrack {
+    pub fn create_video_track(
+        name: &str,
+        options: VideoCaptureOptions,
+        source: NativeVideoSource,
+    ) -> LocalVideoTrack {
+        let rtc_track = LkRuntime::instance()
+            .pc_factory
+            .create_video_track(&rtc::native::create_random_uuid(), source);
+
+        Self::new(name.to_string(), rtc_track, options)
     }
-
-    let mut layers = Vec::with_capacity(encodings.len());
-    for encoding in encodings {
-        let scale = encoding.scale_resolution_down_by.unwrap_or(1.0);
-        let quality = video_quality_for_rid(&encoding.rid).unwrap_or(proto::VideoQuality::High);
-
-        layers.push(proto::VideoLayer {
-            quality: quality as i32,
-            width: (width as f64 / scale) as u32,
-            height: (height as f64 / scale) as u32,
-            bitrate: encoding.max_bitrate.unwrap_or(0) as u32,
-            ssrc: 0,
-        });
-    }
-
-    layers
 }

@@ -33,8 +33,9 @@ pub mod ffi {
 
     unsafe extern "C++" {
         include!("livekit/webrtc.h");
-
         type RTCRuntime;
+
+        fn create_random_uuid() -> String;
 
         fn create_rtc_runtime() -> SharedPtr<RTCRuntime>;
     }

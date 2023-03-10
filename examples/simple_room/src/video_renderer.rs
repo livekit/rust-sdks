@@ -1,7 +1,7 @@
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::VideoTrack;
 use livekit::webrtc::video_frame::native::VideoFrameBufferExt;
-use livekit::webrtc::video_frame::{PlanarYuv8Buffer, PlanarYuvBuffer, VideoFrameBuffer};
+use livekit::webrtc::video_frame::VideoFrameBuffer;
 use livekit::webrtc::video_sink::native::NativeVideoSink;
 use std::num::NonZeroU32;
 use std::{
@@ -122,12 +122,14 @@ impl VideoRenderer {
                         let rgba_ptr = internal.rgba_data.deref_mut();
                         let rgba_stride = buffer.width() * 4;
 
+                        let (data_y, data_u, data_v) = buffer.data();
+
                         yuv_helper::i420_to_abgr(
-                            buffer.data_y(),
+                            data_y,
                             buffer.stride_y(),
-                            buffer.data_u(),
+                            data_u,
                             buffer.stride_u(),
-                            buffer.data_v(),
+                            data_v,
                             buffer.stride_v(),
                             rgba_ptr,
                             rgba_stride,

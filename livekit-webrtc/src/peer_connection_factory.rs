@@ -1,5 +1,4 @@
 use crate::imp::peer_connection_factory as imp_pcf;
-use crate::media_stream::VideoTrack;
 use crate::peer_connection::PeerConnection;
 use crate::RtcError;
 use std::fmt::Debug;

@@ -132,7 +132,7 @@ pub fn compute_video_encodings(
     };
 
     if !options.simulcast {
-        return vec![];
+        return into_rtp_encodings(width, height, &[initial_preset]);
     }
 
     let mut simulcast_presets =
@@ -248,6 +248,38 @@ pub fn video_quality_for_rid(rid: &str) -> Option<proto::VideoQuality> {
         "q" => Some(proto::VideoQuality::Low),
         _ => None,
     }
+}
+
+pub fn video_layers_from_encodings(
+    width: u32,
+    height: u32,
+    encodings: &[RtpEncodingParameters],
+) -> Vec<proto::VideoLayer> {
+    if encodings.is_empty() {
+        return vec![proto::VideoLayer {
+            quality: proto::VideoQuality::High as i32,
+            width,
+            height,
+            bitrate: 0,
+            ssrc: 0,
+        }];
+    }
+
+    let mut layers = Vec::with_capacity(encodings.len());
+    for encoding in encodings {
+        let scale = encoding.scale_resolution_down_by.unwrap_or(1.0);
+        let quality = video_quality_for_rid(&encoding.rid).unwrap_or(proto::VideoQuality::High);
+
+        layers.push(proto::VideoLayer {
+            quality: quality as i32,
+            width: (width as f64 / scale) as u32,
+            height: (height as f64 / scale) as u32,
+            bitrate: encoding.max_bitrate.unwrap_or(0) as u32,
+            ssrc: 0,
+        });
+    }
+
+    layers
 }
 
 const VIDEO_RIDS: &[char] = &['q', 'h', 'f'];

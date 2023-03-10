@@ -26,6 +26,7 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
+#include "system_wrappers/include/clock.h"
 
 namespace livekit {
 class MediaStream;
@@ -144,12 +145,13 @@ class AdaptedVideoTrackSource {
  public:
   AdaptedVideoTrackSource(rtc::scoped_refptr<NativeVideoTrackSource> source);
 
-  bool on_captured_frame(std::unique_ptr<VideoFrame> frame)
+  bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame)
       const;  // frames pushed from Rust (+interior mutability)
 
   rtc::scoped_refptr<NativeVideoTrackSource> get() const;
 
  private:
+  webrtc::Clock* clock_ = webrtc::Clock::GetRealTimeClock();
   rtc::scoped_refptr<NativeVideoTrackSource> source_;
 };
 

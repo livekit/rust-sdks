@@ -132,7 +132,7 @@ class BiplanarYuv8Buffer : public BiplanarYuvBuffer {
   webrtc::BiplanarYuv8Buffer* buffer() const;
 };
 
-std::unique_ptr<I420Buffer> create_i420_buffer(int width, int height);
+std::unique_ptr<I420Buffer> new_i420_buffer(int width, int height);
 std::unique_ptr<I420Buffer> copy_i420_buffer(
     const std::unique_ptr<I420Buffer>& i420);
 

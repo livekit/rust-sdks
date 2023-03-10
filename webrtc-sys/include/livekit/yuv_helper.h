@@ -79,4 +79,28 @@ static void i420_to_rgba(const uint8_t* src_y,
                      src_stride_v, dst_rgba, dst_stride_rgba, width, height);
 }
 
+static void argb_to_i420(const uint8_t* src_argb,
+                         int src_stride_argb,
+                         uint8_t* dst_y,
+                         int dst_stride_y,
+                         uint8_t* dst_u,
+                         int dst_stride_u,
+                         uint8_t* dst_v,
+                         int dst_stride_v,
+                         int width,
+                         int height) {
+  libyuv::ARGBToI420(src_argb, src_stride_argb, dst_y, dst_stride_y, dst_u,
+                     dst_stride_u, dst_v, dst_stride_v, width, height);
+}
+
+static void argb_to_rgb24(const uint8_t* src_argb,
+                          int src_stride_argb,
+                          uint8_t* dst_rgb24,
+                          int dst_stride_rgb24,
+                          int width,
+                          int height) {
+  libyuv::ARGBToRGB24(src_argb, src_stride_argb, dst_rgb24, dst_stride_rgb24,
+                      width, height);
+}
+
 }  // namespace livekit

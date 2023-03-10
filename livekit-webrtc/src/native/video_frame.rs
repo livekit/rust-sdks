@@ -88,17 +88,46 @@ macro_rules! recursive_cast {
     };
 }
 
+pub struct NativeBuffer {
+    sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
+}
+
+pub struct I420Buffer {
+    sys_handle: UniquePtr<vfb_sys::ffi::I420Buffer>,
+}
+
+pub struct I420ABuffer {
+    sys_handle: UniquePtr<vfb_sys::ffi::I420ABuffer>,
+}
+
+pub struct I422Buffer {
+    sys_handle: UniquePtr<vfb_sys::ffi::I422Buffer>,
+}
+
+pub struct I444Buffer {
+    sys_handle: UniquePtr<vfb_sys::ffi::I444Buffer>,
+}
+
+pub struct I010Buffer {
+    sys_handle: UniquePtr<vfb_sys::ffi::I010Buffer>,
+}
+
+pub struct NV12Buffer {
+    sys_handle: UniquePtr<vfb_sys::ffi::NV12Buffer>,
+}
+
 macro_rules! impl_to_argb {
     (I420Buffer [$($variant:ident: $fnc:ident),+], $format:ident, $self:ident, $dst:ident, $dst_stride:ident, $dst_width:ident, $dst_height:ident) => {
         match $format {
         $(
             VideoFormatType::$variant => {
+                let (data_y, data_u, data_v) = $self.data();
                 yuv_helper::$fnc(
-                    $self.data_y(),
+                    data_y,
                     $self.stride_y(),
-                    $self.data_u(),
+                    data_u,
                     $self.stride_u(),
-                    $self.data_v(),
+                    data_v,
                     $self.stride_v(),
                     $dst,
                     $dst_stride,
@@ -114,109 +143,23 @@ macro_rules! impl_to_argb {
     }
 }
 
-macro_rules! impl_vfb_buffer {
-    ($($cast:ident),*) => {
-        pub fn sys_handle(self) -> UniquePtr<vfb_sys::ffi::VideoFrameBuffer> {
-            unsafe {
-                let ptr = recursive_cast!(self.sys_handle.into_raw() $(, $cast)*);
-                UniquePtr::from_raw(ptr as *mut _)
-            }
-        }
-
-        pub fn width(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).width()
-            }
-        }
-
-        pub fn height(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).height()
-            }
-        }
-    };
-}
-
-macro_rules! impl_yuv_buffer {
-    ($($cast:ident),*) => {
-        pub fn chroma_width(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).chroma_width()
-            }
-        }
-
-        pub fn chroma_height(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).chroma_height()
-            }
-        }
-
-        pub fn stride_y(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).stride_y()
-            }
-        }
-
-        pub fn stride_u(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).stride_u()
-            }
-        }
-
-        pub fn stride_v(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).stride_v()
-            }
-        }
-    };
-}
-
 macro_rules! impl_biyuv_buffer {
-    ($($cast:ident),*) => {
-        pub fn chroma_width(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).chroma_width()
-            }
-        }
-
-        pub fn chroma_height(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).chroma_height()
-            }
-        }
-
-        pub fn stride_y(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).stride_y()
-            }
-        }
-
-        pub fn stride_uv(&self) -> i32 {
-            unsafe {
-                let ptr = recursive_cast!(&*self.sys_handle $(, $cast)*);
-                (*ptr).stride_uv()
-            }
-        }
-    };
-}
-
-pub struct NativeBuffer {
-    sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
+    ($($cast:ident),*) => {};
 }
 
 #[allow(unused_unsafe)]
 impl NativeBuffer {
-    impl_vfb_buffer!();
+    pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
+        &*self.sys_handle
+    }
+
+    pub fn width(&self) -> i32 {
+        self.sys_handle.width()
+    }
+
+    pub fn height(&self) -> i32 {
+        self.sys_handle.height()
+    }
 
     pub fn to_i420(&self) -> I420Buffer {
         I420Buffer {
@@ -237,13 +180,70 @@ impl NativeBuffer {
     }
 }
 
-pub struct I420Buffer {
-    sys_handle: UniquePtr<vfb_sys::ffi::I420Buffer>,
-}
-
 impl I420Buffer {
-    impl_vfb_buffer!(i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
-    impl_yuv_buffer!(i420_to_yuv8, yuv8_to_yuv);
+    pub fn new(width: u32, height: u32) -> vf::I420Buffer {
+        vf::I420Buffer {
+            handle: I420Buffer {
+                sys_handle: vfb_sys::ffi::new_i420_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
+    pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
+        unsafe { &*recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
+    }
+
+    pub fn width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+            (*ptr).width()
+        }
+    }
+
+    pub fn height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+            (*ptr).height()
+        }
+    }
+
+    pub fn chroma_width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
+            (*ptr).chroma_width()
+        }
+    }
+
+    pub fn chroma_height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
+            (*ptr).chroma_height()
+        }
+    }
+
+    pub fn stride_y(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_y()
+        }
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_u()
+        }
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_v()
+        }
+    }
 
     pub fn to_i420(&self) -> I420Buffer {
         I420Buffer {
@@ -278,53 +278,75 @@ impl I420Buffer {
         )
     }
 
-    pub fn data_y(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8);
-            slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize)
-        }
-    }
-
-    pub fn data_u(&self) -> &[u8] {
+    pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8);
             let chroma_height = (self.height() + 1) / 2;
-            slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * chroma_height) as usize)
+            (
+                slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize),
+                slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * chroma_height) as usize),
+                slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * chroma_height) as usize),
+            )
         }
     }
-
-    pub fn data_v(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8);
-            let chroma_height = (self.height() + 1) / 2;
-            slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * chroma_height) as usize)
-        }
-    }
-}
-
-pub struct I420ABuffer {
-    sys_handle: UniquePtr<vfb_sys::ffi::I420ABuffer>,
 }
 
 impl I420ABuffer {
-    impl_vfb_buffer!(i420a_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
-    impl_yuv_buffer!(i420a_to_yuv8, yuv8_to_yuv);
+    pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
+        unsafe { &*recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
+    }
+
+    pub fn width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+            (*ptr).width()
+        }
+    }
+
+    pub fn height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+            (*ptr).height()
+        }
+    }
+
+    pub fn chroma_width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
+            (*ptr).chroma_width()
+        }
+    }
+
+    pub fn chroma_height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
+            (*ptr).chroma_height()
+        }
+    }
+
+    pub fn stride_y(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_y()
+        }
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_u()
+        }
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_v()
+        }
+    }
 
     pub fn stride_a(&self) -> i32 {
         self.sys_handle.stride_a()
-    }
-
-    pub fn data_a(&self) -> Option<&[u8]> {
-        unsafe {
-            let data_a = self.sys_handle.data_a();
-            if data_a.is_null() {
-                return None;
-            }
-            Some(slice::from_raw_parts(
-                data_a,
-                (self.stride_a() * self.height()) as usize,
-            ))
-        }
     }
 
     pub fn to_i420(&self) -> I420Buffer {
@@ -349,37 +371,78 @@ impl I420ABuffer {
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 
-    pub fn data_y(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8);
-            slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize)
-        }
-    }
-
-    pub fn data_u(&self) -> &[u8] {
+    pub fn data(&self) -> (&[u8], &[u8], &[u8], Option<&[u8]>) {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8);
             let chroma_height = (self.height() + 1) / 2;
-            slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * chroma_height) as usize)
+            let data_a = self.sys_handle.data_a();
+            let has_data_a = !data_a.is_null();
+            (
+                slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize),
+                slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * chroma_height) as usize),
+                slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * chroma_height) as usize),
+                has_data_a.then_some(slice::from_raw_parts(
+                    data_a,
+                    (self.stride_a() * self.height()) as usize,
+                )),
+            )
         }
     }
-
-    pub fn data_v(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8);
-            let chroma_height = (self.height() + 1) / 2;
-            slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * chroma_height) as usize)
-        }
-    }
-}
-
-pub struct I422Buffer {
-    sys_handle: UniquePtr<vfb_sys::ffi::I422Buffer>,
 }
 
 impl I422Buffer {
-    impl_vfb_buffer!(i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
-    impl_yuv_buffer!(i422_to_yuv8, yuv8_to_yuv);
+    pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
+        unsafe { &*recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
+    }
+
+    pub fn width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+            (*ptr).width()
+        }
+    }
+
+    pub fn height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+            (*ptr).height()
+        }
+    }
+
+    pub fn chroma_width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
+            (*ptr).chroma_width()
+        }
+    }
+
+    pub fn chroma_height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
+            (*ptr).chroma_height()
+        }
+    }
+
+    pub fn stride_y(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_y()
+        }
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_u()
+        }
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_v()
+        }
+    }
 
     pub fn to_i420(&self) -> I420Buffer {
         I420Buffer {
@@ -402,35 +465,70 @@ impl I422Buffer {
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 
-    pub fn data_y(&self) -> &[u8] {
+    pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8);
-            slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize)
-        }
-    }
-
-    pub fn data_u(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8);
-            slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * self.height()) as usize)
-        }
-    }
-
-    pub fn data_v(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8);
-            slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * self.height()) as usize)
+            (
+                slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize),
+                slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * self.height()) as usize),
+                slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * self.height()) as usize),
+            )
         }
     }
 }
-
-pub struct I444Buffer {
-    sys_handle: UniquePtr<vfb_sys::ffi::I444Buffer>,
-}
-
 impl I444Buffer {
-    impl_vfb_buffer!(i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
-    impl_yuv_buffer!(i444_to_yuv8, yuv8_to_yuv);
+    pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
+        unsafe { &*recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
+    }
+
+    pub fn width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+            (*ptr).width()
+        }
+    }
+
+    pub fn height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
+            (*ptr).height()
+        }
+    }
+
+    pub fn chroma_width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
+            (*ptr).chroma_width()
+        }
+    }
+
+    pub fn chroma_height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
+            (*ptr).chroma_height()
+        }
+    }
+
+    pub fn stride_y(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_y()
+        }
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_u()
+        }
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
+            (*ptr).stride_v()
+        }
+    }
 
     pub fn to_i420(&self) -> I420Buffer {
         I420Buffer {
@@ -453,35 +551,71 @@ impl I444Buffer {
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 
-    pub fn data_y(&self) -> &[u8] {
+    pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8);
-            slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize)
+            (
+                slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize),
+                slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * self.height()) as usize),
+                slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * self.height()) as usize),
+            )
         }
     }
-
-    pub fn data_u(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8);
-            slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * self.height()) as usize)
-        }
-    }
-
-    pub fn data_v(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8);
-            slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * self.height()) as usize)
-        }
-    }
-}
-
-pub struct I010Buffer {
-    sys_handle: UniquePtr<vfb_sys::ffi::I010Buffer>,
 }
 
 impl I010Buffer {
-    impl_vfb_buffer!(i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb);
-    impl_yuv_buffer!(i010_to_yuv16b, yuv16b_to_yuv);
+    pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
+        unsafe { &*recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb) }
+    }
+
+    pub fn width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb);
+            (*ptr).width()
+        }
+    }
+
+    pub fn height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb);
+            (*ptr).height()
+        }
+    }
+
+    pub fn chroma_width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
+            (*ptr).chroma_width()
+        }
+    }
+
+    pub fn chroma_height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
+            (*ptr).chroma_height()
+        }
+    }
+
+    pub fn stride_y(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
+            (*ptr).stride_y()
+        }
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
+            (*ptr).stride_u()
+        }
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
+            (*ptr).stride_v()
+        }
+    }
 
     pub fn to_i420(&self) -> I420Buffer {
         I420Buffer {
@@ -505,46 +639,91 @@ impl I010Buffer {
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 
-    pub fn data_y(&self) -> &[u16] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b);
-            slice::from_raw_parts(
-                (*ptr).data_y(),
-                (self.stride_y() * self.height()) as usize / 2,
-            )
-        }
-    }
-
-    pub fn data_u(&self) -> &[u16] {
+    pub fn data(&self) -> (&[u16], &[u16], &[u16]) {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b);
             let chroma_height = (self.height() + 1) / 2;
-            slice::from_raw_parts(
-                (*ptr).data_u(),
-                (self.stride_u() * chroma_height) as usize / 2,
+            (
+                slice::from_raw_parts(
+                    (*ptr).data_y(),
+                    (self.stride_y() * self.height()) as usize / 2,
+                ),
+                slice::from_raw_parts(
+                    (*ptr).data_u(),
+                    (self.stride_u() * chroma_height) as usize / 2,
+                ),
+                slice::from_raw_parts(
+                    (*ptr).data_v(),
+                    (self.stride_v() * chroma_height) as usize / 2,
+                ),
             )
         }
     }
-
-    pub fn data_v(&self) -> &[u16] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b);
-            let chroma_height = (self.height() + 1) / 2;
-            slice::from_raw_parts(
-                (*ptr).data_v(),
-                (self.stride_v() * chroma_height) as usize / 2,
-            )
-        }
-    }
-}
-
-pub struct NV12Buffer {
-    sys_handle: UniquePtr<vfb_sys::ffi::NV12Buffer>,
 }
 
 impl NV12Buffer {
-    impl_vfb_buffer!(nv12_to_biyuv8, biyuv8_to_biyuv, biyuv_to_vfb);
-    impl_biyuv_buffer!(nv12_to_biyuv8, biyuv8_to_biyuv);
+    pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
+        unsafe {
+            &*recursive_cast!(
+                &*self.sys_handle,
+                nv12_to_biyuv8,
+                biyuv8_to_biyuv,
+                biyuv_to_vfb
+            )
+        }
+    }
+
+    pub fn width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(
+                &*self.sys_handle,
+                nv12_to_biyuv8,
+                biyuv8_to_biyuv,
+                biyuv_to_vfb
+            );
+            (*ptr).width()
+        }
+    }
+
+    pub fn height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(
+                &*self.sys_handle,
+                nv12_to_biyuv8,
+                biyuv8_to_biyuv,
+                biyuv_to_vfb
+            );
+            (*ptr).height()
+        }
+    }
+
+    pub fn chroma_width(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8, biyuv8_to_biyuv);
+            (*ptr).chroma_width()
+        }
+    }
+
+    pub fn chroma_height(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8, biyuv8_to_biyuv);
+            (*ptr).chroma_height()
+        }
+    }
+
+    pub fn stride_y(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8, biyuv8_to_biyuv);
+            (*ptr).stride_y()
+        }
+    }
+
+    pub fn stride_uv(&self) -> i32 {
+        unsafe {
+            let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8, biyuv8_to_biyuv);
+            (*ptr).stride_uv()
+        }
+    }
 
     pub fn to_i420(&self) -> I420Buffer {
         I420Buffer {
@@ -572,20 +751,17 @@ impl NV12Buffer {
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 
-    pub fn data_y(&self) -> &[u8] {
-        unsafe {
-            let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8);
-            slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize)
-        }
-    }
-
-    pub fn data_uv(&self) -> &[u8] {
+    pub fn data(&self) -> (&[u8], &[u8]) {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8);
             let chroma_height = (self.height() + 1) / 2;
-            slice::from_raw_parts(
-                (*ptr).data_uv(),
-                (self.stride_uv() * chroma_height) as usize,
+
+            (
+                slice::from_raw_parts((*ptr).data_y(), (self.stride_y() * self.height()) as usize),
+                slice::from_raw_parts(
+                    (*ptr).data_uv(),
+                    (self.stride_uv() * chroma_height) as usize,
+                ),
             )
         }
     }

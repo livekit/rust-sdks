@@ -73,7 +73,8 @@ pub mod ffi {
             observer: Box<VideoFrameSinkWrapper>,
         ) -> UniquePtr<NativeVideoFrameSink>;
 
-        fn on_captured_frame(self: &AdaptedVideoTrackSource, frame: UniquePtr<VideoFrame>) -> bool;
+        fn on_captured_frame(self: &AdaptedVideoTrackSource, frame: &UniquePtr<VideoFrame>)
+            -> bool;
 
         fn new_adapted_video_track_source() -> SharedPtr<AdaptedVideoTrackSource>;
 
@@ -105,6 +106,7 @@ impl_thread_safety!(ffi::MediaStream, Send + Sync);
 impl_thread_safety!(ffi::AudioTrack, Send + Sync);
 impl_thread_safety!(ffi::VideoTrack, Send + Sync);
 impl_thread_safety!(ffi::NativeVideoFrameSink, Send + Sync);
+impl_thread_safety!(ffi::AdaptedVideoTrackSource, Send + Sync);
 
 pub trait VideoFrameSink: Send {
     fn on_frame(&self, frame: UniquePtr<VideoFrame>);

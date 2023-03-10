@@ -1,14 +1,12 @@
+use crate::options::TrackPublishOptions;
+use crate::prelude::LocalTrack;
 use crate::proto;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents, SessionInfo};
 use crate::signal_client::{SignalError, SignalOptions};
-use lazy_static::lazy_static;
 use livekit_webrtc::prelude::*;
 use livekit_webrtc::session_description::SdpParseError;
 use parking_lot::Mutex;
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -19,7 +17,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{interval, Interval};
 use tracing::{error, info, warn};
 
-mod lk_runtime;
+pub mod lk_runtime;
 mod peer_transport;
 mod rtc_events;
 mod rtc_session;
@@ -91,10 +89,6 @@ pub enum EngineEvent {
 pub const RECONNECT_ATTEMPTS: u32 = 10;
 pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 
-lazy_static! {
-    // Share one LKRuntime across all RTCEngine instances
-    static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
-}
 ///
 /// Represents a running RTCSession with the ability to close the session
 /// and the engine_task
@@ -126,20 +120,9 @@ pub struct RtcEngine {
 
 impl RtcEngine {
     pub fn new() -> (Self, EngineEvents) {
-        let lk_runtime = {
-            let mut lk_runtime_ref = LK_RUNTIME.lock();
-            if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
-                lk_runtime
-            } else {
-                let new_runtime = Arc::new(LkRuntime::default());
-                *lk_runtime_ref = Arc::downgrade(&new_runtime);
-                new_runtime
-            }
-        };
-
         let (engine_emitter, engine_events) = mpsc::channel(8);
         let inner = Arc::new(EngineInner {
-            lk_runtime,
+            lk_runtime: LkRuntime::instance(),
             session_info: Default::default(),
             running_handle: Default::default(),
             opened: Default::default(),
@@ -150,6 +133,10 @@ impl RtcEngine {
         });
 
         (Self { inner }, engine_events)
+    }
+
+    pub(crate) fn lk_runtime(&self) -> Arc<LkRuntime> {
+        self.inner.lk_runtime.clone()
     }
 
     #[tracing::instrument]
@@ -209,6 +196,24 @@ impl RtcEngine {
             .unwrap()
             .session
             .add_track(req)
+            .await
+    }
+
+    pub async fn create_sender(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+        encodings: Vec<RtpEncodingParameters>,
+    ) -> EngineResult<RtpTransceiver> {
+        self.inner.wait_reconnection().await?;
+        self.inner
+            .running_handle
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .session
+            .create_sender(track, options, encodings)
             .await
     }
 

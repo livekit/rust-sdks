@@ -243,6 +243,16 @@ impl RtcSession {
     }
 
     #[inline]
+    pub async fn create_sender(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+        encodings: Vec<RtpEncodingParameters>,
+    ) -> EngineResult<RtpTransceiver> {
+        self.inner.create_sender(track, options, encodings).await
+    }
+
+    #[inline]
     pub async fn negotiate_publisher(&self) -> EngineResult<()> {
         self.inner.negotiate_publisher().await
     }
@@ -416,7 +426,7 @@ impl SessionInner {
                     IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)?
                 };
 
-                trace!("received ice_candidate {:?} {:?}", target, ice_candidate);
+                debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
 
                 if target == proto::SignalTarget::Publisher {
                     self.publisher_pc
@@ -489,7 +499,7 @@ impl SessionInner {
                     .await;
             }
             RtcEvent::ConnectionChange { state, target } => {
-                trace!("connection change, {:?} {:?}", state, target);
+                debug!("connection change, {:?} {:?}", state, target);
                 let is_primary = self.info.join_response.subscriber_primary
                     && target == proto::SignalTarget::Subscriber;
 
@@ -521,6 +531,7 @@ impl SessionInner {
             }
             RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
+                debug!("sending publisher offer: {:?}", offer);
                 self.signal_client
                     .send(proto::signal_request::Message::Offer(
                         proto::SessionDescription {
@@ -534,7 +545,7 @@ impl SessionInner {
                 receiver,
                 mut streams,
                 track,
-                transceiver,
+                transceiver: _,
                 target: _,
             } => {
                 if !streams.is_empty() {
@@ -607,18 +618,21 @@ impl SessionInner {
         track: LocalTrack,
         options: TrackPublishOptions,
         encodings: Vec<RtpEncodingParameters>,
-    ) -> Result<RtpTransceiver, RtcError> {
+    ) -> EngineResult<RtpTransceiver> {
         let init = RtpTransceiverInit {
             direction: RtpTransceiverDirection::SendOnly,
             stream_ids: Default::default(),
             send_encodings: encodings,
         };
 
-        self.publisher_pc
+        let transceiver = self
+            .publisher_pc
             .lock()
             .await
             .peer_connection()
-            .add_transceiver(track.rtc_track(), init)
+            .add_transceiver(track.rtc_track(), init)?;
+
+        Ok(transceiver)
 
         // TODO(theomonnom): set_preferred_codecs
     }

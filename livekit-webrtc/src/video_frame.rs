@@ -1,6 +1,5 @@
 use crate::imp::video_frame as vf_imp;
 use std::fmt::Debug;
-
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -30,20 +29,78 @@ pub struct VideoFrame<T>
 where
     T: VideoFrameBuffer,
 {
-    pub id: u16,
     pub rotation: VideoRotation,
     pub buffer: T,
 }
 
 pub type BoxVideoFrame = VideoFrame<Box<dyn VideoFrameBuffer + Send + Sync>>;
 
+macro_rules! new_buffer_type {
+    ($x:ident) => {
+        pub struct $x {
+            pub(crate) handle: vf_imp::$x,
+        }
+
+        impl $crate::video_frame::internal::BufferInternal for $x {
+            #[cfg(not(target_arch = "wasm32"))]
+            fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer {
+                self.handle.sys_handle()
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            fn to_i420(&self) -> I420Buffer {
+                I420Buffer {
+                    handle: self.handle.to_i420(),
+                }
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            fn to_argb(
+                &self,
+                format: VideoFormatType,
+                dst: &mut [u8],
+                stride: i32,
+                width: i32,
+                height: i32,
+            ) -> Result<(), $crate::video_frame::native::ConvertError> {
+                self.handle.to_argb(format, dst, stride, width, height)
+            }
+        }
+
+        impl VideoFrameBuffer for $x {
+            fn width(&self) -> i32 {
+                self.handle.width()
+            }
+
+            fn height(&self) -> i32 {
+                self.handle.height()
+            }
+        }
+
+        impl Debug for $x {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct(stringify!($x))
+                    .field("width", &self.width())
+                    .field("height", &self.height())
+                    .finish()
+            }
+        }
+    };
+}
+
+new_buffer_type!(I420Buffer);
+new_buffer_type!(I420ABuffer);
+new_buffer_type!(I422Buffer);
+new_buffer_type!(I444Buffer);
+new_buffer_type!(I010Buffer);
+new_buffer_type!(NV12Buffer);
+
 pub(crate) mod internal {
     use super::{I420Buffer, VideoFormatType};
-    use cxx::UniquePtr;
 
-    pub trait VideoFrameBufferInternal {
+    pub trait BufferInternal {
         #[cfg(not(target_arch = "wasm32"))]
-        fn sys_handle(self) -> UniquePtr<webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer>;
+        fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer;
 
         #[cfg(not(target_arch = "wasm32"))]
         fn to_i420(&self) -> I420Buffer;
@@ -60,314 +117,226 @@ pub(crate) mod internal {
     }
 }
 
-pub trait VideoFrameBuffer: internal::VideoFrameBufferInternal+ Debug {
+pub trait VideoFrameBuffer: internal::BufferInternal + Debug {
     fn width(&self) -> i32;
     fn height(&self) -> i32;
 }
 
-pub trait PlanarYuvBuffer: VideoFrameBuffer {
-    fn chroma_width(&self) -> i32;
-    fn chroma_height(&self) -> i32;
-    fn stride_y(&self) -> i32;
-    fn stride_u(&self) -> i32;
-    fn stride_v(&self) -> i32;
-}
+impl I420Buffer {
+    pub fn chroma_width(&self) -> i32 {
+        self.handle.chroma_width()
+    }
 
-pub trait PlanarYuv8Buffer: PlanarYuvBuffer {
-    fn data_y(&self) -> &[u8];
-    fn data_u(&self) -> &[u8];
-    fn data_v(&self) -> &[u8];
-}
+    pub fn chroma_height(&self) -> i32 {
+        self.handle.chroma_height()
+    }
 
-pub trait PlanarYuv16BBuffer: PlanarYuvBuffer {
-    fn data_y(&self) -> &[u16];
-    fn data_u(&self) -> &[u16];
-    fn data_v(&self) -> &[u16];
-}
+    pub fn stride_y(&self) -> i32 {
+        self.handle.stride_y()
+    }
 
-pub trait BiplanarYuvBuffer: VideoFrameBuffer {
-    fn chroma_width(&self) -> i32;
-    fn chroma_height(&self) -> i32;
-    fn stride_y(&self) -> i32;
-    fn stride_uv(&self) -> i32;
-}
+    pub fn stride_u(&self) -> i32 {
+        self.handle.stride_u()
+    }
 
-pub trait BiplanarYuv8Buffer: BiplanarYuvBuffer {
-    fn data_y(&self) -> &[u8];
-    fn data_uv(&self) -> &[u8];
-}
+    pub fn stride_v(&self) -> i32 {
+        self.handle.stride_v()
+    }
 
-macro_rules! impl_video_frame_buffer_internal {
-    ($x:ty) => {
-        impl crate::video_frame::internal::VideoFrameBufferInternal for $x {
-            #[cfg(not(target_arch = "wasm32"))]
-            fn sys_handle(
-                self,
-            ) -> cxx::UniquePtr<webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer> {
-                self.handle.sys_handle()
-            }
+    pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
+        self.handle.data()
+    }
 
-            #[cfg(not(target_arch = "wasm32"))]
-            fn to_i420(&self) -> I420Buffer {
-                I420Buffer {
-                    handle: self.handle.to_i420(),
-                }
-            }
-
-            #[cfg(not(target_arch = "wasm32"))]
-            fn to_argb(
-                &self,
-                format: VideoFormatType,
-                dst: &mut [u8],
-                dst_stride: i32,
-                dst_width: i32,
-                dst_height: i32,
-            ) -> Result<(), crate::video_frame::native::ConvertError> {
-                self.handle
-                    .to_argb(format, dst, dst_stride, dst_width, dst_height)
-            }
+    pub fn data_mut(&mut self) -> (&mut [u8], &mut [u8], &mut [u8]) {
+        let (data_y, data_u, data_v) = self.handle.data();
+        unsafe {
+            (
+                std::slice::from_raw_parts_mut(data_y.as_ptr() as *mut u8, data_y.len()),
+                std::slice::from_raw_parts_mut(data_u.as_ptr() as *mut u8, data_u.len()),
+                std::slice::from_raw_parts_mut(data_v.as_ptr() as *mut u8, data_v.len()),
+            )
         }
-    };
-}
-
-macro_rules! impl_video_frame_buffer {
-    ($x:ty) => {
-        impl VideoFrameBuffer for $x {
-            fn width(&self) -> i32 {
-                self.handle.width()
-            }
-
-            fn height(&self) -> i32 {
-                self.handle.height()
-            }
-        }
-    };
-}
-
-macro_rules! impl_planar_yuv_buffer {
-    ($x:ty) => {
-        impl PlanarYuvBuffer for $x {
-            fn chroma_width(&self) -> i32 {
-                self.handle.chroma_width()
-            }
-
-            fn chroma_height(&self) -> i32 {
-                self.handle.chroma_height()
-            }
-
-            fn stride_y(&self) -> i32 {
-                self.handle.stride_y()
-            }
-
-            fn stride_u(&self) -> i32 {
-                self.handle.stride_u()
-            }
-
-            fn stride_v(&self) -> i32 {
-                self.handle.stride_v()
-            }
-        }
-    };
-}
-
-macro_rules! impl_planar_yuv8_buffer {
-    ($x:ty) => {
-        impl PlanarYuv8Buffer for $x {
-            fn data_y(&self) -> &[u8] {
-                self.handle.data_y()
-            }
-
-            fn data_u(&self) -> &[u8] {
-                self.handle.data_u()
-            }
-
-            fn data_v(&self) -> &[u8] {
-                self.handle.data_v()
-            }
-        }
-    };
-}
-
-macro_rules! impl_planar_yuv16b_buffer {
-    ($x:ty) => {
-        impl PlanarYuv16BBuffer for $x {
-            fn data_y(&self) -> &[u16] {
-                self.handle.data_y()
-            }
-
-            fn data_u(&self) -> &[u16] {
-                self.handle.data_u()
-            }
-
-            fn data_v(&self) -> &[u16] {
-                self.handle.data_v()
-            }
-        }
-    };
-}
-
-macro_rules! impl_biplanar_yuv_buffer {
-    ($x:ty) => {
-        impl BiplanarYuvBuffer for $x {
-            fn chroma_width(&self) -> i32 {
-                self.handle.chroma_width()
-            }
-
-            fn chroma_height(&self) -> i32 {
-                self.handle.chroma_height()
-            }
-
-            fn stride_y(&self) -> i32 {
-                self.handle.stride_y()
-            }
-
-            fn stride_uv(&self) -> i32 {
-                self.handle.stride_uv()
-            }
-        }
-    };
-}
-
-macro_rules! impl_biplanar_yuv8_buffer {
-    ($x:ty) => {
-        impl BiplanarYuv8Buffer for $x {
-            fn data_y(&self) -> &[u8] {
-                self.handle.data_y()
-            }
-
-            fn data_uv(&self) -> &[u8] {
-                self.handle.data_uv()
-            }
-        }
-    };
-}
-
-pub struct I420Buffer {
-    pub(crate) handle: vf_imp::I420Buffer,
-}
-
-impl_video_frame_buffer_internal!(I420Buffer);
-impl_video_frame_buffer!(I420Buffer);
-impl_planar_yuv_buffer!(I420Buffer);
-impl_planar_yuv8_buffer!(I420Buffer);
-
-impl Debug for I420Buffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("I420Buffer")
-            .field("width", &self.width())
-            .field("height", &self.height())
-            .finish()
     }
 }
 
-pub struct I420ABuffer {
-    pub(crate) handle: vf_imp::I420ABuffer,
-}
-
 impl I420ABuffer {
+    pub fn chroma_width(&self) -> i32 {
+        self.handle.chroma_width()
+    }
+
+    pub fn chroma_height(&self) -> i32 {
+        self.handle.chroma_height()
+    }
+
+    pub fn stride_y(&self) -> i32 {
+        self.handle.stride_y()
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        self.handle.stride_u()
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        self.handle.stride_v()
+    }
+
     pub fn stride_a(&self) -> i32 {
         self.handle.stride_a()
     }
 
-    pub fn data_a(&self) -> Option<&[u8]> {
-        self.handle.data_a()
+    pub fn data(&self) -> (&[u8], &[u8], &[u8], Option<&[u8]>) {
+        self.handle.data()
+    }
+
+    pub fn data_mut(&self) -> (&mut [u8], &mut [u8], &mut [u8], Option<&mut [u8]>) {
+        let (data_y, data_u, data_v, data_a) = self.handle.data();
+        unsafe {
+            (
+                std::slice::from_raw_parts_mut(data_y.as_ptr() as *mut u8, data_y.len()),
+                std::slice::from_raw_parts_mut(data_u.as_ptr() as *mut u8, data_u.len()),
+                std::slice::from_raw_parts_mut(data_v.as_ptr() as *mut u8, data_v.len()),
+                data_a.map(|data_a| {
+                    std::slice::from_raw_parts_mut(data_a.as_ptr() as *mut u8, data_a.len())
+                }),
+            )
+        }
     }
 }
 
-impl_video_frame_buffer_internal!(I420ABuffer);
-impl_video_frame_buffer!(I420ABuffer);
-impl_planar_yuv_buffer!(I420ABuffer);
-impl_planar_yuv8_buffer!(I420ABuffer);
+impl I422Buffer {
+    pub fn chroma_width(&self) -> i32 {
+        self.handle.chroma_width()
+    }
 
-impl Debug for I420ABuffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("I420ABuffer")
-            .field("width", &self.width())
-            .field("height", &self.height())
-            .field("data_a", &self.data_a())
-            .finish()
+    pub fn chroma_height(&self) -> i32 {
+        self.handle.chroma_height()
+    }
+
+    pub fn stride_y(&self) -> i32 {
+        self.handle.stride_y()
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        self.handle.stride_u()
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        self.handle.stride_v()
     }
 }
 
-pub struct I422Buffer {
-    pub(crate) handle: vf_imp::I422Buffer,
-}
+impl I444Buffer {
+    pub fn chroma_width(&self) -> i32 {
+        self.handle.chroma_width()
+    }
 
-impl_video_frame_buffer_internal!(I422Buffer);
-impl_video_frame_buffer!(I422Buffer);
-impl_planar_yuv_buffer!(I422Buffer);
-impl_planar_yuv8_buffer!(I422Buffer);
+    pub fn chroma_height(&self) -> i32 {
+        self.handle.chroma_height()
+    }
 
-impl Debug for I422Buffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("I422Buffer")
-            .field("width", &self.width())
-            .field("height", &self.height())
-            .finish()
+    pub fn stride_y(&self) -> i32 {
+        self.handle.stride_y()
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        self.handle.stride_u()
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        self.handle.stride_v()
     }
 }
 
-pub struct I444Buffer {
-    pub(crate) handle: vf_imp::I444Buffer,
-}
+impl I010Buffer {
+    pub fn chroma_width(&self) -> i32 {
+        self.handle.chroma_width()
+    }
 
-impl_video_frame_buffer_internal!(I444Buffer);
-impl_video_frame_buffer!(I444Buffer);
-impl_planar_yuv_buffer!(I444Buffer);
-impl_planar_yuv8_buffer!(I444Buffer);
+    pub fn chroma_height(&self) -> i32 {
+        self.handle.chroma_height()
+    }
 
-impl Debug for I444Buffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("I444Buffer")
-            .field("width", &self.width())
-            .field("height", &self.height())
-            .finish()
+    pub fn stride_y(&self) -> i32 {
+        self.handle.stride_y()
+    }
+
+    pub fn stride_u(&self) -> i32 {
+        self.handle.stride_u()
+    }
+
+    pub fn stride_v(&self) -> i32 {
+        self.handle.stride_v()
     }
 }
 
-pub struct I010Buffer {
-    pub(crate) handle: vf_imp::I010Buffer,
-}
+impl NV12Buffer {
+    pub fn chroma_width(&self) -> i32 {
+        self.handle.chroma_width()
+    }
 
-impl_video_frame_buffer_internal!(I010Buffer);
-impl_video_frame_buffer!(I010Buffer);
-impl_planar_yuv_buffer!(I010Buffer);
-impl_planar_yuv16b_buffer!(I010Buffer);
+    pub fn chroma_height(&self) -> i32 {
+        self.handle.chroma_height()
+    }
 
-impl Debug for I010Buffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("I010Buffer")
-            .field("width", &self.width())
-            .field("height", &self.height())
-            .finish()
+    pub fn stride_y(&self) -> i32 {
+        self.handle.stride_y()
+    }
+
+    pub fn stride_uv(&self) -> i32 {
+        self.handle.stride_uv()
     }
 }
 
-pub struct NV12Buffer {
-    pub(crate) handle: vf_imp::NV12Buffer,
+impl<T: VideoFrameBuffer + ?Sized> internal::BufferInternal for Box<T> {
+    fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer {
+        self.as_ref().sys_handle()
+    }
+
+    fn to_i420(&self) -> I420Buffer {
+        self.as_ref().to_i420()
+    }
+
+    fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: i32,
+        dst_width: i32,
+        dst_height: i32,
+    ) -> Result<(), self::native::ConvertError> {
+        self.as_ref()
+            .to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
 }
 
-impl_video_frame_buffer_internal!(NV12Buffer);
-impl_video_frame_buffer!(NV12Buffer);
-impl_biplanar_yuv_buffer!(NV12Buffer);
-impl_biplanar_yuv8_buffer!(NV12Buffer);
+impl<T: VideoFrameBuffer + ?Sized> VideoFrameBuffer for Box<T> {
+    fn width(&self) -> i32 {
+        self.as_ref().width()
+    }
 
-impl Debug for NV12Buffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NV12Buffer")
-            .field("width", &self.width())
-            .field("height", &self.height())
-            .finish()
+    fn height(&self) -> i32 {
+        self.as_ref().height()
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
+    use super::{vf_imp, I420Buffer, VideoFormatType, VideoFrameBuffer};
     use std::fmt::Debug;
 
-    use super::{vf_imp, I420Buffer, VideoFormatType, VideoFrameBuffer};
-
     pub use crate::imp::yuv_helper::ConvertError;
+
+    new_buffer_type!(NativeBuffer);
+
+    pub trait I420BufferExt {
+        fn new(width: u32, height: u32) -> I420Buffer;
+    }
+
+    impl I420BufferExt for I420Buffer {
+        fn new(width: u32, height: u32) -> I420Buffer {
+            vf_imp::I420Buffer::new(width, height)
+        }
+    }
 
     pub trait VideoFrameBufferExt: VideoFrameBuffer {
         fn to_i420(&self) -> I420Buffer;
@@ -397,22 +366,6 @@ pub mod native {
             self.to_argb(format, dst, dst_stride, dst_width, dst_height)
         }
     }
-
-    pub struct NativeBuffer {
-        pub(crate) handle: vf_imp::NativeBuffer,
-    }
-
-    impl_video_frame_buffer_internal!(NativeBuffer);
-    impl_video_frame_buffer!(NativeBuffer);
-
-    impl Debug for NativeBuffer {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("NativeBuffer")
-                .field("width", &self.width())
-                .field("height", &self.height())
-                .finish()
-        }
-    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -423,36 +376,4 @@ pub mod web {
     pub struct WebGlBuffer {}
 
     impl VideoFrameBuffer for WebGlBuffer {}
-}
-
-impl internal::VideoFrameBufferInternal for Box<dyn VideoFrameBuffer + Send + Sync> {
-    fn sys_handle(self) -> cxx::UniquePtr<webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer> {
-        self.sys_handle()
-    }
-
-    fn to_i420(&self) -> I420Buffer {
-        self.as_ref().to_i420()
-    }
-
-    fn to_argb(
-        &self,
-        format: VideoFormatType,
-        dst: &mut [u8],
-        dst_stride: i32,
-        dst_width: i32,
-        dst_height: i32,
-    ) -> Result<(), self::native::ConvertError> {
-        self.as_ref()
-            .to_argb(format, dst, dst_stride, dst_width, dst_height)
-    }
-}
-
-impl VideoFrameBuffer for Box<dyn VideoFrameBuffer + Send + Sync> {
-    fn width(&self) -> i32 {
-        self.as_ref().width()
-    }
-
-    fn height(&self) -> i32 {
-        self.as_ref().height()
-    }
 }

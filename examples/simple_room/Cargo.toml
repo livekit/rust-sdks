@@ -16,3 +16,5 @@ parking_lot = "0.12.1"
 egui = "0.20.1"
 egui-wgpu = { version = "0.20.0", features = ["winit"] }
 egui-winit = "0.20.1"
+
+image = "0.24.5"

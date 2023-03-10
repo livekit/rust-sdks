@@ -6,19 +6,19 @@ pub mod native {
     use crate::video_frame::{VideoFrame, VideoFrameBuffer};
     use std::fmt::{Debug, Formatter};
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     pub struct NativeVideoSource {
         pub(crate) handle: vs_imp::NativeVideoSource,
     }
 
     impl Debug for NativeVideoSource {
         fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-            f.debug_struct("VideoSource").finish()
+            f.debug_struct("NativeVideoSource").finish()
         }
     }
 
     impl NativeVideoSource {
-        pub fn capture_frame<T: VideoFrameBuffer>(&self, frame: VideoFrame<T>) {
+        pub fn capture_frame<T: VideoFrameBuffer>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
         }
     }

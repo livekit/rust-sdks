@@ -72,7 +72,7 @@ pub mod ffi {
         fn stride_a(self: &I420ABuffer) -> i32;
         fn data_a(self: &I420ABuffer) -> *const u8;
 
-        fn create_i420_buffer(width: i32, height: i32) -> UniquePtr<I420Buffer>;
+        fn new_i420_buffer(width: i32, height: i32) -> UniquePtr<I420Buffer>;
         fn copy_i420_buffer(i420: &UniquePtr<I420Buffer>) -> UniquePtr<I420Buffer>;
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;

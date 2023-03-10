@@ -1,10 +1,10 @@
-use livekit_utils::observer::Dispatcher;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use crate::signal_client::SignalOptions;
 use crate::{RoomError, RoomEvent, RoomResult, SimulateScenario};
+use livekit_utils::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -96,7 +96,7 @@ impl SessionHandle {
         inner.update_connection_state(ConnectionState::Connected);
 
         let session = Self {
-            session: RoomSession::from(inner),
+            session: RoomSession { inner },
             session_task,
             close_emitter,
         };
@@ -119,10 +119,6 @@ impl SessionHandle {
 }
 
 impl RoomSession {
-    fn from(inner: Arc<SessionInner>) -> Self {
-        Self { inner }
-    }
-
     pub fn sid(&self) -> RoomSid {
         self.inner.sid.lock().clone()
     }
