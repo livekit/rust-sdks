@@ -24,6 +24,7 @@
 #include "api/video/video_frame.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
+#include "rtc_base/time_utils.h"
 
 namespace livekit {
 
@@ -181,7 +182,7 @@ std::unique_ptr<NativeVideoFrameSink> new_native_video_frame_sink(
 }
 
 NativeVideoTrackSource::NativeVideoTrackSource()
-    : rtc::AdaptedVideoTrackSource(1) {}
+    : rtc::AdaptedVideoTrackSource(4) {}
 
 NativeVideoTrackSource::~NativeVideoTrackSource() {}
 
@@ -195,7 +196,6 @@ absl::optional<bool> NativeVideoTrackSource::needs_denoising() const {
 
 webrtc::MediaSourceInterface::SourceState NativeVideoTrackSource::state()
     const {
-  // TODO(theomonnom): expose source state to Rust
   return SourceState::kLive;
 }
 
@@ -210,16 +210,16 @@ bool NativeVideoTrackSource::on_captured_frame(
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       frame.timestamp_us(), rtc::TimeMicros());
 
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
+      frame.video_frame_buffer();
+
   int adapted_width, adapted_height, crop_width, crop_height, crop_x, crop_y;
-  if (!AdaptFrame(frame.width(), frame.height(), frame.timestamp_us(),
+  if (!AdaptFrame(buffer->width(), buffer->height(), aligned_timestamp_us,
                   &adapted_width, &adapted_height, &crop_width, &crop_height,
                   &crop_x, &crop_y)) {
     return false;
   }
 
-  // TODO(theomonnom): Should this be handled by the users?
-  rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
-      frame.video_frame_buffer();
   if (adapted_width != frame.width() || adapted_height != frame.height()) {
     buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
                                   adapted_width, adapted_height);
@@ -232,7 +232,7 @@ bool NativeVideoTrackSource::on_captured_frame(
   }
 
   OnFrame(webrtc::VideoFrame::Builder()
-              .set_video_frame_buffer(buffer)
+              .set_video_frame_buffer(frame.video_frame_buffer())
               .set_rotation(frame.rotation())
               .set_timestamp_us(aligned_timestamp_us)
               .build());
@@ -247,7 +247,7 @@ AdaptedVideoTrackSource::AdaptedVideoTrackSource(
 bool AdaptedVideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame) const {
   auto rtc_frame = frame->get();
-  rtc_frame.set_timestamp_us(clock_->TimeInMicroseconds());
+  rtc_frame.set_timestamp_us(rtc::TimeMicros());
   return source_->on_captured_frame(rtc_frame);
 }
 

@@ -151,7 +151,6 @@ class AdaptedVideoTrackSource {
   rtc::scoped_refptr<NativeVideoTrackSource> get() const;
 
  private:
-  webrtc::Clock* clock_ = webrtc::Clock::GetRealTimeClock();
   rtc::scoped_refptr<NativeVideoTrackSource> source_;
 };
 

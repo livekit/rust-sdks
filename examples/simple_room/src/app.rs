@@ -524,10 +524,6 @@ impl App {
 
             // allocate buffers once
             let mut framebuffer = vec![0u32; FB_WIDTH * FB_HEIGHT];
-            let mut i420_frame = VideoFrame {
-                rotation: VideoRotation::VideoRotation0,
-                buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
-            };
 
             loop {
                 interval.tick().await;
@@ -553,22 +549,27 @@ impl App {
                         .clone_from_slice(&image[i * logo_width..i * logo_width + logo_width]);
                 }*/
 
-                framebuffer.fill(0xff0000ff);
+                let mut i420_frame = VideoFrame {
+                    rotation: VideoRotation::VideoRotation0,
+                    buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
+                };
 
                 let stride_y = i420_frame.buffer.stride_y();
                 let stride_u = i420_frame.buffer.stride_u();
                 let stride_v = i420_frame.buffer.stride_v();
                 let (data_y, data_u, data_v) = i420_frame.buffer.data_mut();
 
-                let u8_slice = unsafe {
+                framebuffer.fill(0xff0000ff);
+
+                let slice = unsafe {
                     std::slice::from_raw_parts(
                         framebuffer.as_ptr() as *const u8,
-                        FB_HEIGHT * FB_WIDTH * 4,
+                        framebuffer.len() * 4,
                     )
                 };
 
-                yuv_helper::argb_to_i420(
-                    u8_slice,
+                yuv_helper::abgr_to_i420(
+                    slice,
                     (FB_WIDTH * 4) as i32,
                     data_y,
                     stride_y,

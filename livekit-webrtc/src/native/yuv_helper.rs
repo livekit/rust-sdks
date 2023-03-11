@@ -92,7 +92,8 @@ macro_rules! i420_to_x {
                     dst_stride,
                     width,
                     height,
-                );
+                )
+                .unwrap();
             }
 
             Ok(())
@@ -100,46 +101,51 @@ macro_rules! i420_to_x {
     };
 }
 
-pub fn argb_to_i420(
-    src_argb: &[u8],
-    src_stride_argb: i32,
-    dst_y: &mut [u8],
-    dst_stride_y: i32,
-    dst_u: &mut [u8],
-    dst_stride_u: i32,
-    dst_v: &mut [u8],
-    dst_stride_v: i32,
-    width: i32,
-    height: i32,
-) -> Result<(), ConvertError> {
-    argb_assert_safety(src_argb, src_stride_argb, width, height)?;
-    i420_assert_safety(
-        dst_y,
-        dst_stride_y,
-        dst_u,
-        dst_stride_u,
-        dst_v,
-        dst_stride_v,
-        width,
-        height,
-    )?;
+macro_rules! x_to_i420 {
+    ($x:ident) => {
+        pub fn $x(
+            src_argb: &[u8],
+            src_stride_argb: i32,
+            dst_y: &mut [u8],
+            dst_stride_y: i32,
+            dst_u: &mut [u8],
+            dst_stride_u: i32,
+            dst_v: &mut [u8],
+            dst_stride_v: i32,
+            width: i32,
+            height: i32,
+        ) -> Result<(), ConvertError> {
+            argb_assert_safety(src_argb, src_stride_argb, width, height)?;
+            i420_assert_safety(
+                dst_y,
+                dst_stride_y,
+                dst_u,
+                dst_stride_u,
+                dst_v,
+                dst_stride_v,
+                width,
+                height,
+            )?;
 
-    unsafe {
-        yuv_sys::ffi::argb_to_i420(
-            src_argb.as_ptr(),
-            src_stride_argb,
-            dst_y.as_mut_ptr(),
-            dst_stride_y,
-            dst_u.as_mut_ptr(),
-            dst_stride_u,
-            dst_v.as_mut_ptr(),
-            dst_stride_v,
-            width,
-            height,
-        );
-    }
+            unsafe {
+                yuv_sys::ffi::$x(
+                    src_argb.as_ptr(),
+                    src_stride_argb,
+                    dst_y.as_mut_ptr(),
+                    dst_stride_y,
+                    dst_u.as_mut_ptr(),
+                    dst_stride_u,
+                    dst_v.as_mut_ptr(),
+                    dst_stride_v,
+                    width,
+                    height,
+                )
+                .unwrap();
+            }
 
-    Ok(())
+            Ok(())
+        }
+    };
 }
 
 pub fn argb_to_rgb24(
@@ -161,11 +167,15 @@ pub fn argb_to_rgb24(
             dst_stride_rgb24,
             width,
             height,
-        );
+        )
+        .unwrap();
     }
 
     Ok(())
 }
+
+x_to_i420!(argb_to_i420);
+x_to_i420!(abgr_to_i420);
 
 i420_to_x!(i420_to_argb);
 i420_to_x!(i420_to_bgra);

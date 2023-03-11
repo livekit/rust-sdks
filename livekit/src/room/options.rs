@@ -84,7 +84,7 @@ impl Default for TrackPublishOptions {
             dtx: true,
             red: true,
             simulcast: true,
-            screenshare: true,
+            screenshare: false,
             name: "unnamed track".to_owned(),
             source: TrackSource::Unknown,
         }
