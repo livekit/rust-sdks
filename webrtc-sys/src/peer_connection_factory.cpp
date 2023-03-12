@@ -25,6 +25,7 @@
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "livekit/rtc_error.h"
+#include "livekit/rtp_parameters.h"
 #include "livekit/video_decoder_factory.h"
 #include "livekit/video_encoder_factory.h"
 #include "media/engine/webrtc_media_engine.h"
@@ -92,6 +93,18 @@ std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
     std::shared_ptr<AdaptedVideoTrackSource> source) const {
   return std::make_shared<VideoTrack>(
       peer_factory_->CreateVideoTrack(label.c_str(), source->get().get()));
+}
+
+RtpCapabilities PeerConnectionFactory::get_rtp_sender_capabilities(
+    MediaType type) const {
+  return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(
+      static_cast<cricket::MediaType>(type)));
+}
+
+RtpCapabilities PeerConnectionFactory::get_rtp_receiver_capabilities(
+    MediaType type) const {
+  return to_rust_rtp_capabilities(peer_factory_->GetRtpReceiverCapabilities(
+      static_cast<cricket::MediaType>(type)));
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory(

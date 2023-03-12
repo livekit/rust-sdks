@@ -1,3 +1,5 @@
+use crate::rtp_transceiver::RtpTransceiverDirection;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Priority {
     VeryLow,
@@ -42,6 +44,26 @@ pub struct RtpEncodingParameters {
     pub priority: Priority,
     pub rid: String,
     pub scale_resolution_down_by: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RtpCodecCapability {
+    pub channels: Option<u16>,
+    pub clock_rate: Option<u64>,
+    pub mime_type: String,
+    pub sdp_fmtp_line: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RtpHeaderExtensionCapability {
+    pub uri: String,
+    pub direction: RtpTransceiverDirection,
+}
+
+#[derive(Debug, Clone)]
+pub struct RtpCapabilities {
+    pub codecs: Vec<RtpCodecCapability>,
+    pub header_extensions: Vec<RtpHeaderExtensionCapability>,
 }
 
 impl Default for RtpCodecParameters {

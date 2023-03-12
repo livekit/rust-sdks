@@ -143,10 +143,6 @@ macro_rules! impl_to_argb {
     }
 }
 
-macro_rules! impl_biyuv_buffer {
-    ($($cast:ident),*) => {};
-}
-
 #[allow(unused_unsafe)]
 impl NativeBuffer {
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {

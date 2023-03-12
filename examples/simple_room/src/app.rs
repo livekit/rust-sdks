@@ -490,6 +490,7 @@ impl App {
                 .publish_track(
                     LocalTrack::Video(track),
                     TrackPublishOptions {
+                        video_codec: livekit::options::VideoCodec::H264,
                         simulcast: false,
                         ..Default::default()
                     },

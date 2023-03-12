@@ -4,6 +4,7 @@ use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
+use rtc::MediaType;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -396,6 +397,15 @@ impl From<u8> for TrackSource {
             3 => Self::Screenshare,
             4 => Self::ScreenshareAudio,
             _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<TrackKind> for MediaType {
+    fn from(kind: TrackKind) -> Self {
+        match kind {
+            TrackKind::Audio => Self::Audio,
+            TrackKind::Video => Self::Video,
         }
     }
 }

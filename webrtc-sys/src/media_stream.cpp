@@ -247,7 +247,12 @@ AdaptedVideoTrackSource::AdaptedVideoTrackSource(
 bool AdaptedVideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame) const {
   auto rtc_frame = frame->get();
-  rtc_frame.set_timestamp_us(rtc::TimeMicros());
+  // rtc_frame.set_timestamp_us(rtc::TimeMicros());
+
+  auto buffer = webrtc::I420Buffer::Create(1280, 720);
+  webrtc::I420Buffer::SetBlack(buffer.get());
+  rtc_frame.set_video_frame_buffer(buffer);
+
   return source_->on_captured_frame(rtc_frame);
 }
 

@@ -33,8 +33,14 @@ pub mod ffi {
     }
 
     extern "C++" {
+        include!("livekit/media_stream.h");
+        include!("livekit/webrtc.h");
+        include!("livekit/rtp_parameters.h");
+
         type AdaptedVideoTrackSource = crate::media_stream::ffi::AdaptedVideoTrackSource;
         type VideoTrack = crate::media_stream::ffi::VideoTrack;
+        type RtpCapabilities = crate::rtp_parameters::ffi::RtpCapabilities;
+        type MediaType = crate::webrtc::ffi::MediaType;
     }
 
     unsafe extern "C++" {
@@ -65,6 +71,16 @@ pub mod ffi {
             label: String,
             source: SharedPtr<AdaptedVideoTrackSource>,
         ) -> SharedPtr<VideoTrack>;
+
+        fn get_rtp_sender_capabilities(
+            self: &PeerConnectionFactory,
+            kind: MediaType,
+        ) -> RtpCapabilities;
+
+        fn get_rtp_receiver_capabilities(
+            self: &PeerConnectionFactory,
+            kind: MediaType,
+        ) -> RtpCapabilities;
     }
 }
 

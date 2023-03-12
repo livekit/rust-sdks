@@ -5,7 +5,9 @@ use crate::peer_connection::PeerConnection;
 use crate::peer_connection_factory::{
     ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration,
 };
+use crate::rtp_parameters::RtpCapabilities;
 use crate::video_source::native::NativeVideoSource;
+use crate::MediaType;
 use crate::RtcError;
 use cxx::SharedPtr;
 use std::sync::Arc;
@@ -128,5 +130,17 @@ impl PeerConnectionFactory {
                     .create_video_track(label.to_string(), source.handle.sys_handle()),
             },
         }
+    }
+
+    pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+        self.sys_handle
+            .get_rtp_sender_capabilities(media_type.into())
+            .into()
+    }
+
+    pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+        self.sys_handle
+            .get_rtp_receiver_capabilities(media_type.into())
+            .into()
     }
 }

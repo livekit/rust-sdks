@@ -1,5 +1,7 @@
 use crate::imp::peer_connection_factory as imp_pcf;
 use crate::peer_connection::PeerConnection;
+use crate::rtp_parameters::RtpCapabilities;
+use crate::MediaType;
 use crate::RtcError;
 use std::fmt::Debug;
 
@@ -37,7 +39,7 @@ pub struct PeerConnectionFactory {
 }
 
 impl Debug for PeerConnectionFactory {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("PeerConnectionFactory").finish()
     }
 }
@@ -48,6 +50,14 @@ impl PeerConnectionFactory {
         config: RtcConfiguration,
     ) -> Result<PeerConnection, RtcError> {
         self.handle.create_peer_connection(config)
+    }
+
+    pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+        self.handle.get_rtp_sender_capabilities(media_type)
+    }
+
+    pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+        self.handle.get_rtp_receiver_capabilities(media_type)
     }
 }
 

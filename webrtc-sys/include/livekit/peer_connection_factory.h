@@ -19,6 +19,7 @@
 #include "api/peer_connection_interface.h"
 #include "media_stream.h"
 #include "peer_connection.h"
+#include "rtp_parameters.h"
 #include "rust/cxx.h"
 #include "webrtc.h"
 
@@ -44,6 +45,10 @@ class PeerConnectionFactory {
   std::shared_ptr<VideoTrack> create_video_track(
       rust::String label,
       std::shared_ptr<AdaptedVideoTrackSource> source) const;
+
+  RtpCapabilities get_rtp_sender_capabilities(MediaType type) const;
+
+  RtpCapabilities get_rtp_receiver_capabilities(MediaType type) const;
 
  private:
   std::shared_ptr<RTCRuntime> rtc_runtime_;

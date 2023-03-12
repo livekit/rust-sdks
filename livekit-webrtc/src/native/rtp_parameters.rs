@@ -1,4 +1,5 @@
 use crate::rtp_parameters::*;
+use crate::MediaType;
 use webrtc_sys::rtp_parameters as sys_rp;
 use webrtc_sys::webrtc as sys_webrtc;
 
@@ -71,6 +72,39 @@ impl From<sys_rp::ffi::RtpEncodingParameters> for RtpEncodingParameters {
             scale_resolution_down_by: value
                 .has_scale_resolution_down_by
                 .then_some(value.scale_resolution_down_by),
+        }
+    }
+}
+
+impl From<sys_rp::ffi::RtpCodecCapability> for RtpCodecCapability {
+    fn from(value: sys_rp::ffi::RtpCodecCapability) -> Self {
+        Self {
+            channels: value.has_num_channels.then_some(value.num_channels as u16),
+            mime_type: value.mime_type,
+            clock_rate: value.has_clock_rate.then_some(value.clock_rate as u64),
+            sdp_fmtp_line: None, // TODO(theomonnom) Implement fmtp line for native platforms
+        }
+    }
+}
+
+impl From<sys_rp::ffi::RtpHeaderExtensionCapability> for RtpHeaderExtensionCapability {
+    fn from(value: sys_rp::ffi::RtpHeaderExtensionCapability) -> Self {
+        Self {
+            direction: value.direction.into(),
+            uri: value.uri,
+        }
+    }
+}
+
+impl From<sys_rp::ffi::RtpCapabilities> for RtpCapabilities {
+    fn from(value: sys_rp::ffi::RtpCapabilities) -> Self {
+        Self {
+            codecs: value.codecs.into_iter().map(Into::into).collect(),
+            header_extensions: value
+                .header_extensions
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
@@ -170,6 +204,32 @@ impl From<RtpEncodingParameters> for sys_rp::ffi::RtpEncodingParameters {
             scalability_mode: "".to_string(),
             has_ssrc: false,
             ssrc: 0,
+        }
+    }
+}
+
+impl From<RtpCodecCapability> for sys_rp::ffi::RtpCodecCapability {
+    fn from(value: RtpCodecCapability) -> Self {
+        Self {
+            mime_type: value.mime_type,
+            has_clock_rate: value.clock_rate.is_some(),
+            clock_rate: value.clock_rate.unwrap_or_default() as i32,
+            has_num_channels: value.channels.is_some(),
+            num_channels: value.channels.unwrap_or_default() as i32,
+            parameters: Vec::default(),
+            name: String::new(),
+            kind: MediaType::Audio.into(),
+            has_preferred_payload_type: false,
+            preferred_payload_type: 0,
+            has_max_ptime: false,
+            max_ptime: 0,
+            has_ptime: false,
+            ptime: 0,
+            rtcp_feedback: Vec::default(),
+            options: Vec::default(), // TODO(theomonnom): from sdp_fmtp_line
+            max_temporal_layer_extensions: 0,
+            max_spatial_layer_extensions: 0,
+            svc_multi_stream_support: false,
         }
     }
 }

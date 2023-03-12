@@ -632,9 +632,32 @@ impl SessionInner {
             .peer_connection()
             .add_transceiver(track.rtc_track(), init)?;
 
-        Ok(transceiver)
+        let capabilities = LkRuntime::instance()
+            .pc_factory
+            .get_rtp_sender_capabilities(track.kind().into());
 
-        // TODO(theomonnom): set_preferred_codecs
+        let mut matched = Vec::new();
+        let mut partial_matched = Vec::new();
+        let mut unmatched = Vec::new();
+
+        for codec in capabilities.codecs {
+            let mime_type = codec.mime_type.to_lowercase();
+            if mime_type == "audio/opus" {
+                matched.push(codec);
+            } else if mime_type == format!("video/{}", options.video_codec.as_str()) {
+                // TODO(theomonnom): sdp_fmtp_line, h264 profile 42e01f partial match
+                matched.push(codec);
+            } else {
+                unmatched.push(codec);
+            }
+        }
+
+        matched.append(&mut partial_matched);
+        matched.append(&mut unmatched);
+
+        transceiver.set_codec_preferences(matched);
+
+        Ok(transceiver)
     }
 
     /// Called when the SignalClient or one of the PeerConnection has lost the connection

@@ -1,14 +1,16 @@
 use crate::imp::rtp_receiver::RtpReceiver;
 use crate::imp::rtp_sender::RtpSender;
+use crate::rtp_parameters::RtpCodecCapability;
 use crate::rtp_receiver;
 use crate::rtp_sender;
 use crate::rtp_transceiver::RtpTransceiverDirection;
 use crate::rtp_transceiver::RtpTransceiverInit;
+use crate::MediaType;
 use crate::RtcError;
 use cxx::SharedPtr;
+use webrtc_sys::rtc_error as sys_err;
 use webrtc_sys::rtp_transceiver as sys_rt;
 use webrtc_sys::webrtc as sys_webrtc;
-use webrtc_sys::rtc_error as sys_err;
 
 impl From<sys_webrtc::ffi::RtpTransceiverDirection> for RtpTransceiverDirection {
     fn from(value: sys_webrtc::ffi::RtpTransceiverDirection) -> Self {
@@ -78,8 +80,15 @@ impl RtpTransceiver {
         }
     }
 
+    pub fn set_codec_preferences(&self, codecs: Vec<RtpCodecCapability>) -> Result<(), RtcError> {
+        self.sys_handle
+            .set_codec_preferences(codecs.into_iter().map(Into::into).collect())
+            .map_err(|e| unsafe { sys_err::ffi::RTCError::from(e.what()).into() })
+    }
+
     pub fn stop(&self) -> Result<(), RtcError> {
-        self.sys_handle.stop_standard().
-            map_err(|e| unsafe { sys_err::ffi::RTCError::from(e.what()).into() })
+        self.sys_handle
+            .stop_standard()
+            .map_err(|e| unsafe { sys_err::ffi::RTCError::from(e.what()).into() })
     }
 }

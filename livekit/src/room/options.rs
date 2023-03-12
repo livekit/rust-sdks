@@ -9,9 +9,9 @@ pub enum VideoCodec {
     AV1,
 }
 
-impl From<VideoCodec> for &'static str {
-    fn from(codec: VideoCodec) -> Self {
-        match codec {
+impl VideoCodec {
+    pub fn as_str(&self) -> &'static str {
+        match self {
             VideoCodec::VP8 => "vp8",
             VideoCodec::H264 => "h264",
             VideoCodec::AV1 => "av1",
@@ -67,7 +67,7 @@ impl Default for VideoCaptureOptions {
 #[derive(Clone, Debug)]
 pub struct TrackPublishOptions {
     pub dynacast: bool,
-    pub codec: VideoCodec,
+    pub video_codec: VideoCodec,
     pub dtx: bool,
     pub red: bool,
     pub simulcast: bool,
@@ -80,7 +80,7 @@ impl Default for TrackPublishOptions {
     fn default() -> Self {
         Self {
             dynacast: false,
-            codec: VideoCodec::VP8,
+            video_codec: VideoCodec::VP8,
             dtx: true,
             red: true,
             simulcast: true,
