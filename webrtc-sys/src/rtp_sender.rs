@@ -1,3 +1,5 @@
+use crate::impl_thread_safety;
+
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
 
@@ -31,3 +33,5 @@ pub mod ffi {
         fn _shared_rtp_sender() -> SharedPtr<RtpSender>;
     }
 }
+
+impl_thread_safety!(ffi::RtpSender, Send + Sync);

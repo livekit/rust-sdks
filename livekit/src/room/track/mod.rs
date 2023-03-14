@@ -102,6 +102,8 @@ macro_rules! track_dispatch {
             pub fn set_muted(self: &Self, muted: bool) -> ();
             pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
 
+            pub(crate) fn transceiver(self: &Self) -> Option<rtc::rtp_transceiver::RtpTransceiver>;
+            pub(crate) fn update_transceiver(self: &Self, transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>) -> ();
             pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
         );
     };
@@ -178,6 +180,7 @@ pub(crate) struct TrackInner {
     pub stream_state: AtomicU8, // StreamState
     pub muted: AtomicBool,
     pub rtc_track: rtc::media_stream::MediaStreamTrack,
+    pub transceiver: Mutex<Option<rtc::rtp_transceiver::RtpTransceiver>>,
     pub dispatcher: Dispatcher<TrackEvent>,
 }
 
@@ -196,6 +199,7 @@ impl TrackInner {
             stream_state: AtomicU8::new(StreamState::Active as u8),
             muted: AtomicBool::new(false),
             rtc_track,
+            transceiver: Default::default(),
             dispatcher: Default::default(),
         }
     }
@@ -262,6 +266,14 @@ impl TrackInner {
 
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
         self.dispatcher.register()
+    }
+
+    pub fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+        self.transceiver.lock().clone()
+    }
+
+    pub fn update_transceiver(&self, transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>) {
+        *self.transceiver.lock() = transceiver;
     }
 
     pub fn update_info(&self, info: proto::TrackInfo) {

@@ -51,6 +51,12 @@ pub enum ParticipantEvent {
     ConnectionQualityChanged {
         quality: ConnectionQuality,
     },
+    LocalTrackPublished {
+        publication: LocalTrackPublication,
+    },
+    LocalTrackUnpublished {
+        publication: LocalTrackPublication,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

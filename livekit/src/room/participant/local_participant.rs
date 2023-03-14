@@ -36,26 +36,12 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
-        /*let tracks = self.inner.tracks.write();
-
-        if track.source() != TrackSource::Unknown {
-            for publication in tracks.values() {
-                if publication.source() == track.source() {
-                    return Err(RoomError::TrackAlreadyPublished);
-                }
-
-                if let Some(existing_track) = publication.track() {
-                    // TODO: Compare
-                }
-            }
-        }*/
-
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
             name: options.name.clone(),
             r#type: proto::TrackType::from(track.kind()) as i32,
             muted: track.muted(),
-            source: proto::TrackSource::from(track.source()) as i32,
+            source: proto::TrackSource::from(options.source) as i32,
             disable_dtx: !options.dtx,
             disable_red: !options.red,
             ..Default::default()
@@ -79,18 +65,17 @@ impl LocalParticipant {
         let track_info = self.rtc_engine.add_track(req).await?;
         let publication =
             LocalTrackPublication::new(track_info.clone(), track.clone(), options.clone());
-        track.update_info(track_info); // Update SID
-        trace!("publishing track with cid {:?}", track.rtc_track().id());
-        std::mem::forget(
-            self.rtc_engine
-                .create_sender(track.clone(), options, encodings)
-                .await?,
-        );
+        track.update_info(track_info); // Update SID + Source
+        debug!("publishing track with cid {:?}", track.rtc_track().id());
+        let transceiver = self
+            .rtc_engine
+            .create_sender(track.clone(), options, encodings)
+            .await?;
 
+        track.update_transceiver(Some(transceiver));
         track.start();
 
         tokio::spawn({
-            // Renegotiate in background
             let rtc_engine = self.rtc_engine.clone();
             async move {
                 let _ = rtc_engine.negotiate_publisher().await;
@@ -99,7 +84,46 @@ impl LocalParticipant {
 
         self.inner
             .add_track_publication(TrackPublication::Local(publication.clone()));
+
+        self.inner
+            .dispatcher
+            .dispatch(&ParticipantEvent::LocalTrackPublished {
+                publication: publication.clone(),
+            });
+
         Ok(publication)
+    }
+
+    pub async fn unpublish_track(
+        &self,
+        track: TrackSid,
+        stop_on_unpublish: bool,
+    ) -> RoomResult<LocalTrackPublication> {
+        let mut tracks = self.inner.tracks.write();
+        if let Some(TrackPublication::Local(publication)) = tracks.remove(&track) {
+            let track = publication.track().unwrap();
+            let sender = track.transceiver().unwrap().sender();
+            self.rtc_engine.remove_track(sender).await?;
+            track.update_transceiver(None);
+
+            self.inner
+                .dispatcher
+                .dispatch(&ParticipantEvent::LocalTrackUnpublished {
+                    publication: publication.clone(),
+                });
+            publication.update_track(None);
+
+            tokio::spawn({
+                let rtc_engine = self.rtc_engine.clone();
+                async move {
+                    let _ = rtc_engine.negotiate_publisher().await;
+                }
+            });
+
+            Ok(publication)
+        } else {
+            Err(RoomError::Internal("track not found".to_string()))
+        }
     }
 
     pub async fn publish_data(

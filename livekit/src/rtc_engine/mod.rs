@@ -199,6 +199,19 @@ impl RtcEngine {
             .await
     }
 
+    pub async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+        self.inner.wait_reconnection().await?;
+        self.inner
+            .running_handle
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .session
+            .remove_track(sender)
+            .await
+    }
+
     pub async fn create_sender(
         &self,
         track: LocalTrack,
@@ -343,8 +356,7 @@ impl EngineInner {
         url: &str,
         token: &str,
         options: SignalOptions,
-    ) -> EngineResult<()> /*Pin<Box<dyn Future<Output = EngineResult<()>> + Send>>*/ {
-        //Box::pin(async {
+    ) -> EngineResult<()> {
         let (session_emitter, session_events) = mpsc::unbounded_channel();
         let session = RtcSession::connect(
             url,
@@ -366,7 +378,6 @@ impl EngineInner {
 
         self.opened.store(true, Ordering::SeqCst);
         Ok(())
-        //})
     }
 
     async fn terminate_session(&self) {

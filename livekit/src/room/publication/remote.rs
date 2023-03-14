@@ -10,7 +10,7 @@ pub struct RemoteTrackPublication {
 }
 
 impl RemoteTrackPublication {
-    pub fn new(info: proto::TrackInfo, track: Option<RemoteTrack>) -> Self {
+    pub(crate) fn new(info: proto::TrackInfo, track: Option<RemoteTrack>) -> Self {
         Self {
             inner: Arc::new(TrackPublicationInner::new(info, track.map(Into::into))),
         }

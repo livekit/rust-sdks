@@ -82,7 +82,25 @@ impl From<sys_rp::ffi::RtpCodecCapability> for RtpCodecCapability {
             channels: value.has_num_channels.then_some(value.num_channels as u16),
             mime_type: value.mime_type,
             clock_rate: value.has_clock_rate.then_some(value.clock_rate as u64),
-            sdp_fmtp_line: None, // TODO(theomonnom) Implement fmtp line for native platforms
+            sdp_fmtp_line: {
+                let parameters: Vec<String> = value
+                    .parameters
+                    .into_iter()
+                    .map(|key_value| {
+                        if !key_value.key.is_empty() {
+                            format!("{}={}", key_value.key, key_value.value)
+                        } else {
+                            key_value.value
+                        }
+                    })
+                    .collect();
+
+                if !parameters.is_empty() {
+                    Some(parameters.join(";"))
+                } else {
+                    None
+                }
+            },
         }
     }
 }
@@ -216,9 +234,33 @@ impl From<RtpCodecCapability> for sys_rp::ffi::RtpCodecCapability {
             clock_rate: value.clock_rate.unwrap_or_default() as i32,
             has_num_channels: value.channels.is_some(),
             num_channels: value.channels.unwrap_or_default() as i32,
-            parameters: Vec::default(),
+            parameters: {
+                value
+                    .sdp_fmtp_line
+                    .map(|sdp_fmtp_line| {
+                        sdp_fmtp_line
+                            .split(';')
+                            .map(|v| {
+                                let key_value: Vec<&str> = v.split('=').collect();
+                                if key_value.len() == 2 {
+                                    sys_rp::ffi::StringKeyValue {
+                                        key: key_value[0].to_string(),
+                                        value: key_value[1].to_string(),
+                                    }
+                                } else {
+                                    sys_rp::ffi::StringKeyValue {
+                                        key: "".to_string(),
+                                        value: key_value[0].to_string(),
+                                    }
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            },
+            // Ignore
             name: String::new(),
-            kind: MediaType::Audio.into(),
+            kind: MediaType::Video.into(),
             has_preferred_payload_type: false,
             preferred_payload_type: 0,
             has_max_ptime: false,
@@ -226,7 +268,7 @@ impl From<RtpCodecCapability> for sys_rp::ffi::RtpCodecCapability {
             has_ptime: false,
             ptime: 0,
             rtcp_feedback: Vec::default(),
-            options: Vec::default(), // TODO(theomonnom): from sdp_fmtp_line
+            options: Vec::default(),
             max_temporal_layer_extensions: 0,
             max_spatial_layer_extensions: 0,
             svc_multi_stream_support: false,

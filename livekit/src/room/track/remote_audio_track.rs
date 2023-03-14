@@ -86,6 +86,19 @@ impl RemoteAudioTrack {
     }
 
     #[inline]
+    pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+        self.inner.transceiver()
+    }
+
+    #[inline]
+    pub(crate) fn update_transceiver(
+        &self,
+        transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>,
+    ) {
+        self.inner.update_transceiver(transceiver)
+    }
+
+    #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         self.inner.update_info(info)
     }

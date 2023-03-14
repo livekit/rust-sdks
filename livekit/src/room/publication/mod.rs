@@ -1,10 +1,10 @@
 use super::track::{TrackDimension, TrackEvent};
-use livekit_utils::observer::Dispatcher;
 use crate::prelude::*;
 use crate::proto;
 use crate::track::Track;
 use futures_util::stream::StreamExt;
 use livekit_utils::enum_dispatch;
+use livekit_utils::observer::Dispatcher;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -158,7 +158,7 @@ impl TrackPublication {
 
     pub fn track(&self) -> Option<Track> {
         match self {
-            TrackPublication::Local(p) => Some(p.track().into()),
+            TrackPublication::Local(p) => p.track().map(Into::into),
             TrackPublication::Remote(p) => p.track().map(Into::into),
         }
     }

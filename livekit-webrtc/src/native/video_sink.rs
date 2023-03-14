@@ -53,6 +53,7 @@ impl sys_ms::VideoFrameSink for VideoTrackSink {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         self.dispatcher.dispatch(&Arc::new(VideoFrame {
             rotation: frame.rotation().into(),
+            timestamp: frame.timestamp_us(),
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         }));
     }

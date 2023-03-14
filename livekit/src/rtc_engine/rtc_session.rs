@@ -243,6 +243,11 @@ impl RtcSession {
     }
 
     #[inline]
+    pub async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+        self.inner.remove_track(sender).await
+    }
+
+    #[inline]
     pub async fn create_sender(
         &self,
         track: LocalTrack,
@@ -613,6 +618,21 @@ impl SessionInner {
         }
     }
 
+    async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+        if let Some(track) = sender.track() {
+            let mut pending_tracks = self.pending_tracks.lock();
+            pending_tracks.remove(&track.id());
+        }
+
+        self.publisher_pc
+            .lock()
+            .await
+            .peer_connection()
+            .remove_track(sender)?;
+
+        Ok(())
+    }
+
     async fn create_sender(
         &self,
         track: LocalTrack,
@@ -655,11 +675,10 @@ impl SessionInner {
         matched.append(&mut partial_matched);
         matched.append(&mut unmatched);
 
-        transceiver.set_codec_preferences(matched);
+        // transceiver.set_codec_preferences(matched)?;
 
         Ok(transceiver)
     }
-
     /// Called when the SignalClient or one of the PeerConnection has lost the connection
     /// The RTCEngine may try a reconnect.
     fn on_session_disconnected(

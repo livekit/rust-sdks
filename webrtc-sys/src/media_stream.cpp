@@ -22,6 +22,7 @@
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_rotation.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/time_utils.h"
@@ -225,15 +226,16 @@ bool NativeVideoTrackSource::on_captured_frame(
                                   adapted_width, adapted_height);
   }
 
-  if (apply_rotation() && frame.rotation() != webrtc::kVideoRotation_0) {
+  webrtc::VideoRotation rotation = frame.rotation();
+  if (apply_rotation() && rotation != webrtc::kVideoRotation_0) {
     // If the buffer is I420, rtc::AdaptedVideoTrackSource will handle the
     // rotation for us.
     buffer = buffer->ToI420();
   }
 
   OnFrame(webrtc::VideoFrame::Builder()
-              .set_video_frame_buffer(frame.video_frame_buffer())
-              .set_rotation(frame.rotation())
+              .set_video_frame_buffer(buffer)
+              .set_rotation(rotation)
               .set_timestamp_us(aligned_timestamp_us)
               .build());
 
@@ -247,11 +249,11 @@ AdaptedVideoTrackSource::AdaptedVideoTrackSource(
 bool AdaptedVideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame) const {
   auto rtc_frame = frame->get();
-  // rtc_frame.set_timestamp_us(rtc::TimeMicros());
+  rtc_frame.set_timestamp_us(rtc::TimeMicros());
 
-  auto buffer = webrtc::I420Buffer::Create(1280, 720);
-  webrtc::I420Buffer::SetBlack(buffer.get());
-  rtc_frame.set_video_frame_buffer(buffer);
+  // auto buffer = webrtc::I420Buffer::Create(1280, 720);
+  // webrtc::I420Buffer::SetBlack(buffer.get());
+  // rtc_frame.set_video_frame_buffer(buffer);
 
   return source_->on_captured_frame(rtc_frame);
 }

@@ -30,6 +30,7 @@ where
     T: VideoFrameBuffer,
 {
     pub rotation: VideoRotation,
+    pub timestamp: i64, // When the frame was captured
     pub buffer: T,
 }
 

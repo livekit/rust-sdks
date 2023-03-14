@@ -18,7 +18,11 @@ pub struct LocalTrackPublication {
 }
 
 impl LocalTrackPublication {
-    pub fn new(info: proto::TrackInfo, track: LocalTrack, options: TrackPublishOptions) -> Self {
+    pub(crate) fn new(
+        info: proto::TrackInfo,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+    ) -> Self {
         Self {
             inner: Arc::new(LocalTrackPublicationInner {
                 publication_inner: TrackPublicationInner::new(info, Some(track.into())),
@@ -58,13 +62,11 @@ impl LocalTrackPublication {
     }
 
     #[inline]
-    pub fn track(&self) -> LocalTrack {
+    pub fn track(&self) -> Option<LocalTrack> {
         self.inner
             .publication_inner
             .track()
-            .unwrap()
-            .try_into()
-            .unwrap()
+            .map(|track| track.try_into().unwrap())
     }
 
     #[inline]

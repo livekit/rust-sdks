@@ -1,4 +1,5 @@
 use crate::events::UiCmd;
+use crate::logo_track::LogoTrack;
 use crate::video_renderer::VideoRenderer;
 use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
@@ -32,22 +33,29 @@ use winit::{
     window::{WindowBuilder, WindowId},
 };
 
+struct Session {
+    room: Room,
+    logo_track: LogoTrack,
+    close_tx: oneshot::Sender<()>,
+    handle: tokio::task::JoinHandle<()>,
+}
+
 struct AppState {
-    room: Mutex<Option<Room>>,
-    close_tx: Mutex<Option<oneshot::Sender<()>>>,
+    session: Mutex<Option<Session>>,
     connecting: AtomicBool,
 }
 
 struct App {
     state: Arc<AppState>,
-
     video_renderers: HashMap<(ParticipantSid, TrackSid), VideoRenderer>,
+
     egui_context: egui::Context,
     egui_state: egui_winit::State,
     egui_painter: egui_wgpu::winit::Painter,
     window: winit::window::Window,
     cmd_tx: mpsc::UnboundedSender<AsyncCmd>,
     cmd_rx: mpsc::UnboundedReceiver<UiCmd>,
+
     // UI State
     lk_url: String,
     lk_token: String,
@@ -75,8 +83,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
         let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel::<UiCmd>();
 
         let state = Arc::new(AppState {
-            room: Default::default(),
-            close_tx: Default::default(),
+            session: Default::default(),
             connecting: AtomicBool::new(false),
         });
 
@@ -100,45 +107,53 @@ pub fn run(rt: tokio::runtime::Runtime) {
             while let Some(event) = async_cmd_rx.recv().await {
                 match event {
                     AsyncCmd::RoomConnect { url, token } => {
-                        if let Some(close_tx) = state.close_tx.lock().take() {
-                            let _ = state.room.lock().take().unwrap().close().await;
-                            let _ = close_tx.send(());
-                        }
-
                         state.connecting.store(true, Ordering::SeqCst);
 
                         let res = Room::connect(&url, &token).await;
-                        match res {
-                            Ok((room, room_events)) => {
-                                let (close_tx, close_rx) = oneshot::channel();
-                                state.room.lock().replace(room);
-                                state.close_tx.lock().replace(close_tx);
+                        if let Ok((room, room_events)) = res {
+                            let (close_tx, close_rx) = oneshot::channel();
+                            let logo_track = LogoTrack::new(room.session());
+                            let handle = tokio::spawn(room_task(
+                                state.clone(),
+                                room_events,
+                                close_rx,
+                                ui_cmd_tx.clone(),
+                            ));
 
-                                tokio::spawn(room_task(
-                                    state.clone(),
-                                    room_events,
-                                    close_rx,
-                                    ui_cmd_tx.clone(),
-                                ));
+                            *state.session.lock() = Some(Session {
+                                room,
+                                logo_track,
+                                close_tx,
+                                handle,
+                            });
 
-                                let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Ok(()) });
-                            }
-                            Err(err) => {
-                                let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Err(err) });
-                            }
+                            let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Ok(()) });
+                        } else if let Err(err) = res {
+                            let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Err(err) });
                         }
 
                         state.connecting.store(false, Ordering::SeqCst);
                     }
                     AsyncCmd::RoomDisconnect => {
-                        if let Some(close_tx) = state.close_tx.lock().take() {
-                            let _ = state.room.lock().take().unwrap().close().await;
-                            let _ = close_tx.send(());
+                        if let Some(session) = state.session.lock().take() {
+                            let _ = session.room.close().await;
+                            let _ = session.close_tx.send(());
+                            let _ = session.handle.await;
                         }
                     }
                     AsyncCmd::SimulateScenario { scenario } => {
-                        if let Some(room) = state.room.lock().as_ref() {
-                            let _ = room.session().simulate_scenario(scenario).await;
+                        if let Some(session) = state.session.lock().as_ref() {
+                            let _ = session.room.session().simulate_scenario(scenario).await;
+                        }
+                    }
+                    AsyncCmd::ToggleLogo => {
+                        if let Some(session) = state.session.lock().as_mut() {
+                            let logo_track = &mut session.logo_track;
+                            if !logo_track.is_published() {
+                                logo_track.publish().await.unwrap();
+                            } else {
+                                logo_track.unpublish().await;
+                            }
                         }
                     }
                 }
@@ -309,7 +324,7 @@ impl App {
 
                 ui.menu_button("Publish", |ui| {
                     if ui.button("CustomTrack - LK Logo").clicked() {
-                        self.publish_track();
+                        let _ = self.cmd_tx.send(AsyncCmd::ToggleLogo);
                     }
                 });
             });
@@ -333,9 +348,9 @@ impl App {
 
                 ui.horizontal(|ui| {
                     let connecting = self.state.connecting.load(Ordering::SeqCst);
+                    let session = self.state.session.lock();
 
-                    let room = self.state.room.lock();
-                    ui.add_enabled_ui(!connecting && room.is_none(), |ui| {
+                    ui.add_enabled_ui(!connecting && session.is_none(), |ui| {
                         if ui.button("Connect").clicked() {
                             self.connection_failure = None;
                             let _ = self.cmd_tx.send(AsyncCmd::RoomConnect {
@@ -349,7 +364,7 @@ impl App {
                         ui.spinner();
                     }
 
-                    if room.is_some() {
+                    if session.is_some() {
                         if ui.button("Disconnect").clicked() {
                             let _ = self.cmd_tx.send(AsyncCmd::RoomDisconnect);
                         }
@@ -364,17 +379,16 @@ impl App {
 
                 {
                     // Room Info
-                    let room = self.state.room.lock();
-                    if let Some(room) = room.as_ref() {
-                        ui.label(format!("Name: {}", room.session().name()));
-                        ui.label(format!("SID: {}", room.session().sid()));
+                    if let Some(session) = self.state.session.lock().as_ref() {
+                        ui.label(format!("Name: {}", session.room.session().name()));
+                        ui.label(format!("SID: {}", session.room.session().sid()));
                         ui.label(format!(
                             "ConnectionState: {:?}",
-                            room.session().connection_state()
+                            session.room.session().connection_state()
                         ));
                         ui.label(format!(
                             "ParticipantCount: {:?}",
-                            room.session().participants().len() + 1
+                            session.room.session().participants().len() + 1
                         ));
                     }
                 }
@@ -420,12 +434,15 @@ impl App {
                                         );
                                     }
 
-                                    let name = self.state.room.lock().as_ref().and_then(|room| {
-                                        room.session()
-                                            .participants()
-                                            .get(participant_sid)
-                                            .map(|p| p.name())
-                                    });
+                                    let name =
+                                        self.state.session.lock().as_ref().and_then(|session| {
+                                            session
+                                                .room
+                                                .session()
+                                                .participants()
+                                                .get(participant_sid)
+                                                .map(|p| p.name())
+                                        });
 
                                     if let Some(name) = name {
                                         ui.painter().text(
@@ -468,123 +485,5 @@ impl App {
             &self.egui_context,
             full_output.platform_output,
         );
-    }
-
-    fn publish_track(&self) {
-        let session = {
-            let room = self.state.room.lock();
-            let Some(room) = room.as_ref() else { return; };
-            room.session()
-        };
-
-        tokio::spawn(async move {
-            let source = NativeVideoSource::default();
-            let track = LocalVideoTrack::create_video_track(
-                "livekit_logo",
-                VideoCaptureOptions::default(),
-                source.clone(),
-            );
-
-            session
-                .local_participant()
-                .publish_track(
-                    LocalTrack::Video(track),
-                    TrackPublishOptions {
-                        video_codec: livekit::options::VideoCodec::H264,
-                        simulcast: false,
-                        ..Default::default()
-                    },
-                )
-                .await
-                .unwrap();
-
-            // Load logo data
-            let image = tokio::task::spawn_blocking(|| {
-                image::load_from_memory_with_format(
-                    include_bytes!("moving-logo.png"),
-                    ImageFormat::Png,
-                )
-                .unwrap()
-                .to_rgb8()
-            })
-            .await
-            .unwrap();
-
-            let logo_width = image.width() as usize;
-            let logo_height = image.height() as usize;
-            let image = image.into_raw();
-
-            // Move the logo
-            const MOVE_SPEED: i32 = 1;
-            const FB_WIDTH: usize = 1280; // The logo can't be bigger
-            const FB_HEIGHT: usize = 720;
-
-            let mut interval = tokio::time::interval(Duration::from_millis(1000 / 30));
-            let (mut dir_x, mut dir_y) = (1i32, 0i32);
-            let (mut x, mut y) = (0u32, 0u32);
-
-            // allocate buffers once
-            let mut framebuffer = vec![0u32; FB_WIDTH * FB_HEIGHT];
-
-            loop {
-                interval.tick().await;
-                /*x = (x as i32 + dir_x * MOVE_SPEED) as u32;
-                y = (y as i32 + dir_y * MOVE_SPEED) as u32;
-
-                if x >= (FB_WIDTH - logo_width) as u32 {
-                    dir_x = -1;
-                } else if x <= 0 {
-                    dir_x = 1;
-                }
-
-                if y >= (FB_HEIGHT - logo_height) as u32 {
-                    dir_y = -1;
-                } else if y <= 0 {
-                    dir_y = 1;
-                }
-
-                for i in 0..logo_height {
-                    let row_start = x as usize + (i * FB_WIDTH);
-                    let row_end = row_start + logo_width;
-                    framebuffer[row_start..row_end]
-                        .clone_from_slice(&image[i * logo_width..i * logo_width + logo_width]);
-                }*/
-
-                let mut i420_frame = VideoFrame {
-                    rotation: VideoRotation::VideoRotation0,
-                    buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
-                };
-
-                let stride_y = i420_frame.buffer.stride_y();
-                let stride_u = i420_frame.buffer.stride_u();
-                let stride_v = i420_frame.buffer.stride_v();
-                let (data_y, data_u, data_v) = i420_frame.buffer.data_mut();
-
-                framebuffer.fill(0xff0000ff);
-
-                let slice = unsafe {
-                    std::slice::from_raw_parts(
-                        framebuffer.as_ptr() as *const u8,
-                        framebuffer.len() * 4,
-                    )
-                };
-
-                yuv_helper::abgr_to_i420(
-                    slice,
-                    (FB_WIDTH * 4) as i32,
-                    data_y,
-                    stride_y,
-                    data_u,
-                    stride_u,
-                    data_v,
-                    stride_v,
-                    FB_WIDTH as i32,
-                    FB_HEIGHT as i32,
-                )
-                .unwrap();
-
-                source.capture_frame(&i420_frame);
-            }
-        });
     }
 }

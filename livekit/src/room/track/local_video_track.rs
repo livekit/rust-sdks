@@ -105,6 +105,19 @@ impl LocalVideoTrack {
     }
 
     #[inline]
+    pub fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+        self.inner.track_inner.transceiver()
+    }
+
+    #[inline]
+    pub(crate) fn update_transceiver(
+        &self,
+        transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>,
+    ) {
+        self.inner.track_inner.update_transceiver(transceiver)
+    }
+
+    #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         self.inner.track_inner.update_info(info)
     }
