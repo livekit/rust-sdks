@@ -665,8 +665,15 @@ impl SessionInner {
             if mime_type == "audio/opus" {
                 matched.push(codec);
             } else if mime_type == format!("video/{}", options.video_codec.as_str()) {
-                // TODO(theomonnom): sdp_fmtp_line, h264 profile 42e01f partial match
-                matched.push(codec);
+                if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line {
+                    // for h264 codecs that have sdpFmtpLine available, use only if the
+                    // profile-level-id is 42e01f for cross-browser compatibility
+                    if sdp_fmtp_line.contains("profile-level-id=42e01f") {
+                        matched.push(codec);
+                        continue;
+                    }
+                }
+                partial_matched.push(codec);
             } else {
                 unmatched.push(codec);
             }
