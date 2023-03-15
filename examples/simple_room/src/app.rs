@@ -152,7 +152,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
                             if !logo_track.is_published() {
                                 logo_track.publish().await.unwrap();
                             } else {
-                                logo_track.unpublish().await;
+                                logo_track.unpublish().await.unwrap();
                             }
                         }
                     }

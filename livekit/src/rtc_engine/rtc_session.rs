@@ -675,7 +675,7 @@ impl SessionInner {
         matched.append(&mut partial_matched);
         matched.append(&mut unmatched);
 
-        // transceiver.set_codec_preferences(matched)?;
+        transceiver.set_codec_preferences(matched)?;
 
         Ok(transceiver)
     }

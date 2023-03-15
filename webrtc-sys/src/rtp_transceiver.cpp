@@ -21,7 +21,7 @@ namespace livekit {
 webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
     RtpTransceiverInit init) {
   {
-    webrtc::RtpTransceiverInit native;
+    webrtc::RtpTransceiverInit native{};
     native.direction =
         static_cast<webrtc::RtpTransceiverDirection>(init.direction);
     native.stream_ids = std::vector<std::string>(init.stream_ids.begin(),
@@ -95,6 +95,7 @@ void RtpTransceiver::stop_standard() const {
 void RtpTransceiver::set_codec_preferences(
     rust::Vec<RtpCodecCapability> codecs) const {
   std::vector<webrtc::RtpCodecCapability> std_codecs;
+
   for (auto codec : codecs)
     std_codecs.push_back(to_native_rtp_codec_capability(codec));
 

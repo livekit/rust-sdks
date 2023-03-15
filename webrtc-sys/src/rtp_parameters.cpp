@@ -19,7 +19,7 @@
 namespace livekit {
 
 webrtc::RtcpFeedback to_native_rtcp_feedback(RtcpFeedback feedback) {
-  webrtc::RtcpFeedback native;
+  webrtc::RtcpFeedback native{};
   native.type = static_cast<webrtc::RtcpFeedbackType>(feedback.feedback_type);
   if (feedback.has_message_type)
     native.message_type =
@@ -30,14 +30,14 @@ webrtc::RtcpFeedback to_native_rtcp_feedback(RtcpFeedback feedback) {
 
 webrtc::RtpCodecCapability to_native_rtp_codec_capability(
     RtpCodecCapability capability) {
-  webrtc::RtpCodecCapability native;
+  webrtc::RtpCodecCapability native{};
   // native.mime_type(); IGNORED
 
   native.name = capability.name.c_str();
   native.kind = static_cast<cricket::MediaType>(capability.kind);
 
   if (capability.has_clock_rate)
-    native.clock_rate = native.clock_rate;
+    native.clock_rate = capability.clock_rate;
 
   if (capability.has_preferred_payload_type)
     native.preferred_payload_type = capability.preferred_payload_type;
@@ -62,9 +62,7 @@ webrtc::RtpCodecCapability to_native_rtp_codec_capability(
 
   native.max_temporal_layer_extensions =
       capability.max_temporal_layer_extensions;
-
   native.max_spatial_layer_extensions = capability.max_spatial_layer_extensions;
-
   native.svc_multi_stream_support = capability.svc_multi_stream_support;
 
   return native;
@@ -72,7 +70,7 @@ webrtc::RtpCodecCapability to_native_rtp_codec_capability(
 
 webrtc::RtpHeaderExtensionCapability to_native_rtp_header_extension_capability(
     RtpHeaderExtensionCapability header) {
-  webrtc::RtpHeaderExtensionCapability native;
+  webrtc::RtpHeaderExtensionCapability native{};
   native.uri = header.uri.c_str();
 
   if (header.has_preferred_id)
@@ -86,7 +84,7 @@ webrtc::RtpHeaderExtensionCapability to_native_rtp_header_extension_capability(
 }
 
 webrtc::RtpExtension to_native_rtp_extension(RtpExtension ext) {
-  webrtc::RtpExtension native;
+  webrtc::RtpExtension native{};
   native.uri = ext.uri.c_str();
   native.id = ext.id;
   native.encrypt = ext.encrypt;
@@ -94,7 +92,7 @@ webrtc::RtpExtension to_native_rtp_extension(RtpExtension ext) {
 }
 
 webrtc::RtpFecParameters to_rtp_fec_parameters(RtpFecParameters fec) {
-  webrtc::RtpFecParameters native;
+  webrtc::RtpFecParameters native{};
 
   if (fec.has_ssrc)
     native.ssrc = fec.ssrc;
@@ -104,7 +102,7 @@ webrtc::RtpFecParameters to_rtp_fec_parameters(RtpFecParameters fec) {
 }
 
 webrtc::RtpRtxParameters to_rtp_rtx_parameters(RtpRtxParameters rtx) {
-  webrtc::RtpRtxParameters native;
+  webrtc::RtpRtxParameters native{};
 
   if (rtx.has_ssrc)
     native.ssrc = rtx.ssrc;
@@ -113,7 +111,7 @@ webrtc::RtpRtxParameters to_rtp_rtx_parameters(RtpRtxParameters rtx) {
 
 webrtc::RtpEncodingParameters to_native_rtp_encoding_paramters(
     RtpEncodingParameters parameters) {
-  webrtc::RtpEncodingParameters native;
+  webrtc::RtpEncodingParameters native{};
   native.rid = parameters.rid.c_str();
 
   if (parameters.has_ssrc)
@@ -147,7 +145,7 @@ webrtc::RtpEncodingParameters to_native_rtp_encoding_paramters(
 
 webrtc::RtpCodecParameters to_native_rtp_codec_parameters(
     RtpCodecParameters params) {
-  webrtc::RtpCodecParameters native;
+  webrtc::RtpCodecParameters native{};
   native.name = params.name.c_str();
   native.kind = static_cast<cricket::MediaType>(params.kind);
   native.payload_type = params.payload_type;
@@ -174,7 +172,7 @@ webrtc::RtpCodecParameters to_native_rtp_codec_parameters(
 }
 
 webrtc::RtpCapabilities to_rtp_capabilities(RtpCapabilities capabilities) {
-  webrtc::RtpCapabilities native;
+  webrtc::RtpCapabilities native{};
   for (auto codec : capabilities.codecs)
     native.codecs.push_back(to_native_rtp_codec_capability(codec));
 
@@ -189,7 +187,7 @@ webrtc::RtpCapabilities to_rtp_capabilities(RtpCapabilities capabilities) {
 }
 
 webrtc::RtcpParameters to_native_rtcp_paramaters(RtcpParameters params) {
-  webrtc::RtcpParameters native;
+  webrtc::RtcpParameters native{};
   if (params.has_ssrc)
     native.ssrc = params.ssrc;
 
@@ -200,7 +198,7 @@ webrtc::RtcpParameters to_native_rtcp_paramaters(RtcpParameters params) {
 }
 
 webrtc::RtpParameters to_native_rtp_parameters(RtpParameters params) {
-  webrtc::RtpParameters native;
+  webrtc::RtpParameters native{};
   native.transaction_id = params.transaction_id.c_str();
   native.mid = params.mid.c_str();
 
@@ -223,7 +221,7 @@ webrtc::RtpParameters to_native_rtp_parameters(RtpParameters params) {
 }
 
 RtcpFeedback to_rust_rtcp_feedback(webrtc::RtcpFeedback feedback) {
-  RtcpFeedback rust;
+  RtcpFeedback rust{};
   rust.feedback_type = static_cast<RtcpFeedbackType>(feedback.type);
 
   if (feedback.message_type.has_value()) {
@@ -237,7 +235,7 @@ RtcpFeedback to_rust_rtcp_feedback(webrtc::RtcpFeedback feedback) {
 
 RtpCodecCapability to_rust_rtp_codec_capability(
     webrtc::RtpCodecCapability capability) {
-  RtpCodecCapability rust;
+  RtpCodecCapability rust{};
   rust.mime_type = capability.mime_type();
   rust.name = capability.name;
   rust.kind = static_cast<MediaType>(capability.kind);
@@ -262,7 +260,7 @@ RtpCodecCapability to_rust_rtp_codec_capability(
     rust.ptime = capability.ptime.value();
   }
 
-  if (capability.num_channels.has_value()) {
+  if (capability.num_channels) {
     rust.has_num_channels = true;
     rust.num_channels = capability.num_channels.value();
   }
@@ -284,7 +282,7 @@ RtpCodecCapability to_rust_rtp_codec_capability(
 
 RtpHeaderExtensionCapability to_rust_rtp_header_extension_capability(
     webrtc::RtpHeaderExtensionCapability header) {
-  RtpHeaderExtensionCapability rust;
+  RtpHeaderExtensionCapability rust{};
   rust.uri = header.uri;
   if (header.preferred_id.has_value()) {
     rust.has_preferred_id = true;
@@ -297,7 +295,7 @@ RtpHeaderExtensionCapability to_rust_rtp_header_extension_capability(
 }
 
 RtpExtension to_rust_rtp_extension(webrtc::RtpExtension ext) {
-  RtpExtension rust;
+  RtpExtension rust{};
   rust.uri = ext.uri;
   rust.id = ext.id;
   rust.encrypt = ext.encrypt;
@@ -305,7 +303,7 @@ RtpExtension to_rust_rtp_extension(webrtc::RtpExtension ext) {
 }
 
 RtpFecParameters to_rust_rtp_fec_parameters(webrtc::RtpFecParameters fec) {
-  RtpFecParameters rust;
+  RtpFecParameters rust{};
   if (fec.ssrc.has_value()) {
     rust.has_ssrc = true;
     rust.ssrc = fec.ssrc.value();
@@ -316,7 +314,7 @@ RtpFecParameters to_rust_rtp_fec_parameters(webrtc::RtpFecParameters fec) {
 }
 
 RtpRtxParameters to_rust_rtp_rtx_parameters(webrtc::RtpRtxParameters param) {
-  RtpRtxParameters rust;
+  RtpRtxParameters rust{};
   if (param.ssrc.has_value()) {
     rust.has_ssrc = param.ssrc.has_value();
     rust.ssrc = param.ssrc.value();
@@ -326,7 +324,7 @@ RtpRtxParameters to_rust_rtp_rtx_parameters(webrtc::RtpRtxParameters param) {
 
 RtpEncodingParameters to_rust_rtp_encoding_parameters(
     webrtc::RtpEncodingParameters params) {
-  RtpEncodingParameters rust;
+  RtpEncodingParameters rust{};
   if (params.ssrc.has_value()) {
     rust.has_ssrc = params.ssrc.has_value();
     rust.ssrc = params.ssrc.value();
@@ -372,7 +370,7 @@ RtpEncodingParameters to_rust_rtp_encoding_parameters(
 
 RtpCodecParameters to_rust_rtp_codec_parameters(
     webrtc::RtpCodecParameters params) {
-  RtpCodecParameters rust;
+  RtpCodecParameters rust{};
   rust.mime_type = params.mime_type();
   rust.name = params.name;
   rust.kind = static_cast<MediaType>(params.kind);
@@ -407,7 +405,7 @@ RtpCodecParameters to_rust_rtp_codec_parameters(
 }
 
 RtpCapabilities to_rust_rtp_capabilities(webrtc::RtpCapabilities capabilities) {
-  RtpCapabilities rust;
+  RtpCapabilities rust{};
   for (auto codec : capabilities.codecs)
     rust.codecs.push_back(to_rust_rtp_codec_capability(codec));
 
@@ -422,7 +420,7 @@ RtpCapabilities to_rust_rtp_capabilities(webrtc::RtpCapabilities capabilities) {
 }
 
 RtcpParameters to_rust_rtcp_parameters(webrtc::RtcpParameters params) {
-  RtcpParameters rust;
+  RtcpParameters rust{};
   if (params.ssrc.has_value()) {
     rust.has_ssrc = true;
     rust.ssrc = params.ssrc.value();
@@ -435,7 +433,7 @@ RtcpParameters to_rust_rtcp_parameters(webrtc::RtcpParameters params) {
 }
 
 RtpParameters to_rust_rtp_parameters(webrtc::RtpParameters params) {
-  RtpParameters rust;
+  RtpParameters rust{};
   rust.transaction_id = params.transaction_id;
   rust.mid = params.mid;
 

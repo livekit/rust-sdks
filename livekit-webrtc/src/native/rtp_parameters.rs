@@ -228,8 +228,17 @@ impl From<RtpEncodingParameters> for sys_rp::ffi::RtpEncodingParameters {
 
 impl From<RtpCodecCapability> for sys_rp::ffi::RtpCodecCapability {
     fn from(value: RtpCodecCapability) -> Self {
+        let mime_type: Vec<&str> = value.mime_type.split('/').collect();
+        let kind = match mime_type[0] {
+            "audio" => sys_webrtc::ffi::MediaType::Audio,
+            "video" => sys_webrtc::ffi::MediaType::Video,
+            _ => panic!("invalid media type"),
+        };
+        let name = mime_type[1].to_string();
+
         Self {
-            mime_type: value.mime_type,
+            name,
+            kind,
             has_clock_rate: value.clock_rate.is_some(),
             clock_rate: value.clock_rate.unwrap_or_default() as i32,
             has_num_channels: value.channels.is_some(),
@@ -259,8 +268,7 @@ impl From<RtpCodecCapability> for sys_rp::ffi::RtpCodecCapability {
                     .unwrap_or_default()
             },
             // Ignore
-            name: String::new(),
-            kind: MediaType::Video.into(),
+            mime_type: String::default(), // !!
             has_preferred_payload_type: false,
             preferred_payload_type: 0,
             has_max_ptime: false,
