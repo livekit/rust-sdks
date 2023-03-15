@@ -665,7 +665,7 @@ impl SessionInner {
             if mime_type == "audio/opus" {
                 matched.push(codec);
             } else if mime_type == format!("video/{}", options.video_codec.as_str()) {
-                if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line {
+                if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
                     // for h264 codecs that have sdpFmtpLine available, use only if the
                     // profile-level-id is 42e01f for cross-browser compatibility
                     if sdp_fmtp_line.contains("profile-level-id=42e01f") {
@@ -686,6 +686,7 @@ impl SessionInner {
 
         Ok(transceiver)
     }
+
     /// Called when the SignalClient or one of the PeerConnection has lost the connection
     /// The RTCEngine may try a reconnect.
     fn on_session_disconnected(

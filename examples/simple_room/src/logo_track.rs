@@ -125,7 +125,12 @@ impl LogoTrack {
         };
 
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = &mut close_rx => {
+                    break;
+                }
+                _ = interval.tick() => {}
+            }
 
             data.pos.0 = (data.pos.0 as i32 + data.direction.0 * MOVE_SPEED) as u32;
             data.pos.1 = (data.pos.1 as i32 + data.direction.1 * MOVE_SPEED) as u32;
