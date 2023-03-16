@@ -1,4 +1,3 @@
-use curl::easy::Easy;
 use flate2::read::GzDecoder;
 use regex::Regex;
 use std::env;
@@ -41,21 +40,10 @@ fn download_prebuilt(
     if !file_path.exists() {
         let file = fs::File::create(&file_path)?;
         {
+            // Download WebRTC-SDK
             let mut writer = io::BufWriter::new(file);
-            let mut handle = Easy::new();
-            handle.url(&file_url)?;
-            handle.follow_location(true)?;
-            handle.write_function(move |data| Ok(writer.write(data).unwrap()))?;
-            handle.perform()?;
-
-            let response_code = handle.response_code()?;
-            if response_code != 200 {
-                fs::remove_file(&file_path)?;
-                Err(format!(
-                    "Failed to download WebRTC-SDK (Status: {}) {}",
-                    response_code, file_url
-                ))?
-            }
+            let mut res = reqwest::blocking::get(&file_url)?;
+            io::copy(&mut res, &mut writer)?;
         }
 
         // Extract the archive
