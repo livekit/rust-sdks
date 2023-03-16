@@ -1,5 +1,5 @@
 use super::video_frame::new_video_frame_buffer;
-use crate::media_stream::VideoTrack;
+use crate::media_stream::RtcVideoTrack;
 use crate::video_frame::{BoxVideoFrame, VideoFrame};
 use cxx::UniquePtr;
 use livekit_utils::observer::Dispatcher;
@@ -11,11 +11,11 @@ use webrtc_sys::media_stream as sys_ms;
 pub struct NativeVideoSink {
     native_observer: UniquePtr<sys_ms::ffi::NativeVideoFrameSink>,
     observer: Box<VideoTrackSink>,
-    video_track: VideoTrack,
+    video_track: RtcVideoTrack,
 }
 
 impl NativeVideoSink {
-    pub fn new(video_track: VideoTrack) -> Self {
+    pub fn new(video_track: RtcVideoTrack) -> Self {
         let mut observer = Box::new(VideoTrackSink::default());
         let mut native_observer = unsafe {
             sys_ms::ffi::new_native_video_frame_sink(Box::new(sys_ms::VideoFrameSinkWrapper::new(
@@ -35,7 +35,7 @@ impl NativeVideoSink {
         }
     }
 
-    pub fn track(&self) -> VideoTrack {
+    pub fn track(&self) -> RtcVideoTrack {
         self.video_track.clone()
     }
 

@@ -14,7 +14,7 @@ impl RemoteVideoTrack {
     pub(crate) fn new(
         sid: TrackSid,
         name: String,
-        rtc_track: rtc::media_stream::VideoTrack,
+        rtc_track: rtc::media_stream::RtcVideoTrack,
     ) -> Self {
         Self {
             inner: Arc::new(TrackInner::new(
@@ -72,7 +72,7 @@ impl RemoteVideoTrack {
     }
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::VideoTrack {
+    pub fn rtc_track(&self) -> rtc::media_stream::RtcVideoTrack {
         if let rtc::media_stream::MediaStreamTrack::Video(video) = self.inner.rtc_track() {
             video
         } else {

@@ -6,7 +6,7 @@ use crate::imp::video_sink as sink_imp;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     use super::sink_imp;
-    use crate::media_stream::VideoTrack;
+    use crate::media_stream::RtcVideoTrack;
     use crate::video_frame::BoxVideoFrame;
     use std::fmt::Debug;
     use std::sync::Arc;
@@ -25,13 +25,13 @@ pub mod native {
     }
 
     impl NativeVideoSink {
-        pub fn new(video_track: VideoTrack) -> Self {
+        pub fn new(video_track: RtcVideoTrack) -> Self {
             Self {
                 handle: sink_imp::NativeVideoSink::new(video_track),
             }
         }
 
-        pub fn track(&self) -> VideoTrack {
+        pub fn track(&self) -> RtcVideoTrack {
             self.handle.track()
         }
 

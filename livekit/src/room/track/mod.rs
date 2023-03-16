@@ -151,7 +151,7 @@ impl VideoTrack {
     track_dispatch!([Local, Remote]);
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::VideoTrack {
+    pub fn rtc_track(&self) -> rtc::media_stream::RtcVideoTrack {
         match self {
             Self::Local(track) => track.rtc_track(),
             Self::Remote(track) => track.rtc_track(),
@@ -163,7 +163,7 @@ impl AudioTrack {
     track_dispatch!([Local, Remote]);
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::AudioTrack {
+    pub fn rtc_track(&self) -> rtc::media_stream::RtcAudioTrack {
         match self {
             Self::Local(track) => track.rtc_track().into(),
             Self::Remote(track) => track.rtc_track().into(),

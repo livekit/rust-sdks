@@ -3,15 +3,9 @@ use livekit_utils::enum_dispatch;
 use std::fmt::Debug;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TrackState {
+pub enum RtcTrackState {
     Live,
     Ended,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TrackKind {
-    Audio,
-    Video,
 }
 
 #[derive(Clone)]
@@ -24,11 +18,11 @@ impl MediaStream {
         self.handle.id()
     }
 
-    pub fn audio_tracks(&self) -> Vec<AudioTrack> {
+    pub fn audio_tracks(&self) -> Vec<RtcAudioTrack> {
         self.handle.audio_tracks()
     }
 
-    pub fn video_tracks(&self) -> Vec<VideoTrack> {
+    pub fn video_tracks(&self) -> Vec<RtcVideoTrack> {
         self.handle.video_tracks()
     }
 }
@@ -44,19 +38,19 @@ impl Debug for MediaStream {
 }
 
 #[derive(Clone)]
-pub struct VideoTrack {
-    pub(crate) handle: imp_ms::VideoTrack,
+pub struct RtcVideoTrack {
+    pub(crate) handle: imp_ms::RtcVideoTrack,
 }
 
 #[derive(Clone)]
-pub struct AudioTrack {
-    pub(crate) handle: imp_ms::AudioTrack,
+pub struct RtcAudioTrack {
+    pub(crate) handle: imp_ms::RtcAudioTrack,
 }
 
 #[derive(Debug, Clone)]
 pub enum MediaStreamTrack {
-    Video(VideoTrack),
-    Audio(AudioTrack),
+    Video(RtcVideoTrack),
+    Audio(RtcAudioTrack),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -70,20 +64,15 @@ impl MediaStreamTrack {
 impl MediaStreamTrack {
     enum_dispatch!(
         [Video, Audio];
-        pub fn kind(self: &Self) -> TrackKind;
         pub fn id(self: &Self) -> String;
         pub fn enabled(self: &Self) -> bool;
         pub fn set_enabled(self: &Self, enabled: bool) -> bool;
-        pub fn state(self: &Self) -> TrackState;
+        pub fn state(self: &Self) -> RtcTrackState;
     );
 }
 
 macro_rules! media_stream_track {
     () => {
-        pub fn kind(&self) -> TrackKind {
-            self.handle.kind()
-        }
-
         pub fn id(&self) -> String {
             self.handle.id()
         }
@@ -96,7 +85,7 @@ macro_rules! media_stream_track {
             self.handle.set_enabled(enabled)
         }
 
-        pub fn state(&self) -> TrackState {
+        pub fn state(&self) -> RtcTrackState {
             self.handle.state().into()
         }
 
@@ -109,17 +98,17 @@ macro_rules! media_stream_track {
     };
 }
 
-impl VideoTrack {
+impl RtcVideoTrack {
     media_stream_track!();
 }
 
-impl AudioTrack {
+impl RtcAudioTrack {
     media_stream_track!();
 }
 
-impl Debug for AudioTrack {
+impl Debug for RtcAudioTrack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AudioTrack")
+        f.debug_struct("RtcAudioTrack")
             .field("id", &self.id())
             .field("enabled", &self.enabled())
             .field("state", &self.state())
@@ -127,9 +116,9 @@ impl Debug for AudioTrack {
     }
 }
 
-impl Debug for VideoTrack {
+impl Debug for RtcVideoTrack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VideoTrack")
+        f.debug_struct("RtcVideoTrack")
             .field("id", &self.id())
             .field("enabled", &self.enabled())
             .field("state", &self.state())
@@ -137,14 +126,14 @@ impl Debug for VideoTrack {
     }
 }
 
-impl From<AudioTrack> for MediaStreamTrack {
-    fn from(track: AudioTrack) -> Self {
+impl From<RtcAudioTrack> for MediaStreamTrack {
+    fn from(track: RtcAudioTrack) -> Self {
         Self::Audio(track)
     }
 }
 
-impl From<VideoTrack> for MediaStreamTrack {
-    fn from(track: VideoTrack) -> Self {
+impl From<RtcVideoTrack> for MediaStreamTrack {
+    fn from(track: RtcVideoTrack) -> Self {
         Self::Video(track)
     }
 }

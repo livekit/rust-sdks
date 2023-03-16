@@ -1,4 +1,4 @@
-use crate::media_stream::{self, MediaStreamTrack, TrackKind, TrackState};
+use crate::media_stream::{self, MediaStreamTrack, RtcTrackState};
 use cxx::SharedPtr;
 use webrtc_sys::media_stream as sys_ms;
 use webrtc_sys::media_stream::ffi::{
@@ -6,11 +6,11 @@ use webrtc_sys::media_stream::ffi::{
 };
 use webrtc_sys::{MEDIA_TYPE_AUDIO, MEDIA_TYPE_VIDEO};
 
-impl From<sys_ms::ffi::TrackState> for TrackState {
+impl From<sys_ms::ffi::TrackState> for RtcTrackState {
     fn from(state: sys_ms::ffi::TrackState) -> Self {
         match state {
-            sys_ms::ffi::TrackState::Live => TrackState::Live,
-            sys_ms::ffi::TrackState::Ended => TrackState::Ended,
+            sys_ms::ffi::TrackState::Live => RtcTrackState::Live,
+            sys_ms::ffi::TrackState::Ended => RtcTrackState::Ended,
             _ => panic!("unknown TrackState"),
         }
     }
@@ -26,22 +26,22 @@ impl MediaStream {
         self.sys_handle.id()
     }
 
-    pub fn audio_tracks(&self) -> Vec<media_stream::AudioTrack> {
+    pub fn audio_tracks(&self) -> Vec<media_stream::RtcAudioTrack> {
         self.sys_handle
             .get_audio_tracks()
             .into_iter()
-            .map(|t| media_stream::AudioTrack {
-                handle: AudioTrack { sys_handle: t.ptr },
+            .map(|t| media_stream::RtcAudioTrack {
+                handle: RtcAudioTrack { sys_handle: t.ptr },
             })
             .collect()
     }
 
-    pub fn video_tracks(&self) -> Vec<media_stream::VideoTrack> {
+    pub fn video_tracks(&self) -> Vec<media_stream::RtcVideoTrack> {
         self.sys_handle
             .get_video_tracks()
             .into_iter()
-            .map(|t| media_stream::VideoTrack {
-                handle: VideoTrack { sys_handle: t.ptr },
+            .map(|t| media_stream::RtcVideoTrack {
+                handle: RtcVideoTrack { sys_handle: t.ptr },
             })
             .collect()
     }
@@ -51,14 +51,14 @@ pub fn new_media_stream_track(
     sys_handle: SharedPtr<sys_ms::ffi::MediaStreamTrack>,
 ) -> MediaStreamTrack {
     if sys_handle.kind() == MEDIA_TYPE_AUDIO {
-        MediaStreamTrack::Audio(media_stream::AudioTrack {
-            handle: AudioTrack {
+        MediaStreamTrack::Audio(media_stream::RtcAudioTrack {
+            handle: RtcAudioTrack {
                 sys_handle: media_to_audio(sys_handle),
             },
         })
     } else if sys_handle.kind() == MEDIA_TYPE_VIDEO {
-        MediaStreamTrack::Video(media_stream::VideoTrack {
-            handle: VideoTrack {
+        MediaStreamTrack::Video(media_stream::RtcVideoTrack {
+            handle: RtcVideoTrack {
                 sys_handle: media_to_video(sys_handle),
             },
         })
@@ -69,17 +69,6 @@ pub fn new_media_stream_track(
 
 macro_rules! impl_media_stream_track {
     ($cast:ident) => {
-        pub fn kind(&self) -> TrackKind {
-            let ptr = sys_ms::ffi::$cast(self.sys_handle.clone());
-            if ptr.kind() == MEDIA_TYPE_AUDIO {
-                TrackKind::Audio
-            } else if ptr.kind() == MEDIA_TYPE_VIDEO {
-                TrackKind::Video
-            } else {
-                panic!("unknown track kind")
-            }
-        }
-
         pub fn id(&self) -> String {
             let ptr = sys_ms::ffi::$cast(self.sys_handle.clone());
             ptr.id()
@@ -95,7 +84,7 @@ macro_rules! impl_media_stream_track {
             ptr.set_enabled(enabled)
         }
 
-        pub fn state(&self) -> TrackState {
+        pub fn state(&self) -> RtcTrackState {
             let ptr = sys_ms::ffi::$cast(self.sys_handle.clone());
             ptr.state().into()
         }
@@ -103,11 +92,11 @@ macro_rules! impl_media_stream_track {
 }
 
 #[derive(Clone)]
-pub struct VideoTrack {
+pub struct RtcVideoTrack {
     pub(crate) sys_handle: SharedPtr<sys_ms::ffi::VideoTrack>,
 }
 
-impl VideoTrack {
+impl RtcVideoTrack {
     impl_media_stream_track!(video_to_media);
 
     pub fn sys_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {
@@ -116,11 +105,11 @@ impl VideoTrack {
 }
 
 #[derive(Clone)]
-pub struct AudioTrack {
+pub struct RtcAudioTrack {
     pub(crate) sys_handle: SharedPtr<sys_ms::ffi::AudioTrack>,
 }
 
-impl AudioTrack {
+impl RtcAudioTrack {
     impl_media_stream_track!(audio_to_media);
 
     pub fn sys_handle(&self) -> SharedPtr<sys_ms::ffi::MediaStreamTrack> {

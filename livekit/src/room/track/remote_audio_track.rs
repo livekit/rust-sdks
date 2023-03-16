@@ -14,7 +14,7 @@ impl RemoteAudioTrack {
     pub(crate) fn new(
         sid: TrackSid,
         name: String,
-        rtc_track: rtc::media_stream::AudioTrack,
+        rtc_track: rtc::media_stream::RtcAudioTrack,
     ) -> Self {
         Self {
             inner: Arc::new(TrackInner::new(
@@ -72,7 +72,7 @@ impl RemoteAudioTrack {
     }
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::AudioTrack {
+    pub fn rtc_track(&self) -> rtc::media_stream::RtcAudioTrack {
         if let rtc::media_stream::MediaStreamTrack::Audio(audio) = self.inner.rtc_track() {
             audio
         } else {

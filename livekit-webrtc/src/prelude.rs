@@ -3,7 +3,7 @@ pub use crate::data_channel::{
 };
 pub use crate::ice_candidate::IceCandidate;
 pub use crate::media_stream::{
-    AudioTrack, MediaStream, MediaStreamTrack, TrackKind, TrackState, VideoTrack,
+    MediaStream, MediaStreamTrack, RtcAudioTrack, RtcTrackState, RtcVideoTrack,
 };
 pub use crate::peer_connection::{
     AnswerOptions, IceConnectionState, IceGatheringState, OfferOptions, PeerConnection,
