@@ -12,7 +12,7 @@ cxx = "1.0"
 log = "0.4"
 
 [build-dependencies]
-curl = "0.4"
+reqwest = { version = "0.11", features = ["blocking", "json"] }
 tar = "0.4"
 flate2 = "1.0"
 cxx-build = "1.0"
@@ -21,7 +21,7 @@ regex = "1.0"
 zip = "0.6.3"
 
 [dev-dependencies]
-env_logger = "0.9"
+env_logger = "0.10"
 
 #[lib]
 #crate-type = ["staticlib", "cdylib"]
