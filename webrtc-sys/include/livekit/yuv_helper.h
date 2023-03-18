@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <exception>
 #include <memory>
 #include <string>
 
