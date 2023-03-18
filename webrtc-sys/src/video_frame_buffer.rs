@@ -35,8 +35,11 @@ pub mod ffi {
         fn height(self: &VideoFrameBuffer) -> i32;
 
         /// # SAFETY
+        /// If the buffer type is I420, the buffer must be cloned before
+        unsafe fn to_i420(self: &VideoFrameBuffer) -> UniquePtr<I420Buffer>;
+
+        /// # SAFETY
         /// The functions require ownership
-        unsafe fn to_i420(self: Pin<&mut VideoFrameBuffer>) -> UniquePtr<I420Buffer>;
         unsafe fn get_i420(self: Pin<&mut VideoFrameBuffer>) -> UniquePtr<I420Buffer>;
         unsafe fn get_i420a(self: Pin<&mut VideoFrameBuffer>) -> UniquePtr<I420ABuffer>;
         unsafe fn get_i422(self: Pin<&mut VideoFrameBuffer>) -> UniquePtr<I422Buffer>;
@@ -66,7 +69,11 @@ pub mod ffi {
         fn data_y(self: &BiplanarYuv8Buffer) -> *const u8;
         fn data_uv(self: &BiplanarYuv8Buffer) -> *const u8;
 
-        fn create_i420_buffer(width: i32, height: i32) -> UniquePtr<I420Buffer>;
+        fn stride_a(self: &I420ABuffer) -> i32;
+        fn data_a(self: &I420ABuffer) -> *const u8;
+
+        fn new_i420_buffer(width: i32, height: i32) -> UniquePtr<I420Buffer>;
+        fn copy_i420_buffer(i420: &UniquePtr<I420Buffer>) -> UniquePtr<I420Buffer>;
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;

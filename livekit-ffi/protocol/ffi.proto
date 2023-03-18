@@ -279,19 +279,12 @@ message TrackEvent {
 
 message FrameReceived {
   VideoFrameInfo frame = 1;
-  VideoFrameBufferInfo frame_buffer = 2;
+  VideoFrameBufferInfo buffer = 2;
 }
 
 message VideoFrameInfo {
-  int32 width = 1;
-  int32 height = 2;
-  uint32 size = 3;
-  uint32 id = 4; // uint16
-  int64 timestamp_us = 5;
-  int64 ntp_time_ms = 6;
-  uint32 transport_frame_id = 7;
-  uint32 timestamp = 8;
-  VideoRotation rotation = 9;
+  int64 timestamp = 1;
+  VideoRotation rotation = 2;
 }
 
 message VideoFrameBufferInfo {
@@ -312,11 +305,13 @@ message PlanarYuvBufferInfo {
   int32 stride_y = 3;
   int32 stride_u = 4;
   int32 stride_v = 5;
+  int32 stride_a = 6;
 
   // *const u8 or *const u16
-  uint64 data_y_ptr = 6;
-  uint64 data_u_ptr = 7;
-  uint64 data_v_ptr = 8;
+  uint64 data_y_ptr = 7;
+  uint64 data_u_ptr = 8;
+  uint64 data_v_ptr = 9;
+  uint64 data_a_ptr = 10; // nullptr = no alpha
 }
 
 message BiplanarYuvBufferInfo {
@@ -341,6 +336,7 @@ enum VideoFrameBufferType {
   I444 = 4;
   I010 = 5;
   NV12 = 6;
+  WEBGL = 7;
 }
 
 /// Participant Events

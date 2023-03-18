@@ -1,23 +1,28 @@
 use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
-use crate::rtc_engine::lk_runtime::LKRuntime;
-use crate::rtc_engine::pc_transport::PCTransport;
-use crate::rtc_engine::rtc_events::{RTCEvent, RTCEvents};
+use crate::options::TrackPublishOptions;
+use crate::rtc_engine::lk_runtime::LkRuntime;
+use crate::rtc_engine::peer_transport::PeerTransport;
+use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
+use crate::track::LocalTrack;
 use crate::{proto, signal_client};
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, watch, Mutex as AsyncMutex};
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, error, trace, warn};
 
-pub const MAX_ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 
@@ -35,7 +40,7 @@ pub enum SessionEvent {
         kind: proto::data_packet::Kind,
     },
     MediaTrack {
-        track: MediaStreamTrackHandle,
+        track: MediaStreamTrack,
         stream: MediaStream,
         receiver: RtpReceiver,
     },
@@ -56,8 +61,8 @@ pub enum SessionEvent {
     Connected,
 }
 
-#[repr(u8)]
-pub enum PCState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerState {
     New,
     Connected,
     Disconnected,
@@ -65,27 +70,27 @@ pub enum PCState {
     Closed,
 }
 
-impl TryInto<PCState> for u8 {
+impl TryFrom<u8> for PeerState {
     type Error = &'static str;
 
-    fn try_into(self) -> Result<PCState, Self::Error> {
-        match self {
-            0 => Ok(PCState::New),
-            1 => Ok(PCState::Connected),
-            2 => Ok(PCState::Disconnected),
-            3 => Ok(PCState::Reconnecting),
-            4 => Ok(PCState::Closed),
-            _ => Err("invalid PCState"),
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0 => Ok(Self::New),
+            1 => Ok(Self::Connected),
+            2 => Ok(Self::Disconnected),
+            3 => Ok(Self::Reconnecting),
+            4 => Ok(Self::Closed),
+            _ => Err("invalid PeerState"),
         }
     }
 }
 
 #[derive(Serialize, Deserialize)]
-#[allow(non_snake_case)]
-struct IceCandidateJSON {
-    sdpMid: String,
-    sdpMLineIndex: i32,
-    candidate: String,
+#[serde(rename_all = "camelCase")]
+struct IceCandidateJson {
+    pub sdp_mid: String,
+    pub sdp_m_line_index: i32,
+    pub candidate: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -104,8 +109,10 @@ struct SessionInner {
     pc_state: AtomicU8, // PCState
     has_published: AtomicBool,
 
-    publisher_pc: AsyncMutex<PCTransport>,
-    subscriber_pc: AsyncMutex<PCTransport>,
+    publisher_pc: AsyncMutex<PeerTransport>,
+    subscriber_pc: AsyncMutex<PeerTransport>,
+
+    pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
 
     // Publisher data channels
     // used to send data to other participants ( The SFU forwards the messages )
@@ -124,20 +131,21 @@ struct SessionInner {
 ///
 /// RTCSession is also responsable for the signaling and the negotation
 #[derive(Debug)]
-pub struct RTCSession {
-    lk_runtime: Arc<LKRuntime>,
+pub struct RtcSession {
+    #[allow(dead_code)]
+    lk_runtime: Arc<LkRuntime>,
     inner: Arc<SessionInner>,
     close_tx: watch::Sender<bool>, // false = is_running
     signal_task: JoinHandle<()>,
     rtc_task: JoinHandle<()>,
 }
 
-impl RTCSession {
+impl RtcSession {
     pub async fn connect(
         url: &str,
         token: &str,
         options: SignalOptions,
-        lk_runtime: Arc<LKRuntime>,
+        lk_runtime: Arc<LkRuntime>,
         session_emitter: SessionEmitter,
     ) -> EngineResult<Self> {
         // Connect to the SignalClient
@@ -148,16 +156,16 @@ impl RTCSession {
         debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = RTCConfiguration::from(join_response.clone());
+        let rtc_config = RtcConfiguration::from(join_response.clone());
 
-        let mut publisher_pc = PCTransport::new(
+        let mut publisher_pc = PeerTransport::new(
             lk_runtime
                 .pc_factory
                 .create_peer_connection(rtc_config.clone())?,
             proto::SignalTarget::Publisher,
         );
 
-        let mut subscriber_pc = PCTransport::new(
+        let mut subscriber_pc = PeerTransport::new(
             lk_runtime
                 .pc_factory
                 .create_peer_connection(rtc_config.clone())?,
@@ -181,7 +189,7 @@ impl RTCSession {
             },
         )?;
 
-        // Forward events received in the Signaling Thread to our rtc channel
+        // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
         rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut lossy_dc, rtc_emitter.clone());
@@ -197,11 +205,12 @@ impl RTCSession {
         let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
             info: session_info,
-            pc_state: AtomicU8::new(PCState::New as u8),
+            pc_state: AtomicU8::new(PeerState::New as u8),
             has_published: Default::default(),
             signal_client,
             publisher_pc: AsyncMutex::new(publisher_pc),
             subscriber_pc: AsyncMutex::new(subscriber_pc),
+            pending_tracks: Default::default(),
             lossy_dc,
             reliable_dc,
             subscriber_dc: Default::default(),
@@ -228,6 +237,31 @@ impl RTCSession {
         Ok(session)
     }
 
+    #[inline]
+    pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
+        self.inner.add_track(req).await
+    }
+
+    #[inline]
+    pub async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+        self.inner.remove_track(sender).await
+    }
+
+    #[inline]
+    pub async fn create_sender(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+        encodings: Vec<RtpEncodingParameters>,
+    ) -> EngineResult<RtpTransceiver> {
+        self.inner.create_sender(track, options, encodings).await
+    }
+
+    #[inline]
+    pub async fn negotiate_publisher(&self) -> EngineResult<()> {
+        self.inner.negotiate_publisher().await
+    }
+
     /// Close the PeerConnections and the SignalClient
     #[tracing::instrument]
     pub async fn close(self) {
@@ -238,6 +272,7 @@ impl RTCSession {
         let _ = self.signal_task.await;
     }
 
+    #[inline]
     pub async fn publish_data(
         &self,
         data: &proto::DataPacket,
@@ -246,25 +281,28 @@ impl RTCSession {
         self.inner.publish_data(data, kind).await
     }
 
+    #[inline]
     pub async fn restart(&self) -> EngineResult<()> {
         self.inner.restart_session().await
     }
 
+    #[inline]
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
     }
 
+    #[inline]
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) {
         self.inner.simulate_scenario(scenario).await
     }
-}
 
-impl RTCSession {
+    #[inline]
     pub fn info(&self) -> &SessionInfo {
         &self.inner.info
     }
 
-    pub fn state(&self) -> PCState {
+    #[inline]
+    pub fn state(&self) -> PeerState {
         self.inner
             .pc_state
             .load(Ordering::SeqCst)
@@ -272,18 +310,22 @@ impl RTCSession {
             .unwrap()
     }
 
-    pub fn publisher(&self) -> &AsyncMutex<PCTransport> {
+    #[inline]
+    pub fn publisher(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.publisher_pc
     }
 
-    pub fn subscriber(&self) -> &AsyncMutex<PCTransport> {
+    #[inline]
+    pub fn subscriber(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.subscriber_pc
     }
 
+    #[inline]
     pub fn signal_client(&self) -> &Arc<SignalClient> {
         &self.inner.signal_client
     }
 
+    #[inline]
     pub fn data_channel(&self, kind: proto::data_packet::Kind) -> &DataChannel {
         &self.inner.data_channel(kind)
     }
@@ -292,7 +334,7 @@ impl RTCSession {
 impl SessionInner {
     async fn rtc_task(
         self: Arc<Self>,
-        mut rtc_events: RTCEvents,
+        mut rtc_events: RtcEvents,
         mut close_receiver: watch::Receiver<bool>,
     ) {
         loop {
@@ -355,7 +397,8 @@ impl SessionInner {
         match event {
             proto::signal_response::Message::Answer(answer) => {
                 trace!("received publisher answer: {:?}", answer);
-                let answer = SessionDescription::from(answer.r#type.parse().unwrap(), &answer.sdp)?;
+                let answer =
+                    SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap())?;
                 self.publisher_pc
                     .lock()
                     .await
@@ -364,12 +407,12 @@ impl SessionInner {
             }
             proto::signal_response::Message::Offer(offer) => {
                 trace!("received subscriber offer: {:?}", offer);
-                let offer = SessionDescription::from(offer.r#type.parse().unwrap(), &offer.sdp)?;
+                let offer = SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap())?;
                 let answer = self
                     .subscriber_pc
                     .lock()
                     .await
-                    .create_anwser(offer, RTCOfferAnswerOptions::default())
+                    .create_anwser(offer, AnswerOptions::default())
                     .await?;
 
                 self.signal_client
@@ -384,11 +427,11 @@ impl SessionInner {
             proto::signal_response::Message::Trickle(trickle) => {
                 let target = proto::SignalTarget::from_i32(trickle.target).unwrap();
                 let ice_candidate = {
-                    let json = serde_json::from_str::<IceCandidateJSON>(&trickle.candidate_init)?;
-                    IceCandidate::from(&json.sdpMid, json.sdpMLineIndex, &json.candidate)?
+                    let json = serde_json::from_str::<IceCandidateJson>(&trickle.candidate_init)?;
+                    IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)?
                 };
 
-                trace!("received ice_candidate {:?} {:?}", target, ice_candidate);
+                debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
 
                 if target == proto::SignalTarget::Publisher {
                     self.publisher_pc
@@ -428,24 +471,31 @@ impl SessionInner {
                     updates: quality.updates,
                 });
             }
+            proto::signal_response::Message::TrackPublished(publish_res) => {
+                let mut pending_tracks = self.pending_tracks.lock();
+                if let Some(tx) = pending_tracks.remove(&publish_res.cid) {
+                    let _ = tx.send(publish_res.track.unwrap());
+                }
+            }
+
             _ => {}
         }
 
         Ok(())
     }
 
-    async fn on_rtc_event(&self, event: RTCEvent) -> EngineResult<()> {
+    async fn on_rtc_event(&self, event: RtcEvent) -> EngineResult<()> {
         match event {
-            RTCEvent::IceCandidate {
+            RtcEvent::IceCandidate {
                 ice_candidate,
                 target,
             } => {
                 self.signal_client
                     .send(proto::signal_request::Message::Trickle(
                         proto::TrickleRequest {
-                            candidate_init: serde_json::to_string(&IceCandidateJSON {
-                                sdpMid: ice_candidate.sdp_mid(),
-                                sdpMLineIndex: ice_candidate.sdp_mline_index(),
+                            candidate_init: serde_json::to_string(&IceCandidateJson {
+                                sdp_mid: ice_candidate.sdp_mid(),
+                                sdp_m_line_index: ice_candidate.sdp_mline_index(),
                                 candidate: ice_candidate.candidate(),
                             })?,
                             target: target as i32,
@@ -453,21 +503,21 @@ impl SessionInner {
                     ))
                     .await;
             }
-            RTCEvent::ConnectionChange { state, target } => {
-                trace!("connection change, {:?} {:?}", state, target);
+            RtcEvent::ConnectionChange { state, target } => {
+                debug!("connection change, {:?} {:?}", state, target);
                 let is_primary = self.info.join_response.subscriber_primary
                     && target == proto::SignalTarget::Subscriber;
 
                 if is_primary && state == PeerConnectionState::Connected {
                     let old_state = self
                         .pc_state
-                        .swap(PCState::Connected as u8, Ordering::SeqCst);
-                    if old_state == PCState::New as u8 {
+                        .swap(PeerState::Connected as u8, Ordering::SeqCst);
+                    if old_state == PeerState::New as u8 {
                         let _ = self.emitter.send(SessionEvent::Connected);
                     }
                 } else if state == PeerConnectionState::Failed {
                     self.pc_state
-                        .store(PCState::Disconnected as u8, Ordering::SeqCst);
+                        .store(PeerState::Disconnected as u8, Ordering::SeqCst);
 
                     self.on_session_disconnected(
                         "pc_state failed",
@@ -478,14 +528,15 @@ impl SessionInner {
                     );
                 }
             }
-            RTCEvent::DataChannel {
+            RtcEvent::DataChannel {
                 data_channel,
                 target: _,
             } => {
                 self.subscriber_dc.lock().push(data_channel);
             }
-            RTCEvent::Offer { offer, target: _ } => {
+            RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
+                debug!("sending publisher offer: {:?}", offer);
                 self.signal_client
                     .send(proto::signal_request::Message::Offer(
                         proto::SessionDescription {
@@ -495,22 +546,24 @@ impl SessionInner {
                     ))
                     .await;
             }
-            RTCEvent::AddTrack {
-                rtp_receiver,
+            RtcEvent::Track {
+                receiver,
                 mut streams,
+                track,
+                transceiver: _,
                 target: _,
             } => {
                 if !streams.is_empty() {
                     let _ = self.emitter.send(SessionEvent::MediaTrack {
-                        track: rtp_receiver.track(),
                         stream: streams.remove(0),
-                        receiver: rtp_receiver,
+                        track,
+                        receiver,
                     });
                 } else {
-                    warn!("AddTrack event with no streams");
+                    warn!("Track event with no streams");
                 }
             }
-            RTCEvent::Data { data, binary } => {
+            RtcEvent::Data { data, binary } => {
                 if !binary {
                     Err(EngineError::Internal(
                         "text messages aren't supported".to_string(),
@@ -532,6 +585,106 @@ impl SessionInner {
         }
 
         Ok(())
+    }
+
+    async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
+        let (tx, rx) = oneshot::channel();
+        let cid = req.cid.clone();
+        {
+            let mut pendings_tracks = self.pending_tracks.lock();
+            if pendings_tracks.contains_key(&req.cid) {
+                Err(EngineError::Internal("track already published".to_string()))?;
+            }
+
+            pendings_tracks.insert(cid.clone(), tx);
+        }
+
+        self.signal_client
+            .send(proto::signal_request::Message::AddTrack(req))
+            .await;
+
+        // Wait the result from the server (TrackInfo)
+        tokio::select! {
+            Ok(info) = rx => Ok(info),
+            _ = sleep(TRACK_PUBLISH_TIMEOUT) => {
+                self.pending_tracks.lock().remove(&cid);
+                Err(EngineError::Internal("track publication timed out, no response received from the server".to_string()))
+            },
+            else => {
+                Err(EngineError::Internal(
+                    "track publication cancelled".to_string(),
+                ))
+            }
+        }
+    }
+
+    async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+        if let Some(track) = sender.track() {
+            let mut pending_tracks = self.pending_tracks.lock();
+            pending_tracks.remove(&track.id());
+        }
+
+        self.publisher_pc
+            .lock()
+            .await
+            .peer_connection()
+            .remove_track(sender)?;
+
+        Ok(())
+    }
+
+    async fn create_sender(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+        encodings: Vec<RtpEncodingParameters>,
+    ) -> EngineResult<RtpTransceiver> {
+        let init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::SendOnly,
+            stream_ids: Default::default(),
+            send_encodings: encodings,
+        };
+
+        let transceiver = self
+            .publisher_pc
+            .lock()
+            .await
+            .peer_connection()
+            .add_transceiver(track.rtc_track(), init)?;
+
+        let capabilities = LkRuntime::instance()
+            .pc_factory
+            .get_rtp_sender_capabilities(track.kind().into());
+
+        let mut matched = Vec::new();
+        let mut partial_matched = Vec::new();
+        let mut unmatched = Vec::new();
+
+        for codec in capabilities.codecs {
+            let mime_type = codec.mime_type.to_lowercase();
+            if mime_type == "audio/opus" {
+                matched.push(codec);
+            } else if mime_type == format!("video/{}", options.video_codec.as_str()) {
+                if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
+                    // for h264 codecs that have sdpFmtpLine available, use only if the
+                    // profile-level-id is 42e01f for cross-browser compatibility
+                    if sdp_fmtp_line.contains("profile-level-id=42e01f") {
+                        matched.push(codec);
+                        continue;
+                    }
+                }
+                partial_matched.push(codec);
+            } else {
+                unmatched.push(codec);
+            }
+        }
+
+        matched.append(&mut partial_matched);
+        matched.append(&mut unmatched);
+
+        transceiver.set_codec_preferences(matched)?;
+
+        Ok(transceiver)
     }
 
     /// Called when the SignalClient or one of the PeerConnection has lost the connection
@@ -663,7 +816,7 @@ impl SessionInner {
             self.publisher_pc
                 .lock()
                 .await
-                .create_and_send_offer(RTCOfferAnswerOptions {
+                .create_and_send_offer(OfferOptions {
                     ice_restart: true,
                     ..Default::default()
                 })
@@ -680,7 +833,7 @@ impl SessionInner {
     // Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
-            while self.pc_state.load(Ordering::Acquire) != PCState::Connected as u8 {
+            while self.pc_state.load(Ordering::Acquire) != PeerState::Connected as u8 {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".to_string()));
                 }
@@ -693,7 +846,7 @@ impl SessionInner {
 
         tokio::select! {
             res = wait_connected => res,
-            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
+            _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("wait_pc_connection timed out".to_string());
                 Err(err)
             }
@@ -724,7 +877,7 @@ impl SessionInner {
                 .await
                 .peer_connection()
                 .ice_connection_state()
-                != IceConnectionState::IceConnectionChecking
+                != IceConnectionState::Checking
         {
             let _ = self.negotiate_publisher().await;
         }
@@ -749,7 +902,7 @@ impl SessionInner {
 
         tokio::select! {
             res = wait_connected => res,
-            _ = sleep(MAX_ICE_CONNECT_TIMEOUT) => {
+            _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
                 error!(error = ?err);
                 Err(err)

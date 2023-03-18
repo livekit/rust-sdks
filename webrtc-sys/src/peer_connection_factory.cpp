@@ -20,11 +20,13 @@
 
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "api/peer_connection_interface.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "livekit/rtc_error.h"
+#include "livekit/rtp_parameters.h"
 #include "livekit/video_decoder_factory.h"
 #include "livekit/video_encoder_factory.h"
 #include "media/engine/webrtc_media_engine.h"
@@ -73,10 +75,10 @@ PeerConnectionFactory::~PeerConnectionFactory() {
   RTC_LOG(LS_INFO) << "PeerConnectionFactory::~PeerConnectionFactory()";
 }
 
-std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
+std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     std::unique_ptr<webrtc::PeerConnectionInterface::RTCConfiguration> config,
-    NativePeerConnectionObserver& observer) const {
-  webrtc::PeerConnectionDependencies deps{&observer};
+    NativePeerConnectionObserver* observer) const {
+  webrtc::PeerConnectionDependencies deps{observer};
   auto result =
       peer_factory_->CreatePeerConnectionOrError(*config, std::move(deps));
 
@@ -84,12 +86,31 @@ std::unique_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     throw std::runtime_error(serialize_error(to_error(result.error())));
   }
 
-  return std::make_unique<PeerConnection>(rtc_runtime_, result.value());
+  return std::make_shared<PeerConnection>(rtc_runtime_, result.value());
 }
 
-std::unique_ptr<PeerConnectionFactory> create_peer_connection_factory(
+std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
+    rust::String label,
+    std::shared_ptr<AdaptedVideoTrackSource> source) const {
+  return std::make_shared<VideoTrack>(
+      peer_factory_->CreateVideoTrack(label.c_str(), source->get().get()));
+}
+
+RtpCapabilities PeerConnectionFactory::get_rtp_sender_capabilities(
+    MediaType type) const {
+  return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(
+      static_cast<cricket::MediaType>(type)));
+}
+
+RtpCapabilities PeerConnectionFactory::get_rtp_receiver_capabilities(
+    MediaType type) const {
+  return to_rust_rtp_capabilities(peer_factory_->GetRtpReceiverCapabilities(
+      static_cast<cricket::MediaType>(type)));
+}
+
+std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory(
     std::shared_ptr<RTCRuntime> rtc_runtime) {
-  return std::make_unique<PeerConnectionFactory>(std::move(rtc_runtime));
+  return std::make_shared<PeerConnectionFactory>(std::move(rtc_runtime));
 }
 
 std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(

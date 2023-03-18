@@ -3,7 +3,6 @@ use cxx::UniquePtr;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::mem::ManuallyDrop;
-use std::str::FromStr;
 
 use crate::rtc_error::ffi::RTCError;
 
@@ -59,6 +58,7 @@ pub mod ffi {
         fn candidate(self: &IceCandidate) -> String;
         fn stringify(self: &IceCandidate) -> String;
 
+        fn sdp_type(self: &SessionDescription) -> SdpType;
         fn stringify(self: &SessionDescription) -> String;
         fn clone(self: &SessionDescription) -> UniquePtr<SessionDescription>;
 
@@ -112,20 +112,6 @@ impl ffi::SdpParseError {
         let description = String::from(&value[line_length..]);
 
         Self { line, description }
-    }
-}
-
-impl FromStr for ffi::SdpType {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "offer" => Ok(ffi::SdpType::Offer),
-            "pranswer" => Ok(ffi::SdpType::PrAnswer),
-            "answer" => Ok(ffi::SdpType::Answer),
-            "rollback" => Ok(ffi::SdpType::Rollback),
-            _ => Err(()),
-        }
     }
 }
 

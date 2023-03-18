@@ -1,5 +1,6 @@
 mod app;
 mod events;
+mod logo_track;
 mod video_grid;
 mod video_renderer;
 

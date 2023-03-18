@@ -1,9 +1,16 @@
 use crate::events::UiCmd;
+use crate::logo_track::LogoTrack;
 use crate::video_renderer::VideoRenderer;
 use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
+use image::ImageFormat;
+use livekit::options::{TrackPublishOptions, VideoCaptureOptions};
 use livekit::prelude::*;
+use livekit::webrtc::native::yuv_helper;
+use livekit::webrtc::video_frame::native::I420BufferExt;
+use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
+use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::SimulateScenario;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -11,6 +18,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
 // Useful default constants for developing
@@ -25,16 +33,22 @@ use winit::{
     window::{WindowBuilder, WindowId},
 };
 
+struct Session {
+    room: Room,
+    logo_track: LogoTrack,
+    close_tx: oneshot::Sender<()>,
+    handle: tokio::task::JoinHandle<()>,
+}
+
 struct AppState {
-    room: Mutex<Option<Room>>,
-    close_tx: Mutex<Option<oneshot::Sender<()>>>,
+    session: Mutex<Option<Session>>,
     connecting: AtomicBool,
 }
 
 struct App {
     state: Arc<AppState>,
-
     video_renderers: HashMap<(ParticipantSid, TrackSid), VideoRenderer>,
+
     egui_context: egui::Context,
     egui_state: egui_winit::State,
     egui_painter: egui_wgpu::winit::Painter,
@@ -69,8 +83,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
         let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel::<UiCmd>();
 
         let state = Arc::new(AppState {
-            room: Default::default(),
-            close_tx: Default::default(),
+            session: Default::default(),
             connecting: AtomicBool::new(false),
         });
 
@@ -94,45 +107,53 @@ pub fn run(rt: tokio::runtime::Runtime) {
             while let Some(event) = async_cmd_rx.recv().await {
                 match event {
                     AsyncCmd::RoomConnect { url, token } => {
-                        if let Some(close_tx) = state.close_tx.lock().take() {
-                            let _ = state.room.lock().take().unwrap().close().await;
-                            let _ = close_tx.send(());
-                        }
-
                         state.connecting.store(true, Ordering::SeqCst);
 
                         let res = Room::connect(&url, &token).await;
-                        match res {
-                            Ok((room, room_events)) => {
-                                let (close_tx, close_rx) = oneshot::channel();
-                                state.room.lock().replace(room);
-                                state.close_tx.lock().replace(close_tx);
+                        if let Ok((room, room_events)) = res {
+                            let (close_tx, close_rx) = oneshot::channel();
+                            let logo_track = LogoTrack::new(room.session());
+                            let handle = tokio::spawn(room_task(
+                                state.clone(),
+                                room_events,
+                                close_rx,
+                                ui_cmd_tx.clone(),
+                            ));
 
-                                tokio::spawn(room_task(
-                                    state.clone(),
-                                    room_events,
-                                    close_rx,
-                                    ui_cmd_tx.clone(),
-                                ));
+                            *state.session.lock() = Some(Session {
+                                room,
+                                logo_track,
+                                close_tx,
+                                handle,
+                            });
 
-                                let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Ok(()) });
-                            }
-                            Err(err) => {
-                                let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Err(err) });
-                            }
+                            let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Ok(()) });
+                        } else if let Err(err) = res {
+                            let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Err(err) });
                         }
 
                         state.connecting.store(false, Ordering::SeqCst);
                     }
                     AsyncCmd::RoomDisconnect => {
-                        if let Some(close_tx) = state.close_tx.lock().take() {
-                            let _ = state.room.lock().take().unwrap().close().await;
-                            let _ = close_tx.send(());
+                        if let Some(session) = state.session.lock().take() {
+                            let _ = session.room.close().await;
+                            let _ = session.close_tx.send(());
+                            let _ = session.handle.await;
                         }
                     }
                     AsyncCmd::SimulateScenario { scenario } => {
-                        if let Some(room) = state.room.lock().as_ref() {
-                            let _ = room.session().simulate_scenario(scenario).await;
+                        if let Some(session) = state.session.lock().as_ref() {
+                            let _ = session.room.session().simulate_scenario(scenario).await;
+                        }
+                    }
+                    AsyncCmd::ToggleLogo => {
+                        if let Some(session) = state.session.lock().as_mut() {
+                            let logo_track = &mut session.logo_track;
+                            if !logo_track.is_published() {
+                                logo_track.publish().await.unwrap();
+                            } else {
+                                logo_track.unpublish().await.unwrap();
+                            }
                         }
                     }
                 }
@@ -140,7 +161,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
         });
 
         tokio::task::block_in_place(move || loop {
-            // UI/Main Thread
+            // ui/main thread
             event_loop.run(move |event, _, control_flow| {
                 app.update(event, control_flow);
             });
@@ -183,7 +204,7 @@ impl App {
                             track, participant, ..
                         } => {
                             match track.clone() {
-                                RemoteTrackHandle::Video(video_track) => {
+                                RemoteTrack::Video(video_track) => {
                                     // Create a new VideoRenderer
                                     let video_renderer = VideoRenderer::new(
                                         self.egui_painter.render_state().clone().unwrap(),
@@ -192,7 +213,7 @@ impl App {
                                     self.video_renderers
                                         .insert((participant.sid(), track.sid()), video_renderer);
                                 }
-                                RemoteTrackHandle::Audio(_) => {
+                                RemoteTrack::Audio(_) => {
                                     // The demo doesn't support Audio rendering at the moment.
                                 }
                             };
@@ -300,6 +321,12 @@ impl App {
                         });
                     }
                 });
+
+                ui.menu_button("Publish", |ui| {
+                    if ui.button("CustomTrack - LK Logo").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::ToggleLogo);
+                    }
+                });
             });
         });
 
@@ -321,9 +348,9 @@ impl App {
 
                 ui.horizontal(|ui| {
                     let connecting = self.state.connecting.load(Ordering::SeqCst);
+                    let session = self.state.session.lock();
 
-                    let room = self.state.room.lock();
-                    ui.add_enabled_ui(!connecting && room.is_none(), |ui| {
+                    ui.add_enabled_ui(!connecting && session.is_none(), |ui| {
                         if ui.button("Connect").clicked() {
                             self.connection_failure = None;
                             let _ = self.cmd_tx.send(AsyncCmd::RoomConnect {
@@ -337,7 +364,7 @@ impl App {
                         ui.spinner();
                     }
 
-                    if room.is_some() {
+                    if session.is_some() {
                         if ui.button("Disconnect").clicked() {
                             let _ = self.cmd_tx.send(AsyncCmd::RoomDisconnect);
                         }
@@ -352,17 +379,16 @@ impl App {
 
                 {
                     // Room Info
-                    let room = self.state.room.lock();
-                    if let Some(room) = room.as_ref() {
-                        ui.label(format!("Name: {}", room.session().name()));
-                        ui.label(format!("SID: {}", room.session().sid()));
+                    if let Some(session) = self.state.session.lock().as_ref() {
+                        ui.label(format!("Name: {}", session.room.session().name()));
+                        ui.label(format!("SID: {}", session.room.session().sid()));
                         ui.label(format!(
                             "ConnectionState: {:?}",
-                            room.session().connection_state()
+                            session.room.session().connection_state()
                         ));
                         ui.label(format!(
                             "ParticipantCount: {:?}",
-                            room.session().participants().len() + 1
+                            session.room.session().participants().len() + 1
                         ));
                     }
                 }
@@ -408,12 +434,15 @@ impl App {
                                         );
                                     }
 
-                                    let name = self.state.room.lock().as_ref().and_then(|room| {
-                                        room.session()
-                                            .participants()
-                                            .get(participant_sid)
-                                            .map(|p| p.name())
-                                    });
+                                    let name =
+                                        self.state.session.lock().as_ref().and_then(|session| {
+                                            session
+                                                .room
+                                                .session()
+                                                .participants()
+                                                .get(participant_sid)
+                                                .map(|p| p.name())
+                                        });
 
                                     if let Some(name) = name {
                                         ui.painter().text(

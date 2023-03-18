@@ -17,11 +17,18 @@
 #pragma once
 
 #include <memory>
+#include <stdexcept>
+#include <string>
 
 #include "api/video/yuv_helper.h"
 #include "webrtc-sys/src/yuv_helper.rs.h"
 
 namespace livekit {
+
+#define THROW_ON_ERROR(ret)                                           \
+  if (ret != 0) {                                                     \
+    throw std::runtime_error("libyuv error: " + std::to_string(ret)); \
+  }
 
 static void i420_to_argb(const uint8_t* src_y,
                          int src_stride_y,
@@ -33,8 +40,9 @@ static void i420_to_argb(const uint8_t* src_y,
                          int dst_stride_argb,
                          int width,
                          int height) {
-  webrtc::I420ToARGB(src_y, src_stride_y, src_u, src_stride_u, src_v,
-                     src_stride_v, dst_argb, dst_stride_argb, width, height);
+  THROW_ON_ERROR(webrtc::I420ToARGB(src_y, src_stride_y, src_u, src_stride_u,
+                                    src_v, src_stride_v, dst_argb,
+                                    dst_stride_argb, width, height));
 }
 
 static void i420_to_bgra(const uint8_t* src_y,
@@ -47,8 +55,9 @@ static void i420_to_bgra(const uint8_t* src_y,
                          int dst_stride_bgra,
                          int width,
                          int height) {
-  webrtc::I420ToBGRA(src_y, src_stride_y, src_u, src_stride_u, src_v,
-                     src_stride_v, dst_bgra, dst_stride_bgra, width, height);
+  THROW_ON_ERROR(webrtc::I420ToBGRA(src_y, src_stride_y, src_u, src_stride_u,
+                                    src_v, src_stride_v, dst_bgra,
+                                    dst_stride_bgra, width, height));
 }
 
 static void i420_to_abgr(const uint8_t* src_y,
@@ -61,8 +70,9 @@ static void i420_to_abgr(const uint8_t* src_y,
                          int dst_stride_abgr,
                          int width,
                          int height) {
-  webrtc::I420ToABGR(src_y, src_stride_y, src_u, src_stride_u, src_v,
-                     src_stride_v, dst_abgr, dst_stride_abgr, width, height);
+  THROW_ON_ERROR(webrtc::I420ToABGR(src_y, src_stride_y, src_u, src_stride_u,
+                                    src_v, src_stride_v, dst_abgr,
+                                    dst_stride_abgr, width, height));
 }
 
 static void i420_to_rgba(const uint8_t* src_y,
@@ -75,8 +85,49 @@ static void i420_to_rgba(const uint8_t* src_y,
                          int dst_stride_rgba,
                          int width,
                          int height) {
-  webrtc::I420ToRGBA(src_y, src_stride_y, src_u, src_stride_u, src_v,
-                     src_stride_v, dst_rgba, dst_stride_rgba, width, height);
+  THROW_ON_ERROR(webrtc::I420ToRGBA(src_y, src_stride_y, src_u, src_stride_u,
+                                    src_v, src_stride_v, dst_rgba,
+                                    dst_stride_rgba, width, height));
+}
+
+static void argb_to_i420(const uint8_t* src_argb,
+                         int src_stride_argb,
+                         uint8_t* dst_y,
+                         int dst_stride_y,
+                         uint8_t* dst_u,
+                         int dst_stride_u,
+                         uint8_t* dst_v,
+                         int dst_stride_v,
+                         int width,
+                         int height) {
+  THROW_ON_ERROR(webrtc::ARGBToI420(src_argb, src_stride_argb, dst_y,
+                                    dst_stride_y, dst_u, dst_stride_u, dst_v,
+                                    dst_stride_v, width, height));
+}
+
+static void abgr_to_i420(const uint8_t* src_abgr,
+                         int src_stride_abgr,
+                         uint8_t* dst_y,
+                         int dst_stride_y,
+                         uint8_t* dst_u,
+                         int dst_stride_u,
+                         uint8_t* dst_v,
+                         int dst_stride_v,
+                         int width,
+                         int height) {
+  THROW_ON_ERROR(webrtc::ABGRToI420(src_abgr, src_stride_abgr, dst_y,
+                                    dst_stride_y, dst_u, dst_stride_u, dst_v,
+                                    dst_stride_v, width, height));
+}
+
+static void argb_to_rgb24(const uint8_t* src_argb,
+                          int src_stride_argb,
+                          uint8_t* dst_rgb24,
+                          int dst_stride_rgb24,
+                          int width,
+                          int height) {
+  THROW_ON_ERROR(webrtc::ARGBToRGB24(src_argb, src_stride_argb, dst_rgb24,
+                                     dst_stride_rgb24, width, height));
 }
 
 }  // namespace livekit

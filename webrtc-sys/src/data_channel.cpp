@@ -18,6 +18,8 @@
 
 #include <utility>
 
+#include "webrtc-sys/src/data_channel.rs.h"
+
 namespace livekit {
 
 DataChannel::DataChannel(
@@ -26,8 +28,8 @@ DataChannel::DataChannel(
     : rtc_runtime_(std::move(rtc_runtime)),
       data_channel_(std::move(data_channel)) {}
 
-void DataChannel::register_observer(NativeDataChannelObserver& observer) const {
-  data_channel_->RegisterObserver(&observer);
+void DataChannel::register_observer(NativeDataChannelObserver* observer) const {
+  data_channel_->RegisterObserver(observer);
 }
 
 void DataChannel::unregister_observer() const {
@@ -58,7 +60,6 @@ std::unique_ptr<NativeDataChannelInit> create_data_channel_init(
   rtc_init->negotiated = init.negotiated;
   rtc_init->ordered = init.ordered;
   rtc_init->protocol = init.protocol.c_str();
-  rtc_init->reliable = init.reliable;
 
   if (init.has_max_retransmit_time)
     rtc_init->maxRetransmitTime = init.max_retransmit_time;
@@ -73,11 +74,16 @@ std::unique_ptr<NativeDataChannelInit> create_data_channel_init(
 }
 
 NativeDataChannelObserver::NativeDataChannelObserver(
-    rust::Box<DataChannelObserverWrapper> observer)
-    : observer_(std::move(observer)) {}
+    rust::Box<DataChannelObserverWrapper> observer,
+    DataChannel* dc)
+    : observer_(std::move(observer)), dc_(dc) {}
+
+NativeDataChannelObserver::~NativeDataChannelObserver() {
+  dc_->unregister_observer();
+}
 
 void NativeDataChannelObserver::OnStateChange() {
-  observer_->on_state_change();
+  observer_->on_state_change(dc_->state());
 }
 
 void NativeDataChannelObserver::OnMessage(const webrtc::DataBuffer& buffer) {
@@ -93,8 +99,9 @@ void NativeDataChannelObserver::OnBufferedAmountChange(
   observer_->on_buffered_amount_change(sent_data_size);
 }
 
-std::unique_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
-    rust::Box<DataChannelObserverWrapper> observer) {
-  return std::make_unique<NativeDataChannelObserver>(std::move(observer));
+std::shared_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
+    rust::Box<DataChannelObserverWrapper> observer,
+    DataChannel* dc) {
+  return std::make_shared<NativeDataChannelObserver>(std::move(observer), dc);
 }
 }  // namespace livekit

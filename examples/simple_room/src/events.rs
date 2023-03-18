@@ -6,6 +6,7 @@ pub enum AsyncCmd {
     RoomConnect { url: String, token: String },
     RoomDisconnect,
     SimulateScenario { scenario: SimulateScenario },
+    ToggleLogo, // Unpublish/Publish a logo track
 }
 
 #[derive(Debug)]

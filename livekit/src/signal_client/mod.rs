@@ -114,13 +114,13 @@ impl SignalClient {
     }
 }
 
-impl From<proto::JoinResponse> for RTCConfiguration {
+impl From<proto::JoinResponse> for RtcConfiguration {
     fn from(join_response: proto::JoinResponse) -> Self {
         Self {
             ice_servers: {
                 let mut servers = vec![];
                 for ice_server in join_response.ice_servers.clone() {
-                    servers.push(ICEServer {
+                    servers.push(IceServer {
                         urls: ice_server.urls,
                         username: ice_server.username,
                         password: ice_server.credential,

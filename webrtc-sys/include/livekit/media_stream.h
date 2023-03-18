@@ -26,6 +26,7 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
+#include "system_wrappers/include/clock.h"
 
 namespace livekit {
 class MediaStream;
@@ -50,10 +51,8 @@ class MediaStream {
   std::shared_ptr<AudioTrack> find_audio_track(rust::String track_id) const;
   std::shared_ptr<VideoTrack> find_video_track(rust::String track_id) const;
 
-  bool add_audio_track(std::shared_ptr<AudioTrack> audio_track) const;
-  bool add_video_track(std::shared_ptr<VideoTrack> video_track) const;
-  bool remove_audio_track(std::shared_ptr<AudioTrack> audio_track) const;
-  bool remove_video_track(std::shared_ptr<VideoTrack> video_track) const;
+  bool add_track(std::shared_ptr<MediaStreamTrack> track) const;
+  bool remove_track(std::shared_ptr<MediaStreamTrack> track) const;
 
  private:
   rtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;
@@ -121,7 +120,7 @@ class NativeVideoFrameSink
   rust::Box<VideoFrameSinkWrapper> observer_;
 };
 
-std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
+std::unique_ptr<NativeVideoFrameSink> new_native_video_frame_sink(
     rust::Box<VideoFrameSinkWrapper> observer);
 
 // Native impl of the WebRTC interface
@@ -146,7 +145,7 @@ class AdaptedVideoTrackSource {
  public:
   AdaptedVideoTrackSource(rtc::scoped_refptr<NativeVideoTrackSource> source);
 
-  bool on_captured_frame(std::unique_ptr<VideoFrame> frame)
+  bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame)
       const;  // frames pushed from Rust (+interior mutability)
 
   rtc::scoped_refptr<NativeVideoTrackSource> get() const;
@@ -155,14 +154,26 @@ class AdaptedVideoTrackSource {
   rtc::scoped_refptr<NativeVideoTrackSource> source_;
 };
 
-std::unique_ptr<AdaptedVideoTrackSource> create_adapted_video_track_source();
+std::shared_ptr<AdaptedVideoTrackSource> new_adapted_video_track_source();
 
-static const VideoTrack* media_to_video(const MediaStreamTrack* track) {
-  return static_cast<const VideoTrack*>(track);
+static std::shared_ptr<MediaStreamTrack> video_to_media(
+    std::shared_ptr<VideoTrack> track) {
+  return track;
 }
 
-static const AudioTrack* media_to_audio(const MediaStreamTrack* track) {
-  return static_cast<const AudioTrack*>(track);
+static std::shared_ptr<MediaStreamTrack> audio_to_media(
+    std::shared_ptr<AudioTrack> track) {
+  return track;
+}
+
+static std::shared_ptr<VideoTrack> media_to_video(
+    std::shared_ptr<MediaStreamTrack> track) {
+  return std::static_pointer_cast<VideoTrack>(track);
+}
+
+static std::shared_ptr<AudioTrack> media_to_audio(
+    std::shared_ptr<MediaStreamTrack> track) {
+  return std::static_pointer_cast<AudioTrack>(track);
 }
 
 static std::shared_ptr<MediaStreamTrack> _shared_media_stream_track() {

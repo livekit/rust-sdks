@@ -65,6 +65,7 @@ class SessionDescription {
   explicit SessionDescription(
       std::unique_ptr<webrtc::SessionDescriptionInterface> session_description);
 
+  SdpType sdp_type() const;
   rust::String stringify() const;
   std::unique_ptr<SessionDescription> clone() const;
   std::unique_ptr<webrtc::SessionDescriptionInterface> release();

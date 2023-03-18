@@ -34,7 +34,7 @@ enum InternalMessage {
 ///
 /// It is replaced by [SignalClient] at each reconnection.
 #[derive(Debug)]
-pub(crate) struct SignalStream {
+pub(super) struct SignalStream {
     internal_tx: mpsc::Sender<InternalMessage>,
     read_handle: JoinHandle<()>,
     write_handle: JoinHandle<()>,
@@ -46,7 +46,7 @@ impl SignalStream {
     ///
     /// SignalStream will never try to reconnect if the connection has been
     /// closed.
-    pub(super) async fn connect(
+    pub async fn connect(
         url: &str,
         token: &str,
         options: SignalOptions,

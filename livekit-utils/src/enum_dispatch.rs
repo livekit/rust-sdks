@@ -1,11 +1,9 @@
-
-// TODO(theomonnom): Match the complete function signature like:
-//  - pub(crate) fn update_info(&self, info: ParticipantInfo) -> ();
+// TODO(theomonnom): Async methods
 #[macro_export]
 macro_rules! enum_dispatch {
     // This arm is used to avoid nested loops with the arguments
-    // The arguments are transformed to $combined_args TokenTree
-    (@match $self:ident $fnc:ident $combined_args:tt [$($variant:ident),+]) => {
+    // The arguments are transformed to $combined_args tt
+    (@match [$($variant:ident),+]: $fnc:ident, $self:ident, $combined_args:tt) => {
         match $self {
             $(
                 Self::$variant(inner) => inner.$fnc$combined_args,
@@ -13,15 +11,17 @@ macro_rules! enum_dispatch {
         }
     };
 
-    ($vis:vis$(,)? $fnc:ident, $self:ty, [$($arg:ident: $t:ty),*], $ret:ty, [$($variant:ident),+]) => {
-        $vis fn $fnc(self: $self, $($arg: $t),*) -> $ret {
-            enum_dispatch!(@match self $fnc ($($arg,)*) [$($variant),+])
+    // Create the function and extract self fron the $args tt (little hack)
+    (@fnc [$($variant:ident),+]: $vis:vis fn $fnc:ident($self:ident: $sty:ty $(, $arg:ident: $t:ty)*) -> $ret:ty) => {
+        #[inline]
+        $vis fn $fnc($self: $sty, $($arg: $t),*) -> $ret {
+            enum_dispatch!(@match [$($variant),+]: $fnc, $self, ($($arg,)*))
         }
     };
 
-    ($variants:tt $(fnc!($vis:vis$(,)? $fnc:ident, $self:ty, $args:tt, $ret:ty);)+) => {
+    ($variants:tt; $($vis:vis fn $fnc:ident$args:tt -> $ret:ty;)+) => {
         $(
-            enum_dispatch!($vis, $fnc, $self, $args, $ret, $variants);
-        )*
+            enum_dispatch!(@fnc $variants: $vis fn $fnc$args -> $ret);
+        )+
     };
 }

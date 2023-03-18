@@ -1,5 +1,3 @@
-use cxx::UniquePtr;
-
 pub const DEFAULT_BITRATE_PRIORITY: f64 = 1.0;
 
 #[cxx::bridge(namespace = "livekit")]
@@ -12,34 +10,34 @@ pub mod ffi {
         pub value: String,
     }
 
-    #[repr(i32)]
     #[derive(Debug)]
+    #[repr(i32)]
     pub enum FecMechanism {
-        RED,
-        REDAndULPFEC,
-        FLEXFEC,
+        Red,
+        RedAndUlpfec,
+        FlexFec,
     }
 
-    #[repr(i32)]
     #[derive(Debug)]
+    #[repr(i32)]
     pub enum RtcpFeedbackType {
-        CCM,
-        LNTF,
-        NACK,
-        REMB,
+        Ccm,
+        Lntf,
+        Nack,
+        Remb,
         TransportCC,
     }
 
-    #[repr(i32)]
     #[derive(Debug)]
+    #[repr(i32)]
     pub enum RtcpFeedbackMessageType {
-        GenericNACK,
-        PLI,
-        FIR,
+        GenericNack,
+        Pli,
+        Fir,
     }
 
-    #[repr(i32)]
     #[derive(Debug)]
+    #[repr(i32)]
     pub enum DegradationPreference {
         Disabled,
         MaintainFramerate,
@@ -86,8 +84,8 @@ pub mod ffi {
         pub direction: RtpTransceiverDirection,
     }
 
-    #[repr(i32)]
     #[derive(Debug)]
+    #[repr(i32)]
     pub enum RtpExtensionFilter {
         DiscardEncryptedExtension,
         PreferEncryptedExtension,

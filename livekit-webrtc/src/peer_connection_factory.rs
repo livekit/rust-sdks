@@ -1,51 +1,78 @@
-use cxx::UniquePtr;
+use crate::imp::peer_connection_factory as imp_pcf;
+use crate::peer_connection::PeerConnection;
+use crate::rtp_parameters::RtpCapabilities;
+use crate::MediaType;
+use crate::RtcError;
+use std::fmt::Debug;
 
-pub use sys_factory::ffi::{
-    ContinualGatheringPolicy, ICEServer, IceTransportsType, RTCConfiguration,
-};
-use webrtc_sys::peer_connection as sys_pc;
-use webrtc_sys::peer_connection_factory as sys_factory;
+#[derive(Debug, Clone)]
+pub struct IceServer {
+    pub urls: Vec<String>,
+    pub username: String,
+    pub password: String,
+}
 
-use crate::peer_connection::{InternalObserver, PeerConnection};
-use crate::rtc_error::RTCError;
-use crate::webrtc::RTCRuntime;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ContinualGatheringPolicy {
+    GatherOnce,
+    GatherContinually,
+}
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum IceTransportsType {
+    None,
+    Relay,
+    NoHost,
+    All,
+}
+
+#[derive(Debug, Clone)]
+pub struct RtcConfiguration {
+    pub ice_servers: Vec<IceServer>,
+    pub continual_gathering_policy: ContinualGatheringPolicy,
+    pub ice_transport_type: IceTransportsType,
+}
+
+#[derive(Clone, Default)]
 pub struct PeerConnectionFactory {
-    cxx_handle: UniquePtr<sys_factory::ffi::PeerConnectionFactory>,
-    rtc_runtime: RTCRuntime,
+    pub(crate) handle: imp_pcf::PeerConnectionFactory,
+}
+
+impl Debug for PeerConnectionFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("PeerConnectionFactory").finish()
+    }
 }
 
 impl PeerConnectionFactory {
-    pub fn new(rtc_runtime: RTCRuntime) -> Self {
-        Self {
-            cxx_handle: sys_factory::ffi::create_peer_connection_factory(
-                rtc_runtime.clone().release(),
-            ),
-            rtc_runtime,
-        }
-    }
-
     pub fn create_peer_connection(
         &self,
-        config: RTCConfiguration,
-    ) -> Result<PeerConnection, RTCError> {
-        let native_config = sys_factory::ffi::create_rtc_configuration(config);
+        config: RtcConfiguration,
+    ) -> Result<PeerConnection, RtcError> {
+        self.handle.create_peer_connection(config)
+    }
 
-        unsafe {
-            let mut observer = Box::new(InternalObserver::default());
-            let mut native_observer = sys_pc::ffi::create_native_peer_connection_observer(
-                self.rtc_runtime.clone().release(),
-                Box::new(sys_pc::PeerConnectionObserverWrapper::new(&mut *observer)),
-            );
+    pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+        self.handle.get_rtp_sender_capabilities(media_type)
+    }
 
-            let res = self
-                .cxx_handle
-                .create_peer_connection(native_config, native_observer.pin_mut());
+    pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+        self.handle.get_rtp_receiver_capabilities(media_type)
+    }
+}
 
-            match res {
-                Ok(cxx_handle) => Ok(PeerConnection::new(cxx_handle, observer, native_observer)),
-                Err(e) => Err(RTCError::from(e.what())),
-            }
+pub mod native {
+    use super::PeerConnectionFactory;
+    use crate::media_stream::RtcVideoTrack;
+    use crate::video_source::native::NativeVideoSource;
+
+    pub trait PeerConnectionFactoryExt {
+        fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
+    }
+
+    impl PeerConnectionFactoryExt for PeerConnectionFactory {
+        fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack {
+            self.handle.create_video_track(label, source)
         }
     }
 }

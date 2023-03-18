@@ -52,10 +52,8 @@ pub mod ffi {
         fn get_video_tracks(self: &MediaStream) -> Vec<VideoTrackPtr>;
         fn find_audio_track(self: &MediaStream, track_id: String) -> SharedPtr<AudioTrack>;
         fn find_video_track(self: &MediaStream, track_id: String) -> SharedPtr<VideoTrack>;
-        fn add_audio_track(self: &MediaStream, audio_track: SharedPtr<AudioTrack>) -> bool;
-        fn add_video_track(self: &MediaStream, video_track: SharedPtr<VideoTrack>) -> bool;
-        fn remove_audio_track(self: &MediaStream, audio_track: SharedPtr<AudioTrack>) -> bool;
-        fn remove_video_track(self: &MediaStream, video_track: SharedPtr<VideoTrack>) -> bool;
+        fn add_track(self: &MediaStream, audio_track: SharedPtr<MediaStreamTrack>) -> bool;
+        fn remove_track(self: &MediaStream, audio_track: SharedPtr<MediaStreamTrack>) -> bool;
 
         fn kind(self: &MediaStreamTrack) -> String;
         fn id(self: &MediaStreamTrack) -> String;
@@ -71,14 +69,19 @@ pub mod ffi {
         fn content_hint(self: &VideoTrack) -> ContentHint;
         fn set_content_hint(self: &VideoTrack, hint: ContentHint);
 
-        fn create_native_video_frame_sink(
+        fn new_native_video_frame_sink(
             observer: Box<VideoFrameSinkWrapper>,
         ) -> UniquePtr<NativeVideoFrameSink>;
 
-        fn on_captured_frame(self: &AdaptedVideoTrackSource, frame: UniquePtr<VideoFrame>) -> bool;
+        fn on_captured_frame(self: &AdaptedVideoTrackSource, frame: &UniquePtr<VideoFrame>)
+            -> bool;
 
-        unsafe fn media_to_video(track: *const MediaStreamTrack) -> *const VideoTrack;
-        unsafe fn media_to_audio(track: *const MediaStreamTrack) -> *const AudioTrack;
+        fn new_adapted_video_track_source() -> SharedPtr<AdaptedVideoTrackSource>;
+
+        fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
+        fn audio_to_media(track: SharedPtr<AudioTrack>) -> SharedPtr<MediaStreamTrack>;
+        fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;
+        fn media_to_audio(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<AudioTrack>;
 
         fn _shared_media_stream_track() -> SharedPtr<MediaStreamTrack>;
         fn _shared_audio_track() -> SharedPtr<AudioTrack>;
@@ -103,8 +106,9 @@ impl_thread_safety!(ffi::MediaStream, Send + Sync);
 impl_thread_safety!(ffi::AudioTrack, Send + Sync);
 impl_thread_safety!(ffi::VideoTrack, Send + Sync);
 impl_thread_safety!(ffi::NativeVideoFrameSink, Send + Sync);
+impl_thread_safety!(ffi::AdaptedVideoTrackSource, Send + Sync);
 
-pub trait VideoFrameSink: Send + Sync {
+pub trait VideoFrameSink: Send {
     fn on_frame(&self, frame: UniquePtr<VideoFrame>);
     fn on_discarded_frame(&self);
     fn on_constraints_changed(&self, constraints: ffi::VideoTrackSourceConstraints);

@@ -1,15 +1,11 @@
-use super::{
-    impl_participant_trait, ConnectionQuality, ParticipantInternalTrait, ParticipantShared,
-};
+use super::{ConnectionQuality, ParticipantInner};
 use crate::prelude::*;
 use crate::proto;
-use crate::publication::TrackPublicationInternalTrait;
 use crate::track::TrackError;
-use livekit_webrtc::prelude::*;
+use livekit_webrtc as rtc;
 use parking_lot::RwLockReadGuard;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::sync::atomic::Ordering;
+use rtc::prelude::MediaStreamTrack;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -18,9 +14,9 @@ use tracing::{debug, error, instrument, Level};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RemoteParticipant {
-    shared: ParticipantShared,
+    inner: Arc<ParticipantInner>,
 }
 
 impl RemoteParticipant {
@@ -31,26 +27,25 @@ impl RemoteParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            shared: ParticipantShared::new(sid, identity, name, metadata),
+            inner: Arc::new(ParticipantInner::new(sid, identity, name, metadata)),
         }
     }
 
-    fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
-        self.shared.tracks.read().get(sid).map(|track| {
+    #[inline]
+    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
+        self.inner.tracks.read().get(sid).map(|track| {
             if let TrackPublication::Remote(remote) = track {
-                remote.clone()
-            } else {
-                unreachable!()
+                return remote.clone();
             }
+            unreachable!()
         })
     }
 
-    /// Called by the RoomSession when receiving data by the RTCSession
+    /// Called by the RoomSession when receiving data from the RrcSession
     /// It is just used to emit the Data event on the participant dispatcher.
     pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: proto::data_packet::Kind) {
-        self.shared
+        self.inner
             .dispatcher
-            .lock()
             .dispatch(&ParticipantEvent::DataReceived {
                 payload: data,
                 kind,
@@ -59,9 +54,9 @@ impl RemoteParticipant {
 
     #[instrument(level = Level::DEBUG)]
     pub(crate) async fn add_subscribed_media_track(
-        self: Arc<Self>,
+        &self,
         sid: TrackSid,
-        media_track: MediaStreamTrackHandle,
+        media_track: rtc::media_stream::MediaStreamTrack,
     ) {
         let wait_publication = {
             let participant = self.clone();
@@ -73,7 +68,7 @@ impl RemoteParticipant {
                         return publication;
                     }
 
-                    tokio::task::yield_now().await;
+                    tokio::task::yield_now().await; // Remove yield
                 }
             }
         };
@@ -81,25 +76,25 @@ impl RemoteParticipant {
         if let Ok(remote_publication) = timeout(ADD_TRACK_TIMEOUT, wait_publication).await {
             let track = match remote_publication.kind() {
                 TrackKind::Audio => {
-                    if let MediaStreamTrackHandle::Audio(rtc_track) = media_track {
+                    if let MediaStreamTrack::Audio(rtc_track) = media_track {
                         let audio_track = RemoteAudioTrack::new(
                             remote_publication.sid().into(),
                             remote_publication.name(),
                             rtc_track,
                         );
-                        RemoteTrackHandle::Audio(Arc::new(audio_track))
+                        RemoteTrack::Audio(audio_track)
                     } else {
                         unreachable!();
                     }
                 }
                 TrackKind::Video => {
-                    if let MediaStreamTrackHandle::Video(rtc_track) = media_track {
+                    if let MediaStreamTrack::Video(rtc_track) = media_track {
                         let video_track = RemoteVideoTrack::new(
                             remote_publication.sid().into(),
                             remote_publication.name(),
                             rtc_track,
                         );
-                        RemoteTrackHandle::Video(Arc::new(video_track))
+                        RemoteTrack::Video(video_track)
                     } else {
                         unreachable!()
                     }
@@ -110,23 +105,30 @@ impl RemoteParticipant {
             debug!("starting track: {:?}", sid);
 
             remote_publication.update_track(Some(track.clone().into()));
-            self.shared
+            track.set_muted(remote_publication.muted());
+            track.update_info(proto::TrackInfo {
+                sid: remote_publication.sid().to_string(),
+                name: remote_publication.name().to_string(),
+                r#type: proto::TrackType::from(remote_publication.kind()) as i32,
+                source: proto::TrackSource::from(remote_publication.source()) as i32,
+                ..Default::default()
+            });
+
+            self.inner
                 .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
             track.start();
 
-            self.shared
+            self.inner
                 .dispatcher
-                .lock()
                 .dispatch(&ParticipantEvent::TrackSubscribed {
-                    track: track,
+                    track,
                     publication: remote_publication,
                 });
         } else {
             error!("could not find published track with sid: {:?}", sid);
 
-            self.shared
+            self.inner
                 .dispatcher
-                .lock()
                 .dispatch(&ParticipantEvent::TrackSubscriptionFailed {
                     sid: sid.clone(),
                     error: TrackError::TrackNotFound(sid.clone().to_string()),
@@ -134,81 +136,118 @@ impl RemoteParticipant {
         }
     }
 
-    pub(crate) fn unpublish_track(self: &Arc<Self>, sid: &TrackSid, emit_events: bool) {
+    pub(crate) fn unpublish_track(&self, sid: &TrackSid) {
         if let Some(publication) = self.get_track_publication(sid) {
             // Unsubscribe to the track if needed
             if let Some(track) = publication.track() {
                 track.stop();
 
-                self.shared
+                self.inner
                     .dispatcher
-                    .lock()
                     .dispatch(&ParticipantEvent::TrackUnsubscribed {
                         track: track.clone(),
                         publication: publication.clone(),
                     });
             }
 
-            if emit_events {
-                self.shared
-                    .dispatcher
-                    .lock()
-                    .dispatch(&ParticipantEvent::TrackUnpublished {
-                        publication: publication.clone(),
-                    });
-            }
+            self.inner
+                .dispatcher
+                .dispatch(&ParticipantEvent::TrackUnpublished {
+                    publication: publication.clone(),
+                });
 
             publication.update_track(None);
         }
     }
-}
 
-impl ParticipantInternalTrait for RemoteParticipant {
-    fn update_info(self: &Arc<Self>, info: proto::ParticipantInfo, emit_events: bool) {
-        self.shared.update_info(info.clone());
+    pub(crate) fn update_info(&self, info: proto::ParticipantInfo) {
+        self.inner.update_info(info.clone());
 
         let mut valid_tracks = HashSet::<TrackSid>::new();
         for track in info.tracks {
             if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
                 publication.update_info(track.clone());
             } else {
-                let publication = RemoteTrackPublication::new(track.clone(), self.sid(), None);
-                self.shared
+                let publication = RemoteTrackPublication::new(track.clone(), None);
+                self.inner
                     .add_track_publication(TrackPublication::Remote(publication.clone()));
 
                 // This is a new track, dispatch publish event
-                if emit_events {
-                    self.shared
-                        .dispatcher
-                        .lock()
-                        .dispatch(&ParticipantEvent::TrackPublished { publication });
-                }
+                self.inner
+                    .dispatcher
+                    .dispatch(&ParticipantEvent::TrackPublished { publication });
             }
 
             valid_tracks.insert(track.sid.into());
         }
 
         // remove tracks that are no longer valid
-        for (sid, _) in self.shared.tracks.read().iter() {
+        for (sid, _) in self.inner.tracks.read().iter() {
             if valid_tracks.contains(sid) {
                 continue;
             }
 
-            self.unpublish_track(sid, emit_events);
+            self.unpublish_track(sid);
         }
     }
 
-    fn set_speaking(&self, speaking: bool) {
-        self.shared.set_speaking(speaking);
+    #[inline]
+    pub fn sid(&self) -> ParticipantSid {
+        self.inner.sid()
     }
 
-    fn set_audio_level(&self, level: f32) {
-        self.shared.set_audio_level(level);
+    #[inline]
+    pub fn identity(&self) -> ParticipantIdentity {
+        self.inner.identity()
     }
 
-    fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.shared.set_connection_quality(quality);
+    #[inline]
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    #[inline]
+    pub fn metadata(&self) -> String {
+        self.inner.metadata()
+    }
+
+    #[inline]
+    pub fn is_speaking(&self) -> bool {
+        self.inner.is_speaking()
+    }
+
+    #[inline]
+    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
+        self.inner.tracks()
+    }
+
+    #[inline]
+    pub fn audio_level(&self) -> f32 {
+        self.inner.audio_level()
+    }
+
+    #[inline]
+    pub fn connection_quality(&self) -> ConnectionQuality {
+        self.inner.connection_quality()
+    }
+
+    #[inline]
+    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
+        self.inner.register_observer()
+    }
+
+    #[inline]
+    pub(crate) fn set_speaking(&self, speaking: bool) {
+        self.inner.set_speaking(speaking);
+    }
+
+    #[inline]
+    pub(crate) fn set_audio_level(&self, level: f32) {
+        self.inner.set_audio_level(level);
+    }
+
+    #[inline]
+    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
+        self.inner.set_connection_quality(quality);
     }
 }
-
-impl_participant_trait!(RemoteParticipant);

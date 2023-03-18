@@ -62,9 +62,8 @@ webrtc::VideoFrame VideoFrame::get() const {
   return frame_;
 }
 
-void VideoFrameBuilder::set_video_frame_buffer(
-    std::unique_ptr<VideoFrameBuffer> buffer) {
-  builder_.set_video_frame_buffer(buffer->get());
+void VideoFrameBuilder::set_video_frame_buffer(const VideoFrameBuffer& buffer) {
+  builder_.set_video_frame_buffer(buffer.get());  // const & ref_counted
 }
 
 void VideoFrameBuilder::set_timestamp_us(int64_t timestamp_us) {
@@ -83,7 +82,7 @@ std::unique_ptr<VideoFrame> VideoFrameBuilder::build() {
   return std::make_unique<VideoFrame>(builder_.build());
 }
 
-std::unique_ptr<VideoFrameBuilder> create_video_frame_builder() {
+std::unique_ptr<VideoFrameBuilder> new_video_frame_builder() {
   return std::make_unique<VideoFrameBuilder>();
 }
 

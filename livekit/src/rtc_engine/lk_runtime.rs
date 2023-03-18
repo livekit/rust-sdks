@@ -1,35 +1,48 @@
-use livekit_webrtc::peer_connection_factory::PeerConnectionFactory;
-use livekit_webrtc::webrtc::RTCRuntime;
+use lazy_static::lazy_static;
+use livekit_webrtc::prelude::*;
+use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
+use std::sync::{Arc, Weak};
 use tracing::trace;
 
-/// SAFETY: The order of initialization and deletion is important for LKRuntime.
-/// See the C++ constructors & destructors of these fields
-
-pub struct LKRuntime {
-    pub pc_factory: PeerConnectionFactory,
-    pub rtc_runtime: RTCRuntime,
+lazy_static! {
+    static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
 }
 
-impl Debug for LKRuntime {
+pub struct LkRuntime {
+    pub pc_factory: PeerConnectionFactory,
+}
+
+impl Debug for LkRuntime {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "LKRuntime")
+        f.debug_struct("LkRuntime").finish()
     }
 }
 
-impl Default for LKRuntime {
-    fn default() -> Self {
-        trace!("LKRuntime::default()");
-        let rtc_runtime = RTCRuntime::new();
-        Self {
-            pc_factory: PeerConnectionFactory::new(rtc_runtime.clone()),
-            rtc_runtime,
+impl LkRuntime {
+    pub fn instance() -> Arc<LkRuntime> {
+        let mut lk_runtime_ref = LK_RUNTIME.lock();
+        if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
+            lk_runtime
+        } else {
+            let new_runtime = Arc::new(LkRuntime::default());
+            *lk_runtime_ref = Arc::downgrade(&new_runtime);
+            new_runtime
         }
     }
 }
 
-impl Drop for LKRuntime {
+impl Default for LkRuntime {
+    fn default() -> Self {
+        trace!("LkRuntime::default()");
+        Self {
+            pc_factory: PeerConnectionFactory::default(),
+        }
+    }
+}
+
+impl Drop for LkRuntime {
     fn drop(&mut self) {
-        trace!("LKRuntime::drop()");
+        trace!("LkRuntime::drop()");
     }
 }

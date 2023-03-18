@@ -32,6 +32,17 @@ pub mod ffi {
         pub ice_transport_type: IceTransportsType,
     }
 
+    extern "C++" {
+        include!("livekit/media_stream.h");
+        include!("livekit/webrtc.h");
+        include!("livekit/rtp_parameters.h");
+
+        type AdaptedVideoTrackSource = crate::media_stream::ffi::AdaptedVideoTrackSource;
+        type VideoTrack = crate::media_stream::ffi::VideoTrack;
+        type RtpCapabilities = crate::rtp_parameters::ffi::RtpCapabilities;
+        type MediaType = crate::webrtc::ffi::MediaType;
+    }
+
     unsafe extern "C++" {
         include!("livekit/peer_connection_factory.h");
 
@@ -44,7 +55,7 @@ pub mod ffi {
 
         fn create_peer_connection_factory(
             runtime: SharedPtr<RTCRuntime>,
-        ) -> UniquePtr<PeerConnectionFactory>;
+        ) -> SharedPtr<PeerConnectionFactory>;
         fn create_rtc_configuration(conf: RTCConfiguration) -> UniquePtr<NativeRTCConfiguration>;
 
         /// # Safety
@@ -52,8 +63,24 @@ pub mod ffi {
         unsafe fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: UniquePtr<NativeRTCConfiguration>,
-            observer: Pin<&mut NativePeerConnectionObserver>,
-        ) -> Result<UniquePtr<PeerConnection>>;
+            observer: *mut NativePeerConnectionObserver,
+        ) -> Result<SharedPtr<PeerConnection>>;
+
+        fn create_video_track(
+            self: &PeerConnectionFactory,
+            label: String,
+            source: SharedPtr<AdaptedVideoTrackSource>,
+        ) -> SharedPtr<VideoTrack>;
+
+        fn get_rtp_sender_capabilities(
+            self: &PeerConnectionFactory,
+            kind: MediaType,
+        ) -> RtpCapabilities;
+
+        fn get_rtp_receiver_capabilities(
+            self: &PeerConnectionFactory,
+            kind: MediaType,
+        ) -> RtpCapabilities;
     }
 }
 

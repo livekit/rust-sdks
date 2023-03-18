@@ -17,11 +17,15 @@
 #include "livekit/media_stream.h"
 
 #include <algorithm>
+#include <iostream>
 #include <memory>
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_rotation.h"
+#include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
+#include "rtc_base/time_utils.h"
 
 namespace livekit {
 
@@ -61,32 +65,28 @@ std::shared_ptr<VideoTrack> MediaStream::find_video_track(
       media_stream_->FindVideoTrack(track_id.c_str()));
 }
 
-bool MediaStream::add_audio_track(
-    std::shared_ptr<AudioTrack> audio_track) const {
-  return media_stream_->AddTrack(
-      rtc::scoped_refptr<webrtc::AudioTrackInterface>(
-          static_cast<webrtc::AudioTrackInterface*>(audio_track->get().get())));
+bool MediaStream::add_track(std::shared_ptr<MediaStreamTrack> track) const {
+  if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+    return media_stream_->AddTrack(
+        rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+            static_cast<webrtc::VideoTrackInterface*>(track->get().get())));
+  } else {
+    return media_stream_->AddTrack(
+        rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+            static_cast<webrtc::AudioTrackInterface*>(track->get().get())));
+  }
 }
 
-bool MediaStream::add_video_track(
-    std::shared_ptr<VideoTrack> video_track) const {
-  return media_stream_->AddTrack(
-      rtc::scoped_refptr<webrtc::VideoTrackInterface>(
-          static_cast<webrtc::VideoTrackInterface*>(video_track->get().get())));
-}
-
-bool MediaStream::remove_audio_track(
-    std::shared_ptr<AudioTrack> audio_track) const {
-  return media_stream_->RemoveTrack(
-      rtc::scoped_refptr<webrtc::AudioTrackInterface>(
-          static_cast<webrtc::AudioTrackInterface*>(audio_track->get().get())));
-}
-
-bool MediaStream::remove_video_track(
-    std::shared_ptr<VideoTrack> video_track) const {
-  return media_stream_->RemoveTrack(
-      rtc::scoped_refptr<webrtc::VideoTrackInterface>(
-          static_cast<webrtc::VideoTrackInterface*>(video_track->get().get())));
+bool MediaStream::remove_track(std::shared_ptr<MediaStreamTrack> track) const {
+  if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+    return media_stream_->RemoveTrack(
+        rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+            static_cast<webrtc::VideoTrackInterface*>(track->get().get())));
+  } else {
+    return media_stream_->RemoveTrack(
+        rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+            static_cast<webrtc::AudioTrackInterface*>(track->get().get())));
+  }
 }
 
 MediaStreamTrack::MediaStreamTrack(
@@ -177,13 +177,13 @@ void NativeVideoFrameSink::OnConstraintsChanged(
   observer_->on_constraints_changed(cst);
 }
 
-std::unique_ptr<NativeVideoFrameSink> create_native_video_frame_sink(
+std::unique_ptr<NativeVideoFrameSink> new_native_video_frame_sink(
     rust::Box<VideoFrameSinkWrapper> observer) {
   return std::make_unique<NativeVideoFrameSink>(std::move(observer));
 }
 
 NativeVideoTrackSource::NativeVideoTrackSource()
-    : rtc::AdaptedVideoTrackSource(1) {}
+    : rtc::AdaptedVideoTrackSource(4) {}
 
 NativeVideoTrackSource::~NativeVideoTrackSource() {}
 
@@ -197,7 +197,6 @@ absl::optional<bool> NativeVideoTrackSource::needs_denoising() const {
 
 webrtc::MediaSourceInterface::SourceState NativeVideoTrackSource::state()
     const {
-  // TODO(theomonnom): expose source state to Rust
   return SourceState::kLive;
 }
 
@@ -212,22 +211,23 @@ bool NativeVideoTrackSource::on_captured_frame(
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       frame.timestamp_us(), rtc::TimeMicros());
 
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
+      frame.video_frame_buffer();
+
   int adapted_width, adapted_height, crop_width, crop_height, crop_x, crop_y;
-  if (!AdaptFrame(frame.width(), frame.height(), frame.timestamp_us(),
+  if (!AdaptFrame(buffer->width(), buffer->height(), aligned_timestamp_us,
                   &adapted_width, &adapted_height, &crop_width, &crop_height,
                   &crop_x, &crop_y)) {
     return false;
   }
 
-  // TODO(theomonnom): Should this be handled by the users?
-  rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
-      frame.video_frame_buffer();
   if (adapted_width != frame.width() || adapted_height != frame.height()) {
     buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
                                   adapted_width, adapted_height);
   }
 
-  if (apply_rotation() && frame.rotation() != webrtc::kVideoRotation_0) {
+  webrtc::VideoRotation rotation = frame.rotation();
+  if (apply_rotation() && rotation != webrtc::kVideoRotation_0) {
     // If the buffer is I420, rtc::AdaptedVideoTrackSource will handle the
     // rotation for us.
     buffer = buffer->ToI420();
@@ -235,7 +235,7 @@ bool NativeVideoTrackSource::on_captured_frame(
 
   OnFrame(webrtc::VideoFrame::Builder()
               .set_video_frame_buffer(buffer)
-              .set_rotation(frame.rotation())
+              .set_rotation(rotation)
               .set_timestamp_us(aligned_timestamp_us)
               .build());
 
@@ -247,8 +247,15 @@ AdaptedVideoTrackSource::AdaptedVideoTrackSource(
     : source_(source) {}
 
 bool AdaptedVideoTrackSource::on_captured_frame(
-    std::unique_ptr<VideoFrame> frame) const {
-  return source_->on_captured_frame(frame->get());
+    const std::unique_ptr<VideoFrame>& frame) const {
+  auto rtc_frame = frame->get();
+  rtc_frame.set_timestamp_us(rtc::TimeMicros());
+
+  // auto buffer = webrtc::I420Buffer::Create(1280, 720);
+  // webrtc::I420Buffer::SetBlack(buffer.get());
+  // rtc_frame.set_video_frame_buffer(buffer);
+
+  return source_->on_captured_frame(rtc_frame);
 }
 
 rtc::scoped_refptr<NativeVideoTrackSource> AdaptedVideoTrackSource::get()
@@ -256,8 +263,8 @@ rtc::scoped_refptr<NativeVideoTrackSource> AdaptedVideoTrackSource::get()
   return source_;
 }
 
-std::unique_ptr<AdaptedVideoTrackSource> create_adapted_video_track_source() {
-  return std::make_unique<AdaptedVideoTrackSource>(
+std::shared_ptr<AdaptedVideoTrackSource> new_adapted_video_track_source() {
+  return std::make_shared<AdaptedVideoTrackSource>(
       rtc::make_ref_counted<NativeVideoTrackSource>());
 }
 

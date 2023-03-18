@@ -24,6 +24,7 @@ pub mod ffi {
             crate::rtp_parameters::ffi::RtpHeaderExtensionCapability;
         type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
+        type RTCError = crate::rtc_error::ffi::RTCError;
     }
 
     unsafe extern "C++" {

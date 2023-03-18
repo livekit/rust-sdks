@@ -2,29 +2,22 @@ use crate::prelude::*;
 use crate::proto;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
+use livekit_webrtc as rtc;
 use parking_lot::Mutex;
+use rtc::MediaType;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-pub mod audio_track;
 pub mod local_audio_track;
-pub mod local_track;
 pub mod local_video_track;
 pub mod remote_audio_track;
-pub mod remote_track;
 pub mod remote_video_track;
-pub mod video_track;
 
-pub use audio_track::*;
 pub use local_audio_track::*;
-pub use local_track::*;
 pub use local_video_track::*;
 pub use remote_audio_track::*;
-pub use remote_track::*;
 pub use remote_video_track::*;
-pub use video_track::*;
 
 #[derive(Error, Debug, Clone)]
 pub enum TrackError {
@@ -32,51 +25,19 @@ pub enum TrackError {
     TrackNotFound(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackKind {
-    Unknown,
     Audio,
     Video,
 }
 
-impl From<u8> for TrackKind {
-    fn from(val: u8) -> Self {
-        match val {
-            1 => Self::Audio,
-            2 => Self::Video,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-impl From<proto::TrackType> for TrackKind {
-    fn from(r#type: proto::TrackType) -> Self {
-        match r#type {
-            proto::TrackType::Audio => Self::Audio,
-            proto::TrackType::Video => Self::Video,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamState {
-    Unknown,
     Active,
     Paused,
 }
 
-impl From<u8> for StreamState {
-    fn from(val: u8) -> Self {
-        match val {
-            1 => Self::Active,
-            2 => Self::Paused,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackSource {
     Unknown,
     Camera,
@@ -85,9 +46,364 @@ pub enum TrackSource {
     ScreenshareAudio,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackEvent {
+    Mute,
+    Unmute,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct TrackDimension(pub u32, pub u32);
+
+#[derive(Clone, Debug)]
+pub enum Track {
+    LocalAudio(LocalAudioTrack),
+    LocalVideo(LocalVideoTrack),
+    RemoteAudio(RemoteAudioTrack),
+    RemoteVideo(RemoteVideoTrack),
+}
+
+#[derive(Clone, Debug)]
+pub enum LocalTrack {
+    Audio(LocalAudioTrack),
+    Video(LocalVideoTrack),
+}
+
+#[derive(Clone, Debug)]
+pub enum RemoteTrack {
+    Audio(RemoteAudioTrack),
+    Video(RemoteVideoTrack),
+}
+
+#[derive(Clone, Debug)]
+pub enum VideoTrack {
+    Local(LocalVideoTrack),
+    Remote(RemoteVideoTrack),
+}
+
+#[derive(Clone, Debug)]
+pub enum AudioTrack {
+    Local(LocalAudioTrack),
+    Remote(RemoteAudioTrack),
+}
+
+macro_rules! track_dispatch {
+    ([$($variant:ident),+]) => {
+        enum_dispatch!(
+            [$($variant),+];
+            pub fn sid(self: &Self) -> TrackSid;
+            pub fn name(self: &Self) -> String;
+            pub fn kind(self: &Self) -> TrackKind;
+            pub fn source(self: &Self) -> TrackSource;
+            pub fn stream_state(self: &Self) -> StreamState;
+            pub fn start(self: &Self) -> ();
+            pub fn stop(self: &Self) -> ();
+            pub fn muted(self: &Self) -> bool;
+            pub fn set_muted(self: &Self, muted: bool) -> ();
+            pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
+
+            pub(crate) fn transceiver(self: &Self) -> Option<rtc::rtp_transceiver::RtpTransceiver>;
+            pub(crate) fn update_transceiver(self: &Self, transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>) -> ();
+            pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
+        );
+    };
+}
+
+impl Track {
+    track_dispatch!([LocalAudio, LocalVideo, RemoteAudio, RemoteVideo]);
+
+    #[inline]
+    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+        match self {
+            Self::LocalAudio(track) => track.rtc_track().into(),
+            Self::LocalVideo(track) => track.rtc_track().into(),
+            Self::RemoteAudio(track) => track.rtc_track().into(),
+            Self::RemoteVideo(track) => track.rtc_track().into(),
+        }
+    }
+}
+
+impl LocalTrack {
+    track_dispatch!([Audio, Video]);
+
+    #[inline]
+    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+        match self {
+            Self::Audio(track) => track.rtc_track().into(),
+            Self::Video(track) => track.rtc_track().into(),
+        }
+    }
+}
+
+impl RemoteTrack {
+    track_dispatch!([Audio, Video]);
+
+    #[inline]
+    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+        match self {
+            Self::Audio(track) => track.rtc_track().into(),
+            Self::Video(track) => track.rtc_track().into(),
+        }
+    }
+}
+
+impl VideoTrack {
+    track_dispatch!([Local, Remote]);
+
+    #[inline]
+    pub fn rtc_track(&self) -> rtc::media_stream::RtcVideoTrack {
+        match self {
+            Self::Local(track) => track.rtc_track(),
+            Self::Remote(track) => track.rtc_track(),
+        }
+    }
+}
+
+impl AudioTrack {
+    track_dispatch!([Local, Remote]);
+
+    #[inline]
+    pub fn rtc_track(&self) -> rtc::media_stream::RtcAudioTrack {
+        match self {
+            Self::Local(track) => track.rtc_track().into(),
+            Self::Remote(track) => track.rtc_track().into(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct TrackInner {
+    pub sid: Mutex<TrackSid>,
+    pub name: Mutex<String>,
+    pub kind: AtomicU8,         // TrackKind
+    pub source: AtomicU8,       // TrackSource
+    pub stream_state: AtomicU8, // StreamState
+    pub muted: AtomicBool,
+    pub rtc_track: rtc::media_stream::MediaStreamTrack,
+    pub transceiver: Mutex<Option<rtc::rtp_transceiver::RtpTransceiver>>,
+    pub dispatcher: Dispatcher<TrackEvent>,
+}
+
+impl TrackInner {
+    pub fn new(
+        sid: TrackSid,
+        name: String,
+        kind: TrackKind,
+        rtc_track: rtc::media_stream::MediaStreamTrack,
+    ) -> Self {
+        Self {
+            sid: Mutex::new(sid),
+            name: Mutex::new(name),
+            kind: AtomicU8::new(kind as u8),
+            source: AtomicU8::new(TrackSource::Unknown as u8),
+            stream_state: AtomicU8::new(StreamState::Active as u8),
+            muted: AtomicBool::new(false),
+            rtc_track,
+            transceiver: Default::default(),
+            dispatcher: Default::default(),
+        }
+    }
+
+    pub fn sid(&self) -> TrackSid {
+        self.sid.lock().clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.name.lock().clone()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.kind.load(Ordering::SeqCst).try_into().unwrap()
+    }
+
+    pub fn source(&self) -> TrackSource {
+        self.source.load(Ordering::SeqCst).into()
+    }
+
+    pub fn stream_state(&self) -> StreamState {
+        self.stream_state.load(Ordering::SeqCst).try_into().unwrap()
+    }
+
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::SeqCst)
+    }
+
+    pub fn start(&self) {
+        self.rtc_track.set_enabled(true);
+    }
+
+    pub fn stop(&self) {
+        self.rtc_track.set_enabled(false);
+    }
+
+    pub fn set_muted(&self, muted: bool) {
+        if self
+            .muted
+            .compare_exchange(!muted, muted, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+
+        if !muted {
+            self.start();
+        } else {
+            self.stop();
+        }
+
+        let event = if muted {
+            TrackEvent::Mute
+        } else {
+            TrackEvent::Unmute
+        };
+
+        self.dispatcher.dispatch(&event);
+    }
+
+    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+        self.rtc_track.clone()
+    }
+
+    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
+        self.dispatcher.register()
+    }
+
+    pub fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+        self.transceiver.lock().clone()
+    }
+
+    pub fn update_transceiver(&self, transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>) {
+        *self.transceiver.lock() = transceiver;
+    }
+
+    pub fn update_info(&self, info: proto::TrackInfo) {
+        *self.name.lock() = info.name;
+        *self.sid.lock() = info.sid.into();
+        self.kind.store(
+            TrackKind::try_from(proto::TrackType::from_i32(info.r#type).unwrap()).unwrap() as u8,
+            Ordering::SeqCst,
+        );
+        self.source.store(
+            TrackSource::from(proto::TrackSource::from_i32(info.source).unwrap()) as u8,
+            Ordering::SeqCst,
+        );
+        // Muted and StreamState are not handled separately (events)
+    }
+}
+
+impl From<RemoteTrack> for Track {
+    fn from(track: RemoteTrack) -> Self {
+        match track {
+            RemoteTrack::Audio(track) => Self::RemoteAudio(track),
+            RemoteTrack::Video(track) => Self::RemoteVideo(track),
+        }
+    }
+}
+
+impl From<LocalTrack> for Track {
+    fn from(track: LocalTrack) -> Self {
+        match track {
+            LocalTrack::Audio(track) => Self::LocalAudio(track),
+            LocalTrack::Video(track) => Self::LocalVideo(track),
+        }
+    }
+}
+
+impl From<VideoTrack> for Track {
+    fn from(track: VideoTrack) -> Self {
+        match track {
+            VideoTrack::Local(track) => Self::LocalVideo(track),
+            VideoTrack::Remote(track) => Self::RemoteVideo(track),
+        }
+    }
+}
+
+impl From<AudioTrack> for Track {
+    fn from(track: AudioTrack) -> Self {
+        match track {
+            AudioTrack::Local(track) => Self::LocalAudio(track),
+            AudioTrack::Remote(track) => Self::RemoteAudio(track),
+        }
+    }
+}
+
+impl TryFrom<Track> for RemoteTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::RemoteAudio(track) => Ok(Self::Audio(track)),
+            Track::RemoteVideo(track) => Ok(Self::Video(track)),
+            _ => Err("not a remote track"),
+        }
+    }
+}
+
+impl TryFrom<Track> for LocalTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::LocalAudio(track) => Ok(Self::Audio(track)),
+            Track::LocalVideo(track) => Ok(Self::Video(track)),
+            _ => Err("not a local track"),
+        }
+    }
+}
+
+impl TryFrom<Track> for VideoTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::LocalVideo(track) => Ok(Self::Local(track)),
+            Track::RemoteVideo(track) => Ok(Self::Remote(track)),
+            _ => Err("not a video track"),
+        }
+    }
+}
+
+impl TryFrom<Track> for AudioTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::LocalAudio(track) => Ok(Self::Local(track)),
+            Track::RemoteAudio(track) => Ok(Self::Remote(track)),
+            _ => Err("not an audio track"),
+        }
+    }
+}
+
+// Conversions from integers (Useful since we're using atomic values to represent our enums)
+
+impl TryFrom<u8> for TrackKind {
+    type Error = &'static str;
+
+    fn try_from(kind: u8) -> Result<Self, Self::Error> {
+        match kind {
+            0 => Ok(Self::Audio),
+            1 => Ok(Self::Video),
+            _ => Err("invalid track kind"),
+        }
+    }
+}
+
+impl TryFrom<u8> for StreamState {
+    type Error = &'static str;
+
+    fn try_from(state: u8) -> Result<Self, Self::Error> {
+        match state {
+            0 => Ok(Self::Active),
+            1 => Ok(Self::Paused),
+            _ => Err("invalid stream state"),
+        }
+    }
+}
+
 impl From<u8> for TrackSource {
-    fn from(val: u8) -> Self {
-        match val {
+    fn from(source: u8) -> Self {
+        match source {
             1 => Self::Camera,
             2 => Self::Microphone,
             3 => Self::Screenshare,
@@ -97,197 +413,11 @@ impl From<u8> for TrackSource {
     }
 }
 
-impl From<proto::TrackSource> for TrackSource {
-    fn from(source: proto::TrackSource) -> Self {
-        match source {
-            proto::TrackSource::Camera => Self::Camera,
-            proto::TrackSource::Microphone => Self::Microphone,
-            proto::TrackSource::ScreenShare => Self::Screenshare,
-            proto::TrackSource::ScreenShareAudio => Self::ScreenshareAudio,
-            proto::TrackSource::Unknown => Self::Unknown,
+impl From<TrackKind> for MediaType {
+    fn from(kind: TrackKind) -> Self {
+        match kind {
+            TrackKind::Audio => Self::Audio,
+            TrackKind::Video => Self::Video,
         }
     }
 }
-
-#[derive(Clone, Copy, Debug)]
-pub struct TrackDimension(pub u32, pub u32);
-
-pub trait TrackTrait {
-    fn sid(&self) -> TrackSid;
-    fn name(&self) -> String;
-    fn kind(&self) -> TrackKind;
-    fn stream_state(&self) -> StreamState;
-    fn muted(&self) -> bool;
-    fn start(&self);
-    fn stop(&self);
-    fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent>;
-    fn set_muted(&self, muted: bool);
-}
-
-#[derive(Debug, Clone)]
-pub enum TrackEvent {
-    Mute,
-    Unmute,
-}
-
-#[derive(Debug)]
-pub(super) struct TrackShared {
-    pub(super) sid: Mutex<TrackSid>,
-    pub(super) name: Mutex<String>,
-    pub(super) kind: AtomicU8,         // TrackKind
-    pub(super) stream_state: AtomicU8, // StreamState
-    pub(super) muted: AtomicBool,
-    pub(super) rtc_track: MediaStreamTrackHandle,
-    pub(super) dispatcher: Mutex<Dispatcher<TrackEvent>>,
-}
-
-impl TrackShared {
-    pub(crate) fn new(
-        sid: TrackSid,
-        name: String,
-        kind: TrackKind,
-        rtc_track: MediaStreamTrackHandle,
-    ) -> Self {
-        Self {
-            sid: Mutex::new(sid),
-            name: Mutex::new(name),
-            kind: AtomicU8::new(kind as u8),
-            stream_state: AtomicU8::new(StreamState::Active as u8),
-            muted: AtomicBool::new(false),
-            rtc_track,
-            dispatcher: Default::default(),
-        }
-    }
-
-    pub(crate) fn start(&self) {
-        self.rtc_track.set_enabled(true);
-    }
-
-    pub(crate) fn stop(&self) {
-        self.rtc_track.set_enabled(false);
-    }
-
-    pub(crate) fn set_muted(&self, muted: bool) {
-        if self.muted.load(Ordering::SeqCst) == muted {
-            return;
-        }
-
-        self.muted.store(muted, Ordering::SeqCst);
-        self.rtc_track.set_enabled(!muted);
-
-        self.dispatcher.lock().dispatch(if muted {
-            &TrackEvent::Mute
-        } else {
-            &TrackEvent::Unmute
-        });
-    }
-
-    pub(crate) fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.dispatcher.lock().register()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum TrackHandle {
-    LocalVideo(Arc<LocalVideoTrack>),
-    LocalAudio(Arc<LocalAudioTrack>),
-    RemoteVideo(Arc<RemoteVideoTrack>),
-    RemoteAudio(Arc<RemoteAudioTrack>),
-}
-
-impl TrackTrait for TrackHandle {
-    enum_dispatch!(
-        [LocalVideo, LocalAudio, RemoteVideo, RemoteAudio]
-        fnc!(sid, &Self, [], TrackSid);
-        fnc!(name, &Self, [], String);
-        fnc!(kind, &Self, [], TrackKind);
-        fnc!(stream_state, &Self, [], StreamState);
-        fnc!(muted, &Self, [], bool);
-        fnc!(start, &Self, [], ());
-        fnc!(stop, &Self, [], ());
-        fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
-        fnc!(set_muted, &Self, [muted: bool], ());
-    );
-}
-
-impl TrackHandle {
-    pub fn rtc_track(&self) -> MediaStreamTrackHandle {
-        match self {
-            Self::RemoteVideo(remote_video) => {
-                MediaStreamTrackHandle::Video(remote_video.rtc_track())
-            }
-            Self::RemoteAudio(remote_audio) => {
-                MediaStreamTrackHandle::Audio(remote_audio.rtc_track())
-            }
-            _ => todo!(),
-        }
-    }
-}
-
-macro_rules! impl_track_trait {
-    ($x:ident) => {
-        use std::sync::atomic::Ordering;
-        use tokio::sync::mpsc;
-        use $crate::room::id::TrackSid;
-        use $crate::room::track::{StreamState, TrackEvent, TrackKind, TrackTrait};
-
-        impl TrackTrait for $x {
-            fn sid(&self) -> TrackSid {
-                self.shared.sid.lock().clone()
-            }
-
-            fn name(&self) -> String {
-                self.shared.name.lock().clone()
-            }
-
-            fn kind(&self) -> TrackKind {
-                self.shared.kind.load(Ordering::SeqCst).into()
-            }
-
-            fn stream_state(&self) -> StreamState {
-                self.shared.stream_state.load(Ordering::SeqCst).into()
-            }
-
-            fn muted(&self) -> bool {
-                self.shared.muted.load(Ordering::SeqCst)
-            }
-
-            fn start(&self) {
-                self.shared.start();
-            }
-
-            fn stop(&self) {
-                self.shared.stop();
-            }
-
-            fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-                self.shared.register_observer()
-            }
-
-            fn set_muted(&self, muted: bool) {
-                self.shared.set_muted(muted);
-            }
-        }
-    };
-    ($x:ident, enum_dispatch, [$($variant:ident),+]) => {
-        use livekit_utils::enum_dispatch;
-        use tokio::sync::mpsc;
-
-        impl TrackTrait for $x {
-            enum_dispatch!(
-                [$($variant),+]
-                fnc!(sid, &Self, [], TrackSid);
-                fnc!(name, &Self, [], String);
-                fnc!(kind, &Self, [], TrackKind);
-                fnc!(stream_state, &Self, [], StreamState);
-                fnc!(muted, &Self, [], bool);
-                fnc!(start, &Self, [], ());
-                fnc!(stop, &Self, [], ());
-                fnc!(register_observer, &Self, [], mpsc::UnboundedReceiver<TrackEvent>);
-                fnc!(set_muted, &Self, [muted: bool], ());
-            );
-        }
-    };
-}
-
-pub(super) use impl_track_trait;

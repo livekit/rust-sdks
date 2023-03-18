@@ -70,7 +70,7 @@ void PeerConnection::set_remote_description(
                                          observer.observer);
 }
 
-std::unique_ptr<DataChannel> PeerConnection::create_data_channel(
+std::shared_ptr<DataChannel> PeerConnection::create_data_channel(
     rust::String label,
     std::unique_ptr<NativeDataChannelInit> init) const {
   auto result =
@@ -80,7 +80,7 @@ std::unique_ptr<DataChannel> PeerConnection::create_data_channel(
     throw std::runtime_error(serialize_error(to_error(result.error())));
   }
 
-  return std::make_unique<DataChannel>(rtc_runtime_, result.value());
+  return std::make_shared<DataChannel>(rtc_runtime_, result.value());
 }
 
 std::shared_ptr<RtpSender> PeerConnection::add_track(
@@ -106,7 +106,7 @@ std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver(
     RtpTransceiverInit init) const {
   auto result = peer_connection_->AddTransceiver(
       track->get(), to_native_rtp_transceiver_init(init));
-  if (result.ok())
+  if (!result.ok())
     throw std::runtime_error(serialize_error(to_error(result.error())));
 
   return std::make_shared<RtpTransceiver>(result.value());
@@ -119,7 +119,7 @@ std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver_for_media(
       static_cast<cricket::MediaType>(media_type),
       to_native_rtp_transceiver_init(init));
 
-  if (result.ok())
+  if (!result.ok())
     throw std::runtime_error(serialize_error(to_error(result.error())));
 
   return std::make_shared<RtpTransceiver>(result.value());
@@ -158,12 +158,48 @@ void PeerConnection::add_ice_candidate(
       [&](const webrtc::RTCError& err) { observer.OnComplete(to_error(err)); });
 }
 
+std::unique_ptr<SessionDescription> PeerConnection::current_local_description()
+    const {
+  auto local_description = peer_connection_->current_local_description();
+  if (local_description)
+    return std::make_unique<SessionDescription>(local_description->Clone());
+
+  return nullptr;
+}
+
+std::unique_ptr<SessionDescription> PeerConnection::current_remote_description()
+    const {
+  auto remote_description = peer_connection_->current_remote_description();
+  if (remote_description)
+    return std::make_unique<SessionDescription>(remote_description->Clone());
+
+  return nullptr;
+}
+
+std::unique_ptr<SessionDescription> PeerConnection::pending_local_description()
+    const {
+  auto local_description = peer_connection_->pending_local_description();
+  if (local_description)
+    return std::make_unique<SessionDescription>(local_description->Clone());
+
+  return nullptr;
+}
+
+std::unique_ptr<SessionDescription> PeerConnection::pending_remote_description()
+    const {
+  auto remote_description = peer_connection_->pending_remote_description();
+  if (remote_description)
+    return std::make_unique<SessionDescription>(remote_description->Clone());
+
+  return nullptr;
+}
+
 std::unique_ptr<SessionDescription> PeerConnection::local_description() const {
   auto local_description = peer_connection_->local_description();
   if (local_description)
     return std::make_unique<SessionDescription>(local_description->Clone());
 
-  return std::unique_ptr<SessionDescription>();
+  return nullptr;
 }
 
 std::unique_ptr<SessionDescription> PeerConnection::remote_description() const {
@@ -171,7 +207,12 @@ std::unique_ptr<SessionDescription> PeerConnection::remote_description() const {
   if (remote_description)
     return std::make_unique<SessionDescription>(remote_description->Clone());
 
-  return std::unique_ptr<SessionDescription>();
+  return nullptr;
+}
+
+PeerConnectionState PeerConnection::connection_state() const {
+  return static_cast<PeerConnectionState>(
+      peer_connection_->peer_connection_state());
 }
 
 SignalingState PeerConnection::signaling_state() const {
@@ -188,7 +229,7 @@ IceConnectionState PeerConnection::ice_connection_state() const {
       peer_connection_->ice_connection_state());
 }
 
-void PeerConnection::close() {
+void PeerConnection::close() const {
   peer_connection_->Close();
 }
 
@@ -213,7 +254,13 @@ create_native_add_ice_candidate_observer(
 NativePeerConnectionObserver::NativePeerConnectionObserver(
     std::shared_ptr<RTCRuntime> rtc_runtime,
     rust::Box<PeerConnectionObserverWrapper> observer)
-    : rtc_runtime_(std::move(rtc_runtime)), observer_(std::move(observer)) {}
+    : rtc_runtime_(std::move(rtc_runtime)), observer_(std::move(observer)) {
+  RTC_LOG(LS_INFO) << "NativePeerConnectionObserver()";
+}
+
+NativePeerConnectionObserver::~NativePeerConnectionObserver() {
+  RTC_LOG(LS_INFO) << "~NativePeerConnectionObserver()";
+}
 
 void NativePeerConnectionObserver::OnSignalingChange(
     webrtc::PeerConnectionInterface::SignalingState new_state) {
@@ -233,7 +280,7 @@ void NativePeerConnectionObserver::OnRemoveStream(
 void NativePeerConnectionObserver::OnDataChannel(
     rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) {
   observer_->on_data_channel(
-      std::make_unique<DataChannel>(rtc_runtime_, data_channel));
+      std::make_shared<DataChannel>(rtc_runtime_, data_channel));
 }
 
 void NativePeerConnectionObserver::OnRenegotiationNeeded() {
@@ -342,11 +389,11 @@ void NativePeerConnectionObserver::OnInterestingUsage(int usage_pattern) {
   observer_->on_interesting_usage(usage_pattern);
 }
 
-std::unique_ptr<NativePeerConnectionObserver>
+std::shared_ptr<NativePeerConnectionObserver>
 create_native_peer_connection_observer(
     std::shared_ptr<RTCRuntime> rtc_runtime,
     rust::Box<PeerConnectionObserverWrapper> observer) {
-  return std::make_unique<NativePeerConnectionObserver>(rtc_runtime,
+  return std::make_shared<NativePeerConnectionObserver>(rtc_runtime,
                                                         std::move(observer));
 }
 }  // namespace livekit

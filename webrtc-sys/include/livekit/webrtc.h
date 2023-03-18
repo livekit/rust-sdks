@@ -18,6 +18,7 @@
 
 #include "rtc_base/physical_socket_server.h"
 #include "rtc_base/ssl_adapter.h"
+#include "rust/cxx.h"
 
 #ifdef WEBRTC_WIN
 #include "rtc_base/win32_socket_init.h"
@@ -53,6 +54,8 @@ class RTCRuntime {
   rtc::AutoSocketServerThread main_thread_{&ss_};
 #endif
 };
+
+rust::String create_random_uuid();
 
 std::shared_ptr<RTCRuntime> create_rtc_runtime();
 

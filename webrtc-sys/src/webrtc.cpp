@@ -16,10 +16,12 @@
 
 #include "livekit/webrtc.h"
 
+#include "rtc_base/helpers.h"
 #include "rtc_base/logging.h"
 
 namespace livekit {
 RTCRuntime::RTCRuntime() {
+  // rtc::LogMessage::LogToDebug(rtc::LS_INFO);
   RTC_LOG(LS_INFO) << "RTCRuntime()";
   RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
 
@@ -55,6 +57,10 @@ rtc::Thread* RTCRuntime::worker_thread() const {
 
 rtc::Thread* RTCRuntime::signaling_thread() const {
   return signaling_thread_.get();
+}
+
+rust::String create_random_uuid() {
+  return rtc::CreateRandomUuid();
 }
 
 std::shared_ptr<RTCRuntime> create_rtc_runtime() {
