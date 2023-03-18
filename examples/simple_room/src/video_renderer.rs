@@ -1,8 +1,7 @@
+use futures::StreamExt;
 use livekit::webrtc::native::yuv_helper;
-use livekit::webrtc::prelude::VideoTrack;
-use livekit::webrtc::video_frame::native::VideoFrameBufferExt;
-use livekit::webrtc::video_frame::VideoFrameBuffer;
-use livekit::webrtc::video_sink::native::NativeVideoSink;
+use livekit::webrtc::prelude::*;
+use livekit::webrtc::video_stream::native::NativeVideoStream;
 use std::num::NonZeroU32;
 use std::{
     ops::DerefMut,
@@ -12,8 +11,7 @@ use tracing::debug_span;
 
 pub struct VideoRenderer {
     internal: Arc<Mutex<RendererInternal>>,
-    rtc_track: VideoTrack,
-    video_sink: NativeVideoSink,
+    rtc_track: RtcVideoTrack,
 }
 
 struct RendererInternal {
@@ -87,7 +85,7 @@ impl RendererInternal {
 }
 
 impl VideoRenderer {
-    pub fn new(render_state: egui_wgpu::RenderState, rtc_track: VideoTrack) -> Self {
+    pub fn new(render_state: egui_wgpu::RenderState, rtc_track: RtcVideoTrack) -> Self {
         let internal = Arc::new(Mutex::new(RendererInternal {
             render_state,
             width: 0,
@@ -98,13 +96,12 @@ impl VideoRenderer {
             egui_texture: None,
         }));
 
-        let video_sink = NativeVideoSink::new(rtc_track.clone());
-        let mut frame_receiver = video_sink.register_observer();
+        let mut video_sink = NativeVideoStream::new(rtc_track.clone());
 
         tokio::spawn({
             let internal = internal.clone();
             async move {
-                while let Some(frame) = frame_receiver.recv().await {
+                while let Some(frame) = video_sink.next().await {
                     let internal = internal.clone();
                     // Process the frame
                     let _ = tokio::task::spawn_blocking(move || {
@@ -171,7 +168,6 @@ impl VideoRenderer {
         Self {
             rtc_track,
             internal,
-            video_sink,
         }
     }
 
