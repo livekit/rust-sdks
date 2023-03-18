@@ -23,6 +23,8 @@
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_rotation.h"
+#include "audio/remix_resample.h"
+#include "common_audio/include/audio_util.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/time_utils.h"
@@ -128,6 +130,30 @@ TrackState MediaStreamTrack::state() const {
 
 AudioTrack::AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track)
     : MediaStreamTrack(std::move(track)) {}
+
+void AudioTrack::add_sink(NativeAudioSink& sink) const {
+  track()->AddSink(&sink);
+}
+
+void AudioTrack::remove_sink(NativeAudioSink& sink) const {
+  track()->RemoveSink(&sink);
+}
+
+void NativeAudioSink::OnData(const void* audio_data,
+                             int bits_per_sample,
+                             int sample_rate,
+                             size_t number_of_channels,
+                             size_t number_of_frames) {
+  RTC_CHECK_EQ(16, bits_per_sample);
+
+  observer_->on_data(static_cast<const int16_t*>(audio_data), sample_rate,
+                     number_of_channels, number_of_frames);
+}
+
+std::unique_ptr<NativeAudioSink> new_native_audio_sink(
+    rust::Box<AudioSinkWrapper> observer) {
+  return std::make_unique<NativeAudioSink>(std::move(observer));
+}
 
 VideoTrack::VideoTrack(rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
     : MediaStreamTrack(std::move(track)) {}

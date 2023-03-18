@@ -26,6 +26,8 @@ pub struct RtcError {
     pub message: String,
 }
 
+pub mod audio_frame;
+pub mod audio_stream;
 pub mod data_channel;
 pub mod ice_candidate;
 pub mod media_stream;

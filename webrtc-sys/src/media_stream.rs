@@ -40,6 +40,7 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/media_stream.h");
 
+        type NativeAudioSink;
         type NativeVideoFrameSink;
         type MediaStreamTrack;
         type MediaStream;
@@ -60,6 +61,11 @@ pub mod ffi {
         fn enabled(self: &MediaStreamTrack) -> bool;
         fn set_enabled(self: &MediaStreamTrack, enable: bool) -> bool;
         fn state(self: &MediaStreamTrack) -> TrackState;
+
+        unsafe fn add_sink(self: &AudioTrack, sink: Pin<&mut NativeAudioSink>);
+        unsafe fn remove_sink(self: &AudioTrack, sink: Pin<&mut NativeAudioSink>);
+
+        fn new_native_audio_sink(observer: Box<AudioSinkWrapper>) -> UniquePtr<NativeAudioSink>;
 
         unsafe fn add_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
         unsafe fn remove_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
@@ -90,7 +96,16 @@ pub mod ffi {
     }
 
     extern "Rust" {
+        type AudioSinkWrapper;
         type VideoFrameSinkWrapper;
+
+        unsafe fn on_data(
+            self: &AudioSinkWrapper,
+            data: *const i16,
+            sample_rate: i32,
+            nb_channels: i32,
+            nb_frames: i32,
+        );
 
         fn on_frame(self: &VideoFrameSinkWrapper, frame: UniquePtr<VideoFrame>);
         fn on_discarded_frame(self: &VideoFrameSinkWrapper);
@@ -107,6 +122,29 @@ impl_thread_safety!(ffi::AudioTrack, Send + Sync);
 impl_thread_safety!(ffi::VideoTrack, Send + Sync);
 impl_thread_safety!(ffi::NativeVideoFrameSink, Send + Sync);
 impl_thread_safety!(ffi::AdaptedVideoTrackSource, Send + Sync);
+
+pub trait AudioSink: Send {
+    fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: i32, nb_frames: i32);
+}
+
+pub struct AudioSinkWrapper {
+    observer: *mut dyn AudioSink,
+}
+
+impl AudioSinkWrapper {
+    /// # Safety
+    /// AudioSink must lives as long as AudioSinkWrapper does
+    pub unsafe fn new(observer: *mut dyn AudioSink) -> Self {
+        Self { observer }
+    }
+
+    fn on_data(&self, data: *const i16, sample_rate: i32, nb_channels: i32, nb_frames: i32) {
+        unsafe {
+            let data = std::slice::from_raw_parts(data, (nb_channels * nb_frames) as usize);
+            (*self.observer).on_data(data, sample_rate, nb_channels, nb_frames);
+        }
+    }
+}
 
 pub trait VideoFrameSink: Send {
     fn on_frame(&self, frame: UniquePtr<VideoFrame>);

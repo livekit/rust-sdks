@@ -20,6 +20,8 @@
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
+#include "common_audio/resampler/include/push_resampler.h"
+#include "common_audio/ring_buffer.h"
 #include "livekit/helper.h"
 #include "livekit/video_frame.h"
 #include "media/base/adapted_video_track_source.h"
@@ -34,6 +36,7 @@ class MediaStreamTrack;
 class VideoTrack;
 class AudioTrack;
 class NativeVideoFrameSink;
+class NativeAudioSink;
 class AdaptedVideoTrackSource;
 }  // namespace livekit
 #include "webrtc-sys/src/media_stream.rs.h"
@@ -86,7 +89,31 @@ class MediaStreamTrack {
 class AudioTrack : public MediaStreamTrack {
  public:
   explicit AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track);
+
+  void add_sink(NativeAudioSink& sink) const;
+  void remove_sink(NativeAudioSink& sink) const;
+
+ private:
+  webrtc::AudioTrackInterface* track() const {
+    return static_cast<webrtc::AudioTrackInterface*>(track_.get());
+  }
 };
+
+class NativeAudioSink : public webrtc::AudioTrackSinkInterface {
+ public:
+  explicit NativeAudioSink(rust::Box<AudioSinkWrapper> observer);
+  void OnData(const void* audio_data,
+              int bits_per_sample,
+              int sample_rate,
+              size_t number_of_channels,
+              size_t number_of_frames) override;
+
+ private:
+  rust::Box<AudioSinkWrapper> observer_;
+};
+
+std::unique_ptr<NativeAudioSink> new_native_audio_sink(
+    rust::Box<AudioSinkWrapper> observer);
 
 class VideoTrack : public MediaStreamTrack {
  public:
