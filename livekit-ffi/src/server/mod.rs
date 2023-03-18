@@ -1,6 +1,7 @@
 use crate::proto;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
+use livekit::webrtc::video_frame::{native::VideoFrameBufferExt, BoxVideoFrame, VideoFrameBuffer};
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
@@ -166,11 +167,11 @@ impl FFIServer {
                 let buffer = self.release_handle(to_i420.buffer.unwrap().id as FFIHandleId);
 
                 if let Some(buffer) = buffer {
-                    if let Ok(buffer) = buffer.downcast::<VideoFrameBuffer>() {
+                    if let Ok(buffer) = buffer.downcast::<Box<dyn VideoFrameBuffer>>() {
                         let handle_id = self.next_handle_id();
-                        let i420 = VideoFrameBuffer::I420(buffer.to_i420());
-                        buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &i420));
-                        self.insert_handle(handle_id, Box::new(i420));
+                        let buffer = buffer.to_i420();
+                        buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &buffer));
+                        self.insert_handle(handle_id, Box::new(buffer));
                     }
                 }
 
@@ -188,7 +189,7 @@ impl FFIServer {
                 let buffer = ffi_owned.get(&(to_argb.buffer.unwrap().id as FFIHandleId));
 
                 if let Some(buffer) = buffer {
-                    if let Some(buffer) = buffer.downcast_ref::<VideoFrameBuffer>() {
+                    if let Some(buffer) = buffer.downcast_ref::<Box<dyn VideoFrameBuffer>>() {
                         let dst_buf = unsafe {
                             slice::from_raw_parts_mut(
                                 to_argb.dst_ptr as *mut u8,

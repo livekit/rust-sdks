@@ -18,7 +18,7 @@ pub use crate::rtp_sender::RtpSender;
 pub use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverDirection, RtpTransceiverInit};
 pub use crate::session_description::{SdpType, SessionDescription};
 pub use crate::video_frame::{
-    I010Buffer, I420ABuffer, I420Buffer, I422Buffer, I444Buffer, NV12Buffer, VideoFormatType,
-    VideoFrame, VideoFrameBuffer, VideoRotation,
+    BoxVideoFrame, I010Buffer, I420ABuffer, I420Buffer, I422Buffer, I444Buffer, NV12Buffer,
+    VideoFormatType, VideoFrame, VideoFrameBuffer, VideoFrameBufferType, VideoRotation,
 };
 pub use crate::{RtcError, RtcErrorType};

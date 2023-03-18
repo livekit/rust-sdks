@@ -1,6 +1,8 @@
-use crate::proto::{self};
+use crate::proto;
 use crate::server::FFIServer;
+use futures_util::stream::StreamExt;
 use livekit::prelude::*;
+use livekit::webrtc::video_stream::native::NativeVideoStream;
 use tokio::sync::{mpsc, oneshot};
 
 pub async fn create_room(
@@ -67,9 +69,9 @@ async fn room_task(
                         publication: _,
                         participant: _,
                     } => {
-                        if let RemoteTrackHandle::Video(video_track) = track {
-                            let rtc_track = video_track.rtc_track();
-                            rtc_track.on_frame(on_video_frame(server, video_track.sid()));
+                        if let RemoteTrack::Video(video_track) = track {
+                            let video_stream = NativeVideoStream::new(video_track.rtc_track());
+                            tokio::spawn(video_frame_task(server, video_track.sid(), video_stream));
                         }
                     }
                     _ => {}
@@ -87,19 +89,20 @@ async fn room_task(
 async fn participant_task(participant: Participant) {
     let mut participant_events = participant.register_observer();
     while let Some(event) = participant_events.recv().await {
-        // TODO convert event to proto
+        // TODO(theomonnom): convert event to proto
     }
 }
 
-fn on_video_frame(server: &'static FFIServer, track_sid: TrackSid) -> OnFrameHandler {
-    // TODO(theomonnom): Should I use VideoSinkInfo here? (It'll help to have a more verbose
-    // lifetime)
-
-    Box::new(move |frame, buffer| {
-        // Frame received, create a new FFIHandle from the video buffer.
+async fn video_frame_task(
+    server: &'static FFIServer,
+    track_sid: TrackSid,
+    mut stream: NativeVideoStream,
+) {
+    while let Some(frame) = stream.next().await {
         let handle_id = server.next_handle_id();
-        let proto_buffer = proto::VideoFrameBufferInfo::from(handle_id, &buffer);
-        server.insert_handle(handle_id, Box::new(buffer));
+        let frame_info = proto::VideoFrameInfo::from(&frame);
+        let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &frame.buffer);
+        server.insert_handle(handle_id, Box::new(frame.buffer));
 
         // Send the received frame to the FFI language.
         let _ = server.send_event(
@@ -107,12 +110,12 @@ fn on_video_frame(server: &'static FFIServer, track_sid: TrackSid) -> OnFrameHan
                 track_sid: track_sid.to_string(),
                 message: Some(proto::track_event::Message::FrameReceived(
                     proto::FrameReceived {
-                        frame: Some(frame.into()),
-                        frame_buffer: Some(proto_buffer),
+                        frame: Some(frame_info),
+                        buffer: Some(buffer_info),
                     },
                 )),
             }),
             None,
         );
-    })
+    }
 }

@@ -801,6 +801,7 @@ dependencies = [
 name = "livekit-ffi"
 version = "0.1.1"
 dependencies = [
+ "futures-util",
  "lazy_static",
  "livekit",
  "parking_lot",

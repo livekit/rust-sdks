@@ -38,8 +38,8 @@ pub mod rtp_sender;
 pub mod rtp_transceiver;
 pub mod session_description;
 pub mod video_frame;
-pub mod video_sink;
 pub mod video_source;
+pub mod video_stream;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
