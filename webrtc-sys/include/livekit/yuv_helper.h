@@ -26,7 +26,7 @@
 namespace livekit {
 
 #define THROW_ON_ERROR(ret)                                           \
-  if (ret < 0) {                                                      \
+  if (ret != 0) {                                                     \
     throw std::runtime_error("libyuv error: " + std::to_string(ret)); \
   }
 
