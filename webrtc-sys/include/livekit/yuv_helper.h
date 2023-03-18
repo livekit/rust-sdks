@@ -16,8 +16,8 @@
 
 #pragma once
 
-#include <exception>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "api/video/yuv_helper.h"
