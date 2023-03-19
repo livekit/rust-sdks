@@ -25,11 +25,14 @@
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
+#include "livekit/audio_device.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_parameters.h"
 #include "livekit/video_decoder_factory.h"
 #include "livekit/video_encoder_factory.h"
 #include "media/engine/webrtc_media_engine.h"
+#include "rtc_base/location.h"
+#include "rtc_base/thread.h"
 
 namespace livekit {
 
@@ -51,6 +54,14 @@ PeerConnectionFactory::PeerConnectionFactory(
 
   cricket::MediaEngineDependencies media_deps;
   media_deps.task_queue_factory = dependencies.task_queue_factory.get();
+
+  media_deps.adm = rtc_runtime_->worker_thread()
+                       ->Invoke<rtc::scoped_refptr<livekit::AudioDevice>>(
+                           RTC_FROM_HERE, [&] {
+                             return rtc::make_ref_counted<livekit::AudioDevice>(
+                                 media_deps.task_queue_factory);
+                           });
+
   media_deps.video_encoder_factory =
       std::move(std::make_unique<livekit::VideoEncoderFactory>());
   media_deps.video_decoder_factory =

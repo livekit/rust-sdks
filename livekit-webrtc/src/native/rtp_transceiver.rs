@@ -19,6 +19,7 @@ impl From<sys_webrtc::ffi::RtpTransceiverDirection> for RtpTransceiverDirection 
             sys_webrtc::ffi::RtpTransceiverDirection::SendOnly => Self::SendOnly,
             sys_webrtc::ffi::RtpTransceiverDirection::RecvOnly => Self::RecvOnly,
             sys_webrtc::ffi::RtpTransceiverDirection::Inactive => Self::Inactive,
+            sys_webrtc::ffi::RtpTransceiverDirection::Stopped => Self::Stopped,
             _ => panic!("unknown RtpTransceiverDirection"),
         }
     }
@@ -31,6 +32,7 @@ impl From<RtpTransceiverDirection> for sys_webrtc::ffi::RtpTransceiverDirection 
             RtpTransceiverDirection::SendOnly => Self::SendOnly,
             RtpTransceiverDirection::RecvOnly => Self::RecvOnly,
             RtpTransceiverDirection::Inactive => Self::Inactive,
+            RtpTransceiverDirection::Stopped => Self::Stopped,
             _ => panic!("unknown RtpTransceiverDirection"),
         }
     }

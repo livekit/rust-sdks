@@ -9,7 +9,6 @@ use tokio::task::JoinHandle;
 
 #[derive(Clone)]
 struct FrameData {
-    pub time_ms: u64,
     pub sample_rate: u32,
     pub freq: f64,
     pub amplitude: f64,
@@ -18,7 +17,6 @@ struct FrameData {
 impl Default for FrameData {
     fn default() -> Self {
         Self {
-            time_ms: 0,
             sample_rate: 48000,
             freq: 440.0,
             amplitude: 1.0,
@@ -100,7 +98,7 @@ impl SineTrack {
         loop {
             interval.tick().await;
 
-            let mut data = frame_options.lock();
+            let data = frame_options.lock();
             let samples_count_10ms = (data.sample_rate / 100) as usize;
 
             if samples_10ms.capacity() != samples_count_10ms {
@@ -110,14 +108,14 @@ impl SineTrack {
             for i in 0..samples_count_10ms {
                 let val = data.amplitude
                     * f64::sin(
-                        std::f64::consts::PI * 2.0 * data.freq * i as f64 * data.time_ms as f64,
+                        std::f64::consts::PI * 2.0 * data.freq * i as f64
+                            / samples_count_10ms as f64,
                     );
 
                 // WebRTC uses 16-bit signed PCM
-                samples_10ms[i] = (val * 32768.0) as i16;
+                samples_10ms[i] = (val * 32768.0 / 2.0) as i16;
             }
 
-            data.time_ms += 10;
             rtc_source.capture_frame(AudioFrame {
                 data: samples_10ms.clone(),
                 sample_rate_hz: data.sample_rate,

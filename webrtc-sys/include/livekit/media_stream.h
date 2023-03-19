@@ -119,6 +119,8 @@ std::unique_ptr<NativeAudioSink> new_native_audio_sink(
 
 class NativeAudioTrackSource : public webrtc::LocalAudioSource {
  public:
+  NativeAudioTrackSource();
+
   SourceState state() const override;
   bool remote() const override;
 
@@ -136,7 +138,7 @@ class NativeAudioTrackSource : public webrtc::LocalAudioSource {
  private:
   webrtc::Mutex mutex_;
   std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
-  cricket::AudioOptions options_;
+  cricket::AudioOptions options_{};
 };
 
 class AudioTrackSource {

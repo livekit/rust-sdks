@@ -201,6 +201,18 @@ int32_t AudioDevice::SpeakerMute(bool* enabled) const {
   return 0;
 }
 
+int32_t AudioDevice::MicrophoneMuteIsAvailable(bool* available) {
+  return 0;
+}
+
+int32_t AudioDevice::SetMicrophoneMute(bool enable) {
+  return 0;
+}
+
+int32_t AudioDevice::MicrophoneMute(bool* enabled) const {
+  return 0;
+}
+
 int32_t AudioDevice::StereoPlayoutIsAvailable(bool* available) const {
   return 0;
 }

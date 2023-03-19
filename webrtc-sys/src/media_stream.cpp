@@ -158,6 +158,12 @@ std::unique_ptr<NativeAudioSink> new_native_audio_sink(
   return std::make_unique<NativeAudioSink>(std::move(observer));
 }
 
+NativeAudioTrackSource::NativeAudioTrackSource() {
+  options_.echo_cancellation = false;
+  options_.auto_gain_control = false;
+  options_.noise_suppression = false;
+}
+
 webrtc::MediaSourceInterface::SourceState NativeAudioTrackSource::state()
     const {
   return webrtc::MediaSourceInterface::SourceState::kLive;
