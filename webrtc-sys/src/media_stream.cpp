@@ -139,6 +139,9 @@ void AudioTrack::remove_sink(NativeAudioSink& sink) const {
   track()->RemoveSink(&sink);
 }
 
+NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer)
+    : observer_(std::move(observer)) {}
+
 void NativeAudioSink::OnData(const void* audio_data,
                              int bits_per_sample,
                              int sample_rate,
@@ -153,6 +156,39 @@ void NativeAudioSink::OnData(const void* audio_data,
 std::unique_ptr<NativeAudioSink> new_native_audio_sink(
     rust::Box<AudioSinkWrapper> observer) {
   return std::make_unique<NativeAudioSink>(std::move(observer));
+}
+
+webrtc::MediaSourceInterface::SourceState NativeAudioTrackSource::state()
+    const {
+  return webrtc::MediaSourceInterface::SourceState::kLive;
+}
+
+bool NativeAudioTrackSource::remote() const {
+  return false;
+}
+
+const cricket::AudioOptions NativeAudioTrackSource::options() const {
+  return options_;
+}
+
+void NativeAudioTrackSource::AddSink(webrtc::AudioTrackSinkInterface* sink) {
+  webrtc::MutexLock lock(&mutex_);
+  sinks_.push_back(sink);
+}
+
+void NativeAudioTrackSource::RemoveSink(webrtc::AudioTrackSinkInterface* sink) {
+  webrtc::MutexLock lock(&mutex_);
+  sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
+}
+
+void NativeAudioTrackSource::on_captured_frame(const int16_t* data,
+                                               int sample_rate,
+                                               size_t number_of_channels,
+                                               size_t number_of_frames) {
+  webrtc::MutexLock lock(&mutex_);
+  for (auto sink : sinks_) {
+    sink->OnData(data, 16, sample_rate, number_of_channels, number_of_frames);
+  }
 }
 
 VideoTrack::VideoTrack(rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
