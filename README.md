@@ -15,10 +15,10 @@
 - [x] Receiving tracks
 - [x] Cross-platform ( currently tested on Windows & MacOS )
 - [x] Data channels
-- [ ] Publishing tracks
+- [x] Publishing tracks
 - [ ] Adaptive Streaming
 - [ ] Dynacast
-- [ ] Simulcast
+- [x] Simulcast
 - [ ] Hardware video enc/dec
   - [ ] NvEnc for Windows
   - [x] VideoToolbox for MacOS/iOS
