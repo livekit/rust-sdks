@@ -39,6 +39,7 @@ impl LocalVideoTrack {
         }
     }
 
+    #[inline]
     pub fn capture_options(&self) -> VideoCaptureOptions {
         self.inner.capture_options.lock().clone()
     }

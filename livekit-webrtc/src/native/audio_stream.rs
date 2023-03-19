@@ -68,13 +68,13 @@ pub struct AudioTrackObserver {
 }
 
 impl sys_ms::AudioSink for AudioTrackObserver {
-    fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: i32, nb_frames: i32) {
+    fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
         // TODO(theomonnom): Should we avoid copy here?
         let _ = self.frame_tx.send(AudioFrame {
             data: data.to_owned(),
             sample_rate_hz: sample_rate as u32,
-            num_channels: nb_channels as u32,
-            samples_per_channel: nb_frames as u32,
+            num_channels: nb_channels,
+            samples_per_channel: nb_frames,
         });
     }
 }

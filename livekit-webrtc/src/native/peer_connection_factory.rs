@@ -1,6 +1,7 @@
+use crate::audio_source::native::NativeAudioSource;
 use crate::imp::media_stream as imp_ms;
 use crate::imp::peer_connection as imp_pc;
-use crate::media_stream::RtcVideoTrack;
+use crate::media_stream::{RtcAudioTrack, RtcVideoTrack};
 use crate::peer_connection::PeerConnection;
 use crate::peer_connection_factory::{
     ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration,
@@ -128,6 +129,16 @@ impl PeerConnectionFactory {
                 sys_handle: self
                     .sys_handle
                     .create_video_track(label.to_string(), source.handle.sys_handle()),
+            },
+        }
+    }
+
+    pub fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack {
+        RtcAudioTrack {
+            handle: imp_ms::RtcAudioTrack {
+                sys_handle: self
+                    .sys_handle
+                    .create_audio_track(label.to_string(), source.handle.sys_handle()),
             },
         }
     }
