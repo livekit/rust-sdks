@@ -38,6 +38,7 @@ class VideoTrack;
 class AudioTrack;
 class NativeVideoFrameSink;
 class NativeAudioSink;
+class AudioTrackSource;
 class AdaptedVideoTrackSource;
 }  // namespace livekit
 #include "webrtc-sys/src/media_stream.rs.h"
@@ -137,6 +138,23 @@ class NativeAudioTrackSource : webrtc::LocalAudioSource {
   std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
   cricket::AudioOptions options_;
 };
+
+class AudioTrackSource {
+ public:
+  AudioTrackSource(rtc::scoped_refptr<NativeAudioTrackSource> source);
+
+  void on_captured_frame(const int16_t* audio_data,
+                         int sample_rate,
+                         size_t number_of_channels,
+                         size_t number_of_frames) const;
+
+  rtc::scoped_refptr<NativeAudioTrackSource> get() const;
+
+ private:
+  rtc::scoped_refptr<NativeAudioTrackSource> source_;
+};
+
+std::shared_ptr<AudioTrackSource> new_audio_track_source();
 
 class VideoTrack : public MediaStreamTrack {
  public:

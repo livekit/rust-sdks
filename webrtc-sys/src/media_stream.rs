@@ -46,6 +46,7 @@ pub mod ffi {
         type MediaStream;
         type AudioTrack;
         type VideoTrack;
+        type AudioTrackSource;
         type AdaptedVideoTrackSource;
 
         fn id(self: &MediaStream) -> String;
@@ -66,6 +67,16 @@ pub mod ffi {
         unsafe fn remove_sink(self: &AudioTrack, sink: Pin<&mut NativeAudioSink>);
 
         fn new_native_audio_sink(observer: Box<AudioSinkWrapper>) -> UniquePtr<NativeAudioSink>;
+
+        unsafe fn on_captured_frame(
+            self: &AudioTrackSource,
+            data: *const i16,
+            sample_rate: i32,
+            nb_channels: usize,
+            nb_frames: usize,
+        );
+
+        fn new_audio_track_source() -> SharedPtr<AudioTrackSource>;
 
         unsafe fn add_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
         unsafe fn remove_sink(self: &VideoTrack, sink: Pin<&mut NativeVideoFrameSink>);
@@ -103,8 +114,8 @@ pub mod ffi {
             self: &AudioSinkWrapper,
             data: *const i16,
             sample_rate: i32,
-            nb_channels: i32,
-            nb_frames: i32,
+            nb_channels: usize,
+            nb_frames: usize,
         );
 
         fn on_frame(self: &VideoFrameSinkWrapper, frame: UniquePtr<VideoFrame>);
@@ -125,7 +136,7 @@ impl_thread_safety!(ffi::NativeAudioSink, Send + Sync);
 impl_thread_safety!(ffi::AdaptedVideoTrackSource, Send + Sync);
 
 pub trait AudioSink: Send {
-    fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: i32, nb_frames: i32);
+    fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize);
 }
 
 pub struct AudioSinkWrapper {
@@ -139,9 +150,9 @@ impl AudioSinkWrapper {
         Self { observer }
     }
 
-    fn on_data(&self, data: *const i16, sample_rate: i32, nb_channels: i32, nb_frames: i32) {
+    fn on_data(&self, data: *const i16, sample_rate: i32, nb_channels: usize, nb_frames: usize) {
         unsafe {
-            let data = std::slice::from_raw_parts(data, (nb_channels * nb_frames) as usize);
+            let data = std::slice::from_raw_parts(data, nb_channels * nb_frames);
             (*self.observer).on_data(data, sample_rate, nb_channels, nb_frames);
         }
     }

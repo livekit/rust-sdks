@@ -191,6 +191,27 @@ void NativeAudioTrackSource::on_captured_frame(const int16_t* data,
   }
 }
 
+AudioTrackSource::AudioTrackSource(
+    rtc::scoped_refptr<NativeAudioTrackSource> source)
+    : source_(std::move(source)) {}
+
+void AudioTrackSource::on_captured_frame(const int16_t* audio_data,
+                                         int sample_rate,
+                                         size_t number_of_channels,
+                                         size_t number_of_frames) const {
+  source_->on_captured_frame(audio_data, sample_rate, number_of_channels,
+                             number_of_frames);
+}
+
+rtc::scoped_refptr<NativeAudioTrackSource> AudioTrackSource::get() const {
+  return source_;
+}
+
+std::shared_ptr<AudioTrackSource> new_audio_track_source() {
+  return std::make_shared<AudioTrackSource>(
+      rtc::make_ref_counted<NativeAudioTrackSource>());
+}
+
 VideoTrack::VideoTrack(rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
     : MediaStreamTrack(std::move(track)) {}
 
