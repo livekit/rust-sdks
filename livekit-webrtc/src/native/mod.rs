@@ -1,3 +1,5 @@
+pub mod audio_source;
+pub mod audio_stream;
 pub mod data_channel;
 pub mod ice_candidate;
 pub mod media_stream;

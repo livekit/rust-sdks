@@ -41,37 +41,62 @@ pub struct VideoPreset {
 }
 
 #[derive(Debug, Clone)]
+pub struct AudioEncoding {
+    pub max_bitrate: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct AudioPreset {
-    pub max_bitrate: u32,
+    pub encoding: AudioEncoding,
 }
 
 impl AudioPreset {
-    pub const fn new(max_bitrate: u32) -> Self {
-        Self { max_bitrate }
+    pub const fn new(max_bitrate: u64) -> Self {
+        Self {
+            encoding: AudioEncoding { max_bitrate },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AudioCaptureOptions {
+    pub echo_cancellation: bool,
+    pub noise_suppression: bool,
+    pub auto_gain_control: bool,
+}
+
+impl Default for AudioCaptureOptions {
+    fn default() -> Self {
+        Self {
+            echo_cancellation: true,
+            noise_suppression: true,
+            auto_gain_control: true,
+        }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct VideoCaptureOptions {
-    pub preset: VideoPreset,
+    pub resolution: VideoResolution,
 }
 
 impl Default for VideoCaptureOptions {
     fn default() -> Self {
         Self {
-            preset: video::H720,
+            resolution: video::H720.resolution(),
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct TrackPublishOptions {
-    pub dynacast: bool,
+    // If the encodings aren't set, LiveKit will compute the most appropriate ones
+    pub video_encoding: Option<VideoEncoding>,
+    pub audio_encoding: Option<AudioEncoding>,
     pub video_codec: VideoCodec,
     pub dtx: bool,
     pub red: bool,
     pub simulcast: bool,
-    pub screenshare: bool,
     pub name: String,
     pub source: TrackSource,
 }
@@ -79,12 +104,12 @@ pub struct TrackPublishOptions {
 impl Default for TrackPublishOptions {
     fn default() -> Self {
         Self {
-            dynacast: false,
+            video_encoding: None,
+            audio_encoding: None,
             video_codec: VideoCodec::VP8,
             dtx: true,
             red: true,
             simulcast: true,
-            screenshare: false,
             name: "unnamed track".to_owned(),
             source: TrackSource::Unknown,
         }
@@ -120,7 +145,8 @@ pub fn compute_video_encodings(
     height: u32,
     options: &TrackPublishOptions,
 ) -> Vec<RtpEncodingParameters> {
-    let encoding = compute_appropriate_encoding(options.screenshare, width, height);
+    let screenshare = options.source == TrackSource::Screenshare;
+    let encoding = compute_appropriate_encoding(screenshare, width, height);
 
     let initial_preset = VideoPreset {
         width,
@@ -135,8 +161,7 @@ pub fn compute_video_encodings(
         return into_rtp_encodings(width, height, &[initial_preset]);
     }
 
-    let mut simulcast_presets =
-        compute_default_simulcast_presets(options.screenshare, &initial_preset);
+    let mut simulcast_presets = compute_default_simulcast_presets(screenshare, &initial_preset);
 
     let mid_preset = simulcast_presets.pop();
     let low_preset = simulcast_presets.pop();

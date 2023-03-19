@@ -1,10 +1,12 @@
 use super::{ConnectionQuality, ParticipantInner};
+use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::proto;
 use crate::rtc_engine::RtcEngine;
+use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -53,13 +55,24 @@ impl LocalParticipant {
                 // Get the video dimension
                 // TODO(theomonnom): Use MediaStreamTrack::getSettings() on web
                 let capture_options = video_track.capture_options();
-                req.width = capture_options.preset.width;
-                req.height = capture_options.preset.height;
+                req.width = capture_options.resolution.width;
+                req.height = capture_options.resolution.height;
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
             }
-            LocalTrack::Audio(_audio_track) => {}
+            LocalTrack::Audio(_audio_track) => {
+                // Setup audio encoding
+                let audio_encoding = options
+                    .audio_encoding
+                    .as_ref()
+                    .unwrap_or(&options::audio::SPEECH.encoding);
+
+                encodings.push(RtpEncodingParameters {
+                    max_bitrate: Some(audio_encoding.max_bitrate),
+                    ..Default::default()
+                });
+            }
         }
 
         let track_info = self.rtc_engine.add_track(req).await?;

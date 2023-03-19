@@ -23,6 +23,8 @@
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_rotation.h"
+#include "audio/remix_resample.h"
+#include "common_audio/include/audio_util.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/time_utils.h"
@@ -128,6 +130,93 @@ TrackState MediaStreamTrack::state() const {
 
 AudioTrack::AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track)
     : MediaStreamTrack(std::move(track)) {}
+
+void AudioTrack::add_sink(NativeAudioSink& sink) const {
+  track()->AddSink(&sink);
+}
+
+void AudioTrack::remove_sink(NativeAudioSink& sink) const {
+  track()->RemoveSink(&sink);
+}
+
+NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer)
+    : observer_(std::move(observer)) {}
+
+void NativeAudioSink::OnData(const void* audio_data,
+                             int bits_per_sample,
+                             int sample_rate,
+                             size_t number_of_channels,
+                             size_t number_of_frames) {
+  RTC_CHECK_EQ(16, bits_per_sample);
+
+  observer_->on_data(static_cast<const int16_t*>(audio_data), sample_rate,
+                     number_of_channels, number_of_frames);
+}
+
+std::unique_ptr<NativeAudioSink> new_native_audio_sink(
+    rust::Box<AudioSinkWrapper> observer) {
+  return std::make_unique<NativeAudioSink>(std::move(observer));
+}
+
+NativeAudioTrackSource::NativeAudioTrackSource() {
+  options_.echo_cancellation = false;
+  options_.auto_gain_control = false;
+  options_.noise_suppression = false;
+}
+
+webrtc::MediaSourceInterface::SourceState NativeAudioTrackSource::state()
+    const {
+  return webrtc::MediaSourceInterface::SourceState::kLive;
+}
+
+bool NativeAudioTrackSource::remote() const {
+  return false;
+}
+
+const cricket::AudioOptions NativeAudioTrackSource::options() const {
+  return options_;
+}
+
+void NativeAudioTrackSource::AddSink(webrtc::AudioTrackSinkInterface* sink) {
+  webrtc::MutexLock lock(&mutex_);
+  sinks_.push_back(sink);
+}
+
+void NativeAudioTrackSource::RemoveSink(webrtc::AudioTrackSinkInterface* sink) {
+  webrtc::MutexLock lock(&mutex_);
+  sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
+}
+
+void NativeAudioTrackSource::on_captured_frame(const int16_t* data,
+                                               int sample_rate,
+                                               size_t number_of_channels,
+                                               size_t number_of_frames) {
+  webrtc::MutexLock lock(&mutex_);
+  for (auto sink : sinks_) {
+    sink->OnData(data, 16, sample_rate, number_of_channels, number_of_frames);
+  }
+}
+
+AudioTrackSource::AudioTrackSource(
+    rtc::scoped_refptr<NativeAudioTrackSource> source)
+    : source_(std::move(source)) {}
+
+void AudioTrackSource::on_captured_frame(const int16_t* audio_data,
+                                         int sample_rate,
+                                         size_t number_of_channels,
+                                         size_t number_of_frames) const {
+  source_->on_captured_frame(audio_data, sample_rate, number_of_channels,
+                             number_of_frames);
+}
+
+rtc::scoped_refptr<NativeAudioTrackSource> AudioTrackSource::get() const {
+  return source_;
+}
+
+std::shared_ptr<AudioTrackSource> new_audio_track_source() {
+  return std::make_shared<AudioTrackSource>(
+      rtc::make_ref_counted<NativeAudioTrackSource>());
+}
 
 VideoTrack::VideoTrack(rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
     : MediaStreamTrack(std::move(track)) {}

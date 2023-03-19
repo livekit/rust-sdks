@@ -1,3 +1,4 @@
+pub use crate::audio_frame::AudioFrame;
 pub use crate::data_channel::{
     DataBuffer, DataChannel, DataChannelError, DataChannelInit, DataState,
 };

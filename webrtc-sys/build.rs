@@ -153,6 +153,7 @@ fn main() {
     builder.file("src/video_frame_buffer.cpp");
     builder.file("src/video_encoder_factory.cpp");
     builder.file("src/video_decoder_factory.cpp");
+    builder.file("src/audio_device.cpp");
 
     for include in includes {
         builder.include(include);

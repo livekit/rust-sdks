@@ -20,9 +20,12 @@
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
+#include "common_audio/resampler/include/push_resampler.h"
+#include "common_audio/ring_buffer.h"
 #include "livekit/helper.h"
 #include "livekit/video_frame.h"
 #include "media/base/adapted_video_track_source.h"
+#include "pc/local_audio_source.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
@@ -34,6 +37,8 @@ class MediaStreamTrack;
 class VideoTrack;
 class AudioTrack;
 class NativeVideoFrameSink;
+class NativeAudioSink;
+class AudioTrackSource;
 class AdaptedVideoTrackSource;
 }  // namespace livekit
 #include "webrtc-sys/src/media_stream.rs.h"
@@ -86,7 +91,72 @@ class MediaStreamTrack {
 class AudioTrack : public MediaStreamTrack {
  public:
   explicit AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track);
+
+  void add_sink(NativeAudioSink& sink) const;
+  void remove_sink(NativeAudioSink& sink) const;
+
+ private:
+  webrtc::AudioTrackInterface* track() const {
+    return static_cast<webrtc::AudioTrackInterface*>(track_.get());
+  }
 };
+
+class NativeAudioSink : public webrtc::AudioTrackSinkInterface {
+ public:
+  explicit NativeAudioSink(rust::Box<AudioSinkWrapper> observer);
+  void OnData(const void* audio_data,
+              int bits_per_sample,
+              int sample_rate,
+              size_t number_of_channels,
+              size_t number_of_frames) override;
+
+ private:
+  rust::Box<AudioSinkWrapper> observer_;
+};
+
+std::unique_ptr<NativeAudioSink> new_native_audio_sink(
+    rust::Box<AudioSinkWrapper> observer);
+
+class NativeAudioTrackSource : public webrtc::LocalAudioSource {
+ public:
+  NativeAudioTrackSource();
+
+  SourceState state() const override;
+  bool remote() const override;
+
+  const cricket::AudioOptions options() const override;
+
+  void AddSink(webrtc::AudioTrackSinkInterface* sink) override;
+  void RemoveSink(webrtc::AudioTrackSinkInterface* sink) override;
+
+  // AudioFrame should always contain 10 ms worth of data (see index.md of acm)
+  void on_captured_frame(const int16_t* audio_data,
+                         int sample_rate,
+                         size_t number_of_channels,
+                         size_t number_of_frames);
+
+ private:
+  webrtc::Mutex mutex_;
+  std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
+  cricket::AudioOptions options_{};
+};
+
+class AudioTrackSource {
+ public:
+  AudioTrackSource(rtc::scoped_refptr<NativeAudioTrackSource> source);
+
+  void on_captured_frame(const int16_t* audio_data,
+                         int sample_rate,
+                         size_t number_of_channels,
+                         size_t number_of_frames) const;
+
+  rtc::scoped_refptr<NativeAudioTrackSource> get() const;
+
+ private:
+  rtc::scoped_refptr<NativeAudioTrackSource> source_;
+};
+
+std::shared_ptr<AudioTrackSource> new_audio_track_source();
 
 class VideoTrack : public MediaStreamTrack {
  public:
@@ -131,7 +201,7 @@ class NativeVideoTrackSource : public rtc::AdaptedVideoTrackSource {
 
   bool is_screencast() const override;
   absl::optional<bool> needs_denoising() const override;
-  webrtc::MediaSourceInterface::SourceState state() const override;
+  SourceState state() const override;
   bool remote() const override;
 
   bool on_captured_frame(const webrtc::VideoFrame& frame);
