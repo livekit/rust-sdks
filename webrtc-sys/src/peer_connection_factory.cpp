@@ -96,6 +96,13 @@ std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
       peer_factory_->CreateVideoTrack(label.c_str(), source->get().get()));
 }
 
+std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
+    rust::String label,
+    std::shared_ptr<AudioTrackSource> source) const {
+  return std::make_shared<AudioTrack>(
+      peer_factory_->CreateAudioTrack(label.c_str(), source->get().get()));
+}
+
 RtpCapabilities PeerConnectionFactory::get_rtp_sender_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(

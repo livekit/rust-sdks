@@ -46,6 +46,10 @@ class PeerConnectionFactory {
       rust::String label,
       std::shared_ptr<AdaptedVideoTrackSource> source) const;
 
+  std::shared_ptr<AudioTrack> create_audio_track(
+      rust::String label,
+      std::shared_ptr<AudioTrackSource> source) const;
+
   RtpCapabilities get_rtp_sender_capabilities(MediaType type) const;
 
   RtpCapabilities get_rtp_receiver_capabilities(MediaType type) const;

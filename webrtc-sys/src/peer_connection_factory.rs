@@ -37,7 +37,9 @@ pub mod ffi {
         include!("livekit/webrtc.h");
         include!("livekit/rtp_parameters.h");
 
+        type AudioTrackSource = crate::media_stream::ffi::AudioTrackSource;
         type AdaptedVideoTrackSource = crate::media_stream::ffi::AdaptedVideoTrackSource;
+        type AudioTrack = crate::media_stream::ffi::AudioTrack;
         type VideoTrack = crate::media_stream::ffi::VideoTrack;
         type RtpCapabilities = crate::rtp_parameters::ffi::RtpCapabilities;
         type MediaType = crate::webrtc::ffi::MediaType;
@@ -71,6 +73,12 @@ pub mod ffi {
             label: String,
             source: SharedPtr<AdaptedVideoTrackSource>,
         ) -> SharedPtr<VideoTrack>;
+
+        fn create_audio_track(
+            self: &PeerConnectionFactory,
+            label: String,
+            source: SharedPtr<AudioTrackSource>,
+        ) -> SharedPtr<AudioTrack>;
 
         fn get_rtp_sender_capabilities(
             self: &PeerConnectionFactory,

@@ -117,7 +117,7 @@ class NativeAudioSink : public webrtc::AudioTrackSinkInterface {
 std::unique_ptr<NativeAudioSink> new_native_audio_sink(
     rust::Box<AudioSinkWrapper> observer);
 
-class NativeAudioTrackSource : webrtc::LocalAudioSource {
+class NativeAudioTrackSource : public webrtc::LocalAudioSource {
  public:
   SourceState state() const override;
   bool remote() const override;
