@@ -1,5 +1,6 @@
 use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
 use crate::options::TrackPublishOptions;
+use crate::prelude::TrackKind;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
@@ -652,37 +653,37 @@ impl SessionInner {
             .peer_connection()
             .add_transceiver(track.rtc_track(), init)?;
 
-        let capabilities = LkRuntime::instance()
-            .pc_factory
-            .get_rtp_sender_capabilities(track.kind().into());
+        if track.kind() == TrackKind::Video {
+            let capabilities = LkRuntime::instance()
+                .pc_factory
+                .get_rtp_sender_capabilities(track.kind().into());
 
-        let mut matched = Vec::new();
-        let mut partial_matched = Vec::new();
-        let mut unmatched = Vec::new();
+            let mut matched = Vec::new();
+            let mut partial_matched = Vec::new();
+            let mut unmatched = Vec::new();
 
-        for codec in capabilities.codecs {
-            let mime_type = codec.mime_type.to_lowercase();
-            if mime_type == "audio/opus" {
-                matched.push(codec);
-            } else if mime_type == format!("video/{}", options.video_codec.as_str()) {
-                if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
-                    // for h264 codecs that have sdpFmtpLine available, use only if the
-                    // profile-level-id is 42e01f for cross-browser compatibility
-                    if sdp_fmtp_line.contains("profile-level-id=42e01f") {
-                        matched.push(codec);
-                        continue;
+            for codec in capabilities.codecs {
+                let mime_type = codec.mime_type.to_lowercase();
+                if mime_type == format!("video/{}", options.video_codec.as_str()) {
+                    if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
+                        // for h264 codecs that have sdpFmtpLine available, use only if the
+                        // profile-level-id is 42e01f for cross-browser compatibility
+                        if sdp_fmtp_line.contains("profile-level-id=42e01f") {
+                            matched.push(codec);
+                            continue;
+                        }
                     }
+                    partial_matched.push(codec);
+                } else {
+                    unmatched.push(codec);
                 }
-                partial_matched.push(codec);
-            } else {
-                unmatched.push(codec);
             }
+
+            matched.append(&mut partial_matched);
+            matched.append(&mut unmatched);
+
+            transceiver.set_codec_preferences(matched)?;
         }
-
-        matched.append(&mut partial_matched);
-        matched.append(&mut unmatched);
-
-        //transceiver.set_codec_preferences(matched)?;
 
         Ok(transceiver)
     }
