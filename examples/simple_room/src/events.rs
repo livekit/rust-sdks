@@ -7,6 +7,7 @@ pub enum AsyncCmd {
     RoomDisconnect,
     SimulateScenario { scenario: SimulateScenario },
     ToggleLogo, // Unpublish/Publish a logo track
+    ToggleSine,
 }
 
 #[derive(Debug)]

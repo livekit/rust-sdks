@@ -133,6 +133,7 @@ impl_thread_safety!(ffi::AudioTrack, Send + Sync);
 impl_thread_safety!(ffi::VideoTrack, Send + Sync);
 impl_thread_safety!(ffi::NativeVideoFrameSink, Send + Sync);
 impl_thread_safety!(ffi::NativeAudioSink, Send + Sync);
+impl_thread_safety!(ffi::AudioTrackSource, Send + Sync);
 impl_thread_safety!(ffi::AdaptedVideoTrackSource, Send + Sync);
 
 pub trait AudioSink: Send {

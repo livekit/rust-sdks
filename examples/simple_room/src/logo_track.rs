@@ -56,7 +56,7 @@ impl LogoTrack {
     }
 
     pub async fn publish(&mut self) -> Result<(), RoomError> {
-        self.unpublish().await;
+        self.unpublish().await?;
 
         let (close_tx, close_rx) = oneshot::channel();
         let track = LocalVideoTrack::create_video_track(
