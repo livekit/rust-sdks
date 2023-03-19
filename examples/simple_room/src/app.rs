@@ -1,12 +1,15 @@
 use crate::events::UiCmd;
 use crate::logo_track::LogoTrack;
+use crate::sine_track::SineTrack;
 use crate::video_renderer::VideoRenderer;
 use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
+use futures::StreamExt;
 use image::ImageFormat;
 use livekit::options::{TrackPublishOptions, VideoCaptureOptions};
 use livekit::prelude::*;
+use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::video_frame::native::I420BufferExt;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
@@ -36,6 +39,7 @@ use winit::{
 struct Session {
     room: Room,
     logo_track: LogoTrack,
+    sine_track: SineTrack,
     close_tx: oneshot::Sender<()>,
     handle: tokio::task::JoinHandle<()>,
 }
@@ -113,6 +117,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
                         if let Ok((room, room_events)) = res {
                             let (close_tx, close_rx) = oneshot::channel();
                             let logo_track = LogoTrack::new(room.session());
+                            let sine_track = SineTrack::new(room.session());
                             let handle = tokio::spawn(room_task(
                                 state.clone(),
                                 room_events,
@@ -123,6 +128,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
                             *state.session.lock() = Some(Session {
                                 room,
                                 logo_track,
+                                sine_track,
                                 close_tx,
                                 handle,
                             });
@@ -154,6 +160,12 @@ pub fn run(rt: tokio::runtime::Runtime) {
                             } else {
                                 logo_track.unpublish().await.unwrap();
                             }
+                        }
+                    }
+                    AsyncCmd::ToggleSine => {
+                        if let Some(session) = state.session.lock().as_mut() {
+                            let sine_track = &mut session.sine_track;
+                            sine_track.publish().await.unwrap();
                         }
                     }
                 }
@@ -213,8 +225,15 @@ impl App {
                                     self.video_renderers
                                         .insert((participant.sid(), track.sid()), video_renderer);
                                 }
-                                RemoteTrack::Audio(_) => {
-                                    // The demo doesn't support Audio rendering at the moment.
+                                RemoteTrack::Audio(audio_track) => {
+                                    tokio::spawn(async move {
+                                        let mut stream =
+                                            NativeAudioStream::new(audio_track.rtc_track());
+
+                                        while let Some(_frame) = stream.next().await {
+                                            // Received audio frames
+                                        }
+                                    });
                                 }
                             };
                         }
@@ -323,8 +342,11 @@ impl App {
                 });
 
                 ui.menu_button("Publish", |ui| {
-                    if ui.button("CustomTrack - LK Logo").clicked() {
+                    if ui.button("Logo").clicked() {
                         let _ = self.cmd_tx.send(AsyncCmd::ToggleLogo);
+                    }
+                    if ui.button("SineWave").clicked() {
+                        let _ = self.cmd_tx.send(AsyncCmd::ToggleSine);
                     }
                 });
             });

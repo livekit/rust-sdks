@@ -113,7 +113,7 @@ impl SineTrack {
                     );
 
                 // WebRTC uses 16-bit signed PCM
-                samples_10ms[i] = (val * 32768.0 / 2.0) as i16;
+                samples_10ms[i] = (val * 32768.0) as i16;
             }
 
             rtc_source.capture_frame(AudioFrame {

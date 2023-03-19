@@ -16,10 +16,16 @@
 
 #include "livekit/audio_device.h"
 
+const int kBitsPerSample = 16;
+const int kSampleRate = 48000;
+const int kChannels = 2;
+const int kSamplesPer10Ms = kSampleRate / 100;
+
 namespace livekit {
 
 AudioDevice::AudioDevice(webrtc::TaskQueueFactory* task_queue_factory)
-    : task_queue_factory_(task_queue_factory) {}
+    : task_queue_factory_(task_queue_factory),
+      data_(kSamplesPer10Ms * kChannels) {}
 
 AudioDevice::~AudioDevice() {
   Terminate();
@@ -31,16 +37,49 @@ int32_t AudioDevice::ActiveAudioLayer(AudioLayer* audioLayer) const {
 }
 
 int32_t AudioDevice::RegisterAudioCallback(webrtc::AudioTransport* transport) {
+  webrtc::MutexLock lock(&mutex_);
+  audio_transport_ = transport;
   return 0;
 }
 
 int32_t AudioDevice::Init() {
+  audio_queue_ =
+      std::make_unique<rtc::TaskQueue>(task_queue_factory_->CreateTaskQueue(
+          "AudioDevice", webrtc::TaskQueueFactory::Priority::NORMAL));
+
+  audio_task_ =
+      webrtc::RepeatingTaskHandle::Start(audio_queue_->Get(), [this]() {
+        webrtc::MutexLock lock(&mutex_);
+
+        if (playing_) {
+          int64_t elapsed_time_ms = -1;
+          int64_t ntp_time_ms = -1;
+          void* data = data_.data();
+
+          // Request the AudioData, otherwise WebRTC will ignore the packets.
+          // 10ms of audio data.
+          audio_transport_->PullRenderData(kBitsPerSample, kSampleRate,
+                                           kChannels, kSamplesPer10Ms, data,
+                                           &elapsed_time_ms, &ntp_time_ms);
+        }
+
+        return webrtc::TimeDelta::Millis(10);
+      });
+
   initialized_ = true;
   return 0;
 }
 
 int32_t AudioDevice::Terminate() {
+  if (!initialized_)
+    return 0;
+
   initialized_ = false;
+
+  audio_queue_->PostTask([this] { audio_task_.Stop(); });
+
+  StopRecording();
+  StopPlayout();
   return 0;
 }
 
@@ -110,10 +149,12 @@ bool AudioDevice::RecordingIsInitialized() const {
 }
 
 int32_t AudioDevice::StartPlayout() {
+  playing_ = true;
   return 0;
 }
 
 int32_t AudioDevice::StopPlayout() {
+  playing_ = false;
   return 0;
 }
 
