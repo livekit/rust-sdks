@@ -11,7 +11,7 @@ pub async fn create_room(
     connect: proto::ConnectRequest,
 ) {
     let res = Room::connect(&connect.url, &connect.token).await;
-    if let Err(err) = &res {
+    if let Err(_err) = &res {
         // Failed to connect to the room
         let _ = server.send_event(
             proto::ffi_event::Message::ConnectEvent(proto::ConnectEvent {
@@ -88,7 +88,7 @@ async fn room_task(
 
 async fn participant_task(participant: Participant) {
     let mut participant_events = participant.register_observer();
-    while let Some(event) = participant_events.recv().await {
+    while let Some(_event) = participant_events.recv().await {
         // TODO(theomonnom): convert event to proto
     }
 }

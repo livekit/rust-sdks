@@ -171,13 +171,15 @@ impl FFIServer {
                     .get(&(to_i420.buffer.unwrap().id as FFIHandleId))
                     .unwrap();
 
-                let handle_id = self.next_handle_id();
                 let buffer = buffer
                     .downcast_ref::<BoxVideoFrameBuffer>()
                     .unwrap()
                     .to_i420();
 
+                let handle_id = self.next_handle_id();
                 let buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &buffer));
+
+                drop(ffi_owned);
                 self.insert_handle(handle_id, Box::new(buffer));
 
                 return proto::FfiResponse {
@@ -306,6 +308,7 @@ pub extern "C" fn livekit_ffi_drop_handle(handle_id: FFIHandleId) -> bool {
 mod tests {
     use super::*;
 
+    // Create two I420Buffer, and ensure the logic is correct ( ids, and responses )
     #[test]
     fn create_i420_buffer() {
         let res = FFI_SERVER.handle_request(proto::ffi_request::Message::AllocBuffer(
@@ -320,6 +323,25 @@ mod tests {
             panic!("unexpected response");
         };
 
-        assert_eq!(alloc.buffer.unwrap().handle.unwrap().id, 1);
+        let i420_handle = alloc.buffer.unwrap().handle.unwrap().id as usize;
+        assert_eq!(i420_handle, 1);
+
+        let res =
+            FFI_SERVER.handle_request(proto::ffi_request::Message::ToI420(proto::ToI420Request {
+                buffer: Some(proto::FfiHandleId {
+                    id: i420_handle as u64,
+                }),
+            }));
+
+        FFI_SERVER.release_handle(i420_handle).unwrap();
+
+        let proto::ffi_response::Message::ToI420(to_i420) = res.message.unwrap() else {
+            panic!("unexpected response");
+        };
+
+        let new_handle = to_i420.buffer.unwrap().handle.unwrap().id as usize;
+        assert_eq!(new_handle, 2);
+
+        FFI_SERVER.release_handle(new_handle).unwrap();
     }
 }
