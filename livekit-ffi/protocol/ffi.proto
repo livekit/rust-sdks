@@ -65,9 +65,26 @@ message ConnectRequest {
 
 message DisconnectRequest { string room_sid = 1; }
 
-/// Convert a VideoFrameBuffer to a I420Buffer
+message ConvertRequest {
+  oneof {
+    ToI420Request to_i420 = 1;
+    ToARGBRequest to_argb = 2;
+  }
+}
+
+message ARGBBufferInfo {
+  uint64 ptr = 1;
+  VideoFormatType format = 2;
+  int32 stride = 3;
+  int32 width = 4;
+  int32 height = 5;
+}
+
 message ToI420Request {
-  FFIHandleId buffer = 1; // NOTE: This buffer will be dropped!
+  oneof from {
+    ARGBBufferInfo argb = 1;
+    FFIHandleId buffer = 2;
+  }
 }
 
 message ToARGBRequest {
