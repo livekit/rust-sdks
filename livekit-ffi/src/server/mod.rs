@@ -1,7 +1,10 @@
 use crate::proto;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
-use livekit::webrtc::video_frame::{native::VideoFrameBufferExt, BoxVideoFrame, VideoFrameBuffer};
+use livekit::webrtc::video_frame::BoxVideoFrameBuffer;
+use livekit::webrtc::video_frame::{
+    native::I420BufferExt, native::VideoFrameBufferExt, I420Buffer,
+};
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
@@ -163,22 +166,24 @@ impl FFIServer {
                 };
             }
             proto::ffi_request::Message::ToI420(to_i420) => {
-                let mut buffer_info = None;
-                let buffer = self.release_handle(to_i420.buffer.unwrap().id as FFIHandleId);
+                let ffi_owned = self.ffi_owned.read();
+                let buffer = ffi_owned
+                    .get(&(to_i420.buffer.unwrap().id as FFIHandleId))
+                    .unwrap();
 
-                if let Some(buffer) = buffer {
-                    if let Ok(buffer) = buffer.downcast::<Box<dyn VideoFrameBuffer>>() {
-                        let handle_id = self.next_handle_id();
-                        let buffer = buffer.to_i420();
-                        buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &buffer));
-                        self.insert_handle(handle_id, Box::new(buffer));
-                    }
-                }
+                let handle_id = self.next_handle_id();
+                let buffer = buffer
+                    .downcast_ref::<BoxVideoFrameBuffer>()
+                    .unwrap()
+                    .to_i420();
+
+                let buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &buffer));
+                self.insert_handle(handle_id, Box::new(buffer));
 
                 return proto::FfiResponse {
                     message: Some(proto::ffi_response::Message::ToI420(
                         proto::ToI420Response {
-                            new_buffer: buffer_info,
+                            buffer: buffer_info,
                         },
                     )),
                     ..Default::default()
@@ -186,30 +191,56 @@ impl FFIServer {
             }
             proto::ffi_request::Message::ToArgb(to_argb) => {
                 let ffi_owned = self.ffi_owned.read();
-                let buffer = ffi_owned.get(&(to_argb.buffer.unwrap().id as FFIHandleId));
+                let buffer = ffi_owned
+                    .get(&(to_argb.buffer.unwrap().id as FFIHandleId))
+                    .unwrap();
 
-                if let Some(buffer) = buffer {
-                    if let Some(buffer) = buffer.downcast_ref::<Box<dyn VideoFrameBuffer>>() {
-                        let dst_buf = unsafe {
-                            slice::from_raw_parts_mut(
-                                to_argb.dst_ptr as *mut u8,
-                                (to_argb.dst_stride * to_argb.dst_height) as usize,
-                            )
-                        };
+                let buffer = buffer.downcast_ref::<BoxVideoFrameBuffer>().unwrap();
+                let dst_buf = unsafe {
+                    slice::from_raw_parts_mut(
+                        to_argb.dst_ptr as *mut u8,
+                        (to_argb.dst_stride * to_argb.dst_height) as usize,
+                    )
+                };
 
-                        if let Err(err) = buffer.to_argb(
-                            proto::VideoFormatType::from_i32(to_argb.dst_format)
-                                .unwrap()
-                                .into(),
-                            dst_buf,
-                            to_argb.dst_stride,
-                            to_argb.dst_width,
-                            to_argb.dst_height,
-                        ) {
-                            eprintln!("failed to convert videoframe to argb: {:?}", err);
-                        }
-                    }
+                if let Err(err) = buffer.to_argb(
+                    proto::VideoFormatType::from_i32(to_argb.dst_format)
+                        .unwrap()
+                        .into(),
+                    dst_buf,
+                    to_argb.dst_stride,
+                    to_argb.dst_width,
+                    to_argb.dst_height,
+                ) {
+                    eprintln!("failed to convert videoframe to argb: {:?}", err);
                 }
+            }
+            proto::ffi_request::Message::AllocBuffer(alloc_buffer) => {
+                let frame_type =
+                    proto::VideoFrameBufferType::from_i32(alloc_buffer.r#type).unwrap();
+
+                let buffer: BoxVideoFrameBuffer = match frame_type {
+                    proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(
+                        alloc_buffer.width as u32,
+                        alloc_buffer.height as u32,
+                    )),
+                    _ => {
+                        panic!("unsupported buffer type: {:?}", frame_type);
+                    }
+                };
+
+                let handle_id = self.next_handle_id();
+                let buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &buffer));
+                self.insert_handle(handle_id, Box::new(buffer));
+
+                return proto::FfiResponse {
+                    message: Some(proto::ffi_response::Message::AllocBuffer(
+                        proto::AllocBufferResponse {
+                            buffer: buffer_info,
+                        },
+                    )),
+                    ..Default::default()
+                };
             }
             _ => {}
         }
@@ -269,4 +300,26 @@ pub extern "C" fn livekit_ffi_request(
 #[no_mangle]
 pub extern "C" fn livekit_ffi_drop_handle(handle_id: FFIHandleId) -> bool {
     FFI_SERVER.release_handle(handle_id).is_some() // Free the memory
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_i420_buffer() {
+        let res = FFI_SERVER.handle_request(proto::ffi_request::Message::AllocBuffer(
+            proto::AllocBufferRequest {
+                r#type: proto::VideoFrameBufferType::I420 as i32,
+                width: 640,
+                height: 480,
+            },
+        ));
+
+        let proto::ffi_response::Message::AllocBuffer(alloc) = res.message.unwrap() else {
+            panic!("unexpected response");
+        };
+
+        assert_eq!(alloc.buffer.unwrap().handle.unwrap().id, 1);
+    }
 }

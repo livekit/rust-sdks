@@ -22,6 +22,7 @@ message FFIRequest {
     DisconnectRequest async_disconnect = 4;
     ToI420Request to_i420 = 5;
     ToARGBRequest to_argb = 6;
+    AllocBufferRequest alloc_buffer = 7;
   }
 }
 
@@ -30,7 +31,10 @@ message FFIRequest {
 /// to the foreign language.
 message FFIResponse {
   optional uint64 async_id = 1;
-  oneof message { ToI420Response to_i420 = 2; }
+  oneof message {
+    ToI420Response to_i420 = 2;
+    AllocBufferResponse alloc_buffer = 3;
+  }
 }
 
 /// This message is used to receive the result of asynchronous requests
@@ -75,12 +79,16 @@ message ToARGBRequest {
   int32 dst_height = 6;
 }
 
-message ConnectEvent {
-  bool success = 1;
-  optional RoomInfo room = 2;
+/// Only I420Buffer is supported atm
+message AllocBufferRequest {
+  VideoFrameBufferType type = 1;
+  int32 width = 2;
+  int32 height = 3;
 }
 
-message ToI420Response { optional VideoFrameBufferInfo new_buffer = 1; }
+message ToI420Response { VideoFrameBufferInfo buffer = 1; }
+
+message AllocBufferResponse { VideoFrameBufferInfo buffer = 1; }
 
 /// Models
 
@@ -187,6 +195,11 @@ enum VideoFormatType {
 }
 
 /// Room Events
+
+message ConnectEvent {
+  bool success = 1;
+  optional RoomInfo room = 2;
+}
 
 message RoomEvent {
   string room_sid = 1;

@@ -47,7 +47,8 @@ where
     pub buffer: T,
 }
 
-pub type BoxVideoFrame = VideoFrame<Box<dyn VideoFrameBuffer + Send + Sync>>;
+pub type BoxVideoFrameBuffer = Box<dyn VideoFrameBuffer + Send + Sync>;
+pub type BoxVideoFrame = VideoFrame<BoxVideoFrameBuffer>;
 
 macro_rules! new_buffer_type {
     ($type:ident, $variant:ident, $as:ident) => {
@@ -480,6 +481,35 @@ impl<T: VideoFrameBuffer + ?Sized> VideoFrameBuffer for Box<T> {
 
     fn buffer_type(&self) -> VideoFrameBufferType {
         self.as_ref().buffer_type()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn as_native(&self) -> Option<&native::NativeBuffer> {
+        self.as_ref().as_native()
+    }
+
+    fn as_i420(&self) -> Option<&I420Buffer> {
+        self.as_ref().as_i420()
+    }
+
+    fn as_i420a(&self) -> Option<&I420ABuffer> {
+        self.as_ref().as_i420a()
+    }
+
+    fn as_i422(&self) -> Option<&I422Buffer> {
+        self.as_ref().as_i422()
+    }
+
+    fn as_i444(&self) -> Option<&I444Buffer> {
+        self.as_ref().as_i444()
+    }
+
+    fn as_i010(&self) -> Option<&I010Buffer> {
+        self.as_ref().as_i010()
+    }
+
+    fn as_nv12(&self) -> Option<&NV12Buffer> {
+        self.as_ref().as_nv12()
     }
 }
 
