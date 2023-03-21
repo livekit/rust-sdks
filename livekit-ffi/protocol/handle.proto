@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+/// # Safety
+/// The foreign language is responsable for disposing an handle
+/// Forgetting to dispose the handle may lead to memory leaks
+/// Messages in this file can contain an FFIHandle
+message FFIHandleId { uint64 id = 1; }

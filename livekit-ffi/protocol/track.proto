@@ -1,0 +1,156 @@
+syntax = "proto3";
+
+package livekit;
+option csharp_namespace = "LiveKit.Proto";
+
+import "handle.proto";
+
+enum TrackKind {
+  KIND_UNKNOWN = 0;
+  KIND_AUDIO = 1;
+  KIND_VIDEO = 2;
+}
+
+enum TrackSource {
+  SOURCE_UNKNOWN = 0;
+  SOURCE_CAMERA = 1;
+  SOURCE_MICROPHONE = 2;
+  SOURCE_SCREENSHARE = 3;
+  SOURCE_SCREENSHARE_AUDIO = 4;
+}
+
+enum StreamState {
+  STATE_UNKNOWN = 0;
+  STATE_ACTIVE = 1;
+  STATE_PAUSED = 2;
+}
+
+enum VideoRotation {
+  VIDEO_ROTATION_0 = 0;
+  VIDEO_ROTATION_90 = 1;
+  VIDEO_ROTATION_180 = 2;
+  VIDEO_ROTATION_270 = 3;
+}
+
+enum VideoFormatType {
+  FORMAT_ARGB = 0;
+  FORMAT_BGRA = 1;
+  FORMAT_ABGR = 2;
+  FORMAT_RGBA = 3;
+}
+
+message TrackEvent {}
+
+message TrackPublicationInfo {
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+  TrackSource source = 4;
+  bool simulcasted = 5;
+  int32 width = 6;
+  int32 height = 7;
+  string mime_type = 8;
+  bool muted = 9;
+}
+
+message TrackInfo {
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+  StreamState stream_state = 4;
+  bool muted = 5;
+}
+
+enum VideoStreamType {
+  STREAM_NATIVE = 0;
+  STREAM_WEBGL = 1;
+  STREAM_HTML = 2;
+}
+
+message VideoStreamInfo {
+  FFIHandleId handle = 1;
+  VideoStreamType type = 2;
+  string id = 3;
+  string track_sid = 4;
+}
+
+message VideoStreamEvent {
+  string id = 1;
+  oneof message { FrameReceived frame_received = 2; }
+}
+
+message VideoSourceInfo {
+  // This handle must not be dropped if a track is currently using it
+  FFIHandleId handle = 1;
+  string id = 2;
+}
+
+message FrameReceived {
+  VideoFrameInfo frame = 1;
+  VideoFrameBufferInfo buffer = 2;
+}
+
+message VideoFrameInfo {
+  int64 timestamp = 1;
+  VideoRotation rotation = 2;
+}
+
+message ARGBBufferInfo {
+  uint64 ptr = 1;
+  VideoFormatType format = 2;
+  int32 stride = 3;
+  int32 width = 4;
+  int32 height = 5;
+}
+
+message VideoFrameBufferInfo {
+  FFIHandleId handle = 1;
+  VideoFrameBufferType buffer_type = 2;
+  int32 width = 3;
+  int32 height = 4;
+  oneof buffer {
+    PlanarYuvBufferInfo yuv = 5;
+    BiplanarYuvBufferInfo bi_yuv = 6;
+    NativeBufferInfo native = 7;
+  }
+}
+
+message PlanarYuvBufferInfo {
+  int32 chroma_width = 1;
+  int32 chroma_height = 2;
+  int32 stride_y = 3;
+  int32 stride_u = 4;
+  int32 stride_v = 5;
+  int32 stride_a = 6;
+
+  // *const u8 or *const u16
+  uint64 data_y_ptr = 7;
+  uint64 data_u_ptr = 8;
+  uint64 data_v_ptr = 9;
+  uint64 data_a_ptr = 10; // nullptr = no alpha
+}
+
+message BiplanarYuvBufferInfo {
+  int32 chroma_width = 1;
+  int32 chroma_height = 2;
+  int32 stride_y = 3;
+  int32 stride_uv = 4;
+
+  uint64 data_y_ptr = 5;
+  uint64 data_uv_ptr = 6;
+}
+
+message NativeBufferInfo {
+  // TODO(theomonnom): Expose graphic context?
+}
+
+enum VideoFrameBufferType {
+  NATIVE = 0;
+  I420 = 1;
+  I420A = 2;
+  I422 = 3;
+  I444 = 4;
+  I010 = 5;
+  NV12 = 6;
+  WEBGL = 7;
+}

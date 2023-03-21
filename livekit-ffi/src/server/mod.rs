@@ -1,10 +1,10 @@
 use crate::proto;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
-use livekit::webrtc::video_frame::BoxVideoFrameBuffer;
 use livekit::webrtc::video_frame::{
-    native::I420BufferExt, native::VideoFrameBufferExt, I420Buffer,
+    native::I420BufferExt, BoxVideoFrameBuffer, VideoFrameBuffer, native::VideoFrameBufferExt, I420Buffer,
 };
+use livekit::webrtc::native::yuv_helper;
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
@@ -166,21 +166,51 @@ impl FFIServer {
                 };
             }
             proto::ffi_request::Message::ToI420(to_i420) => {
-                let ffi_owned = self.ffi_owned.read();
-                let buffer = ffi_owned
-                    .get(&(to_i420.buffer.unwrap().id as FFIHandleId))
-                    .unwrap();
-
-                let buffer = buffer
-                    .downcast_ref::<BoxVideoFrameBuffer>()
-                    .unwrap()
-                    .to_i420();
-
                 let handle_id = self.next_handle_id();
-                let buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &buffer));
+                let i420 = match to_i420.from.unwrap() {
+                    proto::to_i420_request::From::Argb(argb_info) => {
+                        let format = proto::VideoFormatType::from_i32(argb_info.format);
+                        let mut buffer = I420Buffer::new(argb_info.width as u32, argb_info.height as u32);
+                        
+                        let argb = unsafe {
+                            slice::from_raw_parts(argb_info.ptr as *const u8, (argb_info.stride * argb_info.height) as usize)
+                        };
 
-                drop(ffi_owned);
-                self.insert_handle(handle_id, Box::new(buffer));
+                        let stride_y = buffer.stride_y();
+                        let stride_u = buffer.stride_u();
+                        let stride_v = buffer.stride_v();
+                        let (data_y, data_u, data_v) = buffer.data_mut();
+
+                        match format.unwrap() {
+                            proto::VideoFormatType::FormatArgb => {
+                                yuv_helper::argb_to_i420(argb, argb_info.stride, data_y, stride_y, data_u, stride_u, data_v, stride_v, argb_info.width, argb_info.height).unwrap();
+                            },
+                            proto::VideoFormatType::FormatAbgr => {
+                                yuv_helper::abgr_to_i420(argb, argb_info.stride, data_y, stride_y, data_u, stride_u, data_v, stride_v, argb_info.width, argb_info.height).unwrap();
+                            },
+                            _ => panic!("{:?} to i420 conversion isn't supported", format)
+                        }
+
+                        buffer
+                    },
+                    proto::to_i420_request::From::Buffer(handle) => {
+                        let ffi_owned = self.ffi_owned.read();
+                        let buffer = ffi_owned
+                            .get(&(handle.id as FFIHandleId))
+                            .unwrap();
+
+                        let buffer = buffer
+                            .downcast_ref::<BoxVideoFrameBuffer>()
+                            .unwrap()
+                            .to_i420();
+
+
+                        buffer
+                    }
+                };
+
+                let buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &i420));
+                self.insert_handle(handle_id, Box::new(i420));
 
                 return proto::FfiResponse {
                     message: Some(proto::ffi_response::Message::ToI420(
@@ -328,9 +358,9 @@ mod tests {
 
         let res =
             FFI_SERVER.handle_request(proto::ffi_request::Message::ToI420(proto::ToI420Request {
-                buffer: Some(proto::FfiHandleId {
+                from: Some(proto::to_i420_request::From::Buffer(proto::FfiHandleId {
                     id: i420_handle as u64,
-                }),
+                })),
             }));
 
         FFI_SERVER.release_handle(i420_handle).unwrap();
