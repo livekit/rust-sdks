@@ -78,16 +78,16 @@ message ToARGBRequest {
   FFIHandleId buffer = 1;
   uint64 dst_ptr = 2;
   VideoFormatType dst_format = 3;
-  int32 dst_stride = 4;
-  int32 dst_width = 5;
-  int32 dst_height = 6;
+  uint32 dst_stride = 4;
+  uint32 dst_width = 5;
+  uint32 dst_height = 6;
 }
 
 /// Only I420Buffer is supported atm
 message AllocBufferRequest {
   VideoFrameBufferType type = 1;
-  int32 width = 2;
-  int32 height = 3;
+  uint32 width = 2;
+  uint32 height = 3;
 }
 
 message NewVideoStreamRequest {

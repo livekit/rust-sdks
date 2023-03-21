@@ -1,10 +1,11 @@
 use crate::proto;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
-use livekit::webrtc::video_frame::{
-    native::I420BufferExt, BoxVideoFrameBuffer, VideoFrameBuffer, native::VideoFrameBufferExt, I420Buffer,
-};
 use livekit::webrtc::native::yuv_helper;
+use livekit::webrtc::video_frame::{
+    native::I420BufferExt, native::VideoFrameBufferExt, BoxVideoFrameBuffer, I420Buffer,
+    VideoFrameBuffer,
+};
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
@@ -170,10 +171,14 @@ impl FFIServer {
                 let i420 = match to_i420.from.unwrap() {
                     proto::to_i420_request::From::Argb(argb_info) => {
                         let format = proto::VideoFormatType::from_i32(argb_info.format);
-                        let mut buffer = I420Buffer::new(argb_info.width as u32, argb_info.height as u32);
-                        
+                        let mut buffer =
+                            I420Buffer::new(argb_info.width as u32, argb_info.height as u32);
+
                         let argb = unsafe {
-                            slice::from_raw_parts(argb_info.ptr as *const u8, (argb_info.stride * argb_info.height) as usize)
+                            slice::from_raw_parts(
+                                argb_info.ptr as *const u8,
+                                (argb_info.stride * argb_info.height) as usize,
+                            )
                         };
 
                         let stride_y = buffer.stride_y();
@@ -183,27 +188,48 @@ impl FFIServer {
 
                         match format.unwrap() {
                             proto::VideoFormatType::FormatArgb => {
-                                yuv_helper::argb_to_i420(argb, argb_info.stride, data_y, stride_y, data_u, stride_u, data_v, stride_v, argb_info.width, argb_info.height).unwrap();
-                            },
+                                yuv_helper::argb_to_i420(
+                                    argb,
+                                    argb_info.stride,
+                                    data_y,
+                                    stride_y,
+                                    data_u,
+                                    stride_u,
+                                    data_v,
+                                    stride_v,
+                                    argb_info.width,
+                                    argb_info.height,
+                                )
+                                .unwrap();
+                            }
                             proto::VideoFormatType::FormatAbgr => {
-                                yuv_helper::abgr_to_i420(argb, argb_info.stride, data_y, stride_y, data_u, stride_u, data_v, stride_v, argb_info.width, argb_info.height).unwrap();
-                            },
-                            _ => panic!("{:?} to i420 conversion isn't supported", format)
+                                yuv_helper::abgr_to_i420(
+                                    argb,
+                                    argb_info.stride,
+                                    data_y,
+                                    stride_y,
+                                    data_u,
+                                    stride_u,
+                                    data_v,
+                                    stride_v,
+                                    argb_info.width,
+                                    argb_info.height,
+                                )
+                                .unwrap();
+                            }
+                            _ => panic!("{:?} to i420 conversion isn't supported", format),
                         }
 
                         buffer
-                    },
+                    }
                     proto::to_i420_request::From::Buffer(handle) => {
                         let ffi_owned = self.ffi_owned.read();
-                        let buffer = ffi_owned
-                            .get(&(handle.id as FFIHandleId))
-                            .unwrap();
+                        let buffer = ffi_owned.get(&(handle.id as FFIHandleId)).unwrap();
 
                         let buffer = buffer
                             .downcast_ref::<BoxVideoFrameBuffer>()
                             .unwrap()
                             .to_i420();
-
 
                         buffer
                     }

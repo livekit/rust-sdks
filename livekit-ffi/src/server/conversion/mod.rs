@@ -1,8 +1,6 @@
 use crate::{proto, server::FFIHandleId};
 use livekit::prelude::*;
 
-
-
 pub mod participant;
 pub mod publication;
 pub mod room;
@@ -55,10 +53,8 @@ macro_rules! impl_publication_into {
                     sid: p.sid().to_string(),
                     kind: proto::TrackKind::from(p.kind()).into(),
                     source: proto::TrackSource::from(p.source()).into(),
-                    dimension: Some(proto::Dimension {
-                        width: p.dimension().0,
-                        height: p.dimension().1,
-                    }),
+                    width: p.dimension().0,
+                    height: p.dimension().1,
                     mime_type: p.mime_type(),
                     simulcasted: p.simulcasted(),
                     muted: p.muted(),
@@ -155,9 +151,6 @@ impl proto::RoomEvent {
                 proto::TrackSubscribed {
                     participant_sid: participant.sid().to_string(),
                     track: Some((&track).into()),
-                    sink: Some(proto::VideoSinkInfo {
-                        track_sid: track.sid().to_string(),
-                    }),
                 },
             )),
             RoomEvent::TrackUnsubscribed {

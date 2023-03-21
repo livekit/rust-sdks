@@ -1,5 +1,8 @@
 syntax = "proto3";
 
+package livekit;
+option csharp_namespace = "LiveKit.Proto";
+
 /// # Safety
 /// The foreign language is responsable for disposing an handle
 /// Forgetting to dispose the handle may lead to memory leaks

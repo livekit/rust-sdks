@@ -47,8 +47,8 @@ message TrackPublicationInfo {
   TrackKind kind = 3;
   TrackSource source = 4;
   bool simulcasted = 5;
-  int32 width = 6;
-  int32 height = 7;
+  uint32 width = 6;
+  uint32 height = 7;
   string mime_type = 8;
   bool muted = 9;
 }
@@ -98,16 +98,16 @@ message VideoFrameInfo {
 message ARGBBufferInfo {
   uint64 ptr = 1;
   VideoFormatType format = 2;
-  int32 stride = 3;
-  int32 width = 4;
-  int32 height = 5;
+  uint32 stride = 3;
+  uint32 width = 4;
+  uint32 height = 5;
 }
 
 message VideoFrameBufferInfo {
   FFIHandleId handle = 1;
   VideoFrameBufferType buffer_type = 2;
-  int32 width = 3;
-  int32 height = 4;
+  uint32 width = 3;
+  uint32 height = 4;
   oneof buffer {
     PlanarYuvBufferInfo yuv = 5;
     BiplanarYuvBufferInfo bi_yuv = 6;
@@ -116,12 +116,12 @@ message VideoFrameBufferInfo {
 }
 
 message PlanarYuvBufferInfo {
-  int32 chroma_width = 1;
-  int32 chroma_height = 2;
-  int32 stride_y = 3;
-  int32 stride_u = 4;
-  int32 stride_v = 5;
-  int32 stride_a = 6;
+  uint32 chroma_width = 1;
+  uint32 chroma_height = 2;
+  uint32 stride_y = 3;
+  uint32 stride_u = 4;
+  uint32 stride_v = 5;
+  uint32 stride_a = 6;
 
   // *const u8 or *const u16
   uint64 data_y_ptr = 7;
@@ -131,10 +131,10 @@ message PlanarYuvBufferInfo {
 }
 
 message BiplanarYuvBufferInfo {
-  int32 chroma_width = 1;
-  int32 chroma_height = 2;
-  int32 stride_y = 3;
-  int32 stride_uv = 4;
+  uint32 chroma_width = 1;
+  uint32 chroma_height = 2;
+  uint32 stride_y = 3;
+  uint32 stride_uv = 4;
 
   uint64 data_y_ptr = 5;
   uint64 data_uv_ptr = 6;
