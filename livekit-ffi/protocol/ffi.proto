@@ -19,10 +19,20 @@ message FFIRequest {
     DisconnectRequest async_disconnect = 4;
     ToI420Request to_i420 = 5;
     ToARGBRequest to_argb = 6;
-    AllocBufferRequest alloc_buffer = 7;
+
+    // Video
+    AllocVideoBufferRequest alloc_video_buffer = 7;
     NewVideoStreamRequest new_video_stream = 8;
     NewVideoSourceRequest new_video_source = 9;
     PushVideoFrameRequest push_video_frame = 10;
+
+    // Audio
+    // Not needed, the audio data structure is simple to recreate in the foreign
+    // language side.
+    // AllocAudioBufferRequest alloc_audio_buffer = 11;
+    NewAudioStreamRequest new_audio_stream = 12;
+    NewAudioSourceRequest new_audio_source = 13;
+    PushAudioFrameRequest push_audio_frame = 14;
   }
 }
 
@@ -95,12 +105,21 @@ message NewVideoStreamRequest {
   VideoStreamType type = 2;
 }
 
-message NewVideoSourceRequest {}
+message NewVideoSourceRequest { VideoStreamType type = 1; }
 
 message PushVideoFrameRequest {
   VideoFrameInfo frame = 1;
   VideoFrameBufferInfo buffer = 2;
 }
+
+message NewAudioStreamRequest {
+  string track_sid = 1;
+  AudioStreamType type = 2;
+}
+
+message NewAudioSourceRequest { AudioStreamType type = 1; }
+
+message PushAudioFrameRequest { AudioFrameInfo frame = 1; }
 
 // Responses
 

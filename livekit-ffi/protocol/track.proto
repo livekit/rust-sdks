@@ -62,9 +62,9 @@ message TrackInfo {
 }
 
 enum VideoStreamType {
-  STREAM_NATIVE = 0;
-  STREAM_WEBGL = 1;
-  STREAM_HTML = 2;
+  VIDEO_STREAM_NATIVE = 0;
+  VIDEO_STREAM_WEBGL = 1;
+  VIDEO_STREAM_HTML = 2;
 }
 
 message VideoStreamInfo {
@@ -153,4 +153,16 @@ enum VideoFrameBufferType {
   I010 = 5;
   NV12 = 6;
   WEBGL = 7;
+}
+
+enum AudioStreamType {
+  AUDIO_STREAM_NATIVE = 0, AUDIO_STREAM_HTML = 1,
+}
+
+message AudioFrameInfo {
+  uint64 data_ptr = 1;    // *const i16
+  uint64 num_samples = 2; // number of samples in this audio frame
+  uint32 sample_rate_hz = 3;
+  uint32 num_channels = 4;
+  uint32 samples_per_channel = 5;
 }
