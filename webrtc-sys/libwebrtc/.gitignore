@@ -1,3 +1,4 @@
 .cipd
 src
 .gclient_*
+depot_tools

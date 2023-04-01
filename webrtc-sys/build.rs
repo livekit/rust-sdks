@@ -189,6 +189,7 @@ fn main() {
                 //.define("WEBRTC_ENABLE_SYMBOL_EXPORT", None) Not necessary when using WebRTC as a static library
                 .define("NOMINMAX", None);
         }
+        "linux" => {}
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
