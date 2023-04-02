@@ -17,7 +17,7 @@ pub enum AccessTokenError {
     #[error("invalid claims: {0}")]
     InvalidClaims(&'static str),
     #[error("failed to encode jwt")]
-    Encode(#[from] jsonwebtoken::errors::Error),
+    Encoding(#[from] jsonwebtoken::errors::Error),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,23 +151,23 @@ impl AccessToken {
         self
     }
 
-    pub fn with_identity(mut self, identity: String) -> Self {
-        self.claims.sub = identity;
+    pub fn with_identity(mut self, identity: &str) -> Self {
+        self.claims.sub = identity.to_owned();
         self
     }
 
-    pub fn with_name(mut self, name: String) -> Self {
-        self.claims.name = name;
+    pub fn with_name(mut self, name: &str) -> Self {
+        self.claims.name = name.to_owned();
         self
     }
 
-    pub fn with_metadata(mut self, metadata: String) -> Self {
-        self.claims.metadata = metadata;
+    pub fn with_metadata(mut self, metadata: &str) -> Self {
+        self.claims.metadata = metadata.to_owned();
         self
     }
 
-    pub fn with_sha256(mut self, sha256: String) -> Self {
-        self.claims.sha256 = sha256;
+    pub fn with_sha256(mut self, sha256: &str) -> Self {
+        self.claims.sha256 = sha256.to_owned();
         self
     }
 
@@ -230,5 +230,36 @@ impl TokenVerifier {
         )?;
 
         Ok(token.claims)
+    }
+}
+
+mod tests {
+    use super::*;
+
+    const TEST_API_KEY: &str = "myapikey";
+    const TEST_API_SECRET: &str = "thiskeyistotallyunsafe";
+
+    #[test]
+    fn test_access_token() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_ttl(Duration::from_secs(60))
+            .with_identity("test")
+            .with_name("test")
+            .with_grants(VideoGrants::default())
+            .to_jwt()
+            .unwrap();
+
+        let verifier = TokenVerifier::with_api_key(TEST_API_KEY, TEST_API_SECRET);
+        let claims = verifier.verify(&token).unwrap();
+
+        assert_eq!(claims.sub, "test");
+        assert_eq!(claims.name, "test");
+        assert_eq!(claims.iss, TEST_API_KEY);
+
+        let incorrect_issuer = TokenVerifier::with_api_key("incorrect", TEST_API_SECRET);
+        assert!(incorrect_issuer.verify(&token).is_err());
+
+        let incorrect_token = TokenVerifier::with_api_key(TEST_API_KEY, "incorrect");
+        assert!(incorrect_token.verify(&token).is_err());
     }
 }
