@@ -141,6 +141,11 @@ impl AccessToken {
         self
     }
 
+    pub fn with_grants(mut self, grants: VideoGrants) -> Self {
+        self.claims.video = grants;
+        self
+    }
+
     pub fn with_identity(mut self, identity: String) -> Self {
         self.claims.sub = identity;
         self
@@ -153,6 +158,11 @@ impl AccessToken {
 
     pub fn with_metadata(mut self, metadata: String) -> Self {
         self.claims.metadata = metadata;
+        self
+    }
+
+    pub fn with_sha256(mut self, sha256: String) -> Self {
+        self.claims.sha256 = sha256;
         self
     }
 
