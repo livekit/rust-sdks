@@ -1,4 +1,4 @@
-use jsonwebtoken::{self, EncodingKey, Header};
+use jsonwebtoken::{self, DecodingKey, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Debug;
@@ -78,7 +78,7 @@ impl Default for VideoGrants {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Claims {
+pub struct Claims {
     exp: usize,  // Expiration
     iss: String, // ApiKey
     nbf: usize,
@@ -107,8 +107,14 @@ impl Debug for AccessToken {
     }
 }
 
+fn get_env_keys() -> Result<(String, String), AccessTokenError> {
+    let api_key = env::var("LIVEKIT_API_KEY")?;
+    let api_secret = env::var("LIVEKIT_API_SECRET")?;
+    Ok((api_key, api_secret))
+}
+
 impl AccessToken {
-    pub fn with_key(api_key: &str, api_secret: &str) -> Self {
+    pub fn with_api_key(api_key: &str, api_secret: &str) -> Self {
         Self {
             api_key: api_key.to_owned(),
             api_secret: api_secret.to_owned(),
@@ -130,9 +136,8 @@ impl AccessToken {
 
     pub fn new() -> Result<Self, AccessTokenError> {
         // Try to get the API Key and the Secret Key from the environment
-        let api_key = env::var("LIVEKIT_API_KEY")?;
-        let api_secret = env::var("LIVEKIT_API_SECRET")?;
-        Ok(Self::with_key(&api_key, &api_secret))
+        let (api_key, api_secret) = get_env_keys()?;
+        Ok(Self::with_api_key(&api_key, &api_secret))
     }
 
     pub fn with_ttl(mut self, ttl: Duration) -> Self {
@@ -171,10 +176,10 @@ impl AccessToken {
             return Err(AccessTokenError::InvalidKeys);
         }
 
-        if self.claims.sub.is_empty() && self.claims.video.room_join.is_empty() {
+        if self.claims.video.room_join && self.claims.sub.is_empty() {
             return Err(AccessTokenError::InvalidClaims(
                 "token grants room_join but doesn't have an identity",
-            )));
+            ));
         }
 
         Ok(jsonwebtoken::encode(
@@ -182,5 +187,48 @@ impl AccessToken {
             &self.claims,
             &EncodingKey::from_secret(self.api_secret.as_ref()),
         )?)
+    }
+}
+
+#[derive(Clone)]
+pub struct TokenVerifier {
+    api_key: String,
+    api_secret: String,
+}
+
+impl Debug for TokenVerifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenVerifier")
+            .field("api_key", &self.api_key)
+            .finish()
+    }
+}
+
+impl TokenVerifier {
+    pub fn with_api_key(api_key: &str, api_secret: &str) -> Self {
+        Self {
+            api_key: api_key.to_owned(),
+            api_secret: api_secret.to_owned(),
+        }
+    }
+
+    pub fn new() -> Result<Self, AccessTokenError> {
+        let (api_key, api_secret) = get_env_keys()?;
+        Ok(Self::with_api_key(&api_key, &api_secret))
+    }
+
+    pub fn verify(&self, token: &str) -> Result<Claims, AccessTokenError> {
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+        validation.validate_exp = true;
+        validation.validate_nbf = true;
+        validation.set_issuer(&[&self.api_key]);
+
+        let token = jsonwebtoken::decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(self.api_secret.as_ref()),
+            &validation,
+        )?;
+
+        Ok(token.claims)
     }
 }
