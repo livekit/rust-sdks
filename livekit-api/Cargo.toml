@@ -7,3 +7,8 @@ edition = "2021"
 
 [dependencies]
 jsonwebtoken = {version = "8", default-features = false }
+thiserror = "1.0"
+serde = {version = "1.0", features = ["derive"] }
+
+[build-dependencies]
+prost-build = { version = "0.11.1" }
