@@ -814,7 +814,9 @@ name = "livekit-api"
 version = "0.1.0"
 dependencies = [
  "jsonwebtoken",
+ "prost",
  "prost-build",
+ "prost-types",
  "serde",
  "thiserror",
 ]
