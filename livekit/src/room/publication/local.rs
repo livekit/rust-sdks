@@ -1,8 +1,8 @@
 use super::TrackPublicationInner;
 use crate::id::TrackSid;
 use crate::options::TrackPublishOptions;
-use crate::proto;
 use crate::track::{LocalTrack, Track, TrackDimension, TrackKind, TrackSource};
+use livekit_protocol as proto;
 use parking_lot::Mutex;
 use std::sync::Arc;
 

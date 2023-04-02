@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::proto;
+use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

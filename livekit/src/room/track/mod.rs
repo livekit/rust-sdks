@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::proto;
+use livekit_protocol as proto;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use livekit_webrtc as rtc;

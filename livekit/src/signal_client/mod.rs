@@ -1,5 +1,5 @@
-use crate::proto;
 use crate::signal_client::signal_stream::SignalStream;
+use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::RwLock;
 use std::fmt::Debug;
@@ -135,8 +135,8 @@ impl From<proto::JoinResponse> for RtcConfiguration {
 }
 
 pub mod utils {
-    use crate::proto::{signal_response, JoinResponse};
     use crate::signal_client::{SignalError, SignalEvent, SignalResult, JOIN_RESPONSE_TIMEOUT};
+    use livekit_protocol as proto;
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Error as WsError;
     use tracing::{event, instrument, Level};
@@ -146,11 +146,13 @@ pub mod utils {
     #[instrument(level = Level::DEBUG, skip(receiver))]
     pub(crate) async fn next_join_response(
         receiver: &mut SignalEvents,
-    ) -> SignalResult<JoinResponse> {
+    ) -> SignalResult<proto::JoinResponse> {
         let join = async {
             while let Some(event) = receiver.recv().await {
                 match event {
-                    SignalEvent::Signal(signal_response::Message::Join(join)) => return Ok(join),
+                    SignalEvent::Signal(proto::signal_response::Message::Join(join)) => {
+                        return Ok(join)
+                    }
                     SignalEvent::Close => break,
                     SignalEvent::Open => continue,
                     _ => {

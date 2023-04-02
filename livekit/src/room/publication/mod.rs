@@ -1,8 +1,8 @@
 use super::track::{TrackDimension, TrackEvent};
 use crate::prelude::*;
-use crate::proto;
 use crate::track::Track;
 use futures_util::stream::StreamExt;
+use livekit_protocol as proto;
 use livekit_utils::enum_dispatch;
 use livekit_utils::observer::Dispatcher;
 use parking_lot::Mutex;

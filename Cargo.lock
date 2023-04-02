@@ -793,12 +793,10 @@ version = "0.1.1"
 dependencies = [
  "futures-util",
  "lazy_static",
+ "livekit-protocol",
  "livekit-utils",
  "livekit-webrtc",
  "parking_lot",
- "prost",
- "prost-build",
- "prost-types",
  "serde",
  "serde_json",
  "thiserror",
@@ -814,10 +812,9 @@ name = "livekit-api"
 version = "0.1.0"
 dependencies = [
  "jsonwebtoken",
- "prost",
- "prost-build",
- "prost-types",
+ "livekit-protocol",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
@@ -834,6 +831,16 @@ dependencies = [
  "prost-types",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "livekit-protocol"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

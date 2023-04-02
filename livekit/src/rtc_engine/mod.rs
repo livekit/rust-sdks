@@ -1,14 +1,14 @@
 use crate::options::TrackPublishOptions;
 use crate::prelude::LocalTrack;
-use crate::proto;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents, SessionInfo};
 use crate::signal_client::{SignalError, SignalOptions};
+use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use livekit_webrtc::session_description::SdpParseError;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock as AsyncRwLock;

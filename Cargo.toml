@@ -3,6 +3,7 @@ members = [
     "livekit",
     "livekit-api",
     "livekit-utils",
+    "livekit-protocol",
     "livekit-ffi",
     "livekit-webrtc",
     "webrtc-sys"

@@ -1,7 +1,7 @@
 use super::TrackPublicationInner;
 use crate::id::TrackSid;
-use crate::proto;
 use crate::track::{RemoteTrack, Track, TrackDimension, TrackKind, TrackSource};
+use livekit_protocol as proto;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
