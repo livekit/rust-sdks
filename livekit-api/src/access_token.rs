@@ -1,3 +1,4 @@
+use crate::get_env_keys;
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -24,35 +25,35 @@ pub enum AccessTokenError {
 #[serde(rename_all = "camelCase")]
 pub struct VideoGrants {
     // actions on rooms
-    room_create: bool,
-    room_list: bool,
-    room_record: bool,
+    pub room_create: bool,
+    pub room_list: bool,
+    pub room_record: bool,
 
     // actions on a particular room
-    room_admin: bool,
-    room_join: bool,
-    room: String,
+    pub room_admin: bool,
+    pub room_join: bool,
+    pub room: String,
 
     // permissions within a room
-    can_publish: bool,
-    can_subscribe: bool,
-    can_publish_data: bool,
+    pub can_publish: bool,
+    pub can_subscribe: bool,
+    pub can_publish_data: bool,
 
     // TrackSource types that a participant may publish.
     // When set, it supercedes CanPublish. Only sources explicitly set here can be published
-    can_publish_sources: Vec<String>, // keys keep track of each source
+    pub can_publish_sources: Vec<String>, // keys keep track of each source
 
     // by default, a participant is not allowed to update its own metadata
-    can_update_own_metadata: bool,
+    pub can_update_own_metadata: bool,
 
     // actions on ingresses
-    ingress_admin: bool, // applies to all ingress
+    pub ingress_admin: bool, // applies to all ingress
 
     // participant is not visible to other participants (useful when making bots)
-    hidden: bool,
+    pub hidden: bool,
 
     // indicates to the room that current participant is a recorder
-    recorder: bool,
+    pub recorder: bool,
 }
 
 impl Default for VideoGrants {
@@ -79,15 +80,15 @@ impl Default for VideoGrants {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Claims {
-    exp: usize,  // Expiration
-    iss: String, // ApiKey
-    nbf: usize,
-    sub: String, // Identity
+    pub exp: usize,  // Expiration
+    pub iss: String, // ApiKey
+    pub nbf: usize,
+    pub sub: String, // Identity
 
-    name: String,
-    video: VideoGrants,
-    sha256: String, // Used to verify the integrity of the message body
-    metadata: String,
+    pub name: String,
+    pub video: VideoGrants,
+    pub sha256: String, // Used to verify the integrity of the message body
+    pub metadata: String,
 }
 
 #[derive(Clone)]
@@ -105,12 +106,6 @@ impl Debug for AccessToken {
             .field("claims", &self.claims)
             .finish()
     }
-}
-
-fn get_env_keys() -> Result<(String, String), AccessTokenError> {
-    let api_key = env::var("LIVEKIT_API_KEY")?;
-    let api_secret = env::var("LIVEKIT_API_SECRET")?;
-    Ok((api_key, api_secret))
 }
 
 impl AccessToken {

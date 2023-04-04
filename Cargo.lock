@@ -813,8 +813,10 @@ version = "0.1.0"
 dependencies = [
  "jsonwebtoken",
  "livekit-protocol",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
 ]
 
