@@ -1,4 +1,8 @@
+<!--BEGIN_BANNER_IMAGE--><!--END_BANNER_IMAGE-->
+
 # 📹🎙️🦀 Rust Client SDK for LiveKit
+
+<!--BEGIN_DESCRIPTION--><!--END_DESCRIPTION-->
 
 [![crates.io](https://img.shields.io/crates/v/livekit.svg)](https://crates.io/crates/livekit)
 [![Builds](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml)
@@ -126,3 +130,5 @@ Yes! As webrtc.rs matures, we'll eventually migrate to a pure Rust stack. For no
 - Chrome's adoption and usage means libwebrtc is thoroughly battle-tested.
 - webrtc.rs is ported from Pion (which [our SFU](https://github.com/livekit/livekit) is built on) and a better fit for server-side use.
 - libwebrtc currently supports more features like encoding/decoding and includes platform-specific code for dealing with media devices.
+
+<!--BEGIN_REPO_NAV--><!--END_REPO_NAV-->
