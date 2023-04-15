@@ -1,3 +1,7 @@
+// Webhooks are not yet integrated into the Rust SDK.
+// Our webhooks protocol use protojson which isn't supported by Prost
+
+/*
 use crate::access_token::{AccessTokenError, TokenVerifier};
 use livekit_protocol as proto;
 use serde_json;
@@ -48,4 +52,4 @@ impl WebhookReceiver {
 
         Ok(serde_json::from_str(body)?)
     }
-}
+}*/
