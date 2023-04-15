@@ -1,8 +1,12 @@
+use reqwest::{
+    header::{HeaderMap, HeaderValue, CONTENT_TYPE},
+    StatusCode,
+};
+use serde::Deserialize;
 use std::fmt::Display;
-
-use reqwest::{header::HeaderMap, StatusCode};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
+
+pub const DEFAULT_PREFIX: &str = "/twirp";
 
 #[derive(Debug, Error)]
 pub enum TwirpError {
@@ -10,6 +14,10 @@ pub enum TwirpError {
     Request(#[from] reqwest::Error),
     #[error("twirp error: {0}")]
     Twirp(TwirpErrorCode),
+    #[error("url error: {0}")]
+    Url(#[from] url::ParseError),
+    #[error("prost error: {0}")]
+    Prost(#[from] prost::DecodeError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,35 +64,43 @@ pub struct TwirpClient {
 }
 
 impl TwirpClient {
-    pub fn new(host: &str, pkg: &str, prefix: &str) -> Self {
+    pub fn new(host: &str, pkg: &str, prefix: Option<&str>) -> Self {
         Self {
             host: host.to_owned(),
             pkg: pkg.to_owned(),
-            prefix: prefix.to_owned(),
+            prefix: prefix.unwrap_or(DEFAULT_PREFIX).to_owned(),
             client: reqwest::Client::new(),
         }
     }
 
-    pub async fn request<D: Serialize, R: DeserializeOwned>(
-        self,
+    pub async fn request<D: prost::Message, R: prost::Message + Default>(
+        &self,
         service: &str,
         method: &str,
         data: D,
-        headers: HeaderMap,
+        mut headers: HeaderMap,
     ) -> TwirpResult<R> {
+        let mut url = url::Url::parse(&self.host)?;
+        url.set_path(&format!(
+            "{}/{}.{}/{}",
+            self.prefix, self.pkg, service, method
+        ));
+
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/protobuf"),
+        );
+
         let resp = self
             .client
-            .get(format!(
-                "{}/{}.{}/{}",
-                self.prefix, self.pkg, service, method
-            ))
+            .post(url)
             .headers(headers)
-            .json(&data)
+            .body(data.encode_to_vec())
             .send()
             .await?;
 
         if resp.status() == StatusCode::OK {
-            Ok(resp.json().await?)
+            Ok(R::decode(resp.bytes().await?)?)
         } else {
             let err: TwirpErrorCode = resp.json().await?;
             Err(TwirpError::Twirp(err))

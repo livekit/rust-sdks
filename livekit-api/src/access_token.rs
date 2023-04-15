@@ -3,6 +3,7 @@ use jsonwebtoken::{self, DecodingKey, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Debug;
+use std::ops::Add;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -63,7 +64,7 @@ impl Default for VideoGrants {
             room_list: false,
             room_record: false,
             room_admin: false,
-            room_join: true,
+            room_join: false,
             room: "".to_string(),
             can_publish: true,
             can_subscribe: true,
@@ -110,16 +111,14 @@ impl Debug for AccessToken {
 
 impl AccessToken {
     pub fn with_api_key(api_key: &str, api_secret: &str) -> Self {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         Self {
             api_key: api_key.to_owned(),
             api_secret: api_secret.to_owned(),
             claims: Claims {
-                exp: DEFAULT_TTL.as_secs() as usize,
+                exp: now.add(DEFAULT_TTL).as_secs() as usize,
                 iss: api_key.to_owned(),
-                nbf: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as usize,
+                nbf: now.as_secs() as usize,
                 sub: Default::default(),
                 name: Default::default(),
                 video: VideoGrants::default(),
@@ -128,7 +127,6 @@ impl AccessToken {
             },
         }
     }
-
     pub fn new() -> Result<Self, AccessTokenError> {
         // Try to get the API Key and the Secret Key from the environment
         let (api_key, api_secret) = get_env_keys()?;
@@ -228,8 +226,10 @@ impl TokenVerifier {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{AccessToken, TokenVerifier, VideoGrants};
+    use std::time::Duration;
 
     const TEST_API_KEY: &str = "myapikey";
     const TEST_API_SECRET: &str = "thiskeyistotallyunsafe";

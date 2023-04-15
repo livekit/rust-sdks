@@ -31,7 +31,7 @@ impl WebhookReceiver {
     ) -> Result<proto::WebhookEvent, WebhookError> {
         let claims = self.token_verifier.verify(auth_token)?;
 
-        let hasher = Sha256::new();
+        let mut hasher = Sha256::new();
         hasher.update(body);
         let hash = hasher.finalize();
 
