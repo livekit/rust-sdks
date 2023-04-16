@@ -3,6 +3,22 @@ use crate::services::twirp_client::TwirpClient;
 use crate::{access_token::VideoGrants, get_env_keys};
 use livekit_protocol as proto;
 
+#[derive(Default, Clone, Debug)]
+pub struct IngressOptions {
+    name: String,
+    room_name: String,
+    participant_identity: String,
+    participant_name: String,
+    audio: proto::IngressAudioOptions,
+    video: proto::IngressVideoOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IngressListOptions {
+    All,
+    Room(String),
+}
+
 const SVC: &'static str = "Ingress";
 
 #[derive(Debug)]
@@ -26,16 +42,26 @@ impl IngressClient {
 
     pub async fn create_ingress(
         &self,
-        req: proto::CreateIngressRequest,
+        input_type: proto::IngressInput,
+        options: IngressOptions,
     ) -> ServiceResult<proto::IngressInfo> {
         self.client
             .request(
                 SVC,
                 "CreateIngress",
-                req,
+                proto::CreateIngressRequest {
+                    input_type: input_type as i32,
+                    name: options.name,
+                    room_name: options.room_name,
+                    participant_identity: options.participant_identity,
+                    participant_name: options.participant_name,
+                    audio: Some(options.audio),
+                    video: Some(options.video),
+                },
                 self.base.auth_header(VideoGrants {
                     ingress_admin: true,
-                }),
+                    ..Default::default()
+                })?,
             )
             .await
             .map_err(Into::into)
@@ -43,35 +69,54 @@ impl IngressClient {
 
     pub async fn update_ingress(
         &self,
-        req: proto::UpdateIngressRequest,
+        ingress_id: &str,
+        options: IngressOptions,
     ) -> ServiceResult<proto::IngressInfo> {
         self.client
             .request(
                 SVC,
                 "UpdateIngress",
-                req,
+                proto::UpdateIngressRequest {
+                    ingress_id: ingress_id.to_owned(),
+                    name: options.name,
+                    room_name: options.room_name,
+                    participant_identity: options.participant_identity,
+                    participant_name: options.participant_name,
+                    audio: Some(options.audio),
+                    video: Some(options.video),
+                },
                 self.base.auth_header(VideoGrants {
                     ingress_admin: true,
-                }),
+                    ..Default::default()
+                })?,
             )
             .await
             .map_err(Into::into)
     }
 
-    pub async fn list_ingress(&self, room: Option<&str>) -> ServiceResult<Vec<proto::IngressInfo>> {
-        self.client
+    pub async fn list_ingress(
+        &self,
+        options: IngressListOptions,
+    ) -> ServiceResult<Vec<proto::IngressInfo>> {
+        let resp: proto::ListIngressResponse = self
+            .client
             .request(
                 SVC,
                 "ListIngress",
                 proto::ListIngressRequest {
-                    room_name: room.unwrap_or_default().to_owned(),
+                    room_name: match options {
+                        IngressListOptions::All => Default::default(),
+                        IngressListOptions::Room(room) => room,
+                    },
                 },
                 self.base.auth_header(VideoGrants {
                     ingress_admin: true,
-                }),
+                    ..Default::default()
+                })?,
             )
-            .await
-            .map_err(Into::into)
+            .await?;
+
+        Ok(resp.items)
     }
 
     pub async fn delete_ingress(&self, ingress_id: &str) -> ServiceResult<proto::IngressInfo> {
@@ -84,7 +129,8 @@ impl IngressClient {
                 },
                 self.base.auth_header(VideoGrants {
                     ingress_admin: true,
-                }),
+                    ..Default::default()
+                })?,
             )
             .await
             .map_err(Into::into)
