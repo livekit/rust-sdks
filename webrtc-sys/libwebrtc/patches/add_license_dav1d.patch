@@ -1,0 +1,17 @@
+diff --git a/tools_webrtc/libs/generate_licenses.py b/tools_webrtc/libs/generate_licenses.py
+index 86b4cd01f0..cf927670ee 100755
+--- a/tools_webrtc/libs/generate_licenses.py
++++ b/tools_webrtc/libs/generate_licenses.py
+@@ -91,6 +91,12 @@ LIB_TO_LICENSES_DICT = {
+     'yasm': [],
+     'ow2_asm': [],
+     'jdk': [],
++
++    'dav1d': ['third_party/dav1d/LICENSE'],
++    'catapult': [],
++    'google_benchmark': [],
++    'googletest': [],
++    'vinn': [],
+ }
+ 
+ # Third_party library _regex_ to licences mapping. Keys are regular expression

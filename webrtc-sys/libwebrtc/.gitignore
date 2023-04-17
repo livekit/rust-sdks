@@ -2,3 +2,7 @@
 src
 .gclient_*
 depot_tools
+
+# builds
+macos
+linux

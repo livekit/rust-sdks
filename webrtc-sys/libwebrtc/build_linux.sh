@@ -14,6 +14,12 @@ then
   gclient sync
 fi
 
+cd src
+git apply "$COMMAND_DIR/patches/add_license_dav1d.patch" -v
+git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v
+git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v
+cd ..
+
 mkdir -p "$ARTIFACTS_DIR/lib"
 
 for target_cpu in "x64"
@@ -24,13 +30,19 @@ do
     args="is_debug=${is_debug} \
       target_os=\"linux\" \
       target_cpu=\"${target_cpu}\" \
+      rtc_enable_protobuf=false \
+      treat_warnings_as_errors=false \
       use_custom_libcxx=false \
       rtc_include_tests=false \
+      rtc_build_tools=false \
       rtc_build_examples=false \
+      rtc_libvpx_build_vp9=true \
+      is_component_build=false \
+      enable_stripping=true \
+      use_goma=false \
       rtc_use_h264=false \
       symbol_level=0 \
       enable_iterator_debugging=false \
-      is_component_build=false \
       use_rtti=true \
       rtc_use_x11=false"
 
