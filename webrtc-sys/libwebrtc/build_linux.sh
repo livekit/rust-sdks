@@ -25,7 +25,7 @@ mkdir -p "$ARTIFACTS_DIR/lib"
 
 for is_debug in "true" "false"
 do
-  for target_cpu in "x64"
+  for target_cpu in "x64" "arm64"
   do
     args="is_debug=${is_debug} \
       target_os=\"linux\" \
