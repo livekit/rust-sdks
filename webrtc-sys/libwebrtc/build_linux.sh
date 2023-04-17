@@ -1,10 +1,11 @@
-#!/bin/bash -eu
+#!/bin/bash
 
 if [ ! -e "$(pwd)/depot_tools" ]
 then
   git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
 fi
 
+export COMMAND_DIR=$(cd $(dirname $0); pwd)
 export PATH="$(pwd)/depot_tools:$PATH"
 export OUTPUT_DIR="$(pwd)/src/out"
 export ARTIFACTS_DIR="$(pwd)/linux"
@@ -22,10 +23,9 @@ cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
-for target_cpu in "x64"
+for is_debug in "true" "false"
 do
-  mkdir -p "$ARTIFACTS_DIR/lib/${target_cpu}"
-  for is_debug in "true" "false"
+  for target_cpu in "x64"
   do
     args="is_debug=${is_debug} \
       target_os=\"linux\" \
@@ -41,6 +41,7 @@ do
       enable_stripping=true \
       use_goma=false \
       rtc_use_h264=false \
+      rtc_use_pipewire=false \
       symbol_level=0 \
       enable_iterator_debugging=false \
       use_rtti=true \
@@ -62,6 +63,7 @@ do
     fi
 
     # cppy static library
+    mkdir -p "$ARTIFACTS_DIR/lib/${target_cpu}"
     cp "$OUTPUT_DIR/obj/libwebrtc.a" "$ARTIFACTS_DIR/lib/${target_cpu}/${filename}"
   done
 done
