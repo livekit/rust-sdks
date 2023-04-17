@@ -4,6 +4,7 @@ if not exist depot_tools (
   git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
 )
 
+set COMMAND_DIR=%~dp0
 set PATH=%cd%\depot_tools;%PATH%
 set DEPOT_TOOLS_WIN_TOOLCHAIN=0
 set GYP_GENERATORS=ninja,msvs-ninja
@@ -16,11 +17,17 @@ if not exist src (
   call gclient.bat sync
 )
 
+cd src
+call git apply "%COMMAND_DIR%/patches/add_license_dav1d.patch" -v
+call git apply "%COMMAND_DIR%/patches/ssl_verify_callback_with_native_handle.patch" -v
+call git apply "%COMMAND_DIR%/patches/fix_mocks.patch" -v
+cd ..
+
 mkdir "%ARTIFACTS_DIR%\lib"
 
 setlocal enabledelayedexpansion
 
-for %%i in (x64) do (
+for %%i in (x64 arm64) do (
   mkdir "%ARTIFACTS_DIR%/lib/%%i"
   for %%j in (true false) do (
 
@@ -46,11 +53,11 @@ for %%i in (x64) do (
 endlocal
 
 rem generate license
-call python.bat "%cd%\src\tools_webrtc\libs\generate_licenses.py" ^
+call python3 "%cd%\src\tools_webrtc\libs\generate_licenses.py" ^
   --target :webrtc %OUTPUT_DIR% %OUTPUT_DIR%
 
 rem copy header
 xcopy src\*.h "%ARTIFACTS_DIR%\include" /C /S /I /F /H
 
 rem copy license
-copy "%OUTPUT_DIR%\LICENSE.md" "%ARTIFACTS_DIR%"
+copy "%OUTPUT_DIR%\LICENSE.md" "%ARTIFACTS_DIR%\LICENSE.md"
