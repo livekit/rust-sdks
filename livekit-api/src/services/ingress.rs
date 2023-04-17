@@ -5,16 +5,16 @@ use livekit_protocol as proto;
 
 #[derive(Default, Clone, Debug)]
 pub struct IngressOptions {
-    name: String,
-    room_name: String,
-    participant_identity: String,
-    participant_name: String,
-    audio: proto::IngressAudioOptions,
-    video: proto::IngressVideoOptions,
+    pub name: String,
+    pub room_name: String,
+    pub participant_identity: String,
+    pub participant_name: String,
+    pub audio: proto::IngressAudioOptions,
+    pub video: proto::IngressVideoOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum IngressListOptions {
+pub enum IngressListFilter {
     All,
     Room(String),
 }
@@ -96,7 +96,7 @@ impl IngressClient {
 
     pub async fn list_ingress(
         &self,
-        options: IngressListOptions,
+        filter: IngressListFilter,
     ) -> ServiceResult<Vec<proto::IngressInfo>> {
         let resp: proto::ListIngressResponse = self
             .client
@@ -104,9 +104,9 @@ impl IngressClient {
                 SVC,
                 "ListIngress",
                 proto::ListIngressRequest {
-                    room_name: match options {
-                        IngressListOptions::All => Default::default(),
-                        IngressListOptions::Room(room) => room,
+                    room_name: match filter{
+                        IngressListFilter::All => Default::default(),
+                        IngressListFilter::Room(room) => room,
                     },
                 },
                 self.base.auth_header(VideoGrants {

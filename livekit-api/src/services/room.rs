@@ -5,6 +5,29 @@ use livekit_protocol as proto;
 
 const SVC: &'static str = "RoomService";
 
+#[derive(Debug, Clone, Default)]
+pub struct CreateRoomOptions {
+    pub empty_timeout: u32,
+    pub max_participants: u32,
+    pub node_id: String,
+    pub metadata: String,
+    pub egress: Option<proto::RoomEgress>, // TODO(theomonnom): Better API?
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UpdateParticipantOptions {
+    pub metadata: String,
+    pub permission: Option<proto::ParticipantPermission>,
+    pub name: String, // No effect if left empty
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SendDataOptions {
+    pub kind: proto::data_packet::Kind,
+    pub destination_sids: Vec<String>,
+    pub topic: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct RoomClient {
     base: ServiceBase,
@@ -26,13 +49,21 @@ impl RoomClient {
 
     pub async fn create_room(
         &self,
-        options: proto::CreateRoomRequest,
+        name: &str,
+        options: CreateRoomOptions,
     ) -> ServiceResult<proto::Room> {
         self.client
             .request(
                 SVC,
                 "CreateRoom",
-                options,
+                proto::CreateRoomRequest {
+                    name: name.to_owned(),
+                    empty_timeout: options.empty_timeout,
+                    max_participants: options.max_participants,
+                    node_id: options.node_id,
+                    metadata: options.metadata,
+                    egress: options.egress,
+                },
                 self.base.auth_header(VideoGrants {
                     room_create: true,
                     ..Default::default()
@@ -42,16 +73,13 @@ impl RoomClient {
             .map_err(Into::into)
     }
 
-    pub async fn list_rooms(
-        &self,
-        options: proto::ListRoomsRequest,
-    ) -> ServiceResult<Vec<proto::Room>> {
+    pub async fn list_rooms(&self, names: Vec<String>) -> ServiceResult<Vec<proto::Room>> {
         let resp: proto::ListRoomsResponse = self
             .client
             .request(
                 SVC,
                 "ListRooms",
-                options,
+                proto::ListRoomsRequest { names },
                 self.base.auth_header(VideoGrants {
                     room_list: true,
                     ..Default::default()
@@ -198,17 +226,24 @@ impl RoomClient {
 
     pub async fn update_participant(
         &self,
-        request: proto::UpdateParticipantRequest,
+        room: &str,
+        identity: &str,
+        options: UpdateParticipantOptions,
     ) -> ServiceResult<proto::ParticipantInfo> {
-        let room = request.room.clone();
         self.client
             .request(
                 SVC,
                 "UpdateParticipant",
-                request,
+                proto::UpdateParticipantRequest {
+                    room: room.to_owned(),
+                    identity: identity.to_owned(),
+                    permission: options.permission,
+                    metadata: options.metadata,
+                    name: options.name,
+                },
                 self.base.auth_header(VideoGrants {
                     room_admin: true,
-                    room,
+                    room: room.to_owned(),
                     ..Default::default()
                 })?,
             )
@@ -248,8 +283,7 @@ impl RoomClient {
         &self,
         room: &str,
         data: Vec<u8>,
-        kind: proto::data_packet::Kind,
-        destination_sids: Vec<String>,
+        options: SendDataOptions,
     ) -> ServiceResult<()> {
         self.client
             .request(
@@ -257,9 +291,10 @@ impl RoomClient {
                 "SendData",
                 proto::SendDataRequest {
                     room: room.to_owned(),
-                    kind: kind as i32,
                     data,
-                    destination_sids,
+                    destination_sids: options.destination_sids,
+                    topic: options.topic,
+                    kind: options.kind as i32,
                 },
                 self.base.auth_header(VideoGrants {
                     room_admin: true,

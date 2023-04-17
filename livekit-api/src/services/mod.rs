@@ -3,14 +3,9 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use std::fmt::Debug;
 use thiserror::Error;
 
-mod room_client;
-pub use room_client::*;
-
-mod egress_client;
-pub use egress_client::*;
-
-mod ingress_client;
-pub use ingress_client::*;
+pub mod room;
+pub mod egress;
+pub mod ingress;
 
 mod twirp_client;
 
