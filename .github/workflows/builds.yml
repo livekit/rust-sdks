@@ -47,7 +47,7 @@ jobs:
           submodules: true
 
       - name: Build
-        run: cargo build --release --verbose --target ${{ matrix.target }} ${{ matrix.extraargs }}
+        run: cargo build --workspace --release --verbose --target ${{ matrix.target }} ${{ matrix.extraargs }}
 
       - name: Build examples
         working-directory: examples
