@@ -1,0 +1,54 @@
+name: WebRTC builds
+on: workflow_dispatch
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            cmd: .\build_windows.cmd 
+            artifacts: windows
+          - os: ubuntu-latest
+            cmd: ./build_linux.sh
+            artifacts: linux
+          - os: macos-latest
+            cmd: ./build_macos.sh
+            artifacts: macos
+
+    name: Build webrtc (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Install linux dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt install -y ninja-build pkg-config
+
+      - name: Install macos dependencies
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: brew install ninja
+
+      - name: Install windows dependencies
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
+          Expand-Archive -Path ninja.zip -DestinationPath ninja
+          echo "${{github.workspace}}\ninja" >> $GITHUB_PATH
+
+      - name: Print ninja version
+        run: ninja --version
+
+      - name: Build
+        run: ${{ matrix.cmd }}
+        working-directory: webrtc-sys/libwebrtc
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: builds-${{ matrix.artifacts }}
+          path: webrtc-sys/libwebrtc/${{ matrix.artifacts }}
