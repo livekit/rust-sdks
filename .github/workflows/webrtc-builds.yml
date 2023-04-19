@@ -9,7 +9,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            cmd: cmd /c build-windows.cmd 
+            cmd: .\build_windows.cmd 
             artifacts: windows
           - os: ubuntu-latest
             cmd: ./build_linux.sh
