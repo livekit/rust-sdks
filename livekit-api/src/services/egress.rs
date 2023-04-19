@@ -258,6 +258,7 @@ impl EgressClient {
         match options.filter {
             EgressListFilter::Room(room) => room_name = room,
             EgressListFilter::Egress(egress) => egress_id = egress,
+            _ => {}
         }
 
         let resp: proto::ListEgressResponse = self
@@ -354,8 +355,8 @@ pub mod encoding {
         }
     }
 
-    impl Default for EncodingOptions {
-        fn default() -> Self {
+    impl EncodingOptions {
+        const fn new() -> Self {
             Self {
                 width: 1920,
                 height: 1080,
@@ -371,46 +372,52 @@ pub mod encoding {
         }
     }
 
+    impl Default for EncodingOptions {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     pub const H264_720P_30: EncodingOptions = EncodingOptions {
         width: 1280,
         height: 720,
         video_bitrate: 3000,
-        ..Default::default()
+        ..EncodingOptions::new()
     };
     pub const H264_720P_60: EncodingOptions = EncodingOptions {
         width: 1280,
         height: 720,
         framerate: 60,
-        ..Default::default()
+        ..EncodingOptions::new()
     };
-    pub const H264_1080P_30: EncodingOptions = EncodingOptions::default();
+    pub const H264_1080P_30: EncodingOptions = EncodingOptions::new();
     pub const H264_1080P_60: EncodingOptions = EncodingOptions {
         framerate: 60,
         video_bitrate: 6000,
-        ..Default::default()
+        ..EncodingOptions::new()
     };
     pub const PORTRAIT_H264_720P_30: EncodingOptions = EncodingOptions {
         width: 720,
         height: 1280,
         video_bitrate: 3000,
-        ..Default::default()
+        ..EncodingOptions::new()
     };
     pub const PORTRAIT_H264_720P_60: EncodingOptions = EncodingOptions {
         width: 720,
         height: 1280,
         framerate: 60,
-        ..Default::default()
+        ..EncodingOptions::new()
     };
     pub const PORTRAIT_H264_1080P_30: EncodingOptions = EncodingOptions {
         width: 1080,
         height: 1920,
-        ..Default::default()
+        ..EncodingOptions::new()
     };
     pub const PORTRAIT_H264_1080P_60: EncodingOptions = EncodingOptions {
         width: 1080,
         height: 1920,
         framerate: 60,
         video_bitrate: 6000,
-        ..Default::default()
+        ..EncodingOptions::new()
     };
 }
