@@ -55,24 +55,15 @@ do
     # build static library
     ninja -C "$OUTPUT_DIR" webrtc
 
-    # copy static library
+    filename="libwebrtc.a"
+    if [ $is_debug = "true" ]; then
+      filename="libwebrtcd.a"
+    fi
+
+    # cppy static library
     mkdir -p "$ARTIFACTS_DIR/lib/${target_cpu}"
-    cp "$OUTPUT_DIR/obj/libwebrtc.a" "$ARTIFACTS_DIR/lib/${target_cpu}/"
+    cp "$OUTPUT_DIR/obj/libwebrtc.a" "$ARTIFACTS_DIR/lib/${target_cpu}/${filename}"
   done
-
-  filename="libwebrtc.a"
-  if [ $is_debug = "true" ]; then
-    filename="libwebrtcd.a"
-  fi
-
-  # make universal binary
-  lipo -create -output \
-  "$ARTIFACTS_DIR/lib/${filename}" \
-  "$ARTIFACTS_DIR/lib/arm64/libwebrtc.a" \
-  "$ARTIFACTS_DIR/lib/x64/libwebrtc.a"
-
-  rm -r "$ARTIFACTS_DIR/lib/arm64"
-  rm -r "$ARTIFACTS_DIR/lib/x64"
 done
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
