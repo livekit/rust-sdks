@@ -45,9 +45,10 @@ jobs:
 
       - name: Build
         run: ${{ matrix.cmd }}
+        working-directory: webrtc-sys/libwebrtc
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
           name: builds-${{ matrix.artifacts }}
-          path: ${{ matrix.artifacts }}
+          path: webrtc-sys/libwebrtc/${{ matrix.artifacts }}
