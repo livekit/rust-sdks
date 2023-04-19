@@ -1,7 +1,7 @@
 use super::TrackInner;
-use crate::proto;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::{options::VideoCaptureOptions, prelude::*};
+use livekit_protocol as proto;
 use livekit_webrtc as rtc;
 use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 use parking_lot::Mutex;

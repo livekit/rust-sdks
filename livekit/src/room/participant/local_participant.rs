@@ -4,8 +4,8 @@ use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
-use crate::proto;
 use crate::rtc_engine::RtcEngine;
+use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
@@ -150,6 +150,7 @@ impl LocalParticipant {
                 participant_sid: self.sid().to_string(),
                 payload: data.to_vec(),
                 destination_sids: vec![],
+                ..Default::default()
             })),
         };
 

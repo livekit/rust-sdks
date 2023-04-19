@@ -1,7 +1,7 @@
 use super::{ConnectionQuality, ParticipantInner};
 use crate::prelude::*;
-use crate::proto;
 use crate::track::TrackError;
+use livekit_protocol as proto;
 use livekit_webrtc as rtc;
 use parking_lot::RwLockReadGuard;
 use rtc::prelude::MediaStreamTrack;

@@ -1,7 +1,7 @@
-use crate::proto;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{native::VideoFrameBufferExt, BoxVideoFrame, VideoFrameBuffer};
+use crate::proto;
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;

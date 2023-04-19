@@ -1,7 +1,7 @@
 use crate::prelude::*;
-use crate::proto;
-use livekit_utils::enum_dispatch;
-use livekit_utils::observer::Dispatcher;
+use livekit_protocol as proto;
+use livekit_protocol::enum_dispatch;
+use livekit_protocol::observer::Dispatcher;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
 use rtc::MediaType;

@@ -1,9 +1,9 @@
 use super::TrackInner;
 use crate::options::AudioCaptureOptions;
 use crate::prelude::*;
-use crate::proto;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+use livekit_protocol as proto;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
 use rtc::audio_source::native::NativeAudioSource;

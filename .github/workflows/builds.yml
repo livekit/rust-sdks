@@ -36,6 +36,11 @@ jobs:
           rustup update --no-self-update stable
           rustup target add ${{ matrix.target }}
 
+      - if: ${{ matrix.target == 'aarch64-pc-windows-msvc' }}
+        run: |
+          echo "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin" >> $GITHUB_PATH
+        shell: bash
+
       - uses: actions/checkout@v3
         with:
           submodules: true
