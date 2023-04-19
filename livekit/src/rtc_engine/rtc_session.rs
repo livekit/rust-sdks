@@ -158,7 +158,21 @@ impl RtcSession {
         debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = RtcConfiguration::from(join_response.clone());
+        let rtc_config = RtcConfiguration {
+            ice_servers: {
+                let mut servers = vec![];
+                for ice_server in join_response.ice_servers.clone() {
+                    servers.push(IceServer {
+                        urls: ice_server.urls,
+                        username: ice_server.username,
+                        password: ice_server.credential,
+                    })
+                }
+                servers
+            },
+            continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
+            ice_transport_type: IceTransportsType::All,
+        };
 
         let mut publisher_pc = PeerTransport::new(
             lk_runtime

@@ -114,26 +114,6 @@ impl SignalClient {
     }
 }
 
-impl From<proto::JoinResponse> for RtcConfiguration {
-    fn from(join_response: proto::JoinResponse) -> Self {
-        Self {
-            ice_servers: {
-                let mut servers = vec![];
-                for ice_server in join_response.ice_servers.clone() {
-                    servers.push(IceServer {
-                        urls: ice_server.urls,
-                        username: ice_server.username,
-                        password: ice_server.credential,
-                    })
-                }
-                servers
-            },
-            continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
-            ice_transport_type: IceTransportsType::All,
-        }
-    }
-}
-
 pub mod utils {
     use crate::signal_client::{SignalError, SignalEvent, SignalResult, JOIN_RESPONSE_TIMEOUT};
     use livekit_protocol as proto;

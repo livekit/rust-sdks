@@ -150,6 +150,7 @@ impl LocalParticipant {
                 participant_sid: self.sid().to_string(),
                 payload: data.to_vec(),
                 destination_sids: vec![],
+                ..Default::default()
             })),
         };
 
