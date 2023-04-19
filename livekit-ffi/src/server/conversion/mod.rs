@@ -1,8 +1,6 @@
 use crate::server::FFIHandleId;
 use livekit::prelude::*;
-use livekit::webrtc::prelude::*;
-use livekit_protocol as proto;
-use std::any::Any;
+use crate::proto;
 
 pub mod participant;
 pub mod publication;

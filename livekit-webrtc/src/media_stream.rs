@@ -1,5 +1,5 @@
 use crate::imp::media_stream as imp_ms;
-use livekit_utils::enum_dispatch;
+use livekit_protocol::enum_dispatch;
 use std::fmt::Debug;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

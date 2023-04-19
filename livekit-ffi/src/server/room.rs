@@ -2,8 +2,8 @@ use crate::server::FFIServer;
 use futures_util::stream::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
-use livekit_protocol as proto;
 use tokio::sync::{mpsc, oneshot};
+use crate::proto;
 
 pub async fn create_room(
     server: &'static FFIServer,

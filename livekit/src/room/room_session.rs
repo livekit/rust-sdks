@@ -4,7 +4,7 @@ use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use crate::signal_client::SignalOptions;
 use crate::{RoomError, RoomEvent, RoomResult, SimulateScenario};
 use livekit_protocol as proto;
-use livekit_utils::observer::Dispatcher;
+use livekit_protocol::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
