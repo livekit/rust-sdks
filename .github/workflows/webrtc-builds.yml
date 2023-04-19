@@ -1,4 +1,4 @@
-name: Build webrtc
+name: WebRTC builds
 on: workflow_dispatch
 env:
   CARGO_TERM_COLOR: always
@@ -9,7 +9,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            cmd: .\build-windows.cmd 
+            cmd: cmd /c build-windows.cmd 
             artifacts: windows
           - os: ubuntu-latest
             cmd: ./build_linux.sh
