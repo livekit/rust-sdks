@@ -9,7 +9,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            cmd: build-windows.cmd 
+            cmd: ./build-windows.cmd 
             artifacts: windows
           - os: ubuntu-latest
             cmd: ./build_linux.sh
@@ -18,7 +18,7 @@ jobs:
             cmd: ./build_macos.sh
             artifacts: macos
 
-    name: Build webrtc (${{ matrix.target }})
+    name: Build webrtc (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -38,7 +38,7 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ninja
-          echo "$GITHUB_WORKSPACE\ninja" >> $GITHUB_PATH
+          echo "${{github.workspace}}/ninja" >> $GITHUB_PATH
 
       - name: Print ninja version
         run: ninja --version
