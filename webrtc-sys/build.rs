@@ -12,7 +12,10 @@ fn download_prebuilt_webrtc(
 ) -> Result<path::PathBuf, Box<dyn std::error::Error>> {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let profile = env::var("PROFILE").unwrap();
+    let use_debug = {
+        let var = env::var("LK_DEBUG_WEBRTC");
+        var.is_ok() && var.unwrap() == "true"
+    };
 
     let target_arch = match target_arch.as_str() {
         "aarch64" => "arm64",
@@ -25,6 +28,7 @@ fn download_prebuilt_webrtc(
         _ => &target_os,
     };
 
+    let profile = if use_debug { "debug" } else { "release" };
     let file_name = format!("webrtc-{}-{}-{}.zip", target_os, target_arch, profile);
     let file_url = format!(
         "https://github.com/livekit/client-sdk-rust/releases/download/{}/{}",
