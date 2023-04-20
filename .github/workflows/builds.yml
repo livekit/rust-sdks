@@ -42,7 +42,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == "ubuntu-latest" }}
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: sudo apt install -y libssl-dev
 
       - uses: actions/checkout@v3
