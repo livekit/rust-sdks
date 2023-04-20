@@ -43,26 +43,33 @@ do
       rtc_libvpx_build_vp9=true \
       is_component_build=false \
       enable_stripping=true \
-      use_goma=false \
-      rtc_use_h264=false \
       rtc_enable_symbol_export=true \
       rtc_enable_objc_symbol_export=false \
+      rtc_use_h264=false \
+      use_custom_libcxx=false \
       clang_use_chrome_plugins=false \
-      symbol_level=0 \
-      enable_iterator_debugging=false \
-      use_rtti=true"
+      use_rtti=true \
+      use_lld=false"
 
     # build static library
-    ninja -C "$OUTPUT_DIR" webrtc
+    ninja -C "$OUTPUT_DIR" api/audio_codecs:builtin_audio_decoder_factory \
+      api/task_queue:default_task_queue_factory \
+      sdk:native_api \
+      sdk:default_codec_factory_objc \
+      pc:peerconnection \
+      sdk:videocapture_objc \
+      sdk:mac_framework_objc
 
     filename="libwebrtc.a"
     if [ $is_debug = "true" ]; then
       filename="libwebrtcd.a"
     fi
 
-    # cppy static library
+    # make libwebrtc.a
     mkdir -p "$ARTIFACTS_DIR/lib/${target_cpu}"
-    cp "$OUTPUT_DIR/obj/libwebrtc.a" "$ARTIFACTS_DIR/lib/${target_cpu}/${filename}"
+
+    # don't include nasm (on macos x86_64, there is two main fnc)
+    ar -rc "$ARTIFACTS_DIR/lib/${target_cpu}/${filename}" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
   done
 done
 
