@@ -52,7 +52,8 @@ do
       use_lld=false"
 
     # build static library
-    ninja -C "$OUTPUT_DIR" api/audio_codecs:builtin_audio_decoder_factory \
+    ninja -C "$OUTPUT_DIR" :default \
+      api/audio_codecs:builtin_audio_decoder_factory \
       api/task_queue:default_task_queue_factory \
       sdk:native_api \
       sdk:default_codec_factory_objc \
