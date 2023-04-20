@@ -1,33 +1,33 @@
-use flate2::read::GzDecoder;
 use regex::Regex;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path;
 use std::process::Command;
-use tar::Archive;
 
-const WEBRTC_TAG: &str = "m104.5112.09";
+const WEBRTC_TAG: &str = "webrtc-beb0471";
 
-fn download_prebuilt(
-    target_os: &str,
-    target_arch: &str,
+fn download_prebuilt_webrtc(
     out_path: path::PathBuf,
 ) -> Result<path::PathBuf, Box<dyn std::error::Error>> {
-    let target_arch = match target_arch {
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let profile = env::var("PROFILE").unwrap();
+
+    let target_arch = match target_arch.as_str() {
         "aarch64" => "arm64",
-        _ => target_arch,
+        "x86_64" => "x64",
+        _ => &target_arch,
     };
 
-    let file_ext = if target_os == "windows" {
-        "zip"
-    } else {
-        "tar.gz"
+    let target_os = match target_os.as_str() {
+        "windows" => "win",
+        _ => &target_os,
     };
 
-    let file_name = format!("webrtc.{}_{}.{}", target_os, target_arch, file_ext);
+    let file_name = format!("webrtc-{}-{}-{}.zip", target_os, target_arch, profile);
     let file_url = format!(
-        "https://github.com/webrtc-sdk/webrtc-build/releases/download/{}/{}",
+        "https://github.com/livekit/client-sdk-rust/releases/download/{}/{}",
         WEBRTC_TAG, file_name
     );
     let file_path = out_path.join(&file_name);
@@ -41,52 +41,52 @@ fn download_prebuilt(
         let file = fs::File::create(&file_path)?;
         {
             // Download WebRTC-SDK
-            let mut writer = io::BufWriter::new(file);
-            let mut res = reqwest::blocking::get(&file_url)?;
-            io::copy(&mut res, &mut writer)?;
+            let res = reqwest::blocking::get(&file_url);
+            if let Ok(mut res) = res {
+                let mut writer = io::BufWriter::new(file);
+                io::copy(&mut res, &mut writer)?;
+            } else {
+                fs::remove_file(&file_path)?;
+                res?;
+            }
         }
 
         // Extract the archive
         let file = fs::File::open(&file_path)?;
-        if file_ext == "zip" {
-            let mut archive = zip::ZipArchive::new(file)?;
-            for i in 0..archive.len() {
-                let mut inner_file = archive.by_index(i)?;
-                let relative_path = inner_file.mangled_name();
+        let res = zip::ZipArchive::new(file);
+        if res.is_err() {
+            fs::remove_file(&file_path)?;
+        }
+        let mut archive = res?;
+        for i in 0..archive.len() {
+            let mut inner_file = archive.by_index(i)?;
+            let relative_path = inner_file.mangled_name();
 
-                if relative_path.to_string_lossy().is_empty() {
-                    continue; // Ignore root
-                }
-
-                let extracted_file = out_path.join(relative_path);
-                if inner_file.name().ends_with('/') {
-                    // Directory
-                    fs::create_dir_all(&extracted_file)?;
-                } else {
-                    // File
-                    if let Some(p) = extracted_file.parent() {
-                        if !p.exists() {
-                            fs::create_dir_all(&p)?;
-                        }
-                    }
-                    let mut outfile = fs::File::create(&extracted_file)?;
-                    io::copy(&mut inner_file, &mut outfile)?;
-                }
+            if relative_path.to_string_lossy().is_empty() {
+                continue; // Ignore root
             }
-        } else if file_ext == "tar.gz" {
-            let unzipped = GzDecoder::new(file);
-            let mut a = Archive::new(unzipped);
-            a.unpack(&out_path)?;
+
+            let extracted_file = out_path.join(relative_path);
+            if inner_file.name().ends_with('/') {
+                // Directory
+                fs::create_dir_all(&extracted_file)?;
+            } else {
+                // File
+                if let Some(p) = extracted_file.parent() {
+                    if !p.exists() {
+                        fs::create_dir_all(&p)?;
+                    }
+                }
+                let mut outfile = fs::File::create(&extracted_file)?;
+                io::copy(&mut inner_file, &mut outfile)?;
+            }
         }
     }
 
-    Ok(out_path.join("webrtc"))
+    Ok(out_path.join(file_name.replace(".zip", "")))
 }
 
 fn main() {
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-
     let use_custom_webrtc = {
         let var = env::var("LK_CUSTOM_WEBRTC");
         var.is_ok() && var.unwrap() == "true"
@@ -99,8 +99,7 @@ fn main() {
     } else {
         // Download a prebuilt version of WebRTC
         let download_dir = env::var("OUT_DIR").unwrap() + "/webrtc-sdk";
-        let webrtc_dir =
-            download_prebuilt(&target_os, &target_arch, path::PathBuf::from(download_dir)).unwrap();
+        let webrtc_dir = download_prebuilt_webrtc(path::PathBuf::from(download_dir)).unwrap();
 
         (webrtc_dir.join("include"), webrtc_dir.join("lib"))
     };
@@ -164,7 +163,8 @@ fn main() {
         webrtc_lib.canonicalize().unwrap().to_str().unwrap()
     );
 
-    match &target_os as &str {
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
             println!("cargo:rustc-link-lib=dylib=wmcodecdspuuid");
@@ -189,7 +189,21 @@ fn main() {
                 //.define("WEBRTC_ENABLE_SYMBOL_EXPORT", None) Not necessary when using WebRTC as a static library
                 .define("NOMINMAX", None);
         }
-        "linux" => {}
+        "linux" => {
+            println!("cargo:rustc-link-lib=dylib=Xext");
+            println!("cargo:rustc-link-lib=dylib=X11");
+            println!("cargo:rustc-link-lib=dylib=GL");
+            println!("cargo:rustc-link-lib=dylib=rt");
+            println!("cargo:rustc-link-lib=dylib=dl");
+            println!("cargo:rustc-link-lib=dylib=pthread");
+            println!("cargo:rustc-link-lib=dylib=m");
+            println!("cargo:rustc-link-lib=static=webrtc");
+
+            builder
+                .flag("-std=c++17")
+                .define("WEBRTC_POSIX", None)
+                .define("WEBRTC_LINUX", None);
+        }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
@@ -256,11 +270,11 @@ fn main() {
             );
             let android_ndk = path::PathBuf::from(ndk_env);
 
-            let host_os = if cfg!(target_os = "linux") {
+            let host_os = if cfg!(linux) {
                 "linux-x86_64"
-            } else if cfg!(target_os = "macos") {
+            } else if cfg!(macos) {
                 "darwin-x86_64"
-            } else if cfg!(target_os = "windows") {
+            } else if cfg!(windows) {
                 "windows-x86_64"
             } else {
                 panic!("Unsupported host OS");
