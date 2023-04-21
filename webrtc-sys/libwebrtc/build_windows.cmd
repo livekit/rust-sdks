@@ -42,7 +42,7 @@ set DEPOT_TOOLS_WIN_TOOLCHAIN=0
 set GYP_GENERATORS=ninja,msvs-ninja
 set GYP_MSVS_VERSION=2019
 set OUTPUT_DIR=src/out
-set ARTIFACTS_DIR=%cd%\windows-!arch!-!profile!
+set ARTIFACTS_DIR=%cd%\win-!arch!-!profile!
 set vs2019_install=C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional
 
 if not exist src (
@@ -69,15 +69,8 @@ call gn.bat gen %OUTPUT_DIR% --root="src" ^
 rem build
 ninja.exe -C %OUTPUT_DIR% :default
 
-set filename=
-if "!debug!"=="true" (
-  set filename=webrtcd.lib
-) else (
-  set filename=webrtc.lib
-)
-
 rem copy static library for release build
-copy "%OUTPUT_DIR%\obj\webrtc.lib" "%ARTIFACTS_DIR%\lib\!filename!"
+copy "%OUTPUT_DIR%\obj\webrtc.lib" "%ARTIFACTS_DIR%\lib"
 
 rem generate license
 call python3 "%cd%\src\tools_webrtc\libs\generate_licenses.py" ^

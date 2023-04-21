@@ -69,7 +69,7 @@ fi
 gn gen "$OUTPUT_DIR" --root="src" \
   --args="is_debug=$debug \
   enable_dsyms=$debug \
-  target_os=mac \
+  target_os=\"mac\" \
   target_cpu=\"$arch\" \
   mac_deployment_target=\"10.11\" \
   treat_warnings_as_errors=false \
@@ -98,14 +98,9 @@ ninja -C "$OUTPUT_DIR" :default \
   sdk:videocapture_objc \
   sdk:mac_framework_objc
 
-filename="libwebrtc.a"
-if [ "$debug" = "true" ]; then
-  filename="libwebrtcd.a"
-fi
-
 # make libwebrtc.a
 # don't include nasm (on macos x86_64, there is two main fnc)
-ar -rc "$ARTIFACTS_DIR/lib/$filename" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
