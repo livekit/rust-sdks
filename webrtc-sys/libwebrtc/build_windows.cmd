@@ -1,5 +1,7 @@
 @echo off
 
+setlocal enabledelayedexpansion
+
 set arch=
 set profile=release
 
@@ -21,7 +23,7 @@ if not "!arch!" == "x64" if not "!arch!" == "arm64" (
     echo Error: Invalid value for --arch. Must be 'x64' or 'arm64'.
     exit /b 1
 )
-if not "!profile!" == "true" if not "!profile!" == "false" (
+if not "!profile!" == "debug" if not "!profile!" == "release" (
     echo Error: Invalid value for --profile. Must be 'debug' or 'release'.
     exit /b 1
 )
