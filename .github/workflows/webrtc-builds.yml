@@ -1,25 +1,32 @@
 name: WebRTC builds
 on: workflow_dispatch
-env:
-  CARGO_TERM_COLOR: always
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        profile: ["release", "debug"] 
+        config:
           - os: windows-latest
-            cmd: .\build_windows.cmd 
-            artifacts: windows
+            name: windows 
+            cmd: .\build_windows.cmd
+            archs: [x64, arm64]
           - os: ubuntu-latest
+            name: linux
             cmd: ./build_linux.sh
-            artifacts: linux
+            archs: [x64, arm64]
           - os: macos-latest
+            name: macos
             cmd: ./build_macos.sh
-            artifacts: macos
+            archs: [x64, arm64]
+        include:
+          - os: ${{ matrix.config.os }}
+            arch: ${{ matrix.config.archs }}
+            name: ${{ matrix.config.name }}
+            cmd: ${{ matrix.config.cmd }}
 
-    name: Build webrtc (${{ matrix.os }})
+    name: Build webrtc (${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -34,6 +41,7 @@ jobs:
         if: ${{ matrix.os == 'macos-latest' }}
         run: brew install ninja
 
+      # It doesn't seem to be used?
       - name: Install windows dependencies
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
@@ -44,12 +52,12 @@ jobs:
       - name: Print ninja version
         run: ninja --version
 
-      - name: Build
-        run: ${{ matrix.cmd }}
+      - name: Build WebRTC
+        run: ${{ matrix.cmd }} --arch ${{ matrix.arch }} --profile ${{ matrix.profile }}
         working-directory: webrtc-sys/libwebrtc
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: builds-${{ matrix.artifacts }}
-          path: webrtc-sys/libwebrtc/${{ matrix.artifacts }}
+          name: webrtc-${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }} 
+          path: webrtc-sys/libwebrtc/${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}
