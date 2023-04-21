@@ -30,6 +30,12 @@ jobs:
     name: Build webrtc (${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Setup vars
+        id: setup
+        run: |
+          echo "OUT=${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
+          echo "ZIP=webrtc-${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v3
         with:
           submodules: true
@@ -57,11 +63,17 @@ jobs:
         run: ${{ matrix.cmd }} --arch ${{ matrix.arch }} --profile ${{ matrix.profile }}
         working-directory: webrtc-sys/libwebrtc
 
-      - name: Zip artifact for upload
-        run: zip artifact.zip webrtc-sys/libwebrtc/${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}/* -r
+      - name: Zip artifact (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: zip ${{ steps.setup.outputs.ZIP }} webrtc-sys/libwebrtc/${{ steps.setup.outputs.OUT }}/* -r
 
+      - name: Zip artifact (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }}\* -DestinationPath ${{ steps.setup.outputs.ZIP }}
+
+      # doublezip here but I don't think there is an alternative
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: webrtc-${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }} 
-          path: artifact.zip
+          name: ${{ steps.setup.outputs.ZIP }}
+          path: ${{ steps.setup.outputs.ZIP }}
