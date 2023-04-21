@@ -97,13 +97,8 @@ gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 # build static library
 ninja -C "$OUTPUT_DIR" :default
 
-filename="libwebrtc.a"
-if [ "$debug" = "true" ]; then
-  filename="libwebrtcd.a"
-fi
-
 # make libwebrtc.a
-ar -rc "$ARTIFACTS_DIR/lib/$filename" `find "$OUTPUT_DIR/obj" -name '*.o'`
+ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o'`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
