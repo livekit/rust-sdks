@@ -6,25 +6,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: ["release", "debug"] 
-        config:
-          - os: windows-latest
-            name: windows 
-            cmd: .\build_windows.cmd
-            archs: [x64, arm64]
-          - os: ubuntu-latest
-            name: linux
-            cmd: ./build_linux.sh
-            archs: [x64, arm64]
-          - os: macos-latest
-            name: macos
-            cmd: ./build_macos.sh
-            archs: [x64, arm64]
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+        arch:
+          - x64
+          - arm64
+        profile:
+          - release
+          - debug
         include:
-          - os: ${{ matrix.config.os }}
-            arch: ${{ matrix.config.archs }}
-            name: ${{ matrix.config.name }}
-            cmd: ${{ matrix.config.cmd }}
+          - os: windows-latest
+            cmd: .\build_windows.cmd
+            name: win
+          - os: ubuntu-latest
+            cmd: ./build_linux.sh
+            name: linux
+          - os: macos-latest
+            cmd: ./build_macos.sh
+            name: macos
 
     name: Build webrtc (${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
