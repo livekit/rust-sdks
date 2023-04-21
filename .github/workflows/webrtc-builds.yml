@@ -54,7 +54,7 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ninja
-          echo "${{github.workspace}}\ninja" >> $GITHUB_PATH
+          echo "${{ github.workspace }}\ninja" >> $GITHUB_PATH
 
       - name: Print ninja version
         run: ninja --version
@@ -65,7 +65,9 @@ jobs:
 
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
-        run: zip ${{ steps.setup.outputs.ZIP }} webrtc-sys/libwebrtc/${{ steps.setup.outputs.OUT }}/* -r
+        run: |
+          cd webrtc-sys/libwebrtc/${{ steps.setup.outputs.OUT }}
+          zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ./* -r
 
       - name: Zip artifact (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
