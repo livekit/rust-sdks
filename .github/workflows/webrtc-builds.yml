@@ -57,7 +57,7 @@ jobs:
         run: ${{ matrix.cmd }} --arch ${{ matrix.arch }} --profile ${{ matrix.profile }}
         working-directory: webrtc-sys/libwebrtc
 
-      - name: zip artifact for upload
+      - name: Zip artifact for upload
         run: zip artifact.zip webrtc-sys/libwebrtc/${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}/* -r
 
       - name: Upload artifacts
