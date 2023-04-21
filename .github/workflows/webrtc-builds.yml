@@ -35,6 +35,13 @@ jobs:
         run: |
           echo "OUT=${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
           echo "ZIP=webrtc-${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      # Print some debug infos to be sure everything is ok before doing really long tasks..
+      - name: Info
+        run: |
+          echo "OutName: ${{ steps.setup.outputs.OUT }}"
+          echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
 
       - uses: actions/checkout@v3
         with:
