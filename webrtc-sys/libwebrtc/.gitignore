@@ -5,6 +5,6 @@ depot_tools
 ninja
 
 # builds
-win-*
-macos-*
-linux-*
+win*
+macos*
+linux*
