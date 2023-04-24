@@ -2,7 +2,9 @@
 src
 .gclient_*
 depot_tools
+ninja
 
 # builds
-macos
-linux
+win*
+macos*
+linux*

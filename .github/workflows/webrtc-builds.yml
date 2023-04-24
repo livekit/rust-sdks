@@ -1,26 +1,48 @@
 name: WebRTC builds
 on: workflow_dispatch
-env:
-  CARGO_TERM_COLOR: always
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+        arch:
+          - x64
+          - arm64
+        profile:
+          - release
+          - debug
         include:
           - os: windows-latest
-            cmd: .\build_windows.cmd 
-            artifacts: windows
+            cmd: .\build_windows.cmd
+            name: win
           - os: ubuntu-latest
             cmd: ./build_linux.sh
-            artifacts: linux
+            name: linux
           - os: macos-latest
             cmd: ./build_macos.sh
-            artifacts: macos
+            name: macos
 
-    name: Build webrtc (${{ matrix.os }})
+    name: Build webrtc (${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Setup vars
+        id: setup
+        run: |
+          echo "OUT=${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
+          echo "ZIP=webrtc-${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      # Print some debug infos to be sure everything is ok before doing really long tasks..
+      - name: Info
+        run: |
+          echo "OutName: ${{ steps.setup.outputs.OUT }}"
+          echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
+
       - uses: actions/checkout@v3
         with:
           submodules: true
@@ -33,22 +55,34 @@ jobs:
         if: ${{ matrix.os == 'macos-latest' }}
         run: brew install ninja
 
+      # It doesn't seem to be used?
       - name: Install windows dependencies
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ninja
-          echo "${{github.workspace}}\ninja" >> $GITHUB_PATH
+          echo "${{ github.workspace }}\ninja" >> $GITHUB_PATH
 
       - name: Print ninja version
         run: ninja --version
 
-      - name: Build
-        run: ${{ matrix.cmd }}
+      - name: Build WebRTC
+        run: ${{ matrix.cmd }} --arch ${{ matrix.arch }} --profile ${{ matrix.profile }}
         working-directory: webrtc-sys/libwebrtc
 
+      - name: Zip artifact (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          cd webrtc-sys/libwebrtc/${{ steps.setup.outputs.OUT }}
+          zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ./* -r
+
+      - name: Zip artifact (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }}\* -DestinationPath ${{ steps.setup.outputs.ZIP }}
+
+      # doublezip here but I don't think there is an alternative
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: builds-${{ matrix.artifacts }}
-          path: webrtc-sys/libwebrtc/${{ matrix.artifacts }}
+          name: ${{ steps.setup.outputs.ZIP }}
+          path: ${{ steps.setup.outputs.ZIP }}

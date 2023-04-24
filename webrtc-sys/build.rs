@@ -1,17 +1,22 @@
 use regex::Regex;
 use std::env;
 use std::fs;
+use std::io::BufRead;
 use std::io::{self, Write};
 use std::path;
 use std::process::Command;
 
 const WEBRTC_TAG: &str = "webrtc-beb0471";
+const IGNORE_DEFINES: [&str; 2] = ["CR_CLANG_REVISION", "CR_XCODE_VERSION"];
 
 fn download_prebuilt_webrtc(
     out_path: path::PathBuf,
 ) -> Result<path::PathBuf, Box<dyn std::error::Error>> {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+
+    // This is not yet supported on all platforms.
+    // On Windows, we need Rust to link against libcmtd.
     let use_debug = {
         let var = env::var("LK_DEBUG_WEBRTC");
         var.is_ok() && var.unwrap() == "true"
@@ -95,19 +100,26 @@ fn main() {
         let var = env::var("LK_CUSTOM_WEBRTC");
         var.is_ok() && var.unwrap() == "true"
     };
+    println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
 
-    let (webrtc_include, webrtc_lib) = if use_custom_webrtc {
+    let (webrtc_dir, webrtc_include, webrtc_lib) = if use_custom_webrtc {
         // Use a local WebRTC version (libwebrtc folder)
         let webrtc_dir = path::PathBuf::from("./libwebrtc");
-        (webrtc_dir.join("src"), webrtc_dir.join("src/out/Dev/obj"))
+        (
+            webrtc_dir.clone(),
+            webrtc_dir.join("include"),
+            webrtc_dir.join("lib"),
+        )
     } else {
         // Download a prebuilt version of WebRTC
         let download_dir = env::var("OUT_DIR").unwrap() + "/webrtc-sdk";
         let webrtc_dir = download_prebuilt_webrtc(path::PathBuf::from(download_dir)).unwrap();
-
-        (webrtc_dir.join("include"), webrtc_dir.join("lib"))
+        (
+            webrtc_dir.clone(),
+            webrtc_dir.join("include"),
+            webrtc_dir.join("lib"),
+        )
     };
-    println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
 
     // Just required for the bridge build to succeed.
     let includes = &[
@@ -140,23 +152,25 @@ fn main() {
         "src/helper.rs",
     ]);
 
-    builder.file("src/peer_connection.cpp");
-    builder.file("src/peer_connection_factory.cpp");
-    builder.file("src/media_stream.cpp");
-    builder.file("src/data_channel.cpp");
-    builder.file("src/jsep.cpp");
-    builder.file("src/candidate.cpp");
-    builder.file("src/rtp_receiver.cpp");
-    builder.file("src/rtp_sender.cpp");
-    builder.file("src/rtp_transceiver.cpp");
-    builder.file("src/rtp_parameters.cpp");
-    builder.file("src/rtc_error.cpp");
-    builder.file("src/webrtc.cpp");
-    builder.file("src/video_frame.cpp");
-    builder.file("src/video_frame_buffer.cpp");
-    builder.file("src/video_encoder_factory.cpp");
-    builder.file("src/video_decoder_factory.cpp");
-    builder.file("src/audio_device.cpp");
+    builder.files(&[
+        "src/peer_connection.cpp",
+        "src/peer_connection_factory.cpp",
+        "src/media_stream.cpp",
+        "src/data_channel.cpp",
+        "src/jsep.cpp",
+        "src/candidate.cpp",
+        "src/rtp_receiver.cpp",
+        "src/rtp_sender.cpp",
+        "src/rtp_transceiver.cpp",
+        "src/rtp_parameters.cpp",
+        "src/rtc_error.cpp",
+        "src/webrtc.cpp",
+        "src/video_frame.cpp",
+        "src/video_frame_buffer.cpp",
+        "src/video_encoder_factory.cpp",
+        "src/video_decoder_factory.cpp",
+        "src/audio_device.cpp",
+    ]);
 
     for include in includes {
         builder.include(include);
@@ -166,6 +180,20 @@ fn main() {
         "cargo:rustc-link-search=native={}",
         webrtc_lib.canonicalize().unwrap().to_str().unwrap()
     );
+
+    // Read preprocessor definitions from webrtc.ninja
+    let webrtc_gni = fs::File::open(webrtc_dir.join("webrtc.ninja")).unwrap();
+    let mut reader = io::BufReader::new(webrtc_gni).lines();
+    let defines_line = reader.next().unwrap().unwrap(); // The first line contains the defines
+    let defines_re = Regex::new(r"-D(\w+)(?:=([^\s]+))?").unwrap();
+    for cap in defines_re.captures_iter(&defines_line) {
+        let define_name = &cap[1];
+        let define_value = cap.get(2).map(|m| m.as_str());
+        if IGNORE_DEFINES.contains(&define_name) {
+            continue;
+        }
+        builder.define(define_name, define_value);
+    }
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     match target_os.as_str() {
@@ -186,12 +214,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=static=webrtc");
 
-            builder
-                .flag("/std:c++17")
-                .flag("/EHsc")
-                .define("WEBRTC_WIN", None)
-                //.define("WEBRTC_ENABLE_SYMBOL_EXPORT", None) Not necessary when using WebRTC as a static library
-                .define("NOMINMAX", None);
+            builder.flag("/std:c++17").flag("/EHsc");
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=Xext");
@@ -203,10 +226,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=m");
             println!("cargo:rustc-link-lib=static=webrtc");
 
-            builder
-                .flag("-std=c++17")
-                .define("WEBRTC_POSIX", None)
-                .define("WEBRTC_LINUX", None);
+            builder.flag("-std=c++17");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
@@ -254,19 +274,10 @@ fn main() {
             builder
                 .flag("-stdlib=libc++")
                 .flag("-std=c++17")
-                .flag(format!("-isysroot{}", sysroot).as_str())
-                .define("WEBRTC_ENABLE_OBJC_SYMBOL_EXPORT", None)
-                .define("WEBRTC_POSIX", None)
-                .define("WEBRTC_MAC", None);
+                .flag(format!("-isysroot{}", sysroot).as_str());
         }
         "ios" => {
-            builder
-                .flag("-std=c++17")
-                .file("src/objc_test.mm")
-                .define("WEBRTC_ENABLE_OBJC_SYMBOL_EXPORT", None)
-                .define("WEBRTC_MAC", None)
-                .define("WEBRTC_POSIX", None)
-                .define("WEBRTC_IOS", None);
+            builder.flag("-std=c++17");
         }
         "android" => {
             let ndk_env = env::var("ANDROID_NDK_HOME").expect(
@@ -330,11 +341,7 @@ fn main() {
                 vs_path.to_str().unwrap()
             );
 
-            builder
-                .flag("-std=c++17")
-                .define("WEBRTC_LINUX", None)
-                .define("WEBRTC_POSIX", None)
-                .define("WEBRTC_ANDROID", None);
+            builder.flag("-std=c++17");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);

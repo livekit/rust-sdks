@@ -1,5 +1,37 @@
 @echo off
 
+setlocal enabledelayedexpansion
+
+set arch=
+set profile=release
+
+:arg_loop
+if "%1" == "" goto end_arg_loop
+if "%1" == "--arch" (
+    set "arch=%2"
+    shift & shift & goto arg_loop
+)
+if "%1" == "--profile" (
+    set "profile=%2"
+    shift & shift & goto arg_loop
+)
+echo Error: Unknown argument '%1'
+exit /b 1
+:end_arg_loop
+
+if not "!arch!" == "x64" if not "!arch!" == "arm64" (
+    echo Error: Invalid value for --arch. Must be 'x64' or 'arm64'.
+    exit /b 1
+)
+if not "!profile!" == "debug" if not "!profile!" == "release" (
+    echo Error: Invalid value for --profile. Must be 'debug' or 'release'.
+    exit /b 1
+)
+
+echo "Building LiveKit WebRTC"
+echo "Arch: !arch!"
+echo "Profile: !profile!"
+
 if not exist depot_tools (
   git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
 )
@@ -9,55 +41,45 @@ set PATH=%cd%\depot_tools;%PATH%
 set DEPOT_TOOLS_WIN_TOOLCHAIN=0
 set GYP_GENERATORS=ninja,msvs-ninja
 set GYP_MSVS_VERSION=2019
-set OUTPUT_DIR=src/out
-set ARTIFACTS_DIR=%cd%\windows
+set OUTPUT_DIR=src\out-!arch!-!profile!
+set ARTIFACTS_DIR=%cd%\win-!arch!-!profile!
 set vs2019_install=C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional
 
 if not exist src (
-  call gclient.bat sync
+  call gclient.bat sync -D --no-history
 )
 
 cd src
-call git apply "%COMMAND_DIR%/patches/add_license_dav1d.patch" -v
-call git apply "%COMMAND_DIR%/patches/ssl_verify_callback_with_native_handle.patch" -v
-call git apply "%COMMAND_DIR%/patches/fix_mocks.patch" -v
+call git apply "%COMMAND_DIR%/patches/add_license_dav1d.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+call git apply "%COMMAND_DIR%/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+call git apply "%COMMAND_DIR%/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir "%ARTIFACTS_DIR%\lib"
 
-setlocal enabledelayedexpansion
-
-for %%i in (x64 arm64) do (
-  mkdir "%ARTIFACTS_DIR%/lib/%%i"
-  for %%j in (true false) do (
-
-    rem generate ninja for release
-    call gn.bat gen %OUTPUT_DIR% --root="src" ^
-      --args="is_debug=%%j is_clang=true target_cpu=\"%%i\" use_custom_libcxx=false rtc_include_tests=false rtc_build_examples=false rtc_use_h264=false symbol_level=0 enable_iterator_debugging=false"
-
-    rem build
-    ninja.exe -C %OUTPUT_DIR% webrtc
-
-    set filename=
-    if true==%%j (
-      set filename=webrtcd.lib
-    ) else (
-      set filename=webrtc.lib
-    )
-
-    rem copy static library for release build
-    copy "%OUTPUT_DIR%\obj\webrtc.lib" "%ARTIFACTS_DIR%\lib\%%i\!filename!"
-  )
+set "debug=false"
+if "!profile!" == "debug" (
+  set "debug=true"
 )
 
-endlocal
+rem generate ninja for release
+call gn.bat gen %OUTPUT_DIR% --root="src" ^
+  --args="is_debug=!debug! is_clang=true target_cpu=\"!arch!\" use_custom_libcxx=false rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false is_component_build=false rtc_enable_protobuf=false rtc_use_h264=false symbol_level=0 enable_iterator_debugging=false"
+
+rem build
+ninja.exe -C %OUTPUT_DIR% :default
+
+rem copy static library for release build
+copy "%OUTPUT_DIR%\obj\webrtc.lib" "%ARTIFACTS_DIR%\lib"
 
 rem generate license
 call python3 "%cd%\src\tools_webrtc\libs\generate_licenses.py" ^
-  --target :webrtc %OUTPUT_DIR% %OUTPUT_DIR%
+  --target :default %OUTPUT_DIR% %OUTPUT_DIR%
+
+copy "%OUTPUT_DIR%\obj\webrtc.ninja" "%ARTIFACTS_DIR%"
+copy "%OUTPUT_DIR%\args.gn" "%ARTIFACTS_DIR%"
+copy "%OUTPUT_DIR%\LICENSE.md" "%ARTIFACTS_DIR%"
 
 rem copy header
 xcopy src\*.h "%ARTIFACTS_DIR%\include" /C /S /I /F /H
 
-rem copy license
-copy "%OUTPUT_DIR%\LICENSE.md" "%ARTIFACTS_DIR%\LICENSE.md"
