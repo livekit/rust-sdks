@@ -5,7 +5,6 @@ use crate::rtp_receiver;
 use crate::rtp_sender;
 use crate::rtp_transceiver::RtpTransceiverDirection;
 use crate::rtp_transceiver::RtpTransceiverInit;
-use crate::MediaType;
 use crate::RtcError;
 use cxx::SharedPtr;
 use webrtc_sys::rtc_error as sys_err;
@@ -33,7 +32,6 @@ impl From<RtpTransceiverDirection> for sys_webrtc::ffi::RtpTransceiverDirection 
             RtpTransceiverDirection::RecvOnly => Self::RecvOnly,
             RtpTransceiverDirection::Inactive => Self::Inactive,
             RtpTransceiverDirection::Stopped => Self::Stopped,
-            _ => panic!("unknown RtpTransceiverDirection"),
         }
     }
 }
