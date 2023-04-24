@@ -102,9 +102,9 @@ fn main() {
     };
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
 
-    let (webrtc_dir, webrtc_include, webrtc_lib) = if true {
+    let (webrtc_dir, webrtc_include, webrtc_lib) = if use_custom_webrtc {
         // Use a local WebRTC version (libwebrtc folder)
-        let webrtc_dir = path::PathBuf::from("./libwebrtc/macos");
+        let webrtc_dir = path::PathBuf::from("./libwebrtc");
         (
             webrtc_dir.clone(),
             webrtc_dir.join("include"),
@@ -192,7 +192,6 @@ fn main() {
         if IGNORE_DEFINES.contains(&define_name) {
             continue;
         }
-        panic!("Unknown define: {}", define_name);
         builder.define(define_name, define_value);
     }
 
