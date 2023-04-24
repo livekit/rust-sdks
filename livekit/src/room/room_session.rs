@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tracing::{error, info, instrument, Level};
+use tracing::{error, info, instrument, trace, Level};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionState {
@@ -158,16 +158,14 @@ impl SessionInner {
         loop {
             tokio::select! {
                 res = engine_events.recv() => {
-                    match res {
-                        Some(event) => {
-                            if let Err(err) = self.on_engine_event(event).await {
-                                error!("failed to handle engine event: {:?}", err);
-                            }
-                        },
-                        _ => panic!("engine_events has been closed unexpectedly")
-                    };
+                    if let Some(event) = res {
+                        if let Err(err) = self.on_engine_event(event).await {
+                            error!("failed to handle engine event: {:?}", err);
+                        }
+                    }
                 },
                  _ = &mut close_receiver => {
+                    trace!("closing room_task");
                     break;
                 }
             }
@@ -185,16 +183,14 @@ impl SessionInner {
         loop {
             tokio::select! {
                 res = participant_events.recv() => {
-                    match res {
-                        Some(event) => {
-                            if let Err(err) = self.on_participant_event(&participant, event).await {
-                                error!("failed to handle participant event for {:?}: {:?}", participant.sid(), err);
-                            }
-                        },
-                        _ => panic!("participant_events has been closed unexpectedly")
-                    };
+                    if let Some(event) = res {
+                        if let Err(err) = self.on_participant_event(&participant, event).await {
+                            error!("failed to handle participant event for {:?}: {:?}", participant.sid(), err);
+                        }
+                    }
                 },
                 _ = &mut close_rx => {
+                    trace!("closing participant_task for {:?}", participant.sid());
                     break;
                 },
             }
