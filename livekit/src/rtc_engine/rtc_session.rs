@@ -236,7 +236,7 @@ impl RtcSession {
 
         // Start session tasks
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
-        let rtc_task = tokio::spawn(inner.clone().rtc_task(rtc_events, close_rx.clone()));
+        let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
 
         if !inner.info.join_response.subscriber_primary {
             inner.negotiate_publisher().await?;
@@ -348,10 +348,10 @@ impl RtcSession {
 }
 
 impl SessionInner {
-    async fn rtc_task(
+    async fn rtc_session_task(
         self: Arc<Self>,
         mut rtc_events: RtcEvents,
-        mut close_receiver: watch::Receiver<bool>,
+        mut close_rx: watch::Receiver<bool>,
     ) {
         loop {
             tokio::select! {
@@ -360,11 +360,9 @@ impl SessionInner {
                         if let Err(err) = self.on_rtc_event(event).await {
                             error!("failed to handle rtc event: {:?}", err);
                         }
-                    } else {
-                        panic!("rtc_events has been closed unexpectedly");
-                    }
-                },
-                 _ = close_receiver.changed() => {
+                    }                },
+                 _ = close_rx.changed() => {
+                    trace!("closing rtc_session_task");
                     break;
                 }
             }
@@ -374,7 +372,7 @@ impl SessionInner {
     async fn signal_task(
         self: Arc<Self>,
         mut signal_events: SignalEvents,
-        mut close_receiver: watch::Receiver<bool>,
+        mut close_rx: watch::Receiver<bool>,
     ) {
         loop {
             tokio::select! {
@@ -397,12 +395,10 @@ impl SessionInner {
                                 );
                             }
                         }
-                    } else {
-                        panic!("signal_events has been closed unexpectedly");
                     }
-
                 },
-                _ = close_receiver.changed() => {
+                _ = close_rx.changed() => {
+                    trace!("closing signal_task");
                     break;
                 }
             }

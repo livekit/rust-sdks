@@ -15,7 +15,7 @@ use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Interval};
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -133,10 +133,6 @@ impl RtcEngine {
         });
 
         (Self { inner }, engine_events)
-    }
-
-    pub(crate) fn lk_runtime(&self) -> Arc<LkRuntime> {
-        self.inner.lk_runtime.clone()
     }
 
     #[tracing::instrument]
@@ -266,11 +262,10 @@ impl EngineInner {
                         if let Err(err) = self.on_session_event(event).await {
                             error!("failed to handle session event: {:?}", err);
                         }
-                    } else {
-                        panic!("rtc_sessions has been closed unexpectedly");
                     }
                 },
                  _ = &mut close_receiver => {
+                    trace!("closing engine task");
                     break;
                 }
             }
