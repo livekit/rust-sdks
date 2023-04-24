@@ -99,7 +99,7 @@ ninja -C "$OUTPUT_DIR" :default \
   sdk:mac_framework_objc
 
 # make libwebrtc.a
-# don't include nasm (on macos x86_64, there is two main fnc)
+# don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
