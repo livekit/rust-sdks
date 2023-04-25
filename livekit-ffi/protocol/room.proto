@@ -6,6 +6,7 @@ option csharp_namespace = "LiveKit.Proto";
 import "handle.proto";
 import "participant.proto";
 import "track.proto";
+import "video_frame.proto";
 
 message VideoEncoding {
   uint64 max_bitrate = 1;

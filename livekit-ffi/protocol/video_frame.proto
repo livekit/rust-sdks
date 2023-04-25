@@ -3,6 +3,8 @@ syntax = "proto3";
 package livekit;
 option csharp_namespace = "LiveKit.Proto";
 
+import "handle.proto";
+
 // Allocate a new VideoFrameBuffer
 message AllocVideoBufferRequest {
   VideoFrameBufferType type = 1; // Only I420 is supported atm

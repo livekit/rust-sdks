@@ -3,6 +3,8 @@ syntax = "proto3";
 package livekit;
 option csharp_namespace = "LiveKit.Proto";
 
+import "handle.proto";
+
 // Allocate a new AudioFrameBuffer
 // This is not necessary required because the data structure is fairly simple
 // But keep the API consistent with VideoFrame
@@ -26,7 +28,7 @@ message NewAudioSourceRequest { AudioStreamType type = 1; }
 message NewAudioSourceResponse { AudioSourceInfo source = 1; }
 
 // Push a frame to an AudioSource 
-message PushAudioFrameRequest { AudioFrameInfo frame = 1; }
+message PushAudioFrameRequest { AudioFrameBufferInfo frame = 1; }
 message PushAudioFrameResponse {}
 
 ///
@@ -46,14 +48,15 @@ message AudioFrameBufferInfo {
 ///
 
 enum AudioStreamType {
-  AUDIO_STREAM_NATIVE = 0, AUDIO_STREAM_HTML = 1,
+  AUDIO_STREAM_NATIVE = 0;
+  AUDIO_STREAM_HTML = 1;
 }
 
 message AudioStreamInfo {
   FFIHandleId handle = 1;
   AudioStreamType type = 2;
   string id = 3;
-  stirng track_sid = 4;
+  string track_sid = 4;
 }
 
 message AudioStreamEvent {
@@ -62,7 +65,7 @@ message AudioStreamEvent {
 }
 
 message AudioFrameReceived {
-  AudioFrameInfo frame = 1;
+  AudioFrameBufferInfo frame = 1;
 }
 
 ///

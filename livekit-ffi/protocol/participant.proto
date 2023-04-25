@@ -3,7 +3,7 @@ syntax = "proto3";
 package livekit;
 option csharp_namespace = "LiveKit.Proto";
 
-import "handle.proto";
+//import "handle.proto";
 import "track.proto";
 
 message ParticipantInfo {
