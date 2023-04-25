@@ -8,6 +8,8 @@ fn main() -> Result<()> {
             "protocol/room.proto",
             "protocol/track.proto",
             "protocol/participant.proto",
+            "protocol/video_frame.proto",
+            "protocol/audio_frame.proto",
         ],
         &["protocol/"],
     )?;
