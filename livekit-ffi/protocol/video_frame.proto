@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package livekit;
+option csharp_namespace = "LiveKit.Proto";
+
+// Allocate a new VideoFrameBuffer
+message AllocVideoBufferRequest {
+  VideoFrameBufferType type = 1; // Only I420 is supported atm
+  uint32 width = 2;
+  uint32 height = 3;
+}
+message AllocVideoBufferResponse { VideoFrameBufferInfo buffer = 1; }
+
+// Create a new VideoStream
+// VideoStream is used to receive video frames from a track
+message NewVideoStreamRequest {
+  string track_sid = 1;
+  VideoStreamType type = 2;
+}
+message NewVideoStreamResponse { VideoStreamInfo stream = 1; }
+
+// Create a new VideoSource
+// VideoSource is used to send video frame to a track
+message NewVideoSourceRequest { VideoStreamType type = 1; }
+message NewVideoSourceResponse { VideoSourceInfo source = 1; }
+
+// Push a frame to a VideoSource
+message PushVideoFrameRequest {
+  VideoFrameInfo frame = 1;
+  VideoFrameBufferInfo buffer = 2;
+}
+message PushVideoFrameResponse {}
+
+// Convert a RGBA frame to a I420 YUV frame
+// Or convert another YUV frame format to I420
+message ToI420Request {
+  oneof from {
+    ARGBBufferInfo argb = 1;
+    FFIHandleId buffer = 2;
+  }
+}
+message ToI420Response { VideoFrameBufferInfo buffer = 1; }
+
+// Convert a YUV frame to a RGBA frame
+// Only I420 is supported atm
+message ToARGBRequest {
+  FFIHandleId buffer = 1;
+  uint64 dst_ptr = 2;
+  VideoFormatType dst_format = 3;
+  uint32 dst_stride = 4;
+  uint32 dst_width = 5;
+  uint32 dst_height = 6;
+}
+message ToARGBResponse {}
+
+///
+/// VideoFrame buffers ///
+///
+
+message VideoResolution {
+  uint32 width = 1;
+  uint32 height = 2;
+  double frame_rate = 3;
+  float aspect_ratio = 4;
+}
+
+enum VideoCodec {
+  VP8 = 0;
+  H264 = 1;
+  AV1 = 2;
+}
+
+enum VideoRotation {
+  VIDEO_ROTATION_0 = 0;
+  VIDEO_ROTATION_90 = 1;
+  VIDEO_ROTATION_180 = 2;
+  VIDEO_ROTATION_270 = 3;
+}
+
+enum VideoFormatType {
+  FORMAT_ARGB = 0;
+  FORMAT_BGRA = 1;
+  FORMAT_ABGR = 2;
+  FORMAT_RGBA = 3;
+}
+
+enum VideoFrameBufferType {
+  NATIVE = 0;
+  I420 = 1;
+  I420A = 2;
+  I422 = 3;
+  I444 = 4;
+  I010 = 5;
+  NV12 = 6;
+  WEBGL = 7;
+}
+
+message ARGBBufferInfo {
+  uint64 ptr = 1;
+  VideoFormatType format = 2;
+  uint32 stride = 3;
+  uint32 width = 4;
+  uint32 height = 5;
+}
+
+message VideoFrameInfo {
+  int64 timestamp = 1;
+  VideoRotation rotation = 2;
+}
+
+message VideoFrameBufferInfo {
+  FFIHandleId handle = 1;
+  VideoFrameBufferType buffer_type = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+  oneof buffer {
+    PlanarYuvBufferInfo yuv = 5;
+    BiplanarYuvBufferInfo bi_yuv = 6;
+    NativeBufferInfo native = 7;
+  }
+}
+
+message PlanarYuvBufferInfo {
+  uint32 chroma_width = 1;
+  uint32 chroma_height = 2;
+  uint32 stride_y = 3;
+  uint32 stride_u = 4;
+  uint32 stride_v = 5;
+  uint32 stride_a = 6;
+
+  // *const u8 or *const u16
+  uint64 data_y_ptr = 7;
+  uint64 data_u_ptr = 8;
+  uint64 data_v_ptr = 9;
+  uint64 data_a_ptr = 10; // nullptr = no alpha
+}
+
+message BiplanarYuvBufferInfo {
+  uint32 chroma_width = 1;
+  uint32 chroma_height = 2;
+  uint32 stride_y = 3;
+  uint32 stride_uv = 4;
+
+  uint64 data_y_ptr = 5;
+  uint64 data_uv_ptr = 6;
+}
+
+message NativeBufferInfo {
+  // TODO(theomonnom): Expose graphic context?
+}
+
+///
+/// VideoStream ///
+///
+
+enum VideoStreamType {
+  VIDEO_STREAM_NATIVE = 0;
+  VIDEO_STREAM_WEBGL = 1;
+  VIDEO_STREAM_HTML = 2;
+}
+
+message VideoStreamInfo {
+  FFIHandleId handle = 1;
+  VideoStreamType type = 2;
+  string id = 3;
+  string track_sid = 4;
+}
+
+message VideoStreamEvent {
+  string id = 1;
+  oneof message { VideoFrameReceived frame_received = 2; }
+}
+
+message VideoFrameReceived {
+  VideoFrameInfo frame = 1;
+  VideoFrameBufferInfo buffer = 2;
+}
+
+///
+/// VideoSource ///
+///
+
+message VideoSourceInfo {
+  // # SAFETY
+  // This handle must not be dropped if a track is currently using it
+  FFIHandleId handle = 1;
+  string id = 2;
+}
+

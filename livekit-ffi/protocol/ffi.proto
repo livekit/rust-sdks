@@ -7,45 +7,72 @@ import "handle.proto";
 import "track.proto";
 import "room.proto";
 import "participant.proto";
+import "video_frame.proto";
+import "audio_frame.proto";
 
 /// This is the input of livekit_ffi_request function
 message FFIRequest {
   oneof message {
     InitializeRequest initialize = 1;
-    // Stop all rooms synchronously (Do we need async here?).
-    // e.g: This is used for the Unity Editor after each assemblies reload.
     DisposeRequest dispose = 2;
-    ConnectRequest async_connect = 3;
-    DisconnectRequest async_disconnect = 4;
-    ToI420Request to_i420 = 5;
-    ToARGBRequest to_argb = 6;
+
+    // Room
+    ConnectRequest connect = 3;
+    DisconnectRequest disconnect = 4;
+    PublishTrackRequest publish_track = 5;
+    UnpublishTrackRequest unpublish_track = 6;
+
+    // Track
+    CreateVideoTrackRequest create_video_track = 5;
+    CreateAudioTrackRequest create_audio_track = 6;
 
     // Video
     AllocVideoBufferRequest alloc_video_buffer = 7;
     NewVideoStreamRequest new_video_stream = 8;
     NewVideoSourceRequest new_video_source = 9;
     PushVideoFrameRequest push_video_frame = 10;
+    ToI420Request to_i420 = 11;
+    ToARGBRequest to_argb = 12;
 
     // Audio
-    // Not needed, the audio data structure is simple to recreate in the foreign
-    // language side.
-    // AllocAudioBufferRequest alloc_audio_buffer = 11;
-    NewAudioStreamRequest new_audio_stream = 12;
-    NewAudioSourceRequest new_audio_source = 13;
-    PushAudioFrameRequest push_audio_frame = 14;
+    AllocAudioBufferRequest alloc_audio_buffer = 13;
+    NewAudioStreamRequest new_audio_stream = 14;
+    NewAudioSourceRequest new_audio_source = 15;
+    PushAudioFrameRequest push_audio_frame = 16;
   }
 }
 
 /// This is the output of livekit_ffi_request function.
-/// The message field is mostly used to send result of a synchronous operation
-/// to the foreign language.
 message FFIResponse {
   optional uint64 async_id = 1;
+  // message is None when async_id is set
   oneof message {
-    ToI420Response to_i420 = 2;
-    AllocBufferResponse alloc_buffer = 3;
-    NewVideoStreamResponse new_video_stream = 4;
-    NewVideoSourceResponse new_video_source = 5;
+    InitializeResponse initialize = 2;
+    DisposeResponse dispose = 3;
+
+    // Room
+    ConnectResponse connect = 4;
+    DisconnectResponse disconnect = 5;
+    PublishTrackResponse publish_track = 5;
+    UnpublishTrackResponse unpublish_track = 6;
+
+    // Track
+    CreateVideoTrackResponse create_video_track = 6;
+    CreateAudioTrackResponse create_audio_track = 7;
+
+    // Video
+    AllocVideoBufferResponse alloc_video_buffer = 8;
+    NewVideoStreamResponse new_video_stream = 9;
+    NewVideoSourceResponse new_video_source = 10;
+    PushVideoFrameResponse push_video_frame = 11;
+    ToI420Response to_i420 = 12;
+    ToARGBResponse to_argb = 13;
+
+    // Audio
+    AllocAudioBufferResponse alloc_audio_buffer = 14;
+    NewAudioStreamResponse new_audio_stream = 15;
+    NewAudioSourceResponse new_audio_source = 16;
+    PushAudioFrameResponse push_audio_frame = 17;
   }
 }
 
@@ -60,78 +87,19 @@ message FFIEvent {
     RoomEvent room_event = 3;
     TrackEvent track_event = 4;
     ParticipantEvent participant_event = 5;
+    VideoStreamEvent video_stream_event = 6;
+    AudioStreamEvent audio_stream_event = 7;
   }
 }
 
 // Setup the callback where the foreign language can receive events
 // and responses to asynchronous requests
 message InitializeRequest { uint64 event_callback_ptr = 1; }
+message InitializeResponse {}
 
+// Stop all rooms synchronously (Do we need async here?).
+// e.g: This is used for the Unity Editor after each assemblies reload.
 message DisposeRequest {}
+message DisposeResponse {}
 
-message ConnectRequest {
-  string url = 1;
-  string token = 2;
-  RoomOptions options = 3;
-}
-
-message DisconnectRequest { string room_sid = 1; }
-
-message ToI420Request {
-  oneof from {
-    ARGBBufferInfo argb = 1;
-    FFIHandleId buffer = 2;
-  }
-}
-
-message ToARGBRequest {
-  FFIHandleId buffer = 1;
-  uint64 dst_ptr = 2;
-  VideoFormatType dst_format = 3;
-  uint32 dst_stride = 4;
-  uint32 dst_width = 5;
-  uint32 dst_height = 6;
-}
-
-/// Only I420Buffer is supported atm
-message AllocBufferRequest {
-  VideoFrameBufferType type = 1;
-  uint32 width = 2;
-  uint32 height = 3;
-}
-
-message NewVideoStreamRequest {
-  string track_sid = 1;
-  VideoStreamType type = 2;
-}
-
-message NewVideoSourceRequest { VideoStreamType type = 1; }
-
-message PushVideoFrameRequest {
-  VideoFrameInfo frame = 1;
-  VideoFrameBufferInfo buffer = 2;
-}
-
-message NewAudioStreamRequest {
-  string track_sid = 1;
-  AudioStreamType type = 2;
-}
-
-message NewAudioSourceRequest { AudioStreamType type = 1; }
-
-message PushAudioFrameRequest { AudioFrameInfo frame = 1; }
-
-// Responses
-
-message ToI420Response { VideoFrameBufferInfo buffer = 1; }
-
-message AllocBufferResponse { VideoFrameBufferInfo buffer = 1; }
-
-message NewVideoStreamResponse { VideoStreamInfo stream = 1; }
-
-message NewVideoSourceResponse { VideoSourceInfo source = 1; }
-
-message ConnectResponse {
-  bool success = 1;
-  optional RoomInfo room = 2;
-}
+// TODO(theomonnom): Debug messages (Print handle, forward logs).

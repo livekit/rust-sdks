@@ -7,6 +7,66 @@ import "handle.proto";
 import "participant.proto";
 import "track.proto";
 
+message VideoEncoding {
+  uint64 max_bitrate = 1;
+  double max_frame_rate = 2;
+}
+
+message AudioEncoding {
+  uint64 max_bitrate = 1;
+}
+
+message TrackPublishOptions {
+  VideoEncoding video_encoding = 1;
+  AudioEncoding audio_encoding = 2;
+  VideoCodec video_codec = 3;
+  bool dtx = 4;
+  bool red = 5;
+  bool simulcast = 6;
+  string name = 7;
+  TrackSource source = 8;
+}
+
+// Connect to a new LiveKit room
+message ConnectRequest {
+  string url = 1;
+  string token = 2;
+  RoomOptions options = 3;
+}
+message ConnectResponse {
+  bool success = 1;
+  optional RoomInfo room = 2;
+}
+
+// Disconnect from the a room
+message DisconnectRequest { string room_sid = 1; }
+message DisconnectResponse {}
+
+// Publish a track to the room
+message PublishTrackRequest {
+  string room_sid = 1;
+  FFIHandleId track = 2;
+  TrackPublishOptions options = 3;
+}
+message PublishTrackResponse {
+  bool success = 1;
+  optional TrackPublicationInfo publication = 2;
+}
+
+// Unpublish a track from the room
+message UnpublishTrackRequest {
+  string room_sid = 1;
+  string track_sid = 2;
+  bool stop_on_unpublish = 3;
+}
+message UnpublishTrackResponse {
+  bool success = 1;
+}
+
+///
+/// Room
+///
+
 enum ConnectionQuality {
   QUALITY_POOR = 0;
   QUALITY_GOOD = 1;
