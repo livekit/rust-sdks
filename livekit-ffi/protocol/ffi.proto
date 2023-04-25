@@ -65,7 +65,7 @@ message FFIResponse {
     NewVideoStreamResponse new_video_stream = 11;
     NewVideoSourceResponse new_video_source = 12;
     PushVideoFrameResponse push_video_frame = 13;
-    ToI421Response to_i420 = 14;
+    ToI420Response to_i420 = 14;
     ToARGBResponse to_argb = 15;
 
     // Audio
