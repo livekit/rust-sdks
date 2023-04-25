@@ -18,10 +18,15 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: windows-latest
             target: aarch64-pc-windows-msvc
+            extraargs: --exclude livekit-api # livekit-api isn't compatible with windows arm64 (waiting for v0.17 of ring)
           - os: macos-latest
             target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          #- os: ubuntu-latest
+          # target: aarch64-unknown-linux-gnu
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -36,12 +41,16 @@ jobs:
           rustup update --no-self-update stable
           rustup target add ${{ matrix.target }}
 
+      - name: Install linux dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
+
       - uses: actions/checkout@v3
         with:
           submodules: true
 
       - name: Build
-        run: cargo build --release --verbose --target ${{ matrix.target }}
+        run: cargo build --workspace --release --verbose --target ${{ matrix.target }} ${{ matrix.extraargs }}
 
       - name: Build examples
         working-directory: examples

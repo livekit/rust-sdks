@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "livekit",
-    "livekit-utils",
+    "livekit-api",
+    "livekit-protocol",
     "livekit-ffi",
     "livekit-webrtc",
     "webrtc-sys"

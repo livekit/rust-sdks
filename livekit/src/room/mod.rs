@@ -1,8 +1,8 @@
 use self::track::RemoteTrack;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
-use crate::proto;
 use crate::rtc_engine::EngineError;
+use livekit_protocol as proto;
 use std::fmt::Debug;
 use std::sync::Arc;
 use thiserror::Error;

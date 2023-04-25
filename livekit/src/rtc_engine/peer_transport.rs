@@ -1,8 +1,8 @@
-use crate::proto;
+use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
-use tracing::{debug, event, Level};
+use tracing::{event, Level};
 
 const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 

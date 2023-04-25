@@ -1,21 +1,21 @@
 use crate::options::TrackPublishOptions;
 use crate::prelude::LocalTrack;
-use crate::proto;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents, SessionInfo};
 use crate::signal_client::{SignalError, SignalOptions};
+use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use livekit_webrtc::session_description::SdpParseError;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Interval};
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -133,10 +133,6 @@ impl RtcEngine {
         });
 
         (Self { inner }, engine_events)
-    }
-
-    pub(crate) fn lk_runtime(&self) -> Arc<LkRuntime> {
-        self.inner.lk_runtime.clone()
     }
 
     #[tracing::instrument]
@@ -266,11 +262,10 @@ impl EngineInner {
                         if let Err(err) = self.on_session_event(event).await {
                             error!("failed to handle session event: {:?}", err);
                         }
-                    } else {
-                        panic!("rtc_sessions has been closed unexpectedly");
                     }
                 },
                  _ = &mut close_receiver => {
+                    trace!("closing engine task");
                     break;
                 }
             }

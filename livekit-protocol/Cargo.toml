@@ -1,0 +1,14 @@
+[package]
+name = "livekit-protocol"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.26.0", features = ["full"] }
+futures-util = "0.3"
+parking_lot = "0.12"
+prost = "0.11"
+prost-types = "0.11"
+
+[build-dependencies]
+prost-build = { version = "0.11.1" }

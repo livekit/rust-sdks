@@ -1,6 +1,5 @@
 use crate::track;
-
-include!(concat!(env!("OUT_DIR"), "/livekit.rs"));
+use livekit_protocol::*;
 
 // Conversions
 impl TryFrom<TrackType> for track::TrackKind {

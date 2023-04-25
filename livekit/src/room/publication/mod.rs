@@ -1,10 +1,10 @@
 use super::track::{TrackDimension, TrackEvent};
 use crate::prelude::*;
-use crate::proto;
 use crate::track::Track;
 use futures_util::stream::StreamExt;
-use livekit_utils::enum_dispatch;
-use livekit_utils::observer::Dispatcher;
+use livekit_protocol as proto;
+use livekit_protocol::enum_dispatch;
+use livekit_protocol::observer::Dispatcher;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;

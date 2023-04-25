@@ -1,7 +1,7 @@
-use crate::proto;
 use crate::signal_client::{SignalEmitter, SignalEvent, SignalOptions, SignalResult};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+use livekit_protocol as proto;
 use prost::Message as ProstMessage;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};

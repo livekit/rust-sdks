@@ -4,9 +4,10 @@ use crate::prelude::TrackKind;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
+use crate::signal_client;
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
 use crate::track::LocalTrack;
-use crate::{proto, signal_client};
+use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
@@ -157,7 +158,21 @@ impl RtcSession {
         debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = RtcConfiguration::from(join_response.clone());
+        let rtc_config = RtcConfiguration {
+            ice_servers: {
+                let mut servers = vec![];
+                for ice_server in join_response.ice_servers.clone() {
+                    servers.push(IceServer {
+                        urls: ice_server.urls,
+                        username: ice_server.username,
+                        password: ice_server.credential,
+                    })
+                }
+                servers
+            },
+            continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
+            ice_transport_type: IceTransportsType::All,
+        };
 
         let mut publisher_pc = PeerTransport::new(
             lk_runtime
@@ -221,7 +236,7 @@ impl RtcSession {
 
         // Start session tasks
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
-        let rtc_task = tokio::spawn(inner.clone().rtc_task(rtc_events, close_rx.clone()));
+        let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
 
         if !inner.info.join_response.subscriber_primary {
             inner.negotiate_publisher().await?;
@@ -333,10 +348,10 @@ impl RtcSession {
 }
 
 impl SessionInner {
-    async fn rtc_task(
+    async fn rtc_session_task(
         self: Arc<Self>,
         mut rtc_events: RtcEvents,
-        mut close_receiver: watch::Receiver<bool>,
+        mut close_rx: watch::Receiver<bool>,
     ) {
         loop {
             tokio::select! {
@@ -345,11 +360,9 @@ impl SessionInner {
                         if let Err(err) = self.on_rtc_event(event).await {
                             error!("failed to handle rtc event: {:?}", err);
                         }
-                    } else {
-                        panic!("rtc_events has been closed unexpectedly");
-                    }
-                },
-                 _ = close_receiver.changed() => {
+                    }                },
+                 _ = close_rx.changed() => {
+                    trace!("closing rtc_session_task");
                     break;
                 }
             }
@@ -359,7 +372,7 @@ impl SessionInner {
     async fn signal_task(
         self: Arc<Self>,
         mut signal_events: SignalEvents,
-        mut close_receiver: watch::Receiver<bool>,
+        mut close_rx: watch::Receiver<bool>,
     ) {
         loop {
             tokio::select! {
@@ -382,12 +395,10 @@ impl SessionInner {
                                 );
                             }
                         }
-                    } else {
-                        panic!("signal_events has been closed unexpectedly");
                     }
-
                 },
-                _ = close_receiver.changed() => {
+                _ = close_rx.changed() => {
+                    trace!("closing signal_task");
                     break;
                 }
             }

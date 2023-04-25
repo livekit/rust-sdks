@@ -1,5 +1,4 @@
 use crate::rtp_parameters::*;
-use crate::MediaType;
 use webrtc_sys::rtp_parameters as sys_rp;
 use webrtc_sys::webrtc as sys_webrtc;
 
