@@ -2,17 +2,14 @@ use crate::proto;
 use livekit::prelude::*;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::video_frame::{
-    native::I420BufferExt, native::VideoFrameBufferExt, BoxVideoFrame, BoxVideoFrameBuffer,
-    I420Buffer, VideoFrameBuffer,
+    native::I420BufferExt, native::VideoFrameBufferExt, BoxVideoFrameBuffer, I420Buffer,
 };
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
 use std::collections::HashMap;
-use std::panic;
 use std::slice;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -45,35 +42,63 @@ pub struct FFIConfig {
     callback_fn: CallbackFn,
 }
 
-/// To use the FFI, the foreign language and the FFI server must share
-/// the same memory space
 pub struct FFIServer {
-    // Object owned by the foreign language
-    // The foreign language is responsible for freeing this memory
-    //
-    // NOTE: For VideoBuffers, we always store the enum VideoFrameBuffer
-    ffi_owned: RwLock<HashMap<FFIHandleId, FFIHandle>>,
-    next_id: AtomicUsize, // Used for handle and async ids
-
     rooms: RwLock<HashMap<RoomSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
+    ffi_handles: RwLock<HashMap<FFIHandleId, FFIHandle>>,
+    next_id: AtomicUsize,
     async_runtime: tokio::runtime::Runtime,
-    initialized: AtomicBool,
     config: Mutex<Option<FFIConfig>>,
 }
 
 impl Default for FFIServer {
     fn default() -> Self {
         Self {
-            ffi_owned: RwLock::new(HashMap::new()),
+            rooms: Default::default(),
+            ffi_handles: Default::default(),
             next_id: AtomicUsize::new(1), // 0 is invalid
-            rooms: RwLock::new(HashMap::new()),
             async_runtime: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap(),
-            initialized: Default::default(),
             config: Default::default(),
         }
+    }
+}
+
+impl FFIServer {
+    pub async fn close(&self) {
+        // Close all rooms
+        for (_, (handle, shutdown_tx)) in self.rooms.write().drain() {
+            let _ = shutdown_tx.send(());
+            let _ = handle.await;
+        }
+    }
+
+    pub fn insert_room(&self, sid: RoomSid, handle: (JoinHandle<()>, oneshot::Sender<()>)) {
+        self.rooms.write().insert(sid, handle);
+    }
+
+    pub fn next_id(&self) -> usize {
+        self.next_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    pub fn ffi_handles(&self) -> &RwLock<HashMap<FFIHandleId, FFIHandle>> {
+        &self.ffi_handles
+    }
+
+    pub fn send_event(&self, message: proto::ffi_event::Message) -> FFIResult<()> {
+        let callback_fn = self
+            .config
+            .lock()
+            .map_or_else(|| Err(FFIError::NotConfigured), |c| Ok(c.callback_fn))?;
+
+        let message = proto::FfiEvent {
+            message: Some(message),
+        }
+        .encode_to_vec();
+
+        callback_fn(message.as_ptr(), message.len());
+        Ok(())
     }
 }
 
@@ -82,14 +107,11 @@ impl FFIServer {
         &self,
         init: proto::InitializeRequest,
     ) -> FFIResult<proto::InitializeResponse> {
-        if self
-            .initialized
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Release)
-            .is_err()
-        {
+        if self.config.lock().is_some() {
             return Err(FFIError::AlreadyInitialized);
         }
 
+        // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
         unsafe {
             *self.config.lock() = Some(FFIConfig {
                 callback_fn: std::mem::transmute(init.event_callback_ptr),
@@ -189,7 +211,9 @@ impl FFIServer {
 
         let handle_id = self.next_id();
         let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &buffer);
-        self.ffi_owned.write().insert(handle_id, Box::new(buffer));
+        self.ffi_handles()
+            .write()
+            .insert(handle_id, Box::new(buffer));
 
         Ok(proto::AllocVideoBufferResponse {
             buffer: Some(buffer_info),
@@ -265,9 +289,11 @@ impl FFIServer {
                 i420
             }
             proto::to_i420_request::From::Buffer(handle) => {
-                let ffi_owned = self.ffi_owned.read();
+                let ffi_handles = self.ffi_handles().read();
                 let handle_id = handle.id as FFIHandleId;
-                let buffer = ffi_owned.get(&handle_id).ok_or(FFIError::HandleNotFound)?;
+                let buffer = ffi_handles
+                    .get(&handle_id)
+                    .ok_or(FFIError::HandleNotFound)?;
                 let i420 = buffer
                     .downcast_ref::<BoxVideoFrameBuffer>()
                     .ok_or(FFIError::InvalidHandle)?
@@ -277,25 +303,27 @@ impl FFIServer {
             }
         };
 
+        let ffi_handles = self.ffi_handles().write();
         let handle_id = self.next_id() as FFIHandleId;
         let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &i420);
-        self.ffi_owned.write().insert(handle_id, Box::new(i420)); // This isn't the right type
+        ffi_handles.insert(handle_id, Box::new(i420)); // This isn't the right type
         Ok(proto::ToI420Response {
             buffer: Some(buffer_info),
         })
     }
 
     fn on_to_argb(&self, to_argb: proto::ToArgbRequest) -> FFIResult<proto::ToArgbResponse> {
-        let ffi_owned = self.ffi_owned.read();
+        let ffi_handles = self.ffi_handles.read();
         let handle_id = to_argb
             .buffer
             .ok_or(FFIError::InvalidRequest("buffer is empty".to_string()))?
             .id as FFIHandleId;
-        let buffer = ffi_owned.get(&handle_id).ok_or(FFIError::HandleNotFound)?;
+        let buffer = ffi_handles
+            .get(&handle_id)
+            .ok_or(FFIError::HandleNotFound)?;
         let buffer = buffer
             .downcast_ref::<BoxVideoFrameBuffer>()
             .ok_or(FFIError::InvalidHandle)?;
-
         let flip_y = to_argb.flip_y;
         let dst_format = proto::VideoFormatType::from_i32(to_argb.dst_format).unwrap();
         let dst_buf = unsafe {
@@ -421,43 +449,6 @@ impl FFIServer {
     }
 }
 
-impl FFIServer {
-    pub async fn close(&self) {
-        // Close all rooms
-        for (_, (handle, shutdown_tx)) in self.rooms.write().drain() {
-            let _ = shutdown_tx.send(());
-            let _ = handle.await;
-        }
-    }
-
-    pub fn insert_room(&self, sid: RoomSid, handle: (JoinHandle<()>, oneshot::Sender<()>)) {
-        self.rooms.write().insert(sid, handle);
-    }
-
-    pub fn next_id(&self) -> usize {
-        self.next_id.fetch_add(1, Ordering::SeqCst)
-    }
-
-    pub fn send_event(
-        &self,
-        message: proto::ffi_event::Message,
-        async_id: Option<u64>,
-    ) -> FFIResult<()> {
-        let callback_fn = self
-            .config
-            .lock()
-            .map_or_else(|| Err(FFIError::NotConfigured), |c| Ok(c.callback_fn))?;
-
-        let message = proto::FfiEvent {
-            message: Some(message),
-        }
-        .encode_to_vec();
-
-        callback_fn(message.as_ptr(), message.len());
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,13 +457,17 @@ mod tests {
     #[test]
     fn create_i420_buffer() {
         let server = FFIServer::default();
-        let res = server.handle_request(proto::ffi_request::Message::AllocVideoBuffer(
-            proto::AllocVideoBufferRequest {
-                r#type: proto::VideoFrameBufferType::I420 as i32,
-                width: 640,
-                height: 480,
-            },
-        ));
+        let res = server
+            .handle_request(proto::FfiRequest {
+                message: Some(proto::ffi_request::Message::AllocVideoBuffer(
+                    proto::AllocVideoBufferRequest {
+                        r#type: proto::VideoFrameBufferType::I420 as i32,
+                        width: 640,
+                        height: 480,
+                    },
+                )),
+            })
+            .unwrap();
 
         let proto::ffi_response::Message::AllocVideoBuffer(alloc) = res.message.unwrap() else {
             panic!("unexpected response");
@@ -481,15 +476,18 @@ mod tests {
         let i420_handle = alloc.buffer.unwrap().handle.unwrap().id as usize;
         assert_eq!(i420_handle, 1);
 
-        let res =
-            server.handle_request(proto::ffi_request::Message::ToI420(proto::ToI420Request {
-                flip_y: false,
-                from: Some(proto::to_i420_request::From::Buffer(proto::FfiHandleId {
-                    id: i420_handle as u64,
+        let res = server
+            .handle_request(proto::FfiRequest {
+                message: Some(proto::ffi_request::Message::ToI420(proto::ToI420Request {
+                    flip_y: false,
+                    from: Some(proto::to_i420_request::From::Buffer(proto::FfiHandleId {
+                        id: i420_handle as u64,
+                    })),
                 })),
-            }));
+            })
+            .unwrap();
 
-        server.release_handle(i420_handle).unwrap();
+        server.ffi_handles().write().remove(&i420_handle).unwrap();
 
         let proto::ffi_response::Message::ToI420(to_i420) = res.message.unwrap() else {
             panic!("unexpected response");
@@ -498,6 +496,6 @@ mod tests {
         let new_handle = to_i420.buffer.unwrap().handle.unwrap().id as usize;
         assert_eq!(new_handle, 2);
 
-        server.release_handle(new_handle).unwrap();
+        server.ffi_handles().write().remove(&new_handle).unwrap();
     }
 }

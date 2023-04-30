@@ -14,32 +14,33 @@ pub async fn create_room(
     let res = Room::connect(&connect.url, &connect.token).await;
     if let Err(_err) = &res {
         // Failed to connect to the room
-        let _ = server.send_event(
-            proto::ffi_event::Message::ConnectEvent(proto::ConnectEvent {
-                success: false,
-                room: None,
+        let _ = server.send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
+            async_id: Some(proto::FfiAsyncId {
+                id: async_id as u64,
             }),
-            Some(async_id),
-        );
+            success: false, // TODO(theomonnom): Reason
+            room: None,
+        }));
         return;
     }
 
     let (room, events) = res.unwrap();
     let session = room.session();
+    let room_info = proto::RoomInfo::from(&session);
 
     // Successfully connected to the room
-    let _ = server.send_event(
-        proto::ffi_event::Message::ConnectEvent(proto::ConnectEvent {
-            success: true,
-            room: Some((&session).into()),
+    let _ = server.send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
+        async_id: Some(proto::FfiAsyncId {
+            id: async_id as u64,
         }),
-        Some(async_id),
-    );
+        success: true,
+        room: Some(room_info),
+    }));
 
     // Add the room to the server and listen to the incoming events
     let (close_tx, close_rx) = oneshot::channel();
     let room_handle = tokio::spawn(room_task(server, room, events, close_rx));
-    server.add_room(session.sid(), (room_handle, close_tx));
+    server.insert_room(session.sid(), (room_handle, close_tx));
 }
 
 async fn room_task(
@@ -58,7 +59,7 @@ async fn room_task(
         tokio::select! {
             Some(event) = events.recv() => {
                 if let Some(event) = proto::RoomEvent::from(session.sid(), event.clone()) {
-                    let _ = server.send_event(proto::ffi_event::Message::RoomEvent(event), None);
+                    let _ = server.send_event(proto::ffi_event::Message::RoomEvent(event));
                 }
 
                 match event {
@@ -100,23 +101,24 @@ async fn video_frame_task(
     mut stream: NativeVideoStream,
 ) {
     while let Some(frame) = stream.next().await {
-        let handle_id = server.next_handle_id();
+        let handle_id = server.next_id();
         let frame_info = proto::VideoFrameInfo::from(&frame);
         let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &frame.buffer);
-        server.insert_handle(handle_id, Box::new(frame.buffer));
+
+        server
+            .ffi_handles()
+            .write()
+            .insert(handle_id, Box::new(frame.buffer));
 
         // Send the received frame to the FFI language.
-        let _ = server.send_event(
-            proto::ffi_event::Message::TrackEvent(proto::TrackEvent {
-                track_sid: track_sid.to_string(),
-                message: Some(proto::track_event::Message::FrameReceived(
-                    proto::FrameReceived {
-                        frame: Some(frame_info),
-                        buffer: Some(buffer_info),
-                    },
-                )),
-            }),
-            None,
-        );
+        /*let _ = server.send_event(proto::ffi_event::Message::TrackEvent(proto::TrackEvent {
+            track_sid: track_sid.to_string(),
+            message: Some(proto::track_event::Message::FrameReceived(
+                proto::FrameReceived {
+                    frame: Some(frame_info),
+                    buffer: Some(buffer_info),
+                },
+            )),
+        }));*/
     }
 }

@@ -1,6 +1,6 @@
+use crate::proto;
 use crate::server::FFIHandleId;
 use livekit::prelude::*;
-use crate::proto;
 
 pub mod participant;
 pub mod publication;
@@ -74,6 +74,7 @@ macro_rules! impl_track_into {
         impl From<$t> for proto::TrackInfo {
             fn from(track: $t) -> Self {
                 Self {
+                    opt_handle: None,
                     name: track.name(),
                     stream_state: proto::StreamState::from(track.stream_state()).into(),
                     sid: track.sid().to_string(),

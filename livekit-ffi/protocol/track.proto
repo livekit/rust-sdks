@@ -76,7 +76,7 @@ message TrackPublicationInfo {
 }
 
 message TrackInfo {
-  FFIHandleId handle = 1;
+  FFIHandleId opt_handle = 1;
   string sid = 2;
   string name = 3;
   TrackKind kind = 4;

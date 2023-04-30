@@ -19,43 +19,43 @@ extern "C" fn livekit_ffi_request(
     res_len: *mut usize,
 ) -> server::FFIHandleId {
     let data = unsafe { std::slice::from_raw_parts(data, len) };
-    let res = proto::FfiRequest::decode(data);
-    if let Err(ref err) = res {
-        eprintln!("failed to decode request: {:?}", err);
-        return 0;
-    }
+    let res = match proto::FfiRequest::decode(data) {
+        Ok(res) => res,
+        Err(err) => {
+            eprintln!("failed to decode request: {}", err);
+            return 0;
+        }
+    };
 
-    if res.as_ref().unwrap().message.is_none() {
-        eprintln!("request message is none");
-        return 0;
+    let res = match FFI_SERVER.handle_request(res) {
+        Ok(res) => res,
+        Err(err) => {
+            eprintln!("failed to handle request: {}", err);
+            return 0;
+        }
     }
+    .encode_to_vec();
 
-    let message = res.unwrap().message.unwrap();
-    if let proto::ffi_request::Message::Initialize(ref init) = message {
-        FFI_SERVER.initialize(init);
-    }
-
-    if let proto::ffi_request::Message::Dispose(_) = message {
-        FFI_SERVER.dispose();
-    }
-
-    if !FFI_SERVER.initialized() {
-        eprintln!("the server is not initialized");
-        return 0;
-    }
-
-    let res = FFI_SERVER.handle_request(message).encode_to_vec();
     unsafe {
         *res_ptr = res.as_ptr();
         *res_len = res.len();
     }
 
-    let handle_id = FFI_SERVER.next_handle_id();
-    FFI_SERVER.insert_handle(handle_id, Box::new(res));
+    let handle_id = FFI_SERVER.next_id();
+    FFI_SERVER
+        .ffi_handles()
+        .write()
+        .insert(handle_id, Box::new(res));
+
     handle_id
 }
 
 #[no_mangle]
 extern "C" fn livekit_ffi_drop_handle(handle_id: server::FFIHandleId) -> bool {
-    FFI_SERVER.release_handle(handle_id).is_some() // Free the memory
+    // Free the memory
+    FFI_SERVER
+        .ffi_handles()
+        .write()
+        .remove(&handle_id)
+        .is_some()
 }

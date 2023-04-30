@@ -83,12 +83,12 @@ macro_rules! new_buffer_type {
         }
 
         impl VideoFrameBuffer for $type {
-            fn width(&self) -> i32 {
-                self.handle.width()
+            fn width(&self) -> u32 {
+                self.handle.width() as u32
             }
 
-            fn height(&self) -> i32 {
-                self.handle.height()
+            fn height(&self) -> u32 {
+                self.handle.height() as u32
             }
 
             fn buffer_type(&self) -> VideoFrameBufferType {
