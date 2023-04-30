@@ -31,8 +31,8 @@ pub mod ffi {
         type NV12Buffer;
 
         fn buffer_type(self: &VideoFrameBuffer) -> VideoFrameBufferType;
-        fn width(self: &VideoFrameBuffer) -> i32;
-        fn height(self: &VideoFrameBuffer) -> i32;
+        fn width(self: &VideoFrameBuffer) -> u32;
+        fn height(self: &VideoFrameBuffer) -> u32;
 
         /// # SAFETY
         /// If the buffer type is I420, the buffer must be cloned before
@@ -47,11 +47,11 @@ pub mod ffi {
         unsafe fn get_i010(self: Pin<&mut VideoFrameBuffer>) -> UniquePtr<I010Buffer>;
         unsafe fn get_nv12(self: Pin<&mut VideoFrameBuffer>) -> UniquePtr<NV12Buffer>;
 
-        fn chroma_width(self: &PlanarYuvBuffer) -> i32;
-        fn chroma_height(self: &PlanarYuvBuffer) -> i32;
-        fn stride_y(self: &PlanarYuvBuffer) -> i32;
-        fn stride_u(self: &PlanarYuvBuffer) -> i32;
-        fn stride_v(self: &PlanarYuvBuffer) -> i32;
+        fn chroma_width(self: &PlanarYuvBuffer) -> u32;
+        fn chroma_height(self: &PlanarYuvBuffer) -> u32;
+        fn stride_y(self: &PlanarYuvBuffer) -> u32;
+        fn stride_u(self: &PlanarYuvBuffer) -> u32;
+        fn stride_v(self: &PlanarYuvBuffer) -> u32;
 
         fn data_y(self: &PlanarYuv8Buffer) -> *const u8;
         fn data_u(self: &PlanarYuv8Buffer) -> *const u8;
@@ -61,15 +61,15 @@ pub mod ffi {
         fn data_u(self: &PlanarYuv16BBuffer) -> *const u16;
         fn data_v(self: &PlanarYuv16BBuffer) -> *const u16;
 
-        fn chroma_width(self: &BiplanarYuvBuffer) -> i32;
-        fn chroma_height(self: &BiplanarYuvBuffer) -> i32;
-        fn stride_y(self: &BiplanarYuvBuffer) -> i32;
-        fn stride_uv(self: &BiplanarYuvBuffer) -> i32;
+        fn chroma_width(self: &BiplanarYuvBuffer) -> u32;
+        fn chroma_height(self: &BiplanarYuvBuffer) -> u32;
+        fn stride_y(self: &BiplanarYuvBuffer) -> u32;
+        fn stride_uv(self: &BiplanarYuvBuffer) -> u32;
 
         fn data_y(self: &BiplanarYuv8Buffer) -> *const u8;
         fn data_uv(self: &BiplanarYuv8Buffer) -> *const u8;
 
-        fn stride_a(self: &I420ABuffer) -> i32;
+        fn stride_a(self: &I420ABuffer) -> u32;
         fn data_a(self: &I420ABuffer) -> *const u8;
 
         fn new_i420_buffer(width: i32, height: i32) -> UniquePtr<I420Buffer>;

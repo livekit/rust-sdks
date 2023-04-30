@@ -32,8 +32,8 @@ class VideoFrame {
  public:
   explicit VideoFrame(const webrtc::VideoFrame& frame);
 
-  int width() const;
-  int height() const;
+  unsigned int width() const;
+  unsigned int height() const;
   uint32_t size() const;
   uint16_t id() const;
   int64_t timestamp_us() const;

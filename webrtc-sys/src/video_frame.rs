@@ -22,8 +22,8 @@ pub mod ffi {
 
         type VideoFrame;
 
-        fn width(self: &VideoFrame) -> i32;
-        fn height(self: &VideoFrame) -> i32;
+        fn width(self: &VideoFrame) -> u32;
+        fn height(self: &VideoFrame) -> u32;
         fn size(self: &VideoFrame) -> u32;
         fn id(self: &VideoFrame) -> u16;
         fn timestamp_us(self: &VideoFrame) -> i64;

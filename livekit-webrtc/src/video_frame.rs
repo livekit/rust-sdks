@@ -84,11 +84,11 @@ macro_rules! new_buffer_type {
 
         impl VideoFrameBuffer for $type {
             fn width(&self) -> u32 {
-                self.handle.width() as u32
+                self.handle.width()
             }
 
             fn height(&self) -> u32 {
-                self.handle.height() as u32
+                self.handle.height()
             }
 
             fn buffer_type(&self) -> VideoFrameBufferType {
@@ -134,8 +134,8 @@ pub(crate) mod internal {
 }
 
 pub trait VideoFrameBuffer: internal::BufferInternal + Debug {
-    fn width(&self) -> i32;
-    fn height(&self) -> i32;
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
     fn buffer_type(&self) -> VideoFrameBufferType;
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -176,15 +176,15 @@ new_buffer_type!(I010Buffer, I010, as_i010);
 new_buffer_type!(NV12Buffer, NV12, as_nv12);
 
 impl I420Buffer {
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         self.handle.chroma_height()
     }
 
-    pub fn strides(&self) -> (i32, i32, i32) {
+    pub fn strides(&self) -> (u32, u32, u32) {
         (
             self.handle.stride_y(),
             self.handle.stride_u(),
@@ -209,15 +209,15 @@ impl I420Buffer {
 }
 
 impl I420ABuffer {
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         self.handle.chroma_height()
     }
 
-    pub fn strides(&self) -> (i32, i32, i32, i32) {
+    pub fn strides(&self) -> (u32, u32, u32, u32) {
         (
             self.handle.stride_y(),
             self.handle.stride_u(),
@@ -246,15 +246,15 @@ impl I420ABuffer {
 }
 
 impl I422Buffer {
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         self.handle.chroma_height()
     }
 
-    pub fn strides(&self) -> (i32, i32, i32) {
+    pub fn strides(&self) -> (u32, u32, u32) {
         (
             self.handle.stride_y(),
             self.handle.stride_u(),
@@ -279,15 +279,15 @@ impl I422Buffer {
 }
 
 impl I444Buffer {
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         self.handle.chroma_height()
     }
 
-    pub fn strides(&self) -> (i32, i32, i32) {
+    pub fn strides(&self) -> (u32, u32, u32) {
         (
             self.handle.stride_y(),
             self.handle.stride_u(),
@@ -312,15 +312,15 @@ impl I444Buffer {
 }
 
 impl I010Buffer {
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         self.handle.chroma_height()
     }
 
-    pub fn strides(&self) -> (i32, i32, i32) {
+    pub fn strides(&self) -> (u32, u32, u32) {
         (
             self.handle.stride_y(),
             self.handle.stride_u(),
@@ -345,15 +345,15 @@ impl I010Buffer {
 }
 
 impl NV12Buffer {
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         self.handle.chroma_height()
     }
 
-    pub fn strides(&self) -> (i32, i32) {
+    pub fn strides(&self) -> (u32, u32) {
         (self.handle.stride_y(), self.handle.stride_uv())
     }
 
@@ -444,11 +444,11 @@ impl<T: VideoFrameBuffer + ?Sized> internal::BufferInternal for Box<T> {
 }
 
 impl<T: VideoFrameBuffer + ?Sized> VideoFrameBuffer for Box<T> {
-    fn width(&self) -> i32 {
+    fn width(&self) -> u32 {
         self.as_ref().width()
     }
 
-    fn height(&self) -> i32 {
+    fn height(&self) -> u32 {
         self.as_ref().height()
     }
 

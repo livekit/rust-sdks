@@ -24,10 +24,10 @@ namespace livekit {
 VideoFrame::VideoFrame(const webrtc::VideoFrame& frame)
     : frame_(std::move(frame)) {}
 
-int VideoFrame::width() const {
+unsigned int VideoFrame::width() const {
   return frame_.width();
 }
-int VideoFrame::height() const {
+unsigned int VideoFrame::height() const {
   return frame_.height();
 }
 uint32_t VideoFrame::size() const {

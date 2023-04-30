@@ -26,11 +26,11 @@ VideoFrameBufferType VideoFrameBuffer::buffer_type() const {
   return static_cast<VideoFrameBufferType>(buffer_->type());
 }
 
-int VideoFrameBuffer::width() const {
+unsigned int VideoFrameBuffer::width() const {
   return buffer_->width();
 }
 
-int VideoFrameBuffer::height() const {
+unsigned int VideoFrameBuffer::height() const {
   return buffer_->height();
 }
 
@@ -83,23 +83,23 @@ PlanarYuvBuffer::PlanarYuvBuffer(
     rtc::scoped_refptr<webrtc::PlanarYuvBuffer> buffer)
     : VideoFrameBuffer(buffer) {}
 
-int PlanarYuvBuffer::chroma_width() const {
+unsigned int PlanarYuvBuffer::chroma_width() const {
   return buffer()->ChromaWidth();
 }
 
-int PlanarYuvBuffer::chroma_height() const {
+unsigned int PlanarYuvBuffer::chroma_height() const {
   return buffer()->ChromaHeight();
 }
 
-int PlanarYuvBuffer::stride_y() const {
+unsigned int PlanarYuvBuffer::stride_y() const {
   return buffer()->StrideY();
 }
 
-int PlanarYuvBuffer::stride_u() const {
+unsigned int PlanarYuvBuffer::stride_u() const {
   return buffer()->StrideU();
 }
 
-int PlanarYuvBuffer::stride_v() const {
+unsigned int PlanarYuvBuffer::stride_v() const {
   return buffer()->StrideV();
 }
 
@@ -151,19 +151,19 @@ BiplanarYuvBuffer::BiplanarYuvBuffer(
     rtc::scoped_refptr<webrtc::BiplanarYuvBuffer> buffer)
     : VideoFrameBuffer(buffer) {}
 
-int BiplanarYuvBuffer::chroma_width() const {
+unsigned int BiplanarYuvBuffer::chroma_width() const {
   return buffer()->ChromaWidth();
 }
 
-int BiplanarYuvBuffer::chroma_height() const {
+unsigned int BiplanarYuvBuffer::chroma_height() const {
   return buffer()->ChromaHeight();
 }
 
-int BiplanarYuvBuffer::stride_y() const {
+unsigned int BiplanarYuvBuffer::stride_y() const {
   return buffer()->StrideY();
 }
 
-int BiplanarYuvBuffer::stride_uv() const {
+unsigned int BiplanarYuvBuffer::stride_uv() const {
   return buffer()->StrideUV();
 }
 
@@ -204,7 +204,7 @@ I420ABuffer::I420ABuffer(
     rtc::scoped_refptr<webrtc::I420ABufferInterface> buffer)
     : I420Buffer(buffer) {}
 
-int I420ABuffer::stride_a() const {
+unsigned int I420ABuffer::stride_a() const {
   return buffer()->StrideA();
 }
 
