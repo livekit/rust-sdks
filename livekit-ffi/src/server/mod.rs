@@ -70,6 +70,8 @@ impl Default for FFIServer {
     }
 }
 
+// Using &'static self inside the implementation, not sure if this is really idiomatic
+// It simplifies the code a lot tho. In most cases the server is used until the end of the process
 impl FFIServer {
     pub async fn close(&'static self) {
         // Close all rooms
@@ -320,10 +322,11 @@ impl FFIServer {
             }
         };
 
+        let i420: BoxVideoFrameBuffer = Box::new(i420);
         let mut ffi_handles = self.ffi_handles().write();
         let handle_id = self.next_id() as FFIHandleId;
         let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &i420);
-        ffi_handles.insert(handle_id, Box::new(i420)); // This isn't the right type
+        ffi_handles.insert(handle_id, Box::new(i420));
         Ok(proto::ToI420Response {
             buffer: Some(buffer_info),
         })
