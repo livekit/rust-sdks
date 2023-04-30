@@ -26,8 +26,8 @@ impl NativeAudioSource {
             self.sys_handle.on_captured_frame(
                 frame.data.as_ptr(),
                 frame.sample_rate_hz as i32,
-                frame.num_channels,
-                frame.samples_per_channel,
+                frame.num_channels as usize,
+                frame.samples_per_channel as usize,
             )
         }
     }

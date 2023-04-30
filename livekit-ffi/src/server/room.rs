@@ -1,13 +1,14 @@
+use super::FFIAsyncId;
+use crate::proto;
 use crate::server::FFIServer;
 use futures_util::stream::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use tokio::sync::{mpsc, oneshot};
-use crate::proto;
 
 pub async fn create_room(
     server: &'static FFIServer,
-    async_id: u64,
+    async_id: FFIAsyncId,
     connect: proto::ConnectRequest,
 ) {
     let res = Room::connect(&connect.url, &connect.token).await;

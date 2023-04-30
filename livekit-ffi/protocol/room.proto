@@ -8,26 +8,6 @@ import "participant.proto";
 import "track.proto";
 import "video_frame.proto";
 
-message VideoEncoding {
-  uint64 max_bitrate = 1;
-  double max_frame_rate = 2;
-}
-
-message AudioEncoding {
-  uint64 max_bitrate = 1;
-}
-
-message TrackPublishOptions {
-  VideoEncoding video_encoding = 1;
-  AudioEncoding audio_encoding = 2;
-  VideoCodec video_codec = 3;
-  bool dtx = 4;
-  bool red = 5;
-  bool simulcast = 6;
-  string name = 7;
-  TrackSource source = 8;
-}
-
 // Connect to a new LiveKit room
 message ConnectRequest {
   string url = 1;
@@ -35,8 +15,13 @@ message ConnectRequest {
   RoomOptions options = 3;
 }
 message ConnectResponse {
-  bool success = 1;
-  optional RoomInfo room = 2;
+  FFIAsyncId async_id = 1;
+}
+
+message ConnectCallback {
+  FFIAsyncId async_id = 1;
+  bool success = 2;
+  optional RoomInfo room = 3;
 }
 
 // Disconnect from the a room
@@ -62,6 +47,35 @@ message UnpublishTrackRequest {
 }
 message UnpublishTrackResponse {
   bool success = 1;
+}
+
+///
+/// Options
+///
+
+message VideoEncoding {
+  uint64 max_bitrate = 1;
+  double max_frame_rate = 2;
+}
+
+message AudioEncoding {
+  uint64 max_bitrate = 1;
+}
+
+message TrackPublishOptions {
+  VideoEncoding video_encoding = 1;
+  AudioEncoding audio_encoding = 2;
+  VideoCodec video_codec = 3;
+  bool dtx = 4;
+  bool red = 5;
+  bool simulcast = 6;
+  string name = 7;
+  TrackSource source = 8;
+}
+
+message RoomOptions {
+  bool auto_subscribe = 1;
+  bool adaptive_stream = 2;
 }
 
 ///
@@ -106,11 +120,6 @@ message RoomEvent {
     Reconnecting reconnecting = 16;
     Reconnected reconnected = 17;
   }
-}
-
-message RoomOptions {
-  bool auto_subscribe = 1;
-  bool adaptive_stream = 2;
 }
 
 message RoomInfo {

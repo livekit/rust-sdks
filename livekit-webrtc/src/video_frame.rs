@@ -184,16 +184,12 @@ impl I420Buffer {
         self.handle.chroma_height()
     }
 
-    pub fn stride_y(&self) -> i32 {
-        self.handle.stride_y()
-    }
-
-    pub fn stride_u(&self) -> i32 {
-        self.handle.stride_u()
-    }
-
-    pub fn stride_v(&self) -> i32 {
-        self.handle.stride_v()
+    pub fn strides(&self) -> (i32, i32, i32) {
+        (
+            self.handle.stride_y(),
+            self.handle.stride_u(),
+            self.handle.stride_v(),
+        )
     }
 
     pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
@@ -221,20 +217,13 @@ impl I420ABuffer {
         self.handle.chroma_height()
     }
 
-    pub fn stride_y(&self) -> i32 {
-        self.handle.stride_y()
-    }
-
-    pub fn stride_u(&self) -> i32 {
-        self.handle.stride_u()
-    }
-
-    pub fn stride_v(&self) -> i32 {
-        self.handle.stride_v()
-    }
-
-    pub fn stride_a(&self) -> i32 {
-        self.handle.stride_a()
+    pub fn strides(&self) -> (i32, i32, i32, i32) {
+        (
+            self.handle.stride_y(),
+            self.handle.stride_u(),
+            self.handle.stride_v(),
+            self.handle.stride_a(),
+        )
     }
 
     pub fn data(&self) -> (&[u8], &[u8], &[u8], Option<&[u8]>) {
@@ -265,16 +254,12 @@ impl I422Buffer {
         self.handle.chroma_height()
     }
 
-    pub fn stride_y(&self) -> i32 {
-        self.handle.stride_y()
-    }
-
-    pub fn stride_u(&self) -> i32 {
-        self.handle.stride_u()
-    }
-
-    pub fn stride_v(&self) -> i32 {
-        self.handle.stride_v()
+    pub fn strides(&self) -> (i32, i32, i32) {
+        (
+            self.handle.stride_y(),
+            self.handle.stride_u(),
+            self.handle.stride_v(),
+        )
     }
 
     pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
@@ -302,16 +287,12 @@ impl I444Buffer {
         self.handle.chroma_height()
     }
 
-    pub fn stride_y(&self) -> i32 {
-        self.handle.stride_y()
-    }
-
-    pub fn stride_u(&self) -> i32 {
-        self.handle.stride_u()
-    }
-
-    pub fn stride_v(&self) -> i32 {
-        self.handle.stride_v()
+    pub fn strides(&self) -> (i32, i32, i32) {
+        (
+            self.handle.stride_y(),
+            self.handle.stride_u(),
+            self.handle.stride_v(),
+        )
     }
 
     pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
@@ -339,16 +320,12 @@ impl I010Buffer {
         self.handle.chroma_height()
     }
 
-    pub fn stride_y(&self) -> i32 {
-        self.handle.stride_y()
-    }
-
-    pub fn stride_u(&self) -> i32 {
-        self.handle.stride_u()
-    }
-
-    pub fn stride_v(&self) -> i32 {
-        self.handle.stride_v()
+    pub fn strides(&self) -> (i32, i32, i32) {
+        (
+            self.handle.stride_y(),
+            self.handle.stride_u(),
+            self.handle.stride_v(),
+        )
     }
 
     pub fn data(&self) -> (&[u16], &[u16], &[u16]) {
@@ -376,12 +353,8 @@ impl NV12Buffer {
         self.handle.chroma_height()
     }
 
-    pub fn stride_y(&self) -> i32 {
-        self.handle.stride_y()
-    }
-
-    pub fn stride_uv(&self) -> i32 {
-        self.handle.stride_uv()
+    pub fn strides(&self) -> (i32, i32) {
+        (self.handle.stride_y(), self.handle.stride_uv())
     }
 
     pub fn data(&self) -> (&[u8], &[u8]) {

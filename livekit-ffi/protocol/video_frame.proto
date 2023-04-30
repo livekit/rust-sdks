@@ -36,9 +36,10 @@ message PushVideoFrameResponse {}
 // Convert a RGBA frame to a I420 YUV frame
 // Or convert another YUV frame format to I420
 message ToI420Request {
+  bool flip_y = 1;
   oneof from {
-    ARGBBufferInfo argb = 1;
-    FFIHandleId buffer = 2;
+    ARGBBufferInfo argb = 2;
+    FFIHandleId buffer = 3;
   }
 }
 message ToI420Response { VideoFrameBufferInfo buffer = 1; }
@@ -52,6 +53,7 @@ message ToARGBRequest {
   uint32 dst_stride = 4;
   uint32 dst_width = 5;
   uint32 dst_height = 6;
+  bool flip_y = 7;
 }
 message ToARGBResponse {}
 

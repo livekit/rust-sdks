@@ -11,6 +11,7 @@ import "video_frame.proto";
 import "audio_frame.proto";
 
 /// This is the input of livekit_ffi_request function
+/// We always expect a response (FFIResponse)
 message FFIRequest {
   oneof message {
     InitializeRequest initialize = 1;
@@ -44,46 +45,40 @@ message FFIRequest {
 
 /// This is the output of livekit_ffi_request function.
 message FFIResponse {
-  optional uint64 async_id = 1;
-  // message is None when async_id is set
   oneof message {
-    InitializeResponse initialize = 2;
-    DisposeResponse dispose = 3;
+    InitializeResponse initialize = 1;
+    DisposeResponse dispose = 2;
 
     // Room
-    ConnectResponse connect = 4;
-    DisconnectResponse disconnect = 5;
-    PublishTrackResponse publish_track = 6;
-    UnpublishTrackResponse unpublish_track = 7;
+    ConnectResponse connect = 3;
+    DisconnectResponse disconnect = 4;
+    PublishTrackResponse publish_track = 5;
+    UnpublishTrackResponse unpublish_track = 6;
 
     // Track
-    CreateVideoTrackResponse create_video_track = 8;
-    CreateAudioTrackResponse create_audio_track = 9;
+    CreateVideoTrackResponse create_video_track = 7;
+    CreateAudioTrackResponse create_audio_track = 8;
 
     // Video
-    AllocVideoBufferResponse alloc_video_buffer = 10;
-    NewVideoStreamResponse new_video_stream = 11;
-    NewVideoSourceResponse new_video_source = 12;
-    PushVideoFrameResponse push_video_frame = 13;
-    ToI420Response to_i420 = 14;
-    ToARGBResponse to_argb = 15;
+    AllocVideoBufferResponse alloc_video_buffer = 9;
+    NewVideoStreamResponse new_video_stream = 10;
+    NewVideoSourceResponse new_video_source = 11;
+    PushVideoFrameResponse push_video_frame = 12;
+    ToI420Response to_i420 = 13;
+    ToARGBResponse to_argb = 14;
 
     // Audio
-    AllocAudioBufferResponse alloc_audio_buffer = 16;
-    NewAudioStreamResponse new_audio_stream = 17;
-    NewAudioSourceResponse new_audio_source = 18;
-    PushAudioFrameResponse push_audio_frame = 19;
+    AllocAudioBufferResponse alloc_audio_buffer = 15;
+    NewAudioStreamResponse new_audio_stream = 16;
+    NewAudioSourceResponse new_audio_source = 17;
+    PushAudioFrameResponse push_audio_frame = 18;
   }
 }
 
-/// This message is used to receive the result of asynchronous requests
-/// Or to receive events of a Room
 message FFIEvent {
-  // Used if the message is used to send the async result to the foreign
-  // language
-  optional uint64 async_id = 1;
   oneof message {
-    ConnectResponse connect = 2;
+    ConnectCallback connect = 1;
+    DisposeCallback dispose = 2;
     RoomEvent room_event = 3;
     TrackEvent track_event = 4;
     ParticipantEvent participant_event = 5;
@@ -99,7 +94,16 @@ message InitializeResponse {}
 
 // Stop all rooms synchronously (Do we need async here?).
 // e.g: This is used for the Unity Editor after each assemblies reload.
-message DisposeRequest {}
-message DisposeResponse {}
+message DisposeRequest {
+  bool async = 1;
+}
+
+message DisposeResponse {
+  optional FFIAsyncId async_id = 1; // None if sync
+}
+
+message DisposeCallback {
+  FFIAsyncId async_id = 1;
+}
 
 // TODO(theomonnom): Debug messages (Print handle, forward logs).

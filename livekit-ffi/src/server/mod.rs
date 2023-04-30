@@ -1,15 +1,18 @@
-use lazy_static::lazy_static;
-use livekit::prelude::*;
-use livekit::webrtc::video_frame::{native::VideoFrameBufferExt, BoxVideoFrame, VideoFrameBuffer};
 use crate::proto;
+use livekit::prelude::*;
+use livekit::webrtc::native::yuv_helper;
+use livekit::webrtc::video_frame::{
+    native::I420BufferExt, native::VideoFrameBufferExt, BoxVideoFrame, BoxVideoFrameBuffer,
+    I420Buffer, VideoFrameBuffer,
+};
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
 use std::any::Any;
 use std::collections::HashMap;
 use std::panic;
 use std::slice;
-use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 use thiserror::Error;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -19,20 +22,24 @@ mod room;
 
 #[derive(Error, Debug)]
 pub enum FFIError {
-    #[error("the FFIServer isn't configured")]
+    #[error("the server is not configured")]
     NotConfigured,
-    #[error("failed to execute the FFICallback")]
-    CallbackFailed,
+    #[error("the server is already initialized")]
+    AlreadyInitialized,
+    #[error("the handle is not found")]
+    HandleNotFound,
+    #[error("the handle is invalid for this operation")]
+    InvalidHandle,
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
 }
 
+pub type FFIResult<T> = Result<T, FFIError>;
+pub type FFIAsyncId = usize;
 pub type FFIHandleId = usize;
 pub type FFIHandle = Box<dyn Any + Send + Sync>;
 
 type CallbackFn = unsafe extern "C" fn(*const u8, usize); // This "C" callback must be threadsafe
-
-lazy_static! {
-    static ref FFI_SERVER: FFIServer = FFIServer::default();
-}
 
 pub struct FFIConfig {
     callback_fn: CallbackFn,
@@ -46,8 +53,7 @@ pub struct FFIServer {
     //
     // NOTE: For VideoBuffers, we always store the enum VideoFrameBuffer
     ffi_owned: RwLock<HashMap<FFIHandleId, FFIHandle>>,
-    next_handle_id: AtomicU64, // FFIHandleId
-    next_async_id: AtomicU64,
+    next_id: AtomicUsize, // Used for handle and async ids
 
     rooms: RwLock<HashMap<RoomSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
     async_runtime: tokio::runtime::Runtime,
@@ -59,8 +65,7 @@ impl Default for FFIServer {
     fn default() -> Self {
         Self {
             ffi_owned: RwLock::new(HashMap::new()),
-            next_handle_id: AtomicU64::new(1), // 0 is considered invalid
-            next_async_id: AtomicU64::new(1),
+            next_id: AtomicUsize::new(1), // 0 is invalid
             rooms: RwLock::new(HashMap::new()),
             async_runtime: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -73,23 +78,350 @@ impl Default for FFIServer {
 }
 
 impl FFIServer {
-    pub fn initialize(&self, init: &proto::InitializeRequest) {
-        if self.initialized() {
-            self.dispose();
+    fn on_initialize(
+        &self,
+        init: proto::InitializeRequest,
+    ) -> FFIResult<proto::InitializeResponse> {
+        if self
+            .initialized
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Release)
+            .is_err()
+        {
+            return Err(FFIError::AlreadyInitialized);
         }
 
-        self.initialized.store(true, Ordering::SeqCst);
-        *self.config.lock() = Some(FFIConfig {
-            callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr) },
-        });
+        unsafe {
+            *self.config.lock() = Some(FFIConfig {
+                callback_fn: std::mem::transmute(init.event_callback_ptr),
+            });
+        }
+
+        Ok(proto::InitializeResponse::default())
     }
 
-    pub fn dispose(&self) {
-        self.initialized.store(false, Ordering::SeqCst);
+    fn on_dispose(&self, dispose: proto::DisposeRequest) -> FFIResult<proto::DisposeResponse> {
         *self.config.lock() = None;
-        self.async_runtime.block_on(self.close());
+
+        let close = self.close();
+        if !dispose.r#async {
+            self.async_runtime.block_on(close);
+            Ok(proto::DisposeResponse::default())
+        } else {
+            let async_id = self.next_id();
+            self.async_runtime.spawn(async move {
+                close.await;
+            });
+            Ok(proto::DisposeResponse {
+                async_id: Some(proto::FfiAsyncId {
+                    id: async_id as u64,
+                }),
+            })
+        }
     }
 
+    // Room
+
+    fn on_connect(&self, connect: proto::ConnectRequest) -> FFIResult<proto::ConnectResponse> {
+        let async_id = self.next_id();
+        self.async_runtime
+            .spawn(room::create_room(&self, async_id, connect));
+
+        Ok(proto::ConnectResponse {
+            async_id: Some(proto::FfiAsyncId {
+                id: async_id as u64,
+            }),
+        })
+    }
+
+    fn on_disconnect(
+        &self,
+        disconnect: proto::DisconnectRequest,
+    ) -> FFIResult<proto::DisconnectResponse> {
+        Ok(proto::DisconnectResponse::default())
+    }
+
+    fn on_publish_track(
+        &self,
+        publish: proto::PublishTrackRequest,
+    ) -> FFIResult<proto::PublishTrackResponse> {
+        Ok(proto::PublishTrackResponse::default())
+    }
+
+    fn on_unpublish_track(
+        &self,
+        unpublish: proto::UnpublishTrackRequest,
+    ) -> FFIResult<proto::UnpublishTrackResponse> {
+        Ok(proto::UnpublishTrackResponse::default())
+    }
+
+    // Track
+    fn on_create_video_track(
+        &self,
+        create: proto::CreateVideoTrackRequest,
+    ) -> FFIResult<proto::CreateVideoTrackResponse> {
+        Ok(proto::CreateVideoTrackResponse::default())
+    }
+
+    fn on_create_audio_track(
+        &self,
+        create: proto::CreateAudioTrackRequest,
+    ) -> FFIResult<proto::CreateAudioTrackResponse> {
+        Ok(proto::CreateAudioTrackResponse::default())
+    }
+
+    // Video
+
+    fn on_alloc_video_buffer(
+        &self,
+        alloc: proto::AllocVideoBufferRequest,
+    ) -> FFIResult<proto::AllocVideoBufferResponse> {
+        let frame_type = proto::VideoFrameBufferType::from_i32(alloc.r#type).unwrap();
+        let buffer: BoxVideoFrameBuffer = match frame_type {
+            proto::VideoFrameBufferType::I420 => {
+                Box::new(I420Buffer::new(alloc.width, alloc.height))
+            }
+            _ => {
+                return Err(FFIError::InvalidRequest(
+                    "frame type is not supported".to_owned(),
+                ))
+            }
+        };
+
+        let handle_id = self.next_id();
+        let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &buffer);
+        self.ffi_owned.write().insert(handle_id, Box::new(buffer));
+
+        Ok(proto::AllocVideoBufferResponse {
+            buffer: Some(buffer_info),
+        })
+    }
+
+    fn on_new_video_stream(
+        &self,
+        new_stream: proto::NewVideoStreamRequest,
+    ) -> FFIResult<proto::NewVideoStreamResponse> {
+        Ok(proto::NewVideoStreamResponse::default())
+    }
+
+    fn on_new_video_source(
+        &self,
+        new_source: proto::NewVideoSourceRequest,
+    ) -> FFIResult<proto::NewVideoSourceResponse> {
+        Ok(proto::NewVideoSourceResponse::default())
+    }
+
+    fn on_push_video_frame(
+        &self,
+        push: proto::PushVideoFrameRequest,
+    ) -> FFIResult<proto::PushVideoFrameResponse> {
+        Ok(proto::PushVideoFrameResponse::default())
+    }
+
+    fn on_to_i420(&self, to_i420: proto::ToI420Request) -> FFIResult<proto::ToI420Response> {
+        let from = to_i420
+            .from
+            .ok_or(FFIError::InvalidRequest("from is empty".to_string()))?;
+        let flip_y = to_i420.flip_y;
+
+        let i420 = match from {
+            proto::to_i420_request::From::Argb(argb_info) => {
+                let mut i420 = I420Buffer::new(argb_info.width, argb_info.height);
+
+                let format = proto::VideoFormatType::from_i32(argb_info.format).unwrap();
+                let argb_ptr = argb_info.ptr as *const u8;
+                let argb_len = (argb_info.stride * argb_info.height) as usize;
+                let argb = unsafe { slice::from_raw_parts(argb_ptr, argb_len) };
+                let stride = argb_info.stride as i32;
+                let (stride_y, stride_u, stride_v) = i420.strides();
+                let (data_y, data_u, data_v) = i420.data_mut();
+                let width = argb_info.width as i32;
+                let height = argb_info.height as i32;
+                if flip_y {
+                    height = -height;
+                }
+
+                match format {
+                    proto::VideoFormatType::FormatArgb => {
+                        yuv_helper::argb_to_i420(
+                            argb, stride, data_y, stride_y, data_u, stride_u, data_v, stride_v,
+                            width, height,
+                        )
+                        .unwrap();
+                    }
+                    proto::VideoFormatType::FormatAbgr => {
+                        yuv_helper::abgr_to_i420(
+                            argb, stride, data_y, stride_y, data_u, stride_u, data_v, stride_v,
+                            width, height,
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        return Err(FFIError::InvalidRequest(
+                            "the format is not supported".to_string(),
+                        ))
+                    }
+                }
+
+                i420
+            }
+            proto::to_i420_request::From::Buffer(handle) => {
+                let ffi_owned = self.ffi_owned.read();
+                let handle_id = handle.id as FFIHandleId;
+                let buffer = ffi_owned.get(&handle_id).ok_or(FFIError::HandleNotFound)?;
+                let i420 = buffer
+                    .downcast_ref::<BoxVideoFrameBuffer>()
+                    .ok_or(FFIError::InvalidHandle)?
+                    .to_i420();
+
+                i420
+            }
+        };
+
+        let handle_id = self.next_id() as FFIHandleId;
+        let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &i420);
+        self.ffi_owned.write().insert(handle_id, Box::new(i420)); // This isn't the right type
+        Ok(proto::ToI420Response {
+            buffer: Some(buffer_info),
+        })
+    }
+
+    fn on_to_argb(&self, to_argb: proto::ToArgbRequest) -> FFIResult<proto::ToArgbResponse> {
+        let ffi_owned = self.ffi_owned.read();
+        let handle_id = to_argb
+            .buffer
+            .ok_or(FFIError::InvalidRequest("buffer is empty".to_string()))?
+            .id as FFIHandleId;
+        let buffer = ffi_owned.get(&handle_id).ok_or(FFIError::HandleNotFound)?;
+        let buffer = buffer
+            .downcast_ref::<BoxVideoFrameBuffer>()
+            .ok_or(FFIError::InvalidHandle)?;
+
+        let flip_y = to_argb.flip_y;
+        let dst_format = proto::VideoFormatType::from_i32(to_argb.dst_format).unwrap();
+        let dst_buf = unsafe {
+            slice::from_raw_parts_mut(
+                to_argb.dst_ptr as *mut u8,
+                (to_argb.dst_stride * to_argb.dst_height) as usize,
+            )
+        };
+        let dst_stride = to_argb.dst_stride as i32;
+        let dst_width = to_argb.dst_width as i32;
+        let dst_height = to_argb.dst_height as i32;
+        if flip_y {
+            dst_height = -dst_height;
+        }
+
+        buffer
+            .to_argb(
+                dst_format.into(),
+                dst_buf,
+                dst_stride,
+                dst_width,
+                dst_height,
+            )
+            .unwrap();
+
+        Ok(proto::ToArgbResponse::default())
+    }
+
+    // Audio
+
+    fn on_alloc_audio_buffer(
+        &self,
+        alloc: proto::AllocAudioBufferRequest,
+    ) -> FFIResult<proto::AllocAudioBufferResponse> {
+        Ok(proto::AllocAudioBufferResponse::default())
+    }
+
+    fn on_new_audio_stream(
+        &self,
+        new_stream: proto::NewAudioStreamRequest,
+    ) -> FFIResult<proto::NewAudioStreamResponse> {
+        Ok(proto::NewAudioStreamResponse::default())
+    }
+
+    fn on_new_audio_source(
+        &self,
+        new_source: proto::NewAudioSourceRequest,
+    ) -> FFIResult<proto::NewAudioSourceResponse> {
+        Ok(proto::NewAudioSourceResponse::default())
+    }
+
+    fn on_push_audio_frame(
+        &self,
+        push: proto::PushAudioFrameRequest,
+    ) -> FFIResult<proto::PushAudioFrameResponse> {
+        Ok(proto::PushAudioFrameResponse::default())
+    }
+
+    pub fn handle_request(&self, request: proto::FfiRequest) -> FFIResult<proto::FfiResponse> {
+        let request = request
+            .message
+            .ok_or(FFIError::InvalidRequest("message is empty".to_string()))?;
+
+        let res = proto::FfiResponse::default();
+        res.message = Some(match request {
+            proto::ffi_request::Message::Initialize(init) => {
+                proto::ffi_response::Message::Initialize(self.on_initialize(init)?)
+            }
+            proto::ffi_request::Message::Dispose(dispose) => {
+                proto::ffi_response::Message::Dispose(self.on_dispose(dispose)?)
+            }
+            proto::ffi_request::Message::Connect(connect) => {
+                proto::ffi_response::Message::Connect(self.on_connect(connect)?)
+            }
+            proto::ffi_request::Message::Disconnect(disconnect) => {
+                proto::ffi_response::Message::Disconnect(self.on_disconnect(disconnect)?)
+            }
+            proto::ffi_request::Message::PublishTrack(publish) => {
+                proto::ffi_response::Message::PublishTrack(self.on_publish_track(publish)?)
+            }
+            proto::ffi_request::Message::UnpublishTrack(unpublish) => {
+                proto::ffi_response::Message::UnpublishTrack(self.on_unpublish_track(unpublish)?)
+            }
+            proto::ffi_request::Message::CreateVideoTrack(create) => {
+                proto::ffi_response::Message::CreateVideoTrack(self.on_create_video_track(create)?)
+            }
+            proto::ffi_request::Message::CreateAudioTrack(create) => {
+                proto::ffi_response::Message::CreateAudioTrack(self.on_create_audio_track(create)?)
+            }
+            proto::ffi_request::Message::AllocVideoBuffer(alloc) => {
+                proto::ffi_response::Message::AllocVideoBuffer(self.on_alloc_video_buffer(alloc)?)
+            }
+            proto::ffi_request::Message::NewVideoStream(new_stream) => {
+                proto::ffi_response::Message::NewVideoStream(self.on_new_video_stream(new_stream)?)
+            }
+            proto::ffi_request::Message::NewVideoSource(new_source) => {
+                proto::ffi_response::Message::NewVideoSource(self.on_new_video_source(new_source)?)
+            }
+            proto::ffi_request::Message::PushVideoFrame(push) => {
+                proto::ffi_response::Message::PushVideoFrame(self.on_push_video_frame(push)?)
+            }
+            proto::ffi_request::Message::ToI420(to_i420) => {
+                proto::ffi_response::Message::ToI420(self.on_to_i420(to_i420)?)
+            }
+            proto::ffi_request::Message::ToArgb(to_argb) => {
+                proto::ffi_response::Message::ToArgb(self.on_to_argb(to_argb)?)
+            }
+            proto::ffi_request::Message::AllocAudioBuffer(alloc) => {
+                proto::ffi_response::Message::AllocAudioBuffer(self.on_alloc_audio_buffer(alloc)?)
+            }
+            proto::ffi_request::Message::NewAudioStream(new_stream) => {
+                proto::ffi_response::Message::NewAudioStream(self.on_new_audio_stream(new_stream)?)
+            }
+            proto::ffi_request::Message::NewAudioSource(new_source) => {
+                proto::ffi_response::Message::NewAudioSource(self.on_new_audio_source(new_source)?)
+            }
+            proto::ffi_request::Message::PushAudioFrame(push) => {
+                proto::ffi_response::Message::PushAudioFrame(self.on_push_audio_frame(push)?)
+            }
+        });
+
+        Ok(res)
+    }
+}
+
+impl FFIServer {
     pub async fn close(&self) {
         // Close all rooms
         for (_, (handle, shutdown_tx)) in self.rooms.write().drain() {
@@ -98,262 +430,32 @@ impl FFIServer {
         }
     }
 
-    pub fn add_room(&self, sid: RoomSid, handle: (JoinHandle<()>, oneshot::Sender<()>)) {
+    pub fn insert_room(&self, sid: RoomSid, handle: (JoinHandle<()>, oneshot::Sender<()>)) {
         self.rooms.write().insert(sid, handle);
     }
 
-    pub fn initialized(&self) -> bool {
-        self.initialized.load(Ordering::SeqCst)
-    }
-
-    pub fn next_handle_id(&self) -> FFIHandleId {
-        self.next_handle_id.fetch_add(1, Ordering::SeqCst) as FFIHandleId
-    }
-
-    pub fn next_async_id(&self) -> u64 {
-        self.next_async_id.fetch_add(1, Ordering::SeqCst)
-    }
-
-    pub fn insert_handle(&self, handle_id: FFIHandleId, handle: FFIHandle) {
-        self.ffi_owned.write().insert(handle_id, handle);
-    }
-
-    pub fn release_handle(&self, handle_id: FFIHandleId) -> Option<FFIHandle> {
-        self.ffi_owned.write().remove(&handle_id)
+    pub fn next_id(&self) -> usize {
+        self.next_id.fetch_add(1, Ordering::SeqCst)
     }
 
     pub fn send_event(
         &self,
         message: proto::ffi_event::Message,
         async_id: Option<u64>,
-    ) -> Result<(), FFIError> {
-        let config = self.config.lock();
-
-        if !self.initialized() {
-            Err(FFIError::NotConfigured)?
-        }
+    ) -> FFIResult<()> {
+        let callback_fn = self
+            .config
+            .lock()
+            .map_or_else(|| Err(FFIError::NotConfigured), |c| Ok(c.callback_fn))?;
 
         let message = proto::FfiEvent {
-            async_id,
             message: Some(message),
         }
         .encode_to_vec();
 
-        let config = config.as_ref().unwrap();
-        if let Err(err) = panic::catch_unwind(|| unsafe {
-            (config.callback_fn)(message.as_ptr(), message.len());
-        }) {
-            eprintln!("panic when sending ffi event: {:?}", err);
-            Err(FFIError::CallbackFailed)?
-        }
-
+        callback_fn(message.as_ptr(), message.len());
         Ok(())
     }
-
-    pub fn handle_request(&self, message: proto::ffi_request::Message) -> proto::FfiResponse {
-        match message {
-            proto::ffi_request::Message::AsyncConnect(connect) => {
-                let async_id = self.next_async_id();
-                self.async_runtime
-                    .spawn(room::create_room(&FFI_SERVER, async_id, connect));
-
-                return proto::FfiResponse {
-                    async_id: Some(async_id),
-                    ..Default::default()
-                };
-            }
-            proto::ffi_request::Message::ToI420(to_i420) => {
-                let handle_id = self.next_handle_id();
-                let i420 = match to_i420.from.unwrap() {
-                    proto::to_i420_request::From::Argb(argb_info) => {
-                        let format = proto::VideoFormatType::from_i32(argb_info.format);
-                        let mut buffer =
-                            I420Buffer::new(argb_info.width as u32, argb_info.height as u32);
-
-                        let argb = unsafe {
-                            slice::from_raw_parts(
-                                argb_info.ptr as *const u8,
-                                (argb_info.stride * argb_info.height) as usize,
-                            )
-                        };
-
-                        let stride_y = buffer.stride_y();
-                        let stride_u = buffer.stride_u();
-                        let stride_v = buffer.stride_v();
-                        let (data_y, data_u, data_v) = buffer.data_mut();
-
-                        match format.unwrap() {
-                            proto::VideoFormatType::FormatArgb => {
-                                yuv_helper::argb_to_i420(
-                                    argb,
-                                    argb_info.stride,
-                                    data_y,
-                                    stride_y,
-                                    data_u,
-                                    stride_u,
-                                    data_v,
-                                    stride_v,
-                                    argb_info.width,
-                                    argb_info.height,
-                                )
-                                .unwrap();
-                            }
-                            proto::VideoFormatType::FormatAbgr => {
-                                yuv_helper::abgr_to_i420(
-                                    argb,
-                                    argb_info.stride,
-                                    data_y,
-                                    stride_y,
-                                    data_u,
-                                    stride_u,
-                                    data_v,
-                                    stride_v,
-                                    argb_info.width,
-                                    argb_info.height,
-                                )
-                                .unwrap();
-                            }
-                            _ => panic!("{:?} to i420 conversion isn't supported", format),
-                        }
-
-                        buffer
-                    }
-                    proto::to_i420_request::From::Buffer(handle) => {
-                        let ffi_owned = self.ffi_owned.read();
-                        let buffer = ffi_owned.get(&(handle.id as FFIHandleId)).unwrap();
-
-                        let buffer = buffer
-                            .downcast_ref::<BoxVideoFrameBuffer>()
-                            .unwrap()
-                            .to_i420();
-
-                        buffer
-                    }
-                };
-
-                let buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &i420));
-                self.insert_handle(handle_id, Box::new(i420));
-
-                return proto::FfiResponse {
-                    message: Some(proto::ffi_response::Message::ToI420(
-                        proto::ToI420Response {
-                            buffer: buffer_info,
-                        },
-                    )),
-                    ..Default::default()
-                };
-            }
-            proto::ffi_request::Message::ToArgb(to_argb) => {
-                let ffi_owned = self.ffi_owned.read();
-                let buffer = ffi_owned
-                    .get(&(to_argb.buffer.unwrap().id as FFIHandleId))
-                    .unwrap();
-
-                let buffer = buffer.downcast_ref::<BoxVideoFrameBuffer>().unwrap();
-                let dst_buf = unsafe {
-                    slice::from_raw_parts_mut(
-                        to_argb.dst_ptr as *mut u8,
-                        (to_argb.dst_stride * to_argb.dst_height) as usize,
-                    )
-                };
-
-                if let Err(err) = buffer.to_argb(
-                    proto::VideoFormatType::from_i32(to_argb.dst_format)
-                        .unwrap()
-                        .into(),
-                    dst_buf,
-                    to_argb.dst_stride,
-                    to_argb.dst_width,
-                    to_argb.dst_height,
-                ) {
-                    eprintln!("failed to convert videoframe to argb: {:?}", err);
-                }
-            }
-            proto::ffi_request::Message::AllocBuffer(alloc_buffer) => {
-                let frame_type =
-                    proto::VideoFrameBufferType::from_i32(alloc_buffer.r#type).unwrap();
-
-                let buffer: BoxVideoFrameBuffer = match frame_type {
-                    proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(
-                        alloc_buffer.width as u32,
-                        alloc_buffer.height as u32,
-                    )),
-                    _ => {
-                        panic!("unsupported buffer type: {:?}", frame_type);
-                    }
-                };
-
-                let handle_id = self.next_handle_id();
-                let buffer_info = Some(proto::VideoFrameBufferInfo::from(handle_id, &buffer));
-                self.insert_handle(handle_id, Box::new(buffer));
-
-                return proto::FfiResponse {
-                    message: Some(proto::ffi_response::Message::AllocBuffer(
-                        proto::AllocBufferResponse {
-                            buffer: buffer_info,
-                        },
-                    )),
-                    ..Default::default()
-                };
-            }
-            _ => {}
-        }
-
-        proto::FfiResponse::default()
-    }
-}
-
-/// This function is threadsafe, this is useful to run synchronous requests in another thread (e.g
-/// color conversion)
-#[no_mangle]
-pub extern "C" fn livekit_ffi_request(
-    data: *const u8,
-    len: usize,
-    data_ptr: *mut *const u8,
-    data_len: *mut usize,
-) -> FFIHandleId {
-    let data = unsafe { slice::from_raw_parts(data, len) };
-    let res = proto::FfiRequest::decode(data);
-    if let Err(ref err) = res {
-        eprintln!("failed to decode FfiRequest: {:?}", err);
-        return 0;
-    }
-
-    if res.as_ref().unwrap().message.is_none() {
-        eprintln!("request message is empty");
-        return 0;
-    }
-
-    let message = res.unwrap().message.unwrap();
-    if let proto::ffi_request::Message::Initialize(ref init) = message {
-        FFI_SERVER.initialize(init);
-    }
-
-    if let proto::ffi_request::Message::Dispose(_) = message {
-        FFI_SERVER.dispose();
-    }
-
-    if !FFI_SERVER.initialized() {
-        eprintln!("the FFIServer isn't initialized");
-        return 0;
-    }
-
-    let res = FFI_SERVER.handle_request(message);
-    let buf = res.encode_to_vec();
-
-    unsafe {
-        *data_ptr = buf.as_ptr();
-        *data_len = buf.len();
-    }
-
-    let handle_id = FFI_SERVER.next_handle_id();
-    FFI_SERVER.insert_handle(handle_id, Box::new(buf));
-    handle_id
-}
-
-#[no_mangle]
-pub extern "C" fn livekit_ffi_drop_handle(handle_id: FFIHandleId) -> bool {
-    FFI_SERVER.release_handle(handle_id).is_some() // Free the memory
 }
 
 #[cfg(test)]
@@ -363,15 +465,16 @@ mod tests {
     // Create two I420Buffer, and ensure the logic is correct ( ids, and responses )
     #[test]
     fn create_i420_buffer() {
-        let res = FFI_SERVER.handle_request(proto::ffi_request::Message::AllocBuffer(
-            proto::AllocBufferRequest {
+        let server = FFIServer::default();
+        let res = server.handle_request(proto::ffi_request::Message::AllocVideoBuffer(
+            proto::AllocVideoBufferRequest {
                 r#type: proto::VideoFrameBufferType::I420 as i32,
                 width: 640,
                 height: 480,
             },
         ));
 
-        let proto::ffi_response::Message::AllocBuffer(alloc) = res.message.unwrap() else {
+        let proto::ffi_response::Message::AllocVideoBuffer(alloc) = res.message.unwrap() else {
             panic!("unexpected response");
         };
 
@@ -379,13 +482,14 @@ mod tests {
         assert_eq!(i420_handle, 1);
 
         let res =
-            FFI_SERVER.handle_request(proto::ffi_request::Message::ToI420(proto::ToI420Request {
+            server.handle_request(proto::ffi_request::Message::ToI420(proto::ToI420Request {
+                flip_y: false,
                 from: Some(proto::to_i420_request::From::Buffer(proto::FfiHandleId {
                     id: i420_handle as u64,
                 })),
             }));
 
-        FFI_SERVER.release_handle(i420_handle).unwrap();
+        server.release_handle(i420_handle).unwrap();
 
         let proto::ffi_response::Message::ToI420(to_i420) = res.message.unwrap() else {
             panic!("unexpected response");
@@ -394,6 +498,6 @@ mod tests {
         let new_handle = to_i420.buffer.unwrap().handle.unwrap().id as usize;
         assert_eq!(new_handle, 2);
 
-        FFI_SERVER.release_handle(new_handle).unwrap();
+        server.release_handle(new_handle).unwrap();
     }
 }
