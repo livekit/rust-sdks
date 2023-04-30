@@ -1,4 +1,5 @@
 use crate::proto;
+use lazy_static::lazy_static;
 use livekit::prelude::*;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::video_frame::{
@@ -29,6 +30,10 @@ pub enum FFIError {
     InvalidHandle,
     #[error("invalid request: {0}")]
     InvalidRequest(String),
+}
+
+lazy_static! {
+    pub static ref FFI_SRV_GLOBAL: FFIServer = FFIServer::default();
 }
 
 pub type FFIResult<T> = Result<T, FFIError>;
@@ -66,7 +71,7 @@ impl Default for FFIServer {
 }
 
 impl FFIServer {
-    pub async fn close(&self) {
+    pub async fn close(&'static self) {
         // Close all rooms
         for (_, (handle, shutdown_tx)) in self.rooms.write().drain() {
             let _ = shutdown_tx.send(());
@@ -74,19 +79,19 @@ impl FFIServer {
         }
     }
 
-    pub fn insert_room(&self, sid: RoomSid, handle: (JoinHandle<()>, oneshot::Sender<()>)) {
+    pub fn insert_room(&'static self, sid: RoomSid, handle: (JoinHandle<()>, oneshot::Sender<()>)) {
         self.rooms.write().insert(sid, handle);
     }
 
-    pub fn next_id(&self) -> usize {
+    pub fn next_id(&'static self) -> usize {
         self.next_id.fetch_add(1, Ordering::SeqCst)
     }
 
-    pub fn ffi_handles(&self) -> &RwLock<HashMap<FFIHandleId, FFIHandle>> {
+    pub fn ffi_handles(&'static self) -> &RwLock<HashMap<FFIHandleId, FFIHandle>> {
         &self.ffi_handles
     }
 
-    pub fn send_event(&self, message: proto::ffi_event::Message) -> FFIResult<()> {
+    pub fn send_event(&'static self, message: proto::ffi_event::Message) -> FFIResult<()> {
         let callback_fn = self
             .config
             .lock()
@@ -106,7 +111,7 @@ impl FFIServer {
 
 impl FFIServer {
     fn on_initialize(
-        &self,
+        &'static self,
         init: proto::InitializeRequest,
     ) -> FFIResult<proto::InitializeResponse> {
         if self.config.lock().is_some() {
@@ -123,7 +128,10 @@ impl FFIServer {
         Ok(proto::InitializeResponse::default())
     }
 
-    fn on_dispose(&self, dispose: proto::DisposeRequest) -> FFIResult<proto::DisposeResponse> {
+    fn on_dispose(
+        &'static self,
+        dispose: proto::DisposeRequest,
+    ) -> FFIResult<proto::DisposeResponse> {
         *self.config.lock() = None;
 
         let close = self.close();
@@ -145,7 +153,10 @@ impl FFIServer {
 
     // Room
 
-    fn on_connect(&self, connect: proto::ConnectRequest) -> FFIResult<proto::ConnectResponse> {
+    fn on_connect(
+        &'static self,
+        connect: proto::ConnectRequest,
+    ) -> FFIResult<proto::ConnectResponse> {
         let async_id = self.next_id();
         self.async_runtime
             .spawn(room::create_room(&self, async_id, connect));
@@ -158,21 +169,21 @@ impl FFIServer {
     }
 
     fn on_disconnect(
-        &self,
+        &'static self,
         disconnect: proto::DisconnectRequest,
     ) -> FFIResult<proto::DisconnectResponse> {
         Ok(proto::DisconnectResponse::default())
     }
 
     fn on_publish_track(
-        &self,
+        &'static self,
         publish: proto::PublishTrackRequest,
     ) -> FFIResult<proto::PublishTrackResponse> {
         Ok(proto::PublishTrackResponse::default())
     }
 
     fn on_unpublish_track(
-        &self,
+        &'static self,
         unpublish: proto::UnpublishTrackRequest,
     ) -> FFIResult<proto::UnpublishTrackResponse> {
         Ok(proto::UnpublishTrackResponse::default())
@@ -180,14 +191,14 @@ impl FFIServer {
 
     // Track
     fn on_create_video_track(
-        &self,
+        &'static self,
         create: proto::CreateVideoTrackRequest,
     ) -> FFIResult<proto::CreateVideoTrackResponse> {
         Ok(proto::CreateVideoTrackResponse::default())
     }
 
     fn on_create_audio_track(
-        &self,
+        &'static self,
         create: proto::CreateAudioTrackRequest,
     ) -> FFIResult<proto::CreateAudioTrackResponse> {
         Ok(proto::CreateAudioTrackResponse::default())
@@ -196,7 +207,7 @@ impl FFIServer {
     // Video
 
     fn on_alloc_video_buffer(
-        &self,
+        &'static self,
         alloc: proto::AllocVideoBufferRequest,
     ) -> FFIResult<proto::AllocVideoBufferResponse> {
         let frame_type = proto::VideoFrameBufferType::from_i32(alloc.r#type).unwrap();
@@ -223,27 +234,30 @@ impl FFIServer {
     }
 
     fn on_new_video_stream(
-        &self,
+        &'static self,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FFIResult<proto::NewVideoStreamResponse> {
         Ok(proto::NewVideoStreamResponse::default())
     }
 
     fn on_new_video_source(
-        &self,
+        &'static self,
         new_source: proto::NewVideoSourceRequest,
     ) -> FFIResult<proto::NewVideoSourceResponse> {
         Ok(proto::NewVideoSourceResponse::default())
     }
 
     fn on_push_video_frame(
-        &self,
+        &'static self,
         push: proto::PushVideoFrameRequest,
     ) -> FFIResult<proto::PushVideoFrameResponse> {
         Ok(proto::PushVideoFrameResponse::default())
     }
 
-    fn on_to_i420(&self, to_i420: proto::ToI420Request) -> FFIResult<proto::ToI420Response> {
+    fn on_to_i420(
+        &'static self,
+        to_i420: proto::ToI420Request,
+    ) -> FFIResult<proto::ToI420Response> {
         let from = to_i420
             .from
             .ok_or(FFIError::InvalidRequest("from is empty".to_string()))?;
@@ -314,7 +328,10 @@ impl FFIServer {
         })
     }
 
-    fn on_to_argb(&self, to_argb: proto::ToArgbRequest) -> FFIResult<proto::ToArgbResponse> {
+    fn on_to_argb(
+        &'static self,
+        to_argb: proto::ToArgbRequest,
+    ) -> FFIResult<proto::ToArgbResponse> {
         let ffi_handles = self.ffi_handles.read();
         let handle_id = to_argb
             .buffer
@@ -357,34 +374,37 @@ impl FFIServer {
     // Audio
 
     fn on_alloc_audio_buffer(
-        &self,
+        &'static self,
         alloc: proto::AllocAudioBufferRequest,
     ) -> FFIResult<proto::AllocAudioBufferResponse> {
         Ok(proto::AllocAudioBufferResponse::default())
     }
 
     fn on_new_audio_stream(
-        &self,
+        &'static self,
         new_stream: proto::NewAudioStreamRequest,
     ) -> FFIResult<proto::NewAudioStreamResponse> {
         Ok(proto::NewAudioStreamResponse::default())
     }
 
     fn on_new_audio_source(
-        &self,
+        &'static self,
         new_source: proto::NewAudioSourceRequest,
     ) -> FFIResult<proto::NewAudioSourceResponse> {
         Ok(proto::NewAudioSourceResponse::default())
     }
 
     fn on_push_audio_frame(
-        &self,
+        &'static self,
         push: proto::PushAudioFrameRequest,
     ) -> FFIResult<proto::PushAudioFrameResponse> {
         Ok(proto::PushAudioFrameResponse::default())
     }
 
-    pub fn handle_request(&self, request: proto::FfiRequest) -> FFIResult<proto::FfiResponse> {
+    pub fn handle_request(
+        &'static self,
+        request: proto::FfiRequest,
+    ) -> FFIResult<proto::FfiResponse> {
         let request = request
             .message
             .ok_or(FFIError::InvalidRequest("message is empty".to_string()))?;
@@ -458,8 +478,7 @@ mod tests {
     // Create two I420Buffer, and ensure the logic is correct ( ids, and responses )
     #[test]
     fn create_i420_buffer() {
-        let server = FFIServer::default();
-        let res = server
+        let res = FFI_SRV_GLOBAL
             .handle_request(proto::FfiRequest {
                 message: Some(proto::ffi_request::Message::AllocVideoBuffer(
                     proto::AllocVideoBufferRequest {
@@ -478,7 +497,7 @@ mod tests {
         let i420_handle = alloc.buffer.unwrap().handle.unwrap().id as usize;
         assert_eq!(i420_handle, 1);
 
-        let res = server
+        let res = FFI_SRV_GLOBAL
             .handle_request(proto::FfiRequest {
                 message: Some(proto::ffi_request::Message::ToI420(proto::ToI420Request {
                     flip_y: false,
@@ -489,7 +508,11 @@ mod tests {
             })
             .unwrap();
 
-        server.ffi_handles().write().remove(&i420_handle).unwrap();
+        FFI_SRV_GLOBAL
+            .ffi_handles()
+            .write()
+            .remove(&i420_handle)
+            .unwrap();
 
         let proto::ffi_response::Message::ToI420(to_i420) = res.message.unwrap() else {
             panic!("unexpected response");
@@ -498,6 +521,10 @@ mod tests {
         let new_handle = to_i420.buffer.unwrap().handle.unwrap().id as usize;
         assert_eq!(new_handle, 2);
 
-        server.ffi_handles().write().remove(&new_handle).unwrap();
+        FFI_SRV_GLOBAL
+            .ffi_handles()
+            .write()
+            .remove(&new_handle)
+            .unwrap();
     }
 }

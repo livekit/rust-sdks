@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use prost::Message;
 
 mod proto {
@@ -6,10 +5,6 @@ mod proto {
 }
 
 mod server;
-
-lazy_static! {
-    pub(crate) static ref FFI_SERVER: server::FFIServer = server::FFIServer::default();
-}
 
 #[no_mangle]
 extern "C" fn livekit_ffi_request(
@@ -27,7 +22,7 @@ extern "C" fn livekit_ffi_request(
         }
     };
 
-    let res = match FFI_SERVER.handle_request(res) {
+    let res = match server::FFI_SRV_GLOBAL.handle_request(res) {
         Ok(res) => res,
         Err(err) => {
             eprintln!("failed to handle request: {}", err);
@@ -41,8 +36,8 @@ extern "C" fn livekit_ffi_request(
         *res_len = res.len();
     }
 
-    let handle_id = FFI_SERVER.next_id();
-    FFI_SERVER
+    let handle_id = server::FFI_SRV_GLOBAL.next_id();
+    server::FFI_SRV_GLOBAL
         .ffi_handles()
         .write()
         .insert(handle_id, Box::new(res));
@@ -53,7 +48,7 @@ extern "C" fn livekit_ffi_request(
 #[no_mangle]
 extern "C" fn livekit_ffi_drop_handle(handle_id: server::FFIHandleId) -> bool {
     // Free the memory
-    FFI_SERVER
+    server::FFI_SRV_GLOBAL
         .ffi_handles()
         .write()
         .remove(&handle_id)
