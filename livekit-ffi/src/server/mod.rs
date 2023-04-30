@@ -97,7 +97,9 @@ impl FFIServer {
         }
         .encode_to_vec();
 
-        callback_fn(message.as_ptr(), message.len());
+        unsafe {
+            callback_fn(message.as_ptr(), message.len());
+        }
         Ok(())
     }
 }
@@ -255,11 +257,11 @@ impl FFIServer {
                 let argb_ptr = argb_info.ptr as *const u8;
                 let argb_len = (argb_info.stride * argb_info.height) as usize;
                 let argb = unsafe { slice::from_raw_parts(argb_ptr, argb_len) };
-                let stride = argb_info.stride as i32;
+                let stride = argb_info.stride;
                 let (stride_y, stride_u, stride_v) = i420.strides();
                 let (data_y, data_u, data_v) = i420.data_mut();
                 let width = argb_info.width as i32;
-                let height = argb_info.height as i32;
+                let mut height = argb_info.height as i32;
                 if flip_y {
                     height = -height;
                 }
@@ -303,7 +305,7 @@ impl FFIServer {
             }
         };
 
-        let ffi_handles = self.ffi_handles().write();
+        let mut ffi_handles = self.ffi_handles().write();
         let handle_id = self.next_id() as FFIHandleId;
         let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &i420);
         ffi_handles.insert(handle_id, Box::new(i420)); // This isn't the right type
@@ -332,9 +334,9 @@ impl FFIServer {
                 (to_argb.dst_stride * to_argb.dst_height) as usize,
             )
         };
-        let dst_stride = to_argb.dst_stride as i32;
+        let dst_stride = to_argb.dst_stride;
         let dst_width = to_argb.dst_width as i32;
-        let dst_height = to_argb.dst_height as i32;
+        let mut dst_height = to_argb.dst_height as i32;
         if flip_y {
             dst_height = -dst_height;
         }
@@ -387,7 +389,7 @@ impl FFIServer {
             .message
             .ok_or(FFIError::InvalidRequest("message is empty".to_string()))?;
 
-        let res = proto::FfiResponse::default();
+        let mut res = proto::FfiResponse::default();
         res.message = Some(match request {
             proto::ffi_request::Message::Initialize(init) => {
                 proto::ffi_response::Message::Initialize(self.on_initialize(init)?)

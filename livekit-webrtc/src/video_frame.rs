@@ -74,7 +74,7 @@ macro_rules! new_buffer_type {
                 &self,
                 format: VideoFormatType,
                 dst: &mut [u8],
-                stride: i32,
+                stride: u32,
                 width: i32,
                 height: i32,
             ) -> Result<(), $crate::video_frame::native::ConvertError> {
@@ -126,7 +126,7 @@ pub(crate) mod internal {
             &self,
             format: VideoFormatType,
             dst: &mut [u8],
-            dst_stride: i32,
+            dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
         ) -> Result<(), super::native::ConvertError>;
@@ -397,7 +397,7 @@ pub mod native {
             &self,
             format: VideoFormatType,
             dst: &mut [u8],
-            dst_stride: i32,
+            dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
         ) -> Result<(), ConvertError>;
@@ -412,7 +412,7 @@ pub mod native {
             &self,
             format: VideoFormatType,
             dst: &mut [u8],
-            dst_stride: i32,
+            dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
         ) -> Result<(), ConvertError> {
@@ -434,7 +434,7 @@ impl<T: VideoFrameBuffer + ?Sized> internal::BufferInternal for Box<T> {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), self::native::ConvertError> {

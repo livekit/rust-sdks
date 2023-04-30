@@ -5,13 +5,12 @@ use livekit::webrtc::video_frame;
 
 macro_rules! impl_yuv_into {
     (@fields, $buffer:ident, $data_y:ident, $data_u:ident, $data_v: ident) => {
-        let (stride_y, stride_u, stride_v) = $buffer.strides();
         Self {
             chroma_width: $buffer.chroma_width(),
             chroma_height: $buffer.chroma_height(),
-            stride_y: stride_y,
-            stride_u: stride_u,
-            stride_v: stride_v,
+            stride_y: $buffer.strides().0,
+            stride_u: $buffer.strides().1,
+            stride_v: $buffer.strides().2,
             data_y_ptr: $data_y.as_ptr() as u64,
             data_u_ptr: $data_u.as_ptr() as u64,
             data_v_ptr: $data_v.as_ptr() as u64,
@@ -23,7 +22,7 @@ macro_rules! impl_yuv_into {
             fn from(buffer: $buffer) -> Self {
                 let (data_y, data_u, data_v, data_a) = buffer.data();
                 let mut proto = impl_yuv_into!(@fields, buffer, data_y, data_u, data_v);
-                proto.stride_a = buffer.stride_a();
+                proto.stride_a = buffer.strides().3;
                 proto.data_a_ptr = data_a.map(|data_a| data_a.as_ptr() as u64).unwrap_or(0);
                 proto
             }
@@ -43,12 +42,13 @@ macro_rules! impl_biyuv_into {
     ($b:ty) => {
         impl From<$b> for proto::BiplanarYuvBufferInfo {
             fn from(buffer: $b) -> Self {
+                let (stride_y, stride_uv) = buffer.strides();
                 let (data_y, data_uv) = buffer.data();
                 Self {
                     chroma_width: buffer.chroma_width(),
                     chroma_height: buffer.chroma_height(),
-                    stride_y: buffer.stride_y(),
-                    stride_uv: buffer.stride_uv(),
+                    stride_y: stride_y,
+                    stride_uv: stride_uv,
                     data_y_ptr: data_y.as_ptr() as u64,
                     data_uv_ptr: data_uv.as_ptr() as u64,
                 }

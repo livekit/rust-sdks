@@ -121,17 +121,14 @@ macro_rules! impl_to_argb {
         match $format {
         $(
             VideoFormatType::$variant => {
-                let stride_y = $self.stride_y() as i32;
-                let stride_u = $self.stride_u() as i32;
-                let stride_v = $self.stride_v() as i32;
                 let (data_y, data_u, data_v) = $self.data();
                 yuv_helper::$fnc(
                     data_y,
-                    stride_y,
+                    $self.stride_y(),
                     data_u,
-                    stride_u,
+                    $self.stride_u(),
                     data_v,
-                    stride_v,
+                    $self.stride_v(),
                     $dst,
                     $dst_stride,
                     $dst_width,
@@ -170,7 +167,7 @@ impl NativeBuffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -261,7 +258,7 @@ impl I420Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -362,7 +359,7 @@ impl I420ABuffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -456,7 +453,7 @@ impl I422Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -542,7 +539,7 @@ impl I444Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -630,7 +627,7 @@ impl I010Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -742,7 +739,7 @@ impl NV12Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
