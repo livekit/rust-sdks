@@ -95,6 +95,7 @@ impl FFIServer {
         let callback_fn = self
             .config
             .lock()
+            .as_ref()
             .map_or_else(|| Err(FFIError::NotConfigured), |c| Ok(c.callback_fn))?;
 
         let message = proto::FfiEvent {
