@@ -1,54 +1,28 @@
 use crate::proto;
-use lazy_static::lazy_static;
+use crate::{FFIError, FFIHandle, FFIHandleId, FFIResult};
+use futures_util::stream::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::native::yuv_helper;
-use livekit::webrtc::video_frame::{
-    native::I420BufferExt, native::VideoFrameBufferExt, BoxVideoFrameBuffer, I420Buffer,
-};
+use livekit::webrtc::prelude::*;
+use livekit::webrtc::video_frame::{native::I420BufferExt, BoxVideoFrameBuffer, I420Buffer};
 use parking_lot::{Mutex, RwLock};
 use prost::Message;
-use std::any::Any;
 use std::collections::HashMap;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use thiserror::Error;
-use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
 
 mod conversion;
 mod room;
+mod video_stream;
 
-#[derive(Error, Debug)]
-pub enum FFIError {
-    #[error("the server is not configured")]
-    NotConfigured,
-    #[error("the server is already initialized")]
-    AlreadyInitialized,
-    #[error("the handle is not found")]
-    HandleNotFound,
-    #[error("the handle is invalid for this operation")]
-    InvalidHandle,
-    #[error("invalid request: {0}")]
-    InvalidRequest(String),
-}
-
-lazy_static! {
-    pub static ref FFI_SRV_GLOBAL: FFIServer = FFIServer::default();
-}
-
-pub type FFIResult<T> = Result<T, FFIError>;
-pub type FFIAsyncId = usize;
-pub type FFIHandleId = usize;
-pub type FFIHandle = Box<dyn Any + Send + Sync>;
-
-type CallbackFn = unsafe extern "C" fn(*const u8, usize); // This "C" callback must be threadsafe
+type CallbackFn = unsafe extern "C" fn(*const u8, usize); // The "C" callback must be threadsafe
 
 pub struct FFIConfig {
     callback_fn: CallbackFn,
 }
 
 pub struct FFIServer {
-    rooms: RwLock<HashMap<RoomSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
+    rooms: RwLock<HashMap<RoomSid, room::FFIRoom>>,
     ffi_handles: RwLock<HashMap<FFIHandleId, FFIHandle>>,
     next_id: AtomicUsize,
     async_runtime: tokio::runtime::Runtime,
@@ -75,18 +49,13 @@ impl Default for FFIServer {
 impl FFIServer {
     pub async fn close(&'static self) {
         // Close all rooms
-        for (_, (handle, shutdown_tx)) in self.rooms.write().drain() {
-            let _ = shutdown_tx.send(());
-            let _ = handle.await;
+        for (_, ffi_room) in self.rooms.write().drain() {
+            ffi_room.close().await;
         }
     }
 
-    pub fn insert_room(&'static self, sid: RoomSid, handle: (JoinHandle<()>, oneshot::Sender<()>)) {
-        self.rooms.write().insert(sid, handle);
-    }
-
     pub fn next_id(&'static self) -> usize {
-        self.next_id.fetch_add(1, Ordering::SeqCst)
+        self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn ffi_handles(&'static self) -> &RwLock<HashMap<FFIHandleId, FFIHandle>> {
@@ -161,8 +130,32 @@ impl FFIServer {
         connect: proto::ConnectRequest,
     ) -> FFIResult<proto::ConnectResponse> {
         let async_id = self.next_id();
-        self.async_runtime
-            .spawn(room::create_room(&self, async_id, connect));
+        self.async_runtime.spawn(async move {
+            // Try to connect to the Room
+            let res = room::FFIRoom::connect(&self, connect).await;
+
+            let async_id = proto::FfiAsyncId {
+                id: async_id as u64,
+            };
+
+            let mut success = false;
+            let mut room_info = None;
+
+            if let Ok(ffi_room) = res {
+                let session = ffi_room.session();
+                room_info = Some(proto::RoomInfo::from(&session));
+                success = true;
+
+                self.rooms.write().insert(session.sid(), ffi_room);
+            }
+
+            // Send the async response
+            let _ = self.send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
+                async_id: Some(async_id),
+                success,
+                room: room_info,
+            }));
+        });
 
         Ok(proto::ConnectResponse {
             async_id: Some(proto::FfiAsyncId {
@@ -240,7 +233,18 @@ impl FFIServer {
         &'static self,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FFIResult<proto::NewVideoStreamResponse> {
-        Ok(proto::NewVideoStreamResponse::default())
+        let stream = video_stream::FFIVideoStream::from_request(&self, new_stream)?;
+
+        let handle_id = self.next_id();
+        let stream_info = proto::VideoStreamInfo::from(handle_id, &stream);
+
+        self.ffi_handles()
+            .write()
+            .insert(handle_id, Box::new(stream));
+
+        Ok(proto::NewVideoStreamResponse {
+            stream: Some(stream_info),
+        })
     }
 
     fn on_new_video_source(
@@ -478,6 +482,7 @@ impl FFIServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FFI_SRV_GLOBAL;
 
     // Create two I420Buffer, and ensure the logic is correct ( ids, and responses )
     #[test]

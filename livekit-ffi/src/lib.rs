@@ -1,4 +1,7 @@
+use lazy_static::lazy_static;
 use prost::Message;
+use std::any::Any;
+use thiserror::Error;
 
 mod proto {
     include!(concat!(env!("OUT_DIR"), "/livekit.rs"));
@@ -6,13 +9,36 @@ mod proto {
 
 mod server;
 
+#[derive(Error, Debug)]
+pub enum FFIError {
+    #[error("the server is not configured")]
+    NotConfigured,
+    #[error("the server is already initialized")]
+    AlreadyInitialized,
+    #[error("the handle is not found")]
+    HandleNotFound,
+    #[error("the handle is invalid for this operation")]
+    InvalidHandle,
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
+}
+
+pub type FFIResult<T> = Result<T, FFIError>;
+pub type FFIAsyncId = usize;
+pub type FFIHandleId = usize;
+pub type FFIHandle = Box<dyn Any + Send + Sync>;
+
+lazy_static! {
+    pub static ref FFI_SRV_GLOBAL: server::FFIServer = server::FFIServer::default();
+}
+
 #[no_mangle]
 extern "C" fn livekit_ffi_request(
     data: *const u8,
     len: usize,
     res_ptr: *mut *const u8,
     res_len: *mut usize,
-) -> server::FFIHandleId {
+) -> FFIHandleId {
     let data = unsafe { std::slice::from_raw_parts(data, len) };
     let res = match proto::FfiRequest::decode(data) {
         Ok(res) => res,
@@ -22,7 +48,7 @@ extern "C" fn livekit_ffi_request(
         }
     };
 
-    let res = match server::FFI_SRV_GLOBAL.handle_request(res) {
+    let res = match FFI_SRV_GLOBAL.handle_request(res) {
         Ok(res) => res,
         Err(err) => {
             eprintln!("failed to handle request: {}", err);
@@ -36,8 +62,8 @@ extern "C" fn livekit_ffi_request(
         *res_len = res.len();
     }
 
-    let handle_id = server::FFI_SRV_GLOBAL.next_id();
-    server::FFI_SRV_GLOBAL
+    let handle_id = FFI_SRV_GLOBAL.next_id();
+    FFI_SRV_GLOBAL
         .ffi_handles()
         .write()
         .insert(handle_id, Box::new(res));
@@ -46,9 +72,9 @@ extern "C" fn livekit_ffi_request(
 }
 
 #[no_mangle]
-extern "C" fn livekit_ffi_drop_handle(handle_id: server::FFIHandleId) -> bool {
+extern "C" fn livekit_ffi_drop_handle(handle_id: FFIHandleId) -> bool {
     // Free the memory
-    server::FFI_SRV_GLOBAL
+    FFI_SRV_GLOBAL
         .ffi_handles()
         .write()
         .remove(&handle_id)
