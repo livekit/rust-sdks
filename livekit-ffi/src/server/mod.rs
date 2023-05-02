@@ -1,6 +1,5 @@
 use crate::proto;
 use crate::{FFIError, FFIHandle, FFIHandleId, FFIResult};
-use futures_util::stream::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::*;
@@ -11,9 +10,8 @@ use std::collections::HashMap;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-mod conversion;
 mod room;
-mod video_stream;
+mod video_frame;
 
 type CallbackFn = unsafe extern "C" fn(*const u8, usize); // The "C" callback must be threadsafe
 
@@ -233,15 +231,7 @@ impl FFIServer {
         &'static self,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FFIResult<proto::NewVideoStreamResponse> {
-        let stream = video_stream::FFIVideoStream::from_request(&self, new_stream)?;
-
-        let handle_id = self.next_id();
-        let stream_info = proto::VideoStreamInfo::from(handle_id, &stream);
-
-        self.ffi_handles()
-            .write()
-            .insert(handle_id, Box::new(stream));
-
+        let stream_info = video_frame::FFIVideoStream::setup(&self, new_stream)?;
         Ok(proto::NewVideoStreamResponse {
             stream: Some(stream_info),
         })
@@ -254,11 +244,21 @@ impl FFIServer {
         Ok(proto::NewVideoSourceResponse::default())
     }
 
-    fn on_push_video_frame(
+    fn on_capture_video_frame(
         &'static self,
-        push: proto::PushVideoFrameRequest,
-    ) -> FFIResult<proto::PushVideoFrameResponse> {
-        Ok(proto::PushVideoFrameResponse::default())
+        push: proto::CaptureVideoFrameRequest,
+    ) -> FFIResult<proto::CaptureVideoFrameResponse> {
+        let handle_id = push.source_handle.unwrap().id as FFIHandleId;
+        let video_source = self
+            .ffi_handles()
+            .read()
+            .get(&handle_id)
+            .unwrap()
+            .downcast_ref::<video_frame::FFIVideoSource>()
+            .ok_or(FFIError::InvalidHandle)?;
+
+        video_source.capture_frame(self, push);
+        Ok(proto::CaptureVideoFrameResponse::default())
     }
 
     fn on_to_i420(
@@ -402,11 +402,11 @@ impl FFIServer {
         Ok(proto::NewAudioSourceResponse::default())
     }
 
-    fn on_push_audio_frame(
+    fn on_capture_audio_frame(
         &'static self,
-        push: proto::PushAudioFrameRequest,
-    ) -> FFIResult<proto::PushAudioFrameResponse> {
-        Ok(proto::PushAudioFrameResponse::default())
+        push: proto::CaptureAudioFrameRequest,
+    ) -> FFIResult<proto::CaptureAudioFrameResponse> {
+        Ok(proto::CaptureAudioFrameResponse::default())
     }
 
     pub fn handle_request(
@@ -452,8 +452,8 @@ impl FFIServer {
             proto::ffi_request::Message::NewVideoSource(new_source) => {
                 proto::ffi_response::Message::NewVideoSource(self.on_new_video_source(new_source)?)
             }
-            proto::ffi_request::Message::PushVideoFrame(push) => {
-                proto::ffi_response::Message::PushVideoFrame(self.on_push_video_frame(push)?)
+            proto::ffi_request::Message::CaptureVideoFrame(push) => {
+                proto::ffi_response::Message::CaptureVideoFrame(self.on_capture_video_frame(push)?)
             }
             proto::ffi_request::Message::ToI420(to_i420) => {
                 proto::ffi_response::Message::ToI420(self.on_to_i420(to_i420)?)
@@ -470,8 +470,8 @@ impl FFIServer {
             proto::ffi_request::Message::NewAudioSource(new_source) => {
                 proto::ffi_response::Message::NewAudioSource(self.on_new_audio_source(new_source)?)
             }
-            proto::ffi_request::Message::PushAudioFrame(push) => {
-                proto::ffi_response::Message::PushAudioFrame(self.on_push_audio_frame(push)?)
+            proto::ffi_request::Message::CaptureAudioFrame(push) => {
+                proto::ffi_response::Message::CaptureAudioFrame(self.on_capture_audio_frame(push)?)
             }
         });
 

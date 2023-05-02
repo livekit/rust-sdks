@@ -31,7 +31,7 @@ message FFIRequest {
     AllocVideoBufferRequest alloc_video_buffer = 9;
     NewVideoStreamRequest new_video_stream = 10;
     NewVideoSourceRequest new_video_source = 11;
-    PushVideoFrameRequest push_video_frame = 12;
+    CaptureVideoFrameRequest capture_video_frame = 12;
     ToI420Request to_i420 = 13;
     ToARGBRequest to_argb = 14;
 
@@ -39,7 +39,7 @@ message FFIRequest {
     AllocAudioBufferRequest alloc_audio_buffer = 15;
     NewAudioStreamRequest new_audio_stream = 16;
     NewAudioSourceRequest new_audio_source = 17;
-    PushAudioFrameRequest push_audio_frame = 18;
+    CaptureAudioFrameRequest capture_audio_frame = 18;
   }
 }
 
@@ -63,7 +63,7 @@ message FFIResponse {
     AllocVideoBufferResponse alloc_video_buffer = 9;
     NewVideoStreamResponse new_video_stream = 10;
     NewVideoSourceResponse new_video_source = 11;
-    PushVideoFrameResponse push_video_frame = 12;
+    CaptureVideoFrameResponse capture_video_frame = 12;
     ToI420Response to_i420 = 13;
     ToARGBResponse to_argb = 14;
 
@@ -71,7 +71,7 @@ message FFIResponse {
     AllocAudioBufferResponse alloc_audio_buffer = 15;
     NewAudioStreamResponse new_audio_stream = 16;
     NewAudioSourceResponse new_audio_source = 17;
-    PushAudioFrameResponse push_audio_frame = 18;
+    CaptureAudioFrameResponse capture_audio_frame = 18;
   }
 }
 

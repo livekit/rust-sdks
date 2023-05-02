@@ -28,8 +28,8 @@ message NewAudioSourceRequest { AudioStreamType type = 1; }
 message NewAudioSourceResponse { AudioSourceInfo source = 1; }
 
 // Push a frame to an AudioSource 
-message PushAudioFrameRequest { AudioFrameBufferInfo frame = 1; }
-message PushAudioFrameResponse {}
+message CaptureAudioFrameRequest { AudioFrameBufferInfo frame = 1; }
+message CaptureAudioFrameResponse {}
 
 ///
 /// AudioFrame buffer ///

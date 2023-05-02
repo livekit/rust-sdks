@@ -25,15 +25,16 @@ message NewVideoStreamResponse { VideoStreamInfo stream = 1; }
 
 // Create a new VideoSource
 // VideoSource is used to send video frame to a track
-message NewVideoSourceRequest { VideoStreamType type = 1; }
+message NewVideoSourceRequest { VideoSourceType type = 1; }
 message NewVideoSourceResponse { VideoSourceInfo source = 1; }
 
 // Push a frame to a VideoSource
-message PushVideoFrameRequest {
-  VideoFrameInfo frame = 1;
-  VideoFrameBufferInfo buffer = 2;
+message CaptureVideoFrameRequest {
+  FFIHandleId source_handle = 1;
+  VideoFrameInfo frame = 2;
+  VideoFrameBufferInfo buffer = 3;
 }
-message PushVideoFrameResponse {}
+message CaptureVideoFrameResponse {}
 
 // Convert a RGBA frame to a I420 YUV frame
 // Or convert another YUV frame format to I420
@@ -168,12 +169,11 @@ enum VideoStreamType {
 message VideoStreamInfo {
   FFIHandleId handle = 1;
   VideoStreamType type = 2;
-  string id = 3; // Do we really need this Id?
-  string track_sid = 4;
+  string track_sid = 3;
 }
 
 message VideoStreamEvent {
-  string id = 1;
+  FFIHandleId handle = 1;
   oneof message { VideoFrameReceived frame_received = 2; }
 }
 
@@ -186,10 +186,14 @@ message VideoFrameReceived {
 /// VideoSource ///
 ///
 
+enum VideoSourceType {
+    VIDEO_SOURCE_NATIVE = 0;
+}
+
 message VideoSourceInfo {
   // # SAFETY
   // This handle must not be dropped if a track is currently using it
   FFIHandleId handle = 1;
-  string id = 2;
+  VideoSourceType type = 2;
 }
 

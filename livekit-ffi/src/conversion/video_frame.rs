@@ -1,5 +1,5 @@
 use crate::proto;
-use crate::server::FFIHandleId;
+use crate::FFIHandleId;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame;
 
@@ -183,6 +183,17 @@ impl From<VideoRotation> for proto::VideoRotation {
             VideoRotation::VideoRotation90 => Self::VideoRotation90,
             VideoRotation::VideoRotation180 => Self::VideoRotation180,
             VideoRotation::VideoRotation270 => Self::VideoRotation270,
+        }
+    }
+}
+
+impl From<proto::VideoRotation> for VideoRotation {
+    fn from(rotation: proto::VideoRotation) -> VideoRotation {
+        match rotation {
+            proto::VideoRotation::VideoRotation0 => Self::VideoRotation0,
+            proto::VideoRotation::VideoRotation90 => Self::VideoRotation90,
+            proto::VideoRotation::VideoRotation180 => Self::VideoRotation180,
+            proto::VideoRotation::VideoRotation270 => Self::VideoRotation270,
         }
     }
 }
