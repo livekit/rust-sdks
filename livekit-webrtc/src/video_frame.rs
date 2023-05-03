@@ -40,7 +40,7 @@ pub enum VideoFrameBufferType {
 #[derive(Debug)]
 pub struct VideoFrame<T>
 where
-    T: VideoFrameBuffer,
+    T: AsRef<dyn VideoFrameBuffer + Send + Sync>,
 {
     pub rotation: VideoRotation,
     pub timestamp: i64, // When the frame was captured
@@ -106,6 +106,12 @@ macro_rules! new_buffer_type {
                     .field("width", &self.width())
                     .field("height", &self.height())
                     .finish()
+            }
+        }
+
+        impl AsRef<dyn VideoFrameBuffer> for $type {
+            fn as_ref(&self) -> &(dyn VideoFrameBuffer + 'static) {
+                self
             }
         }
     };
@@ -418,71 +424,6 @@ pub mod native {
         ) -> Result<(), ConvertError> {
             self.to_argb(format, dst, dst_stride, dst_width, dst_height)
         }
-    }
-}
-
-impl<T: VideoFrameBuffer + ?Sized> internal::BufferInternal for Box<T> {
-    fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer {
-        self.as_ref().sys_handle()
-    }
-
-    fn to_i420(&self) -> I420Buffer {
-        self.as_ref().to_i420()
-    }
-
-    fn to_argb(
-        &self,
-        format: VideoFormatType,
-        dst: &mut [u8],
-        dst_stride: u32,
-        dst_width: i32,
-        dst_height: i32,
-    ) -> Result<(), self::native::ConvertError> {
-        self.as_ref()
-            .to_argb(format, dst, dst_stride, dst_width, dst_height)
-    }
-}
-
-impl<T: VideoFrameBuffer + ?Sized> VideoFrameBuffer for Box<T> {
-    fn width(&self) -> u32 {
-        self.as_ref().width()
-    }
-
-    fn height(&self) -> u32 {
-        self.as_ref().height()
-    }
-
-    fn buffer_type(&self) -> VideoFrameBufferType {
-        self.as_ref().buffer_type()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn as_native(&self) -> Option<&native::NativeBuffer> {
-        self.as_ref().as_native()
-    }
-
-    fn as_i420(&self) -> Option<&I420Buffer> {
-        self.as_ref().as_i420()
-    }
-
-    fn as_i420a(&self) -> Option<&I420ABuffer> {
-        self.as_ref().as_i420a()
-    }
-
-    fn as_i422(&self) -> Option<&I422Buffer> {
-        self.as_ref().as_i422()
-    }
-
-    fn as_i444(&self) -> Option<&I444Buffer> {
-        self.as_ref().as_i444()
-    }
-
-    fn as_i010(&self) -> Option<&I010Buffer> {
-        self.as_ref().as_i010()
-    }
-
-    fn as_nv12(&self) -> Option<&NV12Buffer> {
-        self.as_ref().as_nv12()
     }
 }
 
