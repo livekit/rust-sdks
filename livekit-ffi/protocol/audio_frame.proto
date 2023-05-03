@@ -9,26 +9,31 @@ import "handle.proto";
 // This is not necessary required because the data structure is fairly simple
 // But keep the API consistent with VideoFrame
 message AllocAudioBufferRequest { 
-  uint64 num_samples = 1;
-  uint32 sample_rate_hz = 2;
-  uint32 num_channels = 3;
+  uint32 sample_rate = 1;
+  uint32 num_channels = 2;
+  uint32 samples_per_channel = 3;
 }
 message AllocAudioBufferResponse { AudioFrameBufferInfo buffer = 1; }
 
 // Create a new AudioStream
 // AudioStream is used to receive audio frames from a track
 message NewAudioStreamRequest {
-  string track_sid = 1;
-  AudioStreamType type = 2;
+  string room_sid = 1;
+  string participant_sid = 2;
+  string track_sid = 3;
+  AudioStreamType type = 4;
 }
 message NewAudioStreamResponse { AudioStreamInfo stream = 1; }
 
 // Create a new AudioSource
-message NewAudioSourceRequest { AudioStreamType type = 1; }
+message NewAudioSourceRequest { AudioSourceType type = 1; }
 message NewAudioSourceResponse { AudioSourceInfo source = 1; }
 
 // Push a frame to an AudioSource 
-message CaptureAudioFrameRequest { AudioFrameBufferInfo frame = 1; }
+message CaptureAudioFrameRequest { 
+  FFIHandleId source_handle = 1;
+  AudioFrameBufferInfo frame = 2; 
+}
 message CaptureAudioFrameResponse {}
 
 ///
@@ -39,7 +44,7 @@ message AudioFrameBufferInfo {
   FFIHandleId handle = 1;
   uint64 data_ptr = 2;    // *const i16
   uint32 num_channels = 3;
-  uint32 sample_rate_hz = 4;
+  uint32 sample_rate = 4;
   uint32 samples_per_channel = 5;
 }
 
@@ -55,12 +60,11 @@ enum AudioStreamType {
 message AudioStreamInfo {
   FFIHandleId handle = 1;
   AudioStreamType type = 2;
-  string id = 3;
-  string track_sid = 4;
+  string track_sid = 3;
 }
 
 message AudioStreamEvent {
-  string id = 1;
+  FFIHandleId handle = 1;
   oneof message { AudioFrameReceived frame_received = 2; }
 }
 
@@ -72,7 +76,11 @@ message AudioFrameReceived {
 /// AudioSource ///
 ///
 
+enum AudioSourceType {
+  AUDIO_SOURCE_NATIVE = 0;
+}
+
 message AudioSourceInfo {
   FFIHandleId handle = 1;
-  string id = 2;
+  AudioSourceType type = 2;
 }

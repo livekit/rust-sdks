@@ -20,12 +20,12 @@ impl NativeAudioSource {
         self.sys_handle.clone()
     }
 
-    pub fn capture_frame(&self, frame: AudioFrame) {
+    pub fn capture_frame(&self, frame: &AudioFrame) {
         // TODO(theomonnom): Should we check for 10ms worth of data here?
         unsafe {
             self.sys_handle.on_captured_frame(
                 frame.data.as_ptr(),
-                frame.sample_rate_hz as i32,
+                frame.sample_rate as i32,
                 frame.num_channels as usize,
                 frame.samples_per_channel as usize,
             )

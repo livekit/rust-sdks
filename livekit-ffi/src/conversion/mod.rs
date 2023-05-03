@@ -1,7 +1,8 @@
 use crate::proto;
-use crate::server::FFIHandleId;
+use crate::FFIHandleId;
 use livekit::prelude::*;
 
+pub mod audio_frame;
 pub mod participant;
 pub mod publication;
 pub mod room;

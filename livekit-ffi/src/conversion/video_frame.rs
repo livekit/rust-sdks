@@ -1,4 +1,6 @@
 use crate::proto;
+use crate::server::audio_frame::FFIAudioStream;
+use crate::server::video_frame::{FFIVideoSource, FFIVideoStream};
 use crate::FFIHandleId;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame;
@@ -210,6 +212,29 @@ impl From<VideoFrameBufferType> for proto::VideoFrameBufferType {
             VideoFrameBufferType::NV12 => Self::Nv12,
             VideoFrameBufferType::WebGl => Self::Webgl,
             _ => panic!("unsupported buffer type on FFI server"),
+        }
+    }
+}
+
+impl From<&FFIVideoStream> for proto::VideoStreamInfo {
+    fn from(stream: &FFIVideoStream) -> Self {
+        Self {
+            handle: Some(proto::FfiHandleId {
+                id: stream.handle_id() as u64,
+            }),
+            track_sid: stream.track_sid().clone().into(),
+            r#type: stream.stream_type() as i32,
+        }
+    }
+}
+
+impl From<&FFIVideoSource> for proto::VideoSourceInfo {
+    fn from(source: &FFIVideoSource) -> Self {
+        Self {
+            handle: Some(proto::FfiHandleId {
+                id: source.handle_id() as u64,
+            }),
+            r#type: source.source_type() as i32,
         }
     }
 }

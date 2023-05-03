@@ -21,7 +21,7 @@ message AudioCaptureOptions {
 message CreateVideoTrackRequest {
   string name = 1;
   VideoCaptureOptions options = 2;
-  VideoSourceInfo source = 3;
+  FFIHandleId video_source = 3;
 }
 message CreateVideoTrackResponse {
   TrackInfo track = 1;
@@ -31,7 +31,7 @@ message CreateVideoTrackResponse {
 message CreateAudioTrackRequest {
   string name = 1;
   AudioCaptureOptions options = 2;
-  AudioSourceInfo source = 3;
+  FFIHandleId audio_source = 3;
 }
 message CreateAudioTrackResponse {
   TrackInfo track = 1;

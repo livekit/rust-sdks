@@ -10,8 +10,10 @@ use std::collections::HashMap;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-mod room;
-mod video_frame;
+pub mod audio_frame;
+pub mod room;
+pub mod utils;
+pub mod video_frame;
 
 type CallbackFn = unsafe extern "C" fn(*const u8, usize); // The "C" callback must be threadsafe
 
@@ -209,11 +211,7 @@ impl FFIServer {
             proto::VideoFrameBufferType::I420 => {
                 Box::new(I420Buffer::new(alloc.width, alloc.height))
             }
-            _ => {
-                return Err(FFIError::InvalidRequest(
-                    "frame type is not supported".to_owned(),
-                ))
-            }
+            _ => return Err(FFIError::InvalidRequest("frame type is not supported")),
         };
 
         let handle_id = self.next_id();
@@ -241,21 +239,28 @@ impl FFIServer {
         &'static self,
         new_source: proto::NewVideoSourceRequest,
     ) -> FFIResult<proto::NewVideoSourceResponse> {
-        Ok(proto::NewVideoSourceResponse::default())
+        let source_info = video_frame::FFIVideoSource::setup(&self, new_source)?;
+        Ok(proto::NewVideoSourceResponse {
+            source: Some(source_info),
+        })
     }
 
     fn on_capture_video_frame(
         &'static self,
         push: proto::CaptureVideoFrameRequest,
     ) -> FFIResult<proto::CaptureVideoFrameResponse> {
-        let handle_id = push.source_handle.unwrap().id as FFIHandleId;
+        let handle_id = push
+            .source_handle
+            .ok_or(FFIError::InvalidRequest("source_handle is empty"))?
+            .id as FFIHandleId;
+
         let video_source = self
             .ffi_handles()
             .read()
             .get(&handle_id)
             .unwrap()
             .downcast_ref::<video_frame::FFIVideoSource>()
-            .ok_or(FFIError::InvalidHandle)?;
+            .ok_or(FFIError::InvalidRequest("handle is not a video source"))?;
 
         video_source.capture_frame(self, push);
         Ok(proto::CaptureVideoFrameResponse::default())
@@ -267,13 +272,11 @@ impl FFIServer {
     ) -> FFIResult<proto::ToI420Response> {
         let from = to_i420
             .from
-            .ok_or(FFIError::InvalidRequest("from is empty".to_string()))?;
-        let flip_y = to_i420.flip_y;
+            .ok_or(FFIError::InvalidRequest("from is empty"))?;
 
         let i420 = match from {
             proto::to_i420_request::From::Argb(argb_info) => {
                 let mut i420 = I420Buffer::new(argb_info.width, argb_info.height);
-
                 let format = proto::VideoFormatType::from_i32(argb_info.format).unwrap();
                 let argb_ptr = argb_info.ptr as *const u8;
                 let argb_len = (argb_info.stride * argb_info.height) as usize;
@@ -283,7 +286,7 @@ impl FFIServer {
                 let (data_y, data_u, data_v) = i420.data_mut();
                 let width = argb_info.width as i32;
                 let mut height = argb_info.height as i32;
-                if flip_y {
+                if to_i420.flip_y {
                     height = -height;
                 }
 
@@ -302,11 +305,7 @@ impl FFIServer {
                         )
                         .unwrap();
                     }
-                    _ => {
-                        return Err(FFIError::InvalidRequest(
-                            "the format is not supported".to_string(),
-                        ))
-                    }
+                    _ => return Err(FFIError::InvalidRequest("the format is not supported")),
                 }
 
                 i420
@@ -316,10 +315,10 @@ impl FFIServer {
                 let handle_id = handle.id as FFIHandleId;
                 let buffer = ffi_handles
                     .get(&handle_id)
-                    .ok_or(FFIError::HandleNotFound)?;
+                    .ok_or(FFIError::InvalidRequest("handle not found"))?;
                 let i420 = buffer
                     .downcast_ref::<BoxVideoFrameBuffer>()
-                    .ok_or(FFIError::InvalidHandle)?
+                    .ok_or(FFIError::InvalidRequest("handle is not a video buffer"))?
                     .to_i420();
 
                 i420
@@ -343,14 +342,17 @@ impl FFIServer {
         let ffi_handles = self.ffi_handles.read();
         let handle_id = to_argb
             .buffer
-            .ok_or(FFIError::InvalidRequest("buffer is empty".to_string()))?
+            .ok_or(FFIError::InvalidRequest("buffer is empty"))?
             .id as FFIHandleId;
+
         let buffer = ffi_handles
             .get(&handle_id)
-            .ok_or(FFIError::HandleNotFound)?;
+            .ok_or(FFIError::InvalidRequest("handle is not found"))?;
+
         let buffer = buffer
             .downcast_ref::<BoxVideoFrameBuffer>()
-            .ok_or(FFIError::InvalidHandle)?;
+            .ok_or(FFIError::InvalidRequest("handle is not a video buffer"))?;
+
         let flip_y = to_argb.flip_y;
         let dst_format = proto::VideoFormatType::from_i32(to_argb.dst_format).unwrap();
         let dst_buf = unsafe {
@@ -385,27 +387,61 @@ impl FFIServer {
         &'static self,
         alloc: proto::AllocAudioBufferRequest,
     ) -> FFIResult<proto::AllocAudioBufferResponse> {
-        Ok(proto::AllocAudioBufferResponse::default())
+        let frame = AudioFrame::new(
+            alloc.sample_rate,
+            alloc.num_channels,
+            alloc.samples_per_channel,
+        );
+
+        let handle_id = self.next_id() as FFIHandleId;
+        let frame_info = proto::AudioFrameBufferInfo::from(handle_id, &frame);
+        self.ffi_handles()
+            .write()
+            .insert(handle_id, Box::new(frame));
+
+        Ok(proto::AllocAudioBufferResponse {
+            buffer: Some(frame_info),
+        })
     }
 
     fn on_new_audio_stream(
         &'static self,
         new_stream: proto::NewAudioStreamRequest,
     ) -> FFIResult<proto::NewAudioStreamResponse> {
-        Ok(proto::NewAudioStreamResponse::default())
+        let stream_info = audio_frame::FFIAudioStream::setup(self, new_stream)?;
+        Ok(proto::NewAudioStreamResponse {
+            stream: Some(stream_info),
+        })
     }
 
     fn on_new_audio_source(
         &'static self,
         new_source: proto::NewAudioSourceRequest,
     ) -> FFIResult<proto::NewAudioSourceResponse> {
-        Ok(proto::NewAudioSourceResponse::default())
+        let source_info = audio_frame::FFIAudioSource::setup(self, new_source)?;
+        Ok(proto::NewAudioSourceResponse {
+            source: Some(source_info),
+        })
     }
 
     fn on_capture_audio_frame(
         &'static self,
         push: proto::CaptureAudioFrameRequest,
     ) -> FFIResult<proto::CaptureAudioFrameResponse> {
+        let handle_id = push
+            .source_handle
+            .ok_or(FFIError::InvalidRequest("handle is empty"))?
+            .id as FFIHandleId;
+
+        let audio_source = self
+            .ffi_handles()
+            .read()
+            .get(&handle_id)
+            .ok_or(FFIError::InvalidRequest("handle not found"))?
+            .downcast_ref::<audio_frame::FFIAudioSource>()
+            .ok_or(FFIError::InvalidRequest("handle is not a video source"))?;
+
+        audio_source.capture_frame(self, push);
         Ok(proto::CaptureAudioFrameResponse::default())
     }
 
@@ -415,7 +451,7 @@ impl FFIServer {
     ) -> FFIResult<proto::FfiResponse> {
         let request = request
             .message
-            .ok_or(FFIError::InvalidRequest("message is empty".to_string()))?;
+            .ok_or(FFIError::InvalidRequest("message is empty"))?;
 
         let mut res = proto::FfiResponse::default();
         res.message = Some(match request {

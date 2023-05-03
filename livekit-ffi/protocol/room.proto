@@ -20,7 +20,7 @@ message ConnectResponse {
 
 message ConnectCallback {
   FFIAsyncId async_id = 1;
-  bool success = 2;
+  bool success = 2; // TODO(theomonnom): Better error messages
   optional RoomInfo room = 3;
 }
 

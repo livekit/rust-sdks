@@ -6,7 +6,6 @@ use thiserror::Error;
 mod proto {
     include!(concat!(env!("OUT_DIR"), "/livekit.rs"));
 }
-
 mod conversion;
 mod server;
 
@@ -16,12 +15,8 @@ pub enum FFIError {
     NotConfigured,
     #[error("the server is already initialized")]
     AlreadyInitialized,
-    #[error("the handle is not found")]
-    HandleNotFound,
-    #[error("the handle is invalid for this operation")]
-    InvalidHandle,
     #[error("invalid request: {0}")]
-    InvalidRequest(String),
+    InvalidRequest(&'static str),
 }
 
 pub type FFIResult<T> = Result<T, FFIError>;
