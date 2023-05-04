@@ -1,6 +1,7 @@
 use crate::proto;
 use crate::server::video_frame::{FFIVideoSource, FFIVideoStream};
 use crate::FFIHandleId;
+use livekit::options::VideoResolution;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame;
 
@@ -248,6 +249,28 @@ impl From<&FFIVideoSource> for proto::VideoSourceInfo {
                 id: source.handle_id() as u64,
             }),
             r#type: source.source_type() as i32,
+        }
+    }
+}
+
+impl From<VideoResolution> for proto::VideoResolution {
+    fn from(resolution: VideoResolution) -> Self {
+        Self {
+            width: resolution.width,
+            height: resolution.height,
+            frame_rate: resolution.frame_rate,
+            aspect_ratio: resolution.aspect_ratio,
+        }
+    }
+}
+
+impl From<proto::VideoResolution> for VideoResolution {
+    fn from(resolution: proto::VideoResolution) -> Self {
+        Self {
+            width: resolution.width,
+            height: resolution.height,
+            frame_rate: resolution.frame_rate,
+            aspect_ratio: resolution.aspect_ratio,
         }
     }
 }

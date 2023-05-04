@@ -21,7 +21,7 @@ message AudioCaptureOptions {
 message CreateVideoTrackRequest {
   string name = 1;
   VideoCaptureOptions options = 2;
-  FFIHandleId video_source = 3;
+  FFIHandleId source_handle = 3;
 }
 message CreateVideoTrackResponse {
   TrackInfo track = 1;
@@ -73,14 +73,17 @@ message TrackPublicationInfo {
   uint32 height = 7;
   string mime_type = 8;
   bool muted = 9;
+  bool remote = 10;
 }
 
 message TrackInfo {
+  // Tracks created/owned by the client will have a handle
   FFIHandleId opt_handle = 1;
   string sid = 2;
   string name = 3;
   TrackKind kind = 4;
   StreamState stream_state = 5;
   bool muted = 6;
+  bool remote = 7;
 }
 

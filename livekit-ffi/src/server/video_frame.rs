@@ -140,10 +140,11 @@ impl FFIVideoStream {
 pub struct FFIVideoSource {
     handle_id: FFIHandleId,
     source_type: proto::VideoSourceType,
-    source: VideoSourceInner,
+    source: VideoSource,
 }
 
-enum VideoSourceInner {
+#[derive(Clone)]
+pub enum VideoSource {
     Native(NativeVideoSource),
 }
 
@@ -156,7 +157,7 @@ impl FFIVideoSource {
         let source_inner = match source_type {
             proto::VideoSourceType::VideoSourceNative => {
                 let video_source = NativeVideoSource::default();
-                Ok(VideoSourceInner::Native(video_source))
+                Ok(VideoSource::Native(video_source))
             }
             _ => Err(FFIError::InvalidRequest("unsupported video source type")),
         }?;
@@ -182,7 +183,7 @@ impl FFIVideoSource {
         capture: proto::CaptureVideoFrameRequest,
     ) -> FFIResult<()> {
         match self.source {
-            VideoSourceInner::Native(ref source) => {
+            VideoSource::Native(ref source) => {
                 let frame_info = capture
                     .frame
                     .ok_or(FFIError::InvalidRequest("frame is empty"))?;
@@ -222,5 +223,9 @@ impl FFIVideoSource {
 
     pub fn source_type(&self) -> proto::VideoSourceType {
         self.source_type
+    }
+
+    pub fn inner_source(&self) -> &VideoSource {
+        &self.source
     }
 }

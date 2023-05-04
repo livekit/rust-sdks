@@ -132,7 +132,7 @@ impl TrackPublicationInner {
         self.track.lock().clone()
     }
 
-    pub fn muted(&self) -> bool {
+    pub fn is_muted(&self) -> bool {
         self.muted.load(Ordering::Relaxed)
     }
 }
@@ -153,7 +153,8 @@ impl TrackPublication {
         pub fn simulcasted(self: &Self) -> bool;
         pub fn dimension(self: &Self) -> TrackDimension;
         pub fn mime_type(self: &Self) -> String;
-        pub fn muted(self: &Self) -> bool;
+        pub fn is_muted(self: &Self) -> bool;
+        pub fn is_remote(self: &Self) -> bool;
     );
 
     pub fn track(&self) -> Option<Track> {

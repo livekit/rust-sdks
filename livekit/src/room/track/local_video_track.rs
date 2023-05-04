@@ -80,8 +80,8 @@ impl LocalVideoTrack {
     }
 
     #[inline]
-    pub fn muted(&self) -> bool {
-        self.inner.track_inner.muted()
+    pub fn is_muted(&self) -> bool {
+        self.inner.track_inner.is_muted()
     }
 
     #[inline]
@@ -106,7 +106,12 @@ impl LocalVideoTrack {
     }
 
     #[inline]
-    pub fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+    pub fn is_remote(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
         self.inner.track_inner.transceiver()
     }
 

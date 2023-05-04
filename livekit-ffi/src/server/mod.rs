@@ -188,8 +188,32 @@ impl FFIServer {
     // Track
     fn on_create_video_track(
         &'static self,
-        _create: proto::CreateVideoTrackRequest,
+        create: proto::CreateVideoTrackRequest,
     ) -> FFIResult<proto::CreateVideoTrackResponse> {
+        let handle_id = create
+            .source_handle
+            .as_ref()
+            .ok_or(FFIError::InvalidRequest("source_handle is empty"))?
+            .id as FFIHandleId;
+
+        let ffi_handles = self.ffi_handles().read();
+        let source = ffi_handles
+            .get(&handle_id)
+            .ok_or(FFIError::InvalidRequest("source not found"))?;
+
+        let source = source
+            .downcast_ref::<video_frame::FFIVideoSource>()
+            .ok_or(FFIError::InvalidRequest("handle is not a video source"))?;
+
+        let source = source.inner_source().clone();
+        let video_track = match source {
+            video_frame::VideoSource::Native(native_source) => LocalVideoTrack::create_video_track(
+                &create.name,
+                create.options.unwrap_or_default().into(),
+                native_source,
+            ),
+        };
+
         Ok(proto::CreateVideoTrackResponse::default())
     }
 
