@@ -197,7 +197,7 @@ impl FFIVideoSource {
                     .ok_or(FFIError::InvalidRequest("handle is empty"))?
                     .id as FFIHandleId;
 
-                let buffer = &*ffi_handles
+                let buffer = ffi_handles
                     .get(&handle_id)
                     .ok_or(FFIError::InvalidRequest("handle not found"))?
                     .downcast_ref::<BoxVideoFrameBuffer>()

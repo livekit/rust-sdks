@@ -1,5 +1,4 @@
 use crate::proto;
-use crate::server::audio_frame::FFIAudioStream;
 use crate::server::video_frame::{FFIVideoSource, FFIVideoStream};
 use crate::FFIHandleId;
 use livekit::webrtc::prelude::*;
@@ -69,7 +68,7 @@ impl_biyuv_into!(&NV12Buffer);
 impl proto::VideoFrameInfo {
     pub fn from<T>(frame: &VideoFrame<T>) -> Self
     where
-        T: VideoFrameBuffer,
+        T: AsRef<dyn VideoFrameBuffer>,
     {
         Self {
             timestamp: frame.timestamp,
@@ -79,16 +78,30 @@ impl proto::VideoFrameInfo {
 }
 
 impl proto::VideoFrameBufferInfo {
-    pub fn from(handle: FFIHandleId, buffer: &dyn VideoFrameBuffer) -> Self {
-        match &buffer.buffer_type() {
+    pub fn from(handle: FFIHandleId, buffer: impl AsRef<dyn VideoFrameBuffer>) -> Self {
+        match &buffer.as_ref().buffer_type() {
             #[cfg(not(target_arch = "wasm32"))]
-            VideoFrameBufferType::Native => Self::from_native(handle, buffer.as_native().unwrap()),
-            VideoFrameBufferType::I420 => Self::from_i420(handle, buffer.as_i420().unwrap()),
-            VideoFrameBufferType::I420A => Self::from_i420a(handle, buffer.as_i420a().unwrap()),
-            VideoFrameBufferType::I422 => Self::from_i422(handle, buffer.as_i422().unwrap()),
-            VideoFrameBufferType::I444 => Self::from_i444(handle, buffer.as_i444().unwrap()),
-            VideoFrameBufferType::I010 => Self::from_i010(handle, buffer.as_i010().unwrap()),
-            VideoFrameBufferType::NV12 => Self::from_nv12(handle, buffer.as_nv12().unwrap()),
+            VideoFrameBufferType::Native => {
+                Self::from_native(handle, buffer.as_ref().as_native().unwrap())
+            }
+            VideoFrameBufferType::I420 => {
+                Self::from_i420(handle, buffer.as_ref().as_i420().unwrap())
+            }
+            VideoFrameBufferType::I420A => {
+                Self::from_i420a(handle, buffer.as_ref().as_i420a().unwrap())
+            }
+            VideoFrameBufferType::I422 => {
+                Self::from_i422(handle, buffer.as_ref().as_i422().unwrap())
+            }
+            VideoFrameBufferType::I444 => {
+                Self::from_i444(handle, buffer.as_ref().as_i444().unwrap())
+            }
+            VideoFrameBufferType::I010 => {
+                Self::from_i010(handle, buffer.as_ref().as_i010().unwrap())
+            }
+            VideoFrameBufferType::NV12 => {
+                Self::from_nv12(handle, buffer.as_ref().as_nv12().unwrap())
+            }
             _ => panic!("unsupported buffer type on this platform"),
         }
     }

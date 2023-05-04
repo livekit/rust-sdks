@@ -251,12 +251,12 @@ impl FFIServer {
     ) -> FFIResult<proto::CaptureVideoFrameResponse> {
         let handle_id = push
             .source_handle
+            .as_ref()
             .ok_or(FFIError::InvalidRequest("source_handle is empty"))?
             .id as FFIHandleId;
 
-        let video_source = self
-            .ffi_handles()
-            .read()
+        let ffi_handles = self.ffi_handles().read();
+        let video_source = ffi_handles
             .get(&handle_id)
             .unwrap()
             .downcast_ref::<video_frame::FFIVideoSource>()
@@ -430,12 +430,12 @@ impl FFIServer {
     ) -> FFIResult<proto::CaptureAudioFrameResponse> {
         let handle_id = push
             .source_handle
+            .as_ref()
             .ok_or(FFIError::InvalidRequest("handle is empty"))?
             .id as FFIHandleId;
 
-        let audio_source = self
-            .ffi_handles()
-            .read()
+        let ffi_handles = self.ffi_handles().read();
+        let audio_source = ffi_handles
             .get(&handle_id)
             .ok_or(FFIError::InvalidRequest("handle not found"))?
             .downcast_ref::<audio_frame::FFIAudioSource>()

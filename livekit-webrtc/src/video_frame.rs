@@ -40,15 +40,72 @@ pub enum VideoFrameBufferType {
 #[derive(Debug)]
 pub struct VideoFrame<T>
 where
-    T: AsRef<dyn VideoFrameBuffer + Send + Sync>,
+    T: AsRef<dyn VideoFrameBuffer>,
 {
     pub rotation: VideoRotation,
     pub timestamp: i64, // When the frame was captured
     pub buffer: T,
 }
 
-pub type BoxVideoFrameBuffer = Box<dyn VideoFrameBuffer + Send + Sync>;
+pub type BoxVideoFrameBuffer = Box<dyn VideoFrameBuffer>;
 pub type BoxVideoFrame = VideoFrame<BoxVideoFrameBuffer>;
+
+pub(crate) mod internal {
+    use super::{I420Buffer, VideoFormatType};
+
+    pub trait BufferSealed: Send + Sync {
+        #[cfg(not(target_arch = "wasm32"))]
+        fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        fn to_i420(&self) -> I420Buffer;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        fn to_argb(
+            &self,
+            format: VideoFormatType,
+            dst: &mut [u8],
+            dst_stride: u32,
+            dst_width: i32,
+            dst_height: i32,
+        ) -> Result<(), super::native::ConvertError>;
+    }
+}
+
+pub trait VideoFrameBuffer: internal::BufferSealed + Debug {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn buffer_type(&self) -> VideoFrameBufferType;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn as_native(&self) -> Option<&native::NativeBuffer> {
+        None
+    }
+
+    fn as_i420(&self) -> Option<&I420Buffer> {
+        None
+    }
+
+    fn as_i420a(&self) -> Option<&I420ABuffer> {
+        None
+    }
+
+    fn as_i422(&self) -> Option<&I422Buffer> {
+        None
+    }
+
+    fn as_i444(&self) -> Option<&I444Buffer> {
+        None
+    }
+
+    fn as_i010(&self) -> Option<&I010Buffer> {
+        None
+    }
+
+    fn as_nv12(&self) -> Option<&NV12Buffer> {
+        None
+    }
+}
 
 macro_rules! new_buffer_type {
     ($type:ident, $variant:ident, $as:ident) => {
@@ -56,7 +113,7 @@ macro_rules! new_buffer_type {
             pub(crate) handle: vf_imp::$type,
         }
 
-        impl $crate::video_frame::internal::BufferInternal for $type {
+        impl $crate::video_frame::internal::BufferSealed for $type {
             #[cfg(not(target_arch = "wasm32"))]
             fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer {
                 self.handle.sys_handle()
@@ -115,63 +172,6 @@ macro_rules! new_buffer_type {
             }
         }
     };
-}
-
-pub(crate) mod internal {
-    use super::{I420Buffer, VideoFormatType};
-
-    pub trait BufferInternal {
-        #[cfg(not(target_arch = "wasm32"))]
-        fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        fn to_i420(&self) -> I420Buffer;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        fn to_argb(
-            &self,
-            format: VideoFormatType,
-            dst: &mut [u8],
-            dst_stride: u32,
-            dst_width: i32,
-            dst_height: i32,
-        ) -> Result<(), super::native::ConvertError>;
-    }
-}
-
-pub trait VideoFrameBuffer: internal::BufferInternal + Debug {
-    fn width(&self) -> u32;
-    fn height(&self) -> u32;
-    fn buffer_type(&self) -> VideoFrameBufferType;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn as_native(&self) -> Option<&native::NativeBuffer> {
-        None
-    }
-
-    fn as_i420(&self) -> Option<&I420Buffer> {
-        None
-    }
-
-    fn as_i420a(&self) -> Option<&I420ABuffer> {
-        None
-    }
-
-    fn as_i422(&self) -> Option<&I422Buffer> {
-        None
-    }
-
-    fn as_i444(&self) -> Option<&I444Buffer> {
-        None
-    }
-
-    fn as_i010(&self) -> Option<&I010Buffer> {
-        None
-    }
-
-    fn as_nv12(&self) -> Option<&NV12Buffer> {
-        None
-    }
 }
 
 new_buffer_type!(I420Buffer, I420, as_i420);

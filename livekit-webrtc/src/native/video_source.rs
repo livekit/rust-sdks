@@ -1,6 +1,5 @@
 use crate::video_frame::{VideoFrame, VideoFrameBuffer};
 use cxx::SharedPtr;
-use std::borrow::Borrow;
 use webrtc_sys::media_stream as ms_sys;
 use webrtc_sys::video_frame as vf_sys;
 
@@ -22,10 +21,7 @@ impl NativeVideoSource {
         self.sys_handle.clone()
     }
 
-    pub fn capture_frame<T: AsRef<dyn VideoFrameBuffer + Send + Sync>>(
-        &self,
-        frame: &VideoFrame<T>,
-    ) {
+    pub fn capture_frame<T: AsRef<dyn VideoFrameBuffer>>(&self, frame: &VideoFrame<T>) {
         let mut builder = vf_sys::ffi::new_video_frame_builder();
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder

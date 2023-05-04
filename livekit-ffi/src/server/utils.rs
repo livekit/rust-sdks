@@ -14,8 +14,8 @@ pub fn find_remote_track(
         .ok_or(FFIError::InvalidRequest("room not found"))?
         .session();
 
-    let participant = session
-        .participants()
+    let participants = session.participants();
+    let participant = participants
         .get(participant_sid)
         .ok_or(FFIError::InvalidRequest("participant not found"))?;
 
