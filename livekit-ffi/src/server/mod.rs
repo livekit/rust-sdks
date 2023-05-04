@@ -166,21 +166,21 @@ impl FFIServer {
 
     fn on_disconnect(
         &'static self,
-        disconnect: proto::DisconnectRequest,
+        _disconnect: proto::DisconnectRequest,
     ) -> FFIResult<proto::DisconnectResponse> {
         Ok(proto::DisconnectResponse::default())
     }
 
     fn on_publish_track(
         &'static self,
-        publish: proto::PublishTrackRequest,
+        _publish: proto::PublishTrackRequest,
     ) -> FFIResult<proto::PublishTrackResponse> {
         Ok(proto::PublishTrackResponse::default())
     }
 
     fn on_unpublish_track(
         &'static self,
-        unpublish: proto::UnpublishTrackRequest,
+        _unpublish: proto::UnpublishTrackRequest,
     ) -> FFIResult<proto::UnpublishTrackResponse> {
         Ok(proto::UnpublishTrackResponse::default())
     }
@@ -188,14 +188,14 @@ impl FFIServer {
     // Track
     fn on_create_video_track(
         &'static self,
-        create: proto::CreateVideoTrackRequest,
+        _create: proto::CreateVideoTrackRequest,
     ) -> FFIResult<proto::CreateVideoTrackResponse> {
         Ok(proto::CreateVideoTrackResponse::default())
     }
 
     fn on_create_audio_track(
         &'static self,
-        create: proto::CreateAudioTrackRequest,
+        _create: proto::CreateAudioTrackRequest,
     ) -> FFIResult<proto::CreateAudioTrackResponse> {
         Ok(proto::CreateAudioTrackResponse::default())
     }
@@ -262,7 +262,7 @@ impl FFIServer {
             .downcast_ref::<video_frame::FFIVideoSource>()
             .ok_or(FFIError::InvalidRequest("handle is not a video source"))?;
 
-        video_source.capture_frame(self, push);
+        video_source.capture_frame(self, push)?;
         Ok(proto::CaptureVideoFrameResponse::default())
     }
 
@@ -441,7 +441,7 @@ impl FFIServer {
             .downcast_ref::<audio_frame::FFIAudioSource>()
             .ok_or(FFIError::InvalidRequest("handle is not a video source"))?;
 
-        audio_source.capture_frame(self, push);
+        audio_source.capture_frame(self, push)?;
         Ok(proto::CaptureAudioFrameResponse::default())
     }
 
