@@ -1,4 +1,4 @@
-use crate::proto;
+use crate::{proto, INVALID_HANDLE};
 use livekit::prelude::*;
 
 impl proto::RoomEvent {
@@ -41,7 +41,7 @@ impl proto::RoomEvent {
             } => Some(proto::room_event::Message::TrackSubscribed(
                 proto::TrackSubscribed {
                     participant_sid: participant.sid().to_string(),
-                    track: Some(proto::TrackInfo::from_remote_track(None, &track)),
+                    track: Some(proto::TrackInfo::from_remote_track(INVALID_HANDLE, &track)),
                 },
             )),
             RoomEvent::TrackUnsubscribed {

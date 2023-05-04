@@ -135,10 +135,11 @@ impl FFIAudioStream {
 pub struct FFIAudioSource {
     handle_id: FFIHandleId,
     source_type: proto::AudioSourceType,
-    source: AudioSourceInner,
+    source: AudioSource,
 }
 
-enum AudioSourceInner {
+#[derive(Clone)]
+pub enum AudioSource {
     Native(NativeAudioSource),
 }
 
@@ -151,7 +152,7 @@ impl FFIAudioSource {
         let source_inner = match source_type {
             proto::AudioSourceType::AudioSourceNative => {
                 let audio_source = NativeAudioSource::default();
-                Ok(AudioSourceInner::Native(audio_source))
+                Ok(AudioSource::Native(audio_source))
             }
             _ => return Err(FFIError::InvalidRequest("unsupported audio source type")),
         }?;
@@ -177,7 +178,7 @@ impl FFIAudioSource {
         capture: proto::CaptureAudioFrameRequest,
     ) -> FFIResult<()> {
         match self.source {
-            AudioSourceInner::Native(ref source) => {
+            AudioSource::Native(ref source) => {
                 let frame_info = capture
                     .frame
                     .ok_or(FFIError::InvalidRequest("frame is empty"))?;
@@ -207,5 +208,9 @@ impl FFIAudioSource {
 
     pub fn source_type(&self) -> proto::AudioSourceType {
         self.source_type
+    }
+
+    pub fn inner_source(&self) -> &AudioSource {
+        &self.source
     }
 }

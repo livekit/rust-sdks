@@ -31,7 +31,7 @@ message CreateVideoTrackResponse {
 message CreateAudioTrackRequest {
   string name = 1;
   AudioCaptureOptions options = 2;
-  FFIHandleId audio_source = 3;
+  FFIHandleId source_handle = 3;
 }
 message CreateAudioTrackResponse {
   TrackInfo track = 1;
@@ -62,6 +62,8 @@ enum StreamState {
   STATE_ACTIVE = 1;
   STATE_PAUSED = 2;
 }
+
+// TODO(theomonnom): Should we have a separate message whether the track is local or remote?
 
 message TrackPublicationInfo {
   string sid = 1;

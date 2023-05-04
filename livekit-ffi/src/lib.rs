@@ -24,6 +24,8 @@ pub type FFIAsyncId = usize;
 pub type FFIHandleId = usize;
 pub type FFIHandle = Box<dyn Any + Send + Sync>;
 
+pub const INVALID_HANDLE: FFIHandleId = 0;
+
 lazy_static! {
     pub static ref FFI_SRV_GLOBAL: server::FFIServer = server::FFIServer::default();
 }

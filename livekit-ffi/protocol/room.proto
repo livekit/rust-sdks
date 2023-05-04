@@ -31,7 +31,7 @@ message DisconnectResponse {}
 // Publish a track to the room
 message PublishTrackRequest {
   string room_sid = 1;
-  FFIHandleId track = 2;
+  FFIHandleId track_handle = 2;
   TrackPublishOptions options = 3;
 }
 message PublishTrackResponse {

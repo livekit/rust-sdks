@@ -173,8 +173,28 @@ impl FFIServer {
 
     fn on_publish_track(
         &'static self,
-        _publish: proto::PublishTrackRequest,
+        publish: proto::PublishTrackRequest,
     ) -> FFIResult<proto::PublishTrackResponse> {
+        // get the room, get the track and publish
+        let room = self
+            .rooms
+            .read()
+            .get(&publish.room_sid.into())
+            .ok_or(FFIError::InvalidRequest("room not found"))?;
+
+        let handle_id = publish
+            .track_handle
+            .as_ref()
+            .ok_or(FFIError::InvalidRequest("track_handle is empty"))?
+            .id as FFIHandleId;
+
+        let ffi_handles = self.ffi_handles().read();
+        let track = ffi_handles
+            .get(&handle_id)
+            .ok_or(FFIError::InvalidRequest("track not found"))?;
+
+        room.session().local_participant().publish_track(track);
+
         Ok(proto::PublishTrackResponse::default())
     }
 
@@ -214,14 +234,56 @@ impl FFIServer {
             ),
         };
 
-        Ok(proto::CreateVideoTrackResponse::default())
+        let handle_id = self.next_id() as FFIHandleId;
+        let track_info = proto::TrackInfo::from_local_video_track(handle_id, &video_track);
+
+        self.ffi_handles()
+            .write()
+            .insert(handle_id, Box::new(video_track));
+
+        Ok(proto::CreateVideoTrackResponse {
+            track: Some(track_info),
+        })
     }
 
     fn on_create_audio_track(
         &'static self,
-        _create: proto::CreateAudioTrackRequest,
+        create: proto::CreateAudioTrackRequest,
     ) -> FFIResult<proto::CreateAudioTrackResponse> {
-        Ok(proto::CreateAudioTrackResponse::default())
+        let handle_id = create
+            .source_handle
+            .as_ref()
+            .ok_or(FFIError::InvalidRequest("source_handle is empty"))?
+            .id as FFIHandleId;
+
+        let ffi_handles = self.ffi_handles().read();
+        let source = ffi_handles
+            .get(&handle_id)
+            .ok_or(FFIError::InvalidRequest("source not found"))?;
+
+        let source = source
+            .downcast_ref::<audio_frame::FFIAudioSource>()
+            .ok_or(FFIError::InvalidRequest("handle is not an audio source"))?;
+
+        let source = source.inner_source().clone();
+        let audio_track = match source {
+            audio_frame::AudioSource::Native(native_source) => LocalAudioTrack::create_audio_track(
+                &create.name,
+                create.options.unwrap_or_default().into(),
+                native_source,
+            ),
+        };
+
+        let handle_id = self.next_id() as FFIHandleId;
+        let track_info = proto::TrackInfo::from_local_audio_track(handle_id, &audio_track);
+
+        self.ffi_handles()
+            .write()
+            .insert(handle_id, Box::new(audio_track));
+
+        Ok(proto::CreateAudioTrackResponse {
+            track: Some(track_info),
+        })
     }
 
     // Video

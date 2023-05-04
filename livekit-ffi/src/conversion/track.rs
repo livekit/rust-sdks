@@ -60,9 +60,9 @@ impl_publication_into!(&TrackPublication);
 macro_rules! impl_track_into {
     ($fnc:ident, $t:ty) => {
         impl proto::TrackInfo {
-            pub fn $fnc(handle_id: Option<FFIHandleId>, track: $t) -> Self {
+            pub fn $fnc(handle_id: FFIHandleId, track: $t) -> Self {
                 Self {
-                    opt_handle: handle_id.map(Into::into),
+                    opt_handle: Some(handle_id.into()),
                     name: track.name(),
                     stream_state: proto::StreamState::from(track.stream_state()).into(),
                     sid: track.sid().to_string(),
