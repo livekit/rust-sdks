@@ -1,4 +1,4 @@
-use crate::{proto, server, FFIError, FFIHandleId, FFIResult};
+use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::media_stream::MediaStreamTrack;
@@ -11,8 +11,8 @@ use tokio::sync::oneshot;
 
 // ===== FFIVideoStream =====
 
-pub struct FFIVideoStream {
-    handle_id: FFIHandleId,
+pub struct FfiVideoStream {
+    handle_id: FfiHandleId,
     stream_type: proto::VideoStreamType,
     track_sid: TrackSid,
 
@@ -20,7 +20,7 @@ pub struct FFIVideoStream {
     close_tx: oneshot::Sender<()>, // Close the stream on drop
 }
 
-impl FFIVideoStream {
+impl FfiVideoStream {
     /// Setup a new VideoStream and forward the frame data to the client/the foreign
     /// language.
     ///
@@ -30,9 +30,9 @@ impl FFIVideoStream {
     /// It is possible that the client receives a VideoFrame after the task is closed. The client
     /// musts ignore it.
     pub fn setup(
-        server: &'static server::FFIServer,
+        server: &'static server::FfiServer,
         new_stream: proto::NewVideoStreamRequest,
-    ) -> FFIResult<proto::VideoStreamInfo> {
+    ) -> FfiResult<proto::VideoStreamInfo> {
         let (close_tx, close_rx) = oneshot::channel();
         let stream_type = proto::VideoStreamType::from_i32(new_stream.r#type).unwrap();
         let track_sid: TrackSid = new_stream.track_sid.into();
@@ -46,7 +46,7 @@ impl FFIVideoStream {
         .rtc_track();
 
         let MediaStreamTrack::Video(track) = track else {
-            return Err(FFIError::InvalidRequest("not a video track"));
+            return Err(FfiError::InvalidRequest("not a video track"));
         };
 
         let stream = match stream_type {
@@ -63,10 +63,10 @@ impl FFIVideoStream {
                     NativeVideoStream::new(track),
                     close_rx,
                 ));
-                Ok::<FFIVideoStream, FFIError>(video_stream)
+                Ok::<FfiVideoStream, FfiError>(video_stream)
             }
             // TODO(theomonnom): Support other stream types
-            _ => return Err(FFIError::InvalidRequest("unsupported video stream type")),
+            _ => return Err(FfiError::InvalidRequest("unsupported video stream type")),
         }?;
 
         // Store the new video stream and return the info
@@ -79,7 +79,7 @@ impl FFIVideoStream {
         Ok(info)
     }
 
-    pub fn handle_id(&self) -> FFIHandleId {
+    pub fn handle_id(&self) -> FfiHandleId {
         self.handle_id
     }
 
@@ -92,8 +92,8 @@ impl FFIVideoStream {
     }
 
     async fn native_video_stream_task(
-        server: &'static server::FFIServer,
-        stream_handle_id: FFIHandleId,
+        server: &'static server::FfiServer,
+        stream_handle_id: FfiHandleId,
         mut native_stream: NativeVideoStream,
         mut close_rx: oneshot::Receiver<()>,
     ) {
@@ -137,8 +137,8 @@ impl FFIVideoStream {
 
 // ===== FFIVideoSource =====
 
-pub struct FFIVideoSource {
-    handle_id: FFIHandleId,
+pub struct FfiVideoSource {
+    handle_id: FfiHandleId,
     source_type: proto::VideoSourceType,
     source: VideoSource,
 }
@@ -148,18 +148,18 @@ pub enum VideoSource {
     Native(NativeVideoSource),
 }
 
-impl FFIVideoSource {
+impl FfiVideoSource {
     pub fn setup(
-        server: &'static server::FFIServer,
+        server: &'static server::FfiServer,
         new_source: proto::NewVideoSourceRequest,
-    ) -> FFIResult<proto::VideoSourceInfo> {
+    ) -> FfiResult<proto::VideoSourceInfo> {
         let source_type = proto::VideoSourceType::from_i32(new_source.r#type).unwrap();
         let source_inner = match source_type {
             proto::VideoSourceType::VideoSourceNative => {
                 let video_source = NativeVideoSource::default();
                 Ok(VideoSource::Native(video_source))
             }
-            _ => Err(FFIError::InvalidRequest("unsupported video source type")),
+            _ => Err(FfiError::InvalidRequest("unsupported video source type")),
         }?;
 
         let video_source = Self {
@@ -179,30 +179,30 @@ impl FFIVideoSource {
 
     pub fn capture_frame(
         &self,
-        server: &'static server::FFIServer,
+        server: &'static server::FfiServer,
         capture: proto::CaptureVideoFrameRequest,
-    ) -> FFIResult<()> {
+    ) -> FfiResult<()> {
         match self.source {
             VideoSource::Native(ref source) => {
                 let frame_info = capture
                     .frame
-                    .ok_or(FFIError::InvalidRequest("frame is empty"))?;
+                    .ok_or(FfiError::InvalidRequest("frame is empty"))?;
 
                 let buffer_info = capture
                     .buffer
-                    .ok_or(FFIError::InvalidRequest("buffer is none"))?;
+                    .ok_or(FfiError::InvalidRequest("buffer is none"))?;
 
                 let ffi_handles = server.ffi_handles().read();
                 let handle_id = buffer_info
                     .handle
-                    .ok_or(FFIError::InvalidRequest("handle is empty"))?
-                    .id as FFIHandleId;
+                    .ok_or(FfiError::InvalidRequest("handle is empty"))?
+                    .id as FfiHandleId;
 
                 let buffer = ffi_handles
                     .get(&handle_id)
-                    .ok_or(FFIError::InvalidRequest("handle not found"))?
+                    .ok_or(FfiError::InvalidRequest("handle not found"))?
                     .downcast_ref::<BoxVideoFrameBuffer>()
-                    .ok_or(FFIError::InvalidRequest("handle is not video frame"))?;
+                    .ok_or(FfiError::InvalidRequest("handle is not video frame"))?;
 
                 let rotation = proto::VideoRotation::from_i32(frame_info.rotation).unwrap();
                 let frame = VideoFrame {
@@ -217,7 +217,7 @@ impl FFIVideoSource {
         Ok(())
     }
 
-    pub fn handle_id(&self) -> FFIHandleId {
+    pub fn handle_id(&self) -> FfiHandleId {
         self.handle_id
     }
 

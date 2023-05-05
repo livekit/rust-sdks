@@ -1,18 +1,18 @@
 use crate::proto;
-use crate::server::FFIServer;
+use crate::server::FfiServer;
 use livekit::prelude::*;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-pub struct FFIRoom {
+pub struct FfiRoom {
     room: Room,
     handle: JoinHandle<()>,
     close_tx: oneshot::Sender<()>,
 }
 
-impl FFIRoom {
+impl FfiRoom {
     pub async fn connect(
-        server: &'static FFIServer,
+        server: &'static FfiServer,
         connect: proto::ConnectRequest,
     ) -> Result<Self, RoomError> {
         let (room, events) = Room::connect(&connect.url, &connect.token).await?;
@@ -38,7 +38,7 @@ impl FFIRoom {
 }
 
 async fn room_task(
-    server: &'static FFIServer,
+    server: &'static FfiServer,
     session: RoomSession,
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: oneshot::Receiver<()>,

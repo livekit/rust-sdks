@@ -11,7 +11,7 @@ mod conversion;
 mod server;
 
 #[derive(Error, Debug)]
-pub enum FFIError {
+pub enum FfiError {
     #[error("the server is not configured")]
     NotConfigured,
     #[error("the server is already initialized")]
@@ -22,15 +22,15 @@ pub enum FFIError {
     InvalidRequest(&'static str),
 }
 
-pub type FFIResult<T> = Result<T, FFIError>;
-pub type FFIAsyncId = usize;
-pub type FFIHandleId = usize;
-pub type FFIHandle = Box<dyn Any + Send + Sync>;
+pub type FfiResult<T> = Result<T, FfiError>;
+pub type FfiAsyncId = usize;
+pub type FfiHandleId = usize;
+pub type FfiHandle = Box<dyn Any + Send + Sync>;
 
-pub const INVALID_HANDLE: FFIHandleId = 0;
+pub const INVALID_HANDLE: FfiHandleId = 0;
 
 lazy_static! {
-    pub static ref FFI_SRV_GLOBAL: server::FFIServer = server::FFIServer::default();
+    pub static ref FFI_SRV_GLOBAL: server::FfiServer = server::FfiServer::default();
 }
 
 #[no_mangle]
@@ -39,7 +39,7 @@ extern "C" fn livekit_ffi_request(
     len: usize,
     res_ptr: *mut *const u8,
     res_len: *mut usize,
-) -> FFIHandleId {
+) -> FfiHandleId {
     let data = unsafe { std::slice::from_raw_parts(data, len) };
     let res = match proto::FfiRequest::decode(data) {
         Ok(res) => res,
@@ -73,7 +73,7 @@ extern "C" fn livekit_ffi_request(
 }
 
 #[no_mangle]
-extern "C" fn livekit_ffi_drop_handle(handle_id: FFIHandleId) -> bool {
+extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     // Free the memory
     FFI_SRV_GLOBAL
         .ffi_handles()

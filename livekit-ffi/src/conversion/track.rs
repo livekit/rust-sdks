@@ -1,4 +1,4 @@
-use crate::{proto, FFIHandleId};
+use crate::{proto, FfiHandleId};
 use livekit::options::{AudioCaptureOptions, VideoCaptureOptions};
 use livekit::prelude::*;
 
@@ -60,7 +60,7 @@ impl_publication_into!(&TrackPublication);
 macro_rules! impl_track_into {
     ($fnc:ident, $t:ty) => {
         impl proto::TrackInfo {
-            pub fn $fnc(handle_id: FFIHandleId, track: $t) -> Self {
+            pub fn $fnc(handle_id: FfiHandleId, track: $t) -> Self {
                 Self {
                     opt_handle: Some(handle_id.into()),
                     name: track.name(),

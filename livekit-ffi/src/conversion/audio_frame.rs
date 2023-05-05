@@ -1,9 +1,9 @@
-use crate::server::audio_frame::{FFIAudioSource, FFIAudioStream};
-use crate::{proto, FFIHandleId};
+use crate::server::audio_frame::{FfiAudioSource, FfiAudioSream};
+use crate::{proto, FfiHandleId};
 use livekit::webrtc::prelude::*;
 
 impl proto::AudioFrameBufferInfo {
-    pub fn from(handle_id: FFIHandleId, buffer: &AudioFrame) -> Self {
+    pub fn from(handle_id: FfiHandleId, buffer: &AudioFrame) -> Self {
         Self {
             handle: Some(handle_id.into()),
             data_ptr: buffer.data.as_ptr() as u64,
@@ -14,8 +14,8 @@ impl proto::AudioFrameBufferInfo {
     }
 }
 
-impl From<&FFIAudioStream> for proto::AudioStreamInfo {
-    fn from(stream: &FFIAudioStream) -> Self {
+impl From<&FfiAudioSream> for proto::AudioStreamInfo {
+    fn from(stream: &FfiAudioSream) -> Self {
         Self {
             handle: Some(proto::FfiHandleId {
                 id: stream.handle_id() as u64,
@@ -26,8 +26,8 @@ impl From<&FFIAudioStream> for proto::AudioStreamInfo {
     }
 }
 
-impl From<&FFIAudioSource> for proto::AudioSourceInfo {
-    fn from(source: &FFIAudioSource) -> Self {
+impl From<&FfiAudioSource> for proto::AudioSourceInfo {
+    fn from(source: &FfiAudioSource) -> Self {
         Self {
             handle: Some(proto::FfiHandleId {
                 id: source.handle_id() as u64,

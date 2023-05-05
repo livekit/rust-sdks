@@ -1,6 +1,6 @@
 use crate::proto;
-use crate::server::video_frame::{FFIVideoSource, FFIVideoStream};
-use crate::FFIHandleId;
+use crate::server::video_frame::{FfiVideoSource, FfiVideoStream};
+use crate::FfiHandleId;
 use livekit::options::{VideoCodec, VideoResolution};
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame;
@@ -79,7 +79,7 @@ impl proto::VideoFrameInfo {
 }
 
 impl proto::VideoFrameBufferInfo {
-    pub fn from(handle: FFIHandleId, buffer: impl AsRef<dyn VideoFrameBuffer>) -> Self {
+    pub fn from(handle: FfiHandleId, buffer: impl AsRef<dyn VideoFrameBuffer>) -> Self {
         match &buffer.as_ref().buffer_type() {
             #[cfg(not(target_arch = "wasm32"))]
             VideoFrameBufferType::Native => {
@@ -108,7 +108,7 @@ impl proto::VideoFrameBufferInfo {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn from_native(handle_id: FFIHandleId, buffer: &video_frame::native::NativeBuffer) -> Self {
+    pub fn from_native(handle_id: FfiHandleId, buffer: &video_frame::native::NativeBuffer) -> Self {
         Self {
             handle: Some(handle_id.into()),
             buffer_type: proto::VideoFrameBufferType::Native.into(),
@@ -120,7 +120,7 @@ impl proto::VideoFrameBufferInfo {
         }
     }
 
-    pub fn from_i420(handle_id: FFIHandleId, buffer: &I420Buffer) -> Self {
+    pub fn from_i420(handle_id: FfiHandleId, buffer: &I420Buffer) -> Self {
         Self {
             handle: Some(handle_id.into()),
             buffer_type: proto::VideoFrameBufferType::I420.into(),
@@ -130,7 +130,7 @@ impl proto::VideoFrameBufferInfo {
         }
     }
 
-    pub fn from_i420a(handle_id: FFIHandleId, buffer: &I420ABuffer) -> Self {
+    pub fn from_i420a(handle_id: FfiHandleId, buffer: &I420ABuffer) -> Self {
         Self {
             handle: Some(handle_id.into()),
             buffer_type: proto::VideoFrameBufferType::I420a.into(),
@@ -140,7 +140,7 @@ impl proto::VideoFrameBufferInfo {
         }
     }
 
-    pub fn from_i422(handle_id: FFIHandleId, buffer: &I422Buffer) -> Self {
+    pub fn from_i422(handle_id: FfiHandleId, buffer: &I422Buffer) -> Self {
         Self {
             handle: Some(handle_id.into()),
             buffer_type: proto::VideoFrameBufferType::I422.into(),
@@ -150,7 +150,7 @@ impl proto::VideoFrameBufferInfo {
         }
     }
 
-    pub fn from_i444(handle_id: FFIHandleId, buffer: &I444Buffer) -> Self {
+    pub fn from_i444(handle_id: FfiHandleId, buffer: &I444Buffer) -> Self {
         Self {
             handle: Some(handle_id.into()),
             buffer_type: proto::VideoFrameBufferType::I444.into(),
@@ -160,7 +160,7 @@ impl proto::VideoFrameBufferInfo {
         }
     }
 
-    pub fn from_i010(handle_id: FFIHandleId, buffer: &I010Buffer) -> Self {
+    pub fn from_i010(handle_id: FfiHandleId, buffer: &I010Buffer) -> Self {
         Self {
             handle: Some(handle_id.into()),
             buffer_type: proto::VideoFrameBufferType::I010.into(),
@@ -170,7 +170,7 @@ impl proto::VideoFrameBufferInfo {
         }
     }
 
-    pub fn from_nv12(handle_id: FFIHandleId, buffer: &NV12Buffer) -> Self {
+    pub fn from_nv12(handle_id: FfiHandleId, buffer: &NV12Buffer) -> Self {
         Self {
             handle: Some(handle_id.into()),
             buffer_type: proto::VideoFrameBufferType::Nv12.into(),
@@ -230,8 +230,8 @@ impl From<VideoFrameBufferType> for proto::VideoFrameBufferType {
     }
 }
 
-impl From<&FFIVideoStream> for proto::VideoStreamInfo {
-    fn from(stream: &FFIVideoStream) -> Self {
+impl From<&FfiVideoStream> for proto::VideoStreamInfo {
+    fn from(stream: &FfiVideoStream) -> Self {
         Self {
             handle: Some(proto::FfiHandleId {
                 id: stream.handle_id() as u64,
@@ -242,8 +242,8 @@ impl From<&FFIVideoStream> for proto::VideoStreamInfo {
     }
 }
 
-impl From<&FFIVideoSource> for proto::VideoSourceInfo {
-    fn from(source: &FFIVideoSource) -> Self {
+impl From<&FfiVideoSource> for proto::VideoSourceInfo {
+    fn from(source: &FfiVideoSource) -> Self {
         Self {
             handle: Some(proto::FfiHandleId {
                 id: source.handle_id() as u64,

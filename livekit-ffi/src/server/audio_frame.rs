@@ -1,4 +1,4 @@
-use crate::{proto, server, FFIError, FFIHandleId, FFIResult};
+use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::audio_frame::AudioFrame;
@@ -11,8 +11,8 @@ use tokio::sync::oneshot;
 
 // ===== FFIAudioStream =====
 
-pub struct FFIAudioStream {
-    handle_id: FFIHandleId,
+pub struct FfiAudioSream {
+    handle_id: FfiHandleId,
     stream_type: proto::AudioStreamType,
     track_sid: TrackSid,
 
@@ -20,7 +20,7 @@ pub struct FFIAudioStream {
     close_tx: oneshot::Sender<()>, // Close the stream on drop
 }
 
-impl FFIAudioStream {
+impl FfiAudioSream {
     /// Setup a new AudioStream and forward the audio data to the client/the foreign
     /// language.
     ///
@@ -30,9 +30,9 @@ impl FFIAudioStream {
     /// It is possible that the client receives an AudioFrame after the task is closed. The client
     /// musts ignore it.
     pub fn setup(
-        server: &'static server::FFIServer,
+        server: &'static server::FfiServer,
         new_stream: proto::NewAudioStreamRequest,
-    ) -> FFIResult<proto::AudioStreamInfo> {
+    ) -> FfiResult<proto::AudioStreamInfo> {
         let (close_tx, close_rx) = oneshot::channel();
         let stream_type = proto::AudioStreamType::from_i32(new_stream.r#type).unwrap();
         let track_sid: TrackSid = new_stream.track_sid.into();
@@ -46,7 +46,7 @@ impl FFIAudioStream {
         .rtc_track();
 
         let MediaStreamTrack::Audio(track) = track else {
-            return Err(FFIError::InvalidRequest("not an audio track"));
+            return Err(FfiError::InvalidRequest("not an audio track"));
         };
 
         let audio_stream = match stream_type {
@@ -63,10 +63,10 @@ impl FFIAudioStream {
                     NativeAudioStream::new(track),
                     close_rx,
                 ));
-                Ok::<FFIAudioStream, FFIError>(audio_stream)
+                Ok::<FfiAudioSream, FfiError>(audio_stream)
             }
             // TODO(theomonnom): Support other stream types
-            _ => return Err(FFIError::InvalidRequest("unsupported audio stream type")),
+            _ => return Err(FfiError::InvalidRequest("unsupported audio stream type")),
         }?;
 
         // Store the new audio stream and return the info
@@ -79,7 +79,7 @@ impl FFIAudioStream {
         Ok(info)
     }
 
-    pub fn handle_id(&self) -> FFIHandleId {
+    pub fn handle_id(&self) -> FfiHandleId {
         self.handle_id
     }
 
@@ -92,8 +92,8 @@ impl FFIAudioStream {
     }
 
     async fn native_audio_stream_task(
-        server: &'static server::FFIServer,
-        stream_handle_id: FFIHandleId,
+        server: &'static server::FfiServer,
+        stream_handle_id: FfiHandleId,
         mut native_stream: NativeAudioStream,
         mut close_rx: oneshot::Receiver<()>,
     ) {
@@ -132,8 +132,8 @@ impl FFIAudioStream {
 
 // ===== FFIAudioSource =====
 
-pub struct FFIAudioSource {
-    handle_id: FFIHandleId,
+pub struct FfiAudioSource {
+    handle_id: FfiHandleId,
     source_type: proto::AudioSourceType,
     source: AudioSource,
 }
@@ -143,18 +143,18 @@ pub enum AudioSource {
     Native(NativeAudioSource),
 }
 
-impl FFIAudioSource {
+impl FfiAudioSource {
     pub fn setup(
-        server: &'static server::FFIServer,
+        server: &'static server::FfiServer,
         new_source: proto::NewAudioSourceRequest,
-    ) -> FFIResult<proto::AudioSourceInfo> {
+    ) -> FfiResult<proto::AudioSourceInfo> {
         let source_type = proto::AudioSourceType::from_i32(new_source.r#type).unwrap();
         let source_inner = match source_type {
             proto::AudioSourceType::AudioSourceNative => {
                 let audio_source = NativeAudioSource::default();
-                Ok::<AudioSource, FFIError>(AudioSource::Native(audio_source))
+                Ok::<AudioSource, FfiError>(AudioSource::Native(audio_source))
             }
-            _ => return Err(FFIError::InvalidRequest("unsupported audio source type")),
+            _ => return Err(FfiError::InvalidRequest("unsupported audio source type")),
         }?;
 
         let audio_source = Self {
@@ -174,26 +174,26 @@ impl FFIAudioSource {
 
     pub fn capture_frame(
         &self,
-        server: &'static server::FFIServer,
+        server: &'static server::FfiServer,
         capture: proto::CaptureAudioFrameRequest,
-    ) -> FFIResult<()> {
+    ) -> FfiResult<()> {
         match self.source {
             AudioSource::Native(ref source) => {
                 let frame_info = capture
                     .frame
-                    .ok_or(FFIError::InvalidRequest("frame is empty"))?;
+                    .ok_or(FfiError::InvalidRequest("frame is empty"))?;
 
                 let ffi_handles = server.ffi_handles().read();
                 let handle_id = frame_info
                     .handle
-                    .ok_or(FFIError::InvalidRequest("handle is empty"))?
-                    .id as FFIHandleId;
+                    .ok_or(FfiError::InvalidRequest("handle is empty"))?
+                    .id as FfiHandleId;
 
                 let frame = ffi_handles
                     .get(&handle_id)
-                    .ok_or(FFIError::InvalidRequest("handle not found"))?
+                    .ok_or(FfiError::InvalidRequest("handle not found"))?
                     .downcast_ref::<AudioFrame>()
-                    .ok_or(FFIError::InvalidRequest("handle is not an audio frame"))?;
+                    .ok_or(FfiError::InvalidRequest("handle is not an audio frame"))?;
 
                 source.capture_frame(frame);
             }
@@ -202,7 +202,7 @@ impl FFIAudioSource {
         Ok(())
     }
 
-    pub fn handle_id(&self) -> FFIHandleId {
+    pub fn handle_id(&self) -> FfiHandleId {
         self.handle_id
     }
 
