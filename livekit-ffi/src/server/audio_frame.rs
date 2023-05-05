@@ -1,10 +1,10 @@
 use crate::{proto, server, FFIError, FFIHandleId, FFIResult};
 use futures_util::StreamExt;
 use livekit::prelude::*;
+use livekit::webrtc::audio_frame::AudioFrame;
 use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::media_stream::MediaStreamTrack;
-use livekit::webrtc::prelude::*;
 use log::warn;
 use server::utils;
 use tokio::sync::oneshot;
@@ -63,7 +63,7 @@ impl FFIAudioStream {
                     NativeAudioStream::new(track),
                     close_rx,
                 ));
-                Ok(audio_stream)
+                Ok::<FFIAudioStream, FFIError>(audio_stream)
             }
             // TODO(theomonnom): Support other stream types
             _ => return Err(FFIError::InvalidRequest("unsupported audio stream type")),
@@ -152,7 +152,7 @@ impl FFIAudioSource {
         let source_inner = match source_type {
             proto::AudioSourceType::AudioSourceNative => {
                 let audio_source = NativeAudioSource::default();
-                Ok(AudioSource::Native(audio_source))
+                Ok::<AudioSource, FFIError>(AudioSource::Native(audio_source))
             }
             _ => return Err(FFIError::InvalidRequest("unsupported audio source type")),
         }?;

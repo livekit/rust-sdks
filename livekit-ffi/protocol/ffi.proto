@@ -77,13 +77,14 @@ message FFIResponse {
 
 message FFIEvent {
   oneof message {
-    ConnectCallback connect = 1;
-    DisposeCallback dispose = 2;
-    RoomEvent room_event = 3;
-    TrackEvent track_event = 4;
-    ParticipantEvent participant_event = 5;
-    VideoStreamEvent video_stream_event = 6;
-    AudioStreamEvent audio_stream_event = 7;
+    RoomEvent room_event = 1;
+    TrackEvent track_event = 2;
+    ParticipantEvent participant_event = 3;
+    VideoStreamEvent video_stream_event = 4;
+    AudioStreamEvent audio_stream_event = 5;
+    ConnectCallback connect = 6;
+    DisposeCallback dispose = 7;
+    PublishTrackCallback publish_track = 8;
   }
 }
 

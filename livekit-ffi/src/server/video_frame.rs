@@ -63,7 +63,7 @@ impl FFIVideoStream {
                     NativeVideoStream::new(track),
                     close_rx,
                 ));
-                Ok(video_stream)
+                Ok::<FFIVideoStream, FFIError>(video_stream)
             }
             // TODO(theomonnom): Support other stream types
             _ => return Err(FFIError::InvalidRequest("unsupported video stream type")),

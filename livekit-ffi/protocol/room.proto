@@ -17,16 +17,16 @@ message ConnectRequest {
 message ConnectResponse {
   FFIAsyncId async_id = 1;
 }
-
 message ConnectCallback {
   FFIAsyncId async_id = 1;
   bool success = 2; // TODO(theomonnom): Better error messages
-  optional RoomInfo room = 3;
+  RoomInfo room = 3;
 }
 
 // Disconnect from the a room
 message DisconnectRequest { string room_sid = 1; }
-message DisconnectResponse {}
+message DisconnectResponse { FFIAsyncId async_id = 1; }
+message DisconnectCallback { }
 
 // Publish a track to the room
 message PublishTrackRequest {
@@ -35,8 +35,12 @@ message PublishTrackRequest {
   TrackPublishOptions options = 3;
 }
 message PublishTrackResponse {
-  bool success = 1;
-  optional TrackPublicationInfo publication = 2;
+  FFIAsyncId async_id = 1;
+}
+message PublishTrackCallback {
+  FFIAsyncId async_id = 1;
+  bool success = 2;
+  TrackPublicationInfo publication = 3;
 }
 
 // Unpublish a track from the room
@@ -46,6 +50,9 @@ message UnpublishTrackRequest {
   bool stop_on_unpublish = 3;
 }
 message UnpublishTrackResponse {
+  FFIAsyncId async_id = 1;
+}
+message UnpublishTrackCallback {
   bool success = 1;
 }
 
@@ -55,7 +62,7 @@ message UnpublishTrackResponse {
 
 message VideoEncoding {
   uint64 max_bitrate = 1;
-  double max_frame_rate = 2;
+  double max_framerate = 2;
 }
 
 message AudioEncoding {
@@ -63,6 +70,7 @@ message AudioEncoding {
 }
 
 message TrackPublishOptions {
+  // encodings are optional
   VideoEncoding video_encoding = 1;
   AudioEncoding audio_encoding = 2;
   VideoCodec video_codec = 3;

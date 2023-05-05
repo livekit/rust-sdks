@@ -100,3 +100,15 @@ impl From<StreamState> for proto::StreamState {
         }
     }
 }
+
+impl From<proto::TrackSource> for TrackSource {
+    fn from(source: proto::TrackSource) -> Self {
+        match source {
+            proto::TrackSource::SourceUnknown => TrackSource::Unknown,
+            proto::TrackSource::SourceCamera => TrackSource::Camera,
+            proto::TrackSource::SourceMicrophone => TrackSource::Microphone,
+            proto::TrackSource::SourceScreenshare => TrackSource::Screenshare,
+            proto::TrackSource::SourceScreenshareAudio => TrackSource::ScreenshareAudio,
+        }
+    }
+}

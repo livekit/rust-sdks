@@ -1,4 +1,5 @@
 use lazy_static::lazy_static;
+use livekit::prelude::*;
 use prost::Message;
 use std::any::Any;
 use thiserror::Error;
@@ -15,6 +16,8 @@ pub enum FFIError {
     NotConfigured,
     #[error("the server is already initialized")]
     AlreadyInitialized,
+    #[error("room error {0}")]
+    Room(#[from] RoomError),
     #[error("invalid request: {0}")]
     InvalidRequest(&'static str),
 }

@@ -1,5 +1,5 @@
 use crate::proto;
-use crate::{FFIError, FFIHandle, FFIHandleId, FFIResult};
+use crate::{FFIAsyncId, FFIError, FFIHandle, FFIHandleId, FFIResult};
 use livekit::prelude::*;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::*;
@@ -175,27 +175,56 @@ impl FFIServer {
         &'static self,
         publish: proto::PublishTrackRequest,
     ) -> FFIResult<proto::PublishTrackResponse> {
-        // get the room, get the track and publish
-        let room = self
-            .rooms
-            .read()
-            .get(&publish.room_sid.into())
-            .ok_or(FFIError::InvalidRequest("room not found"))?;
+        let async_id = self.next_id() as FFIAsyncId;
+        tokio::spawn(async move {
+            let res = async {
+                let rooms = self.rooms.read();
+                let room = rooms
+                    .get(&publish.room_sid.into())
+                    .ok_or(FFIError::InvalidRequest("room not found"))?;
 
-        let handle_id = publish
-            .track_handle
-            .as_ref()
-            .ok_or(FFIError::InvalidRequest("track_handle is empty"))?
-            .id as FFIHandleId;
+                let handle_id = publish
+                    .track_handle
+                    .as_ref()
+                    .ok_or(FFIError::InvalidRequest("track_handle is empty"))?
+                    .id as FFIHandleId;
 
-        let ffi_handles = self.ffi_handles().read();
-        let track = ffi_handles
-            .get(&handle_id)
-            .ok_or(FFIError::InvalidRequest("track not found"))?;
+                let ffi_handles = self.ffi_handles().read();
+                let track = ffi_handles
+                    .get(&handle_id)
+                    .ok_or(FFIError::InvalidRequest("track not found"))?;
 
-        room.session().local_participant().publish_track(track);
+                let track = track
+                    .downcast_ref::<LocalTrack>()
+                    .ok_or(FFIError::InvalidRequest("track is not a LocalTrack"))?;
 
-        Ok(proto::PublishTrackResponse::default())
+                let publication = room
+                    .session()
+                    .local_participant()
+                    .publish_track(
+                        track.clone(),
+                        publish.options.map(Into::into).unwrap_or_default(),
+                    )
+                    .await?;
+
+                Ok::<LocalTrackPublication, FFIError>(publication)
+            }
+            .await;
+
+            if let Err(err) = self.send_event(proto::ffi_event::Message::PublishTrack(
+                proto::PublishTrackCallback {
+                    async_id: Some(async_id.into()),
+                    success: res.is_ok(),
+                    publication: res.ok().as_ref().map(Into::into),
+                },
+            )) {
+                log::warn!("error sending PublishTrack callback: {}", err);
+            }
+        });
+
+        Ok(proto::PublishTrackResponse {
+            async_id: Some(async_id.into()),
+        })
     }
 
     fn on_unpublish_track(
