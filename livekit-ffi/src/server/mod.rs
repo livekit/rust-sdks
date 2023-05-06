@@ -1,5 +1,6 @@
-use crate::proto;
+use crate::{proto, FfiCallbackFn};
 use crate::{FfiAsyncId, FfiError, FfiHandle, FfiHandleId, FfiResult};
+use lazy_static::lazy_static;
 use livekit::prelude::*;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::*;
@@ -15,10 +16,15 @@ pub mod room;
 pub mod utils;
 pub mod video_frame;
 
-type CallbackFn = unsafe extern "C" fn(*const u8, usize); // The "C" callback must be threadsafe
+#[cfg(test)]
+mod tests;
+
+lazy_static! {
+    pub static ref FFI_SERVER: FfiServer = FfiServer::default();
+}
 
 pub struct FfiConfig {
-    callback_fn: CallbackFn,
+    callback_fn: FfiCallbackFn,
 }
 
 pub struct FfiServer {
@@ -627,64 +633,5 @@ impl FfiServer {
         });
 
         Ok(res)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::FFI_SRV_GLOBAL;
-
-    // Create two I420Buffer, and ensure the logic is correct ( ids, and responses )
-    #[test]
-    fn create_i420_buffer() {
-        let res = FFI_SRV_GLOBAL
-            .handle_request(proto::FfiRequest {
-                message: Some(proto::ffi_request::Message::AllocVideoBuffer(
-                    proto::AllocVideoBufferRequest {
-                        r#type: proto::VideoFrameBufferType::I420 as i32,
-                        width: 640,
-                        height: 480,
-                    },
-                )),
-            })
-            .unwrap();
-
-        let proto::ffi_response::Message::AllocVideoBuffer(alloc) = res.message.unwrap() else {
-            panic!("unexpected response");
-        };
-
-        let i420_handle = alloc.buffer.unwrap().handle.unwrap().id as usize;
-        assert_eq!(i420_handle, 1);
-
-        let res = FFI_SRV_GLOBAL
-            .handle_request(proto::FfiRequest {
-                message: Some(proto::ffi_request::Message::ToI420(proto::ToI420Request {
-                    flip_y: false,
-                    from: Some(proto::to_i420_request::From::Buffer(proto::FfiHandleId {
-                        id: i420_handle as u64,
-                    })),
-                })),
-            })
-            .unwrap();
-
-        FFI_SRV_GLOBAL
-            .ffi_handles()
-            .write()
-            .remove(&i420_handle)
-            .unwrap();
-
-        let proto::ffi_response::Message::ToI420(to_i420) = res.message.unwrap() else {
-            panic!("unexpected response");
-        };
-
-        let new_handle = to_i420.buffer.unwrap().handle.unwrap().id as usize;
-        assert_eq!(new_handle, 2);
-
-        FFI_SRV_GLOBAL
-            .ffi_handles()
-            .write()
-            .remove(&new_handle)
-            .unwrap();
     }
 }

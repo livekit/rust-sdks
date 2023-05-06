@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use livekit::prelude::*;
 use prost::Message;
 use std::any::Any;
@@ -22,6 +21,8 @@ pub enum FfiError {
     InvalidRequest(&'static str),
 }
 
+/// # SAFTEY: The "C" callback must be threadsafe and not block
+pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 pub type FfiResult<T> = Result<T, FfiError>;
 pub type FfiAsyncId = usize;
 pub type FfiHandleId = usize;
@@ -29,12 +30,8 @@ pub type FfiHandle = Box<dyn Any + Send + Sync>;
 
 pub const INVALID_HANDLE: FfiHandleId = 0;
 
-lazy_static! {
-    pub static ref FFI_SRV_GLOBAL: server::FfiServer = server::FfiServer::default();
-}
-
 #[no_mangle]
-extern "C" fn livekit_ffi_request(
+pub(crate) extern "C" fn livekit_ffi_request(
     data: *const u8,
     len: usize,
     res_ptr: *mut *const u8,
@@ -45,15 +42,15 @@ extern "C" fn livekit_ffi_request(
         Ok(res) => res,
         Err(err) => {
             eprintln!("failed to decode request: {}", err);
-            return 0;
+            return INVALID_HANDLE;
         }
     };
 
-    let res = match FFI_SRV_GLOBAL.handle_request(res) {
+    let res = match server::FFI_SERVER.handle_request(res) {
         Ok(res) => res,
         Err(err) => {
             eprintln!("failed to handle request: {}", err);
-            return 0;
+            return INVALID_HANDLE;
         }
     }
     .encode_to_vec();
@@ -63,8 +60,8 @@ extern "C" fn livekit_ffi_request(
         *res_len = res.len();
     }
 
-    let handle_id = FFI_SRV_GLOBAL.next_id();
-    FFI_SRV_GLOBAL
+    let handle_id = server::FFI_SERVER.next_id();
+    server::FFI_SERVER
         .ffi_handles()
         .write()
         .insert(handle_id, Box::new(res));
@@ -73,9 +70,9 @@ extern "C" fn livekit_ffi_request(
 }
 
 #[no_mangle]
-extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
+pub(crate) extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     // Free the memory
-    FFI_SRV_GLOBAL
+    server::FFI_SERVER
         .ffi_handles()
         .write()
         .remove(&handle_id)
