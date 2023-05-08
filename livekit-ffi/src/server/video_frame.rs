@@ -190,18 +190,14 @@ impl FfiVideoSource {
                     .frame
                     .ok_or(FfiError::InvalidRequest("frame is empty"))?;
 
-                let buffer_info = capture
-                    .buffer
-                    .ok_or(FfiError::InvalidRequest("buffer is none"))?;
-
-                let handle_id = buffer_info
-                    .handle
-                    .ok_or(FfiError::InvalidRequest("handle is empty"))?
+                let buffer_handle = capture
+                    .buffer_handle
+                    .ok_or(FfiError::InvalidRequest("buffer_handle is none"))?
                     .id as FfiHandleId;
 
                 let buffer = server
                     .ffi_handles()
-                    .get(&handle_id)
+                    .get(&buffer_handle)
                     .ok_or(FfiError::InvalidRequest("handle not found"))?;
 
                 let buffer = buffer

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::FfiHandleId;
 use crate::{proto, server};
 use livekit_api::access_token::{AccessToken, VideoGrants};
@@ -128,6 +130,19 @@ impl Drop for TestScope {
     }
 }
 
+macro_rules! wait_for_event {
+    ($client:ident, $variant:ident, $timeout:expr) => {
+        tokio::time::timeout(Duration::from_secs($timeout), async {
+            loop {
+                let event = $client.recv_event().await;
+                if let proto::ffi_event::Message::$variant(event) = event {
+                    return event;
+                }
+            }
+        })
+    };
+}
+
 #[test]
 fn create_i420_buffer() {
     let (_test, client) = TestScope::new();
@@ -188,7 +203,7 @@ fn publish_video_track() {
                 .unwrap();
 
             // Connect to the room
-            let res = client.send_request(proto::FfiRequest {
+            client.send_request(proto::FfiRequest {
                 message: Some(proto::ffi_request::Message::Connect(
                     proto::ConnectRequest {
                         url: test.lk_url.clone(),
@@ -198,14 +213,11 @@ fn publish_video_track() {
                 )),
             });
 
-            let proto::ffi_event::Message::Connect(connect) = client.recv_event().await else {
-                panic!("unexpected response");
-            };
+            let connect = wait_for_event!(client, Connect, 5).await.unwrap();
+            assert!(connect.error.is_none());
 
             let room_handle =
                 client::FfiHandle(connect.room.unwrap().handle.unwrap().id as FfiHandleId);
-
-            assert!(connect.error.is_none());
 
             // Create a new VideoSource
             let res = client.send_request(proto::FfiRequest {
@@ -259,13 +271,13 @@ fn publish_video_track() {
 
             let publish_options = proto::TrackPublishOptions {
                 name: "video_test".to_string(),
-                video_codec: proto::VideoCodec::Vp8 as i32,
+                video_codec: proto::VideoCodec::H264 as i32,
                 source: proto::TrackSource::SourceCamera as i32,
                 ..Default::default()
             };
 
             // Publish the VideoTrack
-            let res = client.send_request(proto::FfiRequest {
+            client.send_request(proto::FfiRequest {
                 message: Some(proto::ffi_request::Message::PublishTrack(
                     proto::PublishTrackRequest {
                         room_handle: Some(proto::FfiHandleId {
@@ -279,16 +291,51 @@ fn publish_video_track() {
                 )),
             });
 
-            let proto::ffi_response::Message::PublishTrack(publish_track) =
-                res.message.unwrap() else {
-                panic!("unexpected response");
-            };
-
-            let proto::ffi_event::Message::PublishTrack(publish_track) = client.recv_event().await else {
-                panic!("unexpected response");
-            };
-
-            println!("publish_track: {:?}", publish_track);
+            let publish_track = wait_for_event!(client, PublishTrack, 5).await.unwrap();
             assert!(publish_track.error.is_none());
+
+            // Send red frames
+            let rgba: Vec<u32> = vec![0xff0000ff; (VIDEO_WIDTH * VIDEO_HEIGHT) as usize];
+            let res = client.send_request(proto::FfiRequest {
+                message: Some(proto::ffi_request::Message::ToI420(proto::ToI420Request {
+                    flip_y: false,
+                    from: Some(proto::to_i420_request::From::Argb(proto::ArgbBufferInfo {
+                        ptr: rgba.as_ptr() as u64,
+                        format: proto::VideoFormatType::FormatAbgr as i32,
+                        width: VIDEO_WIDTH,
+                        height: VIDEO_HEIGHT,
+                        stride: VIDEO_WIDTH * 4,
+                    })),
+                })),
+            });
+
+            let proto::ffi_response::Message::ToI420(to_i420) = res.message.unwrap() else {
+                panic!("unexpected response");
+            };
+
+            let buffer_handle =
+                client::FfiHandle(to_i420.buffer.unwrap().handle.unwrap().id as FfiHandleId);
+
+            // 2 seconds
+            for _ in 0..16 {
+                client.send_request(proto::FfiRequest {
+                    message: Some(proto::ffi_request::Message::CaptureVideoFrame(
+                        proto::CaptureVideoFrameRequest {
+                            source_handle: Some(proto::FfiHandleId {
+                                id: source_handle.0 as u64,
+                            }),
+                            buffer_handle: Some(proto::FfiHandleId {
+                                id: buffer_handle.0 as u64,
+                            }),
+                            frame: Some(proto::VideoFrameInfo {
+                                timestamp: 0, // TODO
+                                rotation: proto::VideoRotation::VideoRotation0 as i32,
+                            }),
+                        },
+                    )),
+                });
+
+                tokio::time::sleep(std::time::Duration::from_millis(1000 / VIDEO_FPS as u64)).await;
+            }
         })
 }

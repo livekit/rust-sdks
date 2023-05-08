@@ -182,18 +182,14 @@ impl FfiAudioSource {
     ) -> FfiResult<()> {
         match self.source {
             AudioSource::Native(ref source) => {
-                let frame_info = capture
-                    .frame
-                    .ok_or(FfiError::InvalidRequest("frame is empty"))?;
-
-                let handle_id = frame_info
-                    .handle
-                    .ok_or(FfiError::InvalidRequest("handle is empty"))?
+                let buffer_handle = capture
+                    .buffer_handle
+                    .ok_or(FfiError::InvalidRequest("buffer_handle is empty"))?
                     .id as FfiHandleId;
 
                 let frame = server
                     .ffi_handles()
-                    .get(&handle_id)
+                    .get(&buffer_handle)
                     .ok_or(FfiError::InvalidRequest("handle not found"))?;
 
                 let frame = frame

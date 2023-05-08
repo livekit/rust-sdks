@@ -422,11 +422,12 @@ impl FfiServer {
         let i420 = match from {
             proto::to_i420_request::From::Argb(argb_info) => {
                 let mut i420 = I420Buffer::new(argb_info.width, argb_info.height);
-                let format = proto::VideoFormatType::from_i32(argb_info.format).unwrap();
+                let argb_format = proto::VideoFormatType::from_i32(argb_info.format).unwrap();
                 let argb_ptr = argb_info.ptr as *const u8;
                 let argb_len = (argb_info.stride * argb_info.height) as usize;
                 let argb = unsafe { slice::from_raw_parts(argb_ptr, argb_len) };
-                let stride = argb_info.stride;
+                let argb_stride = argb_info.stride;
+
                 let (stride_y, stride_u, stride_v) = i420.strides();
                 let (data_y, data_u, data_v) = i420.data_mut();
                 let width = argb_info.width as i32;
@@ -435,18 +436,34 @@ impl FfiServer {
                     height = -height;
                 }
 
-                match format {
+                match argb_format {
                     proto::VideoFormatType::FormatArgb => {
                         yuv_helper::argb_to_i420(
-                            argb, stride, data_y, stride_y, data_u, stride_u, data_v, stride_v,
-                            width, height,
+                            argb,
+                            argb_stride,
+                            data_y,
+                            stride_y,
+                            data_u,
+                            stride_u,
+                            data_v,
+                            stride_v,
+                            width,
+                            height,
                         )
                         .unwrap();
                     }
                     proto::VideoFormatType::FormatAbgr => {
                         yuv_helper::abgr_to_i420(
-                            argb, stride, data_y, stride_y, data_u, stride_u, data_v, stride_v,
-                            width, height,
+                            argb,
+                            argb_stride,
+                            data_y,
+                            stride_y,
+                            data_u,
+                            stride_u,
+                            data_v,
+                            stride_v,
+                            width,
+                            height,
                         )
                         .unwrap();
                     }

@@ -32,7 +32,7 @@ message NewAudioSourceResponse { AudioSourceInfo source = 1; }
 // Push a frame to an AudioSource 
 message CaptureAudioFrameRequest { 
   FFIHandleId source_handle = 1;
-  AudioFrameBufferInfo frame = 2; 
+  FFIHandleId buffer_handle = 2; 
 }
 message CaptureAudioFrameResponse {}
 

@@ -32,7 +32,7 @@ message NewVideoSourceResponse { VideoSourceInfo source = 1; }
 message CaptureVideoFrameRequest {
   FFIHandleId source_handle = 1;
   VideoFrameInfo frame = 2;
-  VideoFrameBufferInfo buffer = 3;
+  FFIHandleId buffer_handle = 3;
 }
 message CaptureVideoFrameResponse {}
 
