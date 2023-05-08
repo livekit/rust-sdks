@@ -96,30 +96,14 @@ mod client {
     }
 }
 
-struct TestScope {
-    lk_url: String,
-    lk_api_key: String,
-    lk_api_secret: String,
-}
+struct TestScope {}
 
 impl TestScope {
     fn new() -> (Self, std::sync::MutexGuard<'static, client::FfiClient>) {
         // Run one test at a time
         let client = client::FFI_CLIENT.lock().unwrap();
 
-        let lk_url = std::env::var("LK_TEST_URL").expect("LK_TEST_URL isn't set");
-        let lk_api_key = std::env::var("LK_TEST_API_KEY").expect("LK_TEST_API_KEY isn't set");
-        let lk_api_secret =
-            std::env::var("LK_TEST_API_SECRET").expect("LK_TEST_API_SECRET isn't set");
-
-        (
-            TestScope {
-                lk_url,
-                lk_api_key,
-                lk_api_secret,
-            },
-            client,
-        )
+        (TestScope {}, client)
     }
 }
 
@@ -128,6 +112,13 @@ impl Drop for TestScope {
         // At the end of a test, no more handle should exist
         assert!(server::FFI_SERVER.ffi_handles().is_empty());
     }
+}
+
+fn test_env() -> (String, String, String) {
+    let lk_url = std::env::var("LK_TEST_URL").expect("LK_TEST_URL isn't set");
+    let lk_api_key = std::env::var("LK_TEST_API_KEY").expect("LK_TEST_API_KEY isn't set");
+    let lk_api_secret = std::env::var("LK_TEST_API_SECRET").expect("LK_TEST_API_SECRET isn't set");
+    (lk_url, lk_api_key, lk_api_secret)
 }
 
 macro_rules! wait_for_event {
@@ -186,6 +177,7 @@ fn create_i420_buffer() {
 #[ignore] // Ignore for now ( need to setup GHA )
 fn publish_video_track() {
     let (test, mut client) = TestScope::new();
+    let (lk_url, lk_api_key, lk_api_secret) = test_env();
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -194,7 +186,7 @@ fn publish_video_track() {
         .block_on(async {
             client.initialize();
 
-            let token = AccessToken::with_api_key(&test.lk_api_key, &test.lk_api_secret)
+            let token = AccessToken::with_api_key(&lk_api_key, &lk_api_secret)
                 .with_grants(VideoGrants {
                     room: "livekit-ffi-test".to_string(),
                     ..Default::default()
@@ -207,7 +199,7 @@ fn publish_video_track() {
             client.send_request(proto::FfiRequest {
                 message: Some(proto::ffi_request::Message::Connect(
                     proto::ConnectRequest {
-                        url: test.lk_url.clone(),
+                        url: lk_url.clone(),
                         token,
                         ..Default::default()
                     },
