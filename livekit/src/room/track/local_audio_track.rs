@@ -81,8 +81,8 @@ impl LocalAudioTrack {
     }
 
     #[inline]
-    pub fn muted(&self) -> bool {
-        self.inner.track_inner.muted()
+    pub fn is_muted(&self) -> bool {
+        self.inner.track_inner.is_muted()
     }
 
     #[inline]
@@ -104,6 +104,11 @@ impl LocalAudioTrack {
     #[inline]
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
         self.inner.track_inner.register_observer()
+    }
+
+    #[inline]
+    pub fn is_remote(&self) -> bool {
+        false
     }
 
     #[inline]

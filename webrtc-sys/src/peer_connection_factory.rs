@@ -61,7 +61,7 @@ pub mod ffi {
         fn create_rtc_configuration(conf: RTCConfiguration) -> UniquePtr<NativeRTCConfiguration>;
 
         /// # Safety
-        /// The observer must live as long as the PeerConnection
+        /// The observer must live as long as the PeerConnection does
         unsafe fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: UniquePtr<NativeRTCConfiguration>,

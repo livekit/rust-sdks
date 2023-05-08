@@ -42,7 +42,7 @@ impl LocalParticipant {
             cid: track.rtc_track().id(),
             name: options.name.clone(),
             r#type: proto::TrackType::from(track.kind()) as i32,
-            muted: track.muted(),
+            muted: track.is_muted(),
             source: proto::TrackSource::from(options.source) as i32,
             disable_dtx: !options.dtx,
             disable_red: !options.red,

@@ -149,11 +149,11 @@ impl NativeBuffer {
         &*self.sys_handle
     }
 
-    pub fn width(&self) -> i32 {
+    pub fn width(&self) -> u32 {
         self.sys_handle.width()
     }
 
-    pub fn height(&self) -> i32 {
+    pub fn height(&self) -> u32 {
         self.sys_handle.height()
     }
 
@@ -167,7 +167,7 @@ impl NativeBuffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -192,49 +192,49 @@ impl I420Buffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
 
-    pub fn width(&self) -> i32 {
+    pub fn width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
             (*ptr).width()
         }
     }
 
-    pub fn height(&self) -> i32 {
+    pub fn height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
             (*ptr).height()
         }
     }
 
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
             (*ptr).chroma_width()
         }
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
             (*ptr).chroma_height()
         }
     }
 
-    pub fn stride_y(&self) -> i32 {
+    pub fn stride_y(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_y()
         }
     }
 
-    pub fn stride_u(&self) -> i32 {
+    pub fn stride_u(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_u()
         }
     }
 
-    pub fn stride_v(&self) -> i32 {
+    pub fn stride_v(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_v()
@@ -258,7 +258,7 @@ impl I420Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -292,56 +292,56 @@ impl I420ABuffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
 
-    pub fn width(&self) -> i32 {
+    pub fn width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
             (*ptr).width()
         }
     }
 
-    pub fn height(&self) -> i32 {
+    pub fn height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
             (*ptr).height()
         }
     }
 
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
             (*ptr).chroma_width()
         }
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
             (*ptr).chroma_height()
         }
     }
 
-    pub fn stride_y(&self) -> i32 {
+    pub fn stride_y(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_y()
         }
     }
 
-    pub fn stride_u(&self) -> i32 {
+    pub fn stride_u(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_u()
         }
     }
 
-    pub fn stride_v(&self) -> i32 {
+    pub fn stride_v(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i420a_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_v()
         }
     }
 
-    pub fn stride_a(&self) -> i32 {
+    pub fn stride_a(&self) -> u32 {
         self.sys_handle.stride_a()
     }
 
@@ -359,7 +359,7 @@ impl I420ABuffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -391,49 +391,49 @@ impl I422Buffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
 
-    pub fn width(&self) -> i32 {
+    pub fn width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
             (*ptr).width()
         }
     }
 
-    pub fn height(&self) -> i32 {
+    pub fn height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
             (*ptr).height()
         }
     }
 
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
             (*ptr).chroma_width()
         }
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
             (*ptr).chroma_height()
         }
     }
 
-    pub fn stride_y(&self) -> i32 {
+    pub fn stride_y(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_y()
         }
     }
 
-    pub fn stride_u(&self) -> i32 {
+    pub fn stride_u(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_u()
         }
     }
 
-    pub fn stride_v(&self) -> i32 {
+    pub fn stride_v(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_v()
@@ -453,7 +453,7 @@ impl I422Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -477,49 +477,49 @@ impl I444Buffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
 
-    pub fn width(&self) -> i32 {
+    pub fn width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
             (*ptr).width()
         }
     }
 
-    pub fn height(&self) -> i32 {
+    pub fn height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb);
             (*ptr).height()
         }
     }
 
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
             (*ptr).chroma_width()
         }
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
             (*ptr).chroma_height()
         }
     }
 
-    pub fn stride_y(&self) -> i32 {
+    pub fn stride_y(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_y()
         }
     }
 
-    pub fn stride_u(&self) -> i32 {
+    pub fn stride_u(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_u()
         }
     }
 
-    pub fn stride_v(&self) -> i32 {
+    pub fn stride_v(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv);
             (*ptr).stride_v()
@@ -539,7 +539,7 @@ impl I444Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -564,49 +564,49 @@ impl I010Buffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb) }
     }
 
-    pub fn width(&self) -> i32 {
+    pub fn width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb);
             (*ptr).width()
         }
     }
 
-    pub fn height(&self) -> i32 {
+    pub fn height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb);
             (*ptr).height()
         }
     }
 
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
             (*ptr).chroma_width()
         }
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
             (*ptr).chroma_height()
         }
     }
 
-    pub fn stride_y(&self) -> i32 {
+    pub fn stride_y(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
             (*ptr).stride_y()
         }
     }
 
-    pub fn stride_u(&self) -> i32 {
+    pub fn stride_u(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
             (*ptr).stride_u()
         }
     }
 
-    pub fn stride_v(&self) -> i32 {
+    pub fn stride_v(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv);
             (*ptr).stride_v()
@@ -627,7 +627,7 @@ impl I010Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {
@@ -669,7 +669,7 @@ impl NV12Buffer {
         }
     }
 
-    pub fn width(&self) -> i32 {
+    pub fn width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(
                 &*self.sys_handle,
@@ -681,7 +681,7 @@ impl NV12Buffer {
         }
     }
 
-    pub fn height(&self) -> i32 {
+    pub fn height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(
                 &*self.sys_handle,
@@ -693,28 +693,28 @@ impl NV12Buffer {
         }
     }
 
-    pub fn chroma_width(&self) -> i32 {
+    pub fn chroma_width(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8, biyuv8_to_biyuv);
             (*ptr).chroma_width()
         }
     }
 
-    pub fn chroma_height(&self) -> i32 {
+    pub fn chroma_height(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8, biyuv8_to_biyuv);
             (*ptr).chroma_height()
         }
     }
 
-    pub fn stride_y(&self) -> i32 {
+    pub fn stride_y(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8, biyuv8_to_biyuv);
             (*ptr).stride_y()
         }
     }
 
-    pub fn stride_uv(&self) -> i32 {
+    pub fn stride_uv(&self) -> u32 {
         unsafe {
             let ptr = recursive_cast!(&*self.sys_handle, nv12_to_biyuv8, biyuv8_to_biyuv);
             (*ptr).stride_uv()
@@ -739,7 +739,7 @@ impl NV12Buffer {
         &self,
         format: VideoFormatType,
         dst: &mut [u8],
-        dst_stride: i32,
+        dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
     ) -> Result<(), ConvertError> {

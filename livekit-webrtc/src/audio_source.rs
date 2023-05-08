@@ -18,7 +18,7 @@ pub mod native {
     }
 
     impl NativeAudioSource {
-        pub fn capture_frame(&self, frame: AudioFrame) {
+        pub fn capture_frame(&self, frame: &AudioFrame) {
             self.handle.capture_frame(frame)
         }
     }

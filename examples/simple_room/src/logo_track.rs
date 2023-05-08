@@ -156,9 +156,7 @@ impl LogoTrack {
                     let mut video_frame = data.video_frame.lock();
                     let i420_buffer = &mut video_frame.buffer;
 
-                    let stride_y = i420_buffer.stride_y();
-                    let stride_u = i420_buffer.stride_u();
-                    let stride_v = i420_buffer.stride_v();
+                    let (stride_y, stride_u, stride_v) = i420_buffer.strides();
                     let (data_y, data_u, data_v) = i420_buffer.data_mut();
 
                     framebuffer.fill(0);
@@ -177,7 +175,7 @@ impl LogoTrack {
 
                     yuv_helper::abgr_to_i420(
                         &framebuffer,
-                        (FB_WIDTH * PIXEL_SIZE) as i32,
+                        (FB_WIDTH * PIXEL_SIZE) as u32,
                         data_y,
                         stride_y,
                         data_u,

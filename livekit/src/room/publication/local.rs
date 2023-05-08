@@ -75,8 +75,13 @@ impl LocalTrackPublication {
     }
 
     #[inline]
-    pub fn muted(&self) -> bool {
-        self.inner.publication_inner.muted()
+    pub fn is_muted(&self) -> bool {
+        self.inner.publication_inner.is_muted()
+    }
+
+    #[inline]
+    pub fn is_remote(&self) -> bool {
+        false
     }
 
     #[inline]

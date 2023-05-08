@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package livekit;
+option csharp_namespace = "LiveKit.Proto";
+
+import "handle.proto";
+
+// Allocate a new AudioFrameBuffer
+// This is not necessary required because the data structure is fairly simple
+// But keep the API consistent with VideoFrame
+message AllocAudioBufferRequest { 
+  uint32 sample_rate = 1;
+  uint32 num_channels = 2;
+  uint32 samples_per_channel = 3;
+}
+message AllocAudioBufferResponse { AudioFrameBufferInfo buffer = 1; }
+
+// Create a new AudioStream
+// AudioStream is used to receive audio frames from a track
+message NewAudioStreamRequest {
+  FFIHandleId room_handle = 1;
+  string participant_sid = 2;
+  string track_sid = 3;
+  AudioStreamType type = 4;
+}
+message NewAudioStreamResponse { AudioStreamInfo stream = 1; }
+
+// Create a new AudioSource
+message NewAudioSourceRequest { AudioSourceType type = 1; }
+message NewAudioSourceResponse { AudioSourceInfo source = 1; }
+
+// Push a frame to an AudioSource 
+message CaptureAudioFrameRequest { 
+  FFIHandleId source_handle = 1;
+  FFIHandleId buffer_handle = 2; 
+}
+message CaptureAudioFrameResponse {}
+
+///
+/// AudioFrame buffer ///
+///
+
+message AudioFrameBufferInfo {
+  FFIHandleId handle = 1;
+  uint64 data_ptr = 2;    // *const i16
+  uint32 num_channels = 3;
+  uint32 sample_rate = 4;
+  uint32 samples_per_channel = 5;
+}
+
+///
+/// AudioStream ///
+///
+
+enum AudioStreamType {
+  AUDIO_STREAM_NATIVE = 0;
+  AUDIO_STREAM_HTML = 1;
+}
+
+message AudioStreamInfo {
+  FFIHandleId handle = 1;
+  AudioStreamType type = 2;
+  string track_sid = 3;
+}
+
+message AudioStreamEvent {
+  FFIHandleId handle = 1;
+  oneof message { AudioFrameReceived frame_received = 2; }
+}
+
+message AudioFrameReceived {
+  AudioFrameBufferInfo frame = 1;
+}
+
+///
+/// AudioSource ///
+///
+
+enum AudioSourceType {
+  AUDIO_SOURCE_NATIVE = 0;
+}
+
+message AudioSourceInfo {
+  FFIHandleId handle = 1;
+  AudioSourceType type = 2;
+}

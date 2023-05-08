@@ -46,8 +46,8 @@ class VideoFrameBuffer {
 
   VideoFrameBufferType buffer_type() const;
 
-  int width() const;
-  int height() const;
+  unsigned int width() const;
+  unsigned int height() const;
 
   std::unique_ptr<I420Buffer> to_i420() const;
 
@@ -68,12 +68,12 @@ class PlanarYuvBuffer : public VideoFrameBuffer {
  public:
   explicit PlanarYuvBuffer(rtc::scoped_refptr<webrtc::PlanarYuvBuffer> buffer);
 
-  int chroma_width() const;
-  int chroma_height() const;
+  unsigned int chroma_width() const;
+  unsigned int chroma_height() const;
 
-  int stride_y() const;
-  int stride_u() const;
-  int stride_v() const;
+  unsigned int stride_y() const;
+  unsigned int stride_u() const;
+  unsigned int stride_v() const;
 
  private:
   webrtc::PlanarYuvBuffer* buffer() const;
@@ -110,11 +110,11 @@ class BiplanarYuvBuffer : public VideoFrameBuffer {
   explicit BiplanarYuvBuffer(
       rtc::scoped_refptr<webrtc::BiplanarYuvBuffer> buffer);
 
-  int chroma_width() const;
-  int chroma_height() const;
+  unsigned int chroma_width() const;
+  unsigned int chroma_height() const;
 
-  int stride_y() const;
-  int stride_uv() const;
+  unsigned int stride_y() const;
+  unsigned int stride_uv() const;
 
  private:
   webrtc::BiplanarYuvBuffer* buffer() const;
@@ -145,7 +145,7 @@ class I420ABuffer : public I420Buffer {
  public:
   explicit I420ABuffer(rtc::scoped_refptr<webrtc::I420ABufferInterface> buffer);
 
-  int stride_a() const;
+  unsigned int stride_a() const;
   const uint8_t* data_a() const;
 
  private:

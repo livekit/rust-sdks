@@ -18,7 +18,7 @@ pub mod native {
     }
 
     impl NativeVideoSource {
-        pub fn capture_frame<T: VideoFrameBuffer>(&self, frame: &VideoFrame<T>) {
+        pub fn capture_frame<T: AsRef<dyn VideoFrameBuffer>>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
         }
     }

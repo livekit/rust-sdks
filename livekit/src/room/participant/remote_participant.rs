@@ -105,7 +105,7 @@ impl RemoteParticipant {
             debug!("starting track: {:?}", sid);
 
             remote_publication.update_track(Some(track.clone().into()));
-            track.set_muted(remote_publication.muted());
+            track.set_muted(remote_publication.is_muted());
             track.update_info(proto::TrackInfo {
                 sid: remote_publication.sid().to_string(),
                 name: remote_publication.name().to_string(),

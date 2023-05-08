@@ -98,9 +98,10 @@ macro_rules! track_dispatch {
             pub fn stream_state(self: &Self) -> StreamState;
             pub fn start(self: &Self) -> ();
             pub fn stop(self: &Self) -> ();
-            pub fn muted(self: &Self) -> bool;
+            pub fn is_muted(self: &Self) -> bool;
             pub fn set_muted(self: &Self, muted: bool) -> ();
             pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
+            pub fn is_remote(self: &Self) -> bool;
 
             pub(crate) fn transceiver(self: &Self) -> Option<rtc::rtp_transceiver::RtpTransceiver>;
             pub(crate) fn update_transceiver(self: &Self, transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>) -> ();
@@ -224,7 +225,7 @@ impl TrackInner {
         self.stream_state.load(Ordering::SeqCst).try_into().unwrap()
     }
 
-    pub fn muted(&self) -> bool {
+    pub fn is_muted(&self) -> bool {
         self.muted.load(Ordering::SeqCst)
     }
 

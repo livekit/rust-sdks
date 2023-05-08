@@ -62,8 +62,8 @@ impl RemoteVideoTrack {
     }
 
     #[inline]
-    pub fn muted(&self) -> bool {
-        self.inner.muted()
+    pub fn is_muted(&self) -> bool {
+        self.inner.is_muted()
     }
 
     #[inline]
@@ -83,6 +83,11 @@ impl RemoteVideoTrack {
     #[inline]
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
         self.inner.register_observer()
+    }
+
+    #[inline]
+    pub fn is_remote(&self) -> bool {
+        true
     }
 
     #[inline]

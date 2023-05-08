@@ -72,9 +72,9 @@ impl sys_ms::AudioSink for AudioTrackObserver {
         // TODO(theomonnom): Should we avoid copy here?
         let _ = self.frame_tx.send(AudioFrame {
             data: data.to_owned(),
-            sample_rate_hz: sample_rate as u32,
-            num_channels: nb_channels,
-            samples_per_channel: nb_frames,
+            sample_rate: sample_rate as u32,
+            num_channels: nb_channels as u32,
+            samples_per_channel: nb_frames as u32,
         });
     }
 }

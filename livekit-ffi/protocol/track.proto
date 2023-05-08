@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package livekit;
+option csharp_namespace = "LiveKit.Proto";
+
+import "handle.proto";
+import "video_frame.proto";
+import "audio_frame.proto";
+
+message VideoCaptureOptions {
+  VideoResolution resolution = 1;
+}
+
+message AudioCaptureOptions {
+  bool echo_cancellation = 1;
+  bool noise_suppression = 2;
+  bool auto_gain_control = 3;
+}
+
+// Create a new VideoTrack from a VideoSource
+message CreateVideoTrackRequest {
+  string name = 1;
+  VideoCaptureOptions options = 2;
+  FFIHandleId source_handle = 3;
+}
+message CreateVideoTrackResponse {
+  TrackInfo track = 1;
+}
+
+// Create a new AudioTrack from a AudioSource
+message CreateAudioTrackRequest {
+  string name = 1;
+  AudioCaptureOptions options = 2;
+  FFIHandleId source_handle = 3;
+}
+message CreateAudioTrackResponse {
+  TrackInfo track = 1;
+}
+
+///
+/// Track
+///
+
+message TrackEvent {}
+
+enum TrackKind {
+  KIND_UNKNOWN = 0;
+  KIND_AUDIO = 1;
+  KIND_VIDEO = 2;
+}
+
+enum TrackSource {
+  SOURCE_UNKNOWN = 0;
+  SOURCE_CAMERA = 1;
+  SOURCE_MICROPHONE = 2;
+  SOURCE_SCREENSHARE = 3;
+  SOURCE_SCREENSHARE_AUDIO = 4;
+}
+
+enum StreamState {
+  STATE_UNKNOWN = 0;
+  STATE_ACTIVE = 1;
+  STATE_PAUSED = 2;
+}
+
+// TODO(theomonnom): Should we have a separate message whether the track is local or remote?
+
+message TrackPublicationInfo {
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+  TrackSource source = 4;
+  bool simulcasted = 5;
+  uint32 width = 6;
+  uint32 height = 7;
+  string mime_type = 8;
+  bool muted = 9;
+  bool remote = 10;
+}
+
+message TrackInfo {
+  // Tracks created/owned by the client will have a handle
+  FFIHandleId opt_handle = 1;
+  string sid = 2;
+  string name = 3;
+  TrackKind kind = 4;
+  StreamState stream_state = 5;
+  bool muted = 6;
+  bool remote = 7;
+}
+

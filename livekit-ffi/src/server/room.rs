@@ -1,54 +1,65 @@
-use crate::server::FFIServer;
-use futures_util::stream::StreamExt;
+use crate::server::FfiServer;
+use crate::{proto, FfiHandleId, FfiResult};
 use livekit::prelude::*;
-use livekit::webrtc::video_stream::native::NativeVideoStream;
 use tokio::sync::{mpsc, oneshot};
-use crate::proto;
+use tokio::task::JoinHandle;
 
-pub async fn create_room(
-    server: &'static FFIServer,
-    async_id: u64,
-    connect: proto::ConnectRequest,
-) {
-    let res = Room::connect(&connect.url, &connect.token).await;
-    if let Err(err) = &res {
-        // Failed to connect to the room
-        let _ = server.send_event(
-            proto::ffi_event::Message::ConnectEvent(proto::ConnectEvent {
-                success: false,
-                room: None,
-            }),
-            Some(async_id),
-        );
-        return;
+pub struct FfiRoom {
+    room: Room,
+    handle_id: FfiHandleId,
+    handle: JoinHandle<()>,
+    close_tx: oneshot::Sender<()>,
+}
+
+impl FfiRoom {
+    pub async fn connect(
+        server: &'static FfiServer,
+        connect: proto::ConnectRequest,
+    ) -> FfiResult<proto::RoomInfo> {
+        let (room, events) = Room::connect(&connect.url, &connect.token).await?;
+        let (close_tx, close_rx) = oneshot::channel();
+        let session = room.session();
+        let next_id = server.next_id() as FfiHandleId;
+
+        let handle = tokio::spawn(room_task(
+            server,
+            session.clone(),
+            next_id,
+            events,
+            close_rx,
+        ));
+        let room_info = proto::RoomInfo::from_session(next_id, &session);
+
+        let ffi_room = Self {
+            handle_id: next_id,
+            room,
+            handle,
+            close_tx,
+        };
+        server.ffi_handles().insert(next_id, Box::new(ffi_room));
+        server.rooms().lock().insert(session.sid(), next_id);
+
+        Ok(room_info)
     }
 
-    let (room, events) = res.unwrap();
-    let session = room.session();
+    pub async fn close(self) {
+        self.room.close().await;
+        let _ = self.close_tx.send(());
+        let _ = self.handle.await;
+    }
 
-    // Successfully connected to the room
-    let _ = server.send_event(
-        proto::ffi_event::Message::ConnectEvent(proto::ConnectEvent {
-            success: true,
-            room: Some((&session).into()),
-        }),
-        Some(async_id),
-    );
-
-    // Add the room to the server and listen to the incoming events
-    let (close_tx, close_rx) = oneshot::channel();
-    let room_handle = tokio::spawn(room_task(server, room, events, close_rx));
-    server.add_room(session.sid(), (room_handle, close_tx));
+    pub fn session(&self) -> RoomSession {
+        self.room.session()
+    }
 }
 
 async fn room_task(
-    server: &'static FFIServer,
-    room: Room,
+    server: &'static FfiServer,
+    session: RoomSession,
+    room_handle: FfiHandleId,
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: oneshot::Receiver<()>,
 ) {
-    let session = room.session();
-
     tokio::spawn(participant_task(Participant::Local(
         session.local_participant(),
     )));
@@ -56,23 +67,13 @@ async fn room_task(
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
-                if let Some(event) = proto::RoomEvent::from(session.sid(), event.clone()) {
-                    let _ = server.send_event(proto::ffi_event::Message::RoomEvent(event), None);
+                if let Some(event) = proto::RoomEvent::from(room_handle, event.clone()) {
+                    let _ = server.send_event(proto::ffi_event::Message::RoomEvent(event));
                 }
 
                 match event {
                     RoomEvent::ParticipantConnected(p) => {
                         tokio::spawn(participant_task(Participant::Remote(p)));
-                    }
-                    RoomEvent::TrackSubscribed {
-                        track,
-                        publication: _,
-                        participant: _,
-                    } => {
-                        if let RemoteTrack::Video(video_track) = track {
-                            let video_stream = NativeVideoStream::new(video_track.rtc_track());
-                            tokio::spawn(video_frame_task(server, video_track.sid(), video_stream));
-                        }
                     }
                     _ => {}
                 }
@@ -82,40 +83,11 @@ async fn room_task(
             }
         };
     }
-
-    room.close().await;
 }
 
 async fn participant_task(participant: Participant) {
     let mut participant_events = participant.register_observer();
-    while let Some(event) = participant_events.recv().await {
+    while let Some(_event) = participant_events.recv().await {
         // TODO(theomonnom): convert event to proto
-    }
-}
-
-async fn video_frame_task(
-    server: &'static FFIServer,
-    track_sid: TrackSid,
-    mut stream: NativeVideoStream,
-) {
-    while let Some(frame) = stream.next().await {
-        let handle_id = server.next_handle_id();
-        let frame_info = proto::VideoFrameInfo::from(&frame);
-        let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &frame.buffer);
-        server.insert_handle(handle_id, Box::new(frame.buffer));
-
-        // Send the received frame to the FFI language.
-        let _ = server.send_event(
-            proto::ffi_event::Message::TrackEvent(proto::TrackEvent {
-                track_sid: track_sid.to_string(),
-                message: Some(proto::track_event::Message::FrameReceived(
-                    proto::FrameReceived {
-                        frame: Some(frame_info),
-                        buffer: Some(buffer_info),
-                    },
-                )),
-            }),
-            None,
-        );
     }
 }

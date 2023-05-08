@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package livekit;
+option csharp_namespace = "LiveKit.Proto";
+
+/// # Safety
+/// The foreign language is responsable for disposing handles
+/// Forgetting to dispose the handle may lead to memory leaks
+/// Messages in this file can contain an FFIHandle
+message FFIHandleId {
+  uint64 id = 1;
+}
+
+/// Link the request/response of an asynchronous call
+message FFIAsyncId {
+  uint64 id = 1;
+}

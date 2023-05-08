@@ -70,7 +70,6 @@ fn download_prebuilt_webrtc(
         for i in 0..archive.len() {
             let mut inner_file = archive.by_index(i)?;
             let relative_path = inner_file.mangled_name();
-
             if relative_path.to_string_lossy().is_empty() {
                 continue; // Ignore root
             }
@@ -133,7 +132,7 @@ fn main() {
         webrtc_include.join("sdk/objc/base"),
     ];
 
-    let mut builder = cxx_build::bridges(&[
+    let mut builder = cxx_build::bridges([
         "src/peer_connection.rs",
         "src/peer_connection_factory.rs",
         "src/media_stream.rs",
@@ -248,7 +247,7 @@ fn main() {
             println!("cargo:rustc-link-arg=-ObjC");
 
             let sysroot = Command::new("xcrun")
-                .args(&["--sdk", "macosx", "--show-sdk-path"])
+                .args(["--sdk", "macosx", "--show-sdk-path"])
                 .output()
                 .unwrap();
 
