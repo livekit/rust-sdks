@@ -19,18 +19,18 @@ message ConnectResponse {
 }
 message ConnectCallback {
   FFIAsyncId async_id = 1;
-  bool success = 2; // TODO(theomonnom): Better error messages
+  optional string error = 2;
   RoomInfo room = 3;
 }
 
 // Disconnect from the a room
-message DisconnectRequest { string room_sid = 1; }
+message DisconnectRequest { FFIHandleId room_handle = 1; }
 message DisconnectResponse { FFIAsyncId async_id = 1; }
 message DisconnectCallback { }
 
 // Publish a track to the room
 message PublishTrackRequest {
-  string room_sid = 1;
+  FFIHandleId room_handle = 1;
   FFIHandleId track_handle = 2;
   TrackPublishOptions options = 3;
 }
@@ -39,13 +39,13 @@ message PublishTrackResponse {
 }
 message PublishTrackCallback {
   FFIAsyncId async_id = 1;
-  bool success = 2;
+  optional string error = 2;
   TrackPublicationInfo publication = 3;
 }
 
 // Unpublish a track from the room
 message UnpublishTrackRequest {
-  string room_sid = 1;
+  FFIHandleId room_handle = 1;
   string track_sid = 2;
   bool stop_on_unpublish = 3;
 }
@@ -53,7 +53,7 @@ message UnpublishTrackResponse {
   FFIAsyncId async_id = 1;
 }
 message UnpublishTrackCallback {
-  bool success = 1;
+  optional string error = 1;
 }
 
 ///
@@ -109,7 +109,7 @@ enum DataPacketKind {
 }
 
 message RoomEvent {
-  string room_sid = 1;
+  FFIHandleId room_handle = 1;
   oneof message {
     ParticipantConnected participant_connected = 2;
     ParticipantDisconnected participant_disconnected = 3;
@@ -131,11 +131,12 @@ message RoomEvent {
 }
 
 message RoomInfo {
-  string sid = 1;
-  string name = 2;
-  string metadata = 3;
-  ParticipantInfo local_participant = 4;
-  repeated ParticipantInfo participants = 5;
+  FFIHandleId handle = 1;
+  string sid = 2;
+  string name = 3;
+  string metadata = 4;
+  ParticipantInfo local_participant = 5;
+  repeated ParticipantInfo participants = 6;
 }
 
 message DataReceived {

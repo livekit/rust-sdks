@@ -1,11 +1,12 @@
 use crate::{proto, FfiCallbackFn};
 use crate::{FfiAsyncId, FfiError, FfiHandle, FfiHandleId, FfiResult};
+use dashmap::DashMap;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{native::I420BufferExt, BoxVideoFrameBuffer, I420Buffer};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use prost::Message;
 use std::collections::HashMap;
 use std::slice;
@@ -28,8 +29,10 @@ pub struct FfiConfig {
 }
 
 pub struct FfiServer {
-    rooms: RwLock<HashMap<RoomSid, room::FfiRoom>>,
-    ffi_handles: RwLock<HashMap<FfiHandleId, FfiHandle>>,
+    rooms: Mutex<HashMap<RoomSid, FfiHandleId>>,
+    /// Store all FFI handles inside an HashMap, if this isn't efficient enough
+    /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
+    ffi_handles: DashMap<FfiHandleId, FfiHandle>,
     next_id: AtomicUsize,
     async_runtime: tokio::runtime::Runtime,
     config: Mutex<Option<FfiConfig>>,
@@ -53,19 +56,32 @@ impl Default for FfiServer {
 // Using &'static self inside the implementation, not sure if this is really idiomatic
 // It simplifies the code a lot tho. In most cases the server is used until the end of the process
 impl FfiServer {
-    pub async fn close(&'static self) {
+    pub async fn dispose(&'static self) {
         // Close all rooms
-        for (_, ffi_room) in self.rooms.write().drain() {
-            ffi_room.close().await;
+        for (_, room_handle) in self.rooms.lock().drain() {
+            let room = self.ffi_handles.remove(&room_handle);
+            if let Some(room) = room {
+                let ffi_room = room.1.downcast::<room::FfiRoom>().unwrap();
+                ffi_room.close().await;
+            }
         }
+        // Drop all handles
+        self.ffi_handles.clear();
+
+        // Invalidate the config
+        *self.config.lock() = None;
     }
 
     pub fn next_id(&'static self) -> usize {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn ffi_handles(&'static self) -> &RwLock<HashMap<FfiHandleId, FfiHandle>> {
+    pub fn ffi_handles(&'static self) -> &DashMap<FfiHandleId, FfiHandle> {
         &self.ffi_handles
+    }
+
+    pub fn rooms(&'static self) -> &Mutex<HashMap<RoomSid, FfiHandleId>> {
+        &self.rooms
     }
 
     pub fn send_event(&'static self, message: proto::ffi_event::Message) -> FfiResult<()> {
@@ -112,7 +128,7 @@ impl FfiServer {
     ) -> FfiResult<proto::DisposeResponse> {
         *self.config.lock() = None;
 
-        let close = self.close();
+        let close = self.dispose();
         if !dispose.r#async {
             self.async_runtime.block_on(close);
             Ok(proto::DisposeResponse::default())
@@ -140,27 +156,27 @@ impl FfiServer {
             // Try to connect to the Room
             let res = room::FfiRoom::connect(&self, connect).await;
 
-            let async_id = proto::FfiAsyncId {
-                id: async_id as u64,
-            };
-
-            let mut success = false;
-            let mut room_info = None;
-
-            if let Ok(ffi_room) = res {
-                let session = ffi_room.session();
-                room_info = Some(proto::RoomInfo::from(&session));
-                success = true;
-
-                self.rooms.write().insert(session.sid(), ffi_room);
+            // match res
+            match res {
+                Ok(room_info) => {
+                    let _ = self.send_event(proto::ffi_event::Message::Connect(
+                        proto::ConnectCallback {
+                            async_id: Some(async_id.into()),
+                            error: None,
+                            room: Some(room_info),
+                        },
+                    ));
+                }
+                Err(err) => {
+                    let _ = self.send_event(proto::ffi_event::Message::Connect(
+                        proto::ConnectCallback {
+                            async_id: Some(async_id.into()),
+                            error: Some(err.to_string()),
+                            room: None,
+                        },
+                    ));
+                }
             }
-
-            // Send the async response
-            let _ = self.send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
-                async_id: Some(async_id),
-                success,
-                room: room_info,
-            }));
         });
 
         Ok(proto::ConnectResponse {
@@ -184,20 +200,30 @@ impl FfiServer {
         let async_id = self.next_id() as FfiAsyncId;
         tokio::spawn(async move {
             let res = async {
-                let rooms = self.rooms.read();
-                let room = rooms
-                    .get(&publish.room_sid.into())
+                let room_handle = publish
+                    .room_handle
+                    .as_ref()
+                    .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+                    .id as FfiHandleId;
+
+                let room = self
+                    .ffi_handles
+                    .get(&room_handle)
                     .ok_or(FfiError::InvalidRequest("room not found"))?;
 
-                let handle_id = publish
+                let room = room
+                    .downcast_ref::<room::FfiRoom>()
+                    .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
+
+                let track_handle = publish
                     .track_handle
                     .as_ref()
                     .ok_or(FfiError::InvalidRequest("track_handle is empty"))?
                     .id as FfiHandleId;
 
-                let ffi_handles = self.ffi_handles().read();
-                let track = ffi_handles
-                    .get(&handle_id)
+                let track = self
+                    .ffi_handles
+                    .get(&track_handle)
                     .ok_or(FfiError::InvalidRequest("track not found"))?;
 
                 let track = track
@@ -220,8 +246,8 @@ impl FfiServer {
             if let Err(err) = self.send_event(proto::ffi_event::Message::PublishTrack(
                 proto::PublishTrackCallback {
                     async_id: Some(async_id.into()),
-                    success: res.is_ok(),
-                    publication: res.ok().as_ref().map(Into::into),
+                    error: res.as_ref().err().map(|e| e.to_string()),
+                    publication: res.as_ref().ok().map(Into::into),
                 },
             )) {
                 log::warn!("error sending PublishTrack callback: {}", err);
@@ -251,8 +277,8 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("source_handle is empty"))?
             .id as FfiHandleId;
 
-        let ffi_handles = self.ffi_handles().read();
-        let source = ffi_handles
+        let source = self
+            .ffi_handles
             .get(&handle_id)
             .ok_or(FfiError::InvalidRequest("source not found"))?;
 
@@ -272,9 +298,8 @@ impl FfiServer {
         let handle_id = self.next_id() as FfiHandleId;
         let track_info = proto::TrackInfo::from_local_video_track(handle_id, &video_track);
 
-        self.ffi_handles()
-            .write()
-            .insert(handle_id, Box::new(video_track));
+        self.ffi_handles
+            .insert(handle_id, Box::new(LocalTrack::Video(video_track)));
 
         Ok(proto::CreateVideoTrackResponse {
             track: Some(track_info),
@@ -291,8 +316,8 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("source_handle is empty"))?
             .id as FfiHandleId;
 
-        let ffi_handles = self.ffi_handles().read();
-        let source = ffi_handles
+        let source = self
+            .ffi_handles
             .get(&handle_id)
             .ok_or(FfiError::InvalidRequest("source not found"))?;
 
@@ -312,9 +337,8 @@ impl FfiServer {
         let handle_id = self.next_id() as FfiHandleId;
         let track_info = proto::TrackInfo::from_local_audio_track(handle_id, &audio_track);
 
-        self.ffi_handles()
-            .write()
-            .insert(handle_id, Box::new(audio_track));
+        self.ffi_handles
+            .insert(handle_id, Box::new(LocalTrack::Audio(audio_track)));
 
         Ok(proto::CreateAudioTrackResponse {
             track: Some(track_info),
@@ -337,9 +361,7 @@ impl FfiServer {
 
         let handle_id = self.next_id();
         let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &buffer);
-        self.ffi_handles()
-            .write()
-            .insert(handle_id, Box::new(buffer));
+        self.ffi_handles.insert(handle_id, Box::new(buffer));
 
         Ok(proto::AllocVideoBufferResponse {
             buffer: Some(buffer_info),
@@ -376,10 +398,12 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("source_handle is empty"))?
             .id as FfiHandleId;
 
-        let ffi_handles = self.ffi_handles().read();
-        let video_source = ffi_handles
+        let video_source = self
+            .ffi_handles
             .get(&handle_id)
-            .unwrap()
+            .ok_or(FfiError::InvalidRequest("source not found"))?;
+
+        let video_source = video_source
             .downcast_ref::<video_frame::FfiVideoSource>()
             .ok_or(FfiError::InvalidRequest("handle is not a video source"))?;
 
@@ -432,9 +456,9 @@ impl FfiServer {
                 i420
             }
             proto::to_i420_request::From::Buffer(handle) => {
-                let ffi_handles = self.ffi_handles().read();
                 let handle_id = handle.id as FfiHandleId;
-                let buffer = ffi_handles
+                let buffer = self
+                    .ffi_handles
                     .get(&handle_id)
                     .ok_or(FfiError::InvalidRequest("handle not found"))?;
                 let i420 = buffer
@@ -447,10 +471,9 @@ impl FfiServer {
         };
 
         let i420: BoxVideoFrameBuffer = Box::new(i420);
-        let mut ffi_handles = self.ffi_handles().write();
         let handle_id = self.next_id() as FfiHandleId;
         let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &i420);
-        ffi_handles.insert(handle_id, Box::new(i420));
+        self.ffi_handles.insert(handle_id, Box::new(i420));
         Ok(proto::ToI420Response {
             buffer: Some(buffer_info),
         })
@@ -460,15 +483,15 @@ impl FfiServer {
         &'static self,
         to_argb: proto::ToArgbRequest,
     ) -> FfiResult<proto::ToArgbResponse> {
-        let ffi_handles = self.ffi_handles.read();
         let handle_id = to_argb
             .buffer
             .ok_or(FfiError::InvalidRequest("buffer is empty"))?
             .id as FfiHandleId;
 
-        let buffer = ffi_handles
+        let buffer = self
+            .ffi_handles
             .get(&handle_id)
-            .ok_or(FfiError::InvalidRequest("handle is not found"))?;
+            .ok_or(FfiError::InvalidRequest("buffer is not found"))?;
 
         let buffer = buffer
             .downcast_ref::<BoxVideoFrameBuffer>()
@@ -516,9 +539,7 @@ impl FfiServer {
 
         let handle_id = self.next_id() as FfiHandleId;
         let frame_info = proto::AudioFrameBufferInfo::from(handle_id, &frame);
-        self.ffi_handles()
-            .write()
-            .insert(handle_id, Box::new(frame));
+        self.ffi_handles.insert(handle_id, Box::new(frame));
 
         Ok(proto::AllocAudioBufferResponse {
             buffer: Some(frame_info),
@@ -555,10 +576,12 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("handle is empty"))?
             .id as FfiHandleId;
 
-        let ffi_handles = self.ffi_handles().read();
-        let audio_source = ffi_handles
+        let audio_source = self
+            .ffi_handles
             .get(&handle_id)
-            .ok_or(FfiError::InvalidRequest("handle not found"))?
+            .ok_or(FfiError::InvalidRequest("audio_source not found"))?;
+
+        let audio_source = audio_source
             .downcast_ref::<audio_frame::FfiAudioSource>()
             .ok_or(FfiError::InvalidRequest("handle is not a video source"))?;
 

@@ -18,7 +18,7 @@ message AllocAudioBufferResponse { AudioFrameBufferInfo buffer = 1; }
 // Create a new AudioStream
 // AudioStream is used to receive audio frames from a track
 message NewAudioStreamRequest {
-  string room_sid = 1;
+  FFIHandleId room_handle = 1;
   string participant_sid = 2;
   string track_sid = 3;
   AudioStreamType type = 4;

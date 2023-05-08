@@ -1,9 +1,9 @@
-use crate::{proto, INVALID_HANDLE};
+use crate::{proto, FfiHandleId, INVALID_HANDLE};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
 impl proto::RoomEvent {
-    pub fn from(room_sid: impl Into<String>, event: RoomEvent) -> Option<Self> {
+    pub fn from(room_handle: FfiHandleId, event: RoomEvent) -> Option<Self> {
         let message = match event {
             RoomEvent::ParticipantConnected(participant) => Some(
                 proto::room_event::Message::ParticipantConnected(proto::ParticipantConnected {
@@ -59,15 +59,16 @@ impl proto::RoomEvent {
         };
 
         message.map(|message| proto::RoomEvent {
-            room_sid: room_sid.into(),
+            room_handle: Some(room_handle.into()),
             message: Some(message),
         })
     }
 }
 
-impl From<&RoomSession> for proto::RoomInfo {
-    fn from(session: &RoomSession) -> Self {
+impl proto::RoomInfo {
+    pub fn from_session(handle_id: FfiHandleId, session: &RoomSession) -> Self {
         Self {
+            handle: Some(handle_id.into()),
             sid: session.sid().into(),
             name: session.name(),
             metadata: session.metadata(),

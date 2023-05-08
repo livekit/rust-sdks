@@ -37,11 +37,16 @@ impl FfiAudioSream {
         let stream_type = proto::AudioStreamType::from_i32(new_stream.r#type).unwrap();
         let track_sid: TrackSid = new_stream.track_sid.into();
 
+        let room_handle = new_stream
+            .room_handle
+            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+            .id as FfiHandleId;
+
         let track = utils::find_remote_track(
             server,
             &track_sid,
             &new_stream.participant_sid.into(),
-            &new_stream.room_sid.into(),
+            room_handle,
         )?
         .rtc_track();
 
@@ -73,7 +78,6 @@ impl FfiAudioSream {
         let info = proto::AudioStreamInfo::from(&audio_stream);
         server
             .ffi_handles()
-            .write()
             .insert(audio_stream.handle_id, Box::new(audio_stream));
 
         Ok(info)
@@ -110,7 +114,7 @@ impl FfiAudioSream {
                     let handle_id = server.next_id();
                     let buffer_info = proto::AudioFrameBufferInfo::from(handle_id, &frame);
 
-                    server.ffi_handles().write().insert(handle_id, Box::new(frame));
+                    server.ffi_handles().insert(handle_id, Box::new(frame));
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
                         proto::AudioStreamEvent {
@@ -166,7 +170,6 @@ impl FfiAudioSource {
 
         server
             .ffi_handles()
-            .write()
             .insert(audio_source.handle_id, Box::new(audio_source));
 
         Ok(source_info)
@@ -183,15 +186,17 @@ impl FfiAudioSource {
                     .frame
                     .ok_or(FfiError::InvalidRequest("frame is empty"))?;
 
-                let ffi_handles = server.ffi_handles().read();
                 let handle_id = frame_info
                     .handle
                     .ok_or(FfiError::InvalidRequest("handle is empty"))?
                     .id as FfiHandleId;
 
-                let frame = ffi_handles
+                let frame = server
+                    .ffi_handles()
                     .get(&handle_id)
-                    .ok_or(FfiError::InvalidRequest("handle not found"))?
+                    .ok_or(FfiError::InvalidRequest("handle not found"))?;
+
+                let frame = frame
                     .downcast_ref::<AudioFrame>()
                     .ok_or(FfiError::InvalidRequest("handle is not an audio frame"))?;
 

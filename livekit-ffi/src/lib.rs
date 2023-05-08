@@ -63,7 +63,6 @@ pub(crate) extern "C" fn livekit_ffi_request(
     let handle_id = server::FFI_SERVER.next_id();
     server::FFI_SERVER
         .ffi_handles()
-        .write()
         .insert(handle_id, Box::new(res));
 
     handle_id
@@ -74,7 +73,6 @@ pub(crate) extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool
     // Free the memory
     server::FFI_SERVER
         .ffi_handles()
-        .write()
         .remove(&handle_id)
         .is_some()
 }

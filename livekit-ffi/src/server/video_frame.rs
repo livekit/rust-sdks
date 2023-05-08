@@ -37,11 +37,16 @@ impl FfiVideoStream {
         let stream_type = proto::VideoStreamType::from_i32(new_stream.r#type).unwrap();
         let track_sid: TrackSid = new_stream.track_sid.into();
 
+        let room_handle = new_stream
+            .room_handle
+            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+            .id as FfiHandleId;
+
         let track = utils::find_remote_track(
             server,
             &track_sid,
             &new_stream.participant_sid.into(),
-            &new_stream.room_sid.into(),
+            room_handle,
         )?
         .rtc_track();
 
@@ -73,7 +78,6 @@ impl FfiVideoStream {
         let info = proto::VideoStreamInfo::from(&stream);
         server
             .ffi_handles()
-            .write()
             .insert(stream.handle_id, Box::new(stream));
 
         Ok(info)
@@ -113,7 +117,6 @@ impl FfiVideoStream {
 
                     server
                         .ffi_handles()
-                        .write()
                         .insert(handle_id, Box::new(frame.buffer));
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
@@ -171,7 +174,6 @@ impl FfiVideoSource {
 
         server
             .ffi_handles()
-            .write()
             .insert(video_source.handle_id, Box::new(video_source));
 
         Ok(source_info)
@@ -192,15 +194,17 @@ impl FfiVideoSource {
                     .buffer
                     .ok_or(FfiError::InvalidRequest("buffer is none"))?;
 
-                let ffi_handles = server.ffi_handles().read();
                 let handle_id = buffer_info
                     .handle
                     .ok_or(FfiError::InvalidRequest("handle is empty"))?
                     .id as FfiHandleId;
 
-                let buffer = ffi_handles
+                let buffer = server
+                    .ffi_handles()
                     .get(&handle_id)
-                    .ok_or(FfiError::InvalidRequest("handle not found"))?
+                    .ok_or(FfiError::InvalidRequest("handle not found"))?;
+
+                let buffer = buffer
                     .downcast_ref::<BoxVideoFrameBuffer>()
                     .ok_or(FfiError::InvalidRequest("handle is not video frame"))?;
 

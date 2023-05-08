@@ -1,19 +1,22 @@
-use crate::{server, FfiError, FfiResult};
+use crate::{server, FfiError, FfiHandleId, FfiResult};
 use livekit::prelude::*;
 
 pub fn find_remote_track(
     server: &'static server::FfiServer,
     track_sid: &TrackSid,
     participant_sid: &ParticipantSid,
-    room_sid: &RoomSid,
+    room_handle: FfiHandleId,
 ) -> FfiResult<RemoteTrack> {
-    let session = server
-        .rooms
-        .read()
-        .get(room_sid)
-        .ok_or(FfiError::InvalidRequest("room not found"))?
-        .session();
+    let room = server
+        .ffi_handles()
+        .get(&room_handle)
+        .ok_or(FfiError::InvalidRequest("room not found"))?;
 
+    let room = room
+        .downcast_ref::<server::room::FfiRoom>()
+        .ok_or(FfiError::InvalidRequest("room is not ffi room"))?;
+
+    let session = room.session();
     let participants = session.participants();
     let participant = participants
         .get(participant_sid)

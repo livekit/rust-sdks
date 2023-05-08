@@ -259,7 +259,6 @@ impl From<VideoResolution> for proto::VideoResolution {
             width: resolution.width,
             height: resolution.height,
             frame_rate: resolution.frame_rate,
-            aspect_ratio: resolution.aspect_ratio,
         }
     }
 }
@@ -270,7 +269,7 @@ impl From<proto::VideoResolution> for VideoResolution {
             width: resolution.width,
             height: resolution.height,
             frame_rate: resolution.frame_rate,
-            aspect_ratio: resolution.aspect_ratio,
+            aspect_ratio: resolution.width as f32 / resolution.height as f32,
         }
     }
 }
