@@ -116,9 +116,9 @@ impl SineTrack {
                 samples_10ms[i] = (val * 32768.0) as i16;
             }
 
-            rtc_source.capture_frame(AudioFrame {
+            rtc_source.capture_frame(&AudioFrame {
                 data: samples_10ms.clone(),
-                sample_rate_hz: data.sample_rate as u32,
+                sample_rate: data.sample_rate as u32,
                 num_channels: 1,
                 samples_per_channel: samples_count_10ms as u32,
             });

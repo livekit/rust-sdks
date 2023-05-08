@@ -119,19 +119,20 @@ impl VideoRenderer {
                         let rgba_ptr = internal.rgba_data.deref_mut();
                         let rgba_stride = buffer.width() * 4;
 
+                        let (stride_y, stride_u, stride_v) = buffer.strides();
                         let (data_y, data_u, data_v) = buffer.data();
 
                         yuv_helper::i420_to_abgr(
                             data_y,
-                            buffer.stride_y(),
+                            stride_y,
                             data_u,
-                            buffer.stride_u(),
+                            stride_u,
                             data_v,
-                            buffer.stride_v(),
+                            stride_v,
                             rgba_ptr,
                             rgba_stride,
-                            buffer.width(),
-                            buffer.height(),
+                            buffer.width() as i32,
+                            buffer.height() as i32,
                         )
                         .unwrap();
 
