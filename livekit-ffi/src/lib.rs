@@ -31,7 +31,7 @@ pub type FfiHandle = Box<dyn Any + Send + Sync>;
 pub const INVALID_HANDLE: FfiHandleId = 0;
 
 #[no_mangle]
-pub(crate) extern "C" fn livekit_ffi_request(
+pub extern "C" fn livekit_ffi_request(
     data: *const u8,
     len: usize,
     res_ptr: *mut *const u8,
@@ -69,7 +69,7 @@ pub(crate) extern "C" fn livekit_ffi_request(
 }
 
 #[no_mangle]
-pub(crate) extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
+pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     // Free the memory
     server::FFI_SERVER
         .ffi_handles()
