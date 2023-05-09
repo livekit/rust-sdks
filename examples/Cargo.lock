@@ -200,6 +200,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
+name = "basic_room"
+version = "0.1.0"
+dependencies = [
+ "livekit",
+ "tokio",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2522,24 +2530,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "238abfbb77c1915110ad968465608b68e869e0772622c9656714e73e5a1a522f"
 
 [[package]]
-name = "simple_room"
-version = "0.1.1"
-dependencies = [
- "egui",
- "egui-wgpu",
- "egui-winit",
- "futures",
- "image",
- "livekit",
- "parking_lot",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "slab"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3389,6 +3379,24 @@ dependencies = [
  "bitflags 2.2.1",
  "js-sys",
  "web-sys",
+]
+
+[[package]]
+name = "wgpu_room"
+version = "0.1.1"
+dependencies = [
+ "egui",
+ "egui-wgpu",
+ "egui-winit",
+ "futures",
+ "image",
+ "livekit",
+ "parking_lot",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]
