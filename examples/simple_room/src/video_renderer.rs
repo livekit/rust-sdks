@@ -2,7 +2,7 @@ use futures::StreamExt;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
-use std::num::NonZeroU32;
+
 use std::{
     ops::DerefMut,
     sync::{Arc, Mutex},
