@@ -190,7 +190,8 @@ impl LogoTrack {
                     source.capture_frame(&*video_frame);
                 }
             })
-            .await;
+            .await
+            .unwrap();
         }
     }
 }

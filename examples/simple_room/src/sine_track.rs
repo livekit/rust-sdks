@@ -88,7 +88,7 @@ impl SineTrack {
     }
 
     async fn track_task(
-        mut close_rx: oneshot::Receiver<()>,
+        _close_rx: oneshot::Receiver<()>,
         rtc_source: NativeAudioSource,
         frame_options: Arc<Mutex<FrameData>>,
     ) {

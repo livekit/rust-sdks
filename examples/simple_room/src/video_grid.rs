@@ -7,11 +7,11 @@ struct State {
 
 impl State {
     pub fn load(ctx: &egui::Context, id: egui::Id) -> Option<Self> {
-        ctx.data().get_temp(id)
+        ctx.data(|i| i.get_temp(id))
     }
 
     pub fn store(self, ctx: &egui::Context, id: egui::Id) {
-        ctx.data().insert_temp(id, self);
+        ctx.data_mut(|i| i.insert_temp(id, self))
     }
 }
 

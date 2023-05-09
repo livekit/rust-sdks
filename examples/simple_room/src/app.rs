@@ -6,14 +6,14 @@ use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
 use futures::StreamExt;
-use image::ImageFormat;
-use livekit::options::{TrackPublishOptions, VideoCaptureOptions};
+
+
 use livekit::prelude::*;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
-use livekit::webrtc::native::yuv_helper;
+
 use livekit::webrtc::video_frame::native::I420BufferExt;
-use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
-use livekit::webrtc::video_source::native::NativeVideoSource;
+
+
 use livekit::SimulateScenario;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Duration;
+
 use tokio::sync::{mpsc, oneshot};
 
 // Useful default constants for developing
@@ -77,11 +77,10 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
         let egui_context = egui::Context::default();
         let egui_state = egui_winit::State::new(&event_loop);
-        let mut egui_painter = egui_wgpu::winit::Painter::new(WgpuConfiguration::default(), 1, 32);
+        let mut egui_painter =
+            egui_wgpu::winit::Painter::new(WgpuConfiguration::default(), 1, None, false);
 
-        unsafe {
-            egui_painter.set_window(Some(&window));
-        }
+        egui_painter.set_window(Some(&window)).await.unwrap();
 
         let (async_cmd_tx, mut async_cmd_rx) = mpsc::unbounded_channel::<AsyncCmd>();
         let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel::<UiCmd>();
@@ -497,9 +496,10 @@ impl App {
 
         self.egui_painter.paint_and_update_textures(
             egui_winit::native_pixels_per_point(&self.window),
-            egui::Rgba::BLACK,
+            [0.0, 0.0, 0.0, 0.0],
             &clipped_primitives,
             &full_output.textures_delta,
+            false,
         );
 
         self.egui_state.handle_platform_output(
