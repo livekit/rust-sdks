@@ -49,6 +49,7 @@ impl RendererInternal {
                     sample_count: 1,
                     mip_level_count: 1,
                     format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
                 }),
         );
 
@@ -57,8 +58,8 @@ impl RendererInternal {
                 label: Some("lk-videotexture-view"),
                 format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
                 dimension: Some(wgpu::TextureViewDimension::D2),
-                mip_level_count: NonZeroU32::new(1),
-                array_layer_count: NonZeroU32::new(1),
+                mip_level_count: Some(1),
+                array_layer_count: Some(1),
                 ..Default::default()
             },
         ));
@@ -144,7 +145,7 @@ impl VideoRenderer {
                         };
 
                         let copy_layout = wgpu::ImageDataLayout {
-                            bytes_per_row: Some(NonZeroU32::new(width * 4).unwrap()),
+                            bytes_per_row: Some(width * 4),
                             ..Default::default()
                         };
 
