@@ -40,6 +40,8 @@ pub struct FfiServer {
 
 impl Default for FfiServer {
     fn default() -> Self {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
         Self {
             rooms: Default::default(),
             ffi_handles: Default::default(),
