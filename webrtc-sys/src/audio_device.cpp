@@ -54,13 +54,14 @@ int32_t AudioDevice::Init() {
         if (playing_) {
           int64_t elapsed_time_ms = -1;
           int64_t ntp_time_ms = -1;
+          size_t n_samples_out = 0;
           void* data = data_.data();
 
           // Request the AudioData, otherwise WebRTC will ignore the packets.
           // 10ms of audio data.
-          audio_transport_->PullRenderData(kBitsPerSample, kSampleRate,
-                                           kChannels, kSamplesPer10Ms, data,
-                                           &elapsed_time_ms, &ntp_time_ms);
+          audio_transport_->NeedMorePlayData(kSamplesPer10Ms, 2, kChannels,
+                                             kSampleRate, data, n_samples_out,
+                                             &elapsed_time_ms, &ntp_time_ms);
         }
 
         return webrtc::TimeDelta::Millis(10);

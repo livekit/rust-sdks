@@ -21,7 +21,7 @@ impl FfiRoom {
         let session = room.session();
         let next_id = server.next_id() as FfiHandleId;
 
-        let handle = tokio::spawn(room_task(
+        let handle = server.async_runtime.spawn(room_task(
             server,
             session.clone(),
             next_id,
@@ -60,9 +60,11 @@ async fn room_task(
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: oneshot::Receiver<()>,
 ) {
-    tokio::spawn(participant_task(Participant::Local(
-        session.local_participant(),
-    )));
+    server
+        .async_runtime
+        .spawn(participant_task(Participant::Local(
+            session.local_participant(),
+        )));
 
     loop {
         tokio::select! {
@@ -73,7 +75,7 @@ async fn room_task(
 
                 match event {
                     RoomEvent::ParticipantConnected(p) => {
-                        tokio::spawn(participant_task(Participant::Remote(p)));
+                        server.async_runtime.spawn(participant_task(Participant::Remote(p)));
                     }
                     _ => {}
                 }

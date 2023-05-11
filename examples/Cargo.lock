@@ -2378,6 +2378,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "save_to_disk"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "livekit",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
