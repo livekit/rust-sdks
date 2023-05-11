@@ -16,7 +16,7 @@
 
 #include "livekit/audio_device.h"
 
-const int kBitsPerSample = 16;
+const int kBytesPerSample = 2;
 const int kSampleRate = 48000;
 const int kChannels = 2;
 const int kSamplesPer10Ms = kSampleRate / 100;
@@ -59,9 +59,9 @@ int32_t AudioDevice::Init() {
 
           // Request the AudioData, otherwise WebRTC will ignore the packets.
           // 10ms of audio data.
-          audio_transport_->NeedMorePlayData(kSamplesPer10Ms, 2, kChannels,
-                                             kSampleRate, data, n_samples_out,
-                                             &elapsed_time_ms, &ntp_time_ms);
+          audio_transport_->NeedMorePlayData(
+              kSamplesPer10Ms, kBytesPerSample, kChannels, kSampleRate, data,
+              n_samples_out, &elapsed_time_ms, &ntp_time_ms);
         }
 
         return webrtc::TimeDelta::Millis(10);
