@@ -62,7 +62,7 @@ impl FfiAudioSream {
                     close_tx,
                     track_sid,
                 };
-                tokio::spawn(Self::native_audio_stream_task(
+                server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     audio_stream.handle_id,
                     NativeAudioStream::new(track),

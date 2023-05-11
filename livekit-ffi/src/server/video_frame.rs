@@ -62,7 +62,7 @@ impl FfiVideoStream {
                     stream_type,
                     track_sid,
                 };
-                tokio::spawn(Self::native_video_stream_task(
+                server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     video_stream.handle_id,
                     NativeVideoStream::new(track),

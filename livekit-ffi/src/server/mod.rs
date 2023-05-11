@@ -200,7 +200,7 @@ impl FfiServer {
         publish: proto::PublishTrackRequest,
     ) -> FfiResult<proto::PublishTrackResponse> {
         let async_id = self.next_id() as FfiAsyncId;
-        tokio::spawn(async move {
+        self.async_runtime.spawn(async move {
             let res = async {
                 let room_handle = publish
                     .room_handle
