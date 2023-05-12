@@ -3,7 +3,7 @@ use crate::{FfiAsyncId, FfiError, FfiHandle, FfiHandleId, FfiResult};
 use dashmap::DashMap;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
-use livekit::webrtc::native::yuv_helper;
+use livekit::webrtc::native::{audio_resampler, yuv_helper};
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{native::I420BufferExt, BoxVideoFrameBuffer, I420Buffer};
 use parking_lot::Mutex;
@@ -11,6 +11,7 @@ use prost::Message;
 use std::collections::HashMap;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 pub mod audio_frame;
 pub mod room;
@@ -608,6 +609,83 @@ impl FfiServer {
         Ok(proto::CaptureAudioFrameResponse::default())
     }
 
+    fn new_audio_resampler(
+        &'static self,
+        new_resampler: proto::NewAudioResamplerRequest,
+    ) -> FfiResult<proto::NewAudioResamplerResponse> {
+        let resampler = audio_resampler::AudioResampler::default();
+        let resampler = Arc::new(Mutex::new(resampler));
+
+        let handle_id = self.next_id() as FfiHandleId;
+        self.ffi_handles.insert(handle_id, Box::new(resampler));
+
+        Ok(proto::NewAudioResamplerResponse {
+            handle: Some(handle_id.into()),
+        })
+    }
+
+    fn remix_and_resample(
+        &'static self,
+        remix: proto::RemixAndResampleRequest,
+    ) -> FfiResult<proto::RemixAndResampleResponse> {
+        let resampler_id = remix
+            .resampler_handle
+            .as_ref()
+            .ok_or(FfiError::InvalidRequest("handle is empty"))?
+            .id as FfiHandleId;
+
+        let resampler = self
+            .ffi_handles
+            .get(&resampler_id)
+            .ok_or(FfiError::InvalidRequest("resampler not found"))?;
+
+        let resampler = resampler
+            .downcast_ref::<Arc<Mutex<audio_resampler::AudioResampler>>>()
+            .ok_or(FfiError::InvalidRequest("handle is not a resampler"))?;
+
+        let resampler = resampler.clone();
+
+        let buffer_id = remix
+            .buffer_handle
+            .as_ref()
+            .ok_or(FfiError::InvalidRequest("handle is empty"))?
+            .id as FfiHandleId;
+
+        let buffer = self
+            .ffi_handles
+            .get(&buffer_id)
+            .ok_or(FfiError::InvalidRequest("buffer not found"))?;
+
+        let buffer = buffer
+            .downcast_ref::<AudioFrame>()
+            .ok_or(FfiError::InvalidRequest("handle is not a buffer"))?;
+
+        let mut resampler = resampler.lock();
+        let data = resampler.remix_and_resample(
+            &buffer.data,
+            buffer.samples_per_channel,
+            buffer.num_channels,
+            buffer.sample_rate,
+            remix.num_channels,
+            remix.sample_rate,
+        );
+
+        let samples_per_channel = data.len() / remix.num_channels as usize;
+        let frame = AudioFrame {
+            data: data.to_owned(), // Copy?
+            num_channels: remix.num_channels,
+            samples_per_channel: samples_per_channel as u32,
+            sample_rate: remix.sample_rate,
+        };
+
+        let handle_id = self.next_id() as FfiHandleId;
+        self.ffi_handles.insert(handle_id, Box::new(frame));
+
+        Ok(proto::RemixAndResampleResponse {
+            buffer_handle: Some(handle_id.into()),
+        })
+    }
+
     pub fn handle_request(
         &'static self,
         request: proto::FfiRequest,
@@ -671,6 +749,12 @@ impl FfiServer {
             }
             proto::ffi_request::Message::CaptureAudioFrame(push) => {
                 proto::ffi_response::Message::CaptureAudioFrame(self.on_capture_audio_frame(push)?)
+            }
+            proto::ffi_request::Message::NewAudioResampler(new_res) => {
+                proto::ffi_response::Message::NewAudioResampler(self.new_audio_resampler(new_res)?)
+            }
+            proto::ffi_request::Message::RemixAndResample(remix) => {
+                proto::ffi_response::Message::RemixAndResample(self.remix_and_resample(remix)?)
             }
         });
 

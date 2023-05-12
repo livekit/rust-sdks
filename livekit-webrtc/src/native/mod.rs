@@ -1,3 +1,4 @@
+pub mod audio_resampler;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod data_channel;

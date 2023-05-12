@@ -46,6 +46,7 @@ pub mod video_stream;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
+    pub use crate::imp::audio_resampler;
     pub use crate::imp::yuv_helper;
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 }
