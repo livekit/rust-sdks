@@ -45,7 +45,7 @@ impl WavWriter {
             * self.header.bit_depth as u32
             * self.header.num_channels as u32);
 
-        let block_align = byte_rate / self.header.sample_rate as u32;
+        let block_align = byte_rate as u16 / self.header.sample_rate as u16;
 
         self.data.put_slice(b"RIFF");
         self.data.put_u32_le(0); // Placeholder for file size
@@ -56,7 +56,7 @@ impl WavWriter {
         self.data.put_u16_le(self.header.num_channels);
         self.data.put_u32_le(self.header.sample_rate);
         self.data.put_u32_le(byte_rate);
-        self.data.put_u16_le(32);
+        self.data.put_u16_le(block_align);
         self.data.put_u16_le(self.header.bit_depth);
         self.data.put_slice(b"data");
         self.data.put_u32_le(0); // Placeholder for data size

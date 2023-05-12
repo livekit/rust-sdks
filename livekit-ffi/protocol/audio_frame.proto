@@ -36,6 +36,24 @@ message CaptureAudioFrameRequest {
 }
 message CaptureAudioFrameResponse {}
 
+// Create a new AudioResampler
+message NewAudioResamplerRequest {}
+message NewAudioResamplerResponse {
+  FFIHandleId handle = 1;
+}
+
+// Remix and resample an audio frame
+message RemixAndResampleRequest {
+  FFIHandleId resampler_handle = 1;
+  FFIHandleId buffer_handle = 2;
+  uint32 num_channels = 3;
+  uint32 sample_rate = 4;
+}
+
+message RemixAndResampleResponse {
+  FFIHandleId buffer_handle = 1;
+}
+
 ///
 /// AudioFrame buffer ///
 ///

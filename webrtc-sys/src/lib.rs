@@ -1,3 +1,4 @@
+pub mod audio_resampler;
 pub mod candidate;
 pub mod data_channel;
 pub mod helper;

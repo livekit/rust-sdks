@@ -40,6 +40,8 @@ message FFIRequest {
     NewAudioStreamRequest new_audio_stream = 16;
     NewAudioSourceRequest new_audio_source = 17;
     CaptureAudioFrameRequest capture_audio_frame = 18;
+    NewAudioResamplerRequest new_audio_resampler = 19;
+    RemixAndResampleRequest remix_and_resample = 20;
   }
 }
 
@@ -72,6 +74,8 @@ message FFIResponse {
     NewAudioStreamResponse new_audio_stream = 16;
     NewAudioSourceResponse new_audio_source = 17;
     CaptureAudioFrameResponse capture_audio_frame = 18;
+    NewAudioResamplerResponse new_audio_resampler = 19;
+    RemixAndResampleResponse remix_and_resample = 20;
   }
 }
 
