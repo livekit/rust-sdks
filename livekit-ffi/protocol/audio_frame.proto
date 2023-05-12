@@ -51,7 +51,7 @@ message RemixAndResampleRequest {
 }
 
 message RemixAndResampleResponse {
-  FFIHandleId buffer_handle = 1;
+  AudioFrameBufferInfo buffer = 1;
 }
 
 ///

@@ -679,10 +679,11 @@ impl FfiServer {
         };
 
         let handle_id = self.next_id() as FfiHandleId;
+        let buffer_info = proto::AudioFrameBufferInfo::from(handle_id, &frame);
         self.ffi_handles.insert(handle_id, Box::new(frame));
 
         Ok(proto::RemixAndResampleResponse {
-            buffer_handle: Some(handle_id.into()),
+            buffer: Some(buffer_info),
         })
     }
 
