@@ -611,7 +611,7 @@ impl FfiServer {
 
     fn new_audio_resampler(
         &'static self,
-        new_resampler: proto::NewAudioResamplerRequest,
+        _: proto::NewAudioResamplerRequest,
     ) -> FfiResult<proto::NewAudioResamplerResponse> {
         let resampler = audio_resampler::AudioResampler::default();
         let resampler = Arc::new(Mutex::new(resampler));

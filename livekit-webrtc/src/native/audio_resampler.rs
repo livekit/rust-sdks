@@ -33,7 +33,7 @@ impl AudioResampler {
                 dst_sample_rate as i32,
             );
 
-            std::slice::from_raw_parts(self.sys_handle.data(), len)
+            std::slice::from_raw_parts(self.sys_handle.data(), len / 2)
         }
     }
 }
