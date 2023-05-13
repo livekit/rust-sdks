@@ -64,7 +64,7 @@ impl Default for VideoGrants {
             room_list: false,
             room_record: false,
             room_admin: false,
-            room_join: true,
+            room_join: false,
             room: "".to_string(),
             can_publish: true,
             can_subscribe: true,
