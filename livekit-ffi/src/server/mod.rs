@@ -630,57 +630,56 @@ impl FfiServer {
     ) -> FfiResult<proto::RemixAndResampleResponse> {
         let resampler_id = remix
             .resampler_handle
-            .as_ref()
             .ok_or(FfiError::InvalidRequest("handle is empty"))?
             .id as FfiHandleId;
 
         let resampler = self
             .ffi_handles
             .get(&resampler_id)
-            .ok_or(FfiError::InvalidRequest("resampler not found"))?;
-
-        let resampler = resampler
+            .ok_or(FfiError::InvalidRequest("resampler not found"))?
             .downcast_ref::<Arc<Mutex<audio_resampler::AudioResampler>>>()
-            .ok_or(FfiError::InvalidRequest("handle is not a resampler"))?;
-
-        let resampler = resampler.clone();
+            .ok_or(FfiError::InvalidRequest("handle is not a resampler"))?
+            .clone();
 
         let buffer_id = remix
             .buffer_handle
-            .as_ref()
             .ok_or(FfiError::InvalidRequest("handle is empty"))?
             .id as FfiHandleId;
 
-        let buffer = self
-            .ffi_handles
-            .get(&buffer_id)
-            .ok_or(FfiError::InvalidRequest("buffer not found"))?;
+        let data = {
+            let buffer = self
+                .ffi_handles
+                .get(&buffer_id)
+                .ok_or(FfiError::InvalidRequest("buffer not found"))?;
 
-        let buffer = buffer
-            .downcast_ref::<AudioFrame>()
-            .ok_or(FfiError::InvalidRequest("handle is not a buffer"))?;
+            let buffer = buffer
+                .downcast_ref::<AudioFrame>()
+                .ok_or(FfiError::InvalidRequest("handle is not a buffer"))?;
 
-        let mut resampler = resampler.lock();
-        let data = resampler.remix_and_resample(
-            &buffer.data,
-            buffer.samples_per_channel,
-            buffer.num_channels,
-            buffer.sample_rate,
-            remix.num_channels,
-            remix.sample_rate,
-        );
+            let mut resampler = resampler.lock();
+            resampler
+                .remix_and_resample(
+                    &buffer.data,
+                    buffer.samples_per_channel,
+                    buffer.num_channels,
+                    buffer.sample_rate,
+                    remix.num_channels,
+                    remix.sample_rate,
+                )
+                .to_owned()
+        };
 
         let samples_per_channel = data.len() / remix.num_channels as usize;
-        let frame = AudioFrame {
-            data: data.to_owned(), // Copy?
+        let new_buffer = AudioFrame {
+            data,
             num_channels: remix.num_channels,
             samples_per_channel: samples_per_channel as u32,
             sample_rate: remix.sample_rate,
         };
 
         let handle_id = self.next_id() as FfiHandleId;
-        let buffer_info = proto::AudioFrameBufferInfo::from(handle_id, &frame);
-        self.ffi_handles.insert(handle_id, Box::new(frame));
+        let buffer_info = proto::AudioFrameBufferInfo::from(handle_id, &new_buffer);
+        self.ffi_handles.insert(handle_id, Box::new(new_buffer));
 
         Ok(proto::RemixAndResampleResponse {
             buffer: Some(buffer_info),
