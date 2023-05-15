@@ -70,7 +70,7 @@ jobs:
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
           cd target/release/
-          Compress-Archive -Path ${{ matrix.dylib }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
+          Compress-Archive -Path ${{ matrix.dylib }} -DestinationPath  ${{ github.workspace }}\${{ steps.setup.outputs.ZIP }}
 
       # doublezip here but I don't think there is an alternative
       - name: Upload artifacts
