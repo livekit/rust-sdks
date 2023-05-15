@@ -55,7 +55,7 @@ jobs:
         with:
           submodules: true
 
-     - name: Build
+      - name: Build
         run: cargo build -p livekit-ffi --release
 
       - name: Zip artifact (Unix)
