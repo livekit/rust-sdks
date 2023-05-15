@@ -1,6 +1,9 @@
 name: FFI builds
 on: workflow_dispatch
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build:
     strategy:
@@ -8,10 +11,10 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            dylib: liblivekit_ffi.dll
+            dylib: livekit_ffi.dll
             target: x86_64-pc-windows-msvc
           - os: windows-latest
-            dylib: liblivekit_ffi.dll
+            dylib: livekit_ffi.dll
             target: aarch64-pc-windows-msvc
           - os: macos-latest
             dylib: liblivekit_ffi.dylib
