@@ -1,0 +1,80 @@
+name: FFI builds
+on: workflow_dispatch
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            dylib: livekit_ffi.dll
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            dylib: livekit_ffi.dll
+            target: aarch64-pc-windows-msvc
+          - os: macos-latest
+            dylib: liblivekit_ffi.dylib
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            dylib: liblivekit_ffi.dylib
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            dylib: liblivekit_ffi.so
+            target: x86_64-unknown-linux-gnu
+
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Setup vars
+        id: setup
+        run: |
+          echo "ZIP=liblivekit_ffi-${{ matrix.target }}.zip" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Info
+        run: |
+          echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update --no-self-update stable
+          rustup target add ${{ matrix.target }}
+
+      - name: Install linux dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Build
+        run: cargo build -p livekit-ffi --release
+
+      - name: Zip artifact (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          cd target/release/
+          zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ matrix.dylib }}
+
+      - name: Zip artifact (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          cd target/release/
+          Compress-Archive -Path ${{ matrix.dylib }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
+
+      # doublezip here but I don't think there is an alternative
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.setup.outputs.ZIP }}
+          path: ${{ steps.setup.outputs.ZIP }}
