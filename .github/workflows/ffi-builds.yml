@@ -26,7 +26,6 @@ jobs:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-    steps:
       - name: Setup vars
         id: setup
         run: |
