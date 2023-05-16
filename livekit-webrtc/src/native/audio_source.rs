@@ -39,6 +39,7 @@ impl NativeAudioSource {
             inner.offset = 0;
         }
 
+        // Split the frame into 10ms chunks
         let mut i = 0;
         loop {
             let buf_offset = inner.offset;
