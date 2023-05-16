@@ -94,14 +94,14 @@ impl SineTrack {
         rtc_source: NativeAudioSource,
         frame_options: Arc<Mutex<FrameData>>,
     ) {
-        let mut interval = tokio::time::interval(Duration::from_millis(20));
+        let mut interval = tokio::time::interval(Duration::from_millis(10));
         let mut samples_10ms = Vec::<i16>::new();
 
         loop {
             interval.tick().await;
 
             let mut data = frame_options.lock();
-            let samples_count_10ms = (data.sample_rate / 50) as usize;
+            let samples_count_10ms = (data.sample_rate / 100) as usize;
 
             if samples_10ms.capacity() != samples_count_10ms {
                 samples_10ms.resize(samples_count_10ms, 0i16);
