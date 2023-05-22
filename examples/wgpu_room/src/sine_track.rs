@@ -98,16 +98,18 @@ impl SineTrack {
         let mut samples_10ms = Vec::<i16>::new();
 
         loop {
+            const NUM_CHANNELS: usize = 2;
+
             interval.tick().await;
 
             let mut data = frame_options.lock();
-            let samples_count_10ms = (data.sample_rate / 100) as usize;
+            let samples_count_10ms = (data.sample_rate / 100) as usize * NUM_CHANNELS;
 
             if samples_10ms.capacity() != samples_count_10ms {
                 samples_10ms.resize(samples_count_10ms, 0i16);
             }
 
-            for i in 0..samples_count_10ms {
+            for i in (0..samples_count_10ms).step_by(NUM_CHANNELS) {
                 let val = data.amplitude
                     * f64::sin(
                         std::f64::consts::PI
@@ -117,14 +119,17 @@ impl SineTrack {
                     );
 
                 data.phase += 1;
-                // WebRTC uses 16-bit signed PCM
-                samples_10ms[i] = (val * 32768.0) as i16;
+
+                for c in 0..NUM_CHANNELS {
+                    // WebRTC uses 16-bit signed PCM
+                    samples_10ms[i + c] = (val * 32768.0) as i16;
+                }
             }
 
             rtc_source.capture_frame(&AudioFrame {
                 data: samples_10ms.clone(),
                 sample_rate: data.sample_rate as u32,
-                num_channels: 1,
+                num_channels: NUM_CHANNELS as u32,
                 samples_per_channel: samples_count_10ms as u32,
             });
         }
