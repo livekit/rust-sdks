@@ -37,6 +37,8 @@ impl NativeAudioSource {
         if inner.sample_rate != frame.sample_rate || inner.num_channels != frame.num_channels {
             inner.buf.resize(samples_10ms as usize, 0);
             inner.offset = 0;
+            inner.sample_rate = frame.sample_rate;
+            inner.num_channels = frame.num_channels;
         }
 
         // Split the frame into 10ms chunks
