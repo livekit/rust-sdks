@@ -72,7 +72,7 @@ impl NativeAudioSource {
                     data.as_ptr(),
                     frame.sample_rate as i32,
                     frame.num_channels as usize,
-                    samples_10ms,
+                    samples_10ms / frame.num_channels as usize,
                 )
             }
 
