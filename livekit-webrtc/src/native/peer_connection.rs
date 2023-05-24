@@ -23,8 +23,9 @@ use crate::MediaType;
 use crate::{session_description::SessionDescription, RtcError};
 use cxx::{SharedPtr, UniquePtr};
 use futures::channel::oneshot;
+use parking_lot::Mutex;
 use std::mem::ManuallyDrop;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use webrtc_sys::data_channel as sys_dc;
 use webrtc_sys::jsep as sys_jsep;
 use webrtc_sys::peer_connection as sys_pc;
@@ -372,39 +373,39 @@ impl PeerConnection {
     }
 
     pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
-        *self.observer.connection_change_handler.lock().unwrap() = f;
+        *self.observer.connection_change_handler.lock() = f;
     }
 
     pub fn on_data_channel(&self, f: Option<OnDataChannel>) {
-        *self.observer.data_channel_handler.lock().unwrap() = f;
+        *self.observer.data_channel_handler.lock() = f;
     }
 
     pub fn on_ice_candidate(&self, f: Option<OnIceCandidate>) {
-        *self.observer.ice_candidate_handler.lock().unwrap() = f;
+        *self.observer.ice_candidate_handler.lock() = f;
     }
 
     pub fn on_ice_candidate_error(&self, f: Option<OnIceCandidateError>) {
-        *self.observer.ice_candidate_error_handler.lock().unwrap() = f;
+        *self.observer.ice_candidate_error_handler.lock() = f;
     }
 
     pub fn on_ice_connection_state_change(&self, f: Option<OnIceConnectionChange>) {
-        *self.observer.ice_connection_change_handler.lock().unwrap() = f;
+        *self.observer.ice_connection_change_handler.lock() = f;
     }
 
     pub fn on_ice_gathering_state_change(&self, f: Option<OnIceGatheringChange>) {
-        *self.observer.ice_gathering_change_handler.lock().unwrap() = f;
+        *self.observer.ice_gathering_change_handler.lock() = f;
     }
 
     pub fn on_negotiation_needed(&self, f: Option<OnNegotiationNeeded>) {
-        *self.observer.negotiation_needed_handler.lock().unwrap() = f;
+        *self.observer.negotiation_needed_handler.lock() = f;
     }
 
     pub fn on_signaling_state_change(&self, f: Option<OnSignalingChange>) {
-        *self.observer.signaling_change_handler.lock().unwrap() = f;
+        *self.observer.signaling_change_handler.lock() = f;
     }
 
     pub fn on_track(&self, f: Option<OnTrack>) {
-        *self.observer.track_handler.lock().unwrap() = f;
+        *self.observer.track_handler.lock() = f;
     }
 }
 
@@ -451,7 +452,7 @@ pub struct PeerObserver {
 
 impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_signaling_change(&self, new_state: sys_pc::ffi::SignalingState) {
-        if let Some(f) = self.signaling_change_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.signaling_change_handler.lock().as_mut() {
             f(new_state.into());
         }
     }
@@ -461,7 +462,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_remove_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
 
     fn on_data_channel(&self, data_channel: SharedPtr<sys_dc::ffi::DataChannel>) {
-        if let Some(f) = self.data_channel_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.data_channel_handler.lock().as_mut() {
             f(DataChannel {
                 handle: imp_dc::DataChannel::configure(data_channel),
             });
@@ -471,7 +472,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_renegotiation_needed(&self) {}
 
     fn on_negotiation_needed_event(&self, event: u32) {
-        if let Some(f) = self.negotiation_needed_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.negotiation_needed_handler.lock().as_mut() {
             f(event);
         }
     }
@@ -479,25 +480,25 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_ice_connection_change(&self, _new_state: sys_pc::ffi::IceConnectionState) {}
 
     fn on_standardized_ice_connection_change(&self, new_state: sys_pc::ffi::IceConnectionState) {
-        if let Some(f) = self.ice_connection_change_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.ice_connection_change_handler.lock().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_connection_change(&self, new_state: sys_pc::ffi::PeerConnectionState) {
-        if let Some(f) = self.connection_change_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.connection_change_handler.lock().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_ice_gathering_change(&self, new_state: sys_pc::ffi::IceGatheringState) {
-        if let Some(f) = self.ice_gathering_change_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.ice_gathering_change_handler.lock().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_ice_candidate(&self, candidate: SharedPtr<sys_jsep::ffi::IceCandidate>) {
-        if let Some(f) = self.ice_candidate_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.ice_candidate_handler.lock().as_mut() {
             f(IceCandidate {
                 handle: imp_ic::IceCandidate {
                     sys_handle: candidate,
@@ -514,7 +515,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
         error_code: i32,
         error_text: String,
     ) {
-        if let Some(f) = self.ice_candidate_error_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.ice_candidate_error_handler.lock().as_mut() {
             f(IceCandidateError {
                 address,
                 port,
@@ -547,7 +548,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     }
 
     fn on_track(&self, transceiver: SharedPtr<webrtc_sys::rtp_transceiver::ffi::RtpTransceiver>) {
-        if let Some(f) = self.track_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.track_handler.lock().as_mut() {
             let receiver = transceiver.receiver();
             let streams = receiver.streams();
             let track = receiver.track();

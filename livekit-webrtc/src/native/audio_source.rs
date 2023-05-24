@@ -1,6 +1,7 @@
 use crate::audio_frame::AudioFrame;
 use cxx::SharedPtr;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use webrtc_sys::media_stream as sys_ms;
 
 #[derive(Clone)]
@@ -32,7 +33,7 @@ impl NativeAudioSource {
     }
 
     pub fn capture_frame(&self, frame: &AudioFrame) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         let samples_10ms = (frame.sample_rate / 100 * frame.num_channels) as usize;
         if inner.sample_rate != frame.sample_rate || inner.num_channels != frame.num_channels {
             inner.buf.resize(samples_10ms as usize, 0);

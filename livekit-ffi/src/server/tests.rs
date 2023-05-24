@@ -12,8 +12,8 @@ mod client {
         INVALID_HANDLE,
     };
     use lazy_static::lazy_static;
+    use parking_lot::Mutex;
     use prost::Message;
-    use std::sync::Mutex;
     use tokio::sync::mpsc;
 
     lazy_static! {
@@ -31,7 +31,7 @@ mod client {
     impl Default for FfiClient {
         fn default() -> Self {
             let (event_tx, event_rx) = mpsc::unbounded_channel();
-            *EVENT_TX.lock().unwrap() = Some(event_tx);
+            *EVENT_TX.lock() = Some(event_tx);
             Self { event_rx }
         }
     }
@@ -88,7 +88,6 @@ mod client {
         let event = proto::FfiEvent::decode(data).unwrap();
         EVENT_TX
             .lock()
-            .unwrap()
             .as_ref()
             .unwrap()
             .send(event.message.unwrap())
@@ -99,9 +98,9 @@ mod client {
 struct TestScope {}
 
 impl TestScope {
-    fn new() -> (Self, std::sync::MutexGuard<'static, client::FfiClient>) {
+    fn new() -> (Self, parking_lot::MutexGuard<'static, client::FfiClient>) {
         // Run one test at a time
-        let client = client::FFI_CLIENT.lock().unwrap();
+        let client = client::FFI_CLIENT.lock();
 
         (TestScope {}, client)
     }
