@@ -9,14 +9,25 @@ use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, trace};
+use tracing::debug;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LocalParticipant {
     inner: Arc<ParticipantInner>,
     rtc_engine: Arc<RtcEngine>,
+}
+
+impl Debug for LocalParticipant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalParticipant")
+            .field("sid", &self.sid())
+            .field("identity", &self.identity())
+            .field("name", &self.name())
+            .finish()
+    }
 }
 
 impl LocalParticipant {

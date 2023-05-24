@@ -5,6 +5,7 @@ use livekit_protocol::enum_dispatch;
 use livekit_protocol::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;

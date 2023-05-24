@@ -6,6 +6,7 @@ use livekit_webrtc as rtc;
 use parking_lot::RwLockReadGuard;
 use rtc::prelude::MediaStreamTrack;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -14,9 +15,19 @@ use tracing::{debug, error, instrument, Level};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RemoteParticipant {
     inner: Arc<ParticipantInner>,
+}
+
+impl Debug for RemoteParticipant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteParticipant")
+            .field("sid", &self.sid())
+            .field("identity", &self.identity())
+            .field("name", &self.name())
+            .finish()
+    }
 }
 
 impl RemoteParticipant {

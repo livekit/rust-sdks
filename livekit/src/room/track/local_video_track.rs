@@ -6,6 +6,7 @@ use livekit_webrtc as rtc;
 use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 use parking_lot::Mutex;
 use rtc::video_source::native::NativeVideoSource;
+use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -15,9 +16,19 @@ struct LocalVideoTrackInner {
     capture_options: Mutex<VideoCaptureOptions>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct LocalVideoTrack {
     inner: Arc<LocalVideoTrackInner>,
+}
+
+impl Debug for LocalVideoTrack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalVideoTrack")
+            .field("sid", &self.sid())
+            .field("name", &self.name())
+            .field("source", &self.source())
+            .finish()
+    }
 }
 
 impl LocalVideoTrack {

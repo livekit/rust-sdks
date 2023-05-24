@@ -14,6 +14,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -104,7 +105,6 @@ pub struct SessionInfo {
 }
 
 /// Fields shared with rtc_task and signal_task
-#[derive(Debug)]
 struct SessionInner {
     info: SessionInfo,
     signal_client: Arc<SignalClient>,
@@ -128,6 +128,18 @@ struct SessionInner {
     closed: AtomicBool,
     emitter: SessionEmitter,
 }
+
+impl Debug for SessionInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionInner")
+            .field("info", &self.info)
+            .field("pc_state", &self.pc_state)
+            .field("has_published", &self.has_published)
+            .field("closed", &self.closed)
+            .finish()
+    }
+}
+
 /// This struct holds a WebRTC session
 /// The session changes at every reconnection
 ///

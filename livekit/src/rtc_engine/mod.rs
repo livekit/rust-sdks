@@ -7,6 +7,7 @@ use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use livekit_webrtc::session_description::SdpParseError;
 use parking_lot::Mutex;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -99,7 +100,6 @@ struct EngineHandle {
     close_sender: oneshot::Sender<()>,
 }
 
-#[derive(Debug)]
 struct EngineInner {
     lk_runtime: Arc<LkRuntime>,
     session_info: Mutex<Option<SessionInfo>>, // Last/Current Sessioninfo
@@ -111,6 +111,17 @@ struct EngineInner {
     reconnecting: AtomicBool,
     full_reconnect: AtomicBool,
     reconnect_interval: Mutex<Interval>,
+}
+
+impl Debug for EngineInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EngineInner")
+            .field("session_info", &self.session_info)
+            .field("opened", &self.opened)
+            .field("reconnecting", &self.reconnecting)
+            .field("full_reconnect", &self.full_reconnect)
+            .finish()
+    }
 }
 
 #[derive(Debug)]

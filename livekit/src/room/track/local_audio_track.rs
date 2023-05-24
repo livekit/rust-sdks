@@ -7,6 +7,7 @@ use livekit_protocol as proto;
 use livekit_webrtc as rtc;
 use parking_lot::Mutex;
 use rtc::audio_source::native::NativeAudioSource;
+use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -16,9 +17,19 @@ pub struct LocalAudioTrackInner {
     capture_options: Mutex<AudioCaptureOptions>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct LocalAudioTrack {
     inner: Arc<LocalAudioTrackInner>,
+}
+
+impl Debug for LocalAudioTrack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalAudioTrack")
+            .field("sid", &self.sid())
+            .field("name", &self.name())
+            .field("source", &self.source())
+            .finish()
+    }
 }
 
 impl LocalAudioTrack {
