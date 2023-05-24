@@ -11,66 +11,62 @@ use crate::video_source::native::NativeVideoSource;
 use crate::MediaType;
 use crate::RtcError;
 use cxx::SharedPtr;
-use std::sync::Arc;
+use cxx::UniquePtr;
+use lazy_static::lazy_static;
+use parking_lot::Mutex;
+use std::sync::{Arc, Weak};
+use webrtc_sys::logsink as sys_ls;
 use webrtc_sys::peer_connection as sys_pc;
 use webrtc_sys::peer_connection_factory as sys_pcf;
 use webrtc_sys::rtc_error as sys_err;
 use webrtc_sys::webrtc as sys_webrtc;
 
-impl From<IceServer> for sys_pcf::ffi::ICEServer {
-    fn from(value: IceServer) -> Self {
-        sys_pcf::ffi::ICEServer {
-            urls: value.urls,
-            username: value.username,
-            password: value.password,
-        }
-    }
+lazy_static! {
+    static ref RTC_RUNTIME: Mutex<Weak<RtcRuntime>> = Mutex::new(Weak::new());
 }
 
-impl From<ContinualGatheringPolicy> for sys_pcf::ffi::ContinualGatheringPolicy {
-    fn from(value: ContinualGatheringPolicy) -> Self {
-        match value {
-            ContinualGatheringPolicy::GatherOnce => {
-                sys_pcf::ffi::ContinualGatheringPolicy::GatherOnce
-            }
-            ContinualGatheringPolicy::GatherContinually => {
-                sys_pcf::ffi::ContinualGatheringPolicy::GatherContinually
-            }
-        }
-    }
-}
-
-impl From<IceTransportsType> for sys_pcf::ffi::IceTransportsType {
-    fn from(value: IceTransportsType) -> Self {
-        match value {
-            IceTransportsType::None => sys_pcf::ffi::IceTransportsType::None,
-            IceTransportsType::Relay => sys_pcf::ffi::IceTransportsType::Relay,
-            IceTransportsType::NoHost => sys_pcf::ffi::IceTransportsType::NoHost,
-            IceTransportsType::All => sys_pcf::ffi::IceTransportsType::All,
-        }
-    }
-}
-
-impl From<RtcConfiguration> for sys_pcf::ffi::RTCConfiguration {
-    fn from(value: RtcConfiguration) -> Self {
-        Self {
-            ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
-            continual_gathering_policy: value.continual_gathering_policy.into(),
-            ice_transport_type: value.ice_transport_type.into(),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct RTCRuntime {
+pub struct RtcRuntime {
     pub(crate) sys_handle: SharedPtr<sys_webrtc::ffi::RTCRuntime>,
+    _logsink: UniquePtr<sys_ls::ffi::LogSink>,
 }
 
-impl Default for RTCRuntime {
-    fn default() -> Self {
-        Self {
-            sys_handle: sys_webrtc::ffi::create_rtc_runtime(),
+impl RtcRuntime {
+    pub fn instance() -> Arc<RtcRuntime> {
+        let mut lk_runtime_ref = RTC_RUNTIME.lock();
+        if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
+            lk_runtime
+        } else {
+            log::trace!("RtcRuntime::new()");
+            let new_runtime = Arc::new(Self {
+                sys_handle: sys_webrtc::ffi::create_rtc_runtime(),
+                _logsink: sys_ls::ffi::new_log_sink(|msg, severity| {
+                    // Forward logs from webrtc to rust log crate
+                    let msg = msg
+                        .strip_suffix("\r\n")
+                        .or(msg.strip_suffix("\n"))
+                        .unwrap_or(&msg);
+
+                    let lvl = match severity {
+                        sys_ls::ffi::LoggingSeverity::Verbose => log::Level::Trace,
+                        sys_ls::ffi::LoggingSeverity::Info => log::Level::Debug, // Translte webrtc
+                        // info to debug log level to avoid polluting the user logs
+                        sys_ls::ffi::LoggingSeverity::Warning => log::Level::Warn,
+                        sys_ls::ffi::LoggingSeverity::Error => log::Level::Error,
+                        _ => log::Level::Debug,
+                    };
+
+                    log::log!(target: "libwebrtc", lvl, "{}", msg);
+                }),
+            });
+            *lk_runtime_ref = Arc::downgrade(&new_runtime);
+            new_runtime
         }
+    }
+}
+
+impl Drop for RtcRuntime {
+    fn drop(&mut self) {
+        log::trace!("RtcRuntime::drop()");
     }
 }
 
@@ -79,12 +75,12 @@ pub struct PeerConnectionFactory {
     sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
 
     #[allow(unused)]
-    runtime: RTCRuntime,
+    runtime: Arc<RtcRuntime>,
 }
 
 impl Default for PeerConnectionFactory {
     fn default() -> Self {
-        let runtime = RTCRuntime::default();
+        let runtime = RtcRuntime::instance();
         Self {
             sys_handle: sys_pcf::ffi::create_peer_connection_factory(runtime.sys_handle.clone()),
             runtime,
@@ -102,7 +98,7 @@ impl PeerConnectionFactory {
         unsafe {
             let observer = Arc::new(imp_pc::PeerObserver::default());
             let native_observer = sys_pc::ffi::create_native_peer_connection_observer(
-                self.runtime.clone().sys_handle,
+                self.runtime.sys_handle.clone(),
                 Box::new(sys_pc::PeerConnectionObserverWrapper::new(observer.clone())),
             );
 
@@ -153,5 +149,50 @@ impl PeerConnectionFactory {
         self.sys_handle
             .get_rtp_receiver_capabilities(media_type.into())
             .into()
+    }
+}
+
+// Conversions
+impl From<IceServer> for sys_pcf::ffi::ICEServer {
+    fn from(value: IceServer) -> Self {
+        sys_pcf::ffi::ICEServer {
+            urls: value.urls,
+            username: value.username,
+            password: value.password,
+        }
+    }
+}
+
+impl From<ContinualGatheringPolicy> for sys_pcf::ffi::ContinualGatheringPolicy {
+    fn from(value: ContinualGatheringPolicy) -> Self {
+        match value {
+            ContinualGatheringPolicy::GatherOnce => {
+                sys_pcf::ffi::ContinualGatheringPolicy::GatherOnce
+            }
+            ContinualGatheringPolicy::GatherContinually => {
+                sys_pcf::ffi::ContinualGatheringPolicy::GatherContinually
+            }
+        }
+    }
+}
+
+impl From<IceTransportsType> for sys_pcf::ffi::IceTransportsType {
+    fn from(value: IceTransportsType) -> Self {
+        match value {
+            IceTransportsType::None => sys_pcf::ffi::IceTransportsType::None,
+            IceTransportsType::Relay => sys_pcf::ffi::IceTransportsType::Relay,
+            IceTransportsType::NoHost => sys_pcf::ffi::IceTransportsType::NoHost,
+            IceTransportsType::All => sys_pcf::ffi::IceTransportsType::All,
+        }
+    }
+}
+
+impl From<RtcConfiguration> for sys_pcf::ffi::RTCConfiguration {
+    fn from(value: RtcConfiguration) -> Self {
+        Self {
+            ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
+            continual_gathering_policy: value.continual_gathering_policy.into(),
+            ice_transport_type: value.ice_transport_type.into(),
+        }
     }
 }

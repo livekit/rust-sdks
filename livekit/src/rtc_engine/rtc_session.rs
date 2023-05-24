@@ -176,14 +176,14 @@ impl RtcSession {
 
         let mut publisher_pc = PeerTransport::new(
             lk_runtime
-                .pc_factory
+                .pc_factory()
                 .create_peer_connection(rtc_config.clone())?,
             proto::SignalTarget::Publisher,
         );
 
         let mut subscriber_pc = PeerTransport::new(
             lk_runtime
-                .pc_factory
+                .pc_factory()
                 .create_peer_connection(rtc_config.clone())?,
             proto::SignalTarget::Subscriber,
         );
@@ -666,7 +666,7 @@ impl SessionInner {
 
         if track.kind() == TrackKind::Video {
             let capabilities = LkRuntime::instance()
-                .pc_factory
+                .pc_factory()
                 .get_rtp_sender_capabilities(track.kind().into());
 
             let mut matched = Vec::new();

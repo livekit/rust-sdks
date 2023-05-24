@@ -137,7 +137,7 @@ impl LocalAudioTrack {
         source: NativeAudioSource,
     ) -> LocalAudioTrack {
         let rtc_track = LkRuntime::instance()
-            .pc_factory
+            .pc_factory()
             .create_audio_track(&rtc::native::create_random_uuid(), source);
 
         Self::new(name.to_string(), rtc_track, options)
