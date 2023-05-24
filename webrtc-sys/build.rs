@@ -150,6 +150,7 @@ fn main() {
         "src/yuv_helper.rs",
         "src/helper.rs",
         "src/audio_resampler.rs",
+        "src/logsink.rs",
     ]);
 
     builder.files(&[
@@ -171,6 +172,7 @@ fn main() {
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",
         "src/audio_resampler.cpp",
+        "src/logsink.cpp",
     ]);
 
     for include in includes {

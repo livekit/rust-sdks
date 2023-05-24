@@ -10,7 +10,7 @@ lazy_static! {
 }
 
 pub struct LkRuntime {
-    pub pc_factory: PeerConnectionFactory,
+    pc_factory: PeerConnectionFactory,
 }
 
 impl Debug for LkRuntime {
@@ -25,19 +25,17 @@ impl LkRuntime {
         if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
             lk_runtime
         } else {
-            let new_runtime = Arc::new(LkRuntime::default());
+            trace!("LkRuntime::new()");
+            let new_runtime = Arc::new(Self {
+                pc_factory: PeerConnectionFactory::default(),
+            });
             *lk_runtime_ref = Arc::downgrade(&new_runtime);
             new_runtime
         }
     }
-}
 
-impl Default for LkRuntime {
-    fn default() -> Self {
-        trace!("LkRuntime::default()");
-        Self {
-            pc_factory: PeerConnectionFactory::default(),
-        }
+    pub fn pc_factory(&self) -> &PeerConnectionFactory {
+        &self.pc_factory
     }
 }
 
