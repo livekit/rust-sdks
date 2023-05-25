@@ -2,12 +2,23 @@ use super::TrackInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_webrtc as rtc;
+use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RemoteVideoTrack {
     pub(crate) inner: Arc<TrackInner>,
+}
+
+impl Debug for RemoteVideoTrack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteVideoTrack")
+            .field("sid", &self.sid())
+            .field("name", &self.name())
+            .field("source", &self.source())
+            .finish()
+    }
 }
 
 impl RemoteVideoTrack {
@@ -90,11 +101,13 @@ impl RemoteVideoTrack {
         true
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
         self.inner.transceiver()
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn update_transceiver(
         &self,

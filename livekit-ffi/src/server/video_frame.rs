@@ -160,10 +160,9 @@ impl FfiVideoSource {
         let source_inner = match source_type {
             proto::VideoSourceType::VideoSourceNative => {
                 let video_source = NativeVideoSource::default();
-                Ok(VideoSource::Native(video_source))
+                VideoSource::Native(video_source)
             }
-            _ => Err(FfiError::InvalidRequest("unsupported video source type")),
-        }?;
+        };
 
         let video_source = Self {
             handle_id: server.next_id(),

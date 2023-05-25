@@ -9,10 +9,10 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-pub mod local_audio_track;
-pub mod local_video_track;
-pub mod remote_audio_track;
-pub mod remote_video_track;
+mod local_audio_track;
+mod local_video_track;
+mod remote_audio_track;
+mod remote_video_track;
 
 pub use local_audio_track::*;
 pub use local_video_track::*;

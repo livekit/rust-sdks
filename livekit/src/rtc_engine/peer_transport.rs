@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 use tracing::{event, Level};
 
-const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
+const _NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
 pub type OnOfferCreated = Box<dyn FnMut(SessionDescription) + Send + Sync>;
 

@@ -28,6 +28,3 @@ livekit-api = { path = "../livekit-api", version = "0.1.0" }
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
-
-[profile.release]
-opt-level = "z"

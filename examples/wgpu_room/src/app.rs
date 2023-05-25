@@ -6,14 +6,8 @@ use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
 use futures::StreamExt;
-
-
 use livekit::prelude::*;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
-
-use livekit::webrtc::video_frame::native::I420BufferExt;
-
-
 use livekit::SimulateScenario;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -37,7 +31,7 @@ use winit::{
 };
 
 struct Session {
-    room: Room,
+    room: Arc<Room>,
     logo_track: LogoTrack,
     sine_track: SineTrack,
     close_tx: oneshot::Sender<()>,
@@ -114,9 +108,10 @@ pub fn run(rt: tokio::runtime::Runtime) {
 
                         let res = Room::connect(&url, &token).await;
                         if let Ok((room, room_events)) = res {
+                            let room = Arc::new(room);
                             let (close_tx, close_rx) = oneshot::channel();
-                            let logo_track = LogoTrack::new(room.session());
-                            let sine_track = SineTrack::new(room.session());
+                            let logo_track = LogoTrack::new(room.clone());
+                            let sine_track = SineTrack::new(room.clone());
                             let handle = tokio::spawn(room_task(
                                 state.clone(),
                                 room_events,
@@ -148,7 +143,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
                     }
                     AsyncCmd::SimulateScenario { scenario } => {
                         if let Some(session) = state.session.lock().as_ref() {
-                            let _ = session.room.session().simulate_scenario(scenario).await;
+                            let _ = session.room.simulate_scenario(scenario).await;
                         }
                     }
                     AsyncCmd::ToggleLogo => {
@@ -164,7 +159,11 @@ pub fn run(rt: tokio::runtime::Runtime) {
                     AsyncCmd::ToggleSine => {
                         if let Some(session) = state.session.lock().as_mut() {
                             let sine_track = &mut session.sine_track;
-                            sine_track.publish().await.unwrap();
+                            if !sine_track.is_published() {
+                                sine_track.publish().await.unwrap();
+                            } else {
+                                sine_track.unpublish().await.unwrap();
+                            }
                         }
                     }
                 }
@@ -401,15 +400,15 @@ impl App {
                 {
                     // Room Info
                     if let Some(session) = self.state.session.lock().as_ref() {
-                        ui.label(format!("Name: {}", session.room.session().name()));
-                        ui.label(format!("SID: {}", session.room.session().sid()));
+                        ui.label(format!("Name: {}", session.room.name()));
+                        ui.label(format!("SID: {}", session.room.sid()));
                         ui.label(format!(
                             "ConnectionState: {:?}",
-                            session.room.session().connection_state()
+                            session.room.connection_state()
                         ));
                         ui.label(format!(
                             "ParticipantCount: {:?}",
-                            session.room.session().participants().len() + 1
+                            session.room.participants().len() + 1
                         ));
                     }
                 }
@@ -459,7 +458,6 @@ impl App {
                                         self.state.session.lock().as_ref().and_then(|session| {
                                             session
                                                 .room
-                                                .session()
                                                 .participants()
                                                 .get(participant_sid)
                                                 .map(|p| p.name())

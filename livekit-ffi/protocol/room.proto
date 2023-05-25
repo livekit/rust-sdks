@@ -15,42 +15,42 @@ message ConnectRequest {
   RoomOptions options = 3;
 }
 message ConnectResponse {
-  FFIAsyncId async_id = 1;
+  FfiAsyncId async_id = 1;
 }
 message ConnectCallback {
-  FFIAsyncId async_id = 1;
+  FfiAsyncId async_id = 1;
   optional string error = 2;
   RoomInfo room = 3;
 }
 
 // Disconnect from the a room
-message DisconnectRequest { FFIHandleId room_handle = 1; }
-message DisconnectResponse { FFIAsyncId async_id = 1; }
+message DisconnectRequest { FfiHandleId room_handle = 1; }
+message DisconnectResponse { FfiAsyncId async_id = 1; }
 message DisconnectCallback { }
 
 // Publish a track to the room
 message PublishTrackRequest {
-  FFIHandleId room_handle = 1;
-  FFIHandleId track_handle = 2;
+  FfiHandleId room_handle = 1;
+  FfiHandleId track_handle = 2;
   TrackPublishOptions options = 3;
 }
 message PublishTrackResponse {
-  FFIAsyncId async_id = 1;
+  FfiAsyncId async_id = 1;
 }
 message PublishTrackCallback {
-  FFIAsyncId async_id = 1;
+  FfiAsyncId async_id = 1;
   optional string error = 2;
   TrackPublicationInfo publication = 3;
 }
 
 // Unpublish a track from the room
 message UnpublishTrackRequest {
-  FFIHandleId room_handle = 1;
+  FfiHandleId room_handle = 1;
   string track_sid = 2;
   bool stop_on_unpublish = 3;
 }
 message UnpublishTrackResponse {
-  FFIAsyncId async_id = 1;
+  FfiAsyncId async_id = 1;
 }
 message UnpublishTrackCallback {
   optional string error = 1;
@@ -109,7 +109,7 @@ enum DataPacketKind {
 }
 
 message RoomEvent {
-  FFIHandleId room_handle = 1;
+  FfiHandleId room_handle = 1;
   oneof message {
     ParticipantConnected participant_connected = 2;
     ParticipantDisconnected participant_disconnected = 3;
@@ -131,7 +131,7 @@ message RoomEvent {
 }
 
 message RoomInfo {
-  FFIHandleId handle = 1;
+  FfiHandleId handle = 1;
   string sid = 2;
   string name = 3;
   string metadata = 4;
@@ -140,7 +140,7 @@ message RoomInfo {
 }
 
 message DataReceived {
-  FFIHandleId handle = 1;
+  FfiHandleId handle = 1;
   optional string participant_sid = 2;
   uint64 data_ptr = 3;
   uint64 data_size = 4;

@@ -14,6 +14,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -104,7 +105,6 @@ pub struct SessionInfo {
 }
 
 /// Fields shared with rtc_task and signal_task
-#[derive(Debug)]
 struct SessionInner {
     info: SessionInfo,
     signal_client: Arc<SignalClient>,
@@ -128,6 +128,18 @@ struct SessionInner {
     closed: AtomicBool,
     emitter: SessionEmitter,
 }
+
+impl Debug for SessionInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionInner")
+            .field("info", &self.info)
+            .field("pc_state", &self.pc_state)
+            .field("has_published", &self.has_published)
+            .field("closed", &self.closed)
+            .finish()
+    }
+}
+
 /// This struct holds a WebRTC session
 /// The session changes at every reconnection
 ///
@@ -317,6 +329,7 @@ impl RtcSession {
         &self.inner.info
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn state(&self) -> PeerState {
         self.inner
@@ -326,21 +339,25 @@ impl RtcSession {
             .unwrap()
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn publisher(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.publisher_pc
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn subscriber(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.subscriber_pc
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn signal_client(&self) -> &Arc<SignalClient> {
         &self.inner.signal_client
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn data_channel(&self, kind: proto::data_packet::Kind) -> &DataChannel {
         &self.inner.data_channel(kind)

@@ -38,15 +38,15 @@ struct TrackHandle {
 
 pub struct LogoTrack {
     rtc_source: NativeVideoSource,
-    session: RoomSession,
+    room: Arc<Room>,
     handle: Option<TrackHandle>,
 }
 
 impl LogoTrack {
-    pub fn new(session: RoomSession) -> Self {
+    pub fn new(room: Arc<Room>) -> Self {
         Self {
             rtc_source: NativeVideoSource::default(),
-            session,
+            room,
             handle: None,
         }
     }
@@ -67,7 +67,7 @@ impl LogoTrack {
 
         let task = tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone()));
 
-        self.session
+        self.room
             .local_participant()
             .publish_track(
                 LocalTrack::Video(track.clone()),
@@ -93,7 +93,7 @@ impl LogoTrack {
             let _ = handle.close_tx.send(());
             let _ = handle.task.await;
 
-            self.session
+            self.room
                 .local_participant()
                 .unpublish_track(handle.track.sid(), true)
                 .await?;

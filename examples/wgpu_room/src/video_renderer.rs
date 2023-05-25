@@ -2,15 +2,14 @@ use futures::StreamExt;
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
-
-use std::{
-    ops::DerefMut,
-    sync::{Arc, Mutex},
-};
+use parking_lot::Mutex;
+use std::{ops::DerefMut, sync::Arc};
 use tracing::debug_span;
 
 pub struct VideoRenderer {
     internal: Arc<Mutex<RendererInternal>>,
+
+    #[allow(dead_code)]
     rtc_track: RtcVideoTrack,
 }
 
@@ -109,7 +108,7 @@ impl VideoRenderer {
                         let span = debug_span!("texture_upload");
                         let _enter = span.enter();
 
-                        let mut internal = internal.lock().unwrap();
+                        let mut internal = internal.lock();
                         let buffer = frame.buffer.to_i420();
 
                         let width: u32 = buffer.width().try_into().unwrap();
@@ -174,6 +173,6 @@ impl VideoRenderer {
     }
 
     pub fn texture_id(&self) -> Option<egui::TextureId> {
-        self.internal.lock().unwrap().egui_texture.clone()
+        self.internal.lock().egui_texture.clone()
     }
 }
