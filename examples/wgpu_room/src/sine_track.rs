@@ -1,7 +1,6 @@
 use livekit::options::{AudioCaptureOptions, TrackPublishOptions};
 use livekit::webrtc::audio_frame::AudioFrame;
 use livekit::{prelude::*, webrtc::audio_source::native::NativeAudioSource};
-use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -27,7 +26,6 @@ impl Default for FrameData {
 }
 
 struct TrackHandle {
-    frame_data: Arc<Mutex<FrameData>>,
     close_tx: oneshot::Sender<()>,
     track: LocalAudioTrack,
     task: JoinHandle<()>,
@@ -48,6 +46,10 @@ impl SineTrack {
         }
     }
 
+    pub fn is_published(&self) -> bool {
+        self.handle.is_some()
+    }
+
     pub async fn publish(&mut self) -> Result<(), RoomError> {
         let (close_tx, close_rx) = oneshot::channel();
         let track = LocalAudioTrack::create_audio_track(
@@ -60,12 +62,7 @@ impl SineTrack {
             self.rtc_source.clone(),
         );
 
-        let data = Arc::new(Mutex::new(FrameData::default()));
-        let task = tokio::spawn(Self::track_task(
-            close_rx,
-            self.rtc_source.clone(),
-            data.clone(),
-        ));
+        let task = tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone()));
 
         self.room
             .local_participant()
@@ -79,7 +76,6 @@ impl SineTrack {
             .await?;
 
         let handle = TrackHandle {
-            frame_data: data,
             close_tx,
             track,
             task,
@@ -89,11 +85,21 @@ impl SineTrack {
         Ok(())
     }
 
-    async fn track_task(
-        _close_rx: oneshot::Receiver<()>,
-        rtc_source: NativeAudioSource,
-        frame_options: Arc<Mutex<FrameData>>,
-    ) {
+    pub async fn unpublish(&mut self) -> Result<(), RoomError> {
+        if let Some(handle) = self.handle.take() {
+            handle.close_tx.send(()).ok();
+            handle.task.await.ok();
+            self.room
+                .local_participant()
+                .unpublish_track(handle.track.sid(), true)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn track_task(_close_rx: oneshot::Receiver<()>, rtc_source: NativeAudioSource) {
+        let mut data = FrameData::default();
         let mut interval = tokio::time::interval(Duration::from_millis(10));
         let mut samples_10ms = Vec::<i16>::new();
 
@@ -102,7 +108,6 @@ impl SineTrack {
 
             interval.tick().await;
 
-            let mut data = frame_options.lock();
             let samples_count_10ms = (data.sample_rate / 100) as usize * NUM_CHANNELS;
 
             if samples_10ms.capacity() != samples_count_10ms {

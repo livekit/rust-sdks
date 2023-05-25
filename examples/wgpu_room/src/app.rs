@@ -6,12 +6,8 @@ use crate::{events::AsyncCmd, video_grid::VideoGrid};
 use egui::{Rounding, Stroke};
 use egui_wgpu::WgpuConfiguration;
 use futures::StreamExt;
-
 use livekit::prelude::*;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
-
-use livekit::webrtc::video_frame::native::I420BufferExt;
-
 use livekit::SimulateScenario;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -163,7 +159,11 @@ pub fn run(rt: tokio::runtime::Runtime) {
                     AsyncCmd::ToggleSine => {
                         if let Some(session) = state.session.lock().as_mut() {
                             let sine_track = &mut session.sine_track;
-                            sine_track.publish().await.unwrap();
+                            if !sine_track.is_published() {
+                                sine_track.publish().await.unwrap();
+                            } else {
+                                sine_track.unpublish().await.unwrap();
+                            }
                         }
                     }
                 }

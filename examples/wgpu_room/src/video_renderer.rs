@@ -8,6 +8,8 @@ use tracing::debug_span;
 
 pub struct VideoRenderer {
     internal: Arc<Mutex<RendererInternal>>,
+
+    #[allow(dead_code)]
     rtc_track: RtcVideoTrack,
 }
 
