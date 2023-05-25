@@ -1,6 +1,6 @@
 use crate::signal_client::signal_stream::SignalStream;
 use livekit_protocol as proto;
-use livekit_webrtc::prelude::*;
+
 use parking_lot::RwLock;
 use std::fmt::Debug;
 use std::time::Duration;

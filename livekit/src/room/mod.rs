@@ -98,10 +98,14 @@ pub enum ConnectionState {
     Unknown,
 }
 
-pub struct Room {
-    inner: Arc<SessionInner>,
+struct RoomHandle {
     session_task: JoinHandle<()>,
     close_emitter: oneshot::Sender<()>,
+}
+
+pub struct Room {
+    inner: Arc<SessionInner>,
+    handle: Mutex<Option<RoomHandle>>,
 }
 
 impl Debug for Room {
@@ -115,7 +119,10 @@ impl Debug for Room {
 }
 
 impl Room {
-    pub async fn connect(url: &str, token: &str) -> RoomResult<Self> {
+    pub async fn connect(
+        url: &str,
+        token: &str,
+    ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         let (rtc_engine, engine_events) = RtcEngine::new();
         let rtc_engine = Arc::new(rtc_engine);
         rtc_engine
@@ -161,16 +168,22 @@ impl Room {
 
         let session = Self {
             inner,
-            session_task,
-            close_emitter,
+            handle: Mutex::new(Some(RoomHandle {
+                session_task,
+                close_emitter,
+            })),
         };
-        Ok(session)
+
+        let events = session.subscribe();
+        Ok((session, events))
     }
 
-    pub async fn close(self) {
-        self.inner.close().await;
-        let _ = self.close_emitter.send(());
-        let _ = self.session_task.await;
+    pub async fn close(&self) {
+        if let Some(handle) = self.handle.lock().take() {
+            self.inner.close().await;
+            handle.close_emitter.send(()).ok();
+            handle.session_task.await.ok();
+        }
     }
 
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {

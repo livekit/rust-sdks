@@ -121,7 +121,7 @@ impl LocalParticipant {
     pub async fn unpublish_track(
         &self,
         track: TrackSid,
-        stop_on_unpublish: bool,
+        _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
         let mut tracks = self.inner.tracks.write();
         if let Some(TrackPublication::Local(publication)) = tracks.remove(&track) {

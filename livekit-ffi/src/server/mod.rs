@@ -209,12 +209,12 @@ impl FfiServer {
                     .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
                     .id as FfiHandleId;
 
-                let room = self
+                let ffi_room = self
                     .ffi_handles
                     .get(&room_handle)
                     .ok_or(FfiError::InvalidRequest("room not found"))?;
 
-                let room = room
+                let ffi_room = ffi_room
                     .downcast_ref::<room::FfiRoom>()
                     .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
 
@@ -233,8 +233,8 @@ impl FfiServer {
                     .downcast_ref::<LocalTrack>()
                     .ok_or(FfiError::InvalidRequest("track is not a LocalTrack"))?;
 
-                let publication = room
-                    .session()
+                let publication = ffi_room
+                    .room()
                     .local_participant()
                     .publish_track(
                         track.clone(),

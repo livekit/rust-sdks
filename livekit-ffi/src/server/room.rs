@@ -1,11 +1,12 @@
 use crate::server::FfiServer;
 use crate::{proto, FfiHandleId, FfiResult};
 use livekit::prelude::*;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 pub struct FfiRoom {
-    room: Room,
+    room: Arc<Room>,
     handle_id: FfiHandleId,
     handle: JoinHandle<()>,
     close_tx: oneshot::Sender<()>,
@@ -17,27 +18,25 @@ impl FfiRoom {
         connect: proto::ConnectRequest,
     ) -> FfiResult<proto::RoomInfo> {
         let (room, events) = Room::connect(&connect.url, &connect.token).await?;
+        let room = Arc::new(room);
         let (close_tx, close_rx) = oneshot::channel();
-        let session = room.session();
         let next_id = server.next_id() as FfiHandleId;
 
-        let handle = server.async_runtime.spawn(room_task(
-            server,
-            session.clone(),
-            next_id,
-            events,
-            close_rx,
-        ));
-        let room_info = proto::RoomInfo::from_session(next_id, &session);
+        let handle =
+            server
+                .async_runtime
+                .spawn(room_task(server, room.clone(), next_id, events, close_rx));
+        let room_info = proto::RoomInfo::from_room(next_id, &room);
 
         let ffi_room = Self {
             handle_id: next_id,
-            room,
+            room: room.clone(),
             handle,
             close_tx,
         };
+
         server.ffi_handles().insert(next_id, Box::new(ffi_room));
-        server.rooms().lock().insert(session.sid(), next_id);
+        server.rooms().lock().insert(room.sid(), next_id);
 
         Ok(room_info)
     }
@@ -48,14 +47,14 @@ impl FfiRoom {
         let _ = self.handle.await;
     }
 
-    pub fn session(&self) -> RoomSession {
-        self.room.session()
+    pub fn room(&self) -> &Arc<Room> {
+        &self.room
     }
 }
 
 async fn room_task(
     server: &'static FfiServer,
-    session: RoomSession,
+    room: Arc<Room>,
     room_handle: FfiHandleId,
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: oneshot::Receiver<()>,
@@ -63,7 +62,7 @@ async fn room_task(
     server
         .async_runtime
         .spawn(participant_task(Participant::Local(
-            session.local_participant(),
+            room.local_participant(),
         )));
 
     loop {
