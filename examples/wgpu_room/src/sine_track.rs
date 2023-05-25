@@ -35,15 +35,15 @@ struct TrackHandle {
 
 pub struct SineTrack {
     rtc_source: NativeAudioSource,
-    session: RoomSession,
+    room: Arc<Room>,
     handle: Option<TrackHandle>,
 }
 
 impl SineTrack {
-    pub fn new(session: RoomSession) -> Self {
+    pub fn new(room: Arc<Room>) -> Self {
         Self {
             rtc_source: NativeAudioSource::default(),
-            session,
+            room,
             handle: None,
         }
     }
@@ -67,7 +67,7 @@ impl SineTrack {
             data.clone(),
         ));
 
-        self.session
+        self.room
             .local_participant()
             .publish_track(
                 LocalTrack::Audio(track.clone()),

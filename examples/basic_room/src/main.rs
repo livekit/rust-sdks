@@ -12,8 +12,7 @@ async fn main() {
     let token = env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is not set");
 
     let (room, mut rx) = Room::connect(&url, &token).await.unwrap();
-    let session = room.session();
-    log::info!("Connected to room: {} - {}", session.name(), session.sid());
+    log::info!("Connected to room: {} - {}", room.name(), room.sid());
 
     while let Some(msg) = rx.recv().await {
         log::info!("Event: {:?}", msg);
