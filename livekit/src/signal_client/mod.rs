@@ -104,9 +104,10 @@ impl SignalClient {
         // TODO(theomonnom): enqueue message
     }
 
+    /*#[allow(dead_code)]
     pub async fn clear_queue(&self) {
         // TODO(theomonnom): impl
-    }
+    }*/
 
     #[instrument(level = Level::DEBUG)]
     pub async fn flush_queue(&self) {

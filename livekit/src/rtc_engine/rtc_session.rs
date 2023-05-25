@@ -329,6 +329,7 @@ impl RtcSession {
         &self.inner.info
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn state(&self) -> PeerState {
         self.inner
@@ -338,21 +339,25 @@ impl RtcSession {
             .unwrap()
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn publisher(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.publisher_pc
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn subscriber(&self) -> &AsyncMutex<PeerTransport> {
         &self.inner.subscriber_pc
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn signal_client(&self) -> &Arc<SignalClient> {
         &self.inner.signal_client
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn data_channel(&self, kind: proto::data_packet::Kind) -> &DataChannel {
         &self.inner.data_channel(kind)

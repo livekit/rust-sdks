@@ -101,12 +101,14 @@ impl RemoteAudioTrack {
         true
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
         self.inner.transceiver()
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn update_transceiver(
         &self,
         transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>,

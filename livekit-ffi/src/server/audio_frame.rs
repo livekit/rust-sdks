@@ -157,8 +157,7 @@ impl FfiAudioSource {
             proto::AudioSourceType::AudioSourceNative => {
                 let audio_source = NativeAudioSource::default();
                 Ok::<AudioSource, FfiError>(AudioSource::Native(audio_source))
-            }
-            _ => return Err(FfiError::InvalidRequest("unsupported audio source type")),
+            } //_ => return Err(FfiError::InvalidRequest("unsupported audio source type")),
         }?;
 
         let audio_source = Self {

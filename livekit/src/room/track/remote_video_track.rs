@@ -101,11 +101,13 @@ impl RemoteVideoTrack {
         true
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
         self.inner.transceiver()
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn update_transceiver(
         &self,

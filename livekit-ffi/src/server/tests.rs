@@ -175,7 +175,7 @@ fn create_i420_buffer() {
 #[test]
 #[ignore] // Ignore for now ( need to setup GHA )
 fn publish_video_track() {
-    let (test, mut client) = TestScope::new();
+    let (_test, mut client) = TestScope::new();
     let (lk_url, lk_api_key, lk_api_secret) = test_env();
 
     tokio::runtime::Builder::new_multi_thread()

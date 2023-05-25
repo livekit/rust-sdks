@@ -34,6 +34,8 @@ pub enum RoomError {
     Internal(String),
     #[error("this track or a track of the same source is already published")]
     TrackAlreadyPublished,
+    #[error("already closed")]
+    AlreadyClosed,
 }
 
 #[derive(Clone, Debug)]
@@ -178,11 +180,14 @@ impl Room {
         Ok((session, events))
     }
 
-    pub async fn close(&self) {
+    pub async fn close(&self) -> RoomResult<()> {
         if let Some(handle) = self.handle.lock().take() {
             self.inner.close().await;
             handle.close_emitter.send(()).ok();
             handle.session_task.await.ok();
+            Ok(())
+        } else {
+            Err(RoomError::AlreadyClosed)
         }
     }
 

@@ -7,7 +7,6 @@ use tokio::task::JoinHandle;
 
 pub struct FfiRoom {
     room: Arc<Room>,
-    handle_id: FfiHandleId,
     handle: JoinHandle<()>,
     close_tx: oneshot::Sender<()>,
 }
@@ -29,7 +28,6 @@ impl FfiRoom {
         let room_info = proto::RoomInfo::from_room(next_id, &room);
 
         let ffi_room = Self {
-            handle_id: next_id,
             room: room.clone(),
             handle,
             close_tx,
@@ -42,7 +40,7 @@ impl FfiRoom {
     }
 
     pub async fn close(self) {
-        self.room.close().await;
+        let _ = self.room.close().await;
         let _ = self.close_tx.send(());
         let _ = self.handle.await;
     }

@@ -110,7 +110,6 @@ impl RemoteParticipant {
                         unreachable!()
                     }
                 }
-                _ => unreachable!(),
             };
 
             debug!("starting track: {:?}", sid);
