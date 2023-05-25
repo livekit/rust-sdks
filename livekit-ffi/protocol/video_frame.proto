@@ -16,7 +16,7 @@ message AllocVideoBufferResponse { VideoFrameBufferInfo buffer = 1; }
 // Create a new VideoStream
 // VideoStream is used to receive video frames from a track
 message NewVideoStreamRequest {
-  FFIHandleId room_handle = 1;
+  FfiHandleId room_handle = 1;
   string participant_sid = 2;
   string track_sid = 3;
   VideoStreamType type = 4;
@@ -30,9 +30,9 @@ message NewVideoSourceResponse { VideoSourceInfo source = 1; }
 
 // Push a frame to a VideoSource
 message CaptureVideoFrameRequest {
-  FFIHandleId source_handle = 1;
+  FfiHandleId source_handle = 1;
   VideoFrameInfo frame = 2;
-  FFIHandleId buffer_handle = 3;
+  FfiHandleId buffer_handle = 3;
 }
 message CaptureVideoFrameResponse {}
 
@@ -42,15 +42,15 @@ message ToI420Request {
   bool flip_y = 1;
   oneof from {
     ARGBBufferInfo argb = 2;
-    FFIHandleId buffer = 3;
+    FfiHandleId buffer = 3;
   }
 }
 message ToI420Response { VideoFrameBufferInfo buffer = 1; }
 
 // Convert a YUV frame to a RGBA frame
 // Only I420 is supported atm
-message ToARGBRequest {
-  FFIHandleId buffer = 1;
+message ToArgbRequest {
+  FfiHandleId buffer = 1;
   uint64 dst_ptr = 2;
   VideoFormatType dst_format = 3;
   uint32 dst_stride = 4;
@@ -58,7 +58,7 @@ message ToARGBRequest {
   uint32 dst_height = 6;
   bool flip_y = 7;
 }
-message ToARGBResponse {}
+message ToArgbResponse {}
 
 ///
 /// VideoFrame buffers ///
@@ -115,7 +115,7 @@ message VideoFrameInfo {
 }
 
 message VideoFrameBufferInfo {
-  FFIHandleId handle = 1;
+  FfiHandleId handle = 1;
   VideoFrameBufferType buffer_type = 2;
   uint32 width = 3;
   uint32 height = 4;
@@ -166,13 +166,13 @@ enum VideoStreamType {
 }
 
 message VideoStreamInfo {
-  FFIHandleId handle = 1;
+  FfiHandleId handle = 1;
   VideoStreamType type = 2;
   string track_sid = 3;
 }
 
 message VideoStreamEvent {
-  FFIHandleId handle = 1;
+  FfiHandleId handle = 1;
   oneof message { VideoFrameReceived frame_received = 2; }
 }
 
@@ -192,7 +192,7 @@ enum VideoSourceType {
 message VideoSourceInfo {
   // # SAFETY
   // This handle must not be dropped if a track is currently using it
-  FFIHandleId handle = 1;
+  FfiHandleId handle = 1;
   VideoSourceType type = 2;
 }
 

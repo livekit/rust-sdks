@@ -7,11 +7,11 @@ option csharp_namespace = "LiveKit.Proto";
 /// The foreign language is responsable for disposing handles
 /// Forgetting to dispose the handle may lead to memory leaks
 /// Messages in this file can contain an FFIHandle
-message FFIHandleId {
+message FfiHandleId {
   uint64 id = 1;
 }
 
 /// Link the request/response of an asynchronous call
-message FFIAsyncId {
+message FfiAsyncId {
   uint64 id = 1;
 }

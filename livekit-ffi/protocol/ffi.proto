@@ -12,7 +12,7 @@ import "audio_frame.proto";
 
 /// This is the input of livekit_ffi_request function
 /// We always expect a response (FFIResponse)
-message FFIRequest {
+message FfiRequest {
   oneof message {
     InitializeRequest initialize = 1;
     DisposeRequest dispose = 2;
@@ -33,7 +33,7 @@ message FFIRequest {
     NewVideoSourceRequest new_video_source = 11;
     CaptureVideoFrameRequest capture_video_frame = 12;
     ToI420Request to_i420 = 13;
-    ToARGBRequest to_argb = 14;
+    ToArgbRequest to_argb = 14;
 
     // Audio
     AllocAudioBufferRequest alloc_audio_buffer = 15;
@@ -46,7 +46,7 @@ message FFIRequest {
 }
 
 /// This is the output of livekit_ffi_request function.
-message FFIResponse {
+message FfiResponse {
   oneof message {
     InitializeResponse initialize = 1;
     DisposeResponse dispose = 2;
@@ -67,7 +67,7 @@ message FFIResponse {
     NewVideoSourceResponse new_video_source = 11;
     CaptureVideoFrameResponse capture_video_frame = 12;
     ToI420Response to_i420 = 13;
-    ToARGBResponse to_argb = 14;
+    ToArgbResponse to_argb = 14;
 
     // Audio
     AllocAudioBufferResponse alloc_audio_buffer = 15;
@@ -79,7 +79,7 @@ message FFIResponse {
   }
 }
 
-message FFIEvent {
+message FfiEvent {
   oneof message {
     RoomEvent room_event = 1;
     TrackEvent track_event = 2;
@@ -104,11 +104,11 @@ message DisposeRequest {
 }
 
 message DisposeResponse {
-  optional FFIAsyncId async_id = 1; // None if sync
+  optional FfiAsyncId async_id = 1; // None if sync
 }
 
 message DisposeCallback {
-  FFIAsyncId async_id = 1;
+  FfiAsyncId async_id = 1;
 }
 
 // TODO(theomonnom): Debug messages (Print handles, forward logs).
