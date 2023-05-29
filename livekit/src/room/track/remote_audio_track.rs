@@ -22,6 +22,7 @@ impl RemoteAudioTrack {
                 name,
                 TrackKind::Audio,
                 rtc::media_stream::MediaStreamTrack::Audio(rtc_track),
+                None
             )),
         }
     }

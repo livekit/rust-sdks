@@ -20,6 +20,7 @@ pub mod ffi {
         include!("livekit/rtp_receiver.h");
 
         type RtpReceiver;
+        type FrameTransformerInterface;
 
         fn track(self: &RtpReceiver) -> SharedPtr<MediaStreamTrack>;
         fn stream_ids(self: &RtpReceiver) -> Vec<String>;
@@ -28,9 +29,11 @@ pub mod ffi {
         fn id(self: &RtpReceiver) -> String;
         fn get_parameters(self: &RtpReceiver) -> RtpParameters;
         fn set_jitter_buffer_minimum_delay(self: &RtpReceiver, is_some: bool, delay_seconds: f64);
+        fn set_depacketizer_to_decoder_frame_transformer(self: &RtpReceiver, frame_transformer: SharedPtr<FrameTransformerInterface>);
 
         fn _shared_rtp_receiver() -> SharedPtr<RtpReceiver>;
     }
 }
 
 impl_thread_safety!(ffi::RtpReceiver, Send + Sync);
+//impl_thread_safety!(ffi::FrameTransformerInterface, Send + Sync);

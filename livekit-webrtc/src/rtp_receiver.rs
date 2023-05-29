@@ -17,6 +17,15 @@ impl RtpReceiver {
     pub fn parameters(&self) -> RtpParameters {
         self.handle.parameters()
     }
+
+    pub fn set_depacketizer_to_decoder_frame_transformer(&self) {
+        println!("Called!");
+        self.handle.set_depacketizer_to_decoder_frame_transformer();
+    }
+
+    pub fn new_frame_transformer(&self) {
+        self.handle.new_frame_transformer();
+    }
 }
 
 impl Debug for RtpReceiver {

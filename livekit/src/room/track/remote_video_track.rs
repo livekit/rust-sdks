@@ -2,6 +2,7 @@ use super::TrackInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_webrtc as rtc;
+use rtc::rtp_receiver::RtpReceiver;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -15,6 +16,7 @@ impl RemoteVideoTrack {
         sid: TrackSid,
         name: String,
         rtc_track: rtc::media_stream::RtcVideoTrack,
+        receiver: RtpReceiver
     ) -> Self {
         Self {
             inner: Arc::new(TrackInner::new(
@@ -22,6 +24,7 @@ impl RemoteVideoTrack {
                 name,
                 TrackKind::Video,
                 rtc::media_stream::MediaStreamTrack::Video(rtc_track),
+                Some(receiver)
             )),
         }
     }
@@ -88,6 +91,11 @@ impl RemoteVideoTrack {
     #[inline]
     pub fn is_remote(&self) -> bool {
         true
+    }
+
+    #[inline]
+    pub fn receiver(&self) -> Option<RtpReceiver> {
+        self.inner.receiver.clone()
     }
 
     #[inline]

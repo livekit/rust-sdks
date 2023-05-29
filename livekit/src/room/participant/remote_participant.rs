@@ -5,6 +5,7 @@ use livekit_protocol as proto;
 use livekit_webrtc as rtc;
 use parking_lot::RwLockReadGuard;
 use rtc::prelude::MediaStreamTrack;
+use rtc::rtp_receiver::RtpReceiver;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -57,6 +58,7 @@ impl RemoteParticipant {
         &self,
         sid: TrackSid,
         media_track: rtc::media_stream::MediaStreamTrack,
+        receiver: RtpReceiver
     ) {
         let wait_publication = {
             let participant = self.clone();
@@ -93,6 +95,7 @@ impl RemoteParticipant {
                             remote_publication.sid().into(),
                             remote_publication.name(),
                             rtc_track,
+                            receiver
                         );
                         RemoteTrack::Video(video_track)
                     } else {

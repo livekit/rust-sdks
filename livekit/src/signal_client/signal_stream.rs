@@ -52,6 +52,7 @@ impl SignalStream {
         options: SignalOptions,
         emitter: SignalEmitter,
     ) -> SignalResult<Self> {
+        event!(Level::DEBUG, "url: {}", url);
         let mut lk_url = url::Url::parse(url)?;
         lk_url.set_path("/rtc");
         lk_url

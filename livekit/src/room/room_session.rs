@@ -245,8 +245,9 @@ impl SessionInner {
             EngineEvent::MediaTrack {
                 track,
                 stream,
-                receiver: _,
+                receiver,
             } => {
+                println!("Got MediaTrack!");
                 let stream_id = stream.id();
                 let lk_stream_id = unpack_stream_id(&stream_id);
                 if lk_stream_id.is_none() {
@@ -263,7 +264,7 @@ impl SessionInner {
                 if let Some(remote_participant) = remote_participant {
                     tokio::spawn(async move {
                         remote_participant
-                            .add_subscribed_media_track(track_sid, track)
+                            .add_subscribed_media_track(track_sid, track, receiver)
                             .await;
                     });
                 } else {

@@ -25,10 +25,13 @@ use std::sync::{
 use tokio::sync::{mpsc, oneshot};
 
 // Useful default constants for developing
-const DEFAULT_URL: &str = "ws://localhost:7880";
-const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTMyODgsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJuYXRpdmUiLCJuYmYiOjE2NzI2MTMyODgsInN1YiI6Im5hdGl2ZSIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.uSNIangMRu8jZD5mnRYoCHjcsQWCrJXgHCs0aNIgBFY";
-
-// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTM0MzcsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJ3ZWIiLCJuYmYiOjE2NzI2MTM0MzcsInN1YiI6IndlYiIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.DFTXt60n1kzGq4cSuOhbFBTQW2nd3rlcXKQ54sXsP8s
+const DEFAULT_URL: &str = "wss://lighttwist.livekit.cloud";
+// cyberpunk
+//const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTM4MjQ2MzksImlzcyI6IkFQSU5YTVNtTDlWUjVxNiIsIm5hbWUiOiJ1c2VyIiwibmJmIjoxNjg1MDI0NjM5LCJzdWIiOiJ1c2VyIiwidmlkZW8iOnsicm9vbSI6IjU3M2FlNzk1LWM1M2YtNDdkZC1hMTk1LWFiMTExNDhmOTQxNiIsInJvb21Kb2luIjp0cnVlfX0.WCOEzNF45TxTLT0o8Dnnq2Sb05HxaAThp7ff_A7iES4";
+// cyberpunk 573ae795-c53f-47dd-a195-ab11148f9416
+const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTM5MDU4OTYsImlzcyI6IkFQSU5YTVNtTDlWUjVxNiIsIm5hbWUiOiJ1c2VyIiwibmJmIjoxNjg1MTA1ODk2LCJzdWIiOiJ1c2VyIiwidmlkZW8iOnsicm9vbSI6IjU3M2FlNzk1LWM1M2YtNDdkZC1hMTk1LWFiMTExNDhmOTQxNiIsInJvb21Kb2luIjp0cnVlfX0.yHlsWep5RN-JjZJMtZ_iZRA7sVnq2RfJLLFRge0bUEQ";
+// smartest
+// const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTM4MzUwMzAsImlzcyI6IkFQSU5YTVNtTDlWUjVxNiIsIm5hbWUiOiJ1c2VyIiwibmJmIjoxNjg1MDM1MDMwLCJzdWIiOiJ1c2VyIiwidmlkZW8iOnsicm9vbSI6ImYzMjZmNDQwLWEyYjUtNGUxNi05ZjNiLWRiOGMxMWJmZGQ0NyIsInJvb21Kb2luIjp0cnVlfX0.Lna4PNNJMVwxdSpKRp9azWxaQc6c3Yk_CVd50Le-Arw";
 
 use winit::{
     event::*,
@@ -229,8 +232,9 @@ impl App {
                                         let mut stream =
                                             NativeAudioStream::new(audio_track.rtc_track());
 
-                                        while let Some(_frame) = stream.next().await {
+                                        while let Some(frame) = stream.next().await {
                                             // Received audio frames
+                                            println!("Received audio frame");
                                         }
                                     });
                                 }
@@ -350,6 +354,7 @@ impl App {
                 });
             });
         });
+
 
         egui::SidePanel::right("room_panel")
             .default_width(256.0)

@@ -30,6 +30,7 @@
 #include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
 #include "system_wrappers/include/clock.h"
+#include "api/frame_transformer_interface.h"
 
 namespace livekit {
 class MediaStream;
@@ -175,6 +176,10 @@ class VideoTrack : public MediaStreamTrack {
     return static_cast<webrtc::VideoTrackInterface*>(track_.get());
   }
 };
+
+// class FrameTransformer : public webrtc::FrameTransformerInterface {
+//   void Transform(std::unique_ptr<webrtc::TransformableFrameInterface> transformable_frame);
+// };
 
 class NativeVideoFrameSink
     : public rtc::VideoSinkInterface<webrtc::VideoFrame> {

@@ -15,6 +15,7 @@
  */
 
 #include "livekit/rtp_receiver.h"
+#include "livekit/frame_transformer.h"
 
 #include "absl/types/optional.h"
 
@@ -52,6 +53,10 @@ rust::String RtpReceiver::id() const {
 
 RtpParameters RtpReceiver::get_parameters() const {
   return to_rust_rtp_parameters(receiver_->GetParameters());
+}
+
+void RtpReceiver::set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<livekit::FrameTransformerInterface> frame_transformer) const {
+  fprintf(stderr, "RtpReceiver::set_depacketizer_to_decoder_frame_transformer");
 }
 
 void RtpReceiver::set_jitter_buffer_minimum_delay(bool is_some,

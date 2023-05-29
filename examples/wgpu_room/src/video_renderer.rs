@@ -24,6 +24,7 @@ struct RendererInternal {
     egui_texture: Option<egui::TextureId>,
 }
 
+
 impl RendererInternal {
     fn ensure_texture_size(&mut self, width: u32, height: u32) {
         if self.width == width && self.height == height {

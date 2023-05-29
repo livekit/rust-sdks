@@ -33,6 +33,7 @@ impl LocalVideoTrack {
                     name,
                     TrackKind::Video,
                     rtc::media_stream::MediaStreamTrack::Video(rtc_track),
+                    None
                 ),
                 capture_options: Mutex::new(capture_options),
             }),

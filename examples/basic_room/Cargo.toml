@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 livekit = { path = "../../livekit", version = "0.1.1" }
+futures = "0.3.28"

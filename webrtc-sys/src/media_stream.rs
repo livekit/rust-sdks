@@ -48,6 +48,7 @@ pub mod ffi {
         type VideoTrack;
         type AudioTrackSource;
         type AdaptedVideoTrackSource;
+        //type FrameTransformer;
 
         fn id(self: &MediaStream) -> String;
         fn get_audio_tracks(self: &MediaStream) -> Vec<AudioTrackPtr>;

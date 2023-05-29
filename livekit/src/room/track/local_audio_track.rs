@@ -34,6 +34,7 @@ impl LocalAudioTrack {
                     name,
                     TrackKind::Audio,
                     rtc::media_stream::MediaStreamTrack::Audio(rtc_track),
+                    None
                 ),
                 capture_options: Mutex::new(capture_options),
             }),

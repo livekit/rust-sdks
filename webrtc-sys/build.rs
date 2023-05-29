@@ -150,6 +150,8 @@ fn main() {
         "src/yuv_helper.rs",
         "src/helper.rs",
         "src/audio_resampler.rs",
+        "src/frame_transformer.rs",
+        "src/encoded_frame.rs",
     ]);
 
     builder.files(&[
@@ -171,6 +173,8 @@ fn main() {
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",
         "src/audio_resampler.cpp",
+        "src/frame_transformer.cpp",
+        "src/encoded_frame.cpp",
     ]);
 
     for include in includes {

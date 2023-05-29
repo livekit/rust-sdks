@@ -251,6 +251,7 @@ NativeVideoFrameSink::NativeVideoFrameSink(
     : observer_(std::move(observer)) {}
 
 void NativeVideoFrameSink::OnFrame(const webrtc::VideoFrame& frame) {
+  fprintf(stderr, "webrtc-sys::NativeVideoFrameSink::OnFrame\n");
   observer_->on_frame(std::make_unique<VideoFrame>(frame));
 }
 

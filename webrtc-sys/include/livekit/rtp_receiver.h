@@ -22,10 +22,12 @@
 #include "livekit/helper.h"
 #include "livekit/media_stream.h"
 #include "livekit/rtp_parameters.h"
+#include "livekit/frame_transformer.h"
 #include "rust/cxx.h"
 
 namespace livekit {
 class RtpReceiver;
+class FrameTransformerInterface;
 }
 #include "webrtc-sys/src/rtp_receiver.rs.h"
 namespace livekit {
@@ -49,6 +51,8 @@ class RtpReceiver {
   RtpParameters get_parameters() const;
 
   // bool set_parameters(RtpParameters parameters) const; // Seems unsupported
+
+  void set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<livekit::FrameTransformerInterface> frame_transformer) const;
 
   void set_jitter_buffer_minimum_delay(bool is_some,
                                        double delay_seconds) const;
