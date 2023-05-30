@@ -1,29 +1,48 @@
 #pragma once
 
-#include "rust/cxx.h"
+// #include "rust/cxx.h"
 #include "api/frame_transformer_interface.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/ref_counted_object.h"
+#include <memory>
+#include <vector>
+
 namespace livekit {
-class FrameTransformer;
+class NativeFrameTransformer;
 class FrameTransformerInterface;
 }
 #include "webrtc-sys/src/frame_transformer.rs.h"
 
 namespace livekit {
 
-class FrameTransformer : public webrtc::FrameTransformerInterface {
+class NativeFrameTransformer : public rtc::RefCountedObject<webrtc::FrameTransformerInterface> {
+ public:
+  explicit NativeFrameTransformer();
+
   void Transform(std::unique_ptr<webrtc::TransformableFrameInterface> transformable_frame);
+  // void RegisterTransformedFrameCallback(
+  //     rtc::scoped_refptr<webrtc::TransformedFrameCallback>);
+  // void RegisterTransformedFrameSinkCallback(
+  //     rtc::scoped_refptr<webrtc::TransformedFrameCallback>,
+  //     uint32_t ssrc);
+  // void RegisterTransformedFrameSinkCallback(
+  //     rtc::scoped_refptr<webrtc::TransformedFrameCallback>,
+  //     uint32_t ssrc);
+  // void UnregisterTransformedFrameCallback();
+  // void UnregisterTransformedFrameSinkCallback(uint32_t ssrc);
 };
 
-class FrameTransformerInterface {
+class AdaptedNativeFrameTransformer {
  public:
-  FrameTransformerInterface(rtc::scoped_refptr<FrameTransformer> transformer);
+  AdaptedNativeFrameTransformer(rtc::scoped_refptr<NativeFrameTransformer> source);
+
+  rtc::scoped_refptr<NativeFrameTransformer> get() const;
 
  private:
-  rtc::scoped_refptr<FrameTransformer> transformer_;
+  rtc::scoped_refptr<NativeFrameTransformer> source_;
 };
 
-void new_frame_transformer(
-    //rust::Box<VideoFrameSinkWrapper> observer
-    );
-
+// void new_frame_transformer();
+std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer();
+// rtc::scoped_refptr<NativeFrameTransformer> new_frame_transformer();
 }
