@@ -25,19 +25,19 @@
 #endif
 
 namespace livekit {
-class RTCRuntime;
+class RtcRuntime;
 }
 #include "webrtc-sys/src/webrtc.rs.h"
 
 namespace livekit {
 
-class RTCRuntime {
+class RtcRuntime {
  public:
-  RTCRuntime();
-  ~RTCRuntime();
+  RtcRuntime();
+  ~RtcRuntime();
 
-  RTCRuntime(const RTCRuntime&) = delete;
-  RTCRuntime& operator=(const RTCRuntime&) = delete;
+  RtcRuntime(const RtcRuntime&) = delete;
+  RtcRuntime& operator=(const RtcRuntime&) = delete;
 
   rtc::Thread* network_thread() const;
   rtc::Thread* worker_thread() const;
@@ -56,7 +56,5 @@ class RTCRuntime {
 };
 
 rust::String create_random_uuid();
-
-std::shared_ptr<RTCRuntime> create_rtc_runtime();
 
 }  // namespace livekit

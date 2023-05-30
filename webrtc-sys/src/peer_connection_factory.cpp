@@ -26,6 +26,7 @@
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "livekit/audio_device.h"
+#include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_parameters.h"
 #include "livekit/video_decoder_factory.h"
@@ -33,11 +34,39 @@
 #include "media/engine/webrtc_media_engine.h"
 #include "rtc_base/location.h"
 #include "rtc_base/thread.h"
+#include "webrtc-sys/src/peer_connection.rs.h"
+#include "webrtc-sys/src/peer_connection_factory.rs.h"
 
 namespace livekit {
 
+webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
+    RtcConfiguration config) {
+  webrtc::PeerConnectionInterface::RTCConfiguration rtc_config{};
+
+  for (auto item : config.ice_servers) {
+    webrtc::PeerConnectionInterface::IceServer ice_server;
+    ice_server.username = item.username.c_str();
+    ice_server.password = item.password.c_str();
+
+    for (auto url : item.urls)
+      ice_server.urls.emplace_back(url.c_str());
+
+    rtc_config.servers.push_back(ice_server);
+  }
+
+  rtc_config.continual_gathering_policy =
+      static_cast<webrtc::PeerConnectionInterface::ContinualGatheringPolicy>(
+          config.continual_gathering_policy);
+
+  rtc_config.type =
+      static_cast<webrtc::PeerConnectionInterface::IceTransportsType>(
+          config.ice_transport_type);
+
+  return rtc_config;
+}
+
 PeerConnectionFactory::PeerConnectionFactory(
-    std::shared_ptr<RTCRuntime> rtc_runtime)
+    std::shared_ptr<RtcRuntime> rtc_runtime)
     : rtc_runtime_(std::move(rtc_runtime)) {
   RTC_LOG(LS_INFO) << "PeerConnectionFactory::PeerConnectionFactory()";
 
@@ -87,17 +116,22 @@ PeerConnectionFactory::~PeerConnectionFactory() {
 }
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
-    std::unique_ptr<webrtc::PeerConnectionInterface::RTCConfiguration> config,
-    NativePeerConnectionObserver* observer) const {
-  webrtc::PeerConnectionDependencies deps{observer};
-  auto result =
-      peer_factory_->CreatePeerConnectionOrError(*config, std::move(deps));
+    RtcConfiguration config,
+    rust::Box<BoxPeerConnectionObserver> observer) const {
+  std::unique_ptr<NativePeerConnectionObserver> rtc_observer =
+      std::make_unique<NativePeerConnectionObserver>(std::move(rtc_runtime_),
+                                                     std::move(observer));
+
+  webrtc::PeerConnectionDependencies deps{rtc_observer.get()};
+  auto result = peer_factory_->CreatePeerConnectionOrError(
+      to_native_rtc_configuration(config), std::move(deps));
 
   if (!result.ok()) {
     throw std::runtime_error(serialize_error(to_error(result.error())));
   }
 
-  return std::make_shared<PeerConnection>(rtc_runtime_, result.value());
+  return std::make_shared<PeerConnection>(rtc_runtime_, std::move(rtc_observer),
+                                          result.value());
 }
 
 std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
@@ -127,34 +161,8 @@ RtpCapabilities PeerConnectionFactory::get_rtp_receiver_capabilities(
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory(
-    std::shared_ptr<RTCRuntime> rtc_runtime) {
+    std::shared_ptr<RtcRuntime> rtc_runtime) {
   return std::make_shared<PeerConnectionFactory>(std::move(rtc_runtime));
 }
 
-std::unique_ptr<NativeRTCConfiguration> create_rtc_configuration(
-    RTCConfiguration conf) {
-  auto rtc =
-      std::make_unique<webrtc::PeerConnectionInterface::RTCConfiguration>();
-
-  for (auto item : conf.ice_servers) {
-    webrtc::PeerConnectionInterface::IceServer ice_server;
-    ice_server.username = item.username.c_str();
-    ice_server.password = item.password.c_str();
-
-    for (auto url : item.urls) {
-      ice_server.urls.emplace_back(url.c_str());
-    }
-
-    rtc->servers.push_back(ice_server);
-  }
-
-  rtc->continual_gathering_policy =
-      static_cast<webrtc::PeerConnectionInterface::ContinualGatheringPolicy>(
-          conf.continual_gathering_policy);
-
-  rtc->type = static_cast<webrtc::PeerConnectionInterface::IceTransportsType>(
-      conf.ice_transport_type);
-
-  return rtc;
-}
 }  // namespace livekit

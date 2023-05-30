@@ -21,17 +21,17 @@ use crate::{RtcError, RtcErrorType};
 use webrtc_sys::rtc_error as sys_err;
 use webrtc_sys::webrtc as sys_rtc;
 
-impl From<sys_err::ffi::RTCErrorType> for RtcErrorType {
-    fn from(value: sys_err::ffi::RTCErrorType) -> Self {
+impl From<sys_err::ffi::RtcErrorType> for RtcErrorType {
+    fn from(value: sys_err::ffi::RtcErrorType) -> Self {
         match value {
-            sys_err::ffi::RTCErrorType::InvalidState => Self::InvalidState,
+            sys_err::ffi::RtcErrorType::InvalidState => Self::InvalidState,
             _ => Self::Internal,
         }
     }
 }
 
-impl From<sys_err::ffi::RTCError> for RtcError {
-    fn from(value: sys_err::ffi::RTCError) -> Self {
+impl From<sys_err::ffi::RtcError> for RtcError {
+    fn from(value: sys_err::ffi::RtcError) -> Self {
         Self {
             error_type: value.error_type.into(),
             message: value.message,

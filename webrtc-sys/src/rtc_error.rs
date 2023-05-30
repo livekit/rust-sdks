@@ -1,15 +1,13 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::rtc_error::ffi::RTCErrorType;
-
-// cxx doesn't support custom Exception type, so we serialize RTCError inside the cxx::Exception "what" string
+// cxx doesn't support custom Exception type, so we serialize RtcError inside the cxx::Exception "what" string
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     #[derive(Debug)]
     #[repr(i32)]
-    pub enum RTCErrorType {
+    pub enum RtcErrorType {
         None,
         UnsupportedOperation,
         UnsupportedParameter,
@@ -26,7 +24,7 @@ pub mod ffi {
 
     #[derive(Debug)]
     #[repr(i32)]
-    pub enum RTCErrorDetailType {
+    pub enum RtcErrorDetailType {
         None,
         DataChannelFailure,
         DtlsFailure,
@@ -38,17 +36,17 @@ pub mod ffi {
     }
 
     #[derive(Debug)]
-    pub struct RTCError {
-        pub error_type: RTCErrorType,
+    pub struct RtcError {
+        pub error_type: RtcErrorType,
         pub message: String,
-        pub error_detail: RTCErrorDetailType,
-        pub has_sctp_cause_code: bool,
+        pub error_detail: RtcErrorDetailType,
         // cxx doesn't support the Option trait
+        pub has_sctp_cause_code: bool,
         pub sctp_cause_code: u16,
     }
 }
 
-impl ffi::RTCError {
+impl ffi::RtcError {
     /// # Safety
     /// The value must be correctly encoded
     pub unsafe fn from(value: &str) -> Self {
@@ -69,13 +67,13 @@ impl ffi::RTCError {
     }
 
     pub fn ok(&self) -> bool {
-        self.error_type == RTCErrorType::None
+        self.error_type == RtcErrorType::None
     }
 }
 
-impl Error for ffi::RTCError {}
+impl Error for ffi::RtcError {}
 
-impl Display for ffi::RTCError {
+impl Display for ffi::RtcError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,
@@ -87,7 +85,7 @@ impl Display for ffi::RTCError {
 
 #[cfg(test)]
 mod tests {
-    use crate::rtc_error::ffi::{RTCError, RTCErrorDetailType, RTCErrorType};
+    use crate::rtc_error::ffi::{RtcError, RtcErrorDetailType, RtcErrorType};
 
     #[cxx::bridge(namespace = "livekit")]
     pub mod ffi {
@@ -102,10 +100,10 @@ mod tests {
     #[test]
     fn serialize_deserialize() {
         let str = ffi::serialize_deserialize();
-        let error = unsafe { RTCError::from(&str) };
+        let error = unsafe { RtcError::from(&str) };
 
-        assert_eq!(error.error_type, RTCErrorType::InternalError);
-        assert_eq!(error.error_detail, RTCErrorDetailType::DataChannelFailure);
+        assert_eq!(error.error_type, RtcErrorType::InternalError);
+        assert_eq!(error.error_detail, RtcErrorDetailType::DataChannelFailure);
         assert_eq!(error.has_sctp_cause_code, true);
         assert_eq!(error.sctp_cause_code, 24);
         assert_eq!(
@@ -117,10 +115,10 @@ mod tests {
     #[test]
     fn throw_error() {
         let exc: cxx::Exception = ffi::throw_error().err().unwrap();
-        let error = unsafe { RTCError::from(exc.what()) };
+        let error = unsafe { RtcError::from(exc.what()) };
 
-        assert_eq!(error.error_type, RTCErrorType::InvalidModification);
-        assert_eq!(error.error_detail, RTCErrorDetailType::None);
+        assert_eq!(error.error_type, RtcErrorType::InvalidModification);
+        assert_eq!(error.error_detail, RtcErrorDetailType::None);
         assert_eq!(error.has_sctp_cause_code, false);
         assert_eq!(error.sctp_cause_code, 0);
         assert_eq!(error.message, "exception is thrown!");

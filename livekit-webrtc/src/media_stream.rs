@@ -1,6 +1,7 @@
-use crate::imp::media_stream as imp_ms;
+use crate::imp::{media_stream as imp_ms, peer_connection_factory::RtcRuntime};
 use livekit_protocol::enum_dispatch;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RtcTrackState {
@@ -40,6 +41,9 @@ impl Debug for MediaStream {
 #[derive(Clone)]
 pub struct RtcVideoTrack {
     pub(crate) handle: imp_ms::RtcVideoTrack,
+
+    #[allow(unused)]
+    pub(crate) runtime: Arc<RtcRuntime>,
 }
 
 #[derive(Clone)]

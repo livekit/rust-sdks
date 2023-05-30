@@ -20,9 +20,9 @@
 #include "rtc_base/logging.h"
 
 namespace livekit {
-RTCRuntime::RTCRuntime() {
+RtcRuntime::RtcRuntime() {
   // rtc::LogMessage::LogToDebug(rtc::LS_INFO);
-  RTC_LOG(LS_INFO) << "RTCRuntime()";
+  RTC_LOG(LS_INFO) << "RtcRuntime()";
   RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
 
   network_thread_ = rtc::Thread::CreateWithSocketServer();
@@ -36,8 +36,8 @@ RTCRuntime::RTCRuntime() {
   signaling_thread_->Start();
 }
 
-RTCRuntime::~RTCRuntime() {
-  RTC_LOG(LS_INFO) << "~RTCRuntime()";
+RtcRuntime::~RtcRuntime() {
+  RTC_LOG(LS_INFO) << "~RtcRuntime()";
 
   rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
   RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
@@ -47,15 +47,15 @@ RTCRuntime::~RTCRuntime() {
   network_thread_->Stop();
 }
 
-rtc::Thread* RTCRuntime::network_thread() const {
+rtc::Thread* RtcRuntime::network_thread() const {
   return network_thread_.get();
 }
 
-rtc::Thread* RTCRuntime::worker_thread() const {
+rtc::Thread* RtcRuntime::worker_thread() const {
   return worker_thread_.get();
 }
 
-rtc::Thread* RTCRuntime::signaling_thread() const {
+rtc::Thread* RtcRuntime::signaling_thread() const {
   return signaling_thread_.get();
 }
 
@@ -63,7 +63,4 @@ rust::String create_random_uuid() {
   return rtc::CreateRandomUuid();
 }
 
-std::shared_ptr<RTCRuntime> create_rtc_runtime() {
-  return std::make_shared<RTCRuntime>();
-}
 }  // namespace livekit

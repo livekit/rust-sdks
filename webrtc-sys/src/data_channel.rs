@@ -43,45 +43,32 @@ pub mod ffi {
         Closed,
     }
 
-    extern "Rust" {
-        type DataChannelObserverWrapper;
-
-        fn on_state_change(self: &DataChannelObserverWrapper, state: DataState);
-        fn on_message(self: &DataChannelObserverWrapper, buffer: DataBuffer);
-        fn on_buffered_amount_change(self: &DataChannelObserverWrapper, sent_data_size: u64);
-    }
-
     unsafe extern "C++" {
         include!("livekit/data_channel.h");
 
         type DataChannel;
-        type NativeDataChannelInit;
-        type NativeDataChannelObserver;
 
-        /// SAFETY
-        /// The observer must live as long as the datachannel uses it
-        unsafe fn register_observer(self: &DataChannel, observer: *mut NativeDataChannelObserver);
-
+        fn register_observer(self: &DataChannel, observer: Box<BoxDataChannelObserver>);
         fn unregister_observer(self: &DataChannel);
+
         fn send(self: &DataChannel, data: &DataBuffer) -> bool;
         fn label(self: &DataChannel) -> String;
         fn state(self: &DataChannel) -> DataState;
         fn close(self: &DataChannel);
 
-        fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;
-        unsafe fn create_native_data_channel_observer(
-            observer: Box<DataChannelObserverWrapper>,
-            dc: *mut DataChannel,
-        ) -> SharedPtr<NativeDataChannelObserver>;
-
         fn _shared_data_channel() -> SharedPtr<DataChannel>; // Ignore
+    }
+
+    extern "Rust" {
+        type BoxDataChannelObserver;
+
+        fn on_state_change(self: &BoxDataChannelObserver, state: DataState);
+        fn on_message(self: &BoxDataChannelObserver, buffer: DataBuffer);
+        fn on_buffered_amount_change(self: &BoxDataChannelObserver, sent_data_size: u64);
     }
 }
 
 impl_thread_safety!(ffi::DataChannel, Send + Sync);
-impl_thread_safety!(ffi::NativeDataChannelObserver, Send + Sync);
-
-// DataChannelObserver
 
 pub trait DataChannelObserver: Send + Sync {
     fn on_state_change(&self, state: ffi::DataState);
@@ -89,27 +76,4 @@ pub trait DataChannelObserver: Send + Sync {
     fn on_buffered_amount_change(&self, sent_data_size: u64);
 }
 
-pub struct DataChannelObserverWrapper {
-    observer: Arc<dyn DataChannelObserver>,
-}
-
-impl DataChannelObserverWrapper {
-    pub fn new(observer: Arc<dyn DataChannelObserver>) -> Self {
-        Self { observer }
-    }
-
-    fn on_state_change(&self, state: ffi::DataState) {
-        self.observer.on_state_change(state);
-    }
-
-    fn on_message(&self, buffer: ffi::DataBuffer) {
-        unsafe {
-            let data = slice::from_raw_parts(buffer.ptr, buffer.len);
-            self.observer.on_message(data, buffer.binary);
-        }
-    }
-
-    fn on_buffered_amount_change(&self, sent_data_size: u64) {
-        self.observer.on_buffered_amount_change(sent_data_size);
-    }
-}
+type BoxDataChannelObserver = Box<dyn DataChannelObserver>;

@@ -21,6 +21,7 @@
 
 #include "livekit/rtc_error.h"
 #include "rtc_base/ref_counted_object.h"
+#include "rust/cxx.h"
 
 namespace livekit {
 
@@ -109,69 +110,38 @@ std::unique_ptr<SessionDescription> create_session_description(
   return std::make_unique<SessionDescription>(std::move(rtc_sdp));
 }
 
-// CreateSdpObserver
-
 NativeCreateSdpObserver::NativeCreateSdpObserver(
-    rust::Box<CreateSdpObserverWrapper> observer)
-    : observer_(std::move(observer)) {}
+    rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
+    rust::Fn<void(RtcError)> on_error)
+    : on_success_(on_success), on_error_(on_error) {}
 
 void NativeCreateSdpObserver::OnSuccess(
     webrtc::SessionDescriptionInterface* desc) {
   // We have ownership of desc
-  observer_->on_success(std::make_unique<SessionDescription>(
+  on_success_(std::make_unique<SessionDescription>(
       std::unique_ptr<webrtc::SessionDescriptionInterface>(desc)));
 }
 
 void NativeCreateSdpObserver::OnFailure(webrtc::RTCError error) {
-  observer_->on_failure(to_error(error));
+  on_error_(to_error(error));
 }
-
-std::unique_ptr<NativeCreateSdpObserverHandle>
-create_native_create_sdp_observer(
-    rust::Box<CreateSdpObserverWrapper> observer) {
-  return std::make_unique<NativeCreateSdpObserverHandle>(
-      NativeCreateSdpObserverHandle{
-          rtc::make_ref_counted<NativeCreateSdpObserver>(std::move(observer))});
-}
-
-// SetLocalSdpObserver
 
 NativeSetLocalSdpObserver::NativeSetLocalSdpObserver(
-    rust::Box<SetLocalSdpObserverWrapper> observer)
-    : observer_(std::move(observer)) {}
+    rust::Fn<void(RtcError)> on_complete)
+    : on_complete_(on_complete) {}
 
 void NativeSetLocalSdpObserver::OnSetLocalDescriptionComplete(
     webrtc::RTCError error) {
-  observer_->on_set_local_description_complete(to_error(error));
+  on_complete_(to_error(error));
 }
-
-std::unique_ptr<NativeSetLocalSdpObserverHandle>
-create_native_set_local_sdp_observer(
-    rust::Box<SetLocalSdpObserverWrapper> observer) {
-  return std::make_unique<NativeSetLocalSdpObserverHandle>(
-      NativeSetLocalSdpObserverHandle{
-          rtc::make_ref_counted<NativeSetLocalSdpObserver>(
-              std::move(observer))});
-}
-
-// SetRemoteSdpObserver
 
 NativeSetRemoteSdpObserver::NativeSetRemoteSdpObserver(
-    rust::Box<SetRemoteSdpObserverWrapper> observer)
-    : observer_(std::move(observer)) {}
+    rust::Fn<void(RtcError)> on_complete)
+    : on_complete_(on_complete) {}
 
 void NativeSetRemoteSdpObserver::OnSetRemoteDescriptionComplete(
     webrtc::RTCError error) {
-  observer_->on_set_remote_description_complete(to_error(error));
-}
-
-std::unique_ptr<NativeSetRemoteSdpObserverHandle>
-create_native_set_remote_sdp_observer(
-    rust::Box<SetRemoteSdpObserverWrapper> observer) {
-  return std::make_unique<NativeSetRemoteSdpObserverHandle>(
-      NativeSetRemoteSdpObserverHandle{
-          rtc::make_ref_counted<NativeSetRemoteSdpObserver>(
-              std::move(observer))});
+  on_complete_(to_error(error));
 }
 
 }  // namespace livekit

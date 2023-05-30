@@ -3,7 +3,7 @@ use crate::{
     media_stream::MediaStreamTrack, rtp_parameters::RtpParameters, RtcError, RtcErrorType,
 };
 use cxx::SharedPtr;
-use webrtc_sys::{rtc_error::ffi::RTCError, rtp_sender as sys_rs};
+use webrtc_sys::{rtc_error::ffi::RtcError, rtp_sender as sys_rs};
 
 #[derive(Clone)]
 pub struct RtpSender {
@@ -41,6 +41,6 @@ impl RtpSender {
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         self.sys_handle
             .set_parameters(parameters.into())
-            .map_err(|e| unsafe { RTCError::from(e.what()).into() })
+            .map_err(|e| unsafe { RtcError::from(e.what()).into() })
     }
 }

@@ -230,7 +230,7 @@ impl PeerConnection {
             Ok(sys_handle) => Ok(DataChannel {
                 handle: imp_dc::DataChannel::configure(sys_handle),
             }),
-            Err(e) => Err(unsafe { sys_err::ffi::RTCError::from(e.what()).into() }),
+            Err(e) => Err(unsafe { sys_err::ffi::RtcError::from(e.what()).into() }),
         }
     }
 
@@ -246,7 +246,7 @@ impl PeerConnection {
             Ok(sys_handle) => Ok(RtpSender {
                 handle: imp_rs::RtpSender { sys_handle },
             }),
-            Err(e) => unsafe { Err(sys_err::ffi::RTCError::from(e.what()).into()) },
+            Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
     }
 
@@ -265,7 +265,7 @@ impl PeerConnection {
                     sys_handle: sys_handle,
                 },
             }),
-            Err(e) => unsafe { Err(sys_err::ffi::RTCError::from(e.what()).into()) },
+            Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
     }
 
@@ -284,7 +284,7 @@ impl PeerConnection {
                     sys_handle: cxx_handle,
                 },
             }),
-            Err(e) => unsafe { Err(sys_err::ffi::RTCError::from(e.what()).into()) },
+            Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
     }
 
@@ -333,7 +333,7 @@ impl PeerConnection {
     pub fn remove_track(&self, sender: RtpSender) -> Result<(), RtcError> {
         self.sys_handle
             .remove_track(sender.handle.sys_handle)
-            .map_err(|e| unsafe { sys_err::ffi::RTCError::from(e.what()).into() })
+            .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
     }
 
     pub fn senders(&self) -> Vec<RtpSender> {

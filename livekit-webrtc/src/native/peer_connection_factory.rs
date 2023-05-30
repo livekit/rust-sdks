@@ -26,7 +26,7 @@ lazy_static! {
 }
 
 pub struct RtcRuntime {
-    pub(crate) sys_handle: SharedPtr<sys_webrtc::ffi::RTCRuntime>,
+    pub(crate) sys_handle: SharedPtr<sys_webrtc::ffi::RtcRuntime>,
     _logsink: UniquePtr<sys_ls::ffi::LogSink>,
 }
 
@@ -114,7 +114,7 @@ impl PeerConnectionFactory {
                         native_observer,
                     ),
                 }),
-                Err(e) => Err(sys_err::ffi::RTCError::from(e.what()).into()),
+                Err(e) => Err(sys_err::ffi::RtcError::from(e.what()).into()),
             }
         }
     }
@@ -126,6 +126,7 @@ impl PeerConnectionFactory {
                     .sys_handle
                     .create_video_track(label.to_string(), source.handle.sys_handle()),
             },
+            runtime: self.runtime.clone(),
         }
     }
 
@@ -194,5 +195,20 @@ impl From<RtcConfiguration> for sys_pcf::ffi::RTCConfiguration {
             continual_gathering_policy: value.continual_gathering_policy.into(),
             ice_transport_type: value.ice_transport_type.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_peer_connection_factory() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let factory = PeerConnectionFactory::default();
+        let source = NativeVideoSource::default();
+        let _track = factory.create_video_track("test", source);
+        drop(factory);
     }
 }

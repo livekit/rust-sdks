@@ -33,6 +33,16 @@ pub struct RtcConfiguration {
     pub ice_transport_type: IceTransportsType,
 }
 
+impl Default for RtcConfiguration {
+    fn default() -> Self {
+        Self {
+            ice_servers: vec![],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ice_transport_type: IceTransportsType::All,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct PeerConnectionFactory {
     pub(crate) handle: imp_pcf::PeerConnectionFactory,

@@ -28,41 +28,45 @@
 #include "livekit/rtp_transceiver.h"
 #include "livekit/webrtc.h"
 #include "rust/cxx.h"
+#include "webrtc-sys/src/data_channel.rs.h"
 
 namespace livekit {
-class NativeAddIceCandidateObserver;
 class PeerConnection;
-class NativeAddIceCandidateObserver;
-class NativePeerConnectionObserver;
 }  // namespace livekit
 #include "webrtc-sys/src/peer_connection.rs.h"
 
 namespace livekit {
 
+class NativePeerConnectionObserver;
+
 class PeerConnection {
  public:
-  explicit PeerConnection(
-      std::shared_ptr<RTCRuntime> rtc_runtime,
+  PeerConnection(
+      std::shared_ptr<RtcRuntime> rtc_runtime,
+      std::unique_ptr<NativePeerConnectionObserver> observer,
       rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
-  void create_offer(NativeCreateSdpObserverHandle& observer,
-                    RTCOfferAnswerOptions options) const;
+  void create_offer(
+      RtcOfferAnswerOptions options,
+      rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
+      rust::Fn<void(RtcError)> on_error) const;
 
-  void create_answer(NativeCreateSdpObserverHandle& observer,
-                     RTCOfferAnswerOptions options) const;
+  void create_answer(
+      RtcOfferAnswerOptions options,
+      rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
+      rust::Fn<void(RtcError)> on_error) const;
 
   void set_local_description(std::unique_ptr<SessionDescription> desc,
-                             NativeSetLocalSdpObserverHandle& observer) const;
+                             rust::Fn<void(RtcError)> on_complete) const;
 
   void set_remote_description(std::unique_ptr<SessionDescription> desc,
-                              NativeSetRemoteSdpObserverHandle& observer) const;
+                              rust::Fn<void(RtcError)> on_complete) const;
 
-  std::shared_ptr<DataChannel> create_data_channel(
-      rust::String label,
-      std::unique_ptr<NativeDataChannelInit> init) const;
+  std::shared_ptr<DataChannel> create_data_channel(rust::String label,
+                                                   DataChannelInit init) const;
 
   void add_ice_candidate(std::shared_ptr<IceCandidate> candidate,
-                         NativeAddIceCandidateObserver& observer) const;
+                         rust::Fn<void(RtcError)> on_complete) const;
 
   std::shared_ptr<RtpSender> add_track(
       std::shared_ptr<MediaStreamTrack> track,
@@ -107,7 +111,8 @@ class PeerConnection {
   void close() const;
 
  private:
-  std::shared_ptr<RTCRuntime> rtc_runtime_;
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
+  std::unique_ptr<NativePeerConnectionObserver> observer_;
   rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
@@ -115,26 +120,11 @@ static std::shared_ptr<PeerConnection> _shared_peer_connection() {
   return nullptr;  // Ignore
 }
 
-class NativeAddIceCandidateObserver {
- public:
-  explicit NativeAddIceCandidateObserver(
-      rust::Box<AddIceCandidateObserverWrapper> observer);
-
-  void OnComplete(const RTCError& error);
-
- private:
-  rust::Box<AddIceCandidateObserverWrapper> observer_;
-};
-
-std::unique_ptr<NativeAddIceCandidateObserver>
-create_native_add_ice_candidate_observer(
-    rust::Box<AddIceCandidateObserverWrapper> observer);
-
 class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
  public:
   explicit NativePeerConnectionObserver(
-      std::shared_ptr<RTCRuntime> rtc_runtime,
-      rust::Box<PeerConnectionObserverWrapper> observer);
+      std::shared_ptr<RtcRuntime> rtc_runtime,
+      rust::Box<BoxPeerConnectionObserver> observer);
 
   ~NativePeerConnectionObserver();
 
@@ -196,12 +186,8 @@ class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
   void OnInterestingUsage(int usage_pattern) override;
 
  private:
-  std::shared_ptr<RTCRuntime> rtc_runtime_;
-  rust::Box<PeerConnectionObserverWrapper> observer_;
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
+  rust::Box<BoxPeerConnectionObserver> observer_;
 };
 
-std::shared_ptr<NativePeerConnectionObserver>
-create_native_peer_connection_observer(
-    std::shared_ptr<RTCRuntime> rtc_runtime,
-    rust::Box<PeerConnectionObserverWrapper> observer);
 }  // namespace livekit
