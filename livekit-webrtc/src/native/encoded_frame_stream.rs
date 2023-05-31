@@ -1,7 +1,9 @@
-use webrtc_sys::{frame_transformer as sys_ft, encoded_video_frame::ffi::EncodedVideoFrame};
+use webrtc_sys::{frame_transformer as sys_ft};
 use futures::stream::Stream;
 use tokio::sync::mpsc;
 use cxx::{SharedPtr, UniquePtr};
+use crate::encoded_frame::EncodedVideoFrame;
+use webrtc_sys::encoded_video_frame::ffi::EncodedVideoFrame as sys_ef;
 use crate::prelude::RtpReceiver;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -10,7 +12,7 @@ pub struct NativeEncodedFrameStream {
     native_transfomer: SharedPtr<sys_ft::ffi::AdaptedNativeFrameTransformer>,
     _observer: Box<VideoTrackEncodedFramesObserver>,
     // video_track: RtcVideoTrack,
-    frame_rx: mpsc::UnboundedReceiver<UniquePtr<EncodedVideoFrame>>,
+    frame_rx: mpsc::UnboundedReceiver<EncodedVideoFrame>,
 }
 
 impl NativeEncodedFrameStream {
@@ -48,7 +50,7 @@ impl Drop for NativeEncodedFrameStream {
 }
 
 impl Stream for NativeEncodedFrameStream {
-    type Item = UniquePtr<EncodedVideoFrame>;
+    type Item = EncodedVideoFrame;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         self.frame_rx.poll_recv(cx)
@@ -56,13 +58,14 @@ impl Stream for NativeEncodedFrameStream {
 }
 
 struct VideoTrackEncodedFramesObserver {
-    frame_tx: mpsc::UnboundedSender<UniquePtr<EncodedVideoFrame>>,
+    frame_tx: mpsc::UnboundedSender<EncodedVideoFrame>,
 }
 
 impl sys_ft::EncodedFrameSink for VideoTrackEncodedFramesObserver {
     // To be called when Transform happens
-    fn on_encoded_frame(&self, frame: UniquePtr<EncodedVideoFrame>) {
+    fn on_encoded_frame(&self, frame: UniquePtr<sys_ef>) {
         println!("VideoTrackEncodedFramesObserver::on_encoded_frame");
-        let _ = self.frame_tx.send(frame);
+        let encoded_frame = EncodedVideoFrame::new(frame);
+        let _ = self.frame_tx.send(encoded_frame);
     }
 }

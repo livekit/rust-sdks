@@ -15,6 +15,7 @@ class EncodedVideoFrame {
   explicit EncodedVideoFrame(std::unique_ptr<webrtc::TransformableVideoFrameInterface> frame);
 
   bool is_key_frame() const;
+  void get_data() const;
 
  private:
   std::unique_ptr<webrtc::TransformableVideoFrameInterface> frame_;

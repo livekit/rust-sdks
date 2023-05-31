@@ -44,6 +44,7 @@ pub mod video_frame;
 pub mod video_source;
 pub mod video_stream;
 pub mod encoded_frame_stream;
+pub mod encoded_frame;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {

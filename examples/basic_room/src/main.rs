@@ -3,6 +3,7 @@ use std::env;
 use futures::StreamExt;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit::webrtc::encoded_frame_stream::native::NativeEncodedFrameStream;
+use livekit::webrtc::encoded_frame::EncodedVideoFrame;
 
 // Basic demo to connect to a room using the specified env variables
 
@@ -28,7 +29,7 @@ async fn main() {
                         Some(receiver) => {
                             let mut encoded_frame_stream = NativeEncodedFrameStream::new(receiver);
                             while let Some(frame) = encoded_frame_stream.next().await {
-                                println!("Got encoded frame");
+                                println!("Got encoded frame - is key frame? {}", frame.is_key_frame());
                             }
                         },
                         None => {

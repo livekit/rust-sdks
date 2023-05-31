@@ -11,4 +11,8 @@ bool EncodedVideoFrame::is_key_frame() const {
     return frame_->IsKeyFrame();
 }
 
+void EncodedVideoFrame::get_data() const {
+    frame_->GetData();
+}
+
 }
