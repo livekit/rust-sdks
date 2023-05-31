@@ -27,7 +27,7 @@
 
 namespace livekit {
 class RtpReceiver;
-class FrameTransformerInterface;
+// class FrameTransformerInterface;
 }
 #include "webrtc-sys/src/rtp_receiver.rs.h"
 namespace livekit {
@@ -52,7 +52,7 @@ class RtpReceiver {
 
   // bool set_parameters(RtpParameters parameters) const; // Seems unsupported
 
-  void set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<livekit::FrameTransformerInterface> frame_transformer) const;
+  void set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<AdaptedNativeFrameTransformer> frame_transformer) const;
 
   void set_jitter_buffer_minimum_delay(bool is_some,
                                        double delay_seconds) const;

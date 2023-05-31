@@ -55,8 +55,10 @@ RtpParameters RtpReceiver::get_parameters() const {
   return to_rust_rtp_parameters(receiver_->GetParameters());
 }
 
-void RtpReceiver::set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<livekit::FrameTransformerInterface> frame_transformer) const {
-  fprintf(stderr, "RtpReceiver::set_depacketizer_to_decoder_frame_transformer");
+void RtpReceiver::set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<AdaptedNativeFrameTransformer> frame_transformer) const {
+  fprintf(stderr, "RtpReceiver::set_depacketizer_to_decoder_frame_transformer\n");
+  rtc::scoped_refptr<NativeFrameTransformer> transformer = frame_transformer->get();
+  receiver_->SetDepacketizerToDecoderFrameTransformer(transformer);
 }
 
 void RtpReceiver::set_jitter_buffer_minimum_delay(bool is_some,

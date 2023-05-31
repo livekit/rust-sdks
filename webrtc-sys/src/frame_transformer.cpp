@@ -8,7 +8,9 @@ NativeFrameTransformer::NativeFrameTransformer() {
 
 
 void NativeFrameTransformer::Transform(std::unique_ptr<webrtc::TransformableFrameInterface> transformable_frame) {
-
+    fprintf(stderr, "NativeFrameTransformer::Transform\n");
+    std::unique_ptr<webrtc::TransformableVideoFrameInterface> frame(static_cast<webrtc::TransformableVideoFrameInterface*>(transformable_frame.release()));
+    fprintf(stderr, "TransformableVideoFrameInterface is keyframe? %d\n", frame->IsKeyFrame());
 }
 
 // void FrameTransformer::RegisterTransformedFrameCallback(
@@ -36,13 +38,14 @@ void NativeFrameTransformer::Transform(std::unique_ptr<webrtc::TransformableFram
 
 // }
 
-// FrameTransformerInterface::FrameTransformerInterface(
-//     rtc::scoped_refptr<FrameTransformer> transformer)
-//     : transformer_(transformer) {}
-
 AdaptedNativeFrameTransformer::AdaptedNativeFrameTransformer(
     rtc::scoped_refptr<NativeFrameTransformer> source)
     : source_(source) {}
+
+rtc::scoped_refptr<NativeFrameTransformer> AdaptedNativeFrameTransformer::get()
+    const {
+  return source_;
+}
 
 std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer() {
     fprintf(stderr, "new_adapted_frame_transformer()\n");

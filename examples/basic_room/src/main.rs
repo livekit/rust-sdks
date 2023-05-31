@@ -25,8 +25,8 @@ async fn main() {
                 if let RemoteTrack::Video(video_track) = &track {
                     match &video_track.receiver() {
                         Some(receiver) => {
-                            receiver.new_frame_transformer();
-                            receiver.set_depacketizer_to_decoder_frame_transformer();
+                            let transformer = receiver.new_adapted_frame_transformer();
+                            receiver.set_depacketizer_to_decoder_frame_transformer(transformer);
                         },
                         None => {
                             println!("No transceiver!");

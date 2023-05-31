@@ -8,8 +8,9 @@
 #include <vector>
 
 namespace livekit {
-class NativeFrameTransformer;
+// class NativeFrameTransformer;
 class FrameTransformerInterface;
+class AdaptedNativeFrameTransformer;
 }
 #include "webrtc-sys/src/frame_transformer.rs.h"
 
@@ -32,6 +33,7 @@ class NativeFrameTransformer : public rtc::RefCountedObject<webrtc::FrameTransfo
   // void UnregisterTransformedFrameSinkCallback(uint32_t ssrc);
 };
 
+// from AdaptedVideoTrackSource
 class AdaptedNativeFrameTransformer {
  public:
   AdaptedNativeFrameTransformer(rtc::scoped_refptr<NativeFrameTransformer> source);
@@ -42,7 +44,5 @@ class AdaptedNativeFrameTransformer {
   rtc::scoped_refptr<NativeFrameTransformer> source_;
 };
 
-// void new_frame_transformer();
 std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer();
-// rtc::scoped_refptr<NativeFrameTransformer> new_frame_transformer();
 }

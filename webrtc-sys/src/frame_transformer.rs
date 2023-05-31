@@ -6,19 +6,19 @@ use crate::impl_thread_safety;
 pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/frame_transformer.h");
-        type NativeFrameTransformer;
-        type FrameTransformerInterface;
 
-        // fn new_frame_transformer(
-        //     //observer: Box<VideoFrameSinkWrapper>,
+        type AdaptedNativeFrameTransformer;
+        // type FrameTransformerInterface;
+
+        fn new_adapted_frame_transformer(
+            //observer: Box<VideoFrameSinkWrapper>,
         // );
-        // ) -> SharedPtr<FrameTransformer>;
-        //fn new_frame_transformer()
+        ) -> SharedPtr<AdaptedNativeFrameTransformer>;
     }
 
 }
 
-impl_thread_safety!(ffi::NativeFrameTransformer, Send + Sync);
+impl_thread_safety!(ffi::AdaptedNativeFrameTransformer, Send + Sync);
 
 // pub trait EncodedFrameSink: Send {
 //     fn on_frame(&self, frame: UniquePtr<EncodedFrame>);
