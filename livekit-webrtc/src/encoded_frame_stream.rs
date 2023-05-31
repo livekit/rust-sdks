@@ -6,12 +6,13 @@ use crate::imp::encoded_frame_stream as stream_imp;
 pub mod native {
 
     use crate::prelude::RtpReceiver;
-
     use super::stream_imp;
     use futures::stream::Stream;
+    use webrtc_sys::encoded_video_frame::ffi::EncodedVideoFrame;
     use std::fmt::Debug;
     use std::pin::Pin;
     use std::task::{Context, Poll};
+    use cxx::UniquePtr;
 
     pub struct NativeEncodedFrameStream {
         pub(crate) handle: stream_imp::NativeEncodedFrameStream,
@@ -38,17 +39,17 @@ pub mod native {
         // }
 
         pub fn close(&mut self) {
-            // self.handle.close();
+            self.handle.close();
         }
     }
 
-    // impl Stream for NativeEncodedFrameStream {
-    //     type Item = BoxVideoFrame;
+    impl Stream for NativeEncodedFrameStream {
+        type Item = UniquePtr<EncodedVideoFrame>;
 
-    //     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-    //         Pin::new(&mut self.get_mut().handle).poll_next(cx)
-    //     }
-    // }
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+            Pin::new(&mut self.get_mut().handle).poll_next(cx)
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
