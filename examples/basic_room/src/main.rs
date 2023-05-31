@@ -2,6 +2,7 @@ use livekit::{prelude::*, options::video};
 use std::env;
 use futures::StreamExt;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
+use livekit::webrtc::encoded_frame_stream::native::NativeEncodedFrameStream;
 
 // Basic demo to connect to a room using the specified env variables
 
@@ -25,8 +26,9 @@ async fn main() {
                 if let RemoteTrack::Video(video_track) = &track {
                     match &video_track.receiver() {
                         Some(receiver) => {
-                            let transformer = receiver.new_adapted_frame_transformer();
-                            receiver.set_depacketizer_to_decoder_frame_transformer(transformer);
+                            // let transformer = receiver.new_adapted_frame_transformer();
+                            let mut encoded_frame_stream = NativeEncodedFrameStream::new(receiver);
+                            // receiver.set_depacketizer_to_decoder_frame_transformer(transformer);
                         },
                         None => {
                             println!("No transceiver!");

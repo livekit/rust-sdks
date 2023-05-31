@@ -1,6 +1,7 @@
 use super::media_stream::new_media_stream_track;
 use crate::{media_stream::MediaStreamTrack, rtp_parameters::RtpParameters};
 use cxx::SharedPtr;
+use webrtc_sys::frame_transformer::EncodedFrameSinkWrapper;
 use webrtc_sys::frame_transformer::ffi::AdaptedNativeFrameTransformer;
 use webrtc_sys::rtp_receiver as sys_rr;
 use webrtc_sys::frame_transformer as sys_ft;
@@ -31,8 +32,7 @@ impl RtpReceiver {
         self.sys_handle.set_depacketizer_to_decoder_frame_transformer(transformer);
     }
 
-    // TODO pass observer
-    pub fn new_adapted_frame_transformer(&self) -> SharedPtr<AdaptedNativeFrameTransformer> {
-        sys_ft::ffi::new_adapted_frame_transformer()
+    pub fn new_adapted_frame_transformer(&self, observer: Box<EncodedFrameSinkWrapper>) -> SharedPtr<AdaptedNativeFrameTransformer> {
+        sys_ft::ffi::new_adapted_frame_transformer(observer)
     }
 }

@@ -15,7 +15,7 @@ pub mod video_frame;
 pub mod video_source;
 pub mod video_stream;
 pub mod yuv_helper;
-pub mod frame_transformer_stream;
+pub mod encoded_frame_stream;
 
 use crate::MediaType;
 use crate::{RtcError, RtcErrorType};

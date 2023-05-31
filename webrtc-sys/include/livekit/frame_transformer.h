@@ -4,6 +4,7 @@
 #include "api/frame_transformer_interface.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/ref_counted_object.h"
+#include "rust/cxx.h"
 #include <memory>
 #include <vector>
 
@@ -18,19 +19,12 @@ namespace livekit {
 
 class NativeFrameTransformer : public rtc::RefCountedObject<webrtc::FrameTransformerInterface> {
  public:
-  explicit NativeFrameTransformer();
+  explicit NativeFrameTransformer(rust::Box<EncodedFrameSinkWrapper> observer);
 
   void Transform(std::unique_ptr<webrtc::TransformableFrameInterface> transformable_frame);
-  // void RegisterTransformedFrameCallback(
-  //     rtc::scoped_refptr<webrtc::TransformedFrameCallback>);
-  // void RegisterTransformedFrameSinkCallback(
-  //     rtc::scoped_refptr<webrtc::TransformedFrameCallback>,
-  //     uint32_t ssrc);
-  // void RegisterTransformedFrameSinkCallback(
-  //     rtc::scoped_refptr<webrtc::TransformedFrameCallback>,
-  //     uint32_t ssrc);
-  // void UnregisterTransformedFrameCallback();
-  // void UnregisterTransformedFrameSinkCallback(uint32_t ssrc);
+
+ private:
+  rust::Box<EncodedFrameSinkWrapper> observer_;
 };
 
 // from AdaptedVideoTrackSource
@@ -44,5 +38,5 @@ class AdaptedNativeFrameTransformer {
   rtc::scoped_refptr<NativeFrameTransformer> source_;
 };
 
-std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer();
+std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer(rust::Box<EncodedFrameSinkWrapper> observer);
 }
