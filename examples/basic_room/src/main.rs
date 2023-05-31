@@ -26,19 +26,18 @@ async fn main() {
                 if let RemoteTrack::Video(video_track) = &track {
                     match &video_track.receiver() {
                         Some(receiver) => {
-                            // let transformer = receiver.new_adapted_frame_transformer();
                             let mut encoded_frame_stream = NativeEncodedFrameStream::new(receiver);
-                            // receiver.set_depacketizer_to_decoder_frame_transformer(transformer);
+                            while let Some(frame) = encoded_frame_stream.next().await {
+                                println!("Got encoded frame");
+                            }
                         },
                         None => {
-                            println!("No transceiver!");
+                            println!("No receiver!");
                         },
                     }
                     
                     let rtc_track = video_track.rtc_track();
                     let mut video_stream = NativeVideoStream::new(rtc_track);
-                    //let mut frame_interceptor = EncodedFrameInterceptor::new(rtc_track);
-
                     while let Some(frame) = video_stream.next().await {
 
                     }

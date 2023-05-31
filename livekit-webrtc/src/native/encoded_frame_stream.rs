@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 
 pub struct NativeEncodedFrameStream {
     native_transfomer: SharedPtr<sys_ft::ffi::AdaptedNativeFrameTransformer>,
-    // _observer: Box<VideoTrackObserver>,
+    _observer: Box<VideoTrackEncodedFramesObserver>,
     // video_track: RtcVideoTrack,
     frame_rx: mpsc::UnboundedReceiver<UniquePtr<EncodedVideoFrame>>,
 }
@@ -27,6 +27,7 @@ impl NativeEncodedFrameStream {
 
         Self {
             native_transfomer: native_transfomer,
+            _observer: observer,
             frame_rx
         }
     }
@@ -37,6 +38,12 @@ impl NativeEncodedFrameStream {
         //     sys_ms::ffi::media_to_video(self.video_track.sys_handle())
         //         .remove_sink(self.native_observer.pin_mut());
         // }
+    }
+}
+
+impl Drop for NativeEncodedFrameStream {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
@@ -56,8 +63,6 @@ impl sys_ft::EncodedFrameSink for VideoTrackEncodedFramesObserver {
     // To be called when Transform happens
     fn on_encoded_frame(&self, frame: UniquePtr<EncodedVideoFrame>) {
         println!("VideoTrackEncodedFramesObserver::on_encoded_frame");
-        println!("is_key_frame? {}", frame.is_key_frame());
-        // TODO: send using frame_tx
         let _ = self.frame_tx.send(frame);
     }
 }
