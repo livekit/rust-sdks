@@ -1,4 +1,5 @@
 #include "livekit/encoded_video_frame.h"
+#include "api/video/video_frame_metadata.h"
 
 namespace livekit {
 
@@ -22,6 +23,18 @@ EncodedVideoFrame::EncodedVideoFrame(
 
 bool EncodedVideoFrame::is_key_frame() const {
     return frame_->IsKeyFrame();
+}
+
+uint16_t EncodedVideoFrame::width() const {
+    return frame_->GetMetadata().GetWidth();
+}
+
+uint16_t EncodedVideoFrame::height() const {
+    return frame_->GetMetadata().GetHeight();
+}
+
+uint8_t EncodedVideoFrame::payload_type() const {
+    return frame_->GetPayloadType();
 }
 
 const uint8_t* EncodedVideoFrame::payload_data() const {

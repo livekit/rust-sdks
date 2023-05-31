@@ -27,7 +27,15 @@ impl EncodedVideoFrame {
         return slice;
     }
 
-    // pub fn get_data(&self) {
-    //     self.frame.get_data()
-    // }
+    pub fn width(&self) -> u16 {
+        self.frame.width()
+    }
+
+    pub fn height(&self) -> u16 {
+        self.frame.height()
+    }
+
+    pub fn payload_type(&self) -> u8 {
+        self.frame.payload_type()
+    }
 }

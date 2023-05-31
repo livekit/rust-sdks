@@ -12,6 +12,11 @@ pub mod ffi {
         type EncodedVideoFrame;
 
         fn is_key_frame(self: &EncodedVideoFrame) -> bool;
+
+        fn width(self: &EncodedVideoFrame) -> u16;
+        fn height(self: &EncodedVideoFrame) -> u16;
+
+        fn payload_type(self: &EncodedVideoFrame) -> u8;
         fn payload_data(self: &EncodedVideoFrame) -> *const u8;
         fn payload_size(self: &EncodedVideoFrame) -> usize;
     }

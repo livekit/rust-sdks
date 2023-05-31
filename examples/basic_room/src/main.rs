@@ -29,14 +29,13 @@ async fn main() {
                         Some(receiver) => {
                             let mut encoded_frame_stream = NativeEncodedFrameStream::new(receiver);
                             while let Some(frame) = encoded_frame_stream.next().await {
-                                println!("Got encoded frame - is key frame? {}", frame.is_key_frame());
-                                // frame.get_data();
+                                println!("Got encoded frame - {}x{} type: {}", frame.width(), frame.height(), frame.payload_type());
                                 let payload = frame.payload();
-                                println!("payload:");
-                                for b in payload {
-                                    print!("{:02x}", b);
-                                }
-                                println!();
+                                // println!("payload:");
+                                // for b in payload {
+                                //     print!("{:02x}", b);
+                                // }
+                                // println!();
                             }
                         },
                         None => {
