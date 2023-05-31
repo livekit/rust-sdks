@@ -15,10 +15,13 @@ class EncodedVideoFrame {
   explicit EncodedVideoFrame(std::unique_ptr<webrtc::TransformableVideoFrameInterface> frame);
 
   bool is_key_frame() const;
-  void get_data() const;
+  const uint8_t* payload_data() const;
+  size_t payload_size() const;
 
  private:
   std::unique_ptr<webrtc::TransformableVideoFrameInterface> frame_;
+  const uint8_t* data;
+  size_t size;
 };
 
 }  // namespace livekit
