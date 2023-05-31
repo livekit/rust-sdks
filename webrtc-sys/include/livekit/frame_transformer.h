@@ -9,7 +9,7 @@
 #include <vector>
 
 namespace livekit {
-// class NativeFrameTransformer;
+class EncodedVideoFrame;
 class FrameTransformerInterface;
 class AdaptedNativeFrameTransformer;
 }
@@ -39,4 +39,4 @@ class AdaptedNativeFrameTransformer {
 };
 
 std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer(rust::Box<EncodedFrameSinkWrapper> observer);
-}
+}  // namespace livekit

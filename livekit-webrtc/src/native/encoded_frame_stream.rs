@@ -1,7 +1,7 @@
 use futures::stream::Stream;
 use tokio::sync::mpsc;
-use cxx::SharedPtr;
-use webrtc_sys::frame_transformer as sys_ft;
+use cxx::{SharedPtr, UniquePtr};
+use webrtc_sys::{frame_transformer as sys_ft, encoded_video_frame::ffi::EncodedVideoFrame};
 
 use crate::prelude::RtpReceiver;
 
@@ -43,8 +43,9 @@ struct VideoTrackEncodedFramesObserver {
 
 impl sys_ft::EncodedFrameSink for VideoTrackEncodedFramesObserver {
     // To be called when Transform happens
-    fn on_encoded_frame(&self) {
+    fn on_encoded_frame(&self, frame: UniquePtr<EncodedVideoFrame>) {
         println!("VideoTrackEncodedFramesObserver::on_encoded_frame");
+        println!("is_key_frame? {}", frame.is_key_frame());
         // TODO: send using frame_tx
     }
 }

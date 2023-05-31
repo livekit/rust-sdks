@@ -1,4 +1,5 @@
 #include "livekit/frame_transformer.h"
+#include "livekit/encoded_video_frame.h"
 
 namespace livekit {
 
@@ -7,10 +8,10 @@ NativeFrameTransformer::NativeFrameTransformer(
 } 
 
 void NativeFrameTransformer::Transform(std::unique_ptr<webrtc::TransformableFrameInterface> transformable_frame) {
-    fprintf(stderr, "NativeFrameTransformer::Transform\n");
+    // fprintf(stderr, "NativeFrameTransformer::Transform\n");
     std::unique_ptr<webrtc::TransformableVideoFrameInterface> frame(static_cast<webrtc::TransformableVideoFrameInterface*>(transformable_frame.release()));
-    fprintf(stderr, "TransformableVideoFrameInterface is keyframe? %d\n", frame->IsKeyFrame());
-    observer_->on_encoded_frame();
+    // fprintf(stderr, "TransformableVideoFrameInterface is keyframe? %d\n", frame->IsKeyFrame());
+    observer_->on_encoded_frame(std::make_unique<EncodedVideoFrame>(std::move(frame)));
 }
 
 AdaptedNativeFrameTransformer::AdaptedNativeFrameTransformer(

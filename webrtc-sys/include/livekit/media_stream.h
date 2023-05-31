@@ -177,10 +177,6 @@ class VideoTrack : public MediaStreamTrack {
   }
 };
 
-// class FrameTransformer : public webrtc::FrameTransformerInterface {
-//   void Transform(std::unique_ptr<webrtc::TransformableFrameInterface> transformable_frame);
-// };
-
 class NativeVideoFrameSink
     : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
  public:

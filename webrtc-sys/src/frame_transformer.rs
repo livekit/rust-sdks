@@ -1,13 +1,22 @@
 use crate::impl_thread_safety;
-// use crate::{impl_thread_safety, encoded_frame::ffi::EncodedFrame};
-// use cxx::UniquePtr;
+use cxx::UniquePtr;
+use crate::encoded_video_frame::ffi::EncodedVideoFrame;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
+
+    extern "C++" {
+        include!("livekit/encoded_video_frame.h");
+
+        type EncodedVideoFrame = crate::encoded_video_frame::ffi::EncodedVideoFrame;
+    }
+
     unsafe extern "C++" {
         include!("livekit/frame_transformer.h");
+        include!("livekit/encoded_video_frame.h");
 
         type AdaptedNativeFrameTransformer;
+        
 
         fn new_adapted_frame_transformer(
             observer: Box<EncodedFrameSinkWrapper>,
@@ -15,10 +24,14 @@ pub mod ffi {
         ) -> SharedPtr<AdaptedNativeFrameTransformer>;
     }
 
+    unsafe extern "C++" {
+        
+    }
+
     extern "Rust" {
         type EncodedFrameSinkWrapper;
 
-        fn on_encoded_frame(self: &EncodedFrameSinkWrapper);
+        fn on_encoded_frame(self: &EncodedFrameSinkWrapper, frame: UniquePtr<EncodedVideoFrame>);
     }
 }
 
@@ -26,7 +39,7 @@ impl_thread_safety!(ffi::AdaptedNativeFrameTransformer, Send + Sync);
 
 pub trait EncodedFrameSink: Send {
     // fn on_frame(&self, frame: UniquePtr<EncodedFrame>);
-    fn on_encoded_frame(&self);
+    fn on_encoded_frame(&self, frame: UniquePtr<EncodedVideoFrame>);
 }
 
 pub struct EncodedFrameSinkWrapper {
@@ -40,11 +53,10 @@ impl EncodedFrameSinkWrapper {
         Self { observer }
     }
 
-    // fn on_frame(&self, frame: UniquePtr<EncodedFrame>) {
-    fn on_encoded_frame(&self) {
+    fn on_encoded_frame(&self, frame: UniquePtr<EncodedVideoFrame>) {
         // println!("EncodedFrameSinkWrapper::on_frame");
         unsafe {
-            (*self.observer).on_encoded_frame();
+            (*self.observer).on_encoded_frame(frame);
         }
     }
 

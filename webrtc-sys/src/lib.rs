@@ -16,7 +16,7 @@ pub mod video_frame_buffer;
 pub mod webrtc;
 pub mod yuv_helper;
 pub mod frame_transformer;
-pub mod encoded_frame;
+pub mod encoded_video_frame;
 
 pub const MEDIA_TYPE_VIDEO: &str = "video";
 pub const MEDIA_TYPE_AUDIO: &str = "audio";
