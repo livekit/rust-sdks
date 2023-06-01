@@ -106,7 +106,7 @@ impl Default for TrackPublishOptions {
         Self {
             video_encoding: None,
             audio_encoding: None,
-            video_codec: VideoCodec::VP8,
+            video_codec: VideoCodec::H264,
             dtx: true,
             red: true,
             simulcast: true,
