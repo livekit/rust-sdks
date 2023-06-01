@@ -3,22 +3,17 @@ use crate::data_channel::ffi::DataChannel;
 use crate::impl_thread_safety;
 use crate::jsep::ffi::IceCandidate;
 use crate::media_stream::ffi::MediaStream;
-use crate::rtc_error::ffi::RtcError;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
 use cxx::SharedPtr;
-use std::mem::ManuallyDrop;
-use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-    #[derive(Debug)]
     pub struct CandidatePair {
         local: SharedPtr<Candidate>,
         remote: SharedPtr<Candidate>,
     }
 
-    #[derive(Debug)]
     pub struct CandidatePairChangeEvent {
         selected_candidate_pair: CandidatePair,
         last_data_received_ms: i64,
@@ -26,7 +21,6 @@ pub mod ffi {
         estimated_disconnected_time_ms: i64,
     }
 
-    #[derive(Debug)]
     #[repr(i32)]
     pub enum PeerConnectionState {
         New,
@@ -37,7 +31,6 @@ pub mod ffi {
         Closed,
     }
 
-    #[derive(Debug)]
     #[repr(i32)]
     pub enum SignalingState {
         Stable,
@@ -48,7 +41,6 @@ pub mod ffi {
         Closed,
     }
 
-    #[derive(Debug)]
     #[repr(i32)]
     pub enum IceConnectionState {
         IceConnectionNew,
@@ -61,7 +53,6 @@ pub mod ffi {
         IceConnectionMax,
     }
 
-    #[derive(Debug)]
     #[repr(i32)]
     pub enum IceGatheringState {
         IceGatheringNew,
@@ -69,7 +60,6 @@ pub mod ffi {
         IceGatheringComplete,
     }
 
-    #[derive(Debug)]
     pub struct RtcOfferAnswerOptions {
         offer_to_receive_video: i32,
         offer_to_receive_audio: i32,
@@ -118,6 +108,15 @@ pub mod ffi {
         include!("livekit/peer_connection.h");
 
         type PeerConnection;
+
+        // The reason we still expose NativePeerConnectionObserver is because cxx doeesn't support Rust type alias
+        // So we can't share NativePeerConnectionWrapper in peer_connection_factory.rs
+        // (It is technically possible to get the Opaque C++ Type, but in this case, we can't use Box<T>)
+        // We can delete create_native_peer_connection_observer once cxx supports Rust type alias
+        type NativePeerConnectionObserver;
+        fn create_native_peer_connection_observer(
+            observer: Box<PeerConnectionObserverWrapper>,
+        ) -> UniquePtr<NativePeerConnectionObserver>;
 
         fn create_offer(
             self: &PeerConnection,
@@ -182,47 +181,65 @@ pub mod ffi {
     }
 
     extern "Rust" {
-        type BoxPeerConnectionObserver;
+        type PeerConnectionObserverWrapper;
 
-        fn on_signaling_change(self: &BoxPeerConnectionObserver, new_state: SignalingState);
-        fn on_add_stream(self: &BoxPeerConnectionObserver, stream: SharedPtr<MediaStream>);
-        fn on_remove_stream(self: &BoxPeerConnectionObserver, stream: SharedPtr<MediaStream>);
-        fn on_data_channel(self: &BoxPeerConnectionObserver, data_channel: SharedPtr<DataChannel>);
-        fn on_renegotiation_needed(self: &BoxPeerConnectionObserver);
-        fn on_negotiation_needed_event(self: &BoxPeerConnectionObserver, event: u32);
+        fn on_signaling_change(self: &PeerConnectionObserverWrapper, new_state: SignalingState);
+        fn on_add_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
+        fn on_remove_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
+        fn on_data_channel(
+            self: &PeerConnectionObserverWrapper,
+            data_channel: SharedPtr<DataChannel>,
+        );
+        fn on_renegotiation_needed(self: &PeerConnectionObserverWrapper);
+        fn on_negotiation_needed_event(self: &PeerConnectionObserverWrapper, event: u32);
         fn on_ice_connection_change(
-            self: &BoxPeerConnectionObserver,
+            self: &PeerConnectionObserverWrapper,
             new_state: IceConnectionState,
         );
         fn on_standardized_ice_connection_change(
-            self: &BoxPeerConnectionObserver,
+            self: &PeerConnectionObserverWrapper,
             new_state: IceConnectionState,
         );
-        fn on_connection_change(self: &BoxPeerConnectionObserver, new_state: PeerConnectionState);
-        fn on_ice_gathering_change(self: &BoxPeerConnectionObserver, new_state: IceGatheringState);
-        fn on_ice_candidate(self: &BoxPeerConnectionObserver, candidate: SharedPtr<IceCandidate>);
+        fn on_connection_change(
+            self: &PeerConnectionObserverWrapper,
+            new_state: PeerConnectionState,
+        );
+        fn on_ice_gathering_change(
+            self: &PeerConnectionObserverWrapper,
+            new_state: IceGatheringState,
+        );
+        fn on_ice_candidate(
+            self: &PeerConnectionObserverWrapper,
+            candidate: SharedPtr<IceCandidate>,
+        );
         fn on_ice_candidate_error(
-            self: &BoxPeerConnectionObserver,
+            self: &PeerConnectionObserverWrapper,
             address: String,
             port: i32,
             url: String,
             error_code: i32,
             error_text: String,
         );
-        fn on_ice_candidates_removed(self: &BoxPeerConnectionObserver, removed: Vec<CandidatePtr>);
-        fn on_ice_connection_receiving_change(self: &BoxPeerConnectionObserver, receiving: bool);
+        fn on_ice_candidates_removed(
+            self: &PeerConnectionObserverWrapper,
+            removed: Vec<CandidatePtr>,
+        );
+        fn on_ice_connection_receiving_change(
+            self: &PeerConnectionObserverWrapper,
+            receiving: bool,
+        );
         fn on_ice_selected_candidate_pair_changed(
-            self: &BoxPeerConnectionObserver,
+            self: &PeerConnectionObserverWrapper,
             event: CandidatePairChangeEvent,
         );
         fn on_add_track(
-            self: &BoxPeerConnectionObserver,
+            self: &PeerConnectionObserverWrapper,
             receiver: SharedPtr<RtpReceiver>,
             streams: Vec<MediaStreamPtr>,
         );
-        fn on_track(self: &BoxPeerConnectionObserver, transceiver: SharedPtr<RtpTransceiver>);
-        fn on_remove_track(self: &BoxPeerConnectionObserver, receiver: SharedPtr<RtpReceiver>);
-        fn on_interesting_usage(self: &BoxPeerConnectionObserver, usage_pattern: i32);
+        fn on_track(self: &PeerConnectionObserverWrapper, transceiver: SharedPtr<RtpTransceiver>);
+        fn on_remove_track(self: &PeerConnectionObserverWrapper, receiver: SharedPtr<RtpReceiver>);
+        fn on_interesting_usage(self: &PeerConnectionObserverWrapper, usage_pattern: i32);
     }
 }
 
@@ -277,4 +294,101 @@ pub trait PeerConnectionObserver: Send + Sync {
     fn on_interesting_usage(&self, usage_pattern: i32);
 }
 
-type BoxPeerConnectionObserver = Box<dyn PeerConnectionObserver>;
+// Wrapper for PeerConnectionObserver because cxx doesn't support dyn Trait on c++
+// https://github.com/dtolnay/cxx/issues/665
+pub struct PeerConnectionObserverWrapper {
+    observer: Box<dyn PeerConnectionObserver>,
+}
+
+impl PeerConnectionObserverWrapper {
+    pub fn new(observer: Box<dyn PeerConnectionObserver>) -> Box<Self> {
+        Box::new(Self { observer })
+    }
+
+    fn on_signaling_change(&self, new_state: ffi::SignalingState) {
+        self.observer.on_signaling_change(new_state);
+    }
+
+    fn on_add_stream(&self, stream: SharedPtr<MediaStream>) {
+        self.observer.on_add_stream(stream);
+    }
+
+    fn on_remove_stream(&self, stream: SharedPtr<MediaStream>) {
+        self.observer.on_remove_stream(stream);
+    }
+
+    fn on_data_channel(&self, data_channel: SharedPtr<DataChannel>) {
+        self.observer.on_data_channel(data_channel);
+    }
+
+    fn on_renegotiation_needed(&self) {
+        self.observer.on_renegotiation_needed();
+    }
+
+    fn on_negotiation_needed_event(&self, event: u32) {
+        self.observer.on_negotiation_needed_event(event);
+    }
+
+    fn on_ice_connection_change(&self, new_state: ffi::IceConnectionState) {
+        self.observer.on_ice_connection_change(new_state);
+    }
+
+    fn on_standardized_ice_connection_change(&self, new_state: ffi::IceConnectionState) {
+        self.observer
+            .on_standardized_ice_connection_change(new_state);
+    }
+
+    fn on_connection_change(&self, new_state: ffi::PeerConnectionState) {
+        self.observer.on_connection_change(new_state);
+    }
+
+    fn on_ice_gathering_change(&self, new_state: ffi::IceGatheringState) {
+        self.observer.on_ice_gathering_change(new_state);
+    }
+
+    fn on_ice_candidate(&self, candidate: SharedPtr<IceCandidate>) {
+        self.observer.on_ice_candidate(candidate);
+    }
+
+    fn on_ice_candidate_error(
+        &self,
+        address: String,
+        port: i32,
+        url: String,
+        error_code: i32,
+        error_text: String,
+    ) {
+        self.observer
+            .on_ice_candidate_error(address, port, url, error_code, error_text);
+    }
+
+    fn on_ice_candidates_removed(&self, candidates: Vec<ffi::CandidatePtr>) {
+        self.observer
+            .on_ice_candidates_removed(candidates.into_iter().map(|v| v.ptr).collect());
+    }
+
+    fn on_ice_connection_receiving_change(&self, receiving: bool) {
+        self.observer.on_ice_connection_receiving_change(receiving);
+    }
+
+    fn on_ice_selected_candidate_pair_changed(&self, event: ffi::CandidatePairChangeEvent) {
+        self.observer.on_ice_selected_candidate_pair_changed(event);
+    }
+
+    fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
+        self.observer
+            .on_add_track(receiver, streams.into_iter().map(|v| v.ptr).collect());
+    }
+
+    fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>) {
+        self.observer.on_track(transceiver);
+    }
+
+    fn on_remove_track(&self, receiver: SharedPtr<RtpReceiver>) {
+        self.observer.on_remove_track(receiver);
+    }
+
+    fn on_interesting_usage(&self, usage_pattern: i32) {
+        self.observer.on_interesting_usage(usage_pattern);
+    }
+}

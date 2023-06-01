@@ -67,7 +67,7 @@ impl ffi::RtcError {
     }
 
     pub fn ok(&self) -> bool {
-        self.error_type == RtcErrorType::None
+        self.error_type == ffi::RtcErrorType::None
     }
 }
 

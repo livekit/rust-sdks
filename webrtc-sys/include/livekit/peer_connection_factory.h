@@ -41,7 +41,7 @@ class PeerConnectionFactory {
 
   std::shared_ptr<PeerConnection> create_peer_connection(
       RtcConfiguration config,
-      rust::Box<BoxPeerConnectionObserver> observer) const;
+      std::unique_ptr<NativePeerConnectionObserver> observer) const;
 
   std::shared_ptr<VideoTrack> create_video_track(
       rust::String label,

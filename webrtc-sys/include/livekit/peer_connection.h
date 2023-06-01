@@ -32,12 +32,13 @@
 
 namespace livekit {
 class PeerConnection;
+class NativePeerConnectionObserver;
 }  // namespace livekit
 #include "webrtc-sys/src/peer_connection.rs.h"
 
 namespace livekit {
 
-class NativePeerConnectionObserver;
+class PeerConnectionFactory;
 
 class PeerConnection {
  public:
@@ -122,9 +123,8 @@ static std::shared_ptr<PeerConnection> _shared_peer_connection() {
 
 class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
  public:
-  explicit NativePeerConnectionObserver(
-      std::shared_ptr<RtcRuntime> rtc_runtime,
-      rust::Box<BoxPeerConnectionObserver> observer);
+  NativePeerConnectionObserver(
+      rust::Box<PeerConnectionObserverWrapper> observer);
 
   ~NativePeerConnectionObserver();
 
@@ -186,8 +186,15 @@ class NativePeerConnectionObserver : public webrtc::PeerConnectionObserver {
   void OnInterestingUsage(int usage_pattern) override;
 
  private:
+  friend PeerConnectionFactory;
+  // The RtcRuntime is set inside PeerConnectionFactory, we can simplify that
+  // once create_native_connection_observer is removed
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rust::Box<BoxPeerConnectionObserver> observer_;
+  rust::Box<PeerConnectionObserverWrapper> observer_;
 };
+
+std::unique_ptr<NativePeerConnectionObserver>
+create_native_peer_connection_observer(
+    rust::Box<PeerConnectionObserverWrapper> observer);
 
 }  // namespace livekit

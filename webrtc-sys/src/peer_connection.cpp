@@ -16,6 +16,8 @@
 
 #include "livekit/peer_connection.h"
 
+#include <memory>
+
 #include "api/data_channel_interface.h"
 #include "api/scoped_refptr.h"
 #include "livekit/data_channel.h"
@@ -257,9 +259,8 @@ void PeerConnection::close() const {
 // PeerConnectionObserver
 
 NativePeerConnectionObserver::NativePeerConnectionObserver(
-    std::shared_ptr<RtcRuntime> rtc_runtime,
-    rust::Box<BoxPeerConnectionObserver> observer)
-    : rtc_runtime_(std::move(rtc_runtime)), observer_(std::move(observer)) {
+    rust::Box<PeerConnectionObserverWrapper> observer)
+    : observer_(std::move(observer)) {
   RTC_LOG(LS_INFO) << "NativePeerConnectionObserver()";
 }
 
@@ -392,6 +393,12 @@ void NativePeerConnectionObserver::OnRemoveTrack(
 
 void NativePeerConnectionObserver::OnInterestingUsage(int usage_pattern) {
   observer_->on_interesting_usage(usage_pattern);
+}
+
+std::unique_ptr<NativePeerConnectionObserver>
+create_native_peer_connection_observer(
+    rust::Box<PeerConnectionObserverWrapper> observer) {
+  return std::make_unique<NativePeerConnectionObserver>(std::move(observer));
 }
 
 }  // namespace livekit

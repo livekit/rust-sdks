@@ -1,6 +1,5 @@
 use crate::impl_thread_safety;
 use std::slice;
-use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -48,7 +47,7 @@ pub mod ffi {
 
         type DataChannel;
 
-        fn register_observer(self: &DataChannel, observer: Box<BoxDataChannelObserver>);
+        fn register_observer(self: &DataChannel, observer: Box<DataChannelObserverWrapper>);
         fn unregister_observer(self: &DataChannel);
 
         fn send(self: &DataChannel, data: &DataBuffer) -> bool;
@@ -60,11 +59,11 @@ pub mod ffi {
     }
 
     extern "Rust" {
-        type BoxDataChannelObserver;
+        type DataChannelObserverWrapper;
 
-        fn on_state_change(self: &BoxDataChannelObserver, state: DataState);
-        fn on_message(self: &BoxDataChannelObserver, buffer: DataBuffer);
-        fn on_buffered_amount_change(self: &BoxDataChannelObserver, sent_data_size: u64);
+        fn on_state_change(self: &DataChannelObserverWrapper, state: DataState);
+        fn on_message(self: &DataChannelObserverWrapper, buffer: DataBuffer);
+        fn on_buffered_amount_change(self: &DataChannelObserverWrapper, sent_data_size: u64);
     }
 }
 
@@ -76,4 +75,27 @@ pub trait DataChannelObserver: Send + Sync {
     fn on_buffered_amount_change(&self, sent_data_size: u64);
 }
 
-type BoxDataChannelObserver = Box<dyn DataChannelObserver>;
+pub struct DataChannelObserverWrapper {
+    observer: Box<dyn DataChannelObserver>,
+}
+
+impl DataChannelObserverWrapper {
+    pub fn new(observer: Box<dyn DataChannelObserver>) -> Self {
+        Self { observer }
+    }
+
+    fn on_state_change(&self, state: ffi::DataState) {
+        self.observer.on_state_change(state);
+    }
+
+    fn on_message(&self, buffer: ffi::DataBuffer) {
+        unsafe {
+            let data = slice::from_raw_parts(buffer.ptr, buffer.len);
+            self.observer.on_message(data, buffer.binary);
+        }
+    }
+
+    fn on_buffered_amount_change(&self, sent_data_size: u64) {
+        self.observer.on_buffered_amount_change(sent_data_size);
+    }
+}

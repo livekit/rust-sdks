@@ -1,9 +1,6 @@
 use crate::impl_thread_safety;
-use crate::rtc_error::ffi::RtcError;
-use cxx::UniquePtr;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::mem::ManuallyDrop;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {

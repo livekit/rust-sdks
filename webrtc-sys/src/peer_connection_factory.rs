@@ -2,21 +2,18 @@ use crate::impl_thread_safety;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-    #[derive(Debug, Clone)]
     pub struct IceServer {
         pub urls: Vec<String>,
         pub username: String,
         pub password: String,
     }
 
-    #[derive(Debug)]
     #[repr(i32)]
     pub enum ContinualGatheringPolicy {
         GatherOnce,
         GatherContinually,
     }
 
-    #[derive(Debug)]
     #[repr(i32)]
     pub enum IceTransportsType {
         None,
@@ -25,7 +22,6 @@ pub mod ffi {
         All,
     }
 
-    #[derive(Debug, Clone)]
     pub struct RtcConfiguration {
         pub ice_servers: Vec<IceServer>,
         pub continual_gathering_policy: ContinualGatheringPolicy,
@@ -43,7 +39,8 @@ pub mod ffi {
         type VideoTrack = crate::media_stream::ffi::VideoTrack;
         type RtpCapabilities = crate::rtp_parameters::ffi::RtpCapabilities;
         type MediaType = crate::webrtc::ffi::MediaType;
-        type BoxPeerConnectionObserver = crate::peer_connection::ffi::BoxPeerConnectionObserver;
+        type NativePeerConnectionObserver =
+            crate::peer_connection::ffi::NativePeerConnectionObserver;
     }
 
     unsafe extern "C++" {
@@ -54,12 +51,10 @@ pub mod ffi {
 
         fn create_peer_connection_factory() -> SharedPtr<PeerConnectionFactory>;
 
-        /// # Safety
-        /// The observer must live as long as the PeerConnection does
-        unsafe fn create_peer_connection(
+        fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: RtcConfiguration,
-            observer: Box<BoxPeerConnectionObserver>,
+            observer: UniquePtr<NativePeerConnectionObserver>,
         ) -> Result<SharedPtr<PeerConnection>>;
 
         fn create_video_track(

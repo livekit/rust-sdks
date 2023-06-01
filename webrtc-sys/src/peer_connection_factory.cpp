@@ -117,12 +117,9 @@ PeerConnectionFactory::~PeerConnectionFactory() {
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     RtcConfiguration config,
-    rust::Box<BoxPeerConnectionObserver> observer) const {
-  std::unique_ptr<NativePeerConnectionObserver> rtc_observer =
-      std::make_unique<NativePeerConnectionObserver>(std::move(rtc_runtime_),
-                                                     std::move(observer));
-
-  webrtc::PeerConnectionDependencies deps{rtc_observer.get()};
+    std::unique_ptr<NativePeerConnectionObserver> observer) const {
+  observer->rtc_runtime_ = rtc_runtime_;  // See peer_connection.h
+  webrtc::PeerConnectionDependencies deps{observer.get()};
   auto result = peer_factory_->CreatePeerConnectionOrError(
       to_native_rtc_configuration(config), std::move(deps));
 
@@ -130,7 +127,7 @@ std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     throw std::runtime_error(serialize_error(to_error(result.error())));
   }
 
-  return std::make_shared<PeerConnection>(rtc_runtime_, std::move(rtc_observer),
+  return std::make_shared<PeerConnection>(rtc_runtime_, std::move(observer),
                                           result.value());
 }
 
