@@ -133,7 +133,7 @@ std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
 
 std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
     rust::String label,
-    std::shared_ptr<AdaptedVideoTrackSource> source) const {
+    std::shared_ptr<VideoTrackSource> source) const {
   return std::make_shared<VideoTrack>(
       peer_factory_->CreateVideoTrack(label.c_str(), source->get().get()));
 }

@@ -41,7 +41,7 @@ class DataChannel {
       std::shared_ptr<RtcRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel);
 
-  void register_observer(rust::Box<BoxDataChannelObserver> observer) const;
+  void register_observer(rust::Box<DataChannelObserverWrapper> observer) const;
   void unregister_observer() const;
   bool send(const DataBuffer& buffer) const;
   rust::String label() const;
@@ -61,7 +61,7 @@ static std::shared_ptr<DataChannel> _shared_data_channel() {
 
 class NativeDataChannelObserver : public webrtc::DataChannelObserver {
  public:
-  NativeDataChannelObserver(rust::Box<BoxDataChannelObserver> observer,
+  NativeDataChannelObserver(rust::Box<DataChannelObserverWrapper> observer,
                             const DataChannel* dc);
 
   ~NativeDataChannelObserver();
@@ -71,7 +71,7 @@ class NativeDataChannelObserver : public webrtc::DataChannelObserver {
   void OnBufferedAmountChange(uint64_t sent_data_size) override;
 
  private:
-  rust::Box<BoxDataChannelObserver> observer_;
+  rust::Box<DataChannelObserverWrapper> observer_;
   const DataChannel* dc_;
 };
 

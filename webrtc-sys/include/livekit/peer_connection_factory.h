@@ -45,7 +45,7 @@ class PeerConnectionFactory {
 
   std::shared_ptr<VideoTrack> create_video_track(
       rust::String label,
-      std::shared_ptr<AdaptedVideoTrackSource> source) const;
+      std::shared_ptr<VideoTrackSource> source) const;
 
   std::shared_ptr<AudioTrack> create_audio_track(
       rust::String label,
