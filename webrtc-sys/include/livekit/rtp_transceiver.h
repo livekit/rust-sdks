@@ -39,7 +39,8 @@ webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
 
 class RtpTransceiver {
  public:
-  explicit RtpTransceiver(
+  RtpTransceiver(
+      std::shared_ptr<RtcRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver);
 
   MediaType media_type() const;
@@ -76,6 +77,7 @@ class RtpTransceiver {
       rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_offer) const;
 
  private:
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver_;
 };
 

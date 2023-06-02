@@ -16,6 +16,12 @@
 
 #pragma once
 
+#include <memory>
+
+#include "api/media_stream_interface.h"
+#include "api/rtp_receiver_interface.h"
+#include "api/rtp_sender_interface.h"
+#include "livekit/helper.h"
 #include "rtc_base/physical_socket_server.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rust/cxx.h"
@@ -31,22 +37,52 @@ class RtcRuntime;
 
 namespace livekit {
 
-class RtcRuntime {
+class MediaStreamTrack;
+class RtpReceiver;
+class RtpSender;
+
+// Using a shared_ptr in RtcRuntine allows us to keep a strong reference to it
+// on resources that depend on it. (e.g: AudioTrack, VideoTrack).
+class RtcRuntime : public std::enable_shared_from_this<RtcRuntime> {
  public:
-  RtcRuntime();
-  ~RtcRuntime();
+  [[nodiscard]] static std::shared_ptr<RtcRuntime> create() {
+    return std::shared_ptr<RtcRuntime>(new RtcRuntime());
+  }
 
   RtcRuntime(const RtcRuntime&) = delete;
   RtcRuntime& operator=(const RtcRuntime&) = delete;
+  ~RtcRuntime();
 
   rtc::Thread* network_thread() const;
   rtc::Thread* worker_thread() const;
   rtc::Thread* signaling_thread() const;
 
+  std::shared_ptr<MediaStreamTrack> get_or_create_media_stream_track(
+      rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
+
+  std::shared_ptr<AudioTrack> get_or_create_audio_track(
+      rtc::scoped_refptr<webrtc::AudioTrackInterface> track);
+
+  std::shared_ptr<VideoTrack> get_or_create_video_track(
+      rtc::scoped_refptr<webrtc::VideoTrackInterface> track);
+
  private:
+  RtcRuntime();
+
   std::unique_ptr<rtc::Thread> network_thread_;
   std::unique_ptr<rtc::Thread> worker_thread_;
   std::unique_ptr<rtc::Thread> signaling_thread_;
+
+  // Lists used to make sure we don't create multiple wrappers for one
+  // underlying webrtc object. (e.g: webrtc::VideoTrackInterface should only
+  // have one livekit::VideoTrack associated with it).
+  // The only reason we to do that is to allow to add states inside our
+  // wrappers (e.g: the sinks_ member inside AudioTrack)
+  webrtc::Mutex mutex_;
+  std::vector<std::weak_ptr<MediaStreamTrack>> media_stream_tracks_;
+  // We don't have additonal state in RtpReceiver and RtpSender atm..
+  // std::vector<std::weak_ptr<RtpReceiver>> rtp_receivers_;
+  // std::vector<std::weak_ptr<RtpSender>> rtp_senders_;
 
 #ifdef WEBRTC_WIN
   rtc::WinsockInitializer winsock_;

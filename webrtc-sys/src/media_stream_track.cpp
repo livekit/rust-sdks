@@ -35,19 +35,6 @@ MediaStreamTrack::MediaStreamTrack(
     rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track)
     : rtc_runtime_(std::move(rtc_runtime)), track_(std::move(track)) {}
 
-std::shared_ptr<MediaStreamTrack> MediaStreamTrack::from(
-    rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track) {
-  if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
-    return std::make_shared<VideoTrack>(
-        rtc::scoped_refptr<webrtc::VideoTrackInterface>(
-            static_cast<webrtc::VideoTrackInterface*>(track.get())));
-  } else {
-    return std::make_shared<AudioTrack>(
-        rtc::scoped_refptr<webrtc::AudioTrackInterface>(
-            static_cast<webrtc::AudioTrackInterface*>(track.get())));
-  }
-}
-
 rust::String MediaStreamTrack::kind() const {
   return track_->kind();
 }

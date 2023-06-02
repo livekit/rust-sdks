@@ -37,6 +37,13 @@ AudioTrack::AudioTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
                        rtc::scoped_refptr<webrtc::AudioTrackInterface> track)
     : MediaStreamTrack(std::move(rtc_runtime), std::move(track)) {}
 
+AudioTrack::~AudioTrack() {
+  webrtc::MutexLock lock(&mutex_);
+  for (auto& sink : sinks_) {
+    track()->RemoveSink(sink.get());
+  }
+}
+
 void AudioTrack::add_sink(const std::shared_ptr<NativeAudioSink>& sink) const {
   webrtc::MutexLock lock(&mutex_);
   track()->AddSink(sink.get());

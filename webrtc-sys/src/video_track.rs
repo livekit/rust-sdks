@@ -1,4 +1,6 @@
 use crate::impl_thread_safety;
+use crate::video_frame::ffi::VideoFrame;
+use cxx::UniquePtr;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -20,8 +22,10 @@ pub mod ffi {
 
     extern "C++" {
         include!("livekit/video_frame.h");
+        include!("livekit/media_stream_track.h");
 
         type VideoFrame = crate::video_frame::ffi::VideoFrame;
+        type MediaStreamTrack = crate::media_stream_track::ffi::MediaStreamTrack;
     }
 
     unsafe extern "C++" {
@@ -41,6 +45,10 @@ pub mod ffi {
 
         fn on_captured_frame(self: &VideoTrackSource, frame: &UniquePtr<VideoFrame>) -> bool;
         fn new_video_track_source() -> SharedPtr<VideoTrackSource>;
+
+        fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
+        fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;
+        fn _shared_video_track() -> SharedPtr<VideoTrack>;
     }
 
     extern "Rust" {

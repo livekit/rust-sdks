@@ -32,5 +32,4 @@ pub mod ffi {
     }
 }
 
-impl_thread_safety!(ffi::MediaStreamTrack, Send + Sync);
 impl_thread_safety!(ffi::MediaStream, Send + Sync);

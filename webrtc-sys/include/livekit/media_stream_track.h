@@ -36,9 +36,6 @@ class MediaStreamTrack {
                    rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
 
  public:
-  static std::shared_ptr<MediaStreamTrack> from(
-      rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
-
   rust::String kind() const;
   rust::String id() const;
 
@@ -47,7 +44,7 @@ class MediaStreamTrack {
 
   TrackState state() const;
 
-  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> get() const {
+  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> rtc_track() const {
     return track_;
   }
 

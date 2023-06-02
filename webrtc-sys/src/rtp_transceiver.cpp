@@ -34,6 +34,7 @@ webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
 }
 
 RtpTransceiver::RtpTransceiver(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver)
     : transceiver_(std::move(transceiver)) {}
 
@@ -48,11 +49,11 @@ rust::String RtpTransceiver::mid() const {
 }
 
 std::shared_ptr<RtpSender> RtpTransceiver::sender() const {
-  return std::make_shared<RtpSender>(transceiver_->sender());
+  return std::make_shared<RtpSender>(rtc_runtime_, transceiver_->sender());
 }
 
 std::shared_ptr<RtpReceiver> RtpTransceiver::receiver() const {
-  return std::make_shared<RtpReceiver>(transceiver_->receiver());
+  return std::make_shared<RtpReceiver>(rtc_runtime_, transceiver_->receiver());
 }
 
 bool RtpTransceiver::stopped() const {

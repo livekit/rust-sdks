@@ -34,7 +34,8 @@ namespace livekit {
 // TODO(theomonnom): FrameTransformer & FrameEncryptor interface
 class RtpSender {
  public:
-  explicit RtpSender(rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
+  RtpSender(std::shared_ptr<RtcRuntime> rtc_runtime,
+            rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
   bool set_track(std::shared_ptr<MediaStreamTrack> track) const;
 
@@ -56,9 +57,12 @@ class RtpSender {
 
   void set_parameters(RtpParameters params) const;
 
-  rtc::scoped_refptr<webrtc::RtpSenderInterface> get() const { return sender_; }
+  rtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const {
+    return sender_;
+  }
 
  private:
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
 };
 

@@ -39,9 +39,13 @@ class VideoTrackSource;
 namespace livekit {
 
 class VideoTrack : public MediaStreamTrack {
- public:
+ private:
+  friend RtcRuntime;
   VideoTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
              rtc::scoped_refptr<webrtc::VideoTrackInterface> track);
+
+ public:
+  ~VideoTrack();
 
   void add_sink(const std::shared_ptr<NativeVideoSink>& sink) const;
   void remove_sink(const std::shared_ptr<NativeVideoSink>& sink) const;

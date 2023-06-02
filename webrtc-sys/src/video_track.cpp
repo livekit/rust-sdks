@@ -38,6 +38,13 @@ VideoTrack::VideoTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
                        rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
     : MediaStreamTrack(std::move(rtc_runtime), std::move(track)) {}
 
+VideoTrack::~VideoTrack() {
+  webrtc::MutexLock lock(&mutex_);
+  for (auto& sink : sinks_) {
+    track()->RemoveSink(sink.get());
+  }
+}
+
 void VideoTrack::add_sink(const std::shared_ptr<NativeVideoSink>& sink) const {
   webrtc::MutexLock lock(&mutex_);
   track()->AddOrUpdateSink(sink.get(),

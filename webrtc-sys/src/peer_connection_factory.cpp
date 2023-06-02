@@ -16,6 +16,7 @@
 
 #include "livekit/peer_connection_factory.h"
 
+#include <memory>
 #include <utility>
 
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
@@ -134,15 +135,17 @@ std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
 std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
     rust::String label,
     std::shared_ptr<VideoTrackSource> source) const {
-  return std::make_shared<VideoTrack>(
-      peer_factory_->CreateVideoTrack(label.c_str(), source->get().get()));
+  return std::static_pointer_cast<VideoTrack>(
+      rtc_runtime_->get_or_create_media_stream_track(
+          peer_factory_->CreateVideoTrack(label.c_str(), source->get().get())));
 }
 
 std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
     rust::String label,
     std::shared_ptr<AudioTrackSource> source) const {
-  return std::make_shared<AudioTrack>(
-      peer_factory_->CreateAudioTrack(label.c_str(), source->get().get()));
+  return std::static_pointer_cast<AudioTrack>(
+      rtc_runtime_->get_or_create_media_stream_track(
+          peer_factory_->CreateAudioTrack(label.c_str(), source->get().get())));
 }
 
 RtpCapabilities PeerConnectionFactory::get_rtp_sender_capabilities(

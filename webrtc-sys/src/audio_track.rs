@@ -2,6 +2,12 @@ use crate::impl_thread_safety;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
+    extern "C++" {
+        include!("livekit/media_stream_track.h");
+
+        type MediaStreamTrack = crate::media_stream_track::ffi::MediaStreamTrack;
+    }
+
     unsafe extern "C++" {
         include!("livekit/audio_track.h");
 
@@ -21,6 +27,10 @@ pub mod ffi {
             nb_frames: usize,
         );
         fn new_audio_track_source() -> SharedPtr<AudioTrackSource>;
+
+        fn audio_to_media(track: SharedPtr<AudioTrack>) -> SharedPtr<MediaStreamTrack>;
+        fn media_to_audio(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<AudioTrack>;
+        fn _shared_audio_track() -> SharedPtr<AudioTrack>;
     }
 
     extern "Rust" {

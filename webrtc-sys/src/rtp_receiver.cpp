@@ -16,16 +16,19 @@
 
 #include "livekit/rtp_receiver.h"
 
+#include <memory>
+
 #include "absl/types/optional.h"
 
 namespace livekit {
 
 RtpReceiver::RtpReceiver(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
     : receiver_(std::move(receiver)) {}
 
 std::shared_ptr<MediaStreamTrack> RtpReceiver::track() const {
-  return MediaStreamTrack::from(receiver_->track());
+  return rtc_runtime_->get_or_create_media_stream_track(receiver_->track());
 }
 
 rust::Vec<rust::String> RtpReceiver::stream_ids() const {
@@ -38,7 +41,8 @@ rust::Vec<rust::String> RtpReceiver::stream_ids() const {
 rust::Vec<MediaStreamPtr> RtpReceiver::streams() const {
   rust::Vec<MediaStreamPtr> rust;
   for (auto stream : receiver_->streams())
-    rust.push_back(MediaStreamPtr{std::make_shared<MediaStream>(stream)});
+    rust.push_back(
+        MediaStreamPtr{std::make_shared<MediaStream>(rtc_runtime_, stream)});
   return rust;
 }
 

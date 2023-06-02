@@ -35,9 +35,13 @@ class AudioTrackSource;
 namespace livekit {
 
 class AudioTrack : public MediaStreamTrack {
- public:
+ private:
+  friend RtcRuntime;
   AudioTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
              rtc::scoped_refptr<webrtc::AudioTrackInterface> track);
+
+ public:
+  ~AudioTrack();
 
   void add_sink(const std::shared_ptr<NativeAudioSink>& sink) const;
   void remove_sink(const std::shared_ptr<NativeAudioSink>& sink) const;

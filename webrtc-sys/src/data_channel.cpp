@@ -49,7 +49,7 @@ DataChannel::DataChannel(
       data_channel_(std::move(data_channel)) {}
 
 void DataChannel::register_observer(
-    rust::Box<BoxDataChannelObserver> observer) const {
+    rust::Box<DataChannelObserverWrapper> observer) const {
   webrtc::MutexLock lock(&mutex_);
 
   data_channel_->UnregisterObserver();
@@ -83,7 +83,7 @@ void DataChannel::close() const {
 }
 
 NativeDataChannelObserver::NativeDataChannelObserver(
-    rust::Box<BoxDataChannelObserver> observer,
+    rust::Box<DataChannelObserverWrapper> observer,
     const DataChannel* dc)
     : observer_(std::move(observer)), dc_(dc) {}
 
