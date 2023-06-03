@@ -48,7 +48,7 @@ PeerConnection::PeerConnection(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     std::unique_ptr<NativePeerConnectionObserver> observer,
     rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
-    : rtc_runtime_(std::move(rtc_runtime)),
+    : rtc_runtime_(rtc_runtime),
       observer_(std::move(observer)),
       peer_connection_(std::move(peer_connection)) {}
 

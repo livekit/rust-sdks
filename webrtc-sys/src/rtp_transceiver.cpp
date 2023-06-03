@@ -36,7 +36,7 @@ webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
 RtpTransceiver::RtpTransceiver(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver)
-    : transceiver_(std::move(transceiver)) {}
+    : rtc_runtime_(rtc_runtime), transceiver_(std::move(transceiver)) {}
 
 MediaType RtpTransceiver::media_type() const {
   return static_cast<MediaType>(transceiver_->media_type());

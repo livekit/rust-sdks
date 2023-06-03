@@ -45,8 +45,7 @@ webrtc::DataChannelInit to_native_data_channel_init(DataChannelInit init) {
 DataChannel::DataChannel(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
-    : rtc_runtime_(std::move(rtc_runtime)),
-      data_channel_(std::move(data_channel)) {}
+    : rtc_runtime_(rtc_runtime), data_channel_(std::move(data_channel)) {}
 
 void DataChannel::register_observer(
     rust::Box<DataChannelObserverWrapper> observer) const {

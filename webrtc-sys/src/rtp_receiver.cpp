@@ -25,7 +25,7 @@ namespace livekit {
 RtpReceiver::RtpReceiver(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
-    : receiver_(std::move(receiver)) {}
+    : rtc_runtime_(rtc_runtime), receiver_(std::move(receiver)) {}
 
 std::shared_ptr<MediaStreamTrack> RtpReceiver::track() const {
   return rtc_runtime_->get_or_create_media_stream_track(receiver_->track());

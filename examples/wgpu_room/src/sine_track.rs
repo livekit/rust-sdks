@@ -98,15 +98,20 @@ impl SineTrack {
         Ok(())
     }
 
-    async fn track_task(_close_rx: oneshot::Receiver<()>, rtc_source: NativeAudioSource) {
+    async fn track_task(mut close_rx: oneshot::Receiver<()>, rtc_source: NativeAudioSource) {
         let mut data = FrameData::default();
         let mut interval = tokio::time::interval(Duration::from_millis(10));
         let mut samples_10ms = Vec::<i16>::new();
 
         loop {
-            const NUM_CHANNELS: usize = 2;
+            tokio::select! {
+                _ = &mut close_rx => {
+                    break;
+                }
+                _ = interval.tick() => {}
+            }
 
-            interval.tick().await;
+            const NUM_CHANNELS: usize = 2;
 
             let samples_count_10ms = (data.sample_rate / 100) as usize * NUM_CHANNELS;
 

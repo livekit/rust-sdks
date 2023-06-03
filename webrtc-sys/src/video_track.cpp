@@ -36,7 +36,7 @@ namespace livekit {
 
 VideoTrack::VideoTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
                        rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
-    : MediaStreamTrack(std::move(rtc_runtime), std::move(track)) {}
+    : MediaStreamTrack(rtc_runtime, std::move(track)) {}
 
 VideoTrack::~VideoTrack() {
   webrtc::MutexLock lock(&mutex_);

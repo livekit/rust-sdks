@@ -49,9 +49,9 @@ RtcRuntime::~RtcRuntime() {
   rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
   RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
 
-  worker_thread_->Stop();
-  signaling_thread_->Stop();
-  network_thread_->Stop();
+  worker_thread_->Quit();
+  signaling_thread_->Quit();
+  network_thread_->Quit();
 }
 
 rtc::Thread* RtcRuntime::network_thread() const {

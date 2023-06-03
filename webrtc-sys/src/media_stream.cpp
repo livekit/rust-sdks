@@ -34,7 +34,7 @@ namespace livekit {
 MediaStream::MediaStream(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
-    : rtc_runtime_(std::move(rtc_runtime)), media_stream_(std::move(stream)) {}
+    : rtc_runtime_(rtc_runtime), media_stream_(std::move(stream)) {}
 
 rust::String MediaStream::id() const {
   return media_stream_->id();

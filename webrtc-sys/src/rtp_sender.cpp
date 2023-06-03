@@ -20,7 +20,7 @@ namespace livekit {
 
 RtpSender::RtpSender(std::shared_ptr<RtcRuntime> rtc_runtime,
                      rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
-    : rtc_runtime_(std::move(rtc_runtime)), sender_(std::move(sender)) {}
+    : rtc_runtime_(rtc_runtime), sender_(std::move(sender)) {}
 
 bool RtpSender::set_track(std::shared_ptr<MediaStreamTrack> track) const {
   return sender_->SetTrack(track->rtc_track().get());
