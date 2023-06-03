@@ -1,10 +1,6 @@
 use crate::impl_thread_safety;
-use cxx::UniquePtr;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::mem::ManuallyDrop;
-
-use crate::rtc_error::ffi::RTCError;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -23,25 +19,10 @@ pub mod ffi {
         pub description: String,
     }
 
-    extern "Rust" {
-        type CreateSdpObserverWrapper;
-        fn on_success(
-            self: &CreateSdpObserverWrapper,
-            session_description: UniquePtr<SessionDescription>,
-        );
-        fn on_failure(self: &CreateSdpObserverWrapper, error: RTCError);
-
-        type SetLocalSdpObserverWrapper;
-        fn on_set_local_description_complete(self: &SetLocalSdpObserverWrapper, error: RTCError);
-
-        type SetRemoteSdpObserverWrapper;
-        fn on_set_remote_description_complete(self: &SetRemoteSdpObserverWrapper, error: RTCError);
-    }
-
     extern "C++" {
         include!("livekit/rtc_error.h");
 
-        type RTCError = crate::rtc_error::ffi::RTCError;
+        type RtcError = crate::rtc_error::ffi::RtcError;
     }
 
     unsafe extern "C++" {
@@ -49,9 +30,6 @@ pub mod ffi {
 
         type IceCandidate;
         type SessionDescription;
-        type NativeCreateSdpObserverHandle;
-        type NativeSetLocalSdpObserverHandle;
-        type NativeSetRemoteSdpObserverHandle;
 
         fn sdp_mid(self: &IceCandidate) -> String;
         fn sdp_mline_index(self: &IceCandidate) -> i32;
@@ -62,21 +40,12 @@ pub mod ffi {
         fn stringify(self: &SessionDescription) -> String;
         fn clone(self: &SessionDescription) -> UniquePtr<SessionDescription>;
 
-        fn create_native_create_sdp_observer(
-            observer: Box<CreateSdpObserverWrapper>,
-        ) -> UniquePtr<NativeCreateSdpObserverHandle>;
-        fn create_native_set_local_sdp_observer(
-            observer: Box<SetLocalSdpObserverWrapper>,
-        ) -> UniquePtr<NativeSetLocalSdpObserverHandle>;
-        fn create_native_set_remote_sdp_observer(
-            observer: Box<SetRemoteSdpObserverWrapper>,
-        ) -> UniquePtr<NativeSetRemoteSdpObserverHandle>;
-
         fn create_ice_candidate(
             sdp_mid: String,
             sdp_mline_index: i32,
             sdp: String,
         ) -> Result<SharedPtr<IceCandidate>>;
+
         fn create_session_description(
             sdp_type: SdpType,
             sdp: String,
@@ -112,51 +81,6 @@ impl ffi::SdpParseError {
         let description = String::from(&value[line_length..]);
 
         Self { line, description }
-    }
-}
-
-// CreateSdpObserver
-
-pub struct CreateSdpObserverWrapper {
-    pub on_success: ManuallyDrop<Box<dyn FnOnce(UniquePtr<ffi::SessionDescription>) + Send>>,
-    pub on_failure: ManuallyDrop<Box<dyn FnOnce(RTCError) + Send>>,
-}
-
-impl CreateSdpObserverWrapper {
-    fn on_success(&self, session_description: UniquePtr<ffi::SessionDescription>) {
-        unsafe {
-            std::ptr::read(&*self.on_success)(session_description);
-        }
-    }
-
-    fn on_failure(&self, error: RTCError) {
-        unsafe {
-            std::ptr::read(&*self.on_failure)(error);
-        }
-    }
-}
-
-// SetLocalSdpObserver
-
-pub struct SetLocalSdpObserverWrapper(pub ManuallyDrop<Box<dyn FnOnce(RTCError) + Send>>);
-
-impl SetLocalSdpObserverWrapper {
-    fn on_set_local_description_complete(&self, error: RTCError) {
-        unsafe {
-            std::ptr::read(&*self.0)(error);
-        }
-    }
-}
-
-// SetRemoteSdpObserver
-
-pub struct SetRemoteSdpObserverWrapper(pub ManuallyDrop<Box<dyn FnOnce(RTCError) + Send>>);
-
-impl SetRemoteSdpObserverWrapper {
-    fn on_set_remote_description_complete(&self, error: RTCError) {
-        unsafe {
-            std::ptr::read(&*self.0)(error);
-        }
     }
 }
 

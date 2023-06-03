@@ -24,33 +24,36 @@
 #include "rust/cxx.h"
 
 namespace livekit {
-class MediaStream;
+class MediaStreamTrack;
 }  // namespace livekit
-#include "webrtc-sys/src/media_stream.rs.h"
+#include "webrtc-sys/src/media_stream_track.rs.h"
 
 namespace livekit {
 
-class MediaStream {
+class MediaStreamTrack {
+ protected:
+  MediaStreamTrack(std::shared_ptr<RtcRuntime>,
+                   rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
+
  public:
-  MediaStream(std::shared_ptr<RtcRuntime> rtc_runtime,
-              rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
-
+  rust::String kind() const;
   rust::String id() const;
-  rust::Vec<VideoTrackPtr> get_video_tracks() const;
-  rust::Vec<AudioTrackPtr> get_audio_tracks() const;
 
-  std::shared_ptr<AudioTrack> find_audio_track(rust::String track_id) const;
-  std::shared_ptr<VideoTrack> find_video_track(rust::String track_id) const;
+  bool enabled() const;
+  bool set_enabled(bool enable) const;
 
-  bool add_track(std::shared_ptr<MediaStreamTrack> track) const;
-  bool remove_track(std::shared_ptr<MediaStreamTrack> track) const;
+  TrackState state() const;
 
- private:
+  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> rtc_track() const {
+    return track_;
+  }
+
+ protected:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;
+  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
 };
 
-static std::shared_ptr<MediaStream> _shared_media_stream() {
+static std::shared_ptr<MediaStreamTrack> _shared_media_stream_track() {
   return nullptr;  // Ignore
 }
 

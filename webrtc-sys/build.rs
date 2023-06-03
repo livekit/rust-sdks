@@ -136,6 +136,9 @@ fn main() {
         "src/peer_connection.rs",
         "src/peer_connection_factory.rs",
         "src/media_stream.rs",
+        "src/media_stream_track.rs",
+        "src/audio_track.rs",
+        "src/video_track.rs",
         "src/data_channel.rs",
         "src/jsep.rs",
         "src/candidate.rs",
@@ -150,13 +153,15 @@ fn main() {
         "src/yuv_helper.rs",
         "src/helper.rs",
         "src/audio_resampler.rs",
-        "src/logsink.rs",
     ]);
 
     builder.files(&[
         "src/peer_connection.cpp",
         "src/peer_connection_factory.cpp",
         "src/media_stream.cpp",
+        "src/media_stream_track.cpp",
+        "src/audio_track.cpp",
+        "src/video_track.cpp",
         "src/data_channel.cpp",
         "src/jsep.cpp",
         "src/candidate.cpp",
@@ -172,7 +177,6 @@ fn main() {
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",
         "src/audio_resampler.cpp",
-        "src/logsink.cpp",
     ]);
 
     for include in includes {

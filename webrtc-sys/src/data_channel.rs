@@ -1,5 +1,4 @@
 use crate::impl_thread_safety;
-use std::slice;
 use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
@@ -43,6 +42,22 @@ pub mod ffi {
         Closed,
     }
 
+    unsafe extern "C++" {
+        include!("livekit/data_channel.h");
+
+        type DataChannel;
+
+        fn register_observer(self: &DataChannel, observer: Box<DataChannelObserverWrapper>);
+        fn unregister_observer(self: &DataChannel);
+
+        fn send(self: &DataChannel, data: &DataBuffer) -> bool;
+        fn label(self: &DataChannel) -> String;
+        fn state(self: &DataChannel) -> DataState;
+        fn close(self: &DataChannel);
+
+        fn _shared_data_channel() -> SharedPtr<DataChannel>; // Ignore
+    }
+
     extern "Rust" {
         type DataChannelObserverWrapper;
 
@@ -50,38 +65,9 @@ pub mod ffi {
         fn on_message(self: &DataChannelObserverWrapper, buffer: DataBuffer);
         fn on_buffered_amount_change(self: &DataChannelObserverWrapper, sent_data_size: u64);
     }
-
-    unsafe extern "C++" {
-        include!("livekit/data_channel.h");
-
-        type DataChannel;
-        type NativeDataChannelInit;
-        type NativeDataChannelObserver;
-
-        /// SAFETY
-        /// The observer must live as long as the datachannel uses it
-        unsafe fn register_observer(self: &DataChannel, observer: *mut NativeDataChannelObserver);
-
-        fn unregister_observer(self: &DataChannel);
-        fn send(self: &DataChannel, data: &DataBuffer) -> bool;
-        fn label(self: &DataChannel) -> String;
-        fn state(self: &DataChannel) -> DataState;
-        fn close(self: &DataChannel);
-
-        fn create_data_channel_init(init: DataChannelInit) -> UniquePtr<NativeDataChannelInit>;
-        unsafe fn create_native_data_channel_observer(
-            observer: Box<DataChannelObserverWrapper>,
-            dc: *mut DataChannel,
-        ) -> SharedPtr<NativeDataChannelObserver>;
-
-        fn _shared_data_channel() -> SharedPtr<DataChannel>; // Ignore
-    }
 }
 
 impl_thread_safety!(ffi::DataChannel, Send + Sync);
-impl_thread_safety!(ffi::NativeDataChannelObserver, Send + Sync);
-
-// DataChannelObserver
 
 pub trait DataChannelObserver: Send + Sync {
     fn on_state_change(&self, state: ffi::DataState);
@@ -104,7 +90,7 @@ impl DataChannelObserverWrapper {
 
     fn on_message(&self, buffer: ffi::DataBuffer) {
         unsafe {
-            let data = slice::from_raw_parts(buffer.ptr, buffer.len);
+            let data = std::slice::from_raw_parts(buffer.ptr, buffer.len);
             self.observer.on_message(data, buffer.binary);
         }
     }

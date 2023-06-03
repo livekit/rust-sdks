@@ -1,7 +1,7 @@
 use super::TrackInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
-use livekit_webrtc as rtc;
+use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -22,17 +22,13 @@ impl Debug for RemoteAudioTrack {
 }
 
 impl RemoteAudioTrack {
-    pub(crate) fn new(
-        sid: TrackSid,
-        name: String,
-        rtc_track: rtc::media_stream::RtcAudioTrack,
-    ) -> Self {
+    pub(crate) fn new(sid: TrackSid, name: String, rtc_track: RtcAudioTrack) -> Self {
         Self {
             inner: Arc::new(TrackInner::new(
                 sid,
                 name,
                 TrackKind::Audio,
-                rtc::media_stream::MediaStreamTrack::Audio(rtc_track),
+                MediaStreamTrack::Audio(rtc_track),
             )),
         }
     }
@@ -83,12 +79,11 @@ impl RemoteAudioTrack {
     }
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::RtcAudioTrack {
-        if let rtc::media_stream::MediaStreamTrack::Audio(audio) = self.inner.rtc_track() {
-            audio
-        } else {
-            unreachable!()
+    pub fn rtc_track(&self) -> RtcAudioTrack {
+        if let MediaStreamTrack::Audio(audio) = self.inner.rtc_track() {
+            return audio;
         }
+        unreachable!()
     }
 
     #[inline]
@@ -103,16 +98,13 @@ impl RemoteAudioTrack {
 
     #[allow(dead_code)]
     #[inline]
-    pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+    pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
         self.inner.transceiver()
     }
 
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn update_transceiver(
-        &self,
-        transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>,
-    ) {
+    pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
         self.inner.update_transceiver(transceiver)
     }
 

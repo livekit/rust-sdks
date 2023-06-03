@@ -16,13 +16,20 @@
 
 #include "livekit/webrtc.h"
 
+#include <memory>
+
+#include "livekit/audio_track.h"
+#include "livekit/media_stream_track.h"
+#include "livekit/rtp_receiver.h"
+#include "livekit/rtp_sender.h"
+#include "livekit/video_track.h"
 #include "rtc_base/helpers.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/synchronization/mutex.h"
 
 namespace livekit {
-RTCRuntime::RTCRuntime() {
-  // rtc::LogMessage::LogToDebug(rtc::LS_INFO);
-  RTC_LOG(LS_INFO) << "RTCRuntime()";
+RtcRuntime::RtcRuntime() {
+  RTC_LOG(LS_INFO) << "RtcRuntime()";
   RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
 
   network_thread_ = rtc::Thread::CreateWithSocketServer();
@@ -36,34 +43,99 @@ RTCRuntime::RTCRuntime() {
   signaling_thread_->Start();
 }
 
-RTCRuntime::~RTCRuntime() {
-  RTC_LOG(LS_INFO) << "~RTCRuntime()";
+RtcRuntime::~RtcRuntime() {
+  RTC_LOG(LS_INFO) << "~RtcRuntime()";
 
   rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
   RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
 
-  worker_thread_->Stop();
-  signaling_thread_->Stop();
-  network_thread_->Stop();
+  worker_thread_->Quit();
+  signaling_thread_->Quit();
+  network_thread_->Quit();
 }
 
-rtc::Thread* RTCRuntime::network_thread() const {
+rtc::Thread* RtcRuntime::network_thread() const {
   return network_thread_.get();
 }
 
-rtc::Thread* RTCRuntime::worker_thread() const {
+rtc::Thread* RtcRuntime::worker_thread() const {
   return worker_thread_.get();
 }
 
-rtc::Thread* RTCRuntime::signaling_thread() const {
+rtc::Thread* RtcRuntime::signaling_thread() const {
   return signaling_thread_.get();
+}
+
+std::shared_ptr<MediaStreamTrack> RtcRuntime::get_or_create_media_stream_track(
+    rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> rtc_track) {
+  webrtc::MutexLock lock(&mutex_);
+  for (std::weak_ptr<MediaStreamTrack> weak_existing_track :
+       media_stream_tracks_) {
+    if (std::shared_ptr<MediaStreamTrack> existing_track =
+            weak_existing_track.lock()) {
+      if (existing_track->rtc_track() == rtc_track) {
+        return existing_track;
+      }
+    }
+  }
+
+  if (rtc_track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+    std::shared_ptr<VideoTrack> video_track =
+        std::shared_ptr<VideoTrack>(new VideoTrack(
+            shared_from_this(),
+            rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+                static_cast<webrtc::VideoTrackInterface*>(rtc_track.get()))));
+
+    media_stream_tracks_.push_back(
+        std::static_pointer_cast<MediaStreamTrack>(video_track));
+    return video_track;
+  } else {
+    std::shared_ptr<AudioTrack> audio_track =
+        std::shared_ptr<AudioTrack>(new AudioTrack(
+            shared_from_this(),
+            rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+                static_cast<webrtc::AudioTrackInterface*>(rtc_track.get()))));
+
+    media_stream_tracks_.push_back(
+        std::static_pointer_cast<MediaStreamTrack>(audio_track));
+    return audio_track;
+  }
+}
+
+std::shared_ptr<AudioTrack> RtcRuntime::get_or_create_audio_track(
+    rtc::scoped_refptr<webrtc::AudioTrackInterface> track) {
+  return std::static_pointer_cast<AudioTrack>(
+      get_or_create_media_stream_track(track));
+}
+
+std::shared_ptr<VideoTrack> RtcRuntime::get_or_create_video_track(
+    rtc::scoped_refptr<webrtc::VideoTrackInterface> track) {
+  return std::static_pointer_cast<VideoTrack>(
+      get_or_create_media_stream_track(track));
+}
+
+LogSink::LogSink(
+    rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc)
+    : fnc_(fnc) {
+  rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
+}
+
+LogSink::~LogSink() {
+  rtc::LogMessage::RemoveLogToStream(this);
+}
+
+void LogSink::OnLogMessage(const std::string& message,
+                           rtc::LoggingSeverity severity) {
+  fnc_(rust::String(message), static_cast<LoggingSeverity>(severity));
+}
+
+std::unique_ptr<LogSink> new_log_sink(
+    rust::Fn<void(rust::String, LoggingSeverity)> fnc) {
+  return std::make_unique<LogSink>(fnc);
 }
 
 rust::String create_random_uuid() {
   return rtc::CreateRandomUuid();
 }
 
-std::shared_ptr<RTCRuntime> create_rtc_runtime() {
-  return std::make_shared<RTCRuntime>();
-}
 }  // namespace livekit

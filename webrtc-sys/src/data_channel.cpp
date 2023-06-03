@@ -18,22 +18,50 @@
 
 #include <utility>
 
+#include "rtc_base/synchronization/mutex.h"
 #include "webrtc-sys/src/data_channel.rs.h"
 
 namespace livekit {
 
-DataChannel::DataChannel(
-    std::shared_ptr<RTCRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
-    : rtc_runtime_(std::move(rtc_runtime)),
-      data_channel_(std::move(data_channel)) {}
+webrtc::DataChannelInit to_native_data_channel_init(DataChannelInit init) {
+  webrtc::DataChannelInit rtc_init{};
+  rtc_init.id = init.id;
+  rtc_init.negotiated = init.negotiated;
+  rtc_init.ordered = init.ordered;
+  rtc_init.protocol = init.protocol.c_str();
 
-void DataChannel::register_observer(NativeDataChannelObserver* observer) const {
-  data_channel_->RegisterObserver(observer);
+  if (init.has_max_retransmit_time)
+    rtc_init.maxRetransmitTime = init.max_retransmit_time;
+
+  if (init.has_max_retransmits)
+    rtc_init.maxRetransmits = init.max_retransmits;
+
+  if (init.has_priority)
+    rtc_init.priority = static_cast<webrtc::Priority>(init.priority);
+
+  return rtc_init;
+}
+
+DataChannel::DataChannel(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
+    rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
+    : rtc_runtime_(rtc_runtime), data_channel_(std::move(data_channel)) {}
+
+void DataChannel::register_observer(
+    rust::Box<DataChannelObserverWrapper> observer) const {
+  webrtc::MutexLock lock(&mutex_);
+
+  data_channel_->UnregisterObserver();
+
+  observer_ =
+      std::make_unique<NativeDataChannelObserver>(std::move(observer), this);
+  data_channel_->RegisterObserver(observer_.get());
 }
 
 void DataChannel::unregister_observer() const {
+  webrtc::MutexLock lock(&mutex_);
   data_channel_->UnregisterObserver();
+  observer_ = nullptr;
 }
 
 bool DataChannel::send(const DataBuffer& buffer) const {
@@ -53,29 +81,9 @@ void DataChannel::close() const {
   return data_channel_->Close();
 }
 
-std::unique_ptr<NativeDataChannelInit> create_data_channel_init(
-    DataChannelInit init) {
-  auto rtc_init = std::make_unique<webrtc::DataChannelInit>();
-  rtc_init->id = init.id;
-  rtc_init->negotiated = init.negotiated;
-  rtc_init->ordered = init.ordered;
-  rtc_init->protocol = init.protocol.c_str();
-
-  if (init.has_max_retransmit_time)
-    rtc_init->maxRetransmitTime = init.max_retransmit_time;
-
-  if (init.has_max_retransmits)
-    rtc_init->maxRetransmits = init.max_retransmits;
-
-  if (init.has_priority)
-    rtc_init->priority = static_cast<webrtc::Priority>(init.priority);
-
-  return rtc_init;
-}
-
 NativeDataChannelObserver::NativeDataChannelObserver(
     rust::Box<DataChannelObserverWrapper> observer,
-    DataChannel* dc)
+    const DataChannel* dc)
     : observer_(std::move(observer)), dc_(dc) {}
 
 NativeDataChannelObserver::~NativeDataChannelObserver() {
@@ -99,9 +107,4 @@ void NativeDataChannelObserver::OnBufferedAmountChange(
   observer_->on_buffered_amount_change(sent_data_size);
 }
 
-std::shared_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
-    rust::Box<DataChannelObserverWrapper> observer,
-    DataChannel* dc) {
-  return std::make_shared<NativeDataChannelObserver>(std::move(observer), dc);
-}
 }  // namespace livekit

@@ -39,30 +39,21 @@ impl From<DataChannelInit> for sys_dc::ffi::DataChannelInit {
 
 #[derive(Clone)]
 pub struct DataChannel {
-    #[allow(dead_code)]
-    native_observer: SharedPtr<sys_dc::ffi::NativeDataChannelObserver>,
     observer: Arc<DataChannelObserver>,
-
     pub(crate) sys_handle: SharedPtr<sys_dc::ffi::DataChannel>,
 }
 
 impl DataChannel {
     pub fn configure(sys_handle: SharedPtr<sys_dc::ffi::DataChannel>) -> Self {
-        unsafe {
-            let observer = Arc::new(DataChannelObserver::default());
-            let dc = Self {
-                sys_handle: sys_handle.clone(),
-                native_observer: sys_dc::ffi::create_native_data_channel_observer(
-                    Box::new(sys_dc::DataChannelObserverWrapper::new(observer.clone())),
-                    &*sys_handle as *const _ as *mut _,
-                ),
-                observer,
-            };
+        let observer = Arc::new(DataChannelObserver::default());
+        let dc = Self {
+            sys_handle: sys_handle.clone(),
+            observer: observer.clone(),
+        };
 
-            dc.sys_handle
-                .register_observer(&*dc.native_observer as *const _ as *mut _);
-            dc
-        }
+        dc.sys_handle
+            .register_observer(Box::new(sys_dc::DataChannelObserverWrapper::new(observer)));
+        dc
     }
 
     pub fn send(&self, data: &[u8], binary: bool) -> Result<(), DataChannelError> {

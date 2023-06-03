@@ -17,27 +17,31 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 
 #include "api/data_channel_interface.h"
 #include "livekit/webrtc.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
 
 namespace livekit {
 class DataChannel;
-using NativeDataChannelInit = webrtc::DataChannelInit;
-class NativeDataChannelObserver;
 }  // namespace livekit
 #include "webrtc-sys/src/data_channel.rs.h"
 
 namespace livekit {
 
+class NativeDataChannelObserver;
+
+webrtc::DataChannelInit to_native_data_channel_init(DataChannelInit init);
+
 class DataChannel {
  public:
   explicit DataChannel(
-      std::shared_ptr<RTCRuntime> rtc_runtime,
+      std::shared_ptr<RtcRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel);
 
-  void register_observer(NativeDataChannelObserver* observer) const;
+  void register_observer(rust::Box<DataChannelObserverWrapper> observer) const;
   void unregister_observer() const;
   bool send(const DataBuffer& buffer) const;
   rust::String label() const;
@@ -45,12 +49,11 @@ class DataChannel {
   void close() const;
 
  private:
-  std::shared_ptr<RTCRuntime> rtc_runtime_;
+  mutable webrtc::Mutex mutex_;
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel_;
+  mutable std::unique_ptr<NativeDataChannelObserver> observer_;
 };
-
-std::unique_ptr<NativeDataChannelInit> create_data_channel_init(
-    DataChannelInit init);
 
 static std::shared_ptr<DataChannel> _shared_data_channel() {
   return nullptr;  // Ignore
@@ -58,9 +61,8 @@ static std::shared_ptr<DataChannel> _shared_data_channel() {
 
 class NativeDataChannelObserver : public webrtc::DataChannelObserver {
  public:
-  explicit NativeDataChannelObserver(
-      rust::Box<DataChannelObserverWrapper> observer,
-      DataChannel* dc);
+  NativeDataChannelObserver(rust::Box<DataChannelObserverWrapper> observer,
+                            const DataChannel* dc);
 
   ~NativeDataChannelObserver();
 
@@ -70,10 +72,7 @@ class NativeDataChannelObserver : public webrtc::DataChannelObserver {
 
  private:
   rust::Box<DataChannelObserverWrapper> observer_;
-  DataChannel* dc_;
+  const DataChannel* dc_;
 };
 
-std::shared_ptr<NativeDataChannelObserver> create_native_data_channel_observer(
-    rust::Box<DataChannelObserverWrapper> observer,
-    DataChannel* dc);
 }  // namespace livekit

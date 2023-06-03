@@ -4,7 +4,7 @@ use crate::imp::audio_stream as stream_imp;
 pub mod native {
     use super::stream_imp;
     use crate::audio_frame::AudioFrame;
-    use crate::media_stream::RtcAudioTrack;
+    use crate::audio_track::RtcAudioTrack;
     use futures::stream::Stream;
     use std::fmt::{Debug, Formatter};
     use std::pin::Pin;

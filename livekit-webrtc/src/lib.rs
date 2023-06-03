@@ -29,9 +29,11 @@ pub struct RtcError {
 pub mod audio_frame;
 pub mod audio_source;
 pub mod audio_stream;
+pub mod audio_track;
 pub mod data_channel;
 pub mod ice_candidate;
 pub mod media_stream;
+pub mod media_stream_track;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod prelude;
@@ -43,6 +45,7 @@ pub mod session_description;
 pub mod video_frame;
 pub mod video_source;
 pub mod video_stream;
+pub mod video_track;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {

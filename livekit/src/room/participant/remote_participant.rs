@@ -2,9 +2,8 @@ use super::{ConnectionQuality, ParticipantInner};
 use crate::prelude::*;
 use crate::track::TrackError;
 use livekit_protocol as proto;
-use livekit_webrtc as rtc;
+use livekit_webrtc::prelude::*;
 use parking_lot::RwLockReadGuard;
-use rtc::prelude::MediaStreamTrack;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -67,7 +66,7 @@ impl RemoteParticipant {
     pub(crate) async fn add_subscribed_media_track(
         &self,
         sid: TrackSid,
-        media_track: rtc::media_stream::MediaStreamTrack,
+        media_track: MediaStreamTrack,
     ) {
         let wait_publication = {
             let participant = self.clone();

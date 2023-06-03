@@ -1,10 +1,11 @@
 pub mod audio_resampler;
+pub mod audio_track;
 pub mod candidate;
 pub mod data_channel;
 pub mod helper;
 pub mod jsep;
-pub mod logsink;
 pub mod media_stream;
+pub mod media_stream_track;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod rtc_error;
@@ -14,6 +15,7 @@ pub mod rtp_sender;
 pub mod rtp_transceiver;
 pub mod video_frame;
 pub mod video_frame_buffer;
+pub mod video_track;
 pub mod webrtc;
 pub mod yuv_helper;
 
