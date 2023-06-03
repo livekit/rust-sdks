@@ -1,6 +1,7 @@
 use crate::impl_thread_safety;
 use crate::video_frame::ffi::VideoFrame;
 use cxx::UniquePtr;
+use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -47,7 +48,7 @@ pub mod ffi {
         fn new_video_track_source() -> SharedPtr<VideoTrackSource>;
 
         fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
-        fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;
+        unsafe fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;
         fn _shared_video_track() -> SharedPtr<VideoTrack>;
     }
 
@@ -74,11 +75,11 @@ pub trait VideoSink: Send {
 }
 
 pub struct VideoSinkWrapper {
-    observer: Box<dyn VideoSink>,
+    observer: Arc<dyn VideoSink>,
 }
 
 impl VideoSinkWrapper {
-    pub fn new(observer: Box<dyn VideoSink>) -> Self {
+    pub fn new(observer: Arc<dyn VideoSink>) -> Self {
         Self { observer }
     }
 

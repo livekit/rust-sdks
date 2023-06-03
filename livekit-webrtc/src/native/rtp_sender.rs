@@ -1,9 +1,8 @@
-use super::media_stream::new_media_stream_track;
-use crate::{
-    media_stream::MediaStreamTrack, rtp_parameters::RtpParameters, RtcError, RtcErrorType,
-};
+use super::media_stream_track::new_media_stream_track;
+use crate::media_stream_track::MediaStreamTrack;
+use crate::{rtp_parameters::RtpParameters, RtcError, RtcErrorType};
 use cxx::SharedPtr;
-use webrtc_sys::{rtc_error::ffi::RtcError, rtp_sender as sys_rs};
+use webrtc_sys::rtp_sender as sys_rs;
 
 #[derive(Clone)]
 pub struct RtpSender {

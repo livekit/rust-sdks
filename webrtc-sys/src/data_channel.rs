@@ -1,5 +1,5 @@
 use crate::impl_thread_safety;
-use std::slice;
+use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -76,11 +76,11 @@ pub trait DataChannelObserver: Send + Sync {
 }
 
 pub struct DataChannelObserverWrapper {
-    observer: Box<dyn DataChannelObserver>,
+    observer: Arc<dyn DataChannelObserver>,
 }
 
 impl DataChannelObserverWrapper {
-    pub fn new(observer: Box<dyn DataChannelObserver>) -> Self {
+    pub fn new(observer: Arc<dyn DataChannelObserver>) -> Self {
         Self { observer }
     }
 
@@ -90,7 +90,7 @@ impl DataChannelObserverWrapper {
 
     fn on_message(&self, buffer: ffi::DataBuffer) {
         unsafe {
-            let data = slice::from_raw_parts(buffer.ptr, buffer.len);
+            let data = std::slice::from_raw_parts(buffer.ptr, buffer.len);
             self.observer.on_message(data, buffer.binary);
         }
     }

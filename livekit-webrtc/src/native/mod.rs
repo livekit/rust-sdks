@@ -1,9 +1,11 @@
 pub mod audio_resampler;
 pub mod audio_source;
 pub mod audio_stream;
+pub mod audio_track;
 pub mod data_channel;
 pub mod ice_candidate;
 pub mod media_stream;
+pub mod media_stream_track;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod rtp_parameters;
@@ -14,6 +16,7 @@ pub mod session_description;
 pub mod video_frame;
 pub mod video_source;
 pub mod video_stream;
+pub mod video_track;
 pub mod yuv_helper;
 
 use crate::MediaType;

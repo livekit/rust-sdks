@@ -1,7 +1,8 @@
 use std::fmt::Debug;
 
 use crate::{
-    imp::rtp_receiver as imp_rr, media_stream::MediaStreamTrack, rtp_parameters::RtpParameters,
+    imp::rtp_receiver as imp_rr, media_stream_track::MediaStreamTrack,
+    rtp_parameters::RtpParameters,
 };
 
 #[derive(Clone)]

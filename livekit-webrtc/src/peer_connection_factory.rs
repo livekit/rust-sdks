@@ -74,8 +74,9 @@ impl PeerConnectionFactory {
 pub mod native {
     use super::PeerConnectionFactory;
     use crate::audio_source::native::NativeAudioSource;
-    use crate::media_stream::{RtcAudioTrack, RtcVideoTrack};
+    use crate::audio_track::RtcAudioTrack;
     use crate::video_source::native::NativeVideoSource;
+    use crate::video_track::RtcVideoTrack;
 
     pub trait PeerConnectionFactoryExt {
         fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;

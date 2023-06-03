@@ -1,5 +1,6 @@
-use super::media_stream::new_media_stream_track;
-use crate::{media_stream::MediaStreamTrack, rtp_parameters::RtpParameters};
+use crate::imp::media_stream_track::new_media_stream_track;
+use crate::media_stream_track::MediaStreamTrack;
+use crate::rtp_parameters::RtpParameters;
 use cxx::SharedPtr;
 use webrtc_sys::rtp_receiver as sys_rr;
 

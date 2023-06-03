@@ -2,11 +2,11 @@ use crate::audio_frame::AudioFrame;
 use cxx::SharedPtr;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use webrtc_sys::media_stream as sys_ms;
+use webrtc_sys::audio_track as sys_at;
 
 #[derive(Clone)]
 pub struct NativeAudioSource {
-    sys_handle: SharedPtr<sys_ms::ffi::AudioTrackSource>,
+    sys_handle: SharedPtr<sys_at::ffi::AudioTrackSource>,
     inner: Arc<Mutex<AudioSourceInner>>,
 }
 
@@ -21,14 +21,14 @@ struct AudioSourceInner {
 impl Default for NativeAudioSource {
     fn default() -> Self {
         Self {
-            sys_handle: sys_ms::ffi::new_audio_track_source(),
+            sys_handle: sys_at::ffi::new_audio_track_source(),
             inner: Default::default(),
         }
     }
 }
 
 impl NativeAudioSource {
-    pub fn sys_handle(&self) -> SharedPtr<sys_ms::ffi::AudioTrackSource> {
+    pub fn sys_handle(&self) -> SharedPtr<sys_at::ffi::AudioTrackSource> {
         self.sys_handle.clone()
     }
 
@@ -70,14 +70,12 @@ impl NativeAudioSource {
                 &frame.data[i..i + samples_10ms]
             };
 
-            unsafe {
-                self.sys_handle.on_captured_frame(
-                    data.as_ptr(),
-                    frame.sample_rate as i32,
-                    frame.num_channels as usize,
-                    samples_10ms / frame.num_channels as usize,
-                )
-            }
+            self.sys_handle.on_captured_frame(
+                data,
+                frame.sample_rate as i32,
+                frame.num_channels as usize,
+                samples_10ms / frame.num_channels as usize,
+            );
 
             i += needed_data;
         }

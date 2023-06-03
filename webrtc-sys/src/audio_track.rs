@@ -1,4 +1,5 @@
 use crate::impl_thread_safety;
+use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -29,7 +30,7 @@ pub mod ffi {
         fn new_audio_track_source() -> SharedPtr<AudioTrackSource>;
 
         fn audio_to_media(track: SharedPtr<AudioTrack>) -> SharedPtr<MediaStreamTrack>;
-        fn media_to_audio(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<AudioTrack>;
+        unsafe fn media_to_audio(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<AudioTrack>;
         fn _shared_audio_track() -> SharedPtr<AudioTrack>;
     }
 
@@ -55,11 +56,11 @@ pub trait AudioSink: Send {
 }
 
 pub struct AudioSinkWrapper {
-    observer: Box<dyn AudioSink>,
+    observer: Arc<dyn AudioSink>,
 }
 
 impl AudioSinkWrapper {
-    pub fn new(observer: Box<dyn AudioSink>) -> Self {
+    pub fn new(observer: Arc<dyn AudioSink>) -> Self {
         Self { observer }
     }
 

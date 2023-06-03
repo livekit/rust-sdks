@@ -19,14 +19,12 @@ use webrtc_sys::logsink as sys_ls;
 use webrtc_sys::peer_connection as sys_pc;
 use webrtc_sys::peer_connection_factory as sys_pcf;
 use webrtc_sys::rtc_error as sys_err;
-use webrtc_sys::webrtc as sys_webrtc;
 
 lazy_static! {
     static ref RTC_RUNTIME: Mutex<Weak<RtcRuntime>> = Mutex::new(Weak::new());
 }
 
 pub struct RtcRuntime {
-    pub(crate) sys_handle: SharedPtr<sys_webrtc::ffi::RtcRuntime>,
     _logsink: UniquePtr<sys_ls::ffi::LogSink>,
 }
 
@@ -38,7 +36,6 @@ impl RtcRuntime {
         } else {
             log::trace!("RtcRuntime::new()");
             let new_runtime = Arc::new(Self {
-                sys_handle: sys_webrtc::ffi::create_rtc_runtime(),
                 _logsink: sys_ls::ffi::new_log_sink(|msg, severity| {
                     // Forward logs from webrtc to rust log crate
                     let msg = msg
@@ -154,9 +151,9 @@ impl PeerConnectionFactory {
 }
 
 // Conversions
-impl From<IceServer> for sys_pcf::ffi::ICEServer {
+impl From<IceServer> for sys_pcf::ffi::IceServer {
     fn from(value: IceServer) -> Self {
-        sys_pcf::ffi::ICEServer {
+        sys_pcf::ffi::IceServer {
             urls: value.urls,
             username: value.username,
             password: value.password,
@@ -188,7 +185,7 @@ impl From<IceTransportsType> for sys_pcf::ffi::IceTransportsType {
     }
 }
 
-impl From<RtcConfiguration> for sys_pcf::ffi::RTCConfiguration {
+impl From<RtcConfiguration> for sys_pcf::ffi::RtcConfiguration {
     fn from(value: RtcConfiguration) -> Self {
         Self {
             ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),

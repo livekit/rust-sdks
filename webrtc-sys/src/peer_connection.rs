@@ -6,6 +6,7 @@ use crate::media_stream::ffi::MediaStream;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
 use cxx::SharedPtr;
+use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -297,11 +298,11 @@ pub trait PeerConnectionObserver: Send + Sync {
 // Wrapper for PeerConnectionObserver because cxx doesn't support dyn Trait on c++
 // https://github.com/dtolnay/cxx/issues/665
 pub struct PeerConnectionObserverWrapper {
-    observer: Box<dyn PeerConnectionObserver>,
+    observer: Arc<dyn PeerConnectionObserver>,
 }
 
 impl PeerConnectionObserverWrapper {
-    pub fn new(observer: Box<dyn PeerConnectionObserver>) -> Box<Self> {
+    pub fn new(observer: Arc<dyn PeerConnectionObserver>) -> Box<Self> {
         Box::new(Self { observer })
     }
 
