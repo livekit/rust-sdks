@@ -183,7 +183,7 @@ pub mod ffi {
     }
 
     extern "C++" {
-        include!("webrtc-sys/src/webrtc.rs.h");
+        include!("livekit/webrtc.h");
 
         type Priority = crate::webrtc::ffi::Priority;
         type MediaType = crate::webrtc::ffi::MediaType;

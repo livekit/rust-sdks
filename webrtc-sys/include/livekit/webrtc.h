@@ -22,6 +22,7 @@
 #include "api/rtp_receiver_interface.h"
 #include "api/rtp_sender_interface.h"
 #include "livekit/helper.h"
+#include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rust/cxx.h"
@@ -32,7 +33,8 @@
 
 namespace livekit {
 class RtcRuntime;
-}
+class LogSink;
+}  // namespace livekit
 #include "webrtc-sys/src/webrtc.rs.h"
 
 namespace livekit {
@@ -41,7 +43,7 @@ class MediaStreamTrack;
 class RtpReceiver;
 class RtpSender;
 
-// Using a shared_ptr in RtcRuntine allows us to keep a strong reference to it
+// Using a shared_ptr in RtcRuntime allows us to keep a strong reference to it
 // on resources that depend on it. (e.g: AudioTrack, VideoTrack).
 class RtcRuntime : public std::enable_shared_from_this<RtcRuntime> {
  public:
@@ -90,6 +92,22 @@ class RtcRuntime : public std::enable_shared_from_this<RtcRuntime> {
   rtc::AutoSocketServerThread main_thread_{&ss_};
 #endif
 };
+
+class LogSink : public rtc::LogSink {
+ public:
+  LogSink(rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc);
+  ~LogSink();
+
+  void OnLogMessage(const std::string& message,
+                    rtc::LoggingSeverity severity) override;
+  void OnLogMessage(const std::string& message) override {}
+
+ private:
+  rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc_;
+};
+
+std::unique_ptr<LogSink> new_log_sink(
+    rust::Fn<void(rust::String, LoggingSeverity)> fnc);
 
 rust::String create_random_uuid();
 

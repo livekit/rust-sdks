@@ -4,7 +4,6 @@ pub mod candidate;
 pub mod data_channel;
 pub mod helper;
 pub mod jsep;
-pub mod logsink;
 pub mod media_stream;
 pub mod media_stream_track;
 pub mod peer_connection;

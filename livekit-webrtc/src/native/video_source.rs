@@ -22,9 +22,12 @@ impl NativeVideoSource {
     }
 
     pub fn capture_frame<T: AsRef<dyn VideoFrameBuffer>>(&self, frame: &VideoFrame<T>) {
-        let mut builder = vf_sys::ffi::new_video_frame_builder().pin_mut();
-        builder.set_rotation(frame.rotation.into());
-        builder.set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
-        self.sys_handle.on_captured_frame(&builder.build());
+        let mut builder = vf_sys::ffi::new_video_frame_builder();
+        builder.pin_mut().set_rotation(frame.rotation.into());
+        builder
+            .pin_mut()
+            .set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
+        self.sys_handle
+            .on_captured_frame(&builder.pin_mut().build());
     }
 }

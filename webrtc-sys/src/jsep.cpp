@@ -111,37 +111,42 @@ std::unique_ptr<SessionDescription> create_session_description(
 }
 
 NativeCreateSdpObserver::NativeCreateSdpObserver(
-    rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
-    rust::Fn<void(RtcError)> on_error)
-    : on_success_(on_success), on_error_(on_error) {}
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, std::unique_ptr<SessionDescription>)>
+        on_success,
+    rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error)
+    : ctx_(std::move(ctx)), on_success_(on_success), on_error_(on_error) {}
 
 void NativeCreateSdpObserver::OnSuccess(
     webrtc::SessionDescriptionInterface* desc) {
   // We have ownership of desc
-  on_success_(std::make_unique<SessionDescription>(
-      std::unique_ptr<webrtc::SessionDescriptionInterface>(desc)));
+  on_success_(std::move(ctx_),
+              std::make_unique<SessionDescription>(
+                  std::unique_ptr<webrtc::SessionDescriptionInterface>(desc)));
 }
 
 void NativeCreateSdpObserver::OnFailure(webrtc::RTCError error) {
-  on_error_(to_error(error));
+  on_error_(std::move(ctx_), to_error(error));
 }
 
 NativeSetLocalSdpObserver::NativeSetLocalSdpObserver(
-    rust::Fn<void(RtcError)> on_complete)
-    : on_complete_(on_complete) {}
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete)
+    : ctx_(std::move(ctx)), on_complete_(on_complete) {}
 
 void NativeSetLocalSdpObserver::OnSetLocalDescriptionComplete(
     webrtc::RTCError error) {
-  on_complete_(to_error(error));
+  on_complete_(std::move(ctx_), to_error(error));
 }
 
 NativeSetRemoteSdpObserver::NativeSetRemoteSdpObserver(
-    rust::Fn<void(RtcError)> on_complete)
-    : on_complete_(on_complete) {}
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete)
+    : ctx_(std::move(ctx)), on_complete_(on_complete) {}
 
 void NativeSetRemoteSdpObserver::OnSetRemoteDescriptionComplete(
     webrtc::RTCError error) {
-  on_complete_(to_error(error));
+  on_complete_(std::move(ctx_), to_error(error));
 }
 
 }  // namespace livekit

@@ -33,6 +33,8 @@ class SessionDescription;
 
 namespace livekit {
 
+class AsyncContext;
+
 class IceCandidate {
  public:
   explicit IceCandidate(
@@ -84,37 +86,47 @@ class NativeCreateSdpObserver
     : public webrtc::CreateSessionDescriptionObserver {
  public:
   NativeCreateSdpObserver(
-      rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
-      rust::Fn<void(RtcError)> on_error);
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext> ctx,
+                    std::unique_ptr<SessionDescription>)> on_success,
+      rust::Fn<void(rust::Box<AsyncContext> ctx, RtcError)> on_error);
 
   void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
   void OnFailure(webrtc::RTCError error) override;
 
  private:
-  rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success_;
-  rust::Fn<void(RtcError)> on_error_;
+  rust::Box<AsyncContext> ctx_;
+  rust::Fn<void(rust::Box<AsyncContext>, std::unique_ptr<SessionDescription>)>
+      on_success_;
+  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error_;
 };
 
 class NativeSetLocalSdpObserver
     : public webrtc::SetLocalDescriptionObserverInterface {
  public:
-  explicit NativeSetLocalSdpObserver(rust::Fn<void(RtcError)> on_complete);
+  NativeSetLocalSdpObserver(
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete);
 
   void OnSetLocalDescriptionComplete(webrtc::RTCError error) override;
 
  private:
-  rust::Fn<void(RtcError)> on_complete_;
+  rust::Box<AsyncContext> ctx_;
+  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete_;
 };
 
 class NativeSetRemoteSdpObserver
     : public webrtc::SetRemoteDescriptionObserverInterface {
  public:
-  explicit NativeSetRemoteSdpObserver(rust::Fn<void(RtcError)> on_complete);
+  NativeSetRemoteSdpObserver(
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete);
 
   void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override;
 
  private:
-  rust::Fn<void(RtcError)> on_complete_;
+  rust::Box<AsyncContext> ctx_;
+  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete_;
 };
 
 }  // namespace livekit

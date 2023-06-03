@@ -114,6 +114,26 @@ std::shared_ptr<VideoTrack> RtcRuntime::get_or_create_video_track(
       get_or_create_media_stream_track(track));
 }
 
+LogSink::LogSink(
+    rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc)
+    : fnc_(fnc) {
+  rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
+}
+
+LogSink::~LogSink() {
+  rtc::LogMessage::RemoveLogToStream(this);
+}
+
+void LogSink::OnLogMessage(const std::string& message,
+                           rtc::LoggingSeverity severity) {
+  fnc_(rust::String(message), static_cast<LoggingSeverity>(severity));
+}
+
+std::unique_ptr<LogSink> new_log_sink(
+    rust::Fn<void(rust::String, LoggingSeverity)> fnc) {
+  return std::make_unique<LogSink>(fnc);
+}
+
 rust::String create_random_uuid() {
   return rtc::CreateRandomUuid();
 }

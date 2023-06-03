@@ -6,6 +6,7 @@ use crate::media_stream::ffi::MediaStream;
 use crate::rtp_receiver::ffi::RtpReceiver;
 use crate::rtp_transceiver::ffi::RtpTransceiver;
 use cxx::SharedPtr;
+use std::any::Any;
 use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
@@ -102,7 +103,6 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
         type MediaType = crate::webrtc::ffi::MediaType;
-        type RtcRuntime = crate::webrtc::ffi::RtcRuntime;
     }
 
     unsafe extern "C++" {
@@ -122,24 +122,28 @@ pub mod ffi {
         fn create_offer(
             self: &PeerConnection,
             options: RtcOfferAnswerOptions,
-            on_success: fn(sdp: UniquePtr<SessionDescription>),
-            on_error: fn(error: RtcError),
+            ctx: Box<AsyncContext>,
+            on_success: fn(ctx: Box<AsyncContext>, sdp: UniquePtr<SessionDescription>),
+            on_error: fn(ctx: Box<AsyncContext>, error: RtcError),
         );
         fn create_answer(
             self: &PeerConnection,
             options: RtcOfferAnswerOptions,
-            on_success: fn(sdp: UniquePtr<SessionDescription>),
-            on_error: fn(error: RtcError),
+            ctx: Box<AsyncContext>,
+            on_success: fn(ctx: Box<AsyncContext>, sdp: UniquePtr<SessionDescription>),
+            on_error: fn(ctx: Box<AsyncContext>, error: RtcError),
         );
         fn set_local_description(
             self: &PeerConnection,
             desc: UniquePtr<SessionDescription>,
-            on_complete: fn(error: RtcError),
+            ctx: Box<AsyncContext>,
+            on_complete: fn(ctx: Box<AsyncContext>, error: RtcError),
         );
         fn set_remote_description(
             self: &PeerConnection,
             desc: UniquePtr<SessionDescription>,
-            on_complete: fn(error: RtcError),
+            ctx: Box<AsyncContext>,
+            on_complete: fn(ctx: Box<AsyncContext>, error: RtcError),
         );
         fn add_track(
             self: &PeerConnection,
@@ -168,7 +172,8 @@ pub mod ffi {
         fn add_ice_candidate(
             self: &PeerConnection,
             candidate: SharedPtr<IceCandidate>,
-            on_complete: fn(error: RtcError),
+            ctx: Box<AsyncContext>,
+            on_complete: fn(ctx: Box<AsyncContext>, error: RtcError),
         );
         fn current_local_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
         fn current_remote_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
@@ -182,6 +187,7 @@ pub mod ffi {
     }
 
     extern "Rust" {
+        type AsyncContext;
         type PeerConnectionObserverWrapper;
 
         fn on_signaling_change(self: &PeerConnectionObserverWrapper, new_state: SignalingState);
@@ -244,6 +250,9 @@ pub mod ffi {
     }
 }
 
+#[repr(transparent)]
+pub struct AsyncContext(pub Box<dyn Any + Send>);
+
 // https://webrtc.github.io/webrtc-org/native-code/native-apis/
 impl_thread_safety!(ffi::PeerConnection, Send + Sync);
 
@@ -302,8 +311,8 @@ pub struct PeerConnectionObserverWrapper {
 }
 
 impl PeerConnectionObserverWrapper {
-    pub fn new(observer: Arc<dyn PeerConnectionObserver>) -> Box<Self> {
-        Box::new(Self { observer })
+    pub fn new(observer: Arc<dyn PeerConnectionObserver>) -> Self {
+        Self { observer }
     }
 
     fn on_signaling_change(&self, new_state: ffi::SignalingState) {

@@ -54,10 +54,13 @@ PeerConnection::PeerConnection(
 
 void PeerConnection::create_offer(
     RtcOfferAnswerOptions options,
-    rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
-    rust::Fn<void(RtcError)> on_error) const {
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, std::unique_ptr<SessionDescription>)>
+        on_success,
+    rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error) const {
   rtc::scoped_refptr<NativeCreateSdpObserver> observer =
-      rtc::make_ref_counted<NativeCreateSdpObserver>(on_success, on_error);
+      rtc::make_ref_counted<NativeCreateSdpObserver>(std::move(ctx), on_success,
+                                                     on_error);
 
   peer_connection_->CreateOffer(observer.get(),
                                 to_native_offer_answer_options(options));
@@ -65,10 +68,13 @@ void PeerConnection::create_offer(
 
 void PeerConnection::create_answer(
     RtcOfferAnswerOptions options,
-    rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
-    rust::Fn<void(RtcError)> on_error) const {
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, std::unique_ptr<SessionDescription>)>
+        on_success,
+    rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error) const {
   rtc::scoped_refptr<NativeCreateSdpObserver> observer =
-      rtc::make_ref_counted<NativeCreateSdpObserver>(on_success, on_error);
+      rtc::make_ref_counted<NativeCreateSdpObserver>(std::move(ctx), on_success,
+                                                     on_error);
 
   peer_connection_->CreateAnswer(observer.get(),
                                  to_native_offer_answer_options(options));
@@ -76,20 +82,34 @@ void PeerConnection::create_answer(
 
 void PeerConnection::set_local_description(
     std::unique_ptr<SessionDescription> desc,
-    rust::Fn<void(RtcError)> on_complete) const {
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const {
   rtc::scoped_refptr<NativeSetLocalSdpObserver> observer =
-      rtc::make_ref_counted<NativeSetLocalSdpObserver>(on_complete);
+      rtc::make_ref_counted<NativeSetLocalSdpObserver>(std::move(ctx),
+                                                       on_complete);
 
   peer_connection_->SetLocalDescription(desc->clone()->release(), observer);
 }
 
 void PeerConnection::set_remote_description(
     std::unique_ptr<SessionDescription> desc,
-    rust::Fn<void(RtcError)> on_complete) const {
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const {
   rtc::scoped_refptr<NativeSetRemoteSdpObserver> observer =
-      rtc::make_ref_counted<NativeSetRemoteSdpObserver>(on_complete);
+      rtc::make_ref_counted<NativeSetRemoteSdpObserver>(std::move(ctx),
+                                                        on_complete);
 
   peer_connection_->SetRemoteDescription(desc->clone()->release(), observer);
+}
+
+void PeerConnection::add_ice_candidate(
+    std::shared_ptr<IceCandidate> candidate,
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const {
+  peer_connection_->AddIceCandidate(
+      candidate->release(), [&](const webrtc::RTCError& err) {
+        on_complete(std::move(ctx), to_error(err));
+      });
 }
 
 std::shared_ptr<DataChannel> PeerConnection::create_data_channel(
@@ -173,14 +193,6 @@ rust::Vec<RtpTransceiverPtr> PeerConnection::get_transceivers() const {
         std::make_shared<RtpTransceiver>(rtc_runtime_, transceiver)});
 
   return vec;
-}
-
-void PeerConnection::add_ice_candidate(
-    std::shared_ptr<IceCandidate> candidate,
-    rust::Fn<void(RtcError)> on_complete) const {
-  peer_connection_->AddIceCandidate(
-      candidate->release(),
-      [&](const webrtc::RTCError& err) { on_complete(to_error(err)); });
 }
 
 std::unique_ptr<SessionDescription> PeerConnection::current_local_description()

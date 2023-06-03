@@ -23,10 +23,9 @@ use crate::rtp_transceiver::RtpTransceiver;
 use crate::rtp_transceiver::RtpTransceiverInit;
 use crate::MediaType;
 use crate::{session_description::SessionDescription, RtcError};
-use cxx::{SharedPtr, UniquePtr};
+use cxx::SharedPtr;
 use futures::channel::oneshot;
 use parking_lot::Mutex;
-use std::mem::ManuallyDrop;
 use std::sync::Arc;
 use webrtc_sys::data_channel as sys_dc;
 use webrtc_sys::jsep as sys_jsep;
@@ -132,17 +131,26 @@ impl PeerConnection {
         &self,
         options: OfferOptions,
     ) -> Result<SessionDescription, RtcError> {
-        let (sdp_tx, sdp_rx) = oneshot::channel();
-        let (err_tx, err_rx) = oneshot::channel();
+        let (sdp_tx, mut sdp_rx) = oneshot::channel();
+        let (err_tx, mut err_rx) = oneshot::channel();
+
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new((sdp_tx, err_tx))));
+        type CtxType = (
+            oneshot::Sender<SessionDescription>,
+            oneshot::Sender<RtcError>,
+        );
 
         self.sys_handle.create_offer(
             options.into(),
-            |sdp| {
+            ctx,
+            |ctx, sdp| {
+                let (sdp_tx, _) = *ctx.0.downcast::<CtxType>().unwrap();
                 let _ = sdp_tx.send(SessionDescription {
                     handle: imp_sdp::SessionDescription { sys_handle: sdp },
                 });
             },
-            |error| {
+            |ctx, error| {
+                let (_, err_tx) = *ctx.0.downcast::<CtxType>().unwrap();
                 let _ = err_tx.send(error.into());
             },
         );
@@ -157,17 +165,26 @@ impl PeerConnection {
         &self,
         options: AnswerOptions,
     ) -> Result<SessionDescription, RtcError> {
-        let (sdp_tx, sdp_rx) = oneshot::channel();
-        let (err_tx, err_rx) = oneshot::channel();
+        let (sdp_tx, mut sdp_rx) = oneshot::channel();
+        let (err_tx, mut err_rx) = oneshot::channel();
+
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new((sdp_tx, err_tx))));
+        type CtxType = (
+            oneshot::Sender<SessionDescription>,
+            oneshot::Sender<RtcError>,
+        );
 
         self.sys_handle.create_answer(
             options.into(),
-            |sdp| {
+            ctx,
+            |ctx, sdp| {
+                let (sdp_tx, _) = *ctx.0.downcast::<CtxType>().unwrap();
                 let _ = sdp_tx.send(SessionDescription {
                     handle: imp_sdp::SessionDescription { sys_handle: sdp },
                 });
             },
-            |error| {
+            |ctx, error| {
+                let (_, err_tx) = *ctx.0.downcast::<CtxType>().unwrap();
                 let _ = err_tx.send(error.into());
             },
         );
@@ -178,45 +195,66 @@ impl PeerConnection {
     }
 
     pub async fn set_local_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+
         self.sys_handle
-            .set_local_description(desc.handle.sys_handle, |err| {
+            .set_local_description(desc.handle.sys_handle, ctx, |ctx, err| {
+                let tx = ctx
+                    .0
+                    .downcast::<oneshot::Sender<Result<(), RtcError>>>()
+                    .unwrap();
+
                 if err.ok() {
                     let _ = tx.send(Ok(()));
                 } else {
-                    let _ = tx.send(Err(err));
+                    let _ = tx.send(Err(err.into()));
                 }
             });
 
-        rx.await.unwrap().map_err(Into::into)
+        rx.await.unwrap()
     }
 
     pub async fn set_remote_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+
         self.sys_handle
-            .set_remote_description(desc.handle.sys_handle, |err| {
+            .set_remote_description(desc.handle.sys_handle, ctx, |ctx, err| {
+                let tx = ctx
+                    .0
+                    .downcast::<oneshot::Sender<Result<(), RtcError>>>()
+                    .unwrap();
+
                 if err.ok() {
                     let _ = tx.send(Ok(()));
                 } else {
-                    let _ = tx.send(Err(err));
+                    let _ = tx.send(Err(err.into()));
                 }
             });
 
-        rx.await.unwrap().map_err(Into::into)
+        rx.await.unwrap()
     }
 
     pub async fn add_ice_candidate(&self, candidate: IceCandidate) -> Result<(), RtcError> {
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+
         self.sys_handle
-            .add_ice_candidate(candidate.handle.sys_handle, |err| {
+            .add_ice_candidate(candidate.handle.sys_handle, ctx, |ctx, err| {
+                let tx = ctx
+                    .0
+                    .downcast::<oneshot::Sender<Result<(), RtcError>>>()
+                    .unwrap();
+
                 if err.ok() {
                     let _ = tx.send(Ok(()));
                 } else {
-                    let _ = tx.send(Err(err));
+                    let _ = tx.send(Err(err.into()));
                 }
             });
 
-        rx.await.unwrap().map_err(Into::into)
+        rx.await.unwrap()
     }
 
     pub fn create_data_channel(

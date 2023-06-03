@@ -48,13 +48,11 @@ impl DataChannel {
         let observer = Arc::new(DataChannelObserver::default());
         let dc = Self {
             sys_handle: sys_handle.clone(),
-            observer,
+            observer: observer.clone(),
         };
 
         dc.sys_handle
-            .register_observer(Box::new(sys_dc::DataChannelObserverWrapper {
-                observer: dc.observer.clone(),
-            }));
+            .register_observer(Box::new(sys_dc::DataChannelObserverWrapper::new(observer)));
         dc
     }
 

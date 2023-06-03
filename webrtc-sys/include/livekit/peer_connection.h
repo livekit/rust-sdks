@@ -23,6 +23,7 @@
 #include "livekit/helper.h"
 #include "livekit/jsep.h"
 #include "livekit/media_stream.h"
+#include "livekit/rtc_error.h"
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "livekit/rtp_transceiver.h"
@@ -49,25 +50,35 @@ class PeerConnection {
 
   void create_offer(
       RtcOfferAnswerOptions options,
-      rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
-      rust::Fn<void(RtcError)> on_error) const;
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>,
+                    std::unique_ptr<SessionDescription>)> on_success,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error) const;
 
   void create_answer(
       RtcOfferAnswerOptions options,
-      rust::Fn<void(std::unique_ptr<SessionDescription>)> on_success,
-      rust::Fn<void(RtcError)> on_error) const;
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>,
+                    std::unique_ptr<SessionDescription>)> on_success,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error) const;
 
-  void set_local_description(std::unique_ptr<SessionDescription> desc,
-                             rust::Fn<void(RtcError)> on_complete) const;
+  void set_local_description(
+      std::unique_ptr<SessionDescription> desc,
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const;
 
-  void set_remote_description(std::unique_ptr<SessionDescription> desc,
-                              rust::Fn<void(RtcError)> on_complete) const;
+  void set_remote_description(
+      std::unique_ptr<SessionDescription> desc,
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const;
 
   std::shared_ptr<DataChannel> create_data_channel(rust::String label,
                                                    DataChannelInit init) const;
 
-  void add_ice_candidate(std::shared_ptr<IceCandidate> candidate,
-                         rust::Fn<void(RtcError)> on_complete) const;
+  void add_ice_candidate(
+      std::shared_ptr<IceCandidate> candidate,
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const;
 
   std::shared_ptr<RtpSender> add_track(
       std::shared_ptr<MediaStreamTrack> track,
