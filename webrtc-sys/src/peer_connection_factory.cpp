@@ -32,6 +32,7 @@
 #include "livekit/rtp_parameters.h"
 #include "livekit/video_decoder_factory.h"
 #include "livekit/video_encoder_factory.h"
+#include "livekit/webrtc.h"
 #include "media/engine/webrtc_media_engine.h"
 #include "rtc_base/location.h"
 #include "rtc_base/thread.h"
@@ -160,9 +161,8 @@ RtpCapabilities PeerConnectionFactory::get_rtp_receiver_capabilities(
       static_cast<cricket::MediaType>(type)));
 }
 
-std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory(
-    std::shared_ptr<RtcRuntime> rtc_runtime) {
-  return std::make_shared<PeerConnectionFactory>(std::move(rtc_runtime));
+std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
+  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create());
 }
 
 }  // namespace livekit
