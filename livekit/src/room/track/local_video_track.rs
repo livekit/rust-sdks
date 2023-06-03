@@ -2,10 +2,9 @@ use super::TrackInner;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::{options::VideoCaptureOptions, prelude::*};
 use livekit_protocol as proto;
-use livekit_webrtc as rtc;
 use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
-use rtc::video_source::native::NativeVideoSource;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -34,7 +33,7 @@ impl Debug for LocalVideoTrack {
 impl LocalVideoTrack {
     pub fn new(
         name: String,
-        rtc_track: rtc::media_stream::RtcVideoTrack,
+        rtc_track: RtcVideoTrack,
         capture_options: VideoCaptureOptions,
     ) -> Self {
         Self {
@@ -43,7 +42,7 @@ impl LocalVideoTrack {
                     "unknown".to_string().into(), // sid
                     name,
                     TrackKind::Video,
-                    rtc::media_stream::MediaStreamTrack::Video(rtc_track),
+                    MediaStreamTrack::Video(rtc_track),
                 ),
                 capture_options: Mutex::new(capture_options),
             }),
@@ -101,14 +100,11 @@ impl LocalVideoTrack {
     }
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::RtcVideoTrack {
-        if let rtc::media_stream::MediaStreamTrack::Video(video) =
-            self.inner.track_inner.rtc_track()
-        {
-            video
-        } else {
-            unreachable!()
+    pub fn rtc_track(&self) -> RtcVideoTrack {
+        if let MediaStreamTrack::Video(video) = self.inner.track_inner.rtc_track() {
+            return video;
         }
+        unreachable!()
     }
 
     #[inline]
@@ -122,15 +118,12 @@ impl LocalVideoTrack {
     }
 
     #[inline]
-    pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+    pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
         self.inner.track_inner.transceiver()
     }
 
     #[inline]
-    pub(crate) fn update_transceiver(
-        &self,
-        transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>,
-    ) {
+    pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
         self.inner.track_inner.update_transceiver(transceiver)
     }
 
@@ -144,11 +137,11 @@ impl LocalVideoTrack {
     pub fn create_video_track(
         name: &str,
         options: VideoCaptureOptions,
-        source: NativeVideoSource,
+        source: livekit_webrtc::video_source::native::NativeVideoSource,
     ) -> LocalVideoTrack {
         let rtc_track = LkRuntime::instance()
             .pc_factory()
-            .create_video_track(&rtc::native::create_random_uuid(), source);
+            .create_video_track(&livekit_webrtc::native::create_random_uuid(), source);
 
         Self::new(name.to_string(), rtc_track, options)
     }

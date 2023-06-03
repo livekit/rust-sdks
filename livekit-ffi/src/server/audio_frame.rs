@@ -4,7 +4,7 @@ use livekit::prelude::*;
 use livekit::webrtc::audio_frame::AudioFrame;
 use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
-use livekit::webrtc::media_stream::MediaStreamTrack;
+use livekit::webrtc::prelude::*;
 use log::warn;
 use server::utils;
 use tokio::sync::oneshot;

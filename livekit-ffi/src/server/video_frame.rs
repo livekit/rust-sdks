@@ -1,7 +1,7 @@
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::prelude::*;
-use livekit::webrtc::media_stream::MediaStreamTrack;
+use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, VideoFrame};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_stream::native::NativeVideoStream;

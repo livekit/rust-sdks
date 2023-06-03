@@ -23,4 +23,4 @@ pub use crate::video_frame::{
     VideoFormatType, VideoFrame, VideoFrameBuffer, VideoFrameBufferType, VideoRotation,
 };
 pub use crate::video_track::RtcVideoTrack;
-pub use crate::{RtcError, RtcErrorType};
+pub use crate::{MediaType, RtcError, RtcErrorType};
