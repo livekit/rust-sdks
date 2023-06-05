@@ -38,4 +38,8 @@ impl EncodedVideoFrame {
     pub fn payload_type(&self) -> u8 {
         self.frame.payload_type()
     }
+
+    pub fn timestamp(&self) -> u32 {
+        self.frame.timestamp()
+    }
 }

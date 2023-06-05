@@ -17,8 +17,9 @@ class EncodedVideoFrame {
   bool is_key_frame() const;
   uint16_t width() const;
   uint16_t height() const;
-  uint8_t payload_type() const;
+  uint32_t timestamp() const;
 
+  uint8_t payload_type() const;
   const uint8_t* payload_data() const;
   size_t payload_size() const;
 

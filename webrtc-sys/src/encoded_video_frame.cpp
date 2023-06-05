@@ -45,4 +45,8 @@ size_t EncodedVideoFrame::payload_size() const {
     return size;
 }
 
+uint32_t EncodedVideoFrame::timestamp() const {
+    return frame_->GetTimestamp();
+}
+
 }
