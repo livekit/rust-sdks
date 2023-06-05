@@ -1,13 +1,10 @@
 use super::TrackInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
-<<<<<<< HEAD
-use livekit_webrtc as rtc;
-use rtc::rtp_receiver::RtpReceiver;
-=======
+// use livekit_webrtc as rtc;
+// use rtc::rtp_receiver::RtpReceiver;
 use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
->>>>>>> 55bda13069ac8baa924002981670c59f5d715943
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -109,16 +106,12 @@ impl RemoteVideoTrack {
 
     #[allow(dead_code)]
     #[inline]
-<<<<<<< HEAD
     pub fn receiver(&self) -> Option<RtpReceiver> {
         self.inner.receiver.clone()
     }
 
     #[inline]
-    pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
-=======
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
->>>>>>> 55bda13069ac8baa924002981670c59f5d715943
         self.inner.transceiver()
     }
 

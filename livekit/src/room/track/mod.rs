@@ -4,7 +4,6 @@ use livekit_protocol::enum_dispatch;
 use livekit_protocol::observer::Dispatcher;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
-use rtc::{MediaType, rtp_receiver::RtpReceiver};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -103,13 +102,8 @@ macro_rules! track_dispatch {
             pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
             pub fn is_remote(self: &Self) -> bool;
 
-<<<<<<< HEAD
-            pub fn transceiver(self: &Self) -> Option<rtc::rtp_transceiver::RtpTransceiver>;
-            pub(crate) fn update_transceiver(self: &Self, transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>) -> ();
-=======
             pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
             pub(crate) fn update_transceiver(self: &Self, transceiver: Option<RtpTransceiver>) -> ();
->>>>>>> 55bda13069ac8baa924002981670c59f5d715943
             pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
         );
     };
@@ -192,17 +186,13 @@ pub(crate) struct TrackInner {
 }
 
 impl TrackInner {
-<<<<<<< HEAD
     pub fn new(
         sid: TrackSid,
         name: String,
         kind: TrackKind,
-        rtc_track: rtc::media_stream::MediaStreamTrack,
+        rtc_track: MediaStreamTrack,
         receiver: Option<RtpReceiver>
     ) -> Self {
-=======
-    pub fn new(sid: TrackSid, name: String, kind: TrackKind, rtc_track: MediaStreamTrack) -> Self {
->>>>>>> 55bda13069ac8baa924002981670c59f5d715943
         Self {
             sid: Mutex::new(sid),
             name: Mutex::new(name),

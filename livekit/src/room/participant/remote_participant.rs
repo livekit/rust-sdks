@@ -4,8 +4,6 @@ use crate::track::TrackError;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::RwLockReadGuard;
-use rtc::prelude::MediaStreamTrack;
-use rtc::rtp_receiver::RtpReceiver;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
