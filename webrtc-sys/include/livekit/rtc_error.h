@@ -22,9 +22,9 @@
 
 namespace livekit {
 
-RTCError to_error(const webrtc::RTCError& error);
+RtcError to_error(const webrtc::RTCError& error);
 std::string serialize_error(
-    const RTCError& error);  // to be used inside cxx::Exception msg
+    const RtcError& error);  // to be used inside cxx::Exception msg
 
 #ifdef LIVEKIT_TEST
 rust::String serialize_deserialize();

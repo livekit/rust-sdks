@@ -4,9 +4,9 @@ use crate::prelude::*;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 use livekit_protocol as proto;
-use livekit_webrtc as rtc;
+use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
-use rtc::audio_source::native::NativeAudioSource;
+use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -16,15 +16,25 @@ pub struct LocalAudioTrackInner {
     capture_options: Mutex<AudioCaptureOptions>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct LocalAudioTrack {
     inner: Arc<LocalAudioTrackInner>,
+}
+
+impl Debug for LocalAudioTrack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalAudioTrack")
+            .field("sid", &self.sid())
+            .field("name", &self.name())
+            .field("source", &self.source())
+            .finish()
+    }
 }
 
 impl LocalAudioTrack {
     pub(crate) fn new(
         name: String,
-        rtc_track: rtc::media_stream::RtcAudioTrack,
+        rtc_track: RtcAudioTrack,
         capture_options: AudioCaptureOptions,
     ) -> Self {
         Self {
@@ -33,7 +43,7 @@ impl LocalAudioTrack {
                     "unknown".to_string().into(), // sid
                     name,
                     TrackKind::Audio,
-                    rtc::media_stream::MediaStreamTrack::Audio(rtc_track),
+                    MediaStreamTrack::Audio(rtc_track),
                     None
                 ),
                 capture_options: Mutex::new(capture_options),
@@ -92,14 +102,11 @@ impl LocalAudioTrack {
     }
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::RtcAudioTrack {
-        if let rtc::media_stream::MediaStreamTrack::Audio(audio) =
-            self.inner.track_inner.rtc_track()
-        {
-            audio
-        } else {
-            unreachable!()
+    pub fn rtc_track(&self) -> RtcAudioTrack {
+        if let MediaStreamTrack::Audio(audio) = self.inner.track_inner.rtc_track() {
+            return audio;
         }
+        unreachable!()
     }
 
     #[inline]
@@ -113,15 +120,12 @@ impl LocalAudioTrack {
     }
 
     #[inline]
-    pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+    pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
         self.inner.track_inner.transceiver()
     }
 
     #[inline]
-    pub(crate) fn update_transceiver(
-        &self,
-        transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>,
-    ) {
+    pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
         self.inner.track_inner.update_transceiver(transceiver)
     }
 
@@ -135,11 +139,11 @@ impl LocalAudioTrack {
     pub fn create_audio_track(
         name: &str,
         options: AudioCaptureOptions,
-        source: NativeAudioSource,
+        source: livekit_webrtc::audio_source::native::NativeAudioSource,
     ) -> LocalAudioTrack {
         let rtc_track = LkRuntime::instance()
-            .pc_factory
-            .create_audio_track(&rtc::native::create_random_uuid(), source);
+            .pc_factory()
+            .create_audio_track(&livekit_webrtc::native::create_random_uuid(), source);
 
         Self::new(name.to_string(), rtc_track, options)
     }

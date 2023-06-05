@@ -141,6 +141,7 @@ impl VideoGrid {
     }
 }
 
+#[allow(dead_code)]
 impl VideoGrid {
     pub fn min_video_size(mut self, min_video_size: egui::Vec2) -> Self {
         self.min_video_size = min_video_size;

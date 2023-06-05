@@ -5,10 +5,13 @@ use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit::webrtc::encoded_frame_stream::native::NativeEncodedFrameStream;
 use livekit::webrtc::encoded_frame::EncodedVideoFrame;
 
-// Basic demo to connect to a room using the specified env variables
+// Connect to a room using the specified env variables
+// and print all incoming events
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
+
     // let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     // let token = env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is not set");
 
@@ -17,8 +20,7 @@ async fn main() {
     let token : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTM5MDU4OTYsImlzcyI6IkFQSU5YTVNtTDlWUjVxNiIsIm5hbWUiOiJ1c2VyIiwibmJmIjoxNjg1MTA1ODk2LCJzdWIiOiJ1c2VyIiwidmlkZW8iOnsicm9vbSI6IjU3M2FlNzk1LWM1M2YtNDdkZC1hMTk1LWFiMTExNDhmOTQxNiIsInJvb21Kb2luIjp0cnVlfX0.yHlsWep5RN-JjZJMtZ_iZRA7sVnq2RfJLLFRge0bUEQ";
 
     let (room, mut rx) = Room::connect(&url, &token).await.unwrap();
-    let session = room.session();
-    println!("Connected to room: {} - {}", session.name(), session.sid());
+    log::info!("Connected to room: {} - {}", room.name(), room.sid());
 
     while let Some(msg) = rx.recv().await {
         //println!("Event: {:?}", msg);

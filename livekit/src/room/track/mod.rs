@@ -2,17 +2,17 @@ use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_protocol::observer::Dispatcher;
-use livekit_webrtc as rtc;
+use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use rtc::{MediaType, rtp_receiver::RtpReceiver};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-pub mod local_audio_track;
-pub mod local_video_track;
-pub mod remote_audio_track;
-pub mod remote_video_track;
+mod local_audio_track;
+mod local_video_track;
+mod remote_audio_track;
+mod remote_video_track;
 
 pub use local_audio_track::*;
 pub use local_video_track::*;
@@ -103,8 +103,13 @@ macro_rules! track_dispatch {
             pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
             pub fn is_remote(self: &Self) -> bool;
 
+<<<<<<< HEAD
             pub fn transceiver(self: &Self) -> Option<rtc::rtp_transceiver::RtpTransceiver>;
             pub(crate) fn update_transceiver(self: &Self, transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>) -> ();
+=======
+            pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
+            pub(crate) fn update_transceiver(self: &Self, transceiver: Option<RtpTransceiver>) -> ();
+>>>>>>> 55bda13069ac8baa924002981670c59f5d715943
             pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
         );
     };
@@ -114,7 +119,7 @@ impl Track {
     track_dispatch!([LocalAudio, LocalVideo, RemoteAudio, RemoteVideo]);
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+    pub fn rtc_track(&self) -> MediaStreamTrack {
         match self {
             Self::LocalAudio(track) => track.rtc_track().into(),
             Self::LocalVideo(track) => track.rtc_track().into(),
@@ -128,7 +133,7 @@ impl LocalTrack {
     track_dispatch!([Audio, Video]);
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+    pub fn rtc_track(&self) -> MediaStreamTrack {
         match self {
             Self::Audio(track) => track.rtc_track().into(),
             Self::Video(track) => track.rtc_track().into(),
@@ -140,7 +145,7 @@ impl RemoteTrack {
     track_dispatch!([Audio, Video]);
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+    pub fn rtc_track(&self) -> MediaStreamTrack {
         match self {
             Self::Audio(track) => track.rtc_track().into(),
             Self::Video(track) => track.rtc_track().into(),
@@ -152,7 +157,7 @@ impl VideoTrack {
     track_dispatch!([Local, Remote]);
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::RtcVideoTrack {
+    pub fn rtc_track(&self) -> RtcVideoTrack {
         match self {
             Self::Local(track) => track.rtc_track(),
             Self::Remote(track) => track.rtc_track(),
@@ -164,7 +169,7 @@ impl AudioTrack {
     track_dispatch!([Local, Remote]);
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::RtcAudioTrack {
+    pub fn rtc_track(&self) -> RtcAudioTrack {
         match self {
             Self::Local(track) => track.rtc_track().into(),
             Self::Remote(track) => track.rtc_track().into(),
@@ -180,13 +185,14 @@ pub(crate) struct TrackInner {
     pub source: AtomicU8,       // TrackSource
     pub stream_state: AtomicU8, // StreamState
     pub muted: AtomicBool,
-    pub rtc_track: rtc::media_stream::MediaStreamTrack,
-    pub transceiver: Mutex<Option<rtc::rtp_transceiver::RtpTransceiver>>,
+    pub rtc_track: MediaStreamTrack,
+    pub transceiver: Mutex<Option<RtpTransceiver>>,
     pub dispatcher: Dispatcher<TrackEvent>,
     pub receiver: Option<RtpReceiver>
 }
 
 impl TrackInner {
+<<<<<<< HEAD
     pub fn new(
         sid: TrackSid,
         name: String,
@@ -194,6 +200,9 @@ impl TrackInner {
         rtc_track: rtc::media_stream::MediaStreamTrack,
         receiver: Option<RtpReceiver>
     ) -> Self {
+=======
+    pub fn new(sid: TrackSid, name: String, kind: TrackKind, rtc_track: MediaStreamTrack) -> Self {
+>>>>>>> 55bda13069ac8baa924002981670c59f5d715943
         Self {
             sid: Mutex::new(sid),
             name: Mutex::new(name),
@@ -264,7 +273,7 @@ impl TrackInner {
         self.dispatcher.dispatch(&event);
     }
 
-    pub fn rtc_track(&self) -> rtc::media_stream::MediaStreamTrack {
+    pub fn rtc_track(&self) -> MediaStreamTrack {
         self.rtc_track.clone()
     }
 
@@ -272,11 +281,11 @@ impl TrackInner {
         self.dispatcher.register()
     }
 
-    pub fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+    pub fn transceiver(&self) -> Option<RtpTransceiver> {
         self.transceiver.lock().clone()
     }
 
-    pub fn update_transceiver(&self, transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>) {
+    pub fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
         *self.transceiver.lock() = transceiver;
     }
 

@@ -1,16 +1,16 @@
 use super::video_frame::new_video_frame_buffer;
-use crate::media_stream::RtcVideoTrack;
 use crate::video_frame::{BoxVideoFrame, VideoFrame};
-use cxx::UniquePtr;
+use crate::video_track::RtcVideoTrack;
+use cxx::{SharedPtr, UniquePtr};
 use futures::stream::Stream;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
-use webrtc_sys::media_stream as sys_ms;
+use webrtc_sys::video_track as sys_vt;
 
 pub struct NativeVideoStream {
-    native_observer: UniquePtr<sys_ms::ffi::NativeVideoFrameSink>,
-    _observer: Box<VideoTrackObserver>,
+    native_sink: SharedPtr<sys_vt::ffi::NativeVideoSink>,
     video_track: RtcVideoTrack,
     frame_rx: mpsc::UnboundedReceiver<BoxVideoFrame>,
 }
@@ -18,21 +18,16 @@ pub struct NativeVideoStream {
 impl NativeVideoStream {
     pub fn new(video_track: RtcVideoTrack) -> Self {
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
-        let mut observer = Box::new(VideoTrackObserver { frame_tx });
-        let mut native_observer = unsafe {
-            sys_ms::ffi::new_native_video_frame_sink(Box::new(sys_ms::VideoFrameSinkWrapper::new(
-                &mut *observer,
-            )))
-        };
+        let observer = Arc::new(VideoTrackObserver { frame_tx });
+        let native_sink = sys_vt::ffi::new_native_video_sink(Box::new(
+            sys_vt::VideoSinkWrapper::new(observer.clone()),
+        ));
 
-        unsafe {
-            sys_ms::ffi::media_to_video(video_track.sys_handle())
-                .add_sink(native_observer.pin_mut());
-        }
+        let video = unsafe { sys_vt::ffi::media_to_video(video_track.sys_handle()) };
+        video.add_sink(&native_sink);
 
         Self {
-            native_observer,
-            _observer: observer,
+            native_sink,
             video_track,
             frame_rx,
         }
@@ -43,11 +38,10 @@ impl NativeVideoStream {
     }
 
     pub fn close(&mut self) {
+        let video = unsafe { sys_vt::ffi::media_to_video(self.video_track.sys_handle()) };
+        video.remove_sink(&self.native_sink);
+
         self.frame_rx.close();
-        unsafe {
-            sys_ms::ffi::media_to_video(self.video_track.sys_handle())
-                .remove_sink(self.native_observer.pin_mut());
-        }
     }
 }
 
@@ -69,7 +63,7 @@ struct VideoTrackObserver {
     frame_tx: mpsc::UnboundedSender<BoxVideoFrame>,
 }
 
-impl sys_ms::VideoFrameSink for VideoTrackObserver {
+impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         let _ = self.frame_tx.send(VideoFrame {
             rotation: frame.rotation().into(),
@@ -80,5 +74,5 @@ impl sys_ms::VideoFrameSink for VideoTrackObserver {
 
     fn on_discarded_frame(&self) {}
 
-    fn on_constraints_changed(&self, _constraints: sys_ms::ffi::VideoTrackSourceConstraints) {}
+    fn on_constraints_changed(&self, _constraints: sys_vt::ffi::VideoTrackSourceConstraints) {}
 }

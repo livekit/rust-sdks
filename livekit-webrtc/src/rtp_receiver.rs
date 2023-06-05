@@ -4,7 +4,8 @@ use cxx::SharedPtr;
 use webrtc_sys::frame_transformer::{ffi::AdaptedNativeFrameTransformer, EncodedFrameSinkWrapper};
 
 use crate::{
-    imp::rtp_receiver as imp_rr, media_stream::MediaStreamTrack, rtp_parameters::RtpParameters,
+    imp::rtp_receiver as imp_rr, media_stream_track::MediaStreamTrack,
+    rtp_parameters::RtpParameters,
 };
 
 #[derive(Clone)]

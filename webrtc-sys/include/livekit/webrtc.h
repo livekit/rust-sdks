@@ -16,6 +16,13 @@
 
 #pragma once
 
+#include <memory>
+
+#include "api/media_stream_interface.h"
+#include "api/rtp_receiver_interface.h"
+#include "api/rtp_sender_interface.h"
+#include "livekit/helper.h"
+#include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rust/cxx.h"
@@ -25,28 +32,59 @@
 #endif
 
 namespace livekit {
-class RTCRuntime;
-}
+class RtcRuntime;
+class LogSink;
+}  // namespace livekit
 #include "webrtc-sys/src/webrtc.rs.h"
 
 namespace livekit {
 
-class RTCRuntime {
- public:
-  RTCRuntime();
-  ~RTCRuntime();
+class MediaStreamTrack;
+class RtpReceiver;
+class RtpSender;
 
-  RTCRuntime(const RTCRuntime&) = delete;
-  RTCRuntime& operator=(const RTCRuntime&) = delete;
+// Using a shared_ptr in RtcRuntime allows us to keep a strong reference to it
+// on resources that depend on it. (e.g: AudioTrack, VideoTrack).
+class RtcRuntime : public std::enable_shared_from_this<RtcRuntime> {
+ public:
+  [[nodiscard]] static std::shared_ptr<RtcRuntime> create() {
+    return std::shared_ptr<RtcRuntime>(new RtcRuntime());
+  }
+
+  RtcRuntime(const RtcRuntime&) = delete;
+  RtcRuntime& operator=(const RtcRuntime&) = delete;
+  ~RtcRuntime();
 
   rtc::Thread* network_thread() const;
   rtc::Thread* worker_thread() const;
   rtc::Thread* signaling_thread() const;
 
+  std::shared_ptr<MediaStreamTrack> get_or_create_media_stream_track(
+      rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
+
+  std::shared_ptr<AudioTrack> get_or_create_audio_track(
+      rtc::scoped_refptr<webrtc::AudioTrackInterface> track);
+
+  std::shared_ptr<VideoTrack> get_or_create_video_track(
+      rtc::scoped_refptr<webrtc::VideoTrackInterface> track);
+
  private:
+  RtcRuntime();
+
   std::unique_ptr<rtc::Thread> network_thread_;
   std::unique_ptr<rtc::Thread> worker_thread_;
   std::unique_ptr<rtc::Thread> signaling_thread_;
+
+  // Lists used to make sure we don't create multiple wrappers for one
+  // underlying webrtc object. (e.g: webrtc::VideoTrackInterface should only
+  // have one livekit::VideoTrack associated with it).
+  // The only reason we to do that is to allow to add states inside our
+  // wrappers (e.g: the sinks_ member inside AudioTrack)
+  webrtc::Mutex mutex_;
+  std::vector<std::weak_ptr<MediaStreamTrack>> media_stream_tracks_;
+  // We don't have additonal state in RtpReceiver and RtpSender atm..
+  // std::vector<std::weak_ptr<RtpReceiver>> rtp_receivers_;
+  // std::vector<std::weak_ptr<RtpSender>> rtp_senders_;
 
 #ifdef WEBRTC_WIN
   rtc::WinsockInitializer winsock_;
@@ -55,8 +93,22 @@ class RTCRuntime {
 #endif
 };
 
-rust::String create_random_uuid();
+class LogSink : public rtc::LogSink {
+ public:
+  LogSink(rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc);
+  ~LogSink();
 
-std::shared_ptr<RTCRuntime> create_rtc_runtime();
+  void OnLogMessage(const std::string& message,
+                    rtc::LoggingSeverity severity) override;
+  void OnLogMessage(const std::string& message) override {}
+
+ private:
+  rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc_;
+};
+
+std::unique_ptr<LogSink> new_log_sink(
+    rust::Fn<void(rust::String, LoggingSeverity)> fnc);
+
+rust::String create_random_uuid();
 
 }  // namespace livekit

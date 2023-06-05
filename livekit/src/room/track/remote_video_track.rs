@@ -1,21 +1,36 @@
 use super::TrackInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
+<<<<<<< HEAD
 use livekit_webrtc as rtc;
 use rtc::rtp_receiver::RtpReceiver;
+=======
+use livekit_webrtc::prelude::*;
+use std::fmt::Debug;
+>>>>>>> 55bda13069ac8baa924002981670c59f5d715943
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RemoteVideoTrack {
     pub(crate) inner: Arc<TrackInner>,
+}
+
+impl Debug for RemoteVideoTrack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteVideoTrack")
+            .field("sid", &self.sid())
+            .field("name", &self.name())
+            .field("source", &self.source())
+            .finish()
+    }
 }
 
 impl RemoteVideoTrack {
     pub(crate) fn new(
         sid: TrackSid,
         name: String,
-        rtc_track: rtc::media_stream::RtcVideoTrack,
+        rtc_track: RtcVideoTrack,
         receiver: RtpReceiver
     ) -> Self {
         Self {
@@ -23,7 +38,7 @@ impl RemoteVideoTrack {
                 sid,
                 name,
                 TrackKind::Video,
-                rtc::media_stream::MediaStreamTrack::Video(rtc_track),
+                MediaStreamTrack::Video(rtc_track),
                 Some(receiver)
             )),
         }
@@ -75,12 +90,11 @@ impl RemoteVideoTrack {
     }
 
     #[inline]
-    pub fn rtc_track(&self) -> rtc::media_stream::RtcVideoTrack {
-        if let rtc::media_stream::MediaStreamTrack::Video(video) = self.inner.rtc_track() {
-            video
-        } else {
-            unreachable!()
+    pub fn rtc_track(&self) -> RtcVideoTrack {
+        if let MediaStreamTrack::Video(video) = self.inner.rtc_track() {
+            return video;
         }
+        unreachable!()
     }
 
     #[inline]
@@ -93,21 +107,24 @@ impl RemoteVideoTrack {
         true
     }
 
+    #[allow(dead_code)]
     #[inline]
+<<<<<<< HEAD
     pub fn receiver(&self) -> Option<RtpReceiver> {
         self.inner.receiver.clone()
     }
 
     #[inline]
     pub(crate) fn transceiver(&self) -> Option<rtc::rtp_transceiver::RtpTransceiver> {
+=======
+    pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
+>>>>>>> 55bda13069ac8baa924002981670c59f5d715943
         self.inner.transceiver()
     }
 
+    #[allow(dead_code)]
     #[inline]
-    pub(crate) fn update_transceiver(
-        &self,
-        transceiver: Option<rtc::rtp_transceiver::RtpTransceiver>,
-    ) {
+    pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
         self.inner.update_transceiver(transceiver)
     }
 

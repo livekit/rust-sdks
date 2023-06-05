@@ -9,6 +9,8 @@ use std::sync::Arc;
 #[derive(Debug)]
 struct LocalTrackPublicationInner {
     publication_inner: TrackPublicationInner,
+
+    #[allow(unused)] // TODO(theomonnom)
     options: Mutex<TrackPublishOptions>,
 }
 
@@ -89,6 +91,7 @@ impl LocalTrackPublication {
         self.inner.publication_inner.update_track(track);
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         self.inner.publication_inner.update_info(info);

@@ -22,18 +22,18 @@
 #include "api/ref_counted_base.h"
 #include "api/set_local_description_observer_interface.h"
 #include "api/set_remote_description_observer_interface.h"
+#include "livekit/rtc_error.h"
 #include "rust/cxx.h"
 
 namespace livekit {
 class IceCandidate;
 class SessionDescription;
-struct NativeCreateSdpObserverHandle;
-struct NativeSetLocalSdpObserverHandle;
-struct NativeSetRemoteSdpObserverHandle;
 };  // namespace livekit
 #include "webrtc-sys/src/jsep.rs.h"
 
 namespace livekit {
+
+class AsyncContext;
 
 class IceCandidate {
  public:
@@ -82,69 +82,51 @@ static std::unique_ptr<SessionDescription> _unique_session_description() {
   return nullptr;  // Ignore
 }
 
-// SetCreateSdpObserver
-
 class NativeCreateSdpObserver
     : public webrtc::CreateSessionDescriptionObserver {
  public:
-  explicit NativeCreateSdpObserver(
-      rust::Box<CreateSdpObserverWrapper> observer);
+  NativeCreateSdpObserver(
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext> ctx,
+                    std::unique_ptr<SessionDescription>)> on_success,
+      rust::Fn<void(rust::Box<AsyncContext> ctx, RtcError)> on_error);
 
   void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
   void OnFailure(webrtc::RTCError error) override;
 
  private:
-  rust::Box<CreateSdpObserverWrapper> observer_;
+  rust::Box<AsyncContext> ctx_;
+  rust::Fn<void(rust::Box<AsyncContext>, std::unique_ptr<SessionDescription>)>
+      on_success_;
+  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error_;
 };
-
-struct NativeCreateSdpObserverHandle {
-  rtc::scoped_refptr<NativeCreateSdpObserver> observer;
-};
-
-std::unique_ptr<NativeCreateSdpObserverHandle>
-create_native_create_sdp_observer(rust::Box<CreateSdpObserverWrapper> observer);
-
-// SetLocalSdpObserver
 
 class NativeSetLocalSdpObserver
     : public webrtc::SetLocalDescriptionObserverInterface {
  public:
-  explicit NativeSetLocalSdpObserver(
-      rust::Box<SetLocalSdpObserverWrapper> observer);
+  NativeSetLocalSdpObserver(
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete);
 
   void OnSetLocalDescriptionComplete(webrtc::RTCError error) override;
 
  private:
-  rust::Box<SetLocalSdpObserverWrapper> observer_;
+  rust::Box<AsyncContext> ctx_;
+  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete_;
 };
-
-struct NativeSetLocalSdpObserverHandle {
-  rtc::scoped_refptr<NativeSetLocalSdpObserver> observer;
-};
-
-std::unique_ptr<NativeSetLocalSdpObserverHandle>
-create_native_set_local_sdp_observer(
-    rust::Box<SetLocalSdpObserverWrapper> observer);
-
-// SetRemoteSdpObserver
 
 class NativeSetRemoteSdpObserver
     : public webrtc::SetRemoteDescriptionObserverInterface {
  public:
-  explicit NativeSetRemoteSdpObserver(
-      rust::Box<SetRemoteSdpObserverWrapper> observer);
+  NativeSetRemoteSdpObserver(
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete);
 
   void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override;
 
  private:
-  rust::Box<SetRemoteSdpObserverWrapper> observer_;
+  rust::Box<AsyncContext> ctx_;
+  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete_;
 };
 
-struct NativeSetRemoteSdpObserverHandle {
-  rtc::scoped_refptr<NativeSetRemoteSdpObserver> observer;
-};
-
-std::unique_ptr<NativeSetRemoteSdpObserverHandle>
-create_native_set_remote_sdp_observer(
-    rust::Box<SetRemoteSdpObserverWrapper> observer);
 }  // namespace livekit

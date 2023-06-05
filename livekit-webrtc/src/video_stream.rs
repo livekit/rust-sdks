@@ -6,8 +6,8 @@ use crate::imp::video_stream as stream_imp;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     use super::stream_imp;
-    use crate::media_stream::RtcVideoTrack;
     use crate::video_frame::BoxVideoFrame;
+    use crate::video_track::RtcVideoTrack;
     use futures::stream::Stream;
     use std::fmt::Debug;
     use std::pin::Pin;

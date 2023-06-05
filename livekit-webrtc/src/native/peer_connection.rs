@@ -4,11 +4,13 @@ use crate::ice_candidate::IceCandidate;
 use crate::imp::data_channel as imp_dc;
 use crate::imp::ice_candidate as imp_ic;
 use crate::imp::media_stream as imp_ms;
+use crate::imp::media_stream_track as imp_mst;
 use crate::imp::rtp_receiver as imp_rr;
 use crate::imp::rtp_sender as imp_rs;
 use crate::imp::rtp_transceiver as imp_rt;
 use crate::imp::session_description as imp_sdp;
-use crate::media_stream::{MediaStream, MediaStreamTrack};
+use crate::media_stream::MediaStream;
+use crate::media_stream_track::MediaStreamTrack;
 use crate::peer_connection::{
     AnswerOptions, IceCandidateError, IceConnectionState, IceGatheringState, OfferOptions,
     OnConnectionChange, OnDataChannel, OnIceCandidate, OnIceCandidateError, OnIceConnectionChange,
@@ -21,16 +23,16 @@ use crate::rtp_transceiver::RtpTransceiver;
 use crate::rtp_transceiver::RtpTransceiverInit;
 use crate::MediaType;
 use crate::{session_description::SessionDescription, RtcError};
-use cxx::{SharedPtr, UniquePtr};
+use cxx::SharedPtr;
 use futures::channel::oneshot;
-use std::mem::ManuallyDrop;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use webrtc_sys::data_channel as sys_dc;
 use webrtc_sys::jsep as sys_jsep;
 use webrtc_sys::peer_connection as sys_pc;
 use webrtc_sys::rtc_error as sys_err;
 
-impl From<OfferOptions> for sys_pc::ffi::RTCOfferAnswerOptions {
+impl From<OfferOptions> for sys_pc::ffi::RtcOfferAnswerOptions {
     fn from(options: OfferOptions) -> Self {
         Self {
             ice_restart: options.ice_restart,
@@ -41,7 +43,7 @@ impl From<OfferOptions> for sys_pc::ffi::RTCOfferAnswerOptions {
     }
 }
 
-impl From<AnswerOptions> for sys_pc::ffi::RTCOfferAnswerOptions {
+impl From<AnswerOptions> for sys_pc::ffi::RtcOfferAnswerOptions {
     fn from(_options: AnswerOptions) -> Self {
         Self::default()
     }
@@ -110,10 +112,7 @@ impl From<sys_pc::ffi::SignalingState> for SignalingState {
 
 #[derive(Clone)]
 pub struct PeerConnection {
-    #[allow(dead_code)]
-    native_observer: SharedPtr<sys_pc::ffi::NativePeerConnectionObserver>,
     observer: Arc<PeerObserver>,
-
     pub(crate) sys_handle: SharedPtr<sys_pc::ffi::PeerConnection>,
 }
 
@@ -121,12 +120,10 @@ impl PeerConnection {
     pub fn configure(
         sys_handle: SharedPtr<sys_pc::ffi::PeerConnection>,
         observer: Arc<PeerObserver>,
-        native_observer: SharedPtr<sys_pc::ffi::NativePeerConnectionObserver>,
     ) -> Self {
         Self {
             sys_handle,
             observer,
-            native_observer,
         }
     }
 
@@ -134,12 +131,29 @@ impl PeerConnection {
         &self,
         options: OfferOptions,
     ) -> Result<SessionDescription, RtcError> {
-        let (mut native_wrapper, mut sdp_rx, mut err_rx) = create_sdp_observer();
+        let (sdp_tx, mut sdp_rx) = oneshot::channel();
+        let (err_tx, mut err_rx) = oneshot::channel();
 
-        unsafe {
-            self.sys_handle
-                .create_offer(native_wrapper.pin_mut(), options.into());
-        }
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new((sdp_tx, err_tx))));
+        type CtxType = (
+            oneshot::Sender<SessionDescription>,
+            oneshot::Sender<RtcError>,
+        );
+
+        self.sys_handle.create_offer(
+            options.into(),
+            ctx,
+            |ctx, sdp| {
+                let (sdp_tx, _) = *ctx.0.downcast::<CtxType>().unwrap();
+                let _ = sdp_tx.send(SessionDescription {
+                    handle: imp_sdp::SessionDescription { sys_handle: sdp },
+                });
+            },
+            |ctx, error| {
+                let (_, err_tx) = *ctx.0.downcast::<CtxType>().unwrap();
+                let _ = err_tx.send(error.into());
+            },
+        );
 
         futures::select! {
             sdp = sdp_rx => Ok(sdp.unwrap()),
@@ -151,13 +165,29 @@ impl PeerConnection {
         &self,
         options: AnswerOptions,
     ) -> Result<SessionDescription, RtcError> {
-        let (mut native_wrapper, mut sdp_rx, mut err_rx) = create_sdp_observer();
+        let (sdp_tx, mut sdp_rx) = oneshot::channel();
+        let (err_tx, mut err_rx) = oneshot::channel();
 
-        unsafe {
-            self.sys_handle
-                .create_answer(native_wrapper.pin_mut(), options.into());
-        }
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new((sdp_tx, err_tx))));
+        type CtxType = (
+            oneshot::Sender<SessionDescription>,
+            oneshot::Sender<RtcError>,
+        );
 
+        self.sys_handle.create_answer(
+            options.into(),
+            ctx,
+            |ctx, sdp| {
+                let (sdp_tx, _) = *ctx.0.downcast::<CtxType>().unwrap();
+                let _ = sdp_tx.send(SessionDescription {
+                    handle: imp_sdp::SessionDescription { sys_handle: sdp },
+                });
+            },
+            |ctx, error| {
+                let (_, err_tx) = *ctx.0.downcast::<CtxType>().unwrap();
+                let _ = err_tx.send(error.into());
+            },
+        );
         futures::select! {
             sdp = sdp_rx => Ok(sdp.unwrap()),
             err = err_rx => Err(err.unwrap()),
@@ -165,54 +195,66 @@ impl PeerConnection {
     }
 
     pub async fn set_local_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
-        let (tx, rx) = oneshot::channel();
-        let wrapper =
-            sys_jsep::SetLocalSdpObserverWrapper(ManuallyDrop::new(Box::new(move |error| {
-                let _ = tx.send(if error.ok() { Ok(()) } else { Err(error) });
-            })));
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
 
-        let mut native_wrapper =
-            sys_jsep::ffi::create_native_set_local_sdp_observer(Box::new(wrapper));
+        self.sys_handle
+            .set_local_description(desc.handle.sys_handle, ctx, |ctx, err| {
+                let tx = ctx
+                    .0
+                    .downcast::<oneshot::Sender<Result<(), RtcError>>>()
+                    .unwrap();
 
-        unsafe {
-            self.sys_handle
-                .set_local_description(desc.handle.sys_handle, native_wrapper.pin_mut());
-        }
+                if err.ok() {
+                    let _ = tx.send(Ok(()));
+                } else {
+                    let _ = tx.send(Err(err.into()));
+                }
+            });
 
-        rx.await.unwrap().map_err(Into::into)
+        rx.await.unwrap()
     }
 
     pub async fn set_remote_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
-        let (tx, rx) = oneshot::channel();
-        let wrapper =
-            sys_jsep::SetRemoteSdpObserverWrapper(ManuallyDrop::new(Box::new(move |error| {
-                let _ = tx.send(if error.ok() { Ok(()) } else { Err(error) });
-            })));
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
 
-        let mut native_wrapper =
-            sys_jsep::ffi::create_native_set_remote_sdp_observer(Box::new(wrapper));
+        self.sys_handle
+            .set_remote_description(desc.handle.sys_handle, ctx, |ctx, err| {
+                let tx = ctx
+                    .0
+                    .downcast::<oneshot::Sender<Result<(), RtcError>>>()
+                    .unwrap();
 
-        unsafe {
-            self.sys_handle
-                .set_remote_description(desc.handle.sys_handle, native_wrapper.pin_mut());
-        }
+                if err.ok() {
+                    let _ = tx.send(Ok(()));
+                } else {
+                    let _ = tx.send(Err(err.into()));
+                }
+            });
 
-        rx.await.unwrap().map_err(Into::into)
+        rx.await.unwrap()
     }
 
     pub async fn add_ice_candidate(&self, candidate: IceCandidate) -> Result<(), RtcError> {
-        let (tx, rx) = oneshot::channel();
-        let observer =
-            sys_pc::AddIceCandidateObserverWrapper(ManuallyDrop::new(Box::new(|error| {
-                let _ = tx.send(if error.ok() { Ok(()) } else { Err(error) });
-            })));
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
 
-        let mut native_observer =
-            sys_pc::ffi::create_native_add_ice_candidate_observer(Box::new(observer));
         self.sys_handle
-            .add_ice_candidate(candidate.handle.sys_handle, native_observer.pin_mut());
+            .add_ice_candidate(candidate.handle.sys_handle, ctx, |ctx, err| {
+                let tx = ctx
+                    .0
+                    .downcast::<oneshot::Sender<Result<(), RtcError>>>()
+                    .unwrap();
 
-        rx.await.unwrap().map_err(Into::into)
+                if err.ok() {
+                    let _ = tx.send(Ok(()));
+                } else {
+                    let _ = tx.send(Err(err.into()));
+                }
+            });
+
+        rx.await.unwrap()
     }
 
     pub fn create_data_channel(
@@ -220,16 +262,15 @@ impl PeerConnection {
         label: &str,
         init: DataChannelInit,
     ) -> Result<DataChannel, RtcError> {
-        let native_init = sys_dc::ffi::create_data_channel_init(init.into());
         let res = self
             .sys_handle
-            .create_data_channel(label.to_string(), native_init);
+            .create_data_channel(label.to_string(), init.into());
 
         match res {
             Ok(sys_handle) => Ok(DataChannel {
                 handle: imp_dc::DataChannel::configure(sys_handle),
             }),
-            Err(e) => Err(unsafe { sys_err::ffi::RTCError::from(e.what()).into() }),
+            Err(e) => Err(unsafe { sys_err::ffi::RtcError::from(e.what()).into() }),
         }
     }
 
@@ -245,7 +286,7 @@ impl PeerConnection {
             Ok(sys_handle) => Ok(RtpSender {
                 handle: imp_rs::RtpSender { sys_handle },
             }),
-            Err(e) => unsafe { Err(sys_err::ffi::RTCError::from(e.what()).into()) },
+            Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
     }
 
@@ -264,7 +305,7 @@ impl PeerConnection {
                     sys_handle: sys_handle,
                 },
             }),
-            Err(e) => unsafe { Err(sys_err::ffi::RTCError::from(e.what()).into()) },
+            Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
     }
 
@@ -283,7 +324,7 @@ impl PeerConnection {
                     sys_handle: cxx_handle,
                 },
             }),
-            Err(e) => unsafe { Err(sys_err::ffi::RTCError::from(e.what()).into()) },
+            Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
     }
 
@@ -332,7 +373,7 @@ impl PeerConnection {
     pub fn remove_track(&self, sender: RtpSender) -> Result<(), RtcError> {
         self.sys_handle
             .remove_track(sender.handle.sys_handle)
-            .map_err(|e| unsafe { sys_err::ffi::RTCError::from(e.what()).into() })
+            .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
     }
 
     pub fn senders(&self) -> Vec<RtpSender> {
@@ -372,68 +413,40 @@ impl PeerConnection {
     }
 
     pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
-        *self.observer.connection_change_handler.lock().unwrap() = f;
+        *self.observer.connection_change_handler.lock() = f;
     }
 
     pub fn on_data_channel(&self, f: Option<OnDataChannel>) {
-        *self.observer.data_channel_handler.lock().unwrap() = f;
+        *self.observer.data_channel_handler.lock() = f;
     }
 
     pub fn on_ice_candidate(&self, f: Option<OnIceCandidate>) {
-        *self.observer.ice_candidate_handler.lock().unwrap() = f;
+        *self.observer.ice_candidate_handler.lock() = f;
     }
 
     pub fn on_ice_candidate_error(&self, f: Option<OnIceCandidateError>) {
-        *self.observer.ice_candidate_error_handler.lock().unwrap() = f;
+        *self.observer.ice_candidate_error_handler.lock() = f;
     }
 
     pub fn on_ice_connection_state_change(&self, f: Option<OnIceConnectionChange>) {
-        *self.observer.ice_connection_change_handler.lock().unwrap() = f;
+        *self.observer.ice_connection_change_handler.lock() = f;
     }
 
     pub fn on_ice_gathering_state_change(&self, f: Option<OnIceGatheringChange>) {
-        *self.observer.ice_gathering_change_handler.lock().unwrap() = f;
+        *self.observer.ice_gathering_change_handler.lock() = f;
     }
 
     pub fn on_negotiation_needed(&self, f: Option<OnNegotiationNeeded>) {
-        *self.observer.negotiation_needed_handler.lock().unwrap() = f;
+        *self.observer.negotiation_needed_handler.lock() = f;
     }
 
     pub fn on_signaling_state_change(&self, f: Option<OnSignalingChange>) {
-        *self.observer.signaling_change_handler.lock().unwrap() = f;
+        *self.observer.signaling_change_handler.lock() = f;
     }
 
     pub fn on_track(&self, f: Option<OnTrack>) {
-        *self.observer.track_handler.lock().unwrap() = f;
+        *self.observer.track_handler.lock() = f;
     }
-}
-
-fn create_sdp_observer() -> (
-    UniquePtr<sys_pc::ffi::NativeCreateSdpObserverHandle>,
-    oneshot::Receiver<SessionDescription>,
-    oneshot::Receiver<RtcError>,
-) {
-    let (sdp_tx, sdp_rx) = oneshot::channel();
-    let (err_tx, err_rx) = oneshot::channel();
-
-    let wrapper = sys_jsep::CreateSdpObserverWrapper {
-        on_success: ManuallyDrop::new(Box::new(move |session_description| {
-            let _ = sdp_tx.send(SessionDescription {
-                handle: imp_sdp::SessionDescription {
-                    sys_handle: session_description,
-                },
-            });
-        })),
-        on_failure: ManuallyDrop::new(Box::new(move |error| {
-            let _ = err_tx.send(error.into());
-        })),
-    };
-
-    (
-        sys_jsep::ffi::create_native_create_sdp_observer(Box::new(wrapper)),
-        sdp_rx,
-        err_rx,
-    )
 }
 
 #[derive(Default)]
@@ -451,7 +464,7 @@ pub struct PeerObserver {
 
 impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_signaling_change(&self, new_state: sys_pc::ffi::SignalingState) {
-        if let Some(f) = self.signaling_change_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.signaling_change_handler.lock().as_mut() {
             f(new_state.into());
         }
     }
@@ -461,7 +474,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_remove_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
 
     fn on_data_channel(&self, data_channel: SharedPtr<sys_dc::ffi::DataChannel>) {
-        if let Some(f) = self.data_channel_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.data_channel_handler.lock().as_mut() {
             f(DataChannel {
                 handle: imp_dc::DataChannel::configure(data_channel),
             });
@@ -471,7 +484,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_renegotiation_needed(&self) {}
 
     fn on_negotiation_needed_event(&self, event: u32) {
-        if let Some(f) = self.negotiation_needed_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.negotiation_needed_handler.lock().as_mut() {
             f(event);
         }
     }
@@ -479,25 +492,25 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     fn on_ice_connection_change(&self, _new_state: sys_pc::ffi::IceConnectionState) {}
 
     fn on_standardized_ice_connection_change(&self, new_state: sys_pc::ffi::IceConnectionState) {
-        if let Some(f) = self.ice_connection_change_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.ice_connection_change_handler.lock().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_connection_change(&self, new_state: sys_pc::ffi::PeerConnectionState) {
-        if let Some(f) = self.connection_change_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.connection_change_handler.lock().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_ice_gathering_change(&self, new_state: sys_pc::ffi::IceGatheringState) {
-        if let Some(f) = self.ice_gathering_change_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.ice_gathering_change_handler.lock().as_mut() {
             f(new_state.into());
         }
     }
 
     fn on_ice_candidate(&self, candidate: SharedPtr<sys_jsep::ffi::IceCandidate>) {
-        if let Some(f) = self.ice_candidate_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.ice_candidate_handler.lock().as_mut() {
             f(IceCandidate {
                 handle: imp_ic::IceCandidate {
                     sys_handle: candidate,
@@ -514,7 +527,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
         error_code: i32,
         error_text: String,
     ) {
-        if let Some(f) = self.ice_candidate_error_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.ice_candidate_error_handler.lock().as_mut() {
             f(IceCandidateError {
                 address,
                 port,
@@ -547,7 +560,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
     }
 
     fn on_track(&self, transceiver: SharedPtr<webrtc_sys::rtp_transceiver::ffi::RtpTransceiver>) {
-        if let Some(f) = self.track_handler.lock().unwrap().as_mut() {
+        if let Some(f) = self.track_handler.lock().as_mut() {
             let receiver = transceiver.receiver();
             let streams = receiver.streams();
             let track = receiver.track();
@@ -564,7 +577,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
                         handle: imp_ms::MediaStream { sys_handle: s.ptr },
                     })
                     .collect(),
-                track: imp_ms::new_media_stream_track(track),
+                track: imp_mst::new_media_stream_track(track),
                 transceiver: RtpTransceiver {
                     handle: imp_rt::RtpTransceiver {
                         sys_handle: transceiver,

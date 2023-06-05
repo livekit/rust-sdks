@@ -60,6 +60,7 @@ impl_publication_into!(&TrackPublication);
 macro_rules! impl_track_into {
     ($fnc:ident, $t:ty) => {
         impl proto::TrackInfo {
+            #[allow(dead_code)]
             pub fn $fnc(handle_id: FfiHandleId, track: $t) -> Self {
                 Self {
                     opt_handle: Some(handle_id.into()),

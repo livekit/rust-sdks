@@ -7,17 +7,17 @@ pub fn find_remote_track(
     participant_sid: &ParticipantSid,
     room_handle: FfiHandleId,
 ) -> FfiResult<RemoteTrack> {
-    let room = server
+    let ffi_room = server
         .ffi_handles()
         .get(&room_handle)
         .ok_or(FfiError::InvalidRequest("room not found"))?;
 
-    let room = room
+    let ffi_room = ffi_room
         .downcast_ref::<server::room::FfiRoom>()
         .ok_or(FfiError::InvalidRequest("room is not ffi room"))?;
 
-    let session = room.session();
-    let participants = session.participants();
+    let room = ffi_room.room();
+    let participants = room.participants();
     let participant = participants
         .get(participant_sid)
         .ok_or(FfiError::InvalidRequest("participant not found"))?;

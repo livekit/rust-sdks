@@ -66,7 +66,7 @@ impl proto::RoomEvent {
 }
 
 impl proto::RoomInfo {
-    pub fn from_session(handle_id: FfiHandleId, session: &RoomSession) -> Self {
+    pub fn from_room(handle_id: FfiHandleId, session: &Room) -> Self {
         Self {
             handle: Some(handle_id.into()),
             sid: session.sid().into(),

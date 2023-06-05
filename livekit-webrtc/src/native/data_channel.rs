@@ -3,8 +3,9 @@ use crate::data_channel::{
     OnStateChange,
 };
 use cxx::SharedPtr;
+use parking_lot::Mutex;
 use std::str;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use webrtc_sys::data_channel as sys_dc;
 
 impl From<sys_dc::ffi::DataState> for DataState {
@@ -38,30 +39,21 @@ impl From<DataChannelInit> for sys_dc::ffi::DataChannelInit {
 
 #[derive(Clone)]
 pub struct DataChannel {
-    #[allow(dead_code)]
-    native_observer: SharedPtr<sys_dc::ffi::NativeDataChannelObserver>,
     observer: Arc<DataChannelObserver>,
-
     pub(crate) sys_handle: SharedPtr<sys_dc::ffi::DataChannel>,
 }
 
 impl DataChannel {
     pub fn configure(sys_handle: SharedPtr<sys_dc::ffi::DataChannel>) -> Self {
-        unsafe {
-            let observer = Arc::new(DataChannelObserver::default());
-            let dc = Self {
-                sys_handle: sys_handle.clone(),
-                native_observer: sys_dc::ffi::create_native_data_channel_observer(
-                    Box::new(sys_dc::DataChannelObserverWrapper::new(observer.clone())),
-                    &*sys_handle as *const _ as *mut _,
-                ),
-                observer,
-            };
+        let observer = Arc::new(DataChannelObserver::default());
+        let dc = Self {
+            sys_handle: sys_handle.clone(),
+            observer: observer.clone(),
+        };
 
-            dc.sys_handle
-                .register_observer(&*dc.native_observer as *const _ as *mut _);
-            dc
-        }
+        dc.sys_handle
+            .register_observer(Box::new(sys_dc::DataChannelObserverWrapper::new(observer)));
+        dc
     }
 
     pub fn send(&self, data: &[u8], binary: bool) -> Result<(), DataChannelError> {
@@ -94,15 +86,15 @@ impl DataChannel {
     }
 
     pub fn on_state_change(&self, handler: Option<OnStateChange>) {
-        *self.observer.state_change_handler.lock().unwrap() = handler;
+        *self.observer.state_change_handler.lock() = handler;
     }
 
     pub fn on_message(&self, handler: Option<OnMessage>) {
-        *self.observer.message_handler.lock().unwrap() = handler;
+        *self.observer.message_handler.lock() = handler;
     }
 
     pub fn on_buffered_amount_change(&self, handler: Option<OnBufferedAmountChange>) {
-        *self.observer.buffered_amount_change_handler.lock().unwrap() = handler;
+        *self.observer.buffered_amount_change_handler.lock() = handler;
     }
 }
 
@@ -115,21 +107,21 @@ struct DataChannelObserver {
 
 impl sys_dc::DataChannelObserver for DataChannelObserver {
     fn on_state_change(&self, state: sys_dc::ffi::DataState) {
-        let mut handler = self.state_change_handler.lock().unwrap();
+        let mut handler = self.state_change_handler.lock();
         if let Some(f) = handler.as_mut() {
             f(state.into());
         }
     }
 
     fn on_message(&self, data: &[u8], binary: bool) {
-        let mut handler = self.message_handler.lock().unwrap();
+        let mut handler = self.message_handler.lock();
         if let Some(f) = handler.as_mut() {
             f(DataBuffer { data, binary });
         }
     }
 
     fn on_buffered_amount_change(&self, sent_data_size: u64) {
-        let mut handler = self.buffered_amount_change_handler.lock().unwrap();
+        let mut handler = self.buffered_amount_change_handler.lock();
         if let Some(f) = handler.as_mut() {
             f(sent_data_size);
         }

@@ -23,6 +23,7 @@
 #include "livekit/media_stream.h"
 #include "livekit/rtp_parameters.h"
 #include "livekit/frame_transformer.h"
+#include "livekit/webrtc.h"
 #include "rust/cxx.h"
 
 namespace livekit {
@@ -37,8 +38,8 @@ namespace livekit {
 // TODO(theomonnom): FrameTransformer & FrameDecryptor interface
 class RtpReceiver {
  public:
-  explicit RtpReceiver(
-      rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
+  RtpReceiver(std::shared_ptr<RtcRuntime> rtc_runtime,
+              rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
 
   std::shared_ptr<MediaStreamTrack> track() const;
 
@@ -57,7 +58,12 @@ class RtpReceiver {
   void set_jitter_buffer_minimum_delay(bool is_some,
                                        double delay_seconds) const;
 
+  rtc::scoped_refptr<webrtc::RtpReceiverInterface> rtc_receiver() const {
+    return receiver_;
+  }
+
  private:
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
 };
 

@@ -19,28 +19,14 @@
 #include <memory>
 
 #include "api/media_stream_interface.h"
-#include "api/video/video_frame.h"
-#include "common_audio/resampler/include/push_resampler.h"
-#include "common_audio/ring_buffer.h"
 #include "livekit/helper.h"
-#include "livekit/video_frame.h"
-#include "media/base/adapted_video_track_source.h"
-#include "pc/local_audio_source.h"
-#include "rtc_base/synchronization/mutex.h"
-#include "rtc_base/timestamp_aligner.h"
+#include "livekit/webrtc.h"
 #include "rust/cxx.h"
 #include "system_wrappers/include/clock.h"
 #include "api/frame_transformer_interface.h"
 
 namespace livekit {
 class MediaStream;
-class MediaStreamTrack;
-class VideoTrack;
-class AudioTrack;
-class NativeVideoFrameSink;
-class NativeAudioSink;
-class AudioTrackSource;
-class AdaptedVideoTrackSource;
 }  // namespace livekit
 #include "webrtc-sys/src/media_stream.rs.h"
 
@@ -48,7 +34,8 @@ namespace livekit {
 
 class MediaStream {
  public:
-  explicit MediaStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
+  MediaStream(std::shared_ptr<RtcRuntime> rtc_runtime,
+              rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
 
   rust::String id() const;
   rust::Vec<VideoTrackPtr> get_video_tracks() const;
@@ -61,203 +48,9 @@ class MediaStream {
   bool remove_track(std::shared_ptr<MediaStreamTrack> track) const;
 
  private:
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;
 };
-
-class MediaStreamTrack {
- protected:
-  explicit MediaStreamTrack(
-      rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
-
- public:
-  static std::shared_ptr<MediaStreamTrack> from(
-      rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
-
-  rust::String kind() const;
-  rust::String id() const;
-
-  bool enabled() const;
-  bool set_enabled(bool enable) const;
-
-  TrackState state() const;
-
-  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> get() const {
-    return track_;
-  }
-
- protected:
-  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
-};
-
-class AudioTrack : public MediaStreamTrack {
- public:
-  explicit AudioTrack(rtc::scoped_refptr<webrtc::AudioTrackInterface> track);
-
-  void add_sink(NativeAudioSink& sink) const;
-  void remove_sink(NativeAudioSink& sink) const;
-
- private:
-  webrtc::AudioTrackInterface* track() const {
-    return static_cast<webrtc::AudioTrackInterface*>(track_.get());
-  }
-};
-
-class NativeAudioSink : public webrtc::AudioTrackSinkInterface {
- public:
-  explicit NativeAudioSink(rust::Box<AudioSinkWrapper> observer);
-  void OnData(const void* audio_data,
-              int bits_per_sample,
-              int sample_rate,
-              size_t number_of_channels,
-              size_t number_of_frames) override;
-
- private:
-  rust::Box<AudioSinkWrapper> observer_;
-};
-
-std::unique_ptr<NativeAudioSink> new_native_audio_sink(
-    rust::Box<AudioSinkWrapper> observer);
-
-class NativeAudioTrackSource : public webrtc::LocalAudioSource {
- public:
-  NativeAudioTrackSource();
-
-  SourceState state() const override;
-  bool remote() const override;
-
-  const cricket::AudioOptions options() const override;
-
-  void AddSink(webrtc::AudioTrackSinkInterface* sink) override;
-  void RemoveSink(webrtc::AudioTrackSinkInterface* sink) override;
-
-  // AudioFrame should always contain 10 ms worth of data (see index.md of acm)
-  void on_captured_frame(const int16_t* audio_data,
-                         int sample_rate,
-                         size_t number_of_channels,
-                         size_t number_of_frames);
-
- private:
-  webrtc::Mutex mutex_;
-  std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
-  cricket::AudioOptions options_{};
-};
-
-class AudioTrackSource {
- public:
-  AudioTrackSource(rtc::scoped_refptr<NativeAudioTrackSource> source);
-
-  void on_captured_frame(const int16_t* audio_data,
-                         int sample_rate,
-                         size_t number_of_channels,
-                         size_t number_of_frames) const;
-
-  rtc::scoped_refptr<NativeAudioTrackSource> get() const;
-
- private:
-  rtc::scoped_refptr<NativeAudioTrackSource> source_;
-};
-
-std::shared_ptr<AudioTrackSource> new_audio_track_source();
-
-class VideoTrack : public MediaStreamTrack {
- public:
-  explicit VideoTrack(rtc::scoped_refptr<webrtc::VideoTrackInterface> track);
-
-  void add_sink(NativeVideoFrameSink& sink) const;
-  void remove_sink(NativeVideoFrameSink& sink) const;
-
-  void set_should_receive(bool should_receive) const;
-  bool should_receive() const;
-  ContentHint content_hint() const;
-  void set_content_hint(ContentHint hint) const;
-
- private:
-  webrtc::VideoTrackInterface* track() const {
-    return static_cast<webrtc::VideoTrackInterface*>(track_.get());
-  }
-};
-
-class NativeVideoFrameSink
-    : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
- public:
-  explicit NativeVideoFrameSink(rust::Box<VideoFrameSinkWrapper> observer);
-
-  void OnFrame(const webrtc::VideoFrame& frame) override;
-  void OnDiscardedFrame() override;
-  void OnConstraintsChanged(
-      const webrtc::VideoTrackSourceConstraints& constraints) override;
-
- private:
-  rust::Box<VideoFrameSinkWrapper> observer_;
-};
-
-std::unique_ptr<NativeVideoFrameSink> new_native_video_frame_sink(
-    rust::Box<VideoFrameSinkWrapper> observer);
-
-// Native impl of the WebRTC interface
-class NativeVideoTrackSource : public rtc::AdaptedVideoTrackSource {
- public:
-  NativeVideoTrackSource();
-  ~NativeVideoTrackSource() override;
-
-  bool is_screencast() const override;
-  absl::optional<bool> needs_denoising() const override;
-  SourceState state() const override;
-  bool remote() const override;
-
-  bool on_captured_frame(const webrtc::VideoFrame& frame);
-
- private:
-  webrtc::Mutex mutex_;
-  rtc::TimestampAligner timestamp_aligner_;
-};
-
-class AdaptedVideoTrackSource {
- public:
-  AdaptedVideoTrackSource(rtc::scoped_refptr<NativeVideoTrackSource> source);
-
-  bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame)
-      const;  // frames pushed from Rust (+interior mutability)
-
-  rtc::scoped_refptr<NativeVideoTrackSource> get() const;
-
- private:
-  rtc::scoped_refptr<NativeVideoTrackSource> source_;
-};
-
-std::shared_ptr<AdaptedVideoTrackSource> new_adapted_video_track_source();
-
-static std::shared_ptr<MediaStreamTrack> video_to_media(
-    std::shared_ptr<VideoTrack> track) {
-  return track;
-}
-
-static std::shared_ptr<MediaStreamTrack> audio_to_media(
-    std::shared_ptr<AudioTrack> track) {
-  return track;
-}
-
-static std::shared_ptr<VideoTrack> media_to_video(
-    std::shared_ptr<MediaStreamTrack> track) {
-  return std::static_pointer_cast<VideoTrack>(track);
-}
-
-static std::shared_ptr<AudioTrack> media_to_audio(
-    std::shared_ptr<MediaStreamTrack> track) {
-  return std::static_pointer_cast<AudioTrack>(track);
-}
-
-static std::shared_ptr<MediaStreamTrack> _shared_media_stream_track() {
-  return nullptr;  // Ignore
-}
-
-static std::shared_ptr<AudioTrack> _shared_audio_track() {
-  return nullptr;  // Ignore
-}
-
-static std::shared_ptr<VideoTrack> _shared_video_track() {
-  return nullptr;  // Ignore
-}
 
 static std::shared_ptr<MediaStream> _shared_media_stream() {
   return nullptr;  // Ignore

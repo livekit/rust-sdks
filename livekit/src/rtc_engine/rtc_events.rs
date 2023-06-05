@@ -3,7 +3,7 @@ use crate::rtc_engine::peer_transport::OnOfferCreated;
 use livekit_protocol as proto;
 use livekit_webrtc::{self as rtc, prelude::*};
 use tokio::sync::mpsc;
-use tracing::{debug, error};
+use tracing::{error};
 
 pub type RtcEmitter = mpsc::UnboundedSender<RtcEvent>;
 pub type RtcEvents = mpsc::UnboundedReceiver<RtcEvent>;

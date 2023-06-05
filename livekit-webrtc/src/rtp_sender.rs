@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use crate::{
-    imp::rtp_sender as imp_rs, media_stream::MediaStreamTrack, rtp_parameters::RtpParameters,
+    imp::rtp_sender as imp_rs, media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
     RtcError,
 };
 
