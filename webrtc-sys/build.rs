@@ -155,6 +155,7 @@ fn main() {
         "src/audio_resampler.rs",
         "src/frame_transformer.rs",
         "src/encoded_video_frame.rs",
+        "src/encoded_audio_frame.rs",
     ]);
 
     builder.files(&[
@@ -181,6 +182,7 @@ fn main() {
         "src/audio_resampler.cpp",
         "src/frame_transformer.cpp",
         "src/encoded_video_frame.cpp",
+        "src/encoded_audio_frame.cpp",
     ]);
 
     for include in includes {

@@ -2,23 +2,23 @@ use webrtc_sys::{frame_transformer as sys_ft};
 use futures::stream::Stream;
 use tokio::sync::mpsc;
 use cxx::{SharedPtr, UniquePtr};
-use crate::encoded_frame::EncodedVideoFrame;
-use webrtc_sys::encoded_video_frame::ffi::EncodedVideoFrame as sys_ef;
+use crate::encoded_audio_frame::EncodedAudioFrame;
+use webrtc_sys::encoded_audio_frame::ffi::EncodedAudioFrame as sys_eaf;
+use webrtc_sys::encoded_video_frame::ffi::EncodedVideoFrame as sys_evf;
 use crate::prelude::RtpReceiver;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub struct NativeEncodedFrameStream {
+pub struct NativeEncodedAudioFrameStream {
     native_transfomer: SharedPtr<sys_ft::ffi::AdaptedNativeFrameTransformer>,
-    _observer: Box<VideoTrackEncodedFramesObserver>,
-    // video_track: RtcVideoTrack,
-    frame_rx: mpsc::UnboundedReceiver<EncodedVideoFrame>,
+    _observer: Box<AudioTrackEncodedAudioFramesObserver>,
+    frame_rx: mpsc::UnboundedReceiver<EncodedAudioFrame>,
 }
 
-impl NativeEncodedFrameStream {
+impl NativeEncodedAudioFrameStream {
     pub fn new(rtp_receiver: &RtpReceiver) -> Self {
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
-        let mut observer = Box::new(VideoTrackEncodedFramesObserver { frame_tx });
+        let mut observer = Box::new(AudioTrackEncodedAudioFramesObserver { frame_tx });
         let mut native_transfomer = unsafe {
             sys_ft::ffi::new_adapted_frame_transformer(Box::new(sys_ft::EncodedFrameSinkWrapper::new(
                 &mut *observer,
@@ -43,29 +43,33 @@ impl NativeEncodedFrameStream {
     }
 }
 
-impl Drop for NativeEncodedFrameStream {
+impl Drop for NativeEncodedAudioFrameStream {
     fn drop(&mut self) {
         self.close();
     }
 }
 
-impl Stream for NativeEncodedFrameStream {
-    type Item = EncodedVideoFrame;
+impl Stream for NativeEncodedAudioFrameStream {
+    type Item = EncodedAudioFrame;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         self.frame_rx.poll_recv(cx)
     }
 }
 
-struct VideoTrackEncodedFramesObserver {
-    frame_tx: mpsc::UnboundedSender<EncodedVideoFrame>,
+struct AudioTrackEncodedAudioFramesObserver {
+    frame_tx: mpsc::UnboundedSender<EncodedAudioFrame>,
 }
 
-impl sys_ft::EncodedFrameSink for VideoTrackEncodedFramesObserver {
+impl sys_ft::EncodedFrameSink for AudioTrackEncodedAudioFramesObserver {
     // To be called when Transform happens
-    fn on_encoded_frame(&self, frame: UniquePtr<sys_ef>) {
-        println!("VideoTrackEncodedFramesObserver::on_encoded_frame");
-        let encoded_frame = EncodedVideoFrame::new(frame);
+    fn on_encoded_audio_frame(&self, frame: UniquePtr<sys_eaf>) {
+        println!("AudioTrackEncodedAudioFramesObserver::on_encoded_frame");
+        let encoded_frame = EncodedAudioFrame::new(frame);
         let _ = self.frame_tx.send(encoded_frame);
+    }
+
+    fn on_encoded_video_frame(&self, frame: UniquePtr<sys_evf>) {
+
     }
 }

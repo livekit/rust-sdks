@@ -45,8 +45,10 @@ pub mod session_description;
 pub mod video_frame;
 pub mod video_source;
 pub mod video_stream;
-pub mod encoded_frame_stream;
-pub mod encoded_frame;
+pub mod encoded_video_frame_stream;
+pub mod encoded_video_frame;
+pub mod encoded_audio_frame_stream;
+pub mod encoded_audio_frame;
 pub mod video_track;
 
 #[cfg(not(target_arch = "wasm32"))]
