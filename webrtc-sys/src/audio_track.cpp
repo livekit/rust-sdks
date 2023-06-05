@@ -16,8 +16,6 @@
 
 #include "livekit/audio_track.h"
 
-#include <sys/_types/_int16_t.h>
-
 #include <algorithm>
 #include <iostream>
 #include <memory>
