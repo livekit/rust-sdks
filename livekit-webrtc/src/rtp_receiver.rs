@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, ptr::null};
 
 use cxx::SharedPtr;
 use webrtc_sys::frame_transformer::{ffi::AdaptedNativeFrameTransformer, EncodedFrameSinkWrapper};
@@ -27,8 +27,18 @@ impl RtpReceiver {
         self.handle.set_depacketizer_to_decoder_frame_transformer(transformer);
     }
 
-    pub fn new_adapted_frame_transformer(&self, observer: Box<EncodedFrameSinkWrapper>) -> SharedPtr<AdaptedNativeFrameTransformer> {
-        self.handle.new_adapted_frame_transformer(observer)
+    pub fn new_adapted_frame_transformer(&self, observer: Box<EncodedFrameSinkWrapper>) -> Option<SharedPtr<AdaptedNativeFrameTransformer>> {
+        if let Some(track) = &self.handle.track() {
+            match track {
+                MediaStreamTrack::Video(_) => {  
+                    return Some(self.handle.new_adapted_frame_transformer(observer, true));
+                },
+                MediaStreamTrack::Audio(_) => {
+                    return Some(self.handle.new_adapted_frame_transformer(observer, false));
+                },
+            }
+        }
+        None
     }
 }
 

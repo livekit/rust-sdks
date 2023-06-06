@@ -22,7 +22,7 @@ impl NativeEncodedAudioFrameStream {
         let mut native_transfomer = unsafe {
             sys_ft::ffi::new_adapted_frame_transformer(Box::new(sys_ft::EncodedFrameSinkWrapper::new(
                 &mut *observer,
-            )))
+            )), false)
         };
 
         rtp_receiver.set_depacketizer_to_decoder_frame_transformer(native_transfomer.clone());

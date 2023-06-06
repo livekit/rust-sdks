@@ -33,7 +33,7 @@ impl RtpReceiver {
         self.sys_handle.set_depacketizer_to_decoder_frame_transformer(transformer);
     }
 
-    pub fn new_adapted_frame_transformer(&self, observer: Box<EncodedFrameSinkWrapper>) -> SharedPtr<AdaptedNativeFrameTransformer> {
-        sys_ft::ffi::new_adapted_frame_transformer(observer)
+    pub fn new_adapted_frame_transformer(&self, observer: Box<EncodedFrameSinkWrapper>, is_video: bool) -> SharedPtr<AdaptedNativeFrameTransformer> {
+        sys_ft::ffi::new_adapted_frame_transformer(observer, is_video)
     }
 }

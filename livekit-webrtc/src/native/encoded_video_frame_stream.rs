@@ -22,8 +22,8 @@ impl NativeEncodedVideoFrameStream {
         let mut observer = Box::new(VideoTrackEncodedVideoFramesObserver { frame_tx });
         let mut native_transfomer = unsafe {
             sys_ft::ffi::new_adapted_frame_transformer(Box::new(sys_ft::EncodedFrameSinkWrapper::new(
-                &mut *observer,
-            )))
+                &mut *observer
+            )), true)
         };
 
         rtp_receiver.set_depacketizer_to_decoder_frame_transformer(native_transfomer.clone());

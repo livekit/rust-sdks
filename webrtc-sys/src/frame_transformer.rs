@@ -17,13 +17,14 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/frame_transformer.h");
         include!("livekit/encoded_video_frame.h");
+        include!("livekit/encoded_audio_frame.h");
 
         type AdaptedNativeFrameTransformer;
         
 
         fn new_adapted_frame_transformer(
             observer: Box<EncodedFrameSinkWrapper>,
-        // );
+            is_video: bool
         ) -> SharedPtr<AdaptedNativeFrameTransformer>;
     }
 

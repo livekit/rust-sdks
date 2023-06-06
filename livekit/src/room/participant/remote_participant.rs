@@ -92,6 +92,7 @@ impl RemoteParticipant {
                             remote_publication.sid().into(),
                             remote_publication.name(),
                             rtc_track,
+                            receiver
                         );
                         RemoteTrack::Audio(audio_track)
                     } else {

@@ -22,14 +22,19 @@ impl Debug for RemoteAudioTrack {
 }
 
 impl RemoteAudioTrack {
-    pub(crate) fn new(sid: TrackSid, name: String, rtc_track: RtcAudioTrack) -> Self {
+    pub(crate) fn new(
+        sid: TrackSid, 
+        name: String, 
+        rtc_track: RtcAudioTrack,
+        receiver: RtpReceiver
+    ) -> Self {
         Self {
             inner: Arc::new(TrackInner::new(
                 sid,
                 name,
                 TrackKind::Audio,
                 MediaStreamTrack::Audio(rtc_track),
-                None
+                Some(receiver)
             )),
         }
     }
@@ -95,6 +100,12 @@ impl RemoteAudioTrack {
     #[inline]
     pub fn is_remote(&self) -> bool {
         true
+    }
+
+    #[allow(dead_code)]
+    #[inline]
+    pub fn receiver(&self) -> Option<RtpReceiver> {
+        self.inner.receiver.clone()
     }
 
     #[allow(dead_code)]

@@ -10,6 +10,7 @@
 
 namespace livekit {
 class EncodedVideoFrame;
+class EncodedAudioFrame;
 class FrameTransformerInterface;
 class AdaptedNativeFrameTransformer;
 }
@@ -19,11 +20,12 @@ namespace livekit {
 
 class NativeFrameTransformer : public rtc::RefCountedObject<webrtc::FrameTransformerInterface> {
  public:
-  explicit NativeFrameTransformer(rust::Box<EncodedFrameSinkWrapper> observer);
+  explicit NativeFrameTransformer(rust::Box<EncodedFrameSinkWrapper> observer, bool is_video);
 
   void Transform(std::unique_ptr<webrtc::TransformableFrameInterface> transformable_frame);
 
  private:
+  bool is_video;
   rust::Box<EncodedFrameSinkWrapper> observer_;
 };
 
@@ -38,5 +40,8 @@ class AdaptedNativeFrameTransformer {
   rtc::scoped_refptr<NativeFrameTransformer> source_;
 };
 
-std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer(rust::Box<EncodedFrameSinkWrapper> observer);
+std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer(
+  rust::Box<EncodedFrameSinkWrapper> observer,
+  bool is_video
+  );
 }  // namespace livekit
