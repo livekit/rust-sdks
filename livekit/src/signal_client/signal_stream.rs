@@ -129,6 +129,7 @@ impl SignalStream {
                     signal,
                     response_chn,
                 } => {
+                    println!("Signal request: {:?}", signal);
                     event!(Level::TRACE, "sending SignalRequest: {:?}", signal);
 
                     let data = Message::Binary(
@@ -180,9 +181,14 @@ impl SignalStream {
                     let res = proto::SignalResponse::decode(data.as_slice())
                         .expect("failed to decode SignalResponse");
 
-                    let msg = res.message.unwrap();
-                    event!(Level::TRACE, "received SignalResponse: {:?}", msg);
-                    let _ = emitter.send(SignalEvent::Signal(msg)).await;
+                    println!("res: {:?}", res);
+                    if let Some(msg) = res.message {
+                        event!(Level::TRACE, "received SignalResponse: {:?}", msg);
+                        let _ = emitter.send(SignalEvent::Signal(msg)).await;
+                    }
+                    else {
+                        println!("Failed to receive message!");
+                    }
                 }
                 Ok(Message::Ping(data)) => {
                     let _ = internal_tx

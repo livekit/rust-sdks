@@ -33,25 +33,25 @@ async fn main() {
         match msg {
             RoomEvent::TrackSubscribed { track, publication, participant } => {
                 if let RemoteTrack::Video(video_track) = &track {
-                    // match &video_track.receiver() {
-                    //     Some(receiver) => {
-                    //         let parameters = receiver.parameters();
-                    //         println!("Parameters: {:?}", parameters);
-                    //         // let mut encoded_frame_stream = NativeEncodedFrameStream::new(receiver);
-                    //         // while let Some(frame) = encoded_frame_stream.next().await {
-                    //         //     println!("Got encoded frame - {}x{} type: {}", frame.width(), frame.height(), frame.payload_type());
-                    //         //     let payload = frame.payload();
-                    //         //     println!("payload:");
-                    //         //     for b in payload {
-                    //         //         print!("{:02x}", b);
-                    //         //     }
-                    //         //     println!();
-                    //         // }                            
-                    //     },
-                    //     None => {
-                    //         println!("No receiver!");
-                    //     },
-                    // }
+                    match &video_track.receiver() {
+                        Some(receiver) => {
+                            let parameters = receiver.parameters();
+                            println!("Parameters: {:?}", parameters);
+                            let mut encoded_frame_stream = NativeEncodedVideoFrameStream::new(receiver);
+                            while let Some(frame) = encoded_frame_stream.next().await {
+                                println!("Got encoded frame - {}x{} type: {}", frame.width(), frame.height(), frame.payload_type());
+                            //     let payload = frame.payload();
+                            //     println!("payload:");
+                            //     for b in payload {
+                            //         print!("{:02x}", b);
+                            //     }
+                            //     println!();
+                            }                            
+                        },
+                        None => {
+                            println!("No receiver!");
+                        },
+                    }
                     
                     // let rtc_track = video_track.rtc_track();
                     // let mut video_stream = NativeVideoStream::new(rtc_track);
@@ -61,26 +61,26 @@ async fn main() {
                     // break;
                 }
                 else if let RemoteTrack::Audio(audio_track) = &track {
-                    match &audio_track.receiver() {
-                        Some(receiver) => {
-                            let parameters = receiver.parameters();
-                            // println!("Parameters: {:?}", parameters);
-                            let mut encoded_frame_stream = NativeEncodedAudioFrameStream::new(receiver);
-                            while let Some(frame) = encoded_frame_stream.next().await {
-                                println!("Got encoded audio frame type: {}", frame.payload_type());
-                                let payload = frame.payload();
-                                println!("payload:");
-                                for b in payload {
-                                    print!("{:02x}", b);
-                                }
-                                println!();
-                            }
-                            println!("Exited");
-                        },
-                        None => {
-                            println!("No receiver!");
-                        },
-                    }
+                    // match &audio_track.receiver() {
+                    //     Some(receiver) => {
+                    //         let parameters = receiver.parameters();
+                    //         // println!("Parameters: {:?}", parameters);
+                    //         let mut encoded_frame_stream = NativeEncodedAudioFrameStream::new(receiver);
+                    //         while let Some(frame) = encoded_frame_stream.next().await {
+                    //             println!("Got encoded audio frame type: {}", frame.payload_type());
+                    //             let payload = frame.payload();
+                    //             println!("payload:");
+                    //             for b in payload {
+                    //                 print!("{:02x}", b);
+                    //             }
+                    //             println!();
+                    //         }
+                    //         println!("Exited");
+                    //     },
+                    //     None => {
+                    //         println!("No receiver!");
+                    //     },
+                    // }
                 }
             },
             _ => {}
