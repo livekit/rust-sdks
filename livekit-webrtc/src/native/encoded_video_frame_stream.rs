@@ -65,12 +65,12 @@ struct VideoTrackEncodedVideoFramesObserver {
 impl sys_ft::EncodedFrameSink for VideoTrackEncodedVideoFramesObserver {
     // To be called when Transform happens
     fn on_encoded_video_frame(&self, frame: UniquePtr<sys_evf>) {
-        println!("VideoTrackEncodedVideoFramesObserver::on_encoded_frame");
+        // println!("VideoTrackEncodedVideoFramesObserver::on_encoded_video_frame");
         let encoded_frame = EncodedVideoFrame::new(frame);
         let _ = self.frame_tx.send(encoded_frame);
     }
 
     fn on_encoded_audio_frame(&self, frame: UniquePtr<sys_eaf>) {
-
+        panic!("Receiving audio frames in a video receiver");
     }
 }
