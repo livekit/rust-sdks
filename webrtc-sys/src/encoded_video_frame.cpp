@@ -49,4 +49,38 @@ uint32_t EncodedVideoFrame::timestamp() const {
     return frame_->GetTimestamp();
 }
 
+
+std::shared_ptr<uint64_t> EncodedVideoFrame::absolute_capture_timestamp() const {
+    webrtc::RTPVideoHeader header = frame_->header();
+    if (header.absolute_capture_time.has_value()) {
+        webrtc::AbsoluteCaptureTime absolute_capture_time = 
+            header.absolute_capture_time.value();
+
+        std::shared_ptr<uint64_t> p = std::make_shared<uint64_t>(absolute_capture_time.absolute_capture_timestamp);
+        return p;
+    }
+    else {
+        return nullptr;
+    }
+}
+
+std::shared_ptr<int64_t> EncodedVideoFrame::estimated_capture_clock_offset() const {
+    webrtc::RTPVideoHeader header = frame_->header();
+    if (header.absolute_capture_time.has_value()) {
+        webrtc::AbsoluteCaptureTime absolute_capture_time = 
+            header.absolute_capture_time.value();
+        if (absolute_capture_time.estimated_capture_clock_offset.has_value()) {
+            std::shared_ptr<int64_t> p = std::make_shared<int64_t>(absolute_capture_time.estimated_capture_clock_offset.value());
+            return p;
+        }
+        else {
+            return nullptr;
+        }
+
+    }
+    else {
+        return nullptr;
+    }
+}
+
 }

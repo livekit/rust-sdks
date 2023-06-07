@@ -20,6 +20,9 @@ pub mod ffi {
         fn payload_type(self: &EncodedVideoFrame) -> u8;
         fn payload_data(self: &EncodedVideoFrame) -> *const u8;
         fn payload_size(self: &EncodedVideoFrame) -> usize;
+
+        fn absolute_capture_timestamp(self: &EncodedVideoFrame) -> SharedPtr<u64>;
+        fn estimated_capture_clock_offset(self: &EncodedVideoFrame) -> SharedPtr<i64>;
     }
 
     impl UniquePtr<EncodedVideoFrame> {}

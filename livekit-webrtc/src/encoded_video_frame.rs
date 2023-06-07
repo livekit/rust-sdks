@@ -42,4 +42,26 @@ impl EncodedVideoFrame {
     pub fn timestamp(&self) -> u32 {
         self.frame.timestamp()
     }
+
+    pub fn absolute_capture_timestamp(&self) -> Option<u64> {
+        let value = self.frame.absolute_capture_timestamp();
+        if !value.is_null() {
+            let value = *value;
+            return Some(value);
+        }
+        else {
+            return None;
+        }
+    }
+
+    pub fn estimated_capture_clock_offset(&self) -> Option<i64> {
+        let value = self.frame.estimated_capture_clock_offset();
+        if !value.is_null() {
+            let value = *value;
+            return Some(value);
+        }
+        else {
+            return None;
+        }
+    }
 }

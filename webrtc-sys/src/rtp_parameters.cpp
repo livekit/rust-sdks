@@ -437,6 +437,9 @@ RtpParameters to_rust_rtp_parameters(webrtc::RtpParameters params) {
   rust.transaction_id = params.transaction_id;
   rust.mid = params.mid;
 
+  fprintf(stderr, "transaction_id %s", rust.transaction_id.c_str());
+  fprintf(stderr, "mid %s", rust.mid.c_str());
+
   for (auto codec : params.codecs)
     rust.codecs.push_back(to_rust_rtp_codec_parameters(codec));
 

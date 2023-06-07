@@ -36,4 +36,36 @@ uint32_t EncodedAudioFrame::timestamp() const {
     return frame_->GetTimestamp();
 }
 
+std::shared_ptr<uint64_t> EncodedAudioFrame::absolute_capture_timestamp() const {
+    webrtc::RTPHeader header = frame_->GetHeader();
+    if (header.extension.absolute_capture_time.has_value()) {
+        webrtc::AbsoluteCaptureTime absolute_capture_time = 
+            header.extension.absolute_capture_time.value();
+        std::shared_ptr<uint64_t> p = std::make_shared<uint64_t>(absolute_capture_time.absolute_capture_timestamp);
+        return p;
+    }
+    else {
+        return nullptr;
+    }
+}
+
+std::shared_ptr<int64_t> EncodedAudioFrame::estimated_capture_clock_offset() const {
+    webrtc::RTPHeader header = frame_->GetHeader();
+    if (header.extension.absolute_capture_time.has_value()) {
+        webrtc::AbsoluteCaptureTime absolute_capture_time = 
+            header.extension.absolute_capture_time.value();
+        if (absolute_capture_time.estimated_capture_clock_offset.has_value()) {
+            std::shared_ptr<int64_t> p = std::make_shared<int64_t>(absolute_capture_time.estimated_capture_clock_offset.value());
+            return p;
+        }
+        else {
+            return nullptr;
+        }
+
+    }
+    else {
+        return nullptr;
+    }
+}
+
 }
