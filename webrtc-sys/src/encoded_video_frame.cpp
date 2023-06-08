@@ -37,13 +37,20 @@ uint8_t EncodedVideoFrame::payload_type() const {
     return frame_->GetPayloadType();
 }
 
-std::shared_ptr<uint64_t> EncodedVideoFrame::frame_tracking_id() const {
-    webrtc::RTPVideoHeader header = frame_->header();
-    if (header.video_frame_tracking_id.has_value()) {
-        std::shared_ptr<uint64_t> p = std::make_shared<uint64_t>(header.video_frame_tracking_id.value());
+std::shared_ptr<int64_t> EncodedVideoFrame::frame_id() const {
+    if (frame_->header().generic.has_value()) {
+        webrtc::RTPVideoHeader::GenericDescriptorInfo generic = frame_->header().generic.value();
+        std::shared_ptr<int64_t> p = std::make_shared<int64_t>(generic.frame_id);
         return p;
     }
+    else {
+        fprintf(stderr, "frame_id empty\n");
+    }
     return nullptr;
+};
+
+int EncodedVideoFrame::temporal_index() const {
+    return frame_->GetMetadata().GetTemporalIndex();
 };
 
 const uint8_t* EncodedVideoFrame::payload_data() const {

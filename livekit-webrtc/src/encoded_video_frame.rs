@@ -39,8 +39,8 @@ impl EncodedVideoFrame {
         self.frame.payload_type()
     }
 
-    pub fn frame_tracking_id(&self) -> Option<u64> {
-        let value = self.frame.frame_tracking_id();
+    pub fn frame_id(&self) -> Option<i64> {
+        let value = self.frame.frame_id();
         if !value.is_null() {
             let value = *value;
             return Some(value);
@@ -48,6 +48,10 @@ impl EncodedVideoFrame {
         else {
             return None;
         }
+    }
+
+    pub fn temporal_index(&self) -> i32 {
+        self.frame.temporal_index()
     }
 
     pub fn timestamp(&self) -> u32 {

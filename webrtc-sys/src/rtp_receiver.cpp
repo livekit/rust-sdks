@@ -17,6 +17,8 @@
 #include "livekit/rtp_receiver.h"
 #include "livekit/frame_transformer.h"
 
+#include "pc/audio_rtp_receiver.h"
+
 #include <memory>
 
 #include "absl/types/optional.h"

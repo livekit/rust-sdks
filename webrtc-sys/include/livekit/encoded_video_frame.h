@@ -1,6 +1,7 @@
 #pragma once
 
 #include "livekit/frame_transformer.h"
+#include "api/video/video_frame_metadata.h"
 #include "rtc_base/checks.h"
 
 namespace livekit {
@@ -20,9 +21,11 @@ class EncodedVideoFrame {
   uint32_t timestamp() const;
 
   uint8_t payload_type() const;
-  std::shared_ptr<uint64_t> frame_tracking_id() const;
+  std::shared_ptr<int64_t> frame_id() const;
   const uint8_t* payload_data() const;
   size_t payload_size() const;
+
+  int temporal_index() const;
 
   std::shared_ptr<uint64_t> absolute_capture_timestamp() const;
   std::shared_ptr<int64_t> estimated_capture_clock_offset() const;
