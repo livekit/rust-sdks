@@ -20,6 +20,7 @@ class EncodedVideoFrame {
   uint32_t timestamp() const;
 
   uint8_t payload_type() const;
+  std::shared_ptr<uint64_t> frame_tracking_id() const;
   const uint8_t* payload_data() const;
   size_t payload_size() const;
 

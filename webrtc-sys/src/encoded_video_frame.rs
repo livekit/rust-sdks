@@ -17,6 +17,8 @@ pub mod ffi {
         fn height(self: &EncodedVideoFrame) -> u16;
         fn timestamp(self: &EncodedVideoFrame) -> u32;
 
+        fn frame_tracking_id(self: &EncodedVideoFrame) -> SharedPtr<u64>;
+
         fn payload_type(self: &EncodedVideoFrame) -> u8;
         fn payload_data(self: &EncodedVideoFrame) -> *const u8;
         fn payload_size(self: &EncodedVideoFrame) -> usize;

@@ -37,6 +37,15 @@ uint8_t EncodedVideoFrame::payload_type() const {
     return frame_->GetPayloadType();
 }
 
+std::shared_ptr<uint64_t> EncodedVideoFrame::frame_tracking_id() const {
+    webrtc::RTPVideoHeader header = frame_->header();
+    if (header.video_frame_tracking_id.has_value()) {
+        std::shared_ptr<uint64_t> p = std::make_shared<uint64_t>(header.video_frame_tracking_id.value());
+        return p;
+    }
+    return nullptr;
+};
+
 const uint8_t* EncodedVideoFrame::payload_data() const {
     return data;
 }
@@ -59,9 +68,7 @@ std::shared_ptr<uint64_t> EncodedVideoFrame::absolute_capture_timestamp() const 
         std::shared_ptr<uint64_t> p = std::make_shared<uint64_t>(absolute_capture_time.absolute_capture_timestamp);
         return p;
     }
-    else {
-        return nullptr;
-    }
+    return nullptr;
 }
 
 std::shared_ptr<int64_t> EncodedVideoFrame::estimated_capture_clock_offset() const {
@@ -73,14 +80,8 @@ std::shared_ptr<int64_t> EncodedVideoFrame::estimated_capture_clock_offset() con
             std::shared_ptr<int64_t> p = std::make_shared<int64_t>(absolute_capture_time.estimated_capture_clock_offset.value());
             return p;
         }
-        else {
-            return nullptr;
-        }
-
     }
-    else {
-        return nullptr;
-    }
+    return nullptr;
 }
 
 }

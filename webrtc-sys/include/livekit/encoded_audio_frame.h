@@ -19,6 +19,7 @@ class EncodedAudioFrame {
   uint32_t timestamp() const;
 
   uint8_t payload_type() const;
+  uint16_t sequence_number() const;
   const uint8_t* payload_data() const;
   size_t payload_size() const;
   std::shared_ptr<uint64_t> absolute_capture_timestamp() const;

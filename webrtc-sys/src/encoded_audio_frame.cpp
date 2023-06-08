@@ -24,6 +24,11 @@ uint8_t EncodedAudioFrame::payload_type() const {
     return frame_->GetPayloadType();
 }
 
+uint16_t EncodedAudioFrame::sequence_number() const {
+    webrtc::RTPHeader header = frame_->GetHeader();
+    return header.sequenceNumber;
+};
+
 const uint8_t* EncodedAudioFrame::payload_data() const {
     return data;
 }
@@ -51,6 +56,7 @@ std::shared_ptr<uint64_t> EncodedAudioFrame::absolute_capture_timestamp() const 
 
 std::shared_ptr<int64_t> EncodedAudioFrame::estimated_capture_clock_offset() const {
     webrtc::RTPHeader header = frame_->GetHeader();
+
     if (header.extension.absolute_capture_time.has_value()) {
         webrtc::AbsoluteCaptureTime absolute_capture_time = 
             header.extension.absolute_capture_time.value();
@@ -58,14 +64,9 @@ std::shared_ptr<int64_t> EncodedAudioFrame::estimated_capture_clock_offset() con
             std::shared_ptr<int64_t> p = std::make_shared<int64_t>(absolute_capture_time.estimated_capture_clock_offset.value());
             return p;
         }
-        else {
-            return nullptr;
-        }
 
     }
-    else {
-        return nullptr;
-    }
+    return nullptr;
 }
 
 }
