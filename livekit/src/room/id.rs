@@ -47,7 +47,9 @@ pub struct ParticipantSid(String);
 pub struct ParticipantIdentity(String);
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct TrackSid(String);
+pub struct TrackSid(
+    pub String
+);
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct RoomSid(String);
