@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_LOG: debug
 
 jobs:
   build:
@@ -45,10 +46,7 @@ jobs:
         with:
           submodules: true
 
-      - name: Build
-        run: cargo build --release --verbose --target ${{ matrix.target }}
-
       - name: Test
-        run: cargo test --release --verbose --target ${{ matrix.target }}
+        run: cargo test --release --verbose --target ${{ matrix.target }} -- --nocapture
 
 
