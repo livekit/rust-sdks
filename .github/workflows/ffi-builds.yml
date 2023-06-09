@@ -67,13 +67,13 @@ jobs:
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
-          cd ${{ matrix.target }}/target/release/
+          cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ matrix.dylib }}
 
       - name: Zip artifact (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          cd ${{ matrix.target }}/target/release/
+          cd target/${{ matrix.target }}/release/
           Compress-Archive -Path ${{ matrix.dylib }} -DestinationPath  ${{ github.workspace }}\${{ steps.setup.outputs.ZIP }}
 
       # doublezip here but I don't think there is an alternative
