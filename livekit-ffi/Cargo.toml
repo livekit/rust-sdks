@@ -6,6 +6,14 @@ license = "Apache-2.0"
 description = "LiveKit interface for foreign languages"
 repository = "https://github.com/livekit/client-sdk-rust" 
 
+[features]
+default = ["__rustls-tls"]
+native-tls = ["livekit/native-tls"]
+native-tls-vendored = ["livekit/native-tls-vendored"]
+rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["livekit/rustls-tls-webpki-roots"]
+__rustls-tls = ["livekit/__rustls-tls"]
+
 [dependencies]
 livekit = { path = "../livekit", version = "0.1.1" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.1.0" }
