@@ -16,6 +16,7 @@
 
 #include "livekit/webrtc.h"
 
+#include <atomic>
 #include <memory>
 
 #include "livekit/audio_track.h"
@@ -28,9 +29,15 @@
 #include "rtc_base/synchronization/mutex.h"
 
 namespace livekit {
+
+static std::atomic_uint32_t release_counter(0);
+
 RtcRuntime::RtcRuntime() {
   RTC_LOG(LS_INFO) << "RtcRuntime()";
-  RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+
+  if (release_counter.fetch_add(1, std::memory_order_relaxed) == 1) {
+    RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+  }
 
   network_thread_ = rtc::Thread::CreateWithSocketServer();
   network_thread_->SetName("network_thread", &network_thread_);
@@ -46,8 +53,11 @@ RtcRuntime::RtcRuntime() {
 RtcRuntime::~RtcRuntime() {
   RTC_LOG(LS_INFO) << "~RtcRuntime()";
 
-  rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
-  RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+  // rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
+  if (release_counter.fetch_sub(1, std::memory_order_release) == 1) {
+    std::atomic_thread_fence(std::memory_order_acquire);
+    RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+  }
 
   worker_thread_->Quit();
   signaling_thread_->Quit();
