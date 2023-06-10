@@ -247,13 +247,9 @@ mod tests {
     use log::trace;
     use tokio::sync::mpsc;
 
-    fn init_log() {
-        let _ = env_logger::builder().is_test(true).try_init();
-    }
-
     #[tokio::test]
     async fn create_pc() {
-        init_log();
+        let _ = env_logger::builder().is_test(true).try_init();
 
         let factory = PeerConnectionFactory::default();
         let config = RtcConfiguration {
@@ -315,11 +311,8 @@ mod tests {
 
         bob_dc.send(b"This is a test", true).unwrap();
         assert_eq!(data_rx.recv().await.unwrap(), "This is a test");
-        println!("===========");
 
         alice.close();
-        println!("alice closed");
         bob.close();
-        println!("bob closed")
     }
 }

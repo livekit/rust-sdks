@@ -36,9 +36,9 @@
 
 namespace livekit {
 
-// static webrtc::Mutex g_mutex{};
-//  Can't be atomic, we're using a Mutex because we need to wait for the
-//  execution of the first init
+static webrtc::Mutex g_mutex{};
+// Can't be atomic, we're using a Mutex because we need to wait for the
+// execution of the first init
 static uint32_t g_release_counter(0);
 
 RtcRuntime::RtcRuntime() {
@@ -46,7 +46,8 @@ RtcRuntime::RtcRuntime() {
   RTC_LOG(LS_VERBOSE) << "RtcRuntime()";
 
   {
-    // webrtc::MutexLock lock(&g_mutex);
+    // Not the best way to do it...
+    webrtc::MutexLock lock(&g_mutex);
     if (g_release_counter == 0) {
       RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
 
@@ -76,21 +77,17 @@ RtcRuntime::~RtcRuntime() {
   signaling_thread_->Stop();
   network_thread_->Stop();
 
-  std::cout << "FERGERGJIJEKGBWEBNGJKGEWJKGEWGJKBWEGJKWE" << std::endl;
   {
-    // webrtc::MutexLock lock(&g_mutex);
+    webrtc::MutexLock lock(&g_mutex);
     g_release_counter--;
     if (g_release_counter == 0) {
       RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
-      rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
 
 #ifdef WEBRTC_WIN
       WSACleanup();
 #endif
     }
   }
-
-  std::cout << "FERGERGJIJEKGBWEBNGJKGEWJKGEWGJKBWEGJKWE" << std::endl;
 }
 
 rtc::Thread* RtcRuntime::network_thread() const {
