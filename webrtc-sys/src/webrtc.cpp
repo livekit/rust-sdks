@@ -30,13 +30,20 @@
 
 namespace livekit {
 
-static std::atomic_uint32_t release_counter(0);
+static webrtc::Mutex g_mutex{};
+// Can't be atomic, we're using a Mutex because we need to wait for the
+// execution of the first init
+static uint32_t g_release_counter(0);
 
 RtcRuntime::RtcRuntime() {
   RTC_LOG(LS_INFO) << "RtcRuntime()";
 
-  if (release_counter.fetch_add(1, std::memory_order_relaxed) == 1) {
-    RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+  {
+    webrtc::MutexLock lock(&g_mutex);
+    if (g_release_counter == 0) {
+      RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+    }
+    g_release_counter++;
   }
 
   network_thread_ = rtc::Thread::CreateWithSocketServer();
@@ -53,11 +60,15 @@ RtcRuntime::RtcRuntime() {
 RtcRuntime::~RtcRuntime() {
   RTC_LOG(LS_INFO) << "~RtcRuntime()";
 
-  // rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
-  if (release_counter.fetch_sub(1, std::memory_order_release) == 1) {
-    std::atomic_thread_fence(std::memory_order_acquire);
-    RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+  {
+    webrtc::MutexLock lock(&g_mutex);
+    g_release_counter--;
+    if (g_release_counter == 0) {
+      RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+    }
   }
+
+  // rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
 
   worker_thread_->Quit();
   signaling_thread_->Quit();

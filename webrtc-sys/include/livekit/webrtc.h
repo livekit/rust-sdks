@@ -87,9 +87,9 @@ class RtcRuntime : public std::enable_shared_from_this<RtcRuntime> {
   // std::vector<std::weak_ptr<RtpSender>> rtp_senders_;
 
 #ifdef WEBRTC_WIN
-  rtc::WinsockInitializer winsock_;
-  rtc::PhysicalSocketServer ss_;
-  rtc::AutoSocketServerThread main_thread_{&ss_};
+  // rtc::WinsockInitializer winsock_;
+  // rtc::PhysicalSocketServer ss_;
+  // rtc::AutoSocketServerThread main_thread_{&ss_};
 #endif
 };
 
