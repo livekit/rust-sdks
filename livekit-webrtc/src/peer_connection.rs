@@ -317,9 +317,7 @@ mod tests {
         assert_eq!(data_rx.recv().await.unwrap(), "This is a test");
         println!("===========");
 
-        alice.close();
         println!("alice closed");
-        bob.close();
         println!("bob closed")
     }
 }
