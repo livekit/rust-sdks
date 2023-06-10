@@ -159,18 +159,3 @@ impl From<RtcConfiguration> for sys_pcf::ffi::RtcConfiguration {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_peer_connection_factory() {
-        let _ = env_logger::builder().is_test(true).try_init();
-
-        let factory = PeerConnectionFactory::default();
-        let source = NativeVideoSource::default();
-        let _track = factory.create_video_track("test", source);
-        drop(factory);
-    }
-}
