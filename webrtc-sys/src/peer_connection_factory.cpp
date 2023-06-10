@@ -70,7 +70,7 @@ webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
     : rtc_runtime_(rtc_runtime) {
-  RTC_LOG(LS_INFO) << "PeerConnectionFactory::PeerConnectionFactory()";
+  RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
 
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
@@ -114,7 +114,7 @@ PeerConnectionFactory::PeerConnectionFactory(
 }
 
 PeerConnectionFactory::~PeerConnectionFactory() {
-  RTC_LOG(LS_INFO) << "PeerConnectionFactory::~PeerConnectionFactory()";
+  RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::~PeerConnectionFactory()";
 }
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(

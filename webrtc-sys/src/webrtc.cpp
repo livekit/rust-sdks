@@ -36,7 +36,7 @@ namespace livekit {
 static uint32_t g_release_counter(0);
 
 RtcRuntime::RtcRuntime() {
-  RTC_LOG(LS_INFO) << "RtcRuntime()";
+  RTC_LOG(LS_VERBOSE) << "RtcRuntime()";
 
   {
     // webrtc::MutexLock lock(&g_mutex);
@@ -58,7 +58,7 @@ RtcRuntime::RtcRuntime() {
 }
 
 RtcRuntime::~RtcRuntime() {
-  RTC_LOG(LS_INFO) << "~RtcRuntime()";
+  RTC_LOG(LS_VERBOSE) << "~RtcRuntime()";
 
   {
     // webrtc::MutexLock lock(&g_mutex);

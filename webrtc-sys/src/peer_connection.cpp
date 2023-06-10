@@ -25,6 +25,7 @@
 #include "livekit/media_stream.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_transceiver.h"
+#include "rtc_base/logging.h"
 #include "webrtc-sys/src/peer_connection.rs.h"
 #include "webrtc-sys/src/rtc_error.rs.h"
 
@@ -51,11 +52,11 @@ PeerConnection::PeerConnection(
     : rtc_runtime_(rtc_runtime),
       observer_(std::move(observer)),
       peer_connection_(std::move(peer_connection)) {
-  RTC_LOG(LS_INFO) << "PeerConnection::PeerConnection()";
+  RTC_LOG(LS_VERBOSE) << "PeerConnection::PeerConnection()";
 }
 
 PeerConnection::~PeerConnection() {
-  RTC_LOG(LS_INFO) << "PeerConnection::~PeerConnection()";
+  RTC_LOG(LS_VERBOSE) << "PeerConnection::~PeerConnection()";
 }
 
 void PeerConnection::create_offer(
