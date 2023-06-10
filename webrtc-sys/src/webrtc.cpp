@@ -30,16 +30,16 @@
 
 namespace livekit {
 
-static webrtc::Mutex g_mutex{};
-// Can't be atomic, we're using a Mutex because we need to wait for the
-// execution of the first init
+// static webrtc::Mutex g_mutex{};
+//  Can't be atomic, we're using a Mutex because we need to wait for the
+//  execution of the first init
 static uint32_t g_release_counter(0);
 
 RtcRuntime::RtcRuntime() {
   RTC_LOG(LS_INFO) << "RtcRuntime()";
 
   {
-    webrtc::MutexLock lock(&g_mutex);
+    // webrtc::MutexLock lock(&g_mutex);
     if (g_release_counter == 0) {
       RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
     }
@@ -61,7 +61,7 @@ RtcRuntime::~RtcRuntime() {
   RTC_LOG(LS_INFO) << "~RtcRuntime()";
 
   {
-    webrtc::MutexLock lock(&g_mutex);
+    // webrtc::MutexLock lock(&g_mutex);
     g_release_counter--;
     if (g_release_counter == 0) {
       RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";

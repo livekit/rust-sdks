@@ -115,6 +115,12 @@ impl PeerConnectionFactory {
     }
 }
 
+impl Drop for PeerConnectionFactory {
+    fn drop(&mut self) {
+        println!("{:?}", self.sys_handle);
+    }
+}
+
 // Conversions
 impl From<IceServer> for sys_pcf::ffi::IceServer {
     fn from(value: IceServer) -> Self {
