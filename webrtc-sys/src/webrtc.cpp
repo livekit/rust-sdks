@@ -63,6 +63,7 @@ RtcRuntime::RtcRuntime() {
 RtcRuntime::~RtcRuntime() {
   RTC_LOG(LS_VERBOSE) << "~RtcRuntime()";
 
+  std::cout << "FERGERGJIJEKGBWEBNGJKGEWJKGEWGJKBWEGJKWE" << std::endl;
   {
     // webrtc::MutexLock lock(&g_mutex);
     g_release_counter--;
