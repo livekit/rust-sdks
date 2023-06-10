@@ -65,14 +65,13 @@ RtcRuntime::~RtcRuntime() {
     g_release_counter--;
     if (g_release_counter == 0) {
       RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+      rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
     }
   }
 
-  // rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
-
-  worker_thread_->Quit();
-  signaling_thread_->Quit();
-  network_thread_->Quit();
+  worker_thread_->Stop();
+  signaling_thread_->Stop();
+  network_thread_->Stop();
 }
 
 rtc::Thread* RtcRuntime::network_thread() const {
