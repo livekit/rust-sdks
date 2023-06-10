@@ -16,6 +16,9 @@
 
 #include "livekit/webrtc.h"
 
+#include <algorithm>
+#include <atomic>
+#include <iostream>
 #include <memory>
 
 #include "livekit/audio_track.h"
@@ -27,10 +30,34 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
 
+#ifdef WEBRTC_WIN
+#include "rtc_base/win32.h"
+#endif
+
 namespace livekit {
+
+static webrtc::Mutex g_mutex{};
+// Can't be atomic, we're using a Mutex because we need to wait for the
+// execution of the first init
+static uint32_t g_release_counter(0);
+
 RtcRuntime::RtcRuntime() {
-  RTC_LOG(LS_INFO) << "RtcRuntime()";
-  RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+  rtc::LogMessage::LogToDebug(rtc::LS_INFO);
+  RTC_LOG(LS_VERBOSE) << "RtcRuntime()";
+
+  {
+    // Not the best way to do it...
+    webrtc::MutexLock lock(&g_mutex);
+    if (g_release_counter == 0) {
+      RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+
+#ifdef WEBRTC_WIN
+      WSADATA data;
+      WSAStartup(MAKEWORD(1, 0), &data);
+#endif
+    }
+    g_release_counter++;
+  }
 
   network_thread_ = rtc::Thread::CreateWithSocketServer();
   network_thread_->SetName("network_thread", &network_thread_);
@@ -44,14 +71,23 @@ RtcRuntime::RtcRuntime() {
 }
 
 RtcRuntime::~RtcRuntime() {
-  RTC_LOG(LS_INFO) << "~RtcRuntime()";
+  RTC_LOG(LS_VERBOSE) << "~RtcRuntime()";
 
-  rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
-  RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+  worker_thread_->Stop();
+  signaling_thread_->Stop();
+  network_thread_->Stop();
 
-  worker_thread_->Quit();
-  signaling_thread_->Quit();
-  network_thread_->Quit();
+  {
+    webrtc::MutexLock lock(&g_mutex);
+    g_release_counter--;
+    if (g_release_counter == 0) {
+      RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+
+#ifdef WEBRTC_WIN
+      WSACleanup();
+#endif
+    }
+  }
 }
 
 rtc::Thread* RtcRuntime::network_thread() const {

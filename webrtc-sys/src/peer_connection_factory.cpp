@@ -70,7 +70,7 @@ webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
     : rtc_runtime_(rtc_runtime) {
-  RTC_LOG(LS_INFO) << "PeerConnectionFactory::PeerConnectionFactory()";
+  RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
 
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
@@ -86,12 +86,14 @@ PeerConnectionFactory::PeerConnectionFactory(
   cricket::MediaEngineDependencies media_deps;
   media_deps.task_queue_factory = dependencies.task_queue_factory.get();
 
-  media_deps.adm = rtc_runtime_->worker_thread()
-                       ->Invoke<rtc::scoped_refptr<livekit::AudioDevice>>(
-                           RTC_FROM_HERE, [&] {
-                             return rtc::make_ref_counted<livekit::AudioDevice>(
-                                 media_deps.task_queue_factory);
-                           });
+  audio_device_ = rtc_runtime_->worker_thread()
+                      ->Invoke<rtc::scoped_refptr<livekit::AudioDevice>>(
+                          RTC_FROM_HERE, [&] {
+                            return rtc::make_ref_counted<livekit::AudioDevice>(
+                                media_deps.task_queue_factory);
+                          });
+
+  media_deps.adm = audio_device_;
 
   media_deps.video_encoder_factory =
       std::move(std::make_unique<livekit::VideoEncoderFactory>());
@@ -114,7 +116,11 @@ PeerConnectionFactory::PeerConnectionFactory(
 }
 
 PeerConnectionFactory::~PeerConnectionFactory() {
-  RTC_LOG(LS_INFO) << "PeerConnectionFactory::~PeerConnectionFactory()";
+  RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::~PeerConnectionFactory()";
+
+  peer_factory_ = nullptr;
+  rtc_runtime_->worker_thread()->Invoke<void>(
+      RTC_FROM_HERE, [this] { audio_device_ = nullptr; });
 }
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(

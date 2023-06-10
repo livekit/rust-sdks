@@ -47,6 +47,10 @@ DataChannel::DataChannel(
     rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
     : rtc_runtime_(rtc_runtime), data_channel_(std::move(data_channel)) {}
 
+DataChannel::~DataChannel() {
+  unregister_observer();
+}
+
 void DataChannel::register_observer(
     rust::Box<DataChannelObserverWrapper> observer) const {
   webrtc::MutexLock lock(&mutex_);
@@ -85,10 +89,6 @@ NativeDataChannelObserver::NativeDataChannelObserver(
     rust::Box<DataChannelObserverWrapper> observer,
     const DataChannel* dc)
     : observer_(std::move(observer)), dc_(dc) {}
-
-NativeDataChannelObserver::~NativeDataChannelObserver() {
-  dc_->unregister_observer();
-}
 
 void NativeDataChannelObserver::OnStateChange() {
   observer_->on_state_change(dc_->state());
