@@ -305,16 +305,17 @@ mod tests {
         bob.add_ice_candidate(alice_ice).await.unwrap();
         alice.add_ice_candidate(bob_ice).await.unwrap();
 
-        let (data_tx, mut data_rx) = mpsc::channel::<String>(1);
+        let (data_tx, mut data_rx) = mpsc::unbounded_channel::<String>();
         let alice_dc = alice_dc_rx.recv().await.unwrap();
         alice_dc.on_message(Some(Box::new(move |buffer| {
             data_tx
-                .blocking_send(String::from_utf8_lossy(buffer.data).to_string())
+                .send(String::from_utf8_lossy(buffer.data).to_string())
                 .unwrap();
         })));
 
         bob_dc.send(b"This is a test", true).unwrap();
         assert_eq!(data_rx.recv().await.unwrap(), "This is a test");
+        println!("===========");
 
         alice.close();
         bob.close();
