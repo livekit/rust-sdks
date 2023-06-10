@@ -153,11 +153,11 @@ std::shared_ptr<VideoTrack> RtcRuntime::get_or_create_video_track(
 LogSink::LogSink(
     rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc)
     : fnc_(fnc) {
-  // rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
+  rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
 }
 
 LogSink::~LogSink() {
-  // rtc::LogMessage::RemoveLogToStream(this);
+  rtc::LogMessage::RemoveLogToStream(this);
 }
 
 void LogSink::OnLogMessage(const std::string& message,
