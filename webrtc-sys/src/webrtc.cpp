@@ -32,7 +32,7 @@ namespace livekit {
 
 static webrtc::Mutex g_mutex{};
 // Can't be atomic, we're using a Mutex because we need to wait for the
-// execution of the first init on other threads
+// execution of the first init
 static uint32_t g_release_counter(0);
 
 RtcRuntime::RtcRuntime() {
@@ -138,11 +138,11 @@ std::shared_ptr<VideoTrack> RtcRuntime::get_or_create_video_track(
 LogSink::LogSink(
     rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc)
     : fnc_(fnc) {
-  // rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
+  rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
 }
 
 LogSink::~LogSink() {
-  // rtc::LogMessage::RemoveLogToStream(this);
+  rtc::LogMessage::RemoveLogToStream(this);
 }
 
 void LogSink::OnLogMessage(const std::string& message,
