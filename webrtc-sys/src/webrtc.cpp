@@ -30,6 +30,10 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
 
+#ifdef WEBRTC_WIN
+#include "rtc_base/win32.h"
+#endif
+
 namespace livekit {
 
 // static webrtc::Mutex g_mutex{};
@@ -45,6 +49,11 @@ RtcRuntime::RtcRuntime() {
     // webrtc::MutexLock lock(&g_mutex);
     if (g_release_counter == 0) {
       RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+
+#ifdef WEBRTC_WIN
+      WSADATA data;
+      WSAStartup(MAKEWORD(1, 0), &data);
+#endif
     }
     g_release_counter++;
   }
@@ -63,6 +72,10 @@ RtcRuntime::RtcRuntime() {
 RtcRuntime::~RtcRuntime() {
   RTC_LOG(LS_VERBOSE) << "~RtcRuntime()";
 
+  worker_thread_->Stop();
+  signaling_thread_->Stop();
+  network_thread_->Stop();
+
   std::cout << "FERGERGJIJEKGBWEBNGJKGEWJKGEWGJKBWEGJKWE" << std::endl;
   {
     // webrtc::MutexLock lock(&g_mutex);
@@ -70,14 +83,14 @@ RtcRuntime::~RtcRuntime() {
     if (g_release_counter == 0) {
       RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
       rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
+
+#ifdef WEBRTC_WIN
+      WSACleanup();
+#endif
     }
   }
 
   std::cout << "FERGERGJIJEKGBWEBNGJKGEWJKGEWGJKBWEGJKWE" << std::endl;
-
-  worker_thread_->Stop();
-  signaling_thread_->Stop();
-  network_thread_->Stop();
 }
 
 rtc::Thread* RtcRuntime::network_thread() const {
