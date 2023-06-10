@@ -16,7 +16,9 @@
 
 #include "livekit/webrtc.h"
 
+#include <algorithm>
 #include <atomic>
+#include <iostream>
 #include <memory>
 
 #include "livekit/audio_track.h"
@@ -68,6 +70,8 @@ RtcRuntime::~RtcRuntime() {
       rtc::ThreadManager::Instance()->SetCurrentThread(nullptr);
     }
   }
+
+  std::cout << "FERGERGJIJEKGBWEBNGJKGEWJKGEWGJKBWEGJKWE" << std::endl;
 
   worker_thread_->Stop();
   signaling_thread_->Stop();
