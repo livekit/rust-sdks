@@ -318,6 +318,8 @@ mod tests {
         println!("===========");
 
         alice.close();
+        println!("alice closed");
         bob.close();
+        println!("bob closed")
     }
 }
