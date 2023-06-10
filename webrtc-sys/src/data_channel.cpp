@@ -87,7 +87,7 @@ NativeDataChannelObserver::NativeDataChannelObserver(
     : observer_(std::move(observer)), dc_(dc) {}
 
 NativeDataChannelObserver::~NativeDataChannelObserver() {
-  dc_->unregister_observer();
+  // dc_->unregister_observer();
 }
 
 void NativeDataChannelObserver::OnStateChange() {
