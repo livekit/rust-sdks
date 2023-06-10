@@ -50,7 +50,13 @@ PeerConnection::PeerConnection(
     rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
     : rtc_runtime_(rtc_runtime),
       observer_(std::move(observer)),
-      peer_connection_(std::move(peer_connection)) {}
+      peer_connection_(std::move(peer_connection)) {
+  RTC_LOG(LS_INFO) << "PeerConnection::PeerConnection()";
+}
+
+PeerConnection::~PeerConnection() {
+  RTC_LOG(LS_INFO) << "PeerConnection::~PeerConnection()";
+}
 
 void PeerConnection::create_offer(
     RtcOfferAnswerOptions options,
