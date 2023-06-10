@@ -80,6 +80,8 @@ class RtcRuntime : public std::enable_shared_from_this<RtcRuntime> {
   // have one livekit::VideoTrack associated with it).
   // The only reason we to do that is to allow to add states inside our
   // wrappers (e.g: the sinks_ member inside AudioTrack)
+  // DataChannel and the PeerConnectionFactory don't need to do this (There's no
+  // way to retrieve them after creation)
   webrtc::Mutex mutex_;
   std::vector<std::weak_ptr<MediaStreamTrack>> media_stream_tracks_;
   // We don't have additonal state in RtpReceiver and RtpSender atm..

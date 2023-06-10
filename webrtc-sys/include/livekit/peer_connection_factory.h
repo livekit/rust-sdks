@@ -17,6 +17,8 @@
 #pragma once
 
 #include "api/peer_connection_interface.h"
+#include "api/scoped_refptr.h"
+#include "livekit/audio_device.h"
 #include "media_stream.h"
 #include "peer_connection.h"
 #include "rtp_parameters.h"
@@ -57,6 +59,7 @@ class PeerConnectionFactory {
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
+  rtc::scoped_refptr<AudioDevice> audio_device_;
   rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
 };
 
