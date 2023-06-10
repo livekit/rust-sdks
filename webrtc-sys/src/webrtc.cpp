@@ -38,6 +38,7 @@ namespace livekit {
 static uint32_t g_release_counter(0);
 
 RtcRuntime::RtcRuntime() {
+  rtc::LogMessage::LogToDebug(rtc::LS_INFO);
   RTC_LOG(LS_VERBOSE) << "RtcRuntime()";
 
   {
@@ -141,11 +142,11 @@ std::shared_ptr<VideoTrack> RtcRuntime::get_or_create_video_track(
 LogSink::LogSink(
     rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc)
     : fnc_(fnc) {
-  rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
+  // rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
 }
 
 LogSink::~LogSink() {
-  rtc::LogMessage::RemoveLogToStream(this);
+  // rtc::LogMessage::RemoveLogToStream(this);
 }
 
 void LogSink::OnLogMessage(const std::string& message,
