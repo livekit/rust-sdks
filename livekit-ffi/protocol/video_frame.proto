@@ -16,16 +16,19 @@ message AllocVideoBufferResponse { VideoFrameBufferInfo buffer = 1; }
 // Create a new VideoStream
 // VideoStream is used to receive video frames from a track
 message NewVideoStreamRequest {
-  FfiHandleId room_handle = 1;
-  string participant_sid = 2;
-  string track_sid = 3;
-  VideoStreamType type = 4;
+  FfiHandleId track_handle = 1;
+  VideoStreamType type = 2;
 }
 message NewVideoStreamResponse { VideoStreamInfo stream = 1; }
 
 // Create a new VideoSource
 // VideoSource is used to send video frame to a track
-message NewVideoSourceRequest { VideoSourceType type = 1; }
+message NewVideoSourceRequest { 
+  VideoSourceType type = 1; 
+  // Used to determine which encodings to use + simulcast layers
+  // Most of the time it corresponds to the source resolution 
+  optional VideoResolution resolution = 2;
+}
 message NewVideoSourceResponse { VideoSourceInfo source = 1; }
 
 // Push a frame to a VideoSource
@@ -110,7 +113,7 @@ message ARGBBufferInfo {
 }
 
 message VideoFrameInfo {
-  int64 timestamp = 1;
+  int64 timestamp_us = 1; // In microseconds
   VideoRotation rotation = 2;
 }
 
@@ -168,7 +171,6 @@ enum VideoStreamType {
 message VideoStreamInfo {
   FfiHandleId handle = 1;
   VideoStreamType type = 2;
-  string track_sid = 3;
 }
 
 message VideoStreamEvent {

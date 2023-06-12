@@ -53,8 +53,26 @@ message UnpublishTrackResponse {
   FfiAsyncId async_id = 1;
 }
 message UnpublishTrackCallback {
-  optional string error = 1;
+  FfiAsyncId async_id = 1;
+  optional string error = 2;
 }
+
+// Publish data to other participants
+message PublishDataRequest {
+  FfiHandleId room_handle = 1;
+  uint64 data_ptr = 2;
+  uint64 data_size = 3;
+  DataPacketKind kind = 4;
+  repeated string participant_sids = 5; // destination
+}
+message PublishDataResponse {
+  FfiAsyncId async_id = 1;
+}
+message PublishDataCallback {
+  FfiAsyncId async_id = 1;
+  optional string error = 2;
+}
+
 
 ///
 /// Options
@@ -77,8 +95,7 @@ message TrackPublishOptions {
   bool dtx = 4;
   bool red = 5;
   bool simulcast = 6;
-  string name = 7;
-  TrackSource source = 8;
+  TrackSource source = 7;
 }
 
 message RoomOptions {
@@ -141,7 +158,7 @@ message RoomInfo {
 
 message DataReceived {
   FfiHandleId handle = 1;
-  optional string participant_sid = 2;
+  optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
   uint64 data_ptr = 3;
   uint64 data_size = 4;
   DataPacketKind kind = 5;

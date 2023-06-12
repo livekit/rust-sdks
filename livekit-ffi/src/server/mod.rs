@@ -15,7 +15,6 @@ use std::sync::Arc;
 
 pub mod audio_frame;
 pub mod room;
-pub mod utils;
 pub mod video_frame;
 
 #[cfg(test)]
@@ -31,7 +30,7 @@ pub struct FfiConfig {
 
 pub struct FfiServer {
     rooms: Mutex<HashMap<RoomSid, FfiHandleId>>,
-    /// Store all FFI handles inside an HashMap, if this isn't efficient enough
+    /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, FfiHandle>,
     next_id: AtomicUsize,
@@ -116,11 +115,9 @@ impl FfiServer {
         }
 
         // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
-        unsafe {
-            *self.config.lock() = Some(FfiConfig {
-                callback_fn: std::mem::transmute(init.event_callback_ptr),
-            });
-        }
+        *self.config.lock() = Some(FfiConfig {
+            callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr) },
+        });
 
         Ok(proto::InitializeResponse::default())
     }
@@ -230,14 +227,17 @@ impl FfiServer {
                     .ok_or(FfiError::InvalidRequest("track not found"))?;
 
                 let track = track
-                    .downcast_ref::<LocalTrack>()
-                    .ok_or(FfiError::InvalidRequest("track is not a LocalTrack"))?;
+                    .downcast_ref::<Track>()
+                    .ok_or(FfiError::InvalidRequest("track is not a Track"))?;
+
+                let local_track = LocalTrack::try_from(track.clone())
+                    .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack"))?;
 
                 let publication = ffi_room
                     .room()
                     .local_participant()
                     .publish_track(
-                        track.clone(),
+                        local_track,
                         publish.options.map(Into::into).unwrap_or_default(),
                     )
                     .await?;
@@ -276,7 +276,6 @@ impl FfiServer {
     ) -> FfiResult<proto::CreateVideoTrackResponse> {
         let handle_id = create
             .source_handle
-            .as_ref()
             .ok_or(FfiError::InvalidRequest("source_handle is empty"))?
             .id as FfiHandleId;
 
@@ -290,19 +289,13 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("handle is not a video source"))?;
 
         let source = source.inner_source().clone();
-        let video_track = match source {
-            video_frame::VideoSource::Native(native_source) => LocalVideoTrack::create_video_track(
-                &create.name,
-                create.options.unwrap_or_default().into(),
-                native_source,
-            ),
-        };
+        let video_track = LocalVideoTrack::create_video_track(&create.name, source);
 
         let handle_id = self.next_id() as FfiHandleId;
         let track_info = proto::TrackInfo::from_local_video_track(handle_id, &video_track);
 
         self.ffi_handles
-            .insert(handle_id, Box::new(LocalTrack::Video(video_track)));
+            .insert(handle_id, Box::new(Track::LocalVideo(video_track)));
 
         Ok(proto::CreateVideoTrackResponse {
             track: Some(track_info),
@@ -315,7 +308,6 @@ impl FfiServer {
     ) -> FfiResult<proto::CreateAudioTrackResponse> {
         let handle_id = create
             .source_handle
-            .as_ref()
             .ok_or(FfiError::InvalidRequest("source_handle is empty"))?
             .id as FfiHandleId;
 
@@ -329,19 +321,13 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("handle is not an audio source"))?;
 
         let source = source.inner_source().clone();
-        let audio_track = match source {
-            audio_frame::AudioSource::Native(native_source) => LocalAudioTrack::create_audio_track(
-                &create.name,
-                create.options.unwrap_or_default().into(),
-                native_source,
-            ),
-        };
+        let audio_track = LocalAudioTrack::create_audio_track(&create.name, source);
 
         let handle_id = self.next_id() as FfiHandleId;
         let track_info = proto::TrackInfo::from_local_audio_track(handle_id, &audio_track);
 
         self.ffi_handles
-            .insert(handle_id, Box::new(LocalTrack::Audio(audio_track)));
+            .insert(handle_id, Box::new(Track::LocalAudio(audio_track)));
 
         Ok(proto::CreateAudioTrackResponse {
             track: Some(track_info),

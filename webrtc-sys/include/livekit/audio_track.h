@@ -18,6 +18,7 @@
 
 #include <memory>
 
+#include "api/audio_options.h"
 #include "livekit/helper.h"
 #include "livekit/media_stream_track.h"
 #include "livekit/webrtc.h"
@@ -78,7 +79,7 @@ std::shared_ptr<NativeAudioSink> new_native_audio_sink(
 class AudioTrackSource {
   class InternalSource : public webrtc::LocalAudioSource {
    public:
-    InternalSource();
+    InternalSource(const cricket::AudioOptions& options);
 
     SourceState state() const override;
     bool remote() const override;
@@ -88,6 +89,8 @@ class AudioTrackSource {
     void AddSink(webrtc::AudioTrackSinkInterface* sink) override;
     void RemoveSink(webrtc::AudioTrackSinkInterface* sink) override;
 
+    void set_options(const cricket::AudioOptions& options);
+
     // AudioFrame should always contain 10 ms worth of data (see index.md of
     // acm)
     void on_captured_frame(rust::Slice<const int16_t> audio_data,
@@ -96,13 +99,17 @@ class AudioTrackSource {
                            size_t number_of_frames);
 
    private:
-    webrtc::Mutex mutex_;
+    mutable webrtc::Mutex mutex_;
     std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
     cricket::AudioOptions options_{};
   };
 
  public:
-  AudioTrackSource();
+  AudioTrackSource(AudioSourceOptions options);
+
+  AudioSourceOptions audio_options() const;
+
+  void set_audio_options(const AudioSourceOptions& options) const;
 
   void on_captured_frame(rust::Slice<const int16_t> audio_data,
                          int sample_rate,
@@ -115,7 +122,8 @@ class AudioTrackSource {
   rtc::scoped_refptr<InternalSource> source_;
 };
 
-std::shared_ptr<AudioTrackSource> new_audio_track_source();
+std::shared_ptr<AudioTrackSource> new_audio_track_source(
+    AudioSourceOptions options);
 
 static std::shared_ptr<MediaStreamTrack> audio_to_media(
     std::shared_ptr<AudioTrack> track) {

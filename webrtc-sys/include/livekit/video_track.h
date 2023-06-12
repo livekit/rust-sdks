@@ -87,23 +87,29 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
 class VideoTrackSource {
   class InternalSource : public rtc::AdaptedVideoTrackSource {
    public:
-    InternalSource();
+    InternalSource(const VideoResolution&
+                       resolution);  // (0, 0) means no resolution/optional, the
+                                     // source will guess the resolution at the
+                                     // first captured frame
     ~InternalSource() override;
 
     bool is_screencast() const override;
     absl::optional<bool> needs_denoising() const override;
     SourceState state() const override;
     bool remote() const override;
-
+    VideoResolution video_resolution() const;
     bool on_captured_frame(const webrtc::VideoFrame& frame);
 
    private:
-    webrtc::Mutex mutex_;
+    mutable webrtc::Mutex mutex_;
     rtc::TimestampAligner timestamp_aligner_;
+    VideoResolution resolution_;
   };
 
  public:
-  VideoTrackSource();
+  VideoTrackSource(const VideoResolution& resolution);
+
+  VideoResolution video_resolution() const;
 
   bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame)
       const;  // frames pushed from Rust (+interior mutability)
@@ -114,7 +120,8 @@ class VideoTrackSource {
   rtc::scoped_refptr<InternalSource> source_;
 };
 
-std::shared_ptr<VideoTrackSource> new_video_track_source();
+std::shared_ptr<VideoTrackSource> new_video_track_source(
+    const VideoResolution& resolution);
 
 static std::shared_ptr<MediaStreamTrack> video_to_media(
     std::shared_ptr<VideoTrack> track) {

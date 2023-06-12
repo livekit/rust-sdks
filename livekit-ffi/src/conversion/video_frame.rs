@@ -72,7 +72,7 @@ impl proto::VideoFrameInfo {
         T: AsRef<dyn VideoFrameBuffer>,
     {
         Self {
-            timestamp: frame.timestamp,
+            timestamp_us: frame.timestamp_us,
             rotation: proto::VideoRotation::from(frame.rotation).into(),
         }
     }
@@ -236,7 +236,6 @@ impl From<&FfiVideoStream> for proto::VideoStreamInfo {
             handle: Some(proto::FfiHandleId {
                 id: stream.handle_id() as u64,
             }),
-            track_sid: stream.track_sid().clone().into(),
             r#type: stream.stream_type() as i32,
         }
     }

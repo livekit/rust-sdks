@@ -66,16 +66,76 @@ async fn room_task(
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
-                if let Some(event) = proto::RoomEvent::from(room_handle, event.clone()) {
-                    let _ = server.send_event(proto::ffi_event::Message::RoomEvent(event));
+                let message = match event {
+                    RoomEvent::ParticipantConnected(participant) => {
+                        server.async_runtime.spawn(participant_task(Participant::Remote(participant.clone())));
+                        Some(proto::room_event::Message::ParticipantConnected(
+                            proto::ParticipantConnected {
+                                info: Some(proto::ParticipantInfo::from(&participant)),
+                            }
+                        ))
+                    },
+                    RoomEvent::ParticipantDisconnected(participant) => {
+                        Some(proto::room_event::Message::ParticipantDisconnected(
+                            proto::ParticipantDisconnected {
+                                info: Some(proto::ParticipantInfo::from(&participant)),
+                            },
+                        ))
+                    }
+                    RoomEvent::TrackPublished {
+                        publication,
+                        participant,
+                    } => Some(proto::room_event::Message::TrackPublished(
+                        proto::TrackPublished {
+                            participant_sid: participant.sid().to_string(),
+                            publication: Some(proto::TrackPublicationInfo::from(&publication))
+                        },
+                    )),
+                    RoomEvent::TrackUnpublished {
+                        publication,
+                        participant,
+                    } => Some(proto::room_event::Message::TrackUnpublished(
+                        proto::TrackUnpublished {
+                            participant_sid: participant.sid().to_string(),
+                            publication_sid: publication.sid().into(),
+                        },
+                    )),
+                    RoomEvent::TrackSubscribed {
+                        track,
+                        publication: _,
+                        participant,
+                    } => {
+                        let handle_id = server.next_id() as FfiHandleId;
+                        let track_info = proto::TrackInfo::from_remote_track(handle_id, &track);
+                        server.ffi_handles().insert(handle_id, Box::new(Track::from(track)));
+
+                        Some(proto::room_event::Message::TrackSubscribed(
+                            proto::TrackSubscribed {
+                                participant_sid: participant.sid().to_string(),
+                                track: Some(track_info),
+                            },
+                        ))
+                    },
+                    RoomEvent::TrackUnsubscribed {
+                        track,
+                        publication: _,
+                        participant,
+                    } => Some(proto::room_event::Message::TrackUnsubscribed(
+                        proto::TrackUnsubscribed {
+                            participant_sid: participant.sid().to_string(),
+                            track_sid: track.sid().to_string(),
+                        },
+                    )),
+                    _ => None
+                };
+
+                if message.is_some() {
+                    let _ = server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent{
+                        room_handle: Some(room_handle.into()),
+                        message
+                    }));
                 }
 
-                match event {
-                    RoomEvent::ParticipantConnected(p) => {
-                        server.async_runtime.spawn(participant_task(Participant::Remote(p)));
-                    }
-                    _ => {}
-                }
             },
             _ = &mut close_rx => {
                 break;

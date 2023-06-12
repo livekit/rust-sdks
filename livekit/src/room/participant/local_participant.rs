@@ -51,7 +51,7 @@ impl LocalParticipant {
     ) -> RoomResult<LocalTrackPublication> {
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
-            name: options.name.clone(),
+            name: track.name().clone(),
             r#type: proto::TrackType::from(track.kind()) as i32,
             muted: track.is_muted(),
             source: proto::TrackSource::from(options.source) as i32,
@@ -65,9 +65,9 @@ impl LocalParticipant {
             LocalTrack::Video(video_track) => {
                 // Get the video dimension
                 // TODO(theomonnom): Use MediaStreamTrack::getSettings() on web
-                let capture_options = video_track.capture_options();
-                req.width = capture_options.resolution.width;
-                req.height = capture_options.resolution.height;
+                let resolution = video_track.rtc_source().video_resolution();
+                req.width = resolution.width;
+                req.height = resolution.height;
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
@@ -158,7 +158,6 @@ impl LocalParticipant {
         let data = proto::DataPacket {
             kind: kind as i32,
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
-                participant_sid: self.sid().to_string(),
                 payload: data.to_vec(),
                 destination_sids: vec![],
                 ..Default::default()
