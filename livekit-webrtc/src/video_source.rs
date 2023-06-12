@@ -30,7 +30,7 @@ pub mod native {
     use crate::video_frame::{VideoFrame, VideoFrameBuffer};
     use std::fmt::{Debug, Formatter};
 
-    #[derive(Default, Clone)]
+    #[derive(Clone)]
     pub struct NativeVideoSource {
         pub(crate) handle: vs_imp::NativeVideoSource,
     }
@@ -41,7 +41,19 @@ pub mod native {
         }
     }
 
+    impl Default for NativeVideoSource {
+        fn default() -> Self {
+            Self::new(VideoResolution::default())
+        }
+    }
+
     impl NativeVideoSource {
+        pub fn new(resolution: VideoResolution) -> Self {
+            Self {
+                handle: vs_imp::NativeVideoSource::new(resolution),
+            }
+        }
+
         pub fn capture_frame<T: AsRef<dyn VideoFrameBuffer>>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
         }

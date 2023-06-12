@@ -27,7 +27,7 @@ message NewVideoSourceRequest {
   VideoSourceType type = 1; 
   // Used to determine which encodings to use + simulcast layers
   // Most of the time it corresponds to the source resolution 
-  optional VideoResolution resolution = 2;
+  optional VideoSourceResolution resolution = 2;
 }
 message NewVideoSourceResponse { VideoSourceInfo source = 1; }
 
@@ -186,6 +186,11 @@ message VideoFrameReceived {
 ///
 /// VideoSource ///
 ///
+
+message VideoSourceResolution {
+  uint32 width = 1;
+  uint32 height = 2;
+}
 
 enum VideoSourceType {
     VIDEO_SOURCE_NATIVE = 0;

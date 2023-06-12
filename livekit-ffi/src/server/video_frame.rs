@@ -151,7 +151,9 @@ impl FfiVideoSource {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoSourceType::VideoSourceNative => {
                 use livekit::webrtc::video_source::native::NativeVideoSource;
-                let video_source = NativeVideoSource::default();
+                let video_source = NativeVideoSource::new(
+                    new_source.resolution.map(Into::into).unwrap_or_default(),
+                );
                 RtcVideoSource::Native(video_source)
             }
             _ => return Err(FfiError::InvalidRequest("unsupported video source type")),

@@ -61,10 +61,12 @@ impl FfiAudioSream {
                     stream_type,
                     close_tx,
                 };
+
+                let native_stream = NativeAudioStream::new(rtc_track);
                 server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     audio_stream.handle_id,
-                    NativeAudioStream::new(rtc_track),
+                    native_stream,
                     close_rx,
                 ));
                 Ok::<FfiAudioSream, FfiError>(audio_stream)
@@ -147,7 +149,8 @@ impl FfiAudioSource {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioSourceType::AudioSourceNative => {
                 use livekit::webrtc::audio_source::native::NativeAudioSource;
-                let audio_source = NativeAudioSource::default();
+                let audio_source =
+                    NativeAudioSource::new(new_source.options.map(Into::into).unwrap_or_default());
                 RtcAudioSource::Native(audio_source)
             }
             _ => return Err(FfiError::InvalidRequest("unsupported audio source type")),

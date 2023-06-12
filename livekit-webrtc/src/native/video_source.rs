@@ -28,17 +28,15 @@ pub struct NativeVideoSource {
     sys_handle: SharedPtr<vt_sys::ffi::VideoTrackSource>,
 }
 
-impl Default for NativeVideoSource {
-    fn default() -> Self {
+impl NativeVideoSource {
+    pub fn new(resolution: VideoResolution) -> NativeVideoSource {
         Self {
             sys_handle: vt_sys::ffi::new_video_track_source(&vt_sys::ffi::VideoResolution::from(
-                VideoResolution::default(),
+                resolution,
             )),
         }
     }
-}
 
-impl NativeVideoSource {
     pub fn sys_handle(&self) -> SharedPtr<vt_sys::ffi::VideoTrackSource> {
         self.sys_handle.clone()
     }
