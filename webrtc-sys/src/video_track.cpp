@@ -16,8 +16,6 @@
 
 #include "livekit/video_track.h"
 
-#include <_types/_uint32_t.h>
-
 #include <algorithm>
 #include <iostream>
 #include <memory>
