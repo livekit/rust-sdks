@@ -39,8 +39,8 @@ pub enum SignalEvent {
 
 #[derive(Debug, Clone)]
 pub struct SignalOptions {
-    pub(crate) reconnect: bool,
-    pub(crate) sid: String,
+    pub reconnect: bool,
+    pub sid: String,
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
 }
@@ -49,8 +49,8 @@ impl Default for SignalOptions {
     fn default() -> Self {
         Self {
             reconnect: false,
-            auto_subscribe: true,
             sid: "".to_string(),
+            auto_subscribe: true,
             adaptive_stream: false,
         }
     }
@@ -104,10 +104,10 @@ impl SignalClient {
         // TODO(theomonnom): enqueue message
     }
 
-    /*#[allow(dead_code)]
+    #[allow(dead_code)]
     pub async fn clear_queue(&self) {
         // TODO(theomonnom): impl
-    }*/
+    }
 
     #[instrument(level = Level::DEBUG)]
     pub async fn flush_queue(&self) {

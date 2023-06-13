@@ -5,6 +5,7 @@ use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
+use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::RwLockReadGuard;
@@ -152,14 +153,15 @@ impl LocalParticipant {
 
     pub async fn publish_data(
         &self,
-        data: &[u8],
-        kind: proto::data_packet::Kind,
-    ) -> Result<(), RoomError> {
+        data: Vec<u8>,
+        kind: DataPacketKind,
+        destination_sids: Vec<String>,
+    ) -> RoomResult<()> {
         let data = proto::DataPacket {
             kind: kind as i32,
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
-                payload: data.to_vec(),
-                destination_sids: vec![],
+                payload: data,
+                destination_sids: destination_sids.to_owned(),
                 ..Default::default()
             })),
         };

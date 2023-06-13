@@ -82,7 +82,7 @@ pub enum RoomEvent {
     },
     DataReceived {
         payload: Arc<Vec<u8>>,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
         participant: RemoteParticipant,
     },
     ConnectionStateChanged(ConnectionState),
@@ -100,6 +100,29 @@ pub enum ConnectionState {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DataPacketKind {
+    Lossy,
+    Reliable,
+}
+
+#[derive(Debug, Clone)]
+pub struct RoomOptions {
+    pub auto_subscribe: bool,
+    pub adaptive_stream: bool,
+    pub dynacast: bool,
+}
+
+impl Default for RoomOptions {
+    fn default() -> Self {
+        Self {
+            auto_subscribe: true,
+            adaptive_stream: false,
+            dynacast: false,
+        }
+    }
+}
+
 struct RoomHandle {
     session_task: JoinHandle<()>,
     close_emitter: oneshot::Sender<()>,
@@ -111,7 +134,7 @@ pub struct Room {
 }
 
 impl Debug for Room {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Room")
             .field("sid", &self.sid())
             .field("name", &self.name())
@@ -124,11 +147,21 @@ impl Room {
     pub async fn connect(
         url: &str,
         token: &str,
+        options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         let (rtc_engine, engine_events) = RtcEngine::new();
         let rtc_engine = Arc::new(rtc_engine);
+
         rtc_engine
-            .connect(url, token, SignalOptions::default())
+            .connect(
+                url,
+                token,
+                SignalOptions {
+                    auto_subscribe: options.auto_subscribe,
+                    adaptive_stream: options.adaptive_stream,
+                    ..Default::default()
+                },
+            )
             .await?;
 
         let join_response = rtc_engine.join_response().unwrap();

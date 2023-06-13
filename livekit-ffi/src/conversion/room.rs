@@ -2,6 +2,25 @@ use crate::{proto, FfiHandleId};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
+impl From<proto::RoomOptions> for RoomOptions {
+    fn from(value: proto::RoomOptions) -> Self {
+        Self {
+            adaptive_stream: value.adaptive_stream,
+            auto_subscribe: value.auto_subscribe,
+            dynacast: value.dynacast,
+        }
+    }
+}
+
+impl From<proto::DataPacketKind> for DataPacketKind {
+    fn from(value: proto::DataPacketKind) -> Self {
+        match value {
+            proto::DataPacketKind::KindReliable => Self::Reliable,
+            proto::DataPacketKind::KindLossy => Self::Lossy,
+        }
+    }
+}
+
 impl proto::RoomInfo {
     pub fn from_room(handle_id: FfiHandleId, session: &Room) -> Self {
         Self {

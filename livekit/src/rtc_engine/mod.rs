@@ -3,6 +3,7 @@ use crate::prelude::LocalTrack;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents, SessionInfo};
 use crate::signal_client::{SignalError, SignalOptions};
+use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use livekit_webrtc::session_description::SdpParseError;
@@ -72,7 +73,7 @@ pub enum EngineEvent {
     Data {
         participant_sid: String,
         payload: Vec<u8>,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
@@ -165,7 +166,7 @@ impl RtcEngine {
     pub async fn publish_data(
         &self,
         data: &proto::DataPacket,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     ) -> EngineResult<()> {
         self.inner.wait_reconnection().await?;
         self.inner

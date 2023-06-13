@@ -1,6 +1,6 @@
 use super::{ConnectionQuality, ParticipantInner};
-use crate::prelude::*;
 use crate::track::TrackError;
+use crate::{prelude::*, DataPacketKind};
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::RwLockReadGuard;
@@ -53,7 +53,7 @@ impl RemoteParticipant {
 
     /// Called by the RoomSession when receiving data from the RrcSession
     /// It is just used to emit the Data event on the participant dispatcher.
-    pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: proto::data_packet::Kind) {
+    pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: DataPacketKind) {
         self.inner
             .dispatcher
             .dispatch(&ParticipantEvent::DataReceived {

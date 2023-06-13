@@ -1,6 +1,8 @@
 pub use crate::participant::{LocalParticipant, Participant, ParticipantEvent, RemoteParticipant};
 
-pub use crate::{ConnectionState, Room, RoomError, RoomEvent, RoomResult};
+pub use crate::{
+    ConnectionState, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions, RoomResult,
+};
 
 pub use crate::publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication};
 

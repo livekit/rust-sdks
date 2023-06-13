@@ -269,6 +269,29 @@ impl FfiServer {
         Ok(proto::UnpublishTrackResponse::default())
     }
 
+    fn on_publish_data(
+        &'static self,
+        publish: proto::PublishDataRequest,
+    ) -> FfiResult<proto::PublishDataResponse> {
+        let room_handle = publish
+            .room_handle
+            .as_ref()
+            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+            .id as FfiHandleId;
+
+        let ffi_room = self
+            .ffi_handles
+            .get(&room_handle)
+            .ok_or(FfiError::InvalidRequest("room not found"))?;
+
+        let ffi_room = ffi_room
+            .downcast_ref::<room::FfiRoom>()
+            .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
+
+        // Push the data to an async queue (avoid blocking and keep the order)
+        ffi_room.publish_data(self, publish)
+    }
+
     // Track
     fn on_create_video_track(
         &'static self,
@@ -699,6 +722,9 @@ impl FfiServer {
             }
             proto::ffi_request::Message::UnpublishTrack(unpublish) => {
                 proto::ffi_response::Message::UnpublishTrack(self.on_unpublish_track(unpublish)?)
+            }
+            proto::ffi_request::Message::PublishData(publish) => {
+                proto::ffi_response::Message::PublishData(self.on_publish_data(publish)?)
             }
             proto::ffi_request::Message::CreateVideoTrack(create) => {
                 proto::ffi_response::Message::CreateVideoTrack(self.on_create_video_track(create)?)

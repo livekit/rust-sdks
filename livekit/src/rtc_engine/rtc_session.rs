@@ -4,9 +4,9 @@ use crate::prelude::TrackKind;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
-use crate::signal_client;
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
 use crate::track::LocalTrack;
+use crate::{signal_client, DataPacketKind};
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
@@ -40,7 +40,7 @@ pub enum SessionEvent {
     Data {
         participant_sid: String,
         payload: Vec<u8>,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     },
     MediaTrack {
         track: MediaStreamTrack,
@@ -304,7 +304,7 @@ impl RtcSession {
     pub async fn publish_data(
         &self,
         data: &proto::DataPacket,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.inner.publish_data(data, kind).await
     }
@@ -359,7 +359,7 @@ impl RtcSession {
 
     #[allow(dead_code)]
     #[inline]
-    pub fn data_channel(&self, kind: proto::data_packet::Kind) -> &DataChannel {
+    pub fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
         &self.inner.data_channel(kind)
     }
 }
@@ -605,7 +605,9 @@ impl SessionInner {
                         let _ = self.emitter.send(SessionEvent::Data {
                             participant_sid: user.participant_sid,
                             payload: user.payload,
-                            kind: proto::data_packet::Kind::from_i32(data.kind).unwrap(),
+                            kind: proto::data_packet::Kind::from_i32(data.kind)
+                                .unwrap()
+                                .into(),
                         });
                     }
                     proto::data_packet::Value::Speaker(_) => {}
@@ -818,7 +820,7 @@ impl SessionInner {
     async fn publish_data(
         &self,
         data: &proto::DataPacket,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
         self.data_channel(kind)
@@ -894,7 +896,7 @@ impl SessionInner {
 
     /// Ensure the Publisher PC is connected, if not, start the negotiation
     /// This is required when sending data to the server
-    async fn ensure_publisher_connected(&self, kind: proto::data_packet::Kind) -> EngineResult<()> {
+    async fn ensure_publisher_connected(&self, kind: DataPacketKind) -> EngineResult<()> {
         if !self.info.join_response.subscriber_primary {
             return Ok(());
         }
@@ -939,8 +941,8 @@ impl SessionInner {
         }
     }
 
-    fn data_channel(&self, kind: proto::data_packet::Kind) -> &DataChannel {
-        if kind == proto::data_packet::Kind::Reliable {
+    fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
+        if kind == DataPacketKind::Reliable {
             &self.reliable_dc
         } else {
             &self.lossy_dc

@@ -1,5 +1,5 @@
-use crate::prelude::*;
 use crate::track::TrackError;
+use crate::{prelude::*, DataPacketKind};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_protocol::observer::Dispatcher;
@@ -38,7 +38,7 @@ pub enum ParticipantEvent {
     },
     DataReceived {
         payload: Arc<Vec<u8>>,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     },
     SpeakingChanged {
         speaking: bool,
