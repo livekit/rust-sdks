@@ -49,6 +49,22 @@ pub enum TrackSource {
 pub enum TrackEvent {
     Mute,
     Unmute,
+    SubscriptionStatusChanged {
+        old_state: SubscriptionStatus,
+        new_state: SubscriptionStatus,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionStatus {
+    Desired,
+    Subscribed,
+    Unsubscribed,
+}
+
+pub enum PermissionStatus {
+    Allowed,
+    NotAllowed,
 }
 
 #[derive(Clone, Copy, Debug)]

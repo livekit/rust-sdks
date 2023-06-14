@@ -7,6 +7,7 @@ use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use livekit_webrtc::session_description::SdpParseError;
+use log::{error, info, trace, warn};
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,7 +18,6 @@ use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Interval};
-use tracing::{error, info, trace, warn};
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -147,7 +147,6 @@ impl RtcEngine {
         (Self { inner }, engine_events)
     }
 
-    #[tracing::instrument]
     pub async fn connect(
         &self,
         url: &str,
@@ -157,12 +156,10 @@ impl RtcEngine {
         self.inner.connect(url, token, options).await
     }
 
-    #[tracing::instrument]
     pub async fn close(&self) {
         self.inner.close().await
     }
 
-    #[tracing::instrument(skip(data))]
     pub async fn publish_data(
         &self,
         data: &proto::DataPacket,

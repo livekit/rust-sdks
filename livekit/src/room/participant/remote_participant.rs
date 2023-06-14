@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use tracing::{debug, error, instrument, Level};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -41,16 +40,6 @@ impl RemoteParticipant {
         }
     }
 
-    #[inline]
-    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
-        self.inner.tracks.read().get(sid).map(|track| {
-            if let TrackPublication::Remote(remote) = track {
-                return remote.clone();
-            }
-            unreachable!()
-        })
-    }
-
     /// Called by the RoomSession when receiving data from the RrcSession
     /// It is just used to emit the Data event on the participant dispatcher.
     pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: DataPacketKind) {
@@ -62,7 +51,6 @@ impl RemoteParticipant {
             });
     }
 
-    #[instrument(level = Level::DEBUG)]
     pub(crate) async fn add_subscribed_media_track(
         &self,
         sid: TrackSid,
@@ -111,7 +99,7 @@ impl RemoteParticipant {
                 }
             };
 
-            debug!("starting track: {:?}", sid);
+            log::debug!("starting track: {:?}", sid);
 
             remote_publication.update_track(Some(track.clone().into()));
             track.set_muted(remote_publication.is_muted());
@@ -134,7 +122,7 @@ impl RemoteParticipant {
                     publication: remote_publication,
                 });
         } else {
-            error!("could not find published track with sid: {:?}", sid);
+            log::error!("could not find published track with sid: {:?}", sid);
 
             self.inner
                 .dispatcher
@@ -198,6 +186,16 @@ impl RemoteParticipant {
 
             self.unpublish_track(sid);
         }
+    }
+
+    #[inline]
+    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
+        self.inner.tracks.read().get(sid).map(|track| {
+            if let TrackPublication::Remote(remote) = track {
+                return remote.clone();
+            }
+            unreachable!()
+        })
     }
 
     #[inline]

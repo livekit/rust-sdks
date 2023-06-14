@@ -10,7 +10,6 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-use tracing::{event, Level};
 
 pub const PROTOCOL_VERSION: u32 = 8;
 
@@ -69,7 +68,7 @@ impl SignalStream {
                 if options.adaptive_stream { "1" } else { "0" },
             );
 
-        event!(Level::INFO, "connecting to SignalClient: {}", lk_url);
+        log::info!("connecting to SignalClient: {}", lk_url);
         let (ws_stream, _) = connect_async(lk_url).await?;
         let _ = emitter.send(SignalEvent::Open).await;
 
@@ -128,7 +127,7 @@ impl SignalStream {
                     signal,
                     response_chn,
                 } => {
-                    event!(Level::TRACE, "sending SignalRequest: {:?}", signal);
+                    log::debug!("sending SignalRequest: {:?}", signal);
 
                     let data = Message::Binary(
                         proto::SignalRequest {
@@ -138,7 +137,7 @@ impl SignalStream {
                     );
 
                     if let Err(err) = ws_writer.send(data).await {
-                        event!(Level::ERROR, "failed to send signal: {:?}", err);
+                        log::error!("failed to send signal: {:?}", err);
                         let _ = response_chn.send(Err(err.into()));
                         break;
                     }
@@ -147,7 +146,7 @@ impl SignalStream {
                 }
                 InternalMessage::Pong { ping_data } => {
                     if let Err(err) = ws_writer.send(Message::Pong(ping_data)).await {
-                        event!(Level::ERROR, "failed to send pong message: {:?}", err);
+                        log::error!("failed to send pong message: {:?}", err);
                     }
                 }
                 InternalMessage::Close { close_frame } => {
@@ -180,7 +179,7 @@ impl SignalStream {
                         .expect("failed to decode SignalResponse");
 
                     let msg = res.message.unwrap();
-                    event!(Level::TRACE, "received SignalResponse: {:?}", msg);
+                    log::debug!("received SignalResponse: {:?}", msg);
                     let _ = emitter.send(SignalEvent::Signal(msg)).await;
                 }
                 Ok(Message::Ping(data)) => {
@@ -190,11 +189,11 @@ impl SignalStream {
                     continue;
                 }
                 Ok(Message::Close(close)) => {
-                    event!(Level::DEBUG, "server closed the connection: {:?}", close);
+                    log::debug!("server closed the connection: {:?}", close);
                     break;
                 }
                 _ => {
-                    event!(Level::ERROR, "unhandled websocket message {:?}", msg);
+                    log::error!("unhandled websocket message {:?}", msg);
                     break;
                 }
             }

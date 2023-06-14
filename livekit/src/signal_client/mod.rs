@@ -1,13 +1,12 @@
 use crate::signal_client::signal_stream::SignalStream;
 use livekit_protocol as proto;
 
-use parking_lot::RwLock;
 use std::fmt::Debug;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock as AsyncRwLock;
 use tokio_tungstenite::tungstenite::Error as WsError;
-use tracing::{instrument, Level};
 
 mod signal_stream;
 
@@ -58,7 +57,7 @@ impl Default for SignalOptions {
 
 #[derive(Debug)]
 pub struct SignalClient {
-    stream: RwLock<Option<SignalStream>>,
+    stream: AsyncRwLock<Option<SignalStream>>,
     emitter: SignalEmitter,
 }
 
@@ -74,7 +73,6 @@ impl SignalClient {
         )
     }
 
-    #[instrument(level = Level::DEBUG, skip(url, token, options))]
     pub async fn connect(
         &self,
         url: &str,
@@ -82,20 +80,18 @@ impl SignalClient {
         options: SignalOptions,
     ) -> SignalResult<()> {
         let stream = SignalStream::connect(url, token, options, self.emitter.clone()).await?;
-        *self.stream.write() = Some(stream);
+        *self.stream.write().await = Some(stream);
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG)]
     pub async fn close(&self) {
-        if let Some(stream) = self.stream.write().take() {
+        if let Some(stream) = self.stream.write().await.take() {
             stream.close().await;
         }
     }
 
-    #[instrument(level = Level::DEBUG)]
     pub async fn send(&self, signal: proto::signal_request::Message) {
-        if let Some(stream) = self.stream.read().as_ref() {
+        if let Some(stream) = self.stream.read().await.as_ref() {
             if stream.send(signal).await.is_ok() {
                 return;
             }
@@ -109,7 +105,6 @@ impl SignalClient {
         // TODO(theomonnom): impl
     }
 
-    #[instrument(level = Level::DEBUG)]
     pub async fn flush_queue(&self) {
         // TODO(theomonnom): impl
     }
@@ -118,13 +113,12 @@ impl SignalClient {
 pub mod utils {
     use crate::signal_client::{SignalError, SignalEvent, SignalResult, JOIN_RESPONSE_TIMEOUT};
     use livekit_protocol as proto;
+    use log::warn;
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Error as WsError;
-    use tracing::{event, instrument, Level};
 
     use super::SignalEvents;
 
-    #[instrument(level = Level::DEBUG, skip(receiver))]
     pub(crate) async fn next_join_response(
         receiver: &mut SignalEvents,
     ) -> SignalResult<proto::JoinResponse> {
@@ -137,8 +131,7 @@ pub mod utils {
                     SignalEvent::Close => break,
                     SignalEvent::Open => continue,
                     _ => {
-                        event!(
-                            Level::WARN,
+                        warn!(
                             "received unexpected message while waiting for JoinResponse: {:?}",
                             event
                         );

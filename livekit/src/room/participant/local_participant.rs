@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::debug;
 
 #[derive(Clone)]
 pub struct LocalParticipant {
@@ -91,7 +90,7 @@ impl LocalParticipant {
         let publication =
             LocalTrackPublication::new(track_info.clone(), track.clone(), options.clone());
         track.update_info(track_info); // Update SID + Source
-        debug!("publishing track with cid {:?}", track.rtc_track().id());
+        log::debug!("publishing track with cid {:?}", track.rtc_track().id());
         let transceiver = self
             .rtc_engine
             .create_sender(track.clone(), options, encodings)

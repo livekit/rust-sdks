@@ -1,21 +1,26 @@
 use super::track::{TrackDimension, TrackEvent};
 use crate::prelude::*;
 use crate::track::Track;
-use futures_util::stream::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_protocol::observer::Dispatcher;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
-use tokio::sync::Notify;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::sync::{mpsc, Notify};
+use tokio::task::JoinHandle;
 
 mod local;
 pub use local::*;
 
 mod remote;
 pub use remote::*;
+
+#[derive(Debug, Clone)]
+pub(crate) enum PublicationEvent {
+    UpdateSubscription, // Update subscription needed
+}
 
 #[derive(Debug)]
 pub(crate) struct TrackPublicationInner {
@@ -29,7 +34,9 @@ pub(crate) struct TrackPublicationInner {
     mime_type: Mutex<String>,
     muted: AtomicBool,
     dispatcher: Dispatcher<TrackEvent>,
+    internal_dispatcher: Dispatcher<PublicationEvent>,
     close_notifier: Arc<Notify>,
+    forward_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl TrackPublicationInner {
@@ -50,30 +57,35 @@ impl TrackPublicationInner {
             mime_type: Mutex::new(info.mime_type),
             muted: AtomicBool::new(info.muted),
             dispatcher: Default::default(),
+            internal_dispatcher: Default::default(),
             close_notifier: Default::default(),
+            forward_handle: Default::default(),
         }
     }
 
-    pub fn update_track(&self, track: Option<Track>) {
-        let mut old_track = self.track.lock();
-        *old_track = track.clone();
+    pub async fn update_track(&self, track: Option<Track>) {
+        // Make sure to stop the old forwarding task
+        if let Some(handle) = self.forward_handle.lock().take() {
+            self.close_notifier.notify_waiters();
+            handle.await;
+        }
 
-        self.close_notifier.notify_waiters();
+        *self.track.lock() = track.clone();
 
-        if let Some(track) = track.as_ref() {
-            let track_stream = UnboundedReceiverStream::new(track.register_observer());
-            tokio::spawn({
-                let dispatcher = self.dispatcher.clone();
-                let notifier = self.close_notifier.clone();
+        if let Some(track) = track {
+            // Forward track events to the publication
+            let pub_dispatcher = self.dispatcher.clone();
+            let close_notifier = self.close_notifier.clone();
+            tokio::spawn(async move {
+                let notified = close_notifier.notified().fuse();
+                futures_util::pin_mut!(notified);
 
-                async move {
-                    let notified = notifier.notified();
-                    futures_util::pin_mut!(notified);
-                    futures_util::future::select(
-                        track_stream.map(Ok).forward(dispatcher),
-                        notified,
-                    )
-                    .await;
+                let event_streams = UnboundedReceiverStream::new(track.register_observer());
+                let mut forwarding = event_streams.map(Ok).forward(pub_dispatcher);
+
+                futures_util::select! {
+                    _ = notified => {},
+                    _ = &mut forwarding => {},
                 }
             });
         }
@@ -118,6 +130,10 @@ impl TrackPublicationInner {
 
     pub fn simulcasted(&self) -> bool {
         self.simulcasted.load(Ordering::Relaxed)
+    }
+
+    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
+        self.dispatcher.register()
     }
 
     pub fn dimension(&self) -> TrackDimension {

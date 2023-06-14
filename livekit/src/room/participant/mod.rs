@@ -119,15 +119,15 @@ impl Participant {
 
 #[derive(Debug)]
 pub(crate) struct ParticipantInner {
-    pub sid: Mutex<ParticipantSid>,
-    pub identity: Mutex<ParticipantIdentity>,
-    pub name: Mutex<String>,
-    pub metadata: Mutex<String>,
-    pub speaking: AtomicBool,
-    pub tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
-    pub audio_level: AtomicU32,
-    pub connection_quality: AtomicU8,
-    pub dispatcher: Dispatcher<ParticipantEvent>,
+    sid: Mutex<ParticipantSid>,
+    identity: Mutex<ParticipantIdentity>,
+    name: Mutex<String>,
+    metadata: Mutex<String>,
+    speaking: AtomicBool,
+    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    audio_level: AtomicU32,
+    connection_quality: AtomicU8,
+    dispatcher: Dispatcher<ParticipantEvent>,
 }
 
 impl ParticipantInner {

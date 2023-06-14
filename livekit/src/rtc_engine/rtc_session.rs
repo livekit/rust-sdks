@@ -22,7 +22,6 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{debug, error, trace, warn};
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -117,7 +116,7 @@ struct SessionInner {
     pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
 
     // Publisher data channels
-    // used to send data to other participants ( The SFU forwards the messages )
+    // used to send data to other participants (The SFU forwards the messages)
     lossy_dc: DataChannel,
     reliable_dc: DataChannel,
 
@@ -167,7 +166,7 @@ impl RtcSession {
         let signal_client = Arc::new(signal_client);
         signal_client.connect(url, token, options.clone()).await?;
         let join_response = signal_client::utils::next_join_response(&mut signal_events).await?;
-        debug!("received JoinResponse: {:?}", join_response);
+        log::debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
         let rtc_config = RtcConfiguration {
@@ -291,7 +290,6 @@ impl RtcSession {
     }
 
     /// Close the PeerConnections and the SignalClient
-    #[tracing::instrument]
     pub async fn close(self) {
         // Close the tasks
         self.inner.close().await;
@@ -375,11 +373,11 @@ impl SessionInner {
                 res = rtc_events.recv() => {
                     if let Some(event) = res {
                         if let Err(err) = self.on_rtc_event(event).await {
-                            error!("failed to handle rtc event: {:?}", err);
+                            log::error!("failed to handle rtc event: {:?}", err);
                         }
                     }                },
                  _ = close_rx.changed() => {
-                    trace!("closing rtc_session_task");
+                    log::trace!("closing rtc_session_task");
                     break;
                 }
             }
@@ -399,7 +397,7 @@ impl SessionInner {
                             SignalEvent::Open => {}
                             SignalEvent::Signal(signal) => {
                                 if let Err(err) = self.on_signal_event(signal).await {
-                                    error!("failed to handle signal: {:?}", err);
+                                    log::error!("failed to handle signal: {:?}", err);
                                 }
                             }
                             SignalEvent::Close => {
@@ -415,7 +413,7 @@ impl SessionInner {
                     }
                 },
                 _ = close_rx.changed() => {
-                    trace!("closing signal_task");
+                    log::trace!("closing signal_task");
                     break;
                 }
             }
@@ -425,7 +423,7 @@ impl SessionInner {
     async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
         match event {
             proto::signal_response::Message::Answer(answer) => {
-                trace!("received publisher answer: {:?}", answer);
+                log::debug!("received publisher answer: {:?}", answer);
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap())?;
                 self.publisher_pc
@@ -435,7 +433,7 @@ impl SessionInner {
                     .await?;
             }
             proto::signal_response::Message::Offer(offer) => {
-                trace!("received subscriber offer: {:?}", offer);
+                log::debug!("received subscriber offer: {:?}", offer);
                 let offer = SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap())?;
                 let answer = self
                     .subscriber_pc
@@ -460,7 +458,7 @@ impl SessionInner {
                     IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)?
                 };
 
-                debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
+                log::debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
 
                 if target == proto::SignalTarget::Publisher {
                     self.publisher_pc
@@ -533,7 +531,7 @@ impl SessionInner {
                     .await;
             }
             RtcEvent::ConnectionChange { state, target } => {
-                debug!("connection change, {:?} {:?}", state, target);
+                log::debug!("connection change, {:?} {:?}", state, target);
                 let is_primary = self.info.join_response.subscriber_primary
                     && target == proto::SignalTarget::Subscriber;
 
@@ -565,7 +563,7 @@ impl SessionInner {
             }
             RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
-                debug!("sending publisher offer: {:?}", offer);
+                log::debug!("sending publisher offer: {:?}", offer);
                 self.signal_client
                     .send(proto::signal_request::Message::Offer(
                         proto::SessionDescription {
@@ -589,7 +587,7 @@ impl SessionInner {
                         receiver,
                     });
                 } else {
-                    warn!("Track event with no streams");
+                    log::warn!("Track event with no streams");
                 }
             }
             RtcEvent::Data { data, binary } => {
@@ -737,7 +735,6 @@ impl SessionInner {
         });
     }
 
-    #[tracing::instrument]
     async fn close(&self) {
         self.closed.store(true, Ordering::Release);
         self.signal_client.close().await;
@@ -745,7 +742,6 @@ impl SessionInner {
         self.subscriber_pc.lock().await.close();
     }
 
-    #[tracing::instrument]
     async fn simulate_scenario(&self, scenario: SimulateScenario) {
         match scenario {
             SimulateScenario::SignalReconnect => {
@@ -816,7 +812,6 @@ impl SessionInner {
         }
     }
 
-    #[tracing::instrument(skip(data))]
     async fn publish_data(
         &self,
         data: &proto::DataPacket,
@@ -889,7 +884,7 @@ impl SessionInner {
         self.has_published.store(true, Ordering::Release);
         let res = self.publisher_pc.lock().await.negotiate().await;
         if let Err(err) = &res {
-            error!("failed to negotiate the publisher: {:?}", err);
+            log::error!("failed to negotiate the publisher: {:?}", err);
         }
         res.map_err(Into::into)
     }
@@ -935,7 +930,7 @@ impl SessionInner {
             res = wait_connected => res,
             _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
-                error!(error = ?err);
+                log::error!("{}", err);
                 Err(err)
             }
         }

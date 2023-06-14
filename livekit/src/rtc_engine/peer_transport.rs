@@ -1,8 +1,8 @@
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
+use log::{debug, error};
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
-use tracing::{event, Level};
 
 const _NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
@@ -64,7 +64,6 @@ impl PeerTransport {
         self.peer_connection.close();
     }
 
-    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RtcError> {
         if self.peer_connection.current_remote_description().is_some() && !self.restarting_ice {
             self.peer_connection
@@ -78,7 +77,6 @@ impl PeerTransport {
         Ok(())
     }
 
-    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn set_remote_description(
         &mut self,
         remote_description: SessionDescription,
@@ -100,13 +98,11 @@ impl PeerTransport {
         Ok(())
     }
 
-    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn negotiate(&mut self) -> Result<(), RtcError> {
         // TODO(theomonnom) Debounce here with NEGOTIATION_FREQUENCY
         self.create_and_send_offer(OfferOptions::default()).await
     }
 
-    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn create_anwser(
         &mut self,
         offer: SessionDescription,
@@ -121,14 +117,13 @@ impl PeerTransport {
         Ok(answer)
     }
 
-    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn create_and_send_offer(&mut self, options: OfferOptions) -> Result<(), RtcError> {
         if self.on_offer_handler.is_none() {
             return Ok(());
         }
 
         if options.ice_restart {
-            event!(Level::TRACE, "restarting ICE");
+            debug!("restarting ICE");
             self.restarting_ice = true;
         }
 
@@ -140,10 +135,7 @@ impl PeerTransport {
                         .set_remote_description(remote_description)
                         .await?;
                 } else {
-                    event!(
-                        Level::ERROR,
-                        "trying to restart ICE when the pc doesn't have remote description"
-                    );
+                    error!("trying to restart ICE when the pc doesn't have remote description");
                 }
             } else {
                 self.renegotiate = true;
