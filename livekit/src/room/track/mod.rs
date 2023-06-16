@@ -53,6 +53,10 @@ pub enum TrackEvent {
         old_state: SubscriptionStatus,
         new_state: SubscriptionStatus,
     },
+    /*SubscriptionPermissionChanged {
+        old_state: PermissionStatus,
+        new_state: PermissionStatus,
+    },*/
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +66,7 @@ pub enum SubscriptionStatus {
     Unsubscribed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionStatus {
     Allowed,
     NotAllowed,

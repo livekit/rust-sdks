@@ -1,4 +1,5 @@
-use super::{ConnectionQuality, ParticipantInner};
+use super::ParticipantInternal;
+use super::{ConnectionQuality, ParticipantInternal};
 use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
@@ -16,8 +17,7 @@ use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct LocalParticipant {
-    inner: Arc<ParticipantInner>,
-    rtc_engine: Arc<RtcEngine>,
+    inner: Arc<ParticipantInternal>,
 }
 
 impl Debug for LocalParticipant {
@@ -32,15 +32,13 @@ impl Debug for LocalParticipant {
 
 impl LocalParticipant {
     pub(crate) fn new(
-        rtc_engine: Arc<RtcEngine>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(ParticipantInner::new(sid, identity, name, metadata)),
-            rtc_engine,
+            inner: Arc::new(ParticipantInternal::new(sid, identity, name, metadata)),
         }
     }
 

@@ -3,16 +3,6 @@ use std::fmt;
 macro_rules! id_str {
     ($($name:ident;)*) => {
         $(
-            impl $name {
-                pub fn new(str: String) -> Self {
-                    Self(str)
-                }
-
-                pub fn as_str(&self) -> &str {
-                    &self.0
-                }
-            }
-
             impl From<String> for $name {
                 fn from(str: String) -> $name {
                     $name(str)
@@ -41,16 +31,20 @@ macro_rules! id_str {
 }
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct ParticipantSid(String);
+#[repr(transparent)]
+pub struct ParticipantSid(pub String);
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct ParticipantIdentity(String);
+#[repr(transparent)]
+pub struct ParticipantIdentity(pub String);
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct TrackSid(String);
+#[repr(transparent)]
+pub struct TrackSid(pub String);
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct RoomSid(String);
+#[repr(transparent)]
+pub struct RoomSid(pub String);
 
 id_str! {
     ParticipantSid;

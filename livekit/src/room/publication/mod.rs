@@ -1,157 +1,17 @@
-use super::track::{TrackDimension, TrackEvent};
+use super::track::TrackDimension;
+use crate::participant::ParticipantInternal;
 use crate::prelude::*;
 use crate::track::Track;
-use futures_util::{FutureExt, StreamExt};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use livekit_protocol::observer::Dispatcher;
-use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Arc;
-use tokio::sync::{mpsc, Notify};
-use tokio::task::JoinHandle;
+use parking_lot::RwLock;
+use std::sync::Weak;
 
 mod local;
-pub use local::*;
-
 mod remote;
+
+pub use local::*;
 pub use remote::*;
-
-#[derive(Debug, Clone)]
-pub(crate) enum PublicationEvent {
-    UpdateSubscription, // Update subscription needed
-}
-
-#[derive(Debug)]
-pub(crate) struct TrackPublicationInner {
-    track: Mutex<Option<Track>>,
-    name: Mutex<String>,
-    sid: Mutex<TrackSid>,
-    kind: AtomicU8,   // Casted to TrackKind
-    source: AtomicU8, // Casted to TrackSource
-    simulcasted: AtomicBool,
-    dimension: Mutex<TrackDimension>,
-    mime_type: Mutex<String>,
-    muted: AtomicBool,
-    dispatcher: Dispatcher<TrackEvent>,
-    internal_dispatcher: Dispatcher<PublicationEvent>,
-    close_notifier: Arc<Notify>,
-    forward_handle: Mutex<Option<JoinHandle<()>>>,
-}
-
-impl TrackPublicationInner {
-    pub fn new(info: proto::TrackInfo, track: Option<Track>) -> Self {
-        Self {
-            track: Mutex::new(track),
-            name: Mutex::new(info.name),
-            sid: Mutex::new(info.sid.into()),
-            kind: AtomicU8::new(
-                TrackKind::try_from(proto::TrackType::from_i32(info.r#type).unwrap()).unwrap()
-                    as u8,
-            ),
-            source: AtomicU8::new(TrackSource::from(
-                proto::TrackSource::from_i32(info.source).unwrap(),
-            ) as u8),
-            simulcasted: AtomicBool::new(info.simulcast),
-            dimension: Mutex::new(TrackDimension(info.width, info.height)),
-            mime_type: Mutex::new(info.mime_type),
-            muted: AtomicBool::new(info.muted),
-            dispatcher: Default::default(),
-            internal_dispatcher: Default::default(),
-            close_notifier: Default::default(),
-            forward_handle: Default::default(),
-        }
-    }
-
-    pub async fn update_track(&self, track: Option<Track>) {
-        // Make sure to stop the old forwarding task
-        if let Some(handle) = self.forward_handle.lock().take() {
-            self.close_notifier.notify_waiters();
-            handle.await;
-        }
-
-        *self.track.lock() = track.clone();
-
-        if let Some(track) = track {
-            // Forward track events to the publication
-            let pub_dispatcher = self.dispatcher.clone();
-            let close_notifier = self.close_notifier.clone();
-            tokio::spawn(async move {
-                let notified = close_notifier.notified().fuse();
-                futures_util::pin_mut!(notified);
-
-                let event_streams = UnboundedReceiverStream::new(track.register_observer());
-                let mut forwarding = event_streams.map(Ok).forward(pub_dispatcher);
-
-                futures_util::select! {
-                    _ = notified => {},
-                    _ = &mut forwarding => {},
-                }
-            });
-        }
-    }
-
-    pub fn update_info(&self, info: proto::TrackInfo) {
-        *self.name.lock() = info.name;
-        *self.sid.lock() = info.sid.into();
-        *self.dimension.lock() = TrackDimension(info.width, info.height);
-        *self.mime_type.lock() = info.mime_type;
-        self.kind.store(
-            TrackKind::try_from(proto::TrackType::from_i32(info.r#type).unwrap()).unwrap() as u8,
-            Ordering::SeqCst,
-        );
-        self.source.store(
-            TrackSource::from(proto::TrackSource::from_i32(info.source).unwrap()) as u8,
-            Ordering::SeqCst,
-        );
-        self.simulcasted.store(info.simulcast, Ordering::SeqCst);
-        self.muted.store(info.muted, Ordering::SeqCst);
-
-        if let Some(track) = self.track.lock().as_ref() {
-            track.set_muted(info.muted);
-        }
-    }
-
-    pub fn sid(&self) -> TrackSid {
-        self.sid.lock().clone()
-    }
-
-    pub fn name(&self) -> String {
-        self.name.lock().clone()
-    }
-
-    pub fn kind(&self) -> TrackKind {
-        self.kind.load(Ordering::SeqCst).try_into().unwrap()
-    }
-
-    pub fn source(&self) -> TrackSource {
-        self.source.load(Ordering::SeqCst).into()
-    }
-
-    pub fn simulcasted(&self) -> bool {
-        self.simulcasted.load(Ordering::Relaxed)
-    }
-
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.dispatcher.register()
-    }
-
-    pub fn dimension(&self) -> TrackDimension {
-        self.dimension.lock().clone()
-    }
-
-    pub fn mime_type(&self) -> String {
-        self.mime_type.lock().clone()
-    }
-
-    pub fn track(&self) -> Option<Track> {
-        self.track.lock().clone()
-    }
-
-    pub fn is_muted(&self) -> bool {
-        self.muted.load(Ordering::Relaxed)
-    }
-}
 
 #[derive(Clone, Debug)]
 pub enum TrackPublication {
@@ -178,5 +38,118 @@ impl TrackPublication {
             TrackPublication::Local(p) => p.track().map(Into::into),
             TrackPublication::Remote(p) => p.track().map(Into::into),
         }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct PublicationInfo {
+    track: Option<Track>,
+    name: String,
+    sid: TrackSid,
+    kind: TrackKind,
+    source: TrackSource,
+    simulcasted: bool,
+    dimension: TrackDimension,
+    mime_type: String,
+    muted: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct TrackPublicationInner {
+    info: RwLock<PublicationInfo>,
+    participant: Weak<ParticipantInternal>,
+}
+
+impl TrackPublicationInner {
+    pub fn new(
+        info: proto::TrackInfo,
+        participant: Weak<ParticipantInternal>,
+        track: Option<Track>,
+    ) -> Self {
+        let info = PublicationInfo {
+            track,
+            name: info.name,
+            sid: info.sid.into(),
+            kind: proto::TrackType::from_i32(info.r#type)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            source: proto::TrackSource::from_i32(info.source)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            simulcasted: info.simulcast,
+            dimension: TrackDimension(info.width, info.height),
+            mime_type: info.mime_type,
+            muted: info.muted,
+        };
+
+        Self {
+            info: RwLock::new(info),
+            participant,
+        }
+    }
+
+    pub fn update_track(&self, track: Option<Track>) {
+        let mut info = self.info.write();
+        info.track = track
+    }
+
+    pub fn update_info(&self, new_info: proto::TrackInfo) {
+        let mut info = self.info.write();
+        info.name = new_info.name;
+        info.sid = new_info.sid.into();
+        info.dimension = TrackDimension(new_info.width, new_info.height);
+        info.mime_type = new_info.mime_type;
+        info.kind =
+            TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
+        info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
+        info.simulcasted = new_info.simulcast;
+
+        // TODO MUTE ?????????????????
+        // info.muted = new_info.muted;
+        // if let Some(track) = info.track.as_ref() {
+        //    track.set_muted(info.muted);
+        // }
+    }
+
+    pub fn participant(&self) -> Weak<ParticipantInternal> {
+        self.participant.clone()
+    }
+
+    pub fn sid(&self) -> TrackSid {
+        self.info.read().sid.clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.info.read().name.clone()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.info.read().kind
+    }
+
+    pub fn source(&self) -> TrackSource {
+        self.info.read().source
+    }
+
+    pub fn simulcasted(&self) -> bool {
+        self.info.read().simulcasted
+    }
+
+    pub fn dimension(&self) -> TrackDimension {
+        self.info.read().dimension.clone()
+    }
+
+    pub fn mime_type(&self) -> String {
+        self.info.read().mime_type.clone()
+    }
+
+    pub fn track(&self) -> Option<Track> {
+        self.info.read().track.clone()
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.info.read().muted
     }
 }

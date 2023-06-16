@@ -1,17 +1,13 @@
 use super::TrackPublicationInner;
 use crate::id::TrackSid;
-use crate::options::TrackPublishOptions;
-use crate::track::{LocalTrack, Track, TrackDimension, TrackKind, TrackSource};
+use crate::participant::ParticipantInternal;
+use crate::track::{LocalTrack, TrackDimension, TrackKind, TrackSource};
 use livekit_protocol as proto;
-use parking_lot::Mutex;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 #[derive(Debug)]
 struct LocalTrackPublicationInner {
     publication_inner: TrackPublicationInner,
-
-    #[allow(unused)] // TODO(theomonnom)
-    options: Mutex<TrackPublishOptions>,
 }
 
 #[derive(Clone, Debug)]
@@ -22,16 +18,21 @@ pub struct LocalTrackPublication {
 impl LocalTrackPublication {
     pub(crate) fn new(
         info: proto::TrackInfo,
+        participant: Weak<ParticipantInternal>,
         track: LocalTrack,
-        options: TrackPublishOptions,
     ) -> Self {
         Self {
             inner: Arc::new(LocalTrackPublicationInner {
-                publication_inner: TrackPublicationInner::new(info, Some(track.into())),
-                options: Mutex::new(options),
+                publication_inner: TrackPublicationInner::new(
+                    info,
+                    participant,
+                    Some(track.into()),
+                ),
             }),
         }
     }
+
+    pub fn set_muted(&self, muted: bool) {}
 
     #[inline]
     pub fn sid(&self) -> TrackSid {
@@ -86,7 +87,7 @@ impl LocalTrackPublication {
         false
     }
 
-    #[inline]
+    /*#[inline]
     pub(crate) fn update_track(&self, track: Option<Track>) {
         self.inner.publication_inner.update_track(track);
     }
@@ -95,5 +96,5 @@ impl LocalTrackPublication {
     #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         self.inner.publication_inner.update_info(info);
-    }
+    }*/
 }

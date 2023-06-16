@@ -1,4 +1,4 @@
-use super::{ConnectionQuality, ParticipantInner};
+use super::{ConnectionQuality, ParticipantInternal};
 use crate::track::TrackError;
 use crate::{prelude::*, DataPacketKind};
 use livekit_protocol as proto;
@@ -15,7 +15,7 @@ const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct RemoteParticipant {
-    inner: Arc<ParticipantInner>,
+    inner: Arc<ParticipantInternal>,
 }
 
 impl Debug for RemoteParticipant {
@@ -36,11 +36,11 @@ impl RemoteParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(ParticipantInner::new(sid, identity, name, metadata)),
+            inner: Arc::new(ParticipantInternal::new(sid, identity, name, metadata)),
         }
     }
 
-    /// Called by the RoomSession when receiving data from the RrcSession
+    /// Called by the RoomSession when receiving data from the RtcSession
     /// It is just used to emit the Data event on the participant dispatcher.
     pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: DataPacketKind) {
         self.inner

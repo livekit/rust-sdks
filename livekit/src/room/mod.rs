@@ -127,8 +127,11 @@ struct RoomHandle {
     close_emitter: oneshot::Sender<()>,
 }
 
+// Used by tracks, publications, and participants to submit "requests"
+struct InternalRoomMessage {}
+
 pub struct Room {
-    inner: Arc<SessionInner>,
+    inner: Arc<RoomSession>,
     handle: Mutex<Option<RoomHandle>>,
 }
 
@@ -174,7 +177,7 @@ impl Room {
         );
 
         let room_info = join_response.room.unwrap();
-        let inner = Arc::new(SessionInner {
+        let inner = Arc::new(RoomSession {
             state: AtomicU8::new(ConnectionState::Disconnected as u8),
             sid: Mutex::new(room_info.sid.into()),
             name: Mutex::new(room_info.name),
@@ -256,7 +259,8 @@ impl Room {
     }
 }
 
-struct SessionInner {
+pub(crate) struct RoomSession {
+    pub rtc_engine: Arc<RtcEngine>,
     state: AtomicU8, // ConnectionState
     sid: Mutex<RoomSid>,
     name: Mutex<String>,
@@ -264,12 +268,11 @@ struct SessionInner {
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
     participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
     active_speakers: RwLock<Vec<Participant>>,
-    rtc_engine: Arc<RtcEngine>,
     local_participant: LocalParticipant,
     dispatcher: Dispatcher<RoomEvent>,
 }
 
-impl Debug for SessionInner {
+impl Debug for RoomSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionInner")
             .field("sid", &self.sid)
@@ -279,7 +282,7 @@ impl Debug for SessionInner {
     }
 }
 
-impl SessionInner {
+impl RoomSession {
     async fn room_task(
         self: Arc<Self>,
         mut engine_events: EngineEvents,
@@ -302,7 +305,7 @@ impl SessionInner {
         }
     }
 
-    /// Listen to the Participant events and forward them to the Room Dispatcher
+    /// Forward participant events to the room dispatcher
     async fn participant_task(
         self: Arc<Self>,
         participant: Participant,
@@ -637,11 +640,12 @@ impl SessionInner {
             }
 
             // Close the participant task
-            if let Some((task, close_tx)) = self
+            let ptask = self
                 .participants_tasks
                 .write()
-                .remove(&remote_participant.sid())
-            {
+                .remove(&remote_participant.sid());
+
+            if let Some((task, close_tx)) = ptask {
                 let _ = close_tx.send(());
                 let _ = task.await;
             }
