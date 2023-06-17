@@ -1,14 +1,14 @@
 use crate::options::TrackPublishOptions;
 use crate::prelude::LocalTrack;
 use crate::rtc_engine::lk_runtime::LkRuntime;
-use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents, SessionInfo};
+use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents};
 use crate::signal_client::{SignalError, SignalOptions};
 use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use livekit_webrtc::session_description::SdpParseError;
 use log::{error, info, trace, warn};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -103,7 +103,7 @@ struct EngineHandle {
 
 struct EngineInner {
     lk_runtime: Arc<LkRuntime>,
-    session_info: Mutex<Option<SessionInfo>>, // Last/Current Sessioninfo
+    join_response: RwLock<proto::JoinResponse>,
     running_handle: AsyncRwLock<Option<EngineHandle>>,
     opened: AtomicBool,
     engine_emitter: EngineEmitter,
@@ -165,56 +165,33 @@ impl RtcEngine {
         data: &proto::DataPacket,
         kind: DataPacketKind,
     ) -> EngineResult<()> {
+        // Make sure we are connected before trying to send data
         self.inner.wait_reconnection().await?;
-        self.inner
-            .running_handle
-            .read()
-            .await
-            .as_ref()
-            .unwrap()
-            .session
-            .publish_data(data, kind)
-            .await
+        let handle = self.inner.running_handle.read().await;
+        let session = &handle.as_ref().unwrap().session;
+        session.publish_data(data, kind).await
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.wait_reconnection().await?;
-        self.inner
-            .running_handle
-            .read()
-            .await
-            .as_ref()
-            .unwrap()
-            .session
-            .simulate_scenario(scenario)
-            .await;
+        let handle = self.inner.running_handle.read().await;
+        let session = &handle.as_ref().unwrap().session;
+        session.simulate_scenario(scenario).await;
         Ok(())
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         self.inner.wait_reconnection().await?;
-        self.inner
-            .running_handle
-            .read()
-            .await
-            .as_ref()
-            .unwrap()
-            .session
-            .add_track(req)
-            .await
+        let handle = self.inner.running_handle.read().await;
+        let session = &handle.as_ref().unwrap().session;
+        session.add_track(req).await
     }
 
     pub async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
         self.inner.wait_reconnection().await?;
-        self.inner
-            .running_handle
-            .read()
-            .await
-            .as_ref()
-            .unwrap()
-            .session
-            .remove_track(sender)
-            .await
+        let handle = self.inner.running_handle.read().await;
+        let session = &handle.as_ref().unwrap().session;
+        session.remove_track(sender).await
     }
 
     pub async fn create_sender(
@@ -224,37 +201,37 @@ impl RtcEngine {
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
         self.inner.wait_reconnection().await?;
-        self.inner
-            .running_handle
-            .read()
-            .await
-            .as_ref()
-            .unwrap()
-            .session
-            .create_sender(track, options, encodings)
-            .await
+        let handle = self.inner.running_handle.read().await;
+        let session = &handle.as_ref().unwrap().session;
+        session.create_sender(track, options, encodings).await
     }
 
     pub async fn negotiate_publisher(&self) -> EngineResult<()> {
         // TODO(theomonnom): guard for reconnection
         self.inner.wait_reconnection().await?;
-        self.inner
-            .running_handle
-            .read()
-            .await
-            .as_ref()
-            .unwrap()
-            .session
-            .negotiate_publisher()
-            .await
+        let handle = self.inner.running_handle.read().await;
+        let session = &handle.as_ref().unwrap().session;
+        session.negotiate_publisher().await
+    }
+
+    pub async fn send_request(&self, msg: proto::signal_request::Message) -> EngineResult<()> {
+        if self.inner.reconnecting.load(Ordering::Acquire) {
+            // When doing a full reconnect, it is safe to ignore the messages, we don't wait for reconnection here
+            return Ok(());
+        }
+
+        let handle = self.inner.running_handle.read().await;
+        let session = &handle.as_ref().unwrap().session; // Unwrap should be safe here (running_handle is always valid when not reconnecting)
+        session.signal_client().send(msg).await;
+        Ok(())
     }
 
     pub fn join_response(&self) -> Option<proto::JoinResponse> {
-        if let Some(info) = self.inner.session_info.lock().as_ref() {
-            Some(info.join_response.clone())
-        } else {
-            None
-        }
+        self.inner
+            .session_info
+            .lock()
+            .as_ref()
+            .map(|session| session.join_response.clone())
     }
 }
 
@@ -496,27 +473,22 @@ impl EngineInner {
     }
 
     /// Try to recover the connection by doing a full reconnect.
-    /// It recreates a new RTCSession
+    /// It recreates a new RtcSession
     async fn try_restart_connection(self: &Arc<Self>) -> EngineResult<()> {
         let info = self.session_info.lock().clone().unwrap();
         self.terminate_session().await;
         self.connect(&info.url, &info.token, info.options).await?;
-        self.running_handle
-            .read()
-            .await
-            .as_ref()
-            .unwrap()
-            .session
-            .wait_pc_connection()
-            .await
 
-        // TODO(theomonnom): Resend SignalClient queue
+        let handle = self.running_handle.read().await;
+        let session = &handle.as_ref().unwrap().session;
+        session.wait_pc_connection().await
     }
 
     /// Try to restart the current session
     async fn try_resume_connection(&self) -> EngineResult<()> {
         let handle = self.running_handle.read().await;
-        handle.as_ref().unwrap().session.restart().await?;
-        handle.as_ref().unwrap().session.wait_pc_connection().await
+        let session = &handle.as_ref().unwrap().session;
+        session.restart().await?;
+        session.wait_pc_connection().await
     }
 }

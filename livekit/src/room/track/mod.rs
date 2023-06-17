@@ -45,31 +45,10 @@ pub enum TrackSource {
     ScreenshareAudio,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum TrackEvent {
-    Mute,
-    Unmute,
-    SubscriptionStatusChanged {
-        old_state: SubscriptionStatus,
-        new_state: SubscriptionStatus,
-    },
-    /*SubscriptionPermissionChanged {
-        old_state: PermissionStatus,
-        new_state: PermissionStatus,
-    },*/
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubscriptionStatus {
-    Desired,
-    Subscribed,
-    Unsubscribed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PermissionStatus {
-    Allowed,
-    NotAllowed,
+    Muted,
+    Unmuted,
 }
 
 #[derive(Clone, Copy, Debug)]

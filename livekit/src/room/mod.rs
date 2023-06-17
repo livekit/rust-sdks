@@ -127,9 +127,6 @@ struct RoomHandle {
     close_emitter: oneshot::Sender<()>,
 }
 
-// Used by tracks, publications, and participants to submit "requests"
-struct InternalRoomMessage {}
-
 pub struct Room {
     inner: Arc<RoomSession>,
     handle: Mutex<Option<RoomHandle>>,
@@ -259,17 +256,21 @@ impl Room {
     }
 }
 
+struct RoomInfo {
+    metadata: String,
+    state: ConnectionState,
+}
+
 pub(crate) struct RoomSession {
     pub rtc_engine: Arc<RtcEngine>,
-    state: AtomicU8, // ConnectionState
-    sid: Mutex<RoomSid>,
-    name: Mutex<String>,
-    metadata: Mutex<String>,
-    participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
-    participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
+    sid: RoomSid,
+    name: String,
+    info: RwLock<RoomInfo>,
+    dispatcher: Dispatcher<RoomEvent>,
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
-    dispatcher: Dispatcher<RoomEvent>,
+    participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
+    participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
 impl Debug for RoomSession {

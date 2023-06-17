@@ -75,7 +75,7 @@ impl RemoteTrackPublication {
             }],
         };
 
-        //participant.
+        // Engine update subscription
 
         if old_subscription_state != self.subscription_status() {
             self.inner.publication_inner.dispatcher.dispatch(

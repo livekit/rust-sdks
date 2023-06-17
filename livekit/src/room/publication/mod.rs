@@ -5,6 +5,7 @@ use crate::track::Track;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::RwLock;
+use proto::observer::Dispatcher;
 use std::sync::Weak;
 
 mod local;
@@ -12,6 +13,36 @@ mod remote;
 
 pub use local::*;
 pub use remote::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublicationEvent {
+    Muted,
+    Unmuted,
+    Subscribed,
+    Unsubscribed,
+    SubscriptionStatusChanged {
+        old_state: SubscriptionStatus,
+        new_state: SubscriptionStatus,
+    },
+    SubscriptionPermissionChanged {
+        old_state: PermissionStatus,
+        new_state: PermissionStatus,
+    },
+    SubscriptionFailed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionStatus {
+    Desired,
+    Subscribed,
+    Unsubscribed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionStatus {
+    Allowed,
+    NotAllowed,
+}
 
 #[derive(Clone, Debug)]
 pub enum TrackPublication {
@@ -57,6 +88,7 @@ pub(crate) struct PublicationInfo {
 #[derive(Debug)]
 pub(crate) struct TrackPublicationInner {
     info: RwLock<PublicationInfo>,
+    dispatcher: Dispatcher<PublicationEvent>,
     participant: Weak<ParticipantInternal>,
 }
 
@@ -86,6 +118,7 @@ impl TrackPublicationInner {
 
         Self {
             info: RwLock::new(info),
+            dispatcher: Default::default(),
             participant,
         }
     }

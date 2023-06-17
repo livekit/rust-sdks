@@ -6,7 +6,7 @@ use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
 use crate::track::LocalTrack;
-use crate::{signal_client, DataPacketKind};
+use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
@@ -95,17 +95,8 @@ struct IceCandidateJson {
     pub candidate: String,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct SessionInfo {
-    pub url: String,
-    pub token: String,
-    pub options: SignalOptions,
-    pub join_response: proto::JoinResponse,
-}
-
 /// Fields shared with rtc_task and signal_task
 struct SessionInner {
-    info: SessionInfo,
     signal_client: Arc<SignalClient>,
     pc_state: AtomicU8, // PCState
     has_published: AtomicBool,
@@ -131,7 +122,6 @@ struct SessionInner {
 impl Debug for SessionInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionInner")
-            .field("info", &self.info)
             .field("pc_state", &self.pc_state)
             .field("has_published", &self.has_published)
             .field("closed", &self.closed)
@@ -161,11 +151,9 @@ impl RtcSession {
         lk_runtime: Arc<LkRuntime>,
         session_emitter: SessionEmitter,
     ) -> EngineResult<Self> {
-        // Connect to the SignalClient
-        let (signal_client, mut signal_events) = SignalClient::new();
+        let (signal_client, join_response, signal_events) =
+            SignalClient::connect(url, token, options).await?;
         let signal_client = Arc::new(signal_client);
-        signal_client.connect(url, token, options.clone()).await?;
-        let join_response = signal_client::utils::next_join_response(&mut signal_events).await?;
         log::debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
@@ -222,16 +210,8 @@ impl RtcSession {
         rtc_events::forward_dc_events(&mut lossy_dc, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut reliable_dc, rtc_emitter.clone());
 
-        let session_info = SessionInfo {
-            url: url.to_owned(),
-            token: token.to_owned(),
-            options,
-            join_response,
-        };
-
         let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
-            info: session_info,
             pc_state: AtomicU8::new(PeerState::New as u8),
             has_published: Default::default(),
             signal_client,
@@ -249,9 +229,9 @@ impl RtcSession {
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
 
-        if !inner.info.join_response.subscriber_primary {
-            inner.negotiate_publisher().await?;
-        }
+        //if !inner.info.join_response.subscriber_primary {
+        //  inner.negotiate_publisher().await?;
+        // }
 
         let session = Self {
             lk_runtime,
@@ -320,11 +300,6 @@ impl RtcSession {
     #[inline]
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) {
         self.inner.simulate_scenario(scenario).await
-    }
-
-    #[inline]
-    pub fn info(&self) -> &SessionInfo {
-        &self.inner.info
     }
 
     #[allow(dead_code)]
@@ -532,10 +507,11 @@ impl SessionInner {
             }
             RtcEvent::ConnectionChange { state, target } => {
                 log::debug!("connection change, {:?} {:?}", state, target);
-                let is_primary = self.info.join_response.subscriber_primary
-                    && target == proto::SignalTarget::Subscriber;
 
-                if is_primary && state == PeerConnectionState::Connected {
+                // The subscriber is always the primary peer connection
+                if target == proto::SignalTarget::Subscriber
+                    && state == PeerConnectionState::Connected
+                {
                     let old_state = self
                         .pc_state
                         .swap(PeerState::Connected as u8, Ordering::SeqCst);
@@ -824,18 +800,9 @@ impl SessionInner {
     }
 
     /// Try to restart the session by doing an ICE Restart (The SignalClient is also restarted)
-    /// This reconnection if more seemless than the full reconnection implemented in ['RTCEngine']
+    /// This reconnection if more seemless compared to the full reconnection implemented in ['RTCEngine']
     async fn restart_session(&self) -> EngineResult<()> {
-        self.signal_client.close().await;
-
-        let mut options = self.info.options.clone();
-        options.sid = self.info.join_response.participant.clone().unwrap().sid;
-        options.reconnect = true;
-
-        self.signal_client
-            .connect(&self.info.url, &self.info.token, options)
-            .await?;
-
+        self.signal_client.restart().await?;
         self.subscriber_pc.lock().await.prepare_ice_restart();
 
         if self.has_published.load(Ordering::Acquire) {
@@ -851,7 +818,6 @@ impl SessionInner {
 
         self.wait_pc_connection().await?;
         self.signal_client.flush_queue().await;
-
         Ok(())
     }
 
@@ -892,10 +858,6 @@ impl SessionInner {
     /// Ensure the Publisher PC is connected, if not, start the negotiation
     /// This is required when sending data to the server
     async fn ensure_publisher_connected(&self, kind: DataPacketKind) -> EngineResult<()> {
-        if !self.info.join_response.subscriber_primary {
-            return Ok(());
-        }
-
         if !self.publisher_pc.lock().await.is_connected()
             && self
                 .publisher_pc

@@ -32,7 +32,32 @@ impl LocalTrackPublication {
         }
     }
 
-    pub fn set_muted(&self, muted: bool) {}
+    pub async fn mute(&self) {}
+
+    pub async fn unmute(&self) {}
+
+    pub async fn pause_upstream(&self) {}
+
+    pub async fn resume_upstream(&self) {}
+
+    /*pub fn set_muted(&self, muted: bool) {
+        if self.is_muted() == muted {
+            return;
+        }
+
+        self.track().rtc_track().set_enabled(!muted);
+
+        let participant = self.inner.publication_inner.participant().upgrade();
+        if participant.is_none() {
+            log::warn!("publication's participant is invalid, set_muted failed");
+            return;
+        }
+        let participant = participant.unwrap();
+
+        // Engine update muted
+
+        // Participant MUTED/UNMUTED event
+    }*/
 
     #[inline]
     pub fn sid(&self) -> TrackSid {
@@ -65,11 +90,13 @@ impl LocalTrackPublication {
     }
 
     #[inline]
-    pub fn track(&self) -> Option<LocalTrack> {
+    pub fn track(&self) -> LocalTrack {
         self.inner
             .publication_inner
             .track()
-            .map(|track| track.try_into().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
     }
 
     #[inline]
