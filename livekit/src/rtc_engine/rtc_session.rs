@@ -98,7 +98,7 @@ struct IceCandidateJson {
 /// Fields shared with rtc_task and signal_task
 struct SessionInner {
     signal_client: Arc<SignalClient>,
-    pc_state: AtomicU8, // PCState
+    pc_state: AtomicU8, // PcState
     has_published: AtomicBool,
 
     publisher_pc: AsyncMutex<PeerTransport>,
@@ -135,8 +135,6 @@ impl Debug for SessionInner {
 /// RTCSession is also responsable for the signaling and the negotation
 #[derive(Debug)]
 pub struct RtcSession {
-    #[allow(dead_code)]
-    lk_runtime: Arc<LkRuntime>,
     inner: Arc<SessionInner>,
     close_tx: watch::Sender<bool>, // false = is_running
     signal_task: JoinHandle<()>,
@@ -148,9 +146,9 @@ impl RtcSession {
         url: &str,
         token: &str,
         options: SignalOptions,
-        lk_runtime: Arc<LkRuntime>,
-        session_emitter: SessionEmitter,
-    ) -> EngineResult<Self> {
+    ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        let (session_emitter, session_events) = mpsc::unbounded_channel();
+
         let (signal_client, join_response, signal_events) =
             SignalClient::connect(url, token, options).await?;
         let signal_client = Arc::new(signal_client);
@@ -173,6 +171,7 @@ impl RtcSession {
             ice_transport_type: IceTransportsType::All,
         };
 
+        let lk_runtime = LkRuntime::instance();
         let mut publisher_pc = PeerTransport::new(
             lk_runtime
                 .pc_factory()
@@ -229,19 +228,14 @@ impl RtcSession {
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
 
-        //if !inner.info.join_response.subscriber_primary {
-        //  inner.negotiate_publisher().await?;
-        // }
-
         let session = Self {
-            lk_runtime,
             inner: inner.clone(),
             close_tx,
             signal_task,
             rtc_task,
         };
 
-        Ok(session)
+        Ok((session, join_response, session_events))
     }
 
     #[inline]
@@ -451,7 +445,7 @@ impl SessionInner {
             }
             proto::signal_response::Message::Leave(leave) => {
                 self.on_session_disconnected(
-                    "received leave",
+                    "server request to leave",
                     leave.reason(),
                     leave.can_reconnect,
                     true,
@@ -821,7 +815,7 @@ impl SessionInner {
         Ok(())
     }
 
-    // Wait for PCState to become PCState::Connected
+    // Wait for PeerState to become PeerState::Connected
     // Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
@@ -830,7 +824,7 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".to_string()));
                 }
 
-                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
 
             Ok(())
@@ -882,7 +876,7 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".to_string()));
                 }
 
-                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
 
             Ok(())

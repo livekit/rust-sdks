@@ -148,30 +148,23 @@ impl Room {
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
-        let (rtc_engine, engine_events) = RtcEngine::new();
+        let (rtc_engine, engine_events) = RtcEngine::connect(
+            url,
+            token,
+            SignalOptions {
+                auto_subscribe: options.auto_subscribe,
+                adaptive_stream: options.adaptive_stream,
+                ..Default::default()
+            },
+        )
+        .await?;
+
         let rtc_engine = Arc::new(rtc_engine);
 
-        rtc_engine
-            .connect(
-                url,
-                token,
-                SignalOptions {
-                    auto_subscribe: options.auto_subscribe,
-                    adaptive_stream: options.adaptive_stream,
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        let join_response = rtc_engine.join_response().unwrap();
+        let join_response = rtc_engine.join_response();
         let pi = join_response.participant.unwrap().clone();
-        let local_participant = LocalParticipant::new(
-            rtc_engine.clone(),
-            pi.sid.into(),
-            pi.identity.into(),
-            pi.name,
-            pi.metadata,
-        );
+        let local_participant =
+            LocalParticipant::new(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata);
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
@@ -583,7 +576,7 @@ impl RoomSession {
 
     fn handle_restarted(self: &Arc<Self>) {
         // Full reconnect succeeded!
-        let join_response = self.rtc_engine.join_response().unwrap();
+        let join_response = self.rtc_engine.last_join_response();
 
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);

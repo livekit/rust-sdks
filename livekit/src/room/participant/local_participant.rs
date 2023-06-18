@@ -1,18 +1,18 @@
+use super::ConnectionQuality;
 use super::ParticipantInternal;
-use super::{ConnectionQuality, ParticipantInternal};
 use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
-use crate::rtc_engine::RtcEngine;
 use crate::DataPacketKind;
+use crate::RoomSession;
 use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
 
 #[derive(Clone)]
@@ -32,13 +32,16 @@ impl Debug for LocalParticipant {
 
 impl LocalParticipant {
     pub(crate) fn new(
+        room: Weak<RoomSession>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(ParticipantInternal::new(sid, identity, name, metadata)),
+            inner: Arc::new(ParticipantInternal::new(
+                room, sid, identity, name, metadata,
+            )),
         }
     }
 

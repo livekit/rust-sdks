@@ -111,7 +111,7 @@ impl Participant {
         //pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
         //pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         //pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
-        //pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
+        pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
     );
 }
 
@@ -128,8 +128,8 @@ pub(crate) struct ParticipantInfo {
 
 #[derive(Debug)]
 pub(crate) struct ParticipantInternal {
-    pub room: Weak<RoomSession>,
-    pub dispatcher: Dispatcher<ParticipantEvent>,
+    pub(super) room: Weak<RoomSession>,
+    pub(super) dispatcher: Dispatcher<ParticipantEvent>,
     info: RwLock<ParticipantInfo>,
     tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
 }
@@ -203,17 +203,15 @@ impl ParticipantInternal {
     }
 
     pub fn set_speaking(&self, speaking: bool) {
-        self.speaking.store(speaking, Ordering::SeqCst);
+        self.info.write().speaking = speaking;
     }
 
     pub fn set_audio_level(&self, audio_level: f32) {
-        self.audio_level
-            .store(audio_level.to_bits(), Ordering::SeqCst)
+        self.info.write().audio_level = audio_level;
     }
 
     pub fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.connection_quality
-            .store(quality as u8, Ordering::SeqCst);
+        self.info.write().connection_quality = quality;
     }
 
     pub fn add_track_publication(&self, publication: TrackPublication) {

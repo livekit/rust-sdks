@@ -133,6 +133,22 @@ impl SignalClient {
     pub async fn flush_queue(&self) {
         // TODO(theomonnom): Send the queue
     }
+
+    pub fn join_response(&self) -> proto::JoinResponse {
+        self.join_response.clone()
+    }
+
+    pub fn options(&self) -> SignalOptions {
+        self.options.clone()
+    }
+
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
+    pub fn token(&self) -> String {
+        self.token.lock().clone()
+    }
 }
 
 fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalResult<url::Url> {
