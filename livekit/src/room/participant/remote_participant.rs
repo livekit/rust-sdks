@@ -1,12 +1,14 @@
 use super::{ConnectionQuality, ParticipantInternal};
+use crate::rtc_engine::RtcEngine;
 use crate::track::TrackError;
+use crate::RoomSession;
 use crate::{prelude::*, DataPacketKind};
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::RwLockReadGuard;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -30,13 +32,16 @@ impl Debug for RemoteParticipant {
 
 impl RemoteParticipant {
     pub(crate) fn new(
+        rtc_engine: Arc<RtcEngine>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(ParticipantInternal::new(sid, identity, name, metadata)),
+            inner: Arc::new(ParticipantInternal::new(
+                rtc_engine, sid, identity, name, metadata,
+            )),
         }
     }
 
@@ -66,7 +71,7 @@ impl RemoteParticipant {
                         return publication;
                     }
 
-                    tokio::task::yield_now().await; // Remove yield
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
         };
@@ -165,7 +170,8 @@ impl RemoteParticipant {
             if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
                 publication.update_info(track.clone());
             } else {
-                let publication = RemoteTrackPublication::new(track.clone(), None);
+                let publication =
+                    RemoteTrackPublication::new(track.clone(), Arc::downgrade(&self.inner), None);
                 self.inner
                     .add_track_publication(TrackPublication::Remote(publication.clone()));
 

@@ -9,7 +9,6 @@ use livekit_protocol::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
@@ -158,20 +157,26 @@ impl Room {
             },
         )
         .await?;
-
         let rtc_engine = Arc::new(rtc_engine);
 
         let join_response = rtc_engine.join_response();
         let pi = join_response.participant.unwrap().clone();
-        let local_participant =
-            LocalParticipant::new(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata);
+        let local_participant = LocalParticipant::new(
+            rtc_engine.clone(),
+            pi.sid.into(),
+            pi.identity.into(),
+            pi.name,
+            pi.metadata,
+        );
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
-            state: AtomicU8::new(ConnectionState::Disconnected as u8),
-            sid: Mutex::new(room_info.sid.into()),
-            name: Mutex::new(room_info.name),
-            metadata: Mutex::new(room_info.metadata),
+            sid: room_info.sid.into(),
+            name: room_info.name,
+            info: RwLock::new(RoomInfo {
+                state: ConnectionState::Disconnected,
+                metadata: room_info.metadata,
+            }),
             participants: Default::default(),
             participants_tasks: Default::default(),
             active_speakers: Default::default(),
@@ -221,15 +226,15 @@ impl Room {
     }
 
     pub fn sid(&self) -> RoomSid {
-        self.inner.sid.lock().clone()
+        self.inner.sid.clone()
     }
 
     pub fn name(&self) -> String {
-        self.inner.name.lock().clone()
+        self.inner.name.clone()
     }
 
     pub fn metadata(&self) -> String {
-        self.inner.metadata.lock().clone()
+        self.inner.info.read().metadata.clone()
     }
 
     pub fn local_participant(&self) -> LocalParticipant {
@@ -237,7 +242,7 @@ impl Room {
     }
 
     pub fn connection_state(&self) -> ConnectionState {
-        self.inner.state.load(Ordering::Acquire).try_into().unwrap()
+        self.inner.info.read().state
     }
 
     pub fn participants(&self) -> RwLockReadGuard<HashMap<ParticipantSid, RemoteParticipant>> {
@@ -255,7 +260,7 @@ struct RoomInfo {
 }
 
 pub(crate) struct RoomSession {
-    pub rtc_engine: Arc<RtcEngine>,
+    rtc_engine: Arc<RtcEngine>,
     sid: RoomSid,
     name: String,
     info: RwLock<RoomInfo>,
@@ -446,12 +451,12 @@ impl RoomSession {
     /// Change the connection state and emit an event
     /// Does nothing if the state is already the same
     fn update_connection_state(&self, state: ConnectionState) -> bool {
-        let old_state = self.state.load(Ordering::Acquire);
-        if old_state == state as u8 {
+        let mut info = self.info.write();
+        if info.state == state {
             return false;
         }
 
-        self.state.store(state as u8, Ordering::Release);
+        info.state = state;
         self.dispatcher
             .dispatch(&RoomEvent::ConnectionStateChanged(state));
         return true;
@@ -576,7 +581,7 @@ impl RoomSession {
 
     fn handle_restarted(self: &Arc<Self>) {
         // Full reconnect succeeded!
-        let join_response = self.rtc_engine.last_join_response();
+        let join_response = self.rtc_engine.join_response();
 
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
@@ -587,16 +592,15 @@ impl RoomSession {
 
         self.handle_participant_update(join_response.other_participants);
 
+        // TODO(theomonnom): Synchronize states
+        // TODO(theomonnom): Room info changed?
         // TODO(theomonnom): unpublish & republish tracks
     }
 
     fn handle_disconnected(&self) {
-        if self.state.load(Ordering::Acquire) == ConnectionState::Disconnected as u8 {
-            return;
+        if self.update_connection_state(ConnectionState::Disconnected) {
+            self.dispatcher.dispatch(&RoomEvent::Disconnected);
         }
-
-        self.update_connection_state(ConnectionState::Disconnected);
-        self.dispatcher.dispatch(&RoomEvent::Disconnected);
     }
 
     /// Create a new participant
@@ -608,7 +612,13 @@ impl RoomSession {
         name: String,
         metadata: String,
     ) -> RemoteParticipant {
-        let participant = RemoteParticipant::new(sid.clone(), identity, name, metadata);
+        let participant = RemoteParticipant::new(
+            self.rtc_engine.clone(),
+            sid.clone(),
+            identity,
+            name,
+            metadata,
+        );
 
         // Create the participant task
         let (close_tx, close_rx) = oneshot::channel();
@@ -663,16 +673,5 @@ fn unpack_stream_id(stream_id: &str) -> Option<(&str, &str)> {
         Some((participant_sid, track_sid))
     } else {
         None
-    }
-}
-
-impl From<u8> for ConnectionState {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => ConnectionState::Disconnected,
-            1 => ConnectionState::Connected,
-            2 => ConnectionState::Reconnecting,
-            _ => ConnectionState::Unknown,
-        }
     }
 }

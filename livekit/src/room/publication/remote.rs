@@ -1,20 +1,17 @@
-use super::TrackPublicationInner;
+use super::{PermissionStatus, SubscriptionStatus, TrackPublicationInner};
 use crate::id::TrackSid;
-use crate::participant::{self, ParticipantInternal};
-use crate::room::TrackEvent;
-use crate::track::{
-    PermissionStatus, RemoteTrack, SubscriptionStatus, Track, TrackDimension, TrackKind,
-    TrackSource,
-};
+use crate::participant::ParticipantInternal;
+use crate::publication::PublicationEvent;
+use crate::track::{RemoteTrack, Track, TrackDimension, TrackKind, TrackSource};
 use livekit_protocol as proto;
 use parking_lot::RwLock;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 
 #[derive(Debug)]
 struct RemoteInfo {
     subscribed: bool,
     allowed: bool,
+    // TODO(theomonnom): other remote info
 }
 
 #[derive(Debug)]
@@ -79,7 +76,7 @@ impl RemoteTrackPublication {
 
         if old_subscription_state != self.subscription_status() {
             self.inner.publication_inner.dispatcher.dispatch(
-                &TrackEvent::SubscriptionStatusChanged {
+                &PublicationEvent::SubscriptionStatusChanged {
                     old_state: old_subscription_state,
                     new_state: self.subscription_status(),
                 },
@@ -87,23 +84,22 @@ impl RemoteTrackPublication {
         }
 
         if old_permission_state != self.permission_status() {
-            self.inner
-                .publication_inner
-                .dispatcher
-                .dispatch(&TrackEvent::PermissionStatusChanged {
+            self.inner.publication_inner.dispatcher.dispatch(
+                &PublicationEvent::SubscriptionPermissionChanged {
                     old_state: old_permission_state,
                     new_state: self.permission_status(),
-                })
+                },
+            )
         }
     }
 
     #[inline]
     pub fn subscription_status(&self) -> SubscriptionStatus {
-        if !self.inner.subscribed.load(Ordering::Acquire) {
+        if !self.inner.info.read().subscribed {
             return SubscriptionStatus::Unsubscribed;
         }
 
-        if self.inner.publication_inner.track.lock().is_none() {
+        if self.track().is_none() {
             return SubscriptionStatus::Desired;
         }
 
@@ -112,7 +108,7 @@ impl RemoteTrackPublication {
 
     #[inline]
     pub fn permission_status(&self) -> PermissionStatus {
-        if self.inner.allowed.load(Ordering::Acquire) {
+        if self.inner.info.read().allowed {
             PermissionStatus::Allowed
         } else {
             PermissionStatus::NotAllowed
@@ -120,7 +116,7 @@ impl RemoteTrackPublication {
     }
 
     pub fn is_subscribed(&self) -> bool {
-        self.inner.allowed.load(Ordering::Acquire) && self.track().is_some()
+        self.inner.info.read().allowed && self.track().is_some()
     }
 
     #[inline]

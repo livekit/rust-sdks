@@ -117,11 +117,11 @@ impl LocalTrackPublication {
     /*#[inline]
     pub(crate) fn update_track(&self, track: Option<Track>) {
         self.inner.publication_inner.update_track(track);
-    }
+    }*/
 
     #[allow(dead_code)]
     #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         self.inner.publication_inner.update_info(info);
-    }*/
+    }
 }

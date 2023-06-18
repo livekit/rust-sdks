@@ -5,14 +5,14 @@ use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
+use crate::rtc_engine::RtcEngine;
 use crate::DataPacketKind;
-use crate::RoomSession;
 use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::RwLockReadGuard;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[derive(Clone)]
@@ -32,7 +32,7 @@ impl Debug for LocalParticipant {
 
 impl LocalParticipant {
     pub(crate) fn new(
-        room: Weak<RoomSession>,
+        rtc_engine: Arc<RtcEngine>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -40,7 +40,7 @@ impl LocalParticipant {
     ) -> Self {
         Self {
             inner: Arc::new(ParticipantInternal::new(
-                room, sid, identity, name, metadata,
+                rtc_engine, sid, identity, name, metadata,
             )),
         }
     }
@@ -86,13 +86,17 @@ impl LocalParticipant {
                 });
             }
         }
+        let track_info = self.inner.rtc_engine.add_track(req).await?;
+        let publication = LocalTrackPublication::new(
+            track_info.clone(),
+            Arc::downgrade(&self.inner),
+            track.clone(),
+        );
+        track.update_info(track_info); // Update sid + source
 
-        let track_info = self.rtc_engine.add_track(req).await?;
-        let publication =
-            LocalTrackPublication::new(track_info.clone(), track.clone(), options.clone());
-        track.update_info(track_info); // Update SID + Source
         log::debug!("publishing track with cid {:?}", track.rtc_track().id());
         let transceiver = self
+            .inner
             .rtc_engine
             .create_sender(track.clone(), options, encodings)
             .await?;
@@ -101,7 +105,7 @@ impl LocalParticipant {
         track.start();
 
         tokio::spawn({
-            let rtc_engine = self.rtc_engine.clone();
+            let rtc_engine = self.inner.rtc_engine.clone();
             async move {
                 let _ = rtc_engine.negotiate_publisher().await;
             }
@@ -126,9 +130,10 @@ impl LocalParticipant {
     ) -> RoomResult<LocalTrackPublication> {
         let mut tracks = self.inner.tracks.write();
         if let Some(TrackPublication::Local(publication)) = tracks.remove(&track) {
-            let track = publication.track().unwrap();
+            let track = publication.track();
             let sender = track.transceiver().unwrap().sender();
-            self.rtc_engine.remove_track(sender).await?;
+
+            self.inner.rtc_engine.remove_track(sender).await?;
             track.update_transceiver(None);
 
             self.inner
@@ -136,10 +141,10 @@ impl LocalParticipant {
                 .dispatch(&ParticipantEvent::LocalTrackUnpublished {
                     publication: publication.clone(),
                 });
-            publication.update_track(None);
+            // publication.update_track(None);
 
             tokio::spawn({
-                let rtc_engine = self.rtc_engine.clone();
+                let rtc_engine = self.inner.rtc_engine.clone();
                 async move {
                     let _ = rtc_engine.negotiate_publisher().await;
                 }
@@ -166,7 +171,8 @@ impl LocalParticipant {
             })),
         };
 
-        self.rtc_engine
+        self.inner
+            .rtc_engine
             .publish_data(&data, kind)
             .await
             .map_err(Into::into)

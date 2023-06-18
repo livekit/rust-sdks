@@ -66,7 +66,7 @@ impl TrackPublication {
 
     pub fn track(&self) -> Option<Track> {
         match self {
-            TrackPublication::Local(p) => p.track().map(Into::into),
+            TrackPublication::Local(p) => Some(p.track().into()),
             TrackPublication::Remote(p) => p.track().map(Into::into),
         }
     }

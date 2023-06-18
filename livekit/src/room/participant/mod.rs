@@ -1,12 +1,13 @@
+use crate::prelude::*;
+use crate::rtc_engine::RtcEngine;
 use crate::track::TrackError;
-use crate::{prelude::*, RoomSession};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_protocol::observer::Dispatcher;
 use parking_lot::{RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 mod local_participant;
@@ -108,9 +109,9 @@ impl Participant {
         pub fn tracks(self: &Self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>>;
         pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<ParticipantEvent>;
 
-        //pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
-        //pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
-        //pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
+        pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
+        pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
+        pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
     );
 }
@@ -128,7 +129,7 @@ pub(crate) struct ParticipantInfo {
 
 #[derive(Debug)]
 pub(crate) struct ParticipantInternal {
-    pub(super) room: Weak<RoomSession>,
+    pub(super) rtc_engine: Arc<RtcEngine>,
     pub(super) dispatcher: Dispatcher<ParticipantEvent>,
     info: RwLock<ParticipantInfo>,
     tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
@@ -136,14 +137,14 @@ pub(crate) struct ParticipantInternal {
 
 impl ParticipantInternal {
     pub fn new(
-        room: Weak<RoomSession>,
+        rtc_engine: Arc<RtcEngine>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
     ) -> Self {
         Self {
-            room,
+            rtc_engine,
             info: RwLock::new(ParticipantInfo {
                 sid,
                 identity,
