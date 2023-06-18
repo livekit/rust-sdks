@@ -118,12 +118,12 @@ class AudioDevice : public webrtc::AudioDeviceModule {
 
  private:
   mutable webrtc::Mutex mutex_;
-  webrtc::TaskQueueFactory* task_queue_factory_;
+  std::vector<int16_t> data_;
   std::unique_ptr<rtc::TaskQueue> audio_queue_;
   webrtc::RepeatingTaskHandle audio_task_;
-  std::vector<int16_t> data_;
   webrtc::AudioTransport* audio_transport_;
-  std::atomic<bool> playing_{false};
-  std::atomic<bool> initialized_{false};
+  webrtc::TaskQueueFactory* task_queue_factory_;
+  bool playing_{false};
+  bool initialized_{false};
 };
 }  // namespace livekit

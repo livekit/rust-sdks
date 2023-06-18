@@ -7,7 +7,7 @@ description = "LiveKit interface for foreign languages"
 repository = "https://github.com/livekit/client-sdk-rust" 
 
 [features]
-default = ["__rustls-tls"]
+default = ["rustls-tls-native-roots"]
 native-tls = ["livekit/native-tls"]
 native-tls-vendored = ["livekit/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]

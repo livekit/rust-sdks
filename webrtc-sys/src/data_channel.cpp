@@ -45,9 +45,12 @@ webrtc::DataChannelInit to_native_data_channel_init(DataChannelInit init) {
 DataChannel::DataChannel(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
-    : rtc_runtime_(rtc_runtime), data_channel_(std::move(data_channel)) {}
+    : rtc_runtime_(rtc_runtime), data_channel_(std::move(data_channel)) {
+  RTC_LOG(LS_VERBOSE) << "DataChannel::DataChannel()";
+}
 
 DataChannel::~DataChannel() {
+  RTC_LOG(LS_VERBOSE) << "DataChannel::~DataChannel()";
   unregister_observer();
 }
 
