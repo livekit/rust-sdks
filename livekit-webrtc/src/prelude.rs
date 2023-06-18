@@ -1,4 +1,5 @@
 pub use crate::audio_frame::AudioFrame;
+pub use crate::audio_source::{AudioSourceOptions, RtcAudioSource};
 pub use crate::audio_track::RtcAudioTrack;
 pub use crate::data_channel::{
     DataBuffer, DataChannel, DataChannelError, DataChannelInit, DataState,
@@ -22,5 +23,6 @@ pub use crate::video_frame::{
     BoxVideoFrame, I010Buffer, I420ABuffer, I420Buffer, I422Buffer, I444Buffer, NV12Buffer,
     VideoFormatType, VideoFrame, VideoFrameBuffer, VideoFrameBufferType, VideoRotation,
 };
+pub use crate::video_source::{RtcVideoSource, VideoResolution};
 pub use crate::video_track::RtcVideoTrack;
 pub use crate::{MediaType, RtcError, RtcErrorType};

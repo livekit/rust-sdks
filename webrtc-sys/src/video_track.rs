@@ -21,6 +21,12 @@ pub mod ffi {
         pub max_fps: f64,
     }
 
+    #[derive(Debug)]
+    pub struct VideoResolution {
+        pub width: u32,
+        pub height: u32,
+    }
+
     extern "C++" {
         include!("livekit/video_frame.h");
         include!("livekit/media_stream_track.h");
@@ -44,9 +50,9 @@ pub mod ffi {
         fn set_content_hint(self: &VideoTrack, hint: ContentHint);
         fn new_native_video_sink(observer: Box<VideoSinkWrapper>) -> SharedPtr<NativeVideoSink>;
 
+        fn video_resolution(self: &VideoTrackSource) -> VideoResolution;
         fn on_captured_frame(self: &VideoTrackSource, frame: &UniquePtr<VideoFrame>) -> bool;
-        fn new_video_track_source() -> SharedPtr<VideoTrackSource>;
-
+        fn new_video_track_source(resolution: &VideoResolution) -> SharedPtr<VideoTrackSource>;
         fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;
         fn _shared_video_track() -> SharedPtr<VideoTrack>;

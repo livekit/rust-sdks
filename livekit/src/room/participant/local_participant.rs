@@ -1,10 +1,12 @@
-use super::{ConnectionQuality, ParticipantInner};
+use super::ConnectionQuality;
+use super::ParticipantInternal;
 use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
+use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::RwLockReadGuard;
@@ -12,12 +14,10 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::debug;
 
 #[derive(Clone)]
 pub struct LocalParticipant {
-    inner: Arc<ParticipantInner>,
-    rtc_engine: Arc<RtcEngine>,
+    inner: Arc<ParticipantInternal>,
 }
 
 impl Debug for LocalParticipant {
@@ -39,8 +39,9 @@ impl LocalParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(ParticipantInner::new(sid, identity, name, metadata)),
-            rtc_engine,
+            inner: Arc::new(ParticipantInternal::new(
+                rtc_engine, sid, identity, name, metadata,
+            )),
         }
     }
 
@@ -51,7 +52,7 @@ impl LocalParticipant {
     ) -> RoomResult<LocalTrackPublication> {
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
-            name: options.name.clone(),
+            name: track.name().clone(),
             r#type: proto::TrackType::from(track.kind()) as i32,
             muted: track.is_muted(),
             source: proto::TrackSource::from(options.source) as i32,
@@ -65,9 +66,9 @@ impl LocalParticipant {
             LocalTrack::Video(video_track) => {
                 // Get the video dimension
                 // TODO(theomonnom): Use MediaStreamTrack::getSettings() on web
-                let capture_options = video_track.capture_options();
-                req.width = capture_options.resolution.width;
-                req.height = capture_options.resolution.height;
+                let resolution = video_track.rtc_source().video_resolution();
+                req.width = resolution.width;
+                req.height = resolution.height;
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
@@ -85,29 +86,34 @@ impl LocalParticipant {
                 });
             }
         }
+        let track_info = self.inner.rtc_engine.add_track(req).await?;
+        let publication = LocalTrackPublication::new(
+            track_info.clone(),
+            Arc::downgrade(&self.inner),
+            track.clone(),
+        );
+        track.update_info(track_info); // Update sid + source
 
-        let track_info = self.rtc_engine.add_track(req).await?;
-        let publication =
-            LocalTrackPublication::new(track_info.clone(), track.clone(), options.clone());
-        track.update_info(track_info); // Update SID + Source
-        debug!("publishing track with cid {:?}", track.rtc_track().id());
+        log::debug!("publishing track with cid {:?}", track.rtc_track().id());
         let transceiver = self
+            .inner
             .rtc_engine
             .create_sender(track.clone(), options, encodings)
             .await?;
 
         track.update_transceiver(Some(transceiver));
-        track.start();
+        //track.start();
+        track.enable();
 
         tokio::spawn({
-            let rtc_engine = self.rtc_engine.clone();
+            let rtc_engine = self.inner.rtc_engine.clone();
             async move {
                 let _ = rtc_engine.negotiate_publisher().await;
             }
         });
 
         self.inner
-            .add_track_publication(TrackPublication::Local(publication.clone()));
+            .add_publication(TrackPublication::Local(publication.clone()));
 
         self.inner
             .dispatcher
@@ -125,9 +131,10 @@ impl LocalParticipant {
     ) -> RoomResult<LocalTrackPublication> {
         let mut tracks = self.inner.tracks.write();
         if let Some(TrackPublication::Local(publication)) = tracks.remove(&track) {
-            let track = publication.track().unwrap();
+            let track = publication.track();
             let sender = track.transceiver().unwrap().sender();
-            self.rtc_engine.remove_track(sender).await?;
+
+            self.inner.rtc_engine.remove_track(sender).await?;
             track.update_transceiver(None);
 
             self.inner
@@ -135,10 +142,10 @@ impl LocalParticipant {
                 .dispatch(&ParticipantEvent::LocalTrackUnpublished {
                     publication: publication.clone(),
                 });
-            publication.update_track(None);
+            // publication.update_track(None);
 
             tokio::spawn({
-                let rtc_engine = self.rtc_engine.clone();
+                let rtc_engine = self.inner.rtc_engine.clone();
                 async move {
                     let _ = rtc_engine.negotiate_publisher().await;
                 }
@@ -152,20 +159,21 @@ impl LocalParticipant {
 
     pub async fn publish_data(
         &self,
-        data: &[u8],
-        kind: proto::data_packet::Kind,
-    ) -> Result<(), RoomError> {
+        data: Vec<u8>,
+        kind: DataPacketKind,
+        destination_sids: Vec<String>,
+    ) -> RoomResult<()> {
         let data = proto::DataPacket {
             kind: kind as i32,
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
-                participant_sid: self.sid().to_string(),
-                payload: data.to_vec(),
-                destination_sids: vec![],
+                payload: data,
+                destination_sids: destination_sids.to_owned(),
                 ..Default::default()
             })),
         };
 
-        self.rtc_engine
+        self.inner
+            .rtc_engine
             .publish_data(&data, kind)
             .await
             .map_err(Into::into)

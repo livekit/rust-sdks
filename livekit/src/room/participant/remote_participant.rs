@@ -1,6 +1,8 @@
-use super::{ConnectionQuality, ParticipantInner};
-use crate::prelude::*;
+use super::TrackKind;
+use super::{ConnectionQuality, ParticipantInternal};
+use crate::rtc_engine::RtcEngine;
 use crate::track::TrackError;
+use crate::{prelude::*, DataPacketKind};
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::RwLockReadGuard;
@@ -10,13 +12,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use tracing::{debug, error, instrument, Level};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct RemoteParticipant {
-    inner: Arc<ParticipantInner>,
+    inner: Arc<ParticipantInternal>,
 }
 
 impl Debug for RemoteParticipant {
@@ -31,29 +32,22 @@ impl Debug for RemoteParticipant {
 
 impl RemoteParticipant {
     pub(crate) fn new(
+        rtc_engine: Arc<RtcEngine>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(ParticipantInner::new(sid, identity, name, metadata)),
+            inner: Arc::new(ParticipantInternal::new(
+                rtc_engine, sid, identity, name, metadata,
+            )),
         }
     }
 
-    #[inline]
-    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
-        self.inner.tracks.read().get(sid).map(|track| {
-            if let TrackPublication::Remote(remote) = track {
-                return remote.clone();
-            }
-            unreachable!()
-        })
-    }
-
-    /// Called by the RoomSession when receiving data from the RrcSession
+    /// Called by the RoomSession when receiving data from the RtcSession
     /// It is just used to emit the Data event on the participant dispatcher.
-    pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: proto::data_packet::Kind) {
+    pub(crate) fn on_data_received(&self, data: Arc<Vec<u8>>, kind: DataPacketKind) {
         self.inner
             .dispatcher
             .dispatch(&ParticipantEvent::DataReceived {
@@ -62,7 +56,6 @@ impl RemoteParticipant {
             });
     }
 
-    #[instrument(level = Level::DEBUG)]
     pub(crate) async fn add_subscribed_media_track(
         &self,
         sid: TrackSid,
@@ -78,7 +71,7 @@ impl RemoteParticipant {
                         return publication;
                     }
 
-                    tokio::task::yield_now().await; // Remove yield
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
         };
@@ -111,10 +104,10 @@ impl RemoteParticipant {
                 }
             };
 
-            debug!("starting track: {:?}", sid);
+            log::debug!("starting track: {:?}", sid);
 
             remote_publication.update_track(Some(track.clone().into()));
-            track.set_muted(remote_publication.is_muted());
+            //track.set_muted(remote_publication.is_muted());
             track.update_info(proto::TrackInfo {
                 sid: remote_publication.sid().to_string(),
                 name: remote_publication.name().to_string(),
@@ -124,8 +117,9 @@ impl RemoteParticipant {
             });
 
             self.inner
-                .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
-            track.start();
+                .add_publication(TrackPublication::Remote(remote_publication.clone()));
+            // track.start();
+            track.enable();
 
             self.inner
                 .dispatcher
@@ -134,7 +128,7 @@ impl RemoteParticipant {
                     publication: remote_publication,
                 });
         } else {
-            error!("could not find published track with sid: {:?}", sid);
+            log::error!("could not find published track with sid: {:?}", sid);
 
             self.inner
                 .dispatcher
@@ -149,7 +143,7 @@ impl RemoteParticipant {
         if let Some(publication) = self.get_track_publication(sid) {
             // Unsubscribe to the track if needed
             if let Some(track) = publication.track() {
-                track.stop();
+                track.disable();
 
                 self.inner
                     .dispatcher
@@ -158,6 +152,8 @@ impl RemoteParticipant {
                         publication: publication.clone(),
                     });
             }
+
+            self.inner.remove_publication(sid);
 
             self.inner
                 .dispatcher
@@ -177,9 +173,10 @@ impl RemoteParticipant {
             if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
                 publication.update_info(track.clone());
             } else {
-                let publication = RemoteTrackPublication::new(track.clone(), None);
+                let publication =
+                    RemoteTrackPublication::new(track.clone(), Arc::downgrade(&self.inner), None);
                 self.inner
-                    .add_track_publication(TrackPublication::Remote(publication.clone()));
+                    .add_publication(TrackPublication::Remote(publication.clone()));
 
                 // This is a new track, dispatch publish event
                 self.inner
@@ -198,6 +195,16 @@ impl RemoteParticipant {
 
             self.unpublish_track(sid);
         }
+    }
+
+    #[inline]
+    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
+        self.inner.tracks.read().get(sid).map(|track| {
+            if let TrackPublication::Remote(remote) = track {
+                return remote.clone();
+            }
+            unreachable!()
+        })
     }
 
     #[inline]

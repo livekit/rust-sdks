@@ -3,6 +3,13 @@ use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
+
+    pub struct AudioSourceOptions {
+        pub echo_cancellation: bool,
+        pub noise_suppression: bool,
+        pub auto_gain_control: bool,
+    }
+
     extern "C++" {
         include!("livekit/media_stream_track.h");
 
@@ -27,7 +34,9 @@ pub mod ffi {
             nb_channels: usize,
             nb_frames: usize,
         );
-        fn new_audio_track_source() -> SharedPtr<AudioTrackSource>;
+        fn audio_options(self: &AudioTrackSource) -> AudioSourceOptions;
+        fn set_audio_options(self: &AudioTrackSource, options: &AudioSourceOptions);
+        fn new_audio_track_source(options: AudioSourceOptions) -> SharedPtr<AudioTrackSource>;
 
         fn audio_to_media(track: SharedPtr<AudioTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_audio(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<AudioTrack>;

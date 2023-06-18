@@ -1,14 +1,15 @@
 use crate::prelude::*;
+use crate::rtc_engine::RtcEngine;
 use crate::track::TrackError;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_protocol::observer::Dispatcher;
-use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use parking_lot::{RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::thread::JoinHandle;
+use tokio::sync::{mpsc, oneshot};
 
 mod local_participant;
 mod remote_participant;
@@ -38,7 +39,7 @@ pub enum ParticipantEvent {
     },
     DataReceived {
         payload: Arc<Vec<u8>>,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     },
     SpeakingChanged {
         speaking: bool,
@@ -109,7 +110,6 @@ impl Participant {
         pub fn tracks(self: &Self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>>;
         pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<ParticipantEvent>;
 
-        // Internal functions
         pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
@@ -118,56 +118,76 @@ impl Participant {
 }
 
 #[derive(Debug)]
-pub(crate) struct ParticipantInner {
-    pub sid: Mutex<ParticipantSid>,
-    pub identity: Mutex<ParticipantIdentity>,
-    pub name: Mutex<String>,
-    pub metadata: Mutex<String>,
-    pub speaking: AtomicBool,
-    pub tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
-    pub audio_level: AtomicU32,
-    pub connection_quality: AtomicU8,
-    pub dispatcher: Dispatcher<ParticipantEvent>,
+pub(crate) struct ParticipantInfo {
+    pub sid: ParticipantSid,
+    pub identity: ParticipantIdentity,
+    pub name: String,
+    pub metadata: String,
+    pub speaking: bool,
+    pub audio_level: f32,
+    pub connection_quality: ConnectionQuality,
 }
 
-impl ParticipantInner {
+#[derive(Debug)]
+pub(crate) struct ParticipantInternal {
+    pub(super) rtc_engine: Arc<RtcEngine>,
+    pub(super) dispatcher: Dispatcher<ParticipantEvent>,
+    info: RwLock<ParticipantInfo>,
+    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    tracks_tasks: RwLock<HashMap<TrackSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
+}
+
+impl ParticipantInternal {
     pub fn new(
+        rtc_engine: Arc<RtcEngine>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
     ) -> Self {
         Self {
-            sid: Mutex::new(sid),
-            identity: Mutex::new(identity),
-            name: Mutex::new(name),
-            metadata: Mutex::new(metadata),
-            tracks: Default::default(),
-            speaking: Default::default(),
-            audio_level: Default::default(),
-            connection_quality: AtomicU8::new(ConnectionQuality::Unknown as u8),
+            rtc_engine,
+            info: RwLock::new(ParticipantInfo {
+                sid,
+                identity,
+                name,
+                metadata,
+                speaking: false,
+                audio_level: 0.0,
+                connection_quality: ConnectionQuality::Unknown,
+            }),
             dispatcher: Default::default(),
+            tracks: Default::default(),
+            tracks_tasks: Default::default(),
         }
     }
 
+    pub fn update_info(&self, new_info: proto::ParticipantInfo) {
+        let mut info = self.info.write();
+        info.sid = new_info.sid.into();
+        info.name = new_info.name;
+        info.identity = new_info.identity.into();
+        info.metadata = new_info.metadata; // TODO(theomonnom): callback MetadataChanged
+    }
+
     pub fn sid(&self) -> ParticipantSid {
-        self.sid.lock().clone()
+        self.info.read().sid.clone()
     }
 
     pub fn identity(&self) -> ParticipantIdentity {
-        self.identity.lock().clone()
+        self.info.read().identity.clone()
     }
 
     pub fn name(&self) -> String {
-        self.name.lock().clone()
+        self.info.read().name.clone()
     }
 
     pub fn metadata(&self) -> String {
-        self.metadata.lock().clone()
+        self.info.read().metadata.clone()
     }
 
     pub fn is_speaking(&self) -> bool {
-        self.speaking.load(Ordering::SeqCst)
+        self.info.read().speaking
     }
 
     pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
@@ -175,39 +195,34 @@ impl ParticipantInner {
     }
 
     pub fn audio_level(&self) -> f32 {
-        f32::from_bits(self.audio_level.load(Ordering::SeqCst))
+        self.info.read().audio_level
     }
 
     pub fn connection_quality(&self) -> ConnectionQuality {
-        self.connection_quality.load(Ordering::SeqCst).into()
+        self.info.read().connection_quality
     }
 
     pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
         self.dispatcher.register()
     }
 
-    pub fn update_info(&self, info: proto::ParticipantInfo) {
-        *self.sid.lock() = info.sid.into();
-        *self.identity.lock() = info.identity.into();
-        *self.name.lock() = info.name;
-        *self.metadata.lock() = info.metadata; // TODO(theomonnom): callback MetadataChanged
-    }
-
     pub fn set_speaking(&self, speaking: bool) {
-        self.speaking.store(speaking, Ordering::SeqCst);
+        self.info.write().speaking = speaking;
     }
 
     pub fn set_audio_level(&self, audio_level: f32) {
-        self.audio_level
-            .store(audio_level.to_bits(), Ordering::SeqCst)
+        self.info.write().audio_level = audio_level;
     }
 
     pub fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.connection_quality
-            .store(quality as u8, Ordering::SeqCst);
+        self.info.write().connection_quality = quality;
     }
 
-    pub fn add_track_publication(&self, publication: TrackPublication) {
+    pub fn remove_publication(&self, sid: &TrackSid) {
+        self.tracks.write().remove(sid);
+    }
+
+    pub fn add_publication(&self, publication: TrackPublication) {
         self.tracks.write().insert(publication.sid(), publication);
     }
 }

@@ -18,12 +18,12 @@ __rustls-tls = ["livekit/__rustls-tls"]
 livekit = { path = "../livekit", version = "0.1.1" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.1.0" }
 tokio = { version = "1.0", features = ["full"] }
-parking_lot = { version = "0.12.1", features = ["send_guard"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+parking_lot = { version = "0.12.1", features=["send_guard"] }
 prost = "0.11.0"
 prost-types = "0.11.1"
 lazy_static = "1.4.0"
 thiserror = "1.0.38"
-futures-util = "0.3.23"
 log = "0.4.17"
 dashmap = "5.4.0"
 env_logger = "0.10.0"

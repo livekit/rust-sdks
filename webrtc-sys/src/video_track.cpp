@@ -31,6 +31,7 @@
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/time_utils.h"
+#include "webrtc-sys/src/video_track.rs.h"
 
 namespace livekit {
 
@@ -103,8 +104,9 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
   return std::make_shared<NativeVideoSink>(std::move(observer));
 }
 
-VideoTrackSource::InternalSource::InternalSource()
-    : rtc::AdaptedVideoTrackSource(4) {}
+VideoTrackSource::InternalSource::InternalSource(
+    const VideoResolution& resolution)
+    : rtc::AdaptedVideoTrackSource(4), resolution_(resolution) {}
 
 VideoTrackSource::InternalSource::~InternalSource() {}
 
@@ -125,6 +127,11 @@ bool VideoTrackSource::InternalSource::remote() const {
   return false;
 }
 
+VideoResolution VideoTrackSource::InternalSource::video_resolution() const {
+  webrtc::MutexLock lock(&mutex_);
+  return resolution_;
+}
+
 bool VideoTrackSource::InternalSource::on_captured_frame(
     const webrtc::VideoFrame& frame) {
   webrtc::MutexLock lock(&mutex_);
@@ -134,6 +141,11 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
 
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
       frame.video_frame_buffer();
+
+  if (resolution_.height == 0 || resolution_.width == 0) {
+    resolution_ = VideoResolution{static_cast<uint32_t>(buffer->width()),
+                                  static_cast<uint32_t>(buffer->height())};
+  }
 
   int adapted_width, adapted_height, crop_width, crop_height, crop_x, crop_y;
   if (!AdaptFrame(buffer->width(), buffer->height(), aligned_timestamp_us,
@@ -163,16 +175,17 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   return true;
 }
 
-VideoTrackSource::VideoTrackSource() {
-  source_ = rtc::make_ref_counted<InternalSource>();
+VideoTrackSource::VideoTrackSource(const VideoResolution& resolution) {
+  source_ = rtc::make_ref_counted<InternalSource>(resolution);
+}
+
+VideoResolution VideoTrackSource::video_resolution() const {
+  return source_->video_resolution();
 }
 
 bool VideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame) const {
   auto rtc_frame = frame->get();
-  rtc_frame.set_timestamp_us(
-      rtc::TimeMicros());  // TODO(theomonnom): Expore capture ts to Rust
-
   return source_->on_captured_frame(rtc_frame);
 }
 
@@ -181,8 +194,9 @@ rtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()
   return source_;
 }
 
-std::shared_ptr<VideoTrackSource> new_video_track_source() {
-  return std::make_shared<VideoTrackSource>();
+std::shared_ptr<VideoTrackSource> new_video_track_source(
+    const VideoResolution& resolution) {
+  return std::make_shared<VideoTrackSource>(resolution);
 }
 
 }  // namespace livekit

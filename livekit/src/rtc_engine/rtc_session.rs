@@ -4,9 +4,9 @@ use crate::prelude::TrackKind;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
-use crate::signal_client;
 use crate::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
 use crate::track::LocalTrack;
+use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
@@ -22,7 +22,6 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{debug, error, trace, warn};
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -40,7 +39,7 @@ pub enum SessionEvent {
     Data {
         participant_sid: String,
         payload: Vec<u8>,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     },
     MediaTrack {
         track: MediaStreamTrack,
@@ -96,19 +95,10 @@ struct IceCandidateJson {
     pub candidate: String,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct SessionInfo {
-    pub url: String,
-    pub token: String,
-    pub options: SignalOptions,
-    pub join_response: proto::JoinResponse,
-}
-
 /// Fields shared with rtc_task and signal_task
 struct SessionInner {
-    info: SessionInfo,
     signal_client: Arc<SignalClient>,
-    pc_state: AtomicU8, // PCState
+    pc_state: AtomicU8, // PcState
     has_published: AtomicBool,
 
     publisher_pc: AsyncMutex<PeerTransport>,
@@ -117,7 +107,7 @@ struct SessionInner {
     pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
 
     // Publisher data channels
-    // used to send data to other participants ( The SFU forwards the messages )
+    // used to send data to other participants (The SFU forwards the messages)
     lossy_dc: DataChannel,
     reliable_dc: DataChannel,
 
@@ -132,7 +122,6 @@ struct SessionInner {
 impl Debug for SessionInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionInner")
-            .field("info", &self.info)
             .field("pc_state", &self.pc_state)
             .field("has_published", &self.has_published)
             .field("closed", &self.closed)
@@ -146,8 +135,6 @@ impl Debug for SessionInner {
 /// RTCSession is also responsable for the signaling and the negotation
 #[derive(Debug)]
 pub struct RtcSession {
-    #[allow(dead_code)]
-    lk_runtime: Arc<LkRuntime>,
     inner: Arc<SessionInner>,
     close_tx: watch::Sender<bool>, // false = is_running
     signal_task: JoinHandle<()>,
@@ -159,15 +146,13 @@ impl RtcSession {
         url: &str,
         token: &str,
         options: SignalOptions,
-        lk_runtime: Arc<LkRuntime>,
-        session_emitter: SessionEmitter,
-    ) -> EngineResult<Self> {
-        // Connect to the SignalClient
-        let (signal_client, mut signal_events) = SignalClient::new();
+    ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        let (session_emitter, session_events) = mpsc::unbounded_channel();
+
+        let (signal_client, join_response, signal_events) =
+            SignalClient::connect(url, token, options).await?;
         let signal_client = Arc::new(signal_client);
-        signal_client.connect(url, token, options.clone()).await?;
-        let join_response = signal_client::utils::next_join_response(&mut signal_events).await?;
-        debug!("received JoinResponse: {:?}", join_response);
+        log::debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
         let rtc_config = RtcConfiguration {
@@ -186,6 +171,7 @@ impl RtcSession {
             ice_transport_type: IceTransportsType::All,
         };
 
+        let lk_runtime = LkRuntime::instance();
         let mut publisher_pc = PeerTransport::new(
             lk_runtime
                 .pc_factory()
@@ -223,16 +209,8 @@ impl RtcSession {
         rtc_events::forward_dc_events(&mut lossy_dc, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut reliable_dc, rtc_emitter.clone());
 
-        let session_info = SessionInfo {
-            url: url.to_owned(),
-            token: token.to_owned(),
-            options,
-            join_response,
-        };
-
         let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
-            info: session_info,
             pc_state: AtomicU8::new(PeerState::New as u8),
             has_published: Default::default(),
             signal_client,
@@ -250,19 +228,14 @@ impl RtcSession {
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
 
-        if !inner.info.join_response.subscriber_primary {
-            inner.negotiate_publisher().await?;
-        }
-
         let session = Self {
-            lk_runtime,
             inner: inner.clone(),
             close_tx,
             signal_task,
             rtc_task,
         };
 
-        Ok(session)
+        Ok((session, join_response, session_events))
     }
 
     #[inline]
@@ -291,7 +264,6 @@ impl RtcSession {
     }
 
     /// Close the PeerConnections and the SignalClient
-    #[tracing::instrument]
     pub async fn close(self) {
         // Close the tasks
         self.inner.close().await;
@@ -304,7 +276,7 @@ impl RtcSession {
     pub async fn publish_data(
         &self,
         data: &proto::DataPacket,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.inner.publish_data(data, kind).await
     }
@@ -322,11 +294,6 @@ impl RtcSession {
     #[inline]
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) {
         self.inner.simulate_scenario(scenario).await
-    }
-
-    #[inline]
-    pub fn info(&self) -> &SessionInfo {
-        &self.inner.info
     }
 
     #[allow(dead_code)]
@@ -359,7 +326,7 @@ impl RtcSession {
 
     #[allow(dead_code)]
     #[inline]
-    pub fn data_channel(&self, kind: proto::data_packet::Kind) -> &DataChannel {
+    pub fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
         &self.inner.data_channel(kind)
     }
 }
@@ -375,11 +342,11 @@ impl SessionInner {
                 res = rtc_events.recv() => {
                     if let Some(event) = res {
                         if let Err(err) = self.on_rtc_event(event).await {
-                            error!("failed to handle rtc event: {:?}", err);
+                            log::error!("failed to handle rtc event: {:?}", err);
                         }
                     }                },
                  _ = close_rx.changed() => {
-                    trace!("closing rtc_session_task");
+                    log::trace!("closing rtc_session_task");
                     break;
                 }
             }
@@ -399,7 +366,7 @@ impl SessionInner {
                             SignalEvent::Open => {}
                             SignalEvent::Signal(signal) => {
                                 if let Err(err) = self.on_signal_event(signal).await {
-                                    error!("failed to handle signal: {:?}", err);
+                                    log::error!("failed to handle signal: {:?}", err);
                                 }
                             }
                             SignalEvent::Close => {
@@ -415,7 +382,7 @@ impl SessionInner {
                     }
                 },
                 _ = close_rx.changed() => {
-                    trace!("closing signal_task");
+                    log::trace!("closing signal_task");
                     break;
                 }
             }
@@ -425,7 +392,7 @@ impl SessionInner {
     async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
         match event {
             proto::signal_response::Message::Answer(answer) => {
-                trace!("received publisher answer: {:?}", answer);
+                log::debug!("received publisher answer: {:?}", answer);
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap())?;
                 self.publisher_pc
@@ -435,7 +402,7 @@ impl SessionInner {
                     .await?;
             }
             proto::signal_response::Message::Offer(offer) => {
-                trace!("received subscriber offer: {:?}", offer);
+                log::debug!("received subscriber offer: {:?}", offer);
                 let offer = SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap())?;
                 let answer = self
                     .subscriber_pc
@@ -460,7 +427,7 @@ impl SessionInner {
                     IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)?
                 };
 
-                debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
+                log::debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
 
                 if target == proto::SignalTarget::Publisher {
                     self.publisher_pc
@@ -478,7 +445,7 @@ impl SessionInner {
             }
             proto::signal_response::Message::Leave(leave) => {
                 self.on_session_disconnected(
-                    "received leave",
+                    "server request to leave",
                     leave.reason(),
                     leave.can_reconnect,
                     true,
@@ -533,11 +500,12 @@ impl SessionInner {
                     .await;
             }
             RtcEvent::ConnectionChange { state, target } => {
-                debug!("connection change, {:?} {:?}", state, target);
-                let is_primary = self.info.join_response.subscriber_primary
-                    && target == proto::SignalTarget::Subscriber;
+                log::debug!("connection change, {:?} {:?}", state, target);
 
-                if is_primary && state == PeerConnectionState::Connected {
+                // The subscriber is always the primary peer connection
+                if target == proto::SignalTarget::Subscriber
+                    && state == PeerConnectionState::Connected
+                {
                     let old_state = self
                         .pc_state
                         .swap(PeerState::Connected as u8, Ordering::SeqCst);
@@ -565,7 +533,7 @@ impl SessionInner {
             }
             RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
-                debug!("sending publisher offer: {:?}", offer);
+                log::debug!("sending publisher offer: {:?}", offer);
                 self.signal_client
                     .send(proto::signal_request::Message::Offer(
                         proto::SessionDescription {
@@ -589,7 +557,7 @@ impl SessionInner {
                         receiver,
                     });
                 } else {
-                    warn!("Track event with no streams");
+                    log::warn!("Track event with no streams");
                 }
             }
             RtcEvent::Data { data, binary } => {
@@ -605,7 +573,9 @@ impl SessionInner {
                         let _ = self.emitter.send(SessionEvent::Data {
                             participant_sid: user.participant_sid,
                             payload: user.payload,
-                            kind: proto::data_packet::Kind::from_i32(data.kind).unwrap(),
+                            kind: proto::data_packet::Kind::from_i32(data.kind)
+                                .unwrap()
+                                .into(),
                         });
                     }
                     proto::data_packet::Value::Speaker(_) => {}
@@ -735,7 +705,6 @@ impl SessionInner {
         });
     }
 
-    #[tracing::instrument]
     async fn close(&self) {
         self.closed.store(true, Ordering::Release);
         self.signal_client.close().await;
@@ -743,7 +712,6 @@ impl SessionInner {
         self.subscriber_pc.lock().await.close();
     }
 
-    #[tracing::instrument]
     async fn simulate_scenario(&self, scenario: SimulateScenario) {
         match scenario {
             SimulateScenario::SignalReconnect => {
@@ -814,11 +782,10 @@ impl SessionInner {
         }
     }
 
-    #[tracing::instrument(skip(data))]
     async fn publish_data(
         &self,
         data: &proto::DataPacket,
-        kind: proto::data_packet::Kind,
+        kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
         self.data_channel(kind)
@@ -827,18 +794,9 @@ impl SessionInner {
     }
 
     /// Try to restart the session by doing an ICE Restart (The SignalClient is also restarted)
-    /// This reconnection if more seemless than the full reconnection implemented in ['RTCEngine']
+    /// This reconnection if more seemless compared to the full reconnection implemented in ['RTCEngine']
     async fn restart_session(&self) -> EngineResult<()> {
-        self.signal_client.close().await;
-
-        let mut options = self.info.options.clone();
-        options.sid = self.info.join_response.participant.clone().unwrap().sid;
-        options.reconnect = true;
-
-        self.signal_client
-            .connect(&self.info.url, &self.info.token, options)
-            .await?;
-
+        self.signal_client.restart().await?;
         self.subscriber_pc.lock().await.prepare_ice_restart();
 
         if self.has_published.load(Ordering::Acquire) {
@@ -854,11 +812,10 @@ impl SessionInner {
 
         self.wait_pc_connection().await?;
         self.signal_client.flush_queue().await;
-
         Ok(())
     }
 
-    // Wait for PCState to become PCState::Connected
+    // Wait for PeerState to become PeerState::Connected
     // Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
@@ -867,7 +824,7 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".to_string()));
                 }
 
-                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
 
             Ok(())
@@ -887,18 +844,14 @@ impl SessionInner {
         self.has_published.store(true, Ordering::Release);
         let res = self.publisher_pc.lock().await.negotiate().await;
         if let Err(err) = &res {
-            error!("failed to negotiate the publisher: {:?}", err);
+            log::error!("failed to negotiate the publisher: {:?}", err);
         }
         res.map_err(Into::into)
     }
 
     /// Ensure the Publisher PC is connected, if not, start the negotiation
     /// This is required when sending data to the server
-    async fn ensure_publisher_connected(&self, kind: proto::data_packet::Kind) -> EngineResult<()> {
-        if !self.info.join_response.subscriber_primary {
-            return Ok(());
-        }
-
+    async fn ensure_publisher_connected(&self, kind: DataPacketKind) -> EngineResult<()> {
         if !self.publisher_pc.lock().await.is_connected()
             && self
                 .publisher_pc
@@ -923,7 +876,7 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".to_string()));
                 }
 
-                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
 
             Ok(())
@@ -933,14 +886,14 @@ impl SessionInner {
             res = wait_connected => res,
             _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
-                error!(error = ?err);
+                log::error!("{}", err);
                 Err(err)
             }
         }
     }
 
-    fn data_channel(&self, kind: proto::data_packet::Kind) -> &DataChannel {
-        if kind == proto::data_packet::Kind::Reliable {
+    fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
+        if kind == DataPacketKind::Reliable {
             &self.reliable_dc
         } else {
             &self.lossy_dc

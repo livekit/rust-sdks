@@ -67,7 +67,7 @@ impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         let _ = self.frame_tx.send(VideoFrame {
             rotation: frame.rotation().into(),
-            timestamp: frame.timestamp_us(),
+            timestamp_us: frame.timestamp_us(),
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         });
     }

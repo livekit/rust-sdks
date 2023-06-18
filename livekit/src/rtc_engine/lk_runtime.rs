@@ -3,7 +3,6 @@ use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Weak};
-use tracing::trace;
 
 lazy_static! {
     static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
@@ -25,7 +24,7 @@ impl LkRuntime {
         if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
             lk_runtime
         } else {
-            trace!("LkRuntime::new()");
+            log::trace!("LkRuntime::new()");
             let new_runtime = Arc::new(Self {
                 pc_factory: PeerConnectionFactory::default(),
             });
@@ -41,6 +40,6 @@ impl LkRuntime {
 
 impl Drop for LkRuntime {
     fn drop(&mut self) {
-        trace!("LkRuntime::drop()");
+        log::trace!("LkRuntime::drop()");
     }
 }

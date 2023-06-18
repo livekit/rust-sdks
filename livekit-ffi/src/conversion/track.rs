@@ -1,24 +1,5 @@
 use crate::{proto, FfiHandleId};
-use livekit::options::{AudioCaptureOptions, VideoCaptureOptions};
 use livekit::prelude::*;
-
-impl From<proto::VideoCaptureOptions> for VideoCaptureOptions {
-    fn from(opts: proto::VideoCaptureOptions) -> Self {
-        Self {
-            resolution: opts.resolution.unwrap_or_default().into(),
-        }
-    }
-}
-
-impl From<proto::AudioCaptureOptions> for AudioCaptureOptions {
-    fn from(opts: proto::AudioCaptureOptions) -> Self {
-        Self {
-            echo_cancellation: opts.echo_cancellation,
-            auto_gain_control: opts.auto_gain_control,
-            noise_suppression: opts.noise_suppression,
-        }
-    }
-}
 
 impl From<TrackSource> for proto::TrackSource {
     fn from(source: TrackSource) -> proto::TrackSource {
@@ -63,7 +44,7 @@ macro_rules! impl_track_into {
             #[allow(dead_code)]
             pub fn $fnc(handle_id: FfiHandleId, track: $t) -> Self {
                 Self {
-                    opt_handle: Some(handle_id.into()),
+                    handle: Some(handle_id.into()),
                     name: track.name(),
                     stream_state: proto::StreamState::from(track.stream_state()).into(),
                     sid: track.sid().to_string(),

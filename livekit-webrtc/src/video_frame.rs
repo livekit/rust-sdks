@@ -43,7 +43,7 @@ where
     T: AsRef<dyn VideoFrameBuffer>,
 {
     pub rotation: VideoRotation,
-    pub timestamp: i64, // When the frame was captured
+    pub timestamp_us: i64, // When the frame was captured in microseconds
     pub buffer: T,
 }
 

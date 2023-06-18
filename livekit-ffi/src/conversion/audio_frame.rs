@@ -1,6 +1,17 @@
 use crate::server::audio_frame::{FfiAudioSource, FfiAudioSream};
 use crate::{proto, FfiHandleId};
+use livekit::webrtc::audio_source::AudioSourceOptions;
 use livekit::webrtc::prelude::*;
+
+impl From<proto::AudioSourceOptions> for AudioSourceOptions {
+    fn from(opts: proto::AudioSourceOptions) -> Self {
+        Self {
+            echo_cancellation: opts.echo_cancellation,
+            auto_gain_control: opts.auto_gain_control,
+            noise_suppression: opts.noise_suppression,
+        }
+    }
+}
 
 impl proto::AudioFrameBufferInfo {
     pub fn from(handle_id: FfiHandleId, buffer: &AudioFrame) -> Self {
@@ -20,7 +31,6 @@ impl From<&FfiAudioSream> for proto::AudioStreamInfo {
             handle: Some(proto::FfiHandleId {
                 id: stream.handle_id() as u64,
             }),
-            track_sid: stream.track_sid().clone().into(),
             r#type: stream.stream_type() as i32,
         }
     }

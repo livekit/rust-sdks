@@ -1,4 +1,4 @@
-use crate::signal_client::{SignalEmitter, SignalEvent, SignalOptions, SignalResult};
+use crate::signal_client::{SignalEmitter, SignalEvent, SignalResult};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use livekit_protocol as proto;
@@ -10,9 +10,8 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-use tracing::{event, Level};
 
-pub const PROTOCOL_VERSION: u32 = 8;
+use super::SignalEvents;
 
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -46,31 +45,10 @@ impl SignalStream {
     ///
     /// SignalStream will never try to reconnect if the connection has been
     /// closed.
-    pub async fn connect(
-        url: &str,
-        token: &str,
-        options: SignalOptions,
-        emitter: SignalEmitter,
-    ) -> SignalResult<Self> {
-        let mut lk_url = url::Url::parse(url)?;
-        lk_url.set_path("/rtc");
-        lk_url
-            .query_pairs_mut()
-            .append_pair("access_token", token)
-            .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-            .append_pair("reconnect", if options.reconnect { "1" } else { "0" })
-            .append_pair("sid", &options.sid)
-            .append_pair(
-                "auto_subscribe",
-                if options.auto_subscribe { "1" } else { "0" },
-            )
-            .append_pair(
-                "adaptive_stream",
-                if options.adaptive_stream { "1" } else { "0" },
-            );
+    pub async fn connect(url: url::Url, emitter: SignalEmitter) -> SignalResult<Self> {
+        log::info!("connecting to SignalClient: {}", url);
 
-        event!(Level::INFO, "connecting to SignalClient: {}", lk_url);
-        let (ws_stream, _) = connect_async(lk_url).await?;
+        let (ws_stream, _) = connect_async(url).await?;
         let _ = emitter.send(SignalEvent::Open).await;
 
         let (ws_writer, ws_reader) = ws_stream.split();
@@ -128,7 +106,7 @@ impl SignalStream {
                     signal,
                     response_chn,
                 } => {
-                    event!(Level::TRACE, "sending SignalRequest: {:?}", signal);
+                    log::debug!("sending SignalRequest: {:?}", signal);
 
                     let data = Message::Binary(
                         proto::SignalRequest {
@@ -138,7 +116,7 @@ impl SignalStream {
                     );
 
                     if let Err(err) = ws_writer.send(data).await {
-                        event!(Level::ERROR, "failed to send signal: {:?}", err);
+                        log::error!("failed to send signal: {:?}", err);
                         let _ = response_chn.send(Err(err.into()));
                         break;
                     }
@@ -147,7 +125,7 @@ impl SignalStream {
                 }
                 InternalMessage::Pong { ping_data } => {
                     if let Err(err) = ws_writer.send(Message::Pong(ping_data)).await {
-                        event!(Level::ERROR, "failed to send pong message: {:?}", err);
+                        log::error!("failed to send pong message: {:?}", err);
                     }
                 }
                 InternalMessage::Close { close_frame } => {
@@ -180,7 +158,7 @@ impl SignalStream {
                         .expect("failed to decode SignalResponse");
 
                     let msg = res.message.unwrap();
-                    event!(Level::TRACE, "received SignalResponse: {:?}", msg);
+                    log::debug!("received SignalResponse: {:?}", msg);
                     let _ = emitter.send(SignalEvent::Signal(msg)).await;
                 }
                 Ok(Message::Ping(data)) => {
@@ -190,11 +168,11 @@ impl SignalStream {
                     continue;
                 }
                 Ok(Message::Close(close)) => {
-                    event!(Level::DEBUG, "server closed the connection: {:?}", close);
+                    log::debug!("server closed the connection: {:?}", close);
                     break;
                 }
                 _ => {
-                    event!(Level::ERROR, "unhandled websocket message {:?}", msg);
+                    log::error!("unhandled websocket message {:?}", msg);
                     break;
                 }
             }

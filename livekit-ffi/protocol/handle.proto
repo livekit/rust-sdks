@@ -6,7 +6,10 @@ option csharp_namespace = "LiveKit.Proto";
 /// # Safety
 /// The foreign language is responsable for disposing handles
 /// Forgetting to dispose the handle may lead to memory leaks
-/// Messages in this file can contain an FFIHandle
+/// 
+/// A handle means that the foreign language may still use the corresponding object
+/// Dropping a handle doesn't necessarily mean that the object is destroyed if it is still used
+/// on the FfiServer (Rust)
 message FfiHandleId {
   uint64 id = 1;
 }

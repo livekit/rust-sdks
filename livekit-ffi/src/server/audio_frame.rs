@@ -2,11 +2,9 @@ use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::audio_frame::AudioFrame;
-use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::prelude::*;
 use log::warn;
-use server::utils;
 use tokio::sync::oneshot;
 
 // ===== FFIAudioStream =====
@@ -14,7 +12,6 @@ use tokio::sync::oneshot;
 pub struct FfiAudioSream {
     handle_id: FfiHandleId,
     stream_type: proto::AudioStreamType,
-    track_sid: TrackSid,
 
     #[allow(dead_code)]
     close_tx: oneshot::Sender<()>, // Close the stream on drop
@@ -35,42 +32,45 @@ impl FfiAudioSream {
     ) -> FfiResult<proto::AudioStreamInfo> {
         let (close_tx, close_rx) = oneshot::channel();
         let stream_type = proto::AudioStreamType::from_i32(new_stream.r#type).unwrap();
-        let track_sid: TrackSid = new_stream.track_sid.into();
 
-        let room_handle = new_stream
-            .room_handle
-            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+        let handle_id = new_stream
+            .track_handle
+            .ok_or(FfiError::InvalidRequest("track_handle is empty"))?
             .id as FfiHandleId;
 
-        let track = utils::find_remote_track(
-            server,
-            &track_sid,
-            &new_stream.participant_sid.into(),
-            room_handle,
-        )?
-        .rtc_track();
+        let track = server
+            .ffi_handles()
+            .get(&handle_id)
+            .ok_or(FfiError::InvalidRequest("track not found"))?;
 
-        let MediaStreamTrack::Audio(track) = track else {
+        let track = track
+            .downcast_ref::<Track>()
+            .ok_or(FfiError::InvalidRequest("handle is not a Track"))?;
+
+        let rtc_track = track.rtc_track();
+
+        let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
             return Err(FfiError::InvalidRequest("not an audio track"));
         };
 
         let audio_stream = match stream_type {
+            #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
                 let audio_stream = Self {
                     handle_id: server.next_id(),
                     stream_type,
                     close_tx,
-                    track_sid,
                 };
+
+                let native_stream = NativeAudioStream::new(rtc_track);
                 server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     audio_stream.handle_id,
-                    NativeAudioStream::new(track),
+                    native_stream,
                     close_rx,
                 ));
                 Ok::<FfiAudioSream, FfiError>(audio_stream)
             }
-            // TODO(theomonnom): Support other stream types
             _ => return Err(FfiError::InvalidRequest("unsupported audio stream type")),
         }?;
 
@@ -89,10 +89,6 @@ impl FfiAudioSream {
 
     pub fn stream_type(&self) -> proto::AudioStreamType {
         self.stream_type
-    }
-
-    pub fn track_sid(&self) -> &TrackSid {
-        &self.track_sid
     }
 
     async fn native_audio_stream_task(
@@ -139,12 +135,7 @@ impl FfiAudioSream {
 pub struct FfiAudioSource {
     handle_id: FfiHandleId,
     source_type: proto::AudioSourceType,
-    source: AudioSource,
-}
-
-#[derive(Clone)]
-pub enum AudioSource {
-    Native(NativeAudioSource),
+    source: RtcAudioSource,
 }
 
 impl FfiAudioSource {
@@ -153,12 +144,17 @@ impl FfiAudioSource {
         new_source: proto::NewAudioSourceRequest,
     ) -> FfiResult<proto::AudioSourceInfo> {
         let source_type = proto::AudioSourceType::from_i32(new_source.r#type).unwrap();
+        #[allow(unreachable_patterns)]
         let source_inner = match source_type {
+            #[cfg(not(target_arch = "wasm32"))]
             proto::AudioSourceType::AudioSourceNative => {
-                let audio_source = NativeAudioSource::default();
-                Ok::<AudioSource, FfiError>(AudioSource::Native(audio_source))
-            } //_ => return Err(FfiError::InvalidRequest("unsupported audio source type")),
-        }?;
+                use livekit::webrtc::audio_source::native::NativeAudioSource;
+                let audio_source =
+                    NativeAudioSource::new(new_source.options.map(Into::into).unwrap_or_default());
+                RtcAudioSource::Native(audio_source)
+            }
+            _ => return Err(FfiError::InvalidRequest("unsupported audio source type")),
+        };
 
         let audio_source = Self {
             handle_id: server.next_id(),
@@ -180,7 +176,8 @@ impl FfiAudioSource {
         capture: proto::CaptureAudioFrameRequest,
     ) -> FfiResult<()> {
         match self.source {
-            AudioSource::Native(ref source) => {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcAudioSource::Native(ref source) => {
                 let buffer_handle = capture
                     .buffer_handle
                     .ok_or(FfiError::InvalidRequest("buffer_handle is empty"))?
@@ -197,6 +194,7 @@ impl FfiAudioSource {
 
                 source.capture_frame(frame);
             }
+            _ => {}
         }
 
         Ok(())
@@ -210,7 +208,7 @@ impl FfiAudioSource {
         self.source_type
     }
 
-    pub fn inner_source(&self) -> &AudioSource {
+    pub fn inner_source(&self) -> &RtcAudioSource {
         &self.source
     }
 }
