@@ -150,11 +150,13 @@ bool AudioDevice::RecordingIsInitialized() const {
 }
 
 int32_t AudioDevice::StartPlayout() {
+  webrtc::MutexLock lock(&mutex_);
   playing_ = true;
   return 0;
 }
 
 int32_t AudioDevice::StopPlayout() {
+  webrtc::MutexLock lock(&mutex_);
   playing_ = false;
   return 0;
 }
