@@ -1,3 +1,4 @@
+use super::remote_track;
 use super::TrackInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
@@ -59,23 +60,18 @@ impl RemoteAudioTrack {
     }
 
     #[inline]
-    pub fn start(&self) {
-        self.inner.start()
+    pub fn enable(&self) {
+        self.inner.enable()
     }
 
     #[inline]
-    pub fn stop(&self) {
-        self.inner.stop()
+    pub fn disable(&self) {
+        self.inner.disable()
     }
 
     #[inline]
     pub fn is_muted(&self) -> bool {
         self.inner.is_muted()
-    }
-
-    #[inline]
-    pub fn set_muted(&self, muted: bool) {
-        self.inner.set_muted(muted)
     }
 
     #[inline]
@@ -110,6 +106,6 @@ impl RemoteAudioTrack {
 
     #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info)
+        remote_track::update_info(&self.inner, info);
     }
 }

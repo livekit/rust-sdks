@@ -102,7 +102,8 @@ impl LocalParticipant {
             .await?;
 
         track.update_transceiver(Some(transceiver));
-        track.start();
+        //track.start();
+        track.enable();
 
         tokio::spawn({
             let rtc_engine = self.inner.rtc_engine.clone();
@@ -112,7 +113,7 @@ impl LocalParticipant {
         });
 
         self.inner
-            .add_track_publication(TrackPublication::Local(publication.clone()));
+            .add_publication(TrackPublication::Local(publication.clone()));
 
         self.inner
             .dispatcher

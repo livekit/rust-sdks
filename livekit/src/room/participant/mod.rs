@@ -8,7 +8,8 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::thread::JoinHandle;
+use tokio::sync::{mpsc, oneshot};
 
 mod local_participant;
 mod remote_participant;
@@ -133,6 +134,7 @@ pub(crate) struct ParticipantInternal {
     pub(super) dispatcher: Dispatcher<ParticipantEvent>,
     info: RwLock<ParticipantInfo>,
     tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    tracks_tasks: RwLock<HashMap<TrackSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
 impl ParticipantInternal {
@@ -154,8 +156,9 @@ impl ParticipantInternal {
                 audio_level: 0.0,
                 connection_quality: ConnectionQuality::Unknown,
             }),
-            tracks: Default::default(),
             dispatcher: Default::default(),
+            tracks: Default::default(),
+            tracks_tasks: Default::default(),
         }
     }
 
@@ -215,7 +218,11 @@ impl ParticipantInternal {
         self.info.write().connection_quality = quality;
     }
 
-    pub fn add_track_publication(&self, publication: TrackPublication) {
+    pub fn remove_publication(&self, sid: &TrackSid) {
+        self.tracks.write().remove(sid);
+    }
+
+    pub fn add_publication(&self, publication: TrackPublication) {
         self.tracks.write().insert(publication.sid(), publication);
     }
 }

@@ -1,14 +1,14 @@
+use super::TrackKind;
 use super::{ConnectionQuality, ParticipantInternal};
 use crate::rtc_engine::RtcEngine;
 use crate::track::TrackError;
-use crate::RoomSession;
 use crate::{prelude::*, DataPacketKind};
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::RwLockReadGuard;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -107,7 +107,7 @@ impl RemoteParticipant {
             log::debug!("starting track: {:?}", sid);
 
             remote_publication.update_track(Some(track.clone().into()));
-            track.set_muted(remote_publication.is_muted());
+            //track.set_muted(remote_publication.is_muted());
             track.update_info(proto::TrackInfo {
                 sid: remote_publication.sid().to_string(),
                 name: remote_publication.name().to_string(),
@@ -117,8 +117,9 @@ impl RemoteParticipant {
             });
 
             self.inner
-                .add_track_publication(TrackPublication::Remote(remote_publication.clone()));
-            track.start();
+                .add_publication(TrackPublication::Remote(remote_publication.clone()));
+            // track.start();
+            track.enable();
 
             self.inner
                 .dispatcher
@@ -142,7 +143,7 @@ impl RemoteParticipant {
         if let Some(publication) = self.get_track_publication(sid) {
             // Unsubscribe to the track if needed
             if let Some(track) = publication.track() {
-                track.stop();
+                track.disable();
 
                 self.inner
                     .dispatcher
@@ -151,6 +152,8 @@ impl RemoteParticipant {
                         publication: publication.clone(),
                     });
             }
+
+            self.inner.remove_publication(sid);
 
             self.inner
                 .dispatcher
@@ -173,7 +176,7 @@ impl RemoteParticipant {
                 let publication =
                     RemoteTrackPublication::new(track.clone(), Arc::downgrade(&self.inner), None);
                 self.inner
-                    .add_track_publication(TrackPublication::Remote(publication.clone()));
+                    .add_publication(TrackPublication::Remote(publication.clone()));
 
                 // This is a new track, dispatch publish event
                 self.inner

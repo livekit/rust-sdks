@@ -63,13 +63,13 @@ impl LocalAudioTrack {
     }
 
     #[inline]
-    pub fn start(&self) {
-        self.inner.start()
+    pub fn enable(&self) {
+        self.inner.enable()
     }
 
     #[inline]
-    pub fn stop(&self) {
-        self.inner.stop()
+    pub fn disable(&self) {
+        self.inner.disable()
     }
 
     #[inline]
@@ -78,8 +78,13 @@ impl LocalAudioTrack {
     }
 
     #[inline]
-    pub fn set_muted(&self, muted: bool) {
-        self.inner.set_muted(muted)
+    pub fn mute(&self) {
+        self.inner.set_muted(true);
+    }
+
+    #[inline]
+    pub fn unmute(&self) {
+        self.inner.set_muted(false);
     }
 
     #[inline]
