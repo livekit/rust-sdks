@@ -106,7 +106,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
                     AsyncCmd::RoomConnect { url, token } => {
                         state.connecting.store(true, Ordering::SeqCst);
 
-                        let res = Room::connect(&url, &token).await;
+                        let res = Room::connect(&url, &token, RoomOptions::default()).await;
                         if let Ok((room, room_events)) = res {
                             let room = Arc::new(room);
                             let (close_tx, close_rx) = oneshot::channel();
