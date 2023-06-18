@@ -450,6 +450,7 @@ impl RoomSession {
 
     /// Change the connection state and emit an event
     /// Does nothing if the state is already the same
+    /// Returns true if the state changed
     fn update_connection_state(&self, state: ConnectionState) -> bool {
         let mut info = self.info.write();
         if info.state == state {

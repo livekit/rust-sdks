@@ -228,7 +228,7 @@ impl RtcEngine {
         }
 
         let handle = self.inner.running_handle.read().await;
-        let session = &handle.as_ref().unwrap().session; // Unwrap should be safe here (running_handle is always valid when not reconnecting)
+        let session = &handle.as_ref().unwrap().session; // Unwrap should be OK here (running_handle is always valid when not reconnecting)
         session.signal_client().send(msg).await;
         Ok(())
     }
