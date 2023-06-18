@@ -26,7 +26,7 @@ message ConnectCallback {
 // Disconnect from the a room
 message DisconnectRequest { FfiHandleId room_handle = 1; }
 message DisconnectResponse { FfiAsyncId async_id = 1; }
-message DisconnectCallback { }
+message DisconnectCallback { FfiAsyncId async_id = 1; }
 
 // Publish a track to the room
 message PublishTrackRequest {

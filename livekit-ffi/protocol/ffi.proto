@@ -89,9 +89,10 @@ message FfiEvent {
     VideoStreamEvent video_stream_event = 4;
     AudioStreamEvent audio_stream_event = 5;
     ConnectCallback connect = 6;
-    DisposeCallback dispose = 7;
-    PublishTrackCallback publish_track = 8;
-    PublishDataCallback publish_data = 9;
+    DisconnectCallback disconnect = 7;
+    DisposeCallback dispose = 8;
+    PublishTrackCallback publish_track = 9;
+    PublishDataCallback publish_data = 10;
   }
 }
 

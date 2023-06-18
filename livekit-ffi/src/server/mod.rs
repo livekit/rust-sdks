@@ -188,9 +188,37 @@ impl FfiServer {
 
     fn on_disconnect(
         &'static self,
-        _disconnect: proto::DisconnectRequest,
+        disconnect: proto::DisconnectRequest,
     ) -> FfiResult<proto::DisconnectResponse> {
-        Ok(proto::DisconnectResponse::default())
+        let async_id = self.next_id() as FfiAsyncId;
+        let room_handle = disconnect
+            .room_handle
+            .as_ref()
+            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+            .id as FfiHandleId;
+
+        let ffi_room = self
+            .ffi_handles
+            .remove(&room_handle)
+            .ok_or(FfiError::InvalidRequest("room not found"))?
+            .1;
+
+        let ffi_room = ffi_room
+            .downcast::<room::FfiRoom>()
+            .map_err(|_| FfiError::InvalidRequest("room is not a FfiRoom"))?;
+
+        self.async_runtime.spawn(async move {
+            ffi_room.close().await;
+            let _ = self.send_event(proto::ffi_event::Message::Disconnect(
+                proto::DisconnectCallback {
+                    async_id: Some(async_id.into()),
+                },
+            ));
+        });
+
+        Ok(proto::DisconnectResponse {
+            async_id: Some(async_id.into()),
+        })
     }
 
     fn on_publish_track(
