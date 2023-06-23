@@ -1,10 +1,16 @@
 -xc++
+-xobjective-c++
 -std=c++17
 -Iinclude
 -Ilibwebrtc/src
 -Ilibwebrtc/src/third_party/abseil-cpp
 -Ilibwebrtc/src/third_party/libc++
 -Ilibwebrtc/src/third_party/libyuv/include
+-Ilibwebrtc/src/sdk/objc/base
+-Ilibwebrtc/src/sdk/objc
 -I../target/cxxbridge
 -DWEBRTC_MAC
 -DWEBRTC_POSIX
+-DNDEBUG
+-DWEBRTC_ENABLE_SYMBOL_EXPORT
+-DWEBRTC_LIBRARY_IMPL
