@@ -29,7 +29,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-echo "Building LiveKit WebRTC"
+echo "Building LiveKit WebRTC - iOS"
 echo "Arch: $arch"
 echo "Profile: $profile"
 echo "Environment: $environment"

@@ -2,6 +2,9 @@ solutions = [
   {
     "name": 'src',
     "url": 'https://github.com/webrtc-sdk/webrtc.git',
-    "target_os": ["android", "ios"],
+    "custom_deps": {},
+    "deps_file": "DEPS",
+    "managed": False,
   },
 ]
+target_os = ["android", "ios"]

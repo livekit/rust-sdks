@@ -33,7 +33,7 @@ if [ -z "$arch" ]; then
   exit 1
 fi
 
-echo "Building LiveKit WebRTC"
+echo "Building LiveKit WebRTC - MacOS"
 echo "Arch: $arch"
 echo "Profile: $profile"
 

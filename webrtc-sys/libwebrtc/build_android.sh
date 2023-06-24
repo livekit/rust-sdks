@@ -33,7 +33,7 @@ if [ -z "$arch" ]; then
   exit 1
 fi
 
-echo "Building LiveKit WebRTC"
+echo "Building LiveKit WebRTC - Android"
 echo "Arch: $arch"
 echo "Profile: $profile"
 
@@ -95,8 +95,8 @@ gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 # build static library
 ninja -C "$OUTPUT_DIR" :default \
   sdk/android:native_api \
-  sdk/android:libwebrtc
-  #sdk/android:libjingle_peerconnection_so \
+  sdk/android:libwebrtc \
+  sdk/android:libjingle_peerconnection_so
 
 
 # make libwebrtc.a
@@ -107,6 +107,7 @@ python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/libjingle_peerconnection_so.so" "$ARTIFACTS_DIR/lib"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
