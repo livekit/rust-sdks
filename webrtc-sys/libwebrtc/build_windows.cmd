@@ -28,7 +28,7 @@ if not "!profile!" == "debug" if not "!profile!" == "release" (
     exit /b 1
 )
 
-echo "Building LiveKit WebRTC"
+echo "Building LiveKit WebRTC - Windows"
 echo "Arch: !arch!"
 echo "Profile: !profile!"
 

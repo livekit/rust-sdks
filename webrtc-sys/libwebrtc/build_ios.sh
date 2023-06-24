@@ -2,13 +2,22 @@
 
 arch=""
 profile="release"
+environment="device"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --arch)
       arch="$2"
-      if [ "$arch" != "x64" ] && [ "$arch" != "arm64" ]; then
-        echo "Error: Invalid value for --arch. Must be 'x64' or 'arm64'."
+      if [ "$arch" != "arm64" ]; then
+        echo "Error: Invalid value for --arch. Must 'arm64'."
+        exit 1
+      fi
+      shift 2
+      ;;
+    --environment)
+      environment="$2"
+      if [ "$environment" != "device" ] && [ "$environment" != "simulator" ]; then
+        echo "Error: Invalid value for --environment. Must be 'device' or 'simulator'."
         exit 1
       fi
       shift 2
@@ -33,9 +42,10 @@ if [ -z "$arch" ]; then
   exit 1
 fi
 
-echo "Building LiveKit WebRTC - Linux"
+echo "Building LiveKit WebRTC - iOS"
 echo "Arch: $arch"
 echo "Profile: $profile"
+echo "Environment: $environment"
 
 if [ ! -e "$(pwd)/depot_tools" ]
 then
@@ -44,8 +54,9 @@ fi
 
 export COMMAND_DIR=$(cd $(dirname $0); pwd)
 export PATH="$(pwd)/depot_tools:$PATH"
+
 export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
-export ARTIFACTS_DIR="$(pwd)/linux-$arch-$profile"
+export ARTIFACTS_DIR="$(pwd)/ios-$environment-$arch-$profile"
 
 if [ ! -e "$(pwd)/src" ]
 then
@@ -60,49 +71,51 @@ cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
-python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
-
 debug="false"
 if [ "$profile" = "debug" ]; then
   debug="true"
 fi
 
-args="is_debug=$debug  \
-  target_os=\"linux\" \
+# generate ninja files
+gn gen "$OUTPUT_DIR" --root="src" \
+  --args="is_debug=$debug \
+  enable_dsyms=$debug \
+  target_os=\"ios\" \
   target_cpu=\"$arch\" \
-  rtc_enable_protobuf=false \
+  target_environment=\"$environment\" \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=false \
+  ios_enable_code_signing=false \
+  rtc_enable_protobuf=false \
   rtc_include_tests=false \
-  rtc_build_tools=false \
   rtc_build_examples=false \
+  rtc_build_tools=false \
   rtc_libvpx_build_vp9=true \
   is_component_build=false \
   enable_stripping=true \
-  use_goma=false \
+  rtc_enable_symbol_export=true \
+  rtc_enable_objc_symbol_export=false \
   rtc_use_h264=false \
-  rtc_use_pipewire=false \
-  symbol_level=0 \
-  enable_iterator_debugging=false \
+  use_custom_libcxx=false \
+  clang_use_chrome_plugins=false \
   use_rtti=true \
-  rtc_use_x11=false"
-
-if [ "$debug" = "true" ]; then
-  args="${args} is_asan=true is_lsan=true";
-fi
-
-# generate ninja files
-gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
+  use_lld=false"
 
 # build static library
-ninja -C "$OUTPUT_DIR" :default
+ninja -C "$OUTPUT_DIR" :default \
+  api/audio_codecs:builtin_audio_decoder_factory \
+  api/task_queue:default_task_queue_factory \
+  sdk:native_api \
+  sdk:default_codec_factory_objc \
+  pc:peerconnection \
+  sdk:videocapture_objc \
+  sdk:framework_objc
 
 # make libwebrtc.a
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
+  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"

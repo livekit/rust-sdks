@@ -8,3 +8,5 @@ ninja
 win*
 macos*
 linux*
+android*
+ios*

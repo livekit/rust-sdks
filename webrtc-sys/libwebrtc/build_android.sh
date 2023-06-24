@@ -7,8 +7,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --arch)
       arch="$2"
-      if [ "$arch" != "x64" ] && [ "$arch" != "arm64" ]; then
-        echo "Error: Invalid value for --arch. Must be 'x64' or 'arm64'."
+      if [ "$arch" != "arm" ] && [ "$arch" != "x64" ] && [ "$arch" != "arm64" ]; then
+        echo "Error: Invalid value for --arch. Must be 'arm', 'x64' or 'arm64'."
         exit 1
       fi
       shift 2
@@ -33,7 +33,7 @@ if [ -z "$arch" ]; then
   exit 1
 fi
 
-echo "Building LiveKit WebRTC - Linux"
+echo "Building LiveKit WebRTC - Android"
 echo "Arch: $arch"
 echo "Profile: $profile"
 
@@ -45,7 +45,7 @@ fi
 export COMMAND_DIR=$(cd $(dirname $0); pwd)
 export PATH="$(pwd)/depot_tools:$PATH"
 export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
-export ARTIFACTS_DIR="$(pwd)/linux-$arch-$profile"
+export ARTIFACTS_DIR="$(pwd)/android-$arch-$profile"
 
 if [ ! -e "$(pwd)/src" ]
 then
@@ -60,15 +60,14 @@ cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
-python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
-
 debug="false"
 if [ "$profile" = "debug" ]; then
   debug="true"
 fi
 
-args="is_debug=$debug  \
-  target_os=\"linux\" \
+args="is_debug=$debug \
+  is_java_debug=$debug \
+  target_os=\"android\" \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
@@ -84,8 +83,7 @@ args="is_debug=$debug  \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
-  use_rtti=true \
-  rtc_use_x11=false"
+  use_rtti=true"
 
 if [ "$debug" = "true" ]; then
   args="${args} is_asan=true is_lsan=true";
@@ -95,7 +93,11 @@ fi
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
 # build static library
-ninja -C "$OUTPUT_DIR" :default
+ninja -C "$OUTPUT_DIR" :default \
+  sdk/android:native_api \
+  sdk/android:libwebrtc \
+  sdk/android:libjingle_peerconnection_so
+
 
 # make libwebrtc.a
 # don't include nasm
@@ -105,6 +107,7 @@ python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/libjingle_peerconnection_so.so" "$ARTIFACTS_DIR/lib"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
