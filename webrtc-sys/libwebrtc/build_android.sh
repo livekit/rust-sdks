@@ -8,7 +8,7 @@ while [ "$#" -gt 0 ]; do
     --arch)
       arch="$2"
       if [ "$arch" != "arm" ] && [ "$arch" != "arm64" ]; then
-        echo "Error: Invalid value for --arch. Must be 'arm' or 'arm64'."
+        echo "Error: Invalid value for --arch. Must be 'arm', 'x64' or 'arm64'."
         exit 1
       fi
       shift 2

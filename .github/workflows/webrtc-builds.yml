@@ -7,45 +7,74 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { name: win, os: windows-latest, cmd: .\build_windows.cmd }
-          - { name: android, os: ubuntu-latest, cmd: ./build_android.sh }
-          - { name: linux, os: ubuntu-latest, cmd: ./build_linux.sh }
-          - { name: ios, os: macos-latest, cmd: ./build_ios.sh }
-          - { name: macos, os: macos-latest, cmd: ./build_macos.sh }
-        arch:
-          - x64
-          - arm64
+          - name: win
+            os: windows-latest
+            cmd: .\build_windows.cmd
+            arch: x64
+
+          - name: win
+            os: windows-latest
+            cmd: .\build_windows.cmd
+            arch: arm64
+
+          - name: mac
+            os: macos-latest
+            cmd: ./build_macos.sh
+            arch: x64
+
+          - name: mac
+            os: macos-latest
+            cmd: ./build_macos.sh
+            arch: arm64
+
+          - name: linux 
+            os: ubuntu-latest
+            cmd: ./build_linux.sh
+            arch: x64
+
+          - name: linux
+            os: ubuntu-latest
+            cmd: ./build_linux.sh
+            arch: arm64 
+          
+          - name: android
+            os: ubuntu-latest
+            cmd: ./build_android.sh
+            arch: arm64
+
+          - name: android
+            os: ubuntu-latest
+            cmd: ./build_android.sh
+            arch: arm
+
+          - name: android
+            os: ubuntu-latest
+            cmd: ./build_android.sh
+            arch: x64
+
+          - name: ios-device
+            os: macos-latest
+            cmd: ./build_ios.sh
+            arch: arm64
+            buildargs: --environment device
+
+          - name: ios-simulator
+            os: macos-latest
+            cmd: ./build_ios.sh
+            arch: x64
+            environment: --environment simulator 
         profile:
           - release
           - debug
-        include:
-          - target: { name: android, os: ubuntu-latest, cmd: ./build_android.sh }
-            arch: arm
-            profile: release
 
-          - target: { name: android, os: ubuntu-latest, cmd: ./build_android.sh }
-            arch: arm
-            profile: debug
-
-          - target: { name: ios, os: macos-latest, cmd: ./build_ios.sh }
-            arch: arm64
-            environment: simulator
-
-          - target: { name: ios, os: macos-latest, cmd: ./build_ios.sh }
-            arch: arm64
-            environment: device
-        exclude:
-          - target: { name: ios, os: macos-latest, cmd: ./build_ios.sh }
-            arch: x64
-
-    name: Build webrtc (${{ matrix.target.name }}-${{ matrix.arch }}-${{ matrix.profile }})
+    name: Build webrtc (${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }})
     runs-on: ${{ matrix.target.os }}
     steps:
       - name: Setup variables
         id: setup
         run: |
-          echo "OUT=${{ matrix.target.name }}-${{ matrix.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
-          echo "ZIP=webrtc-${{ matrix.target.name }}-${{ matrix.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
+          echo "OUT=${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
+          echo "ZIP=webrtc-${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
         shell: bash
 
       # Print some debug infos to be sure everything is ok before doing really long tasks..
@@ -78,7 +107,7 @@ jobs:
         run: ninja --version
 
       - name: Build WebRTC
-        run: ${{ matrix.target.cmd }} --arch ${{ matrix.arch }} --profile ${{ matrix.profile }}
+        run: ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)

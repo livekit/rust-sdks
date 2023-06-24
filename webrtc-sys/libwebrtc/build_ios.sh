@@ -1,11 +1,19 @@
 #!/bin/bash
 
-arch="arm64"
+arch=""
 profile="release"
 environment="device"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --arch)
+      arch="$2"
+      if [ "$arch" != "arm64" ]; then
+        echo "Error: Invalid value for --arch. Must 'arm64'."
+        exit 1
+      fi
+      shift 2
+      ;;
     --environment)
       environment="$2"
       if [ "$environment" != "device" ] && [ "$environment" != "simulator" ]; then
@@ -29,6 +37,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ -z "$arch" ]; then
+  echo "Error: --arch must be set."
+  exit 1
+fi
+
 echo "Building LiveKit WebRTC - iOS"
 echo "Arch: $arch"
 echo "Profile: $profile"
@@ -43,12 +56,7 @@ export COMMAND_DIR=$(cd $(dirname $0); pwd)
 export PATH="$(pwd)/depot_tools:$PATH"
 
 export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
-export ARTIFACTS_DIR="$(pwd)/ios-$arch-$profile"
-
-if [ "$environment" = "simulator" ]; then
-  export OUTPUT_DIR="$OUTPUT_DIR-simulator"
-  export ARTIFACTS_DIR="$ARTIFACTS_DIR-simulator"
-fi
+export ARTIFACTS_DIR="$(pwd)/ios-$environment-$arch-$profile"
 
 if [ ! -e "$(pwd)/src" ]
 then
