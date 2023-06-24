@@ -52,13 +52,13 @@ jobs:
             cmd: ./build_android.sh
             arch: x64
 
-          - name: ios-device
+          - name: ios
             os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
             buildargs: --environment device
 
-          - name: ios-simulator
+          - name: ios
             os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
@@ -107,7 +107,9 @@ jobs:
         run: ninja --version
 
       - name: Build WebRTC
-        run: ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
+        run: | 
+          echo "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
+          ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)
