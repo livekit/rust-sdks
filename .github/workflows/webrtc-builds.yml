@@ -19,7 +19,7 @@ jobs:
           - release
           - debug
         include:
-          - { name: android, os: ubuntu-latest, cmd: ./build_android.sh }
+          - 'target.name': android
             arch: arm
 
         #   - name: ios
