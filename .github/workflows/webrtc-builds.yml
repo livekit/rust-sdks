@@ -53,6 +53,7 @@ jobs:
             arch: x64
 
           - name: ios
+            out: ios-device-arm64
             os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
