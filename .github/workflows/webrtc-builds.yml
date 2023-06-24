@@ -73,10 +73,10 @@ jobs:
       - name: Setup variables
         id: setup
         run: |
-          echo "DEFAULT_OUT=${{ matrix.target.name }}-${{ matrix.target.arch }}" >> $GITHUB_ENV
-          echo "OUT=${{ matrix.target.out == '' && '$DEFAULT_OUT' || matrix.target.out }}-${{ matrix.profile }}" >> $GITHUB_ENV
-          echo "OUT=$OUT" >> $GITHUB_OUTPUT
-          echo "ZIP=webrtc-${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}.zip" >> $GITHUB_OUTPUT
+          echo DEFAULT_OUT=${{ matrix.target.name }}-${{ matrix.target.arch }} >> $GITHUB_ENV
+          echo OUT=${{ matrix.target.out == '' && '$DEFAULT_OUT' || matrix.target.out }}-${{ matrix.profile }} >> $GITHUB_ENV
+          echo OUT=$OUT >> $GITHUB_OUTPUT
+          echo ZIP=webrtc-$OUT.zip >> $GITHUB_OUTPUT
         shell: bash
 
       # Print some debug infos to be sure everything is ok before doing really long tasks..
