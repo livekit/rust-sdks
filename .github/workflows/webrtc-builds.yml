@@ -18,23 +18,23 @@ jobs:
         profile:
           - release
           - debug
-        include:
-          - name: android
-            arch: arm
+        # include:
+        #   - name: android
+        #     arch: arm
 
-          - name: ios
-            environment: device
-          - name: ios
-            environment: simulator
+        #   - name: ios
+        #     environment: device
+        #   - name: ios
+        #     environment: simulator
 
-    name: Build webrtc (${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.profile }})
-    runs-on: ${{ matrix.os }}
+    name: Build webrtc (${{ matrix.target.os }}-${{ matrix.arch }}-${{ matrix.profile }})
+    runs-on: ${{ matrix.target.os }}
     steps:
       - name: Setup variables
         id: setup
         run: |
-          echo "OUT=${{ matrix.name}}-${{ matrix.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
-          echo "ZIP=webrtc-${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
+          echo "OUT=${{ matrix.target.name }}-${{ matrix.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
+          echo "ZIP=webrtc-${{ matrix.target.name }}-${{ matrix.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
         shell: bash
 
       # Print some debug infos to be sure everything is ok before doing really long tasks..
