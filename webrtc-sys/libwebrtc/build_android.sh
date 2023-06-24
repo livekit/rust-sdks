@@ -7,7 +7,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --arch)
       arch="$2"
-      if [ "$arch" != "arm" ] && [ "$arch" != "arm64" ]; then
+      if [ "$arch" != "arm" ] && [ "$arch" != "x64" ] && [ "$arch" != "arm64" ]; then
         echo "Error: Invalid value for --arch. Must be 'arm', 'x64' or 'arm64'."
         exit 1
       fi

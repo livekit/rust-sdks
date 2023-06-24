@@ -61,7 +61,7 @@ jobs:
           - name: ios-simulator
             os: macos-latest
             cmd: ./build_ios.sh
-            arch: x64
+            arch: arm64
             environment: --environment simulator 
         profile:
           - release
