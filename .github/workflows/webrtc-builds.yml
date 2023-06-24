@@ -56,9 +56,9 @@ jobs:
             os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
-            buildargs: --environment device
 
           - name: ios
+            out: ios-simulator-arm64
             os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
@@ -73,8 +73,10 @@ jobs:
       - name: Setup variables
         id: setup
         run: |
-          echo "OUT=${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
-          echo "ZIP=webrtc-${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
+          echo "DEFAULT_OUT=${{ matrix.target.name }}-${{ matrix.target.arch }}" >> $GITHUB_ENV
+          echo "OUT=${{ matrix.target.out == '' && '$DEFAULT_OUT' || matrix.target.out }}-${{ matrix.profile }}" >> $GITHUB_ENV
+          echo "OUT=$OUT" >> $GITHUB_OUTPUT
+          echo "ZIP=webrtc-${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}.zip" >> $GITHUB_OUTPUT
         shell: bash
 
       # Print some debug infos to be sure everything is ok before doing really long tasks..
@@ -108,7 +110,7 @@ jobs:
 
       - name: Build WebRTC
         run: | 
-          echo "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
+          echo -e "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
           ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
         working-directory: webrtc-sys/libwebrtc
 

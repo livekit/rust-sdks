@@ -45,7 +45,7 @@ fi
 export COMMAND_DIR=$(cd $(dirname $0); pwd)
 export PATH="$(pwd)/depot_tools:$PATH"
 export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
-export ARTIFACTS_DIR="$(pwd)/macos-$arch-$profile"
+export ARTIFACTS_DIR="$(pwd)/mac-$arch-$profile"
 
 if [ ! -e "$(pwd)/src" ]
 then
