@@ -21,6 +21,17 @@ jobs:
         include:
           - target: { name: android, os: ubuntu-latest, cmd: ./build_android.sh }
             arch: arm
+            profile: release
+
+          - target: { name: android, os: ubuntu-latest, cmd: ./build_android.sh }
+            arch: arm
+            profile: debug
+
+          - target: { name: ios, os: macos-latest, cmd: ./build_ios.sh }
+            environment: simulator
+
+          - target: { name: ios, os: macos-latest, cmd: ./build_ios.sh }
+            environment: device
 
         #   - name: ios
         #     environment: device
@@ -48,16 +59,16 @@ jobs:
           submodules: true
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' }}
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
       - name: Install macos dependencies
-        if: ${{ matrix.os == 'macos-latest' }}
+        if: ${{ matrix.target.os == 'macos-latest' }}
         run: brew install ninja
 
       # It doesn't seem to be used?
       - name: Install windows dependencies
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.target.os == 'windows-latest' }}
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ninja
@@ -67,17 +78,17 @@ jobs:
         run: ninja --version
 
       - name: Build WebRTC
-        run: ${{ matrix.cmd }} --arch ${{ matrix.arch }} --profile ${{ matrix.profile }}
+        run: ${{ matrix.target.cmd }} --arch ${{ matrix.arch }} --profile ${{ matrix.profile }}
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
+        if: ${{ matrix.target.os != 'windows-latest' }}
         run: |
           cd webrtc-sys/libwebrtc/${{ steps.setup.outputs.OUT }}
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ./* -r
 
       - name: Zip artifact (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.target.os == 'windows-latest' }}
         run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }}\* -DestinationPath ${{ steps.setup.outputs.ZIP }}
 
       # doublezip here but I don't think there is an alternative
