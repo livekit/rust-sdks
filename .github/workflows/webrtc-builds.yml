@@ -7,11 +7,11 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - win
-          - android
-          - linux
-          - ios
-          - macos
+          - { name: win, os: windows-latest, cmd: .\build_windows.cmd }
+          - { name: android, os: ubuntu-latest, cmd: ./build_android.sh }
+          - { name: linux, os: ubuntu-latest, cmd: ./build_linux.sh }
+          - { name: ios, os: macos-latest, cmd: ./build_ios.sh }
+          - { name: macos, os: macos-latest, cmd: ./build_macos.sh }
         arch:
           - x64
           - arm64
@@ -19,38 +19,18 @@ jobs:
           - release
           - debug
         include:
-          - target: android
+          - target.name: android
             arch: arm
 
-          - target: ios
+          - target.name: ios
             environment: device
-
-          - target: ios
+          - target.name: ios
             environment: simulator
 
-          - target: win
-            cmd: .\build_windows.cmd
-            os: windows-latest
-          - target: android
-            cmd: ./build_android.sh
-            os: ubuntu-latest
-          - target: linux
-            cmd: ./build_linux.sh
-            os: ubuntu-latest
-          - target: ios
-            cmd: ./build_ios.sh
-            os: macos-latest
-          - target: macos
-            cmd: ./build_macos.sh
-            os: macos-latest
-        exclude:
-          - target: ios
-            arch: x64
-
-    name: Build webrtc (${{ matrix.target }}-${{ matrix.arch }}-${{ matrix.profile }})
-    runs-on: ${{ matrix.os }}
+    name: Build webrtc (${{ matrix.target.os }}-${{ matrix.arch }}-${{ matrix.profile }})
+    runs-on: ${{ matrix.target.os }}
     steps:
-      - name: Setup vars
+      - name: Setup variables
         id: setup
         run: |
           echo "OUT=${{ matrix.target }}-${{ matrix.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
