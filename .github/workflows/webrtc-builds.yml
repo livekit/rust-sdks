@@ -62,12 +62,12 @@ jobs:
             os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
-            environment: --environment simulator 
+            buildargs: --environment simulator 
         profile:
           - release
           - debug
 
-    name: Build webrtc (${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }})
+    name: Build webrtc (${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}) ${{ matrix.target.buildargs }}
     runs-on: ${{ matrix.target.os }}
     steps:
       - name: Setup variables
