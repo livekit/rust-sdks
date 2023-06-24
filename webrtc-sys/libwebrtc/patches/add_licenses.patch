@@ -8,6 +8,13 @@ index 86b4cd01f0..cf927670ee 100755
      'jdk': [],
 +
 +    'dav1d': ['third_party/dav1d/LICENSE'],
++    'ffmpeg':[
++        'third_party/ffmpeg/COPYING.GPLv2',
++        'third_party/ffmpeg/COPYING.GPLv3',
++        'third_party/ffmpeg/COPYING.LGPLv2.1',
++        'third_party/ffmpeg/COPYING.LGPLv3'
++    ],
++    'openh264': ['third_party/openh264/src/LICENSE'],
 +    'catapult': [],
 +    'google_benchmark': [],
 +    'googletest': [],
