@@ -108,10 +108,13 @@ jobs:
       - name: Print ninja version
         run: ninja --version
 
+      - name: Target OS
+        run: echo -e "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
+        shell: bash
+        working-directory: webrtc-sys/libwebrtc
+        
       - name: Build WebRTC
-        run: | 
-          echo -e "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
-          ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
+        run: ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)
