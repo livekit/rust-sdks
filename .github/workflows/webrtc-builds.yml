@@ -28,15 +28,15 @@ jobs:
             profile: debug
 
           - target: { name: ios, os: macos-latest, cmd: ./build_ios.sh }
+            arch: arm64
             environment: simulator
 
           - target: { name: ios, os: macos-latest, cmd: ./build_ios.sh }
+            arch: arm64
             environment: device
-
-        #   - name: ios
-        #     environment: device
-        #   - name: ios
-        #     environment: simulator
+        exclude:
+          - target: { name: ios, os: macos-latest, cmd: ./build_ios.sh }
+            arch: x64
 
     name: Build webrtc (${{ matrix.target.name }}-${{ matrix.arch }}-${{ matrix.profile }})
     runs-on: ${{ matrix.target.os }}
