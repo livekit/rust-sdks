@@ -73,8 +73,8 @@ jobs:
       - name: Setup variables
         id: setup
         run: |
-          echo DEFAULT_OUT=${{ matrix.target.name }}-${{ matrix.target.arch }} >> $GITHUB_ENV
-          echo OUT=${{ matrix.target.out == '' && '$DEFAULT_OUT' || matrix.target.out }}-${{ matrix.profile }} >> $GITHUB_ENV
+          DEFAULT_OUT=${{ matrix.target.name }}-${{ matrix.target.arch }}
+          OUT=${{ matrix.target.out == '' && '$DEFAULT_OUT' || matrix.target.out }}-${{ matrix.profile }}
           echo OUT=$OUT >> $GITHUB_OUTPUT
           echo ZIP=webrtc-$OUT.zip >> $GITHUB_OUTPUT
         shell: bash
