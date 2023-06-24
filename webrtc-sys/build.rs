@@ -136,6 +136,7 @@ fn main() {
         "src/peer_connection.rs",
         "src/peer_connection_factory.rs",
         "src/media_stream.rs",
+        "src/media_devices.rs",
         "src/media_stream_track.rs",
         "src/audio_track.rs",
         "src/video_track.rs",
@@ -159,6 +160,7 @@ fn main() {
         "src/peer_connection.cpp",
         "src/peer_connection_factory.cpp",
         "src/media_stream.cpp",
+        "src/media_devices.cpp",
         "src/media_stream_track.cpp",
         "src/audio_track.cpp",
         "src/video_track.cpp",
@@ -276,7 +278,7 @@ fn main() {
                 }
             }
 
-            builder.file("src/objc_video_factory.mm");
+            builder.files(&["src/objc_video_factory.mm", "src/macos/media_devices.mm"]);
 
             builder
                 .flag("-stdlib=libc++")
