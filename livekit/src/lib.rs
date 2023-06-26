@@ -3,7 +3,6 @@ extern crate core;
 pub mod proto;
 mod room;
 mod rtc_engine;
-mod signal_client;
 
 pub mod webrtc {
     pub use livekit_webrtc::*;
