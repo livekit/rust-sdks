@@ -3,12 +3,20 @@ name = "livekit-protocol"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+json = ["dep:pbjson", "dep:pbjson-types", "dep:serde"]
+
 [dependencies]
 tokio = { version = "1.26.0", features = ["full"] }
 futures-util = { version = "0.3", features = ["sink"] }
 parking_lot = "0.12"
 prost = "0.11"
 prost-types = "0.11"
+pbjson = { version = "0.5", optional = true }
+pbjson-types = { version = "0.5", optional = true }
+serde = { version = "1.0", optional = true }
 
 [build-dependencies]
-prost-build = { version = "0.11.1" }
+prost-build = "0.11.1"
+pbjson-build = "0.5"
