@@ -4,7 +4,7 @@ use crate::prelude::*;
 use crate::track::Track;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use proto::observer::Dispatcher;
 use std::sync::Arc;
 use std::sync::Weak;
@@ -90,10 +90,10 @@ pub(crate) struct PublicationInfo {
 #[derive(Debug)]
 pub(crate) struct TrackPublicationInner {
     info: RwLock<PublicationInfo>,
-    dispatcher: Dispatcher<PublicationEvent>,
+    // dispatcher: Dispatcher<PublicationEvent>,
     participant: Weak<ParticipantInternal>,
     //forward_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    forward_close: Arc<Notify>,
+    // forward_close: Arc<Notify>,
 }
 
 impl TrackPublicationInner {
@@ -122,17 +122,17 @@ impl TrackPublicationInner {
 
         Self {
             info: RwLock::new(info),
-            dispatcher: Default::default(),
+            //dispatcher: Default::default(),
             participant,
             //forward_handle: Default::default(),
-            forward_close: Default::default(),
+            //forward_close: Default::default(),
         }
     }
 
     // Forward track events to the publication events
     // e.g: this also allow us to access the signal_client and notify the server if
     //  a local track changed mute state
-    async fn track_forward_task(
+    /*async fn track_forward_task(
         close_notifier: Weak<Notify>,
         track: Track,
         dispatcher: Dispatcher<PublicationEvent>,
@@ -161,13 +161,13 @@ impl TrackPublicationInner {
                 }
             }
         }
-    }
+    }*/
 
     pub fn update_track(&self, track: Option<Track>) {
         //let forward_task = self.forward_handle.lock().take();
         //if let Some(task) = forward_task {
         // Make sure to close the old forwarder before changing the track
-        self.forward_close.notify_waiters();
+        //self.forward_close.notify_waiters();
         //let _ = task.await;
         // }
 
@@ -175,11 +175,11 @@ impl TrackPublicationInner {
         info.track = track.clone();
 
         if let Some(track) = track {
-            let _handle = tokio::spawn(Self::track_forward_task(
+            /*let _handle = tokio::spawn(Self::track_forward_task(
                 Arc::downgrade(&self.forward_close),
                 track,
                 self.dispatcher.clone(),
-            ));
+            ));*/
             //let mut forward_handle = self.forward_handle.lock();
             //*forward_handle = Some(handle);
         }

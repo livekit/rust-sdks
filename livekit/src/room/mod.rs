@@ -37,10 +37,22 @@ pub enum RoomError {
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum RoomEvent {
     ParticipantConnected(RemoteParticipant),
     ParticipantDisconnected(RemoteParticipant),
+    LocalTrackPublished {
+        publication: LocalTrackPublication,
+    },
+    LocalTrackUnpublished {
+        publication: LocalTrackPublication,
+    },
     TrackSubscribed {
+        track: RemoteTrack,
+        publication: RemoteTrackPublication,
+        participant: RemoteParticipant,
+    },
+    TrackUnsubscribed {
         track: RemoteTrack,
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
@@ -50,11 +62,6 @@ pub enum RoomEvent {
         participant: RemoteParticipant,
     },
     TrackUnpublished {
-        publication: RemoteTrackPublication,
-        participant: RemoteParticipant,
-    },
-    TrackUnsubscribed {
-        track: RemoteTrack,
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     },
@@ -178,7 +185,6 @@ impl Room {
                 metadata: room_info.metadata,
             }),
             participants: Default::default(),
-            participants_tasks: Default::default(),
             active_speakers: Default::default(),
             rtc_engine,
             local_participant,
@@ -268,7 +274,7 @@ pub(crate) struct RoomSession {
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
-    participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
+    //participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
 impl Debug for RoomSession {
@@ -432,7 +438,7 @@ impl RoomSession {
                         participant: participant.clone(),
                     });
 
-                    participant.on_data_received(payload, kind);
+                    //participant.on_data_received(payload, kind);
                 }
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),

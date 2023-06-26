@@ -11,7 +11,6 @@ use std::sync::{Arc, Weak};
 struct RemoteInfo {
     subscribed: bool,
     allowed: bool,
-    // TODO(theomonnom): other remote info
 }
 
 #[derive(Debug)]

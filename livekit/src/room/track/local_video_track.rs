@@ -100,11 +100,6 @@ impl LocalVideoTrack {
     }
 
     #[inline]
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.inner.register_observer()
-    }
-
-    #[inline]
     pub fn is_remote(&self) -> bool {
         false
     }

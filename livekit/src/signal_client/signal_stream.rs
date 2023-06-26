@@ -11,8 +11,6 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
-use super::SignalEvents;
-
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 #[derive(Debug)]

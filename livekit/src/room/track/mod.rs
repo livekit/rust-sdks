@@ -1,11 +1,9 @@
 use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use livekit_protocol::observer::Dispatcher;
 use livekit_webrtc::prelude::*;
 use parking_lot::RwLock;
 use thiserror::Error;
-use tokio::sync::mpsc;
 
 mod local_audio_track;
 mod local_track;
@@ -90,7 +88,6 @@ macro_rules! track_dispatch {
             pub fn disable(self: &Self) -> ();
             pub fn is_muted(self: &Self) -> bool;
             pub fn is_remote(self: &Self) -> bool;
-            pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<TrackEvent>;
 
             pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
             pub(crate) fn update_transceiver(self: &Self, transceiver: Option<RtpTransceiver>) -> ();
@@ -154,7 +151,6 @@ struct TrackInfo {
 pub(crate) struct TrackInner {
     info: RwLock<TrackInfo>,
     rtc_track: MediaStreamTrack,
-    dispatcher: Dispatcher<TrackEvent>,
 }
 
 impl TrackInner {
@@ -170,7 +166,6 @@ impl TrackInner {
                 transceiver: None,
             }),
             rtc_track,
-            dispatcher: Default::default(),
         }
     }
 
@@ -208,10 +203,6 @@ impl TrackInner {
 
     pub fn rtc_track(&self) -> MediaStreamTrack {
         self.rtc_track.clone()
-    }
-
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.dispatcher.register()
     }
 
     pub fn transceiver(&self) -> Option<RtpTransceiver> {

@@ -5,7 +5,6 @@ use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct RemoteAudioTrack {
@@ -80,11 +79,6 @@ impl RemoteAudioTrack {
             return audio;
         }
         unreachable!()
-    }
-
-    #[inline]
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.inner.register_observer()
     }
 
     #[inline]

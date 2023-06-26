@@ -1,65 +1,17 @@
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
-use crate::track::TrackError;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use livekit_protocol::observer::Dispatcher;
 use parking_lot::{RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::thread::JoinHandle;
-use tokio::sync::{mpsc, oneshot};
 
 mod local_participant;
 mod remote_participant;
 
 pub use local_participant::*;
 pub use remote_participant::*;
-
-#[derive(Debug, Clone)]
-pub enum ParticipantEvent {
-    TrackPublished {
-        publication: RemoteTrackPublication,
-    },
-    TrackUnpublished {
-        publication: RemoteTrackPublication,
-    },
-    TrackSubscribed {
-        track: RemoteTrack,
-        publication: RemoteTrackPublication,
-    },
-    TrackUnsubscribed {
-        track: RemoteTrack,
-        publication: RemoteTrackPublication,
-    },
-    TrackSubscriptionFailed {
-        error: TrackError,
-        sid: TrackSid,
-    },
-    DataReceived {
-        payload: Arc<Vec<u8>>,
-        kind: DataPacketKind,
-    },
-    SpeakingChanged {
-        speaking: bool,
-    },
-    TrackMuted {
-        publication: TrackPublication,
-    },
-    TrackUnmuted {
-        publication: TrackPublication,
-    },
-    ConnectionQualityChanged {
-        quality: ConnectionQuality,
-    },
-    LocalTrackPublished {
-        publication: LocalTrackPublication,
-    },
-    LocalTrackUnpublished {
-        publication: LocalTrackPublication,
-    },
-}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(u8)]
@@ -68,17 +20,6 @@ pub enum ConnectionQuality {
     Excellent,
     Good,
     Poor,
-}
-
-impl From<u8> for ConnectionQuality {
-    fn from(value: u8) -> Self {
-        match value {
-            1 => Self::Excellent,
-            2 => Self::Good,
-            3 => Self::Poor,
-            _ => Self::Unknown,
-        }
-    }
 }
 
 impl From<proto::ConnectionQuality> for ConnectionQuality {
@@ -108,7 +49,6 @@ impl Participant {
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
         pub fn tracks(self: &Self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>>;
-        pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<ParticipantEvent>;
 
         pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
@@ -131,10 +71,8 @@ pub(crate) struct ParticipantInfo {
 #[derive(Debug)]
 pub(crate) struct ParticipantInternal {
     pub(super) rtc_engine: Arc<RtcEngine>,
-    pub(super) dispatcher: Dispatcher<ParticipantEvent>,
     info: RwLock<ParticipantInfo>,
     tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
-    tracks_tasks: RwLock<HashMap<TrackSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
 impl ParticipantInternal {
@@ -156,9 +94,7 @@ impl ParticipantInternal {
                 audio_level: 0.0,
                 connection_quality: ConnectionQuality::Unknown,
             }),
-            dispatcher: Default::default(),
             tracks: Default::default(),
-            tracks_tasks: Default::default(),
         }
     }
 
@@ -200,10 +136,6 @@ impl ParticipantInternal {
 
     pub fn connection_quality(&self) -> ConnectionQuality {
         self.info.read().connection_quality
-    }
-
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
-        self.dispatcher.register()
     }
 
     pub fn set_speaking(&self, speaking: bool) {
