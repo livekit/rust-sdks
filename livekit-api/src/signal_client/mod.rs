@@ -10,9 +10,9 @@ use tokio_tungstenite::tungstenite::Error as WsError;
 
 mod signal_stream;
 
-pub(crate) type SignalEmitter = mpsc::Sender<SignalEvent>;
-pub(crate) type SignalEvents = mpsc::Receiver<SignalEvent>;
-pub(crate) type SignalResult<T> = Result<T, SignalError>;
+pub type SignalEmitter = mpsc::Sender<SignalEvent>;
+pub type SignalEvents = mpsc::Receiver<SignalEvent>;
+pub type SignalResult<T> = Result<T, SignalError>;
 
 pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const PROTOCOL_VERSION: u32 = 8;
