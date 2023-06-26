@@ -839,6 +839,8 @@ dependencies = [
  "livekit-protocol",
  "log",
  "parking_lot",
+ "pbjson",
+ "pbjson-types",
  "prost",
  "reqwest",
  "serde",
