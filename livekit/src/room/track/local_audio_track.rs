@@ -6,7 +6,6 @@ use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct LocalAudioTrack {
@@ -35,6 +34,21 @@ impl LocalAudioTrack {
             )),
             source,
         }
+    }
+
+    pub fn create_audio_track(name: &str, source: RtcAudioSource) -> LocalAudioTrack {
+        let rtc_track = match source.clone() {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcAudioSource::Native(native_source) => {
+                use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+                LkRuntime::instance().pc_factory().create_audio_track(
+                    &livekit_webrtc::native::create_random_uuid(),
+                    native_source,
+                )
+            }
+            _ => panic!("unsupported audio source"),
+        };
+        Self::new(name.to_string(), rtc_track, source)
     }
 
     #[inline]
@@ -118,22 +132,5 @@ impl LocalAudioTrack {
     #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         self.inner.update_info(info)
-    }
-}
-
-impl LocalAudioTrack {
-    pub fn create_audio_track(name: &str, source: RtcAudioSource) -> LocalAudioTrack {
-        let rtc_track = match source.clone() {
-            #[cfg(not(target_arch = "wasm32"))]
-            RtcAudioSource::Native(native_source) => {
-                use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
-                LkRuntime::instance().pc_factory().create_audio_track(
-                    &livekit_webrtc::native::create_random_uuid(),
-                    native_source,
-                )
-            }
-            _ => panic!("unsupported audio source"),
-        };
-        Self::new(name.to_string(), rtc_track, source)
     }
 }

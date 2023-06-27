@@ -311,7 +311,7 @@ impl RoomSession {
     }
 
     /// Forward participant events to the room dispatcher
-    async fn participant_task(
+    /*async fn participant_task(
         self: Arc<Self>,
         participant: Participant,
         mut participant_events: mpsc::UnboundedReceiver<ParticipantEvent>,
@@ -372,7 +372,7 @@ impl RoomSession {
         }
 
         Ok(())
-    }
+    }*/
 
     async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
         match event {

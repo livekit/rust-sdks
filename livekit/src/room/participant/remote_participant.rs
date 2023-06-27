@@ -16,11 +16,11 @@ const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 struct RemoteEvents {
-    track_published: Option<Box<dyn Fn(RemoteTrackPublication)>>,
-    track_unpublished: Option<Box<dyn Fn(RemoteTrackPublication)>>,
-    track_subscribed: Option<Box<dyn Fn(RemoteTrack, RemoteTrackPublication)>>,
-    track_unsubscribed: Option<Box<dyn Fn(RemoteTrack, RemoteTrackPublication)>>,
-    track_subscription_failed: Option<Box<dyn Fn(TrackSid, TrackError)>>,
+    track_published: Option<Arc<dyn Fn(RemoteTrackPublication)>>,
+    track_unpublished: Option<Arc<dyn Fn(RemoteTrackPublication)>>,
+    track_subscribed: Option<Arc<dyn Fn(RemoteTrack, RemoteTrackPublication)>>,
+    track_unsubscribed: Option<Arc<dyn Fn(RemoteTrack, RemoteTrackPublication)>>,
+    track_subscription_failed: Option<Arc<dyn Fn(TrackSid, TrackError)>>,
 }
 
 struct RemoteInfo {

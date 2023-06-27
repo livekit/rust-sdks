@@ -1,12 +1,8 @@
-use super::TrackInner;
 use super::{track_dispatch, LocalAudioTrack, LocalVideoTrack};
 use crate::prelude::*;
-use crate::track::TrackEvent;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_webrtc::prelude::*;
-use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[derive(Clone, Debug)]
 pub enum LocalTrack {
@@ -28,6 +24,27 @@ impl LocalTrack {
         match self {
             Self::Audio(track) => track.rtc_track().into(),
             Self::Video(track) => track.rtc_track().into(),
+        }
+    }
+}
+
+impl From<LocalTrack> for Track {
+    fn from(track: LocalTrack) -> Self {
+        match track {
+            LocalTrack::Audio(track) => Self::LocalAudio(track),
+            LocalTrack::Video(track) => Self::LocalVideo(track),
+        }
+    }
+}
+
+impl TryFrom<Track> for LocalTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::LocalAudio(track) => Ok(Self::Audio(track)),
+            Track::LocalVideo(track) => Ok(Self::Video(track)),
+            _ => Err("not a local track"),
         }
     }
 }

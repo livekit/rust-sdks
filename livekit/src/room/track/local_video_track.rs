@@ -5,7 +5,6 @@ use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct LocalVideoTrack {
