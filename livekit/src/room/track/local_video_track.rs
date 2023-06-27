@@ -1,6 +1,7 @@
 use super::TrackInner;
 use crate::prelude::*;
 use crate::rtc_engine::lk_runtime::LkRuntime;
+use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -101,18 +102,27 @@ impl LocalVideoTrack {
         false
     }
 
-    /*#[inline]
+    pub fn rtc_source(&self) -> RtcVideoSource {
+        self.source.clone()
+    }
+
+    pub fn on_muted(&self, f: impl Fn()) {
+        self.inner.events.write().muted = Some(Arc::new(f));
+    }
+
+    pub fn on_unmuted(&self, f: impl Fn()) {
+        self.inner.events.write().unmuted = Some(Arc::new(f));
+    }
+
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
-        self.inner.transceiver()
+        self.inner.info.read().transceiver.clone()
     }
 
-    #[inline]
-    pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        self.inner.update_transceiver(transceiver)
+    pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
+        self.inner.info.write().transceiver = transceiver;
     }
 
-    #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         self.inner.update_info(info)
-    }*/
+    }
 }

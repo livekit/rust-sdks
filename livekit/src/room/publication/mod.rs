@@ -5,7 +5,7 @@ use crate::track::Track;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::RwLock;
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 
 mod local;
 mod remote;
@@ -44,6 +44,9 @@ impl TrackPublication {
         pub fn mime_type(self: &Self) -> String;
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
+
+        pub(crate) fn set_track(self: &Self, track: Option<Track>) -> ();
+        pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
 
     pub fn track(&self) -> Option<Track> {
@@ -54,8 +57,7 @@ impl TrackPublication {
     }
 }
 
-#[derive(Debug)]
-pub(super) struct PublicationInfo {
+struct PublicationInfo {
     pub track: Option<Track>,
     pub name: String,
     pub sid: TrackSid,
@@ -67,10 +69,16 @@ pub(super) struct PublicationInfo {
     pub muted: bool,
 }
 
-#[derive(Debug)]
+#[derive(Default)]
+struct PublicationEvents {
+    pub on_muted: Option<Arc<dyn Fn()>>,
+    pub on_unmuted: Option<Arc<dyn Fn()>>,
+}
+
 pub(super) struct TrackPublicationInner {
     pub info: RwLock<PublicationInfo>,
     pub participant: Weak<ParticipantInternal>,
+    pub events: Arc<RwLock<PublicationEvents>>,
 }
 
 impl TrackPublicationInner {
@@ -100,6 +108,7 @@ impl TrackPublicationInner {
         Self {
             info: RwLock::new(info),
             participant,
+            events: Default::default(),
         }
     }
 
@@ -118,14 +127,27 @@ impl TrackPublicationInner {
     pub fn set_track(&self, track: Option<Track>) {
         let mut info = self.info.write();
         if let Some(prev_track) = info.track {
-            // Unregister observer
+            prev_track.on_muted(|| {});
+            prev_track.on_unmuted(|| {});
         }
 
         info.track = track;
 
         if let Some(track) = track {
             info.sid = track.sid();
-            // Register observer
+
+            let events = self.events.clone();
+            track.on_muted(move || {
+                if let Some(on_muted) = events.read().on_muted.clone() {
+                    on_muted();
+                }
+            });
+
+            track.on_unmuted(move || {
+                if let Some(on_unmuted) = events.read().on_unmuted.clone() {
+                    on_unmuted();
+                }
+            });
         }
     }
 }

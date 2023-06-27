@@ -67,10 +67,12 @@ macro_rules! track_dispatch {
             pub fn disable(self: &Self) -> ();
             pub fn is_muted(self: &Self) -> bool;
             pub fn is_remote(self: &Self) -> bool;
+            pub fn on_muted(self: &Self, on_mute: impl Fn()) -> ();
+            pub fn on_unmuted(self: &Self, on_unmute: impl Fn()) -> ();
 
-            /*pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
-            pub(crate) fn update_transceiver(self: &Self, transceiver: Option<RtpTransceiver>) -> ();
-            pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();*/
+            pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
+            pub(crate) fn set_transceiver(self: &Self, transceiver: Option<RtpTransceiver>) -> ();
+            pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
         );
     };
 }
@@ -86,7 +88,6 @@ pub enum Track {
 impl Track {
     track_dispatch!([LocalAudio, LocalVideo, RemoteAudio, RemoteVideo]);
 
-    #[inline]
     pub fn rtc_track(&self) -> MediaStreamTrack {
         match self {
             Self::LocalAudio(track) => track.rtc_track().into(),

@@ -37,3 +37,15 @@ impl From<RemoteTrack> for Track {
         }
     }
 }
+
+impl TryFrom<Track> for RemoteTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::RemoteAudio(track) => Ok(Self::Audio(track)),
+            Track::RemoteVideo(track) => Ok(Self::Video(track)),
+            _ => Err("not a local track"),
+        }
+    }
+}

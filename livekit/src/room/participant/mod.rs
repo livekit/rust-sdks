@@ -57,8 +57,7 @@ impl Participant {
     );
 }
 
-#[derive(Debug)]
-pub(crate) struct ParticipantInfo {
+struct ParticipantInfo {
     pub sid: ParticipantSid,
     pub identity: ParticipantIdentity,
     pub name: String,
@@ -68,11 +67,14 @@ pub(crate) struct ParticipantInfo {
     pub connection_quality: ConnectionQuality,
 }
 
-#[derive(Debug)]
-pub(crate) struct ParticipantInternal {
-    pub(super) rtc_engine: Arc<RtcEngine>,
-    info: RwLock<ParticipantInfo>,
-    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+#[derive(Default)]
+struct ParticipantEvents {}
+
+pub(super) struct ParticipantInternal {
+    pub rtc_engine: Arc<RtcEngine>,
+    pub info: RwLock<ParticipantInfo>,
+    pub tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    pub events: RwLock<ParticipantEvents>,
 }
 
 impl ParticipantInternal {
@@ -95,6 +97,7 @@ impl ParticipantInternal {
                 connection_quality: ConnectionQuality::Unknown,
             }),
             tracks: Default::default(),
+            events: Default::default(),
         }
     }
 

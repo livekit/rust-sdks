@@ -121,8 +121,7 @@ impl LocalParticipant {
             .create_sender(track.clone(), options, encodings)
             .await?;
 
-        track.update_transceiver(Some(transceiver));
-        //track.start();
+        track.set_transceiver(Some(transceiver));
         track.enable();
 
         tokio::spawn({
@@ -158,14 +157,14 @@ impl LocalParticipant {
                 .rtc_engine
                 .remove_track(sender)
                 .await?;
-            track.update_transceiver(None);
+            track.set_transceiver(None);
 
             if let Some(local_track_unpublished) = &self.inner.events.read().local_track_unpublished
             {
                 local_track_unpublished(publication.clone());
             }
 
-            // publication.update_track(None);
+            //publication.set_track(None);
 
             tokio::spawn({
                 let rtc_engine = self.inner.participant_inner.rtc_engine.clone();
