@@ -51,7 +51,7 @@ pub enum TrackSource {
     ScreenshareAudio,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TrackDimension(pub u32, pub u32);
 
 macro_rules! track_dispatch {
@@ -68,9 +68,9 @@ macro_rules! track_dispatch {
             pub fn is_muted(self: &Self) -> bool;
             pub fn is_remote(self: &Self) -> bool;
 
-            pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
+            /*pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
             pub(crate) fn update_transceiver(self: &Self, transceiver: Option<RtpTransceiver>) -> ();
-            pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
+            pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();*/
         );
     };
 }

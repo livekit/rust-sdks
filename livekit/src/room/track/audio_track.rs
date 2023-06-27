@@ -1,3 +1,8 @@
+use super::track_dispatch;
+use crate::prelude::*;
+use livekit_protocol::enum_dispatch;
+use livekit_webrtc::prelude::*;
+
 #[derive(Clone, Debug)]
 pub enum AudioTrack {
     Local(LocalAudioTrack),
@@ -7,7 +12,6 @@ pub enum AudioTrack {
 impl AudioTrack {
     track_dispatch!([Local, Remote]);
 
-    #[inline]
     pub fn rtc_track(&self) -> RtcAudioTrack {
         match self {
             Self::Local(track) => track.rtc_track().into(),

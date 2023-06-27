@@ -1,6 +1,5 @@
-use super::{track_dispatch, LocalAudioTrack, LocalVideoTrack};
+use super::track_dispatch;
 use crate::prelude::*;
-use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_webrtc::prelude::*;
 
@@ -19,7 +18,6 @@ impl LocalTrack {
         pub fn unmute(self: &Self) -> ();
     );
 
-    #[inline]
     pub fn rtc_track(&self) -> MediaStreamTrack {
         match self {
             Self::Audio(track) => track.rtc_track().into(),

@@ -1,7 +1,5 @@
-use super::remote_track;
 use super::TrackInner;
 use crate::prelude::*;
-use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -33,73 +31,58 @@ impl RemoteAudioTrack {
         }
     }
 
-    #[inline]
     pub fn sid(&self) -> TrackSid {
-        self.inner.sid()
+        self.inner.info.read().sid
     }
 
-    #[inline]
     pub fn name(&self) -> String {
-        self.inner.name()
+        self.inner.info.read().name.clone()
     }
 
-    #[inline]
     pub fn kind(&self) -> TrackKind {
-        self.inner.kind()
+        self.inner.info.read().kind
     }
 
-    #[inline]
     pub fn source(&self) -> TrackSource {
-        self.inner.source()
+        self.inner.info.read().source
     }
 
-    #[inline]
     pub fn stream_state(&self) -> StreamState {
-        self.inner.stream_state()
+        self.inner.info.read().stream_state
     }
 
-    #[inline]
     pub fn enable(&self) {
-        self.inner.enable()
+        self.inner.rtc_track.set_enabled(true);
     }
 
-    #[inline]
     pub fn disable(&self) {
-        self.inner.disable()
+        self.inner.rtc_track.set_enabled(false);
     }
 
-    #[inline]
     pub fn is_muted(&self) -> bool {
-        self.inner.is_muted()
+        self.inner.info.read().muted
     }
 
-    #[inline]
     pub fn rtc_track(&self) -> RtcAudioTrack {
-        if let MediaStreamTrack::Audio(audio) = self.inner.rtc_track() {
+        if let MediaStreamTrack::Audio(audio) = self.inner.rtc_track {
             return audio;
         }
-        unreachable!()
+        unreachable!();
     }
 
-    #[inline]
     pub fn is_remote(&self) -> bool {
         true
     }
 
-    #[allow(dead_code)]
-    #[inline]
-    pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
+    /*pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
         self.inner.transceiver()
     }
 
-    #[inline]
-    #[allow(dead_code)]
     pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
         self.inner.update_transceiver(transceiver)
     }
 
-    #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         remote_track::update_info(&self.inner, info);
-    }
+    }*/
 }

@@ -1,6 +1,5 @@
 use super::track_dispatch;
 use super::TrackInner;
-use super::{RemoteAudioTrack, RemoteVideoTrack};
 use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
@@ -35,18 +34,6 @@ impl From<RemoteTrack> for Track {
         match track {
             RemoteTrack::Audio(track) => Self::RemoteAudio(track),
             RemoteTrack::Video(track) => Self::RemoteVideo(track),
-        }
-    }
-}
-
-impl TryFrom<Track> for RemoteTrack {
-    type Error = &'static str;
-
-    fn try_from(track: Track) -> Result<Self, Self::Error> {
-        match track {
-            Track::RemoteAudio(track) => Ok(Self::Audio(track)),
-            Track::RemoteVideo(track) => Ok(Self::Video(track)),
-            _ => Err("not a remote track"),
         }
     }
 }
