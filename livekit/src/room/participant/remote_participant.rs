@@ -16,11 +16,11 @@ const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 struct RemoteEvents {
-    track_published: Option<Arc<dyn Fn(RemoteTrackPublication)>>,
-    track_unpublished: Option<Arc<dyn Fn(RemoteTrackPublication)>>,
-    track_subscribed: Option<Arc<dyn Fn(RemoteTrack, RemoteTrackPublication)>>,
-    track_unsubscribed: Option<Arc<dyn Fn(RemoteTrack, RemoteTrackPublication)>>,
-    track_subscription_failed: Option<Arc<dyn Fn(TrackSid, TrackError)>>,
+    track_published: Option<Arc<dyn Fn(RemoteParticipant, RemoteTrackPublication)>>,
+    track_unpublished: Option<Arc<dyn Fn(RemoteParticipant, RemoteTrackPublication)>>,
+    track_subscribed: Option<Arc<dyn Fn(RemoteParticipant, RemoteTrack, RemoteTrackPublication)>>,
+    track_unsubscribed: Option<Arc<dyn Fn(RemoteParticipant, RemoteTrack, RemoteTrackPublication)>>,
+    track_subscription_failed: Option<Arc<dyn Fn(RemoteParticipant, TrackSid, TrackError)>>,
 }
 
 struct RemoteInfo {
@@ -128,7 +128,7 @@ impl RemoteParticipant {
             track.enable();
 
             if let Some(track_subscribed) = self.inner.events.read().track_subscribed.as_ref() {
-                track_subscribed(track, remote_publication);
+                track_subscribed(self.clone(), track, remote_publication);
             }
         } else {
             log::error!("could not find published track with sid: {:?}", sid);
@@ -136,7 +136,11 @@ impl RemoteParticipant {
             if let Some(track_subscription_failed) =
                 self.inner.events.read().track_subscription_failed.as_ref()
             {
-                track_subscription_failed(sid.clone(), TrackError::TrackNotFound(sid.0));
+                track_subscription_failed(
+                    self.clone(),
+                    sid.clone(),
+                    TrackError::TrackNotFound(sid.0),
+                );
             }
         }
     }
@@ -150,14 +154,14 @@ impl RemoteParticipant {
                 if let Some(track_unsubscribed) =
                     self.inner.events.read().track_unsubscribed.as_ref()
                 {
-                    track_unsubscribed(track.clone(), publication.clone());
+                    track_unsubscribed(self.clone(), track.clone(), publication.clone());
                 }
             }
 
             self.inner.participant_inner.remove_publication(sid);
 
             if let Some(track_unpublished) = self.inner.events.read().track_unpublished.as_ref() {
-                track_unpublished(publication.clone());
+                track_unpublished(self.clone(), publication.clone());
             }
 
             publication.set_track(None);
@@ -183,7 +187,7 @@ impl RemoteParticipant {
 
                 // This is a new track, dispatch publish event
                 if let Some(track_published) = self.inner.events.read().track_published.as_ref() {
-                    track_published(publication);
+                    track_published(self.clone(), publication);
                 }
             }
 
@@ -200,7 +204,42 @@ impl RemoteParticipant {
         }
     }
 
-    #[inline]
+    pub(crate) fn on_track_published(
+        &self,
+        track_published: impl Fn(RemoteParticipant, RemoteTrackPublication),
+    ) {
+        self.inner.events.write().track_published = Some(Arc::new(track_published));
+    }
+
+    pub(crate) fn on_track_unpublished(
+        &self,
+        track_unpublished: impl Fn(RemoteParticipant, RemoteTrackPublication),
+    ) {
+        self.inner.events.write().track_unpublished = Some(Arc::new(track_unpublished));
+    }
+
+    pub(crate) fn on_track_subscribed(
+        &self,
+        track_subscribed: impl Fn(RemoteParticipant, RemoteTrack, RemoteTrackPublication),
+    ) {
+        self.inner.events.write().track_subscribed = Some(Arc::new(track_subscribed));
+    }
+
+    pub(crate) fn on_track_unsubscribed(
+        &self,
+        track_unsubscribed: impl Fn(RemoteParticipant, RemoteTrack, RemoteTrackPublication),
+    ) {
+        self.inner.events.write().track_unsubscribed = Some(Arc::new(track_unsubscribed));
+    }
+
+    pub(crate) fn on_track_subscription_failed(
+        &self,
+        track_subscription_failed: impl Fn(RemoteParticipant, TrackSid, TrackError),
+    ) {
+        self.inner.events.write().track_subscription_failed =
+            Some(Arc::new(track_subscription_failed));
+    }
+
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
         self.inner
             .participant_inner
@@ -215,57 +254,46 @@ impl RemoteParticipant {
             })
     }
 
-    #[inline]
     pub fn sid(&self) -> ParticipantSid {
         self.inner.participant_inner.sid()
     }
 
-    #[inline]
     pub fn identity(&self) -> ParticipantIdentity {
         self.inner.participant_inner.identity()
     }
 
-    #[inline]
     pub fn name(&self) -> String {
         self.inner.participant_inner.name()
     }
 
-    #[inline]
     pub fn metadata(&self) -> String {
         self.inner.participant_inner.metadata()
     }
 
-    #[inline]
     pub fn is_speaking(&self) -> bool {
         self.inner.participant_inner.is_speaking()
     }
 
-    #[inline]
     pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
         self.inner.participant_inner.tracks()
     }
 
-    #[inline]
     pub fn audio_level(&self) -> f32 {
         self.inner.participant_inner.audio_level()
     }
 
-    #[inline]
     pub fn connection_quality(&self) -> ConnectionQuality {
         self.inner.participant_inner.connection_quality()
     }
 
-    #[inline]
     pub(crate) fn set_speaking(&self, speaking: bool) {
         self.inner.participant_inner.set_speaking(speaking);
     }
 
-    #[inline]
     pub(crate) fn set_audio_level(&self, level: f32) {
         self.inner.participant_inner.set_audio_level(level);
     }
 
-    #[inline]
     pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
         self.inner.participant_inner.set_connection_quality(quality);
     }

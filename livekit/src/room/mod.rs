@@ -274,7 +274,6 @@ pub(crate) struct RoomSession {
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
-    //participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
 impl Debug for RoomSession {
@@ -309,70 +308,6 @@ impl RoomSession {
             }
         }
     }
-
-    /// Forward participant events to the room dispatcher
-    /*async fn participant_task(
-        self: Arc<Self>,
-        participant: Participant,
-        mut participant_events: mpsc::UnboundedReceiver<ParticipantEvent>,
-        mut close_rx: oneshot::Receiver<()>,
-    ) {
-        loop {
-            tokio::select! {
-                res = participant_events.recv() => {
-                    if let Some(event) = res {
-                        if let Err(err) = self.on_participant_event(&participant, event).await {
-                            log::error!("failed to handle participant event for {:?}: {:?}", participant.sid(), err);
-                        }
-                    }
-                },
-                _ = &mut close_rx => {
-                    log::trace!("closing participant_task for {:?}", participant.sid());
-                    break;
-                },
-            }
-        }
-    }
-
-    async fn on_participant_event(
-        self: &Arc<Self>,
-        participant: &Participant,
-        event: ParticipantEvent,
-    ) -> RoomResult<()> {
-        if let Participant::Remote(remote_participant) = participant {
-            match event {
-                ParticipantEvent::TrackPublished { publication } => {
-                    self.dispatcher.dispatch(&RoomEvent::TrackPublished {
-                        participant: remote_participant.clone(),
-                        publication,
-                    });
-                }
-                ParticipantEvent::TrackUnpublished { publication } => {
-                    self.dispatcher.dispatch(&RoomEvent::TrackUnpublished {
-                        participant: remote_participant.clone(),
-                        publication,
-                    });
-                }
-                ParticipantEvent::TrackSubscribed { track, publication } => {
-                    self.dispatcher.dispatch(&RoomEvent::TrackSubscribed {
-                        participant: remote_participant.clone(),
-                        track,
-                        publication,
-                    });
-                }
-                ParticipantEvent::TrackUnsubscribed { track, publication } => {
-                    self.dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
-                        participant: remote_participant.clone(),
-                        track,
-                        publication,
-                    });
-                }
-                _ => {}
-            };
-        }
-
-        Ok(())
-    }*/
 
     async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
         match event {
@@ -627,18 +562,36 @@ impl RoomSession {
             metadata,
         );
 
-        // Create the participant task
-        let (close_tx, close_rx) = oneshot::channel();
-        let participant_task = tokio::spawn(self.clone().participant_task(
-            Participant::Remote(participant.clone()),
-            participant.register_observer(),
-            close_rx,
-        ));
-        self.participants_tasks
-            .write()
-            .insert(sid.clone(), (participant_task, close_tx));
+        participant.on_track_published(|participant, publication| {
+            let _ = self.dispatcher.dispatch(&RoomEvent::TrackPublished {
+                participant,
+                publication,
+            });
+        });
 
-        self.participants.write().insert(sid, participant.clone());
+        participant.on_track_unpublished(|participant, publication| {
+            let _ = self.dispatcher.dispatch(&RoomEvent::TrackUnpublished {
+                participant,
+                publication,
+            });
+        });
+
+        participant.on_track_subscribed(|participant, track, publication| {
+            let _ = self.dispatcher.dispatch(&RoomEvent::TrackSubscribed {
+                participant,
+                track,
+                publication,
+            });
+        });
+
+        participant.on_track_unsubscribed(|participant, track, publication| {
+            let _ = self.dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
+                participant,
+                track,
+                publication,
+            });
+        });
+
         participant
     }
 
@@ -648,17 +601,6 @@ impl RoomSession {
         tokio::spawn(async move {
             for (sid, _) in &*remote_participant.tracks() {
                 remote_participant.unpublish_track(&sid);
-            }
-
-            // Close the participant task
-            let ptask = self
-                .participants_tasks
-                .write()
-                .remove(&remote_participant.sid());
-
-            if let Some((task, close_tx)) = ptask {
-                let _ = close_tx.send(());
-                let _ = task.await;
             }
 
             self.participants.write().remove(&remote_participant.sid());

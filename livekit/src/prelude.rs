@@ -8,7 +8,7 @@ pub use crate::publication::{LocalTrackPublication, RemoteTrackPublication, Trac
 
 pub use crate::track::{
     AudioTrack, LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteAudioTrack, RemoteTrack,
-    RemoteVideoTrack, StreamState, Track, TrackKind, TrackSource, VideoTrack,
+    RemoteVideoTrack, StreamState, Track, TrackDimension, TrackKind, TrackSource, VideoTrack,
 };
 
 pub use crate::id::*;

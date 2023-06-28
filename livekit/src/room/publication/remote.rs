@@ -49,12 +49,12 @@ impl RemoteTrackPublication {
         track: Option<RemoteTrack>,
     ) -> Self {
         Self {
-            inner: Arc::new(RemoteInner {
-                publication_inner: TrackPublicationInner::new(
-                    info,
-                    participant,
-                    track.map(Into::into),
-                ),
+            inner: Arc::new(TrackPublicationInner::new(
+                info,
+                participant,
+                track.map(Into::into),
+            )),
+            remote: Arc::new(RemoteInner {
                 info: RwLock::new(RemoteInfo {
                     subscribed: false,
                     allowed: false,
@@ -70,13 +70,8 @@ impl RemoteTrackPublication {
     pub(crate) fn set_track(&self, track: Option<RemoteTrack>) {
         let prev_track = self.track();
 
-        // TODO Check if track is the same
-        if prev_track == track {
-            return;
-        }
-
         if let Some(prev_track) = prev_track {
-            if let Some(unsubscribed) = &self.remote.events.read().unsubscribed.clone() {
+            if let Some(unsubscribed) = self.remote.events.read().unsubscribed.clone() {
                 unsubscribed(prev_track);
             }
         }
@@ -84,7 +79,7 @@ impl RemoteTrackPublication {
         self.inner.set_track(track.clone().map(Into::into));
 
         if let Some(track) = track {
-            if let Some(subscribed) = &self.remote.events.read().subscribed.clone() {
+            if let Some(subscribed) = self.remote.events.read().subscribed.clone() {
                 subscribed(track);
             }
         }
@@ -92,6 +87,14 @@ impl RemoteTrackPublication {
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         self.inner.update_info(info);
+    }
+
+    pub(crate) fn on_muted(&self, f: impl Fn()) {
+        self.inner.events.write().muted = Some(Arc::new(f));
+    }
+
+    pub(crate) fn on_unmuted(&self, f: impl Fn()) {
+        self.inner.events.write().unmuted = Some(Arc::new(f));
     }
 
     pub async fn set_subscribed(&self, subscribed: bool) {

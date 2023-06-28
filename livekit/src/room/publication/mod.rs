@@ -45,6 +45,8 @@ impl TrackPublication {
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
 
+        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn()) -> ();
+        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn()) -> ();
         pub(crate) fn set_track(self: &Self, track: Option<Track>) -> ();
         pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
@@ -71,8 +73,8 @@ struct PublicationInfo {
 
 #[derive(Default)]
 struct PublicationEvents {
-    pub on_muted: Option<Arc<dyn Fn()>>,
-    pub on_unmuted: Option<Arc<dyn Fn()>>,
+    pub muted: Option<Arc<dyn Fn()>>,
+    pub unmuted: Option<Arc<dyn Fn()>>,
 }
 
 pub(super) struct TrackPublicationInner {
@@ -138,13 +140,13 @@ impl TrackPublicationInner {
 
             let events = self.events.clone();
             track.on_muted(move || {
-                if let Some(on_muted) = events.read().on_muted.clone() {
+                if let Some(on_muted) = events.read().muted.clone() {
                     on_muted();
                 }
             });
 
             track.on_unmuted(move || {
-                if let Some(on_unmuted) = events.read().on_unmuted.clone() {
+                if let Some(on_unmuted) = events.read().unmuted.clone() {
                     on_unmuted();
                 }
             });
