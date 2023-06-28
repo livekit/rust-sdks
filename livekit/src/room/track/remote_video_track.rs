@@ -33,7 +33,7 @@ impl RemoteVideoTrack {
     }
 
     pub fn sid(&self) -> TrackSid {
-        self.inner.info.read().sid
+        self.inner.info.read().sid.clone()
     }
 
     pub fn name(&self) -> String {
@@ -65,7 +65,7 @@ impl RemoteVideoTrack {
     }
 
     pub fn rtc_track(&self) -> RtcVideoTrack {
-        if let MediaStreamTrack::Video(video) = self.inner.rtc_track {
+        if let MediaStreamTrack::Video(video) = self.inner.rtc_track.clone() {
             return video;
         }
         unreachable!();
@@ -75,12 +75,12 @@ impl RemoteVideoTrack {
         true
     }
 
-    pub fn on_muted(&self, f: impl Fn()) {
-        self.inner.events.write().muted = Some(Arc::new(f));
+    pub fn on_muted(&self, f: impl Fn() + Send + 'static) {
+        *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub fn on_unmuted(&self, f: impl Fn()) {
-        self.inner.events.write().unmuted = Some(Arc::new(f));
+    pub fn on_unmuted(&self, f: impl Fn() + Send + 'static) {
+        *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {

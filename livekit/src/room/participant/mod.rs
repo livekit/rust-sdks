@@ -50,10 +50,13 @@ impl Participant {
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
         pub fn tracks(self: &Self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>>;
 
+
+        pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
+
+        // Internal functions called by the Room when receiving the associated signal messages
         pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
-        pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
     );
 }
 
@@ -67,14 +70,10 @@ struct ParticipantInfo {
     pub connection_quality: ConnectionQuality,
 }
 
-#[derive(Default)]
-struct ParticipantEvents {}
-
 pub(super) struct ParticipantInternal {
     pub rtc_engine: Arc<RtcEngine>,
     pub info: RwLock<ParticipantInfo>,
     pub tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
-    pub events: RwLock<ParticipantEvents>,
 }
 
 impl ParticipantInternal {
@@ -97,7 +96,6 @@ impl ParticipantInternal {
                 connection_quality: ConnectionQuality::Unknown,
             }),
             tracks: Default::default(),
-            events: Default::default(),
         }
     }
 
@@ -107,38 +105,6 @@ impl ParticipantInternal {
         info.name = new_info.name;
         info.identity = new_info.identity.into();
         info.metadata = new_info.metadata; // TODO(theomonnom): callback MetadataChanged
-    }
-
-    pub fn sid(&self) -> ParticipantSid {
-        self.info.read().sid.clone()
-    }
-
-    pub fn identity(&self) -> ParticipantIdentity {
-        self.info.read().identity.clone()
-    }
-
-    pub fn name(&self) -> String {
-        self.info.read().name.clone()
-    }
-
-    pub fn metadata(&self) -> String {
-        self.info.read().metadata.clone()
-    }
-
-    pub fn is_speaking(&self) -> bool {
-        self.info.read().speaking
-    }
-
-    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
-        self.tracks.read()
-    }
-
-    pub fn audio_level(&self) -> f32 {
-        self.info.read().audio_level
-    }
-
-    pub fn connection_quality(&self) -> ConnectionQuality {
-        self.info.read().connection_quality
     }
 
     pub fn set_speaking(&self, speaking: bool) {

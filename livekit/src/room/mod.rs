@@ -562,30 +562,34 @@ impl RoomSession {
             metadata,
         );
 
-        participant.on_track_published(|participant, publication| {
-            let _ = self.dispatcher.dispatch(&RoomEvent::TrackPublished {
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_published(move |participant, publication| {
+            dispatcher.dispatch(&RoomEvent::TrackPublished {
                 participant,
                 publication,
             });
         });
 
-        participant.on_track_unpublished(|participant, publication| {
-            let _ = self.dispatcher.dispatch(&RoomEvent::TrackUnpublished {
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_unpublished(move |participant, publication| {
+            dispatcher.dispatch(&RoomEvent::TrackUnpublished {
                 participant,
                 publication,
             });
         });
 
-        participant.on_track_subscribed(|participant, track, publication| {
-            let _ = self.dispatcher.dispatch(&RoomEvent::TrackSubscribed {
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_subscribed(move |participant, track, publication| {
+            dispatcher.dispatch(&RoomEvent::TrackSubscribed {
                 participant,
                 track,
                 publication,
             });
         });
 
-        participant.on_track_unsubscribed(|participant, track, publication| {
-            let _ = self.dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_unsubscribed(move |participant, track, publication| {
+            dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
                 participant,
                 track,
                 publication,

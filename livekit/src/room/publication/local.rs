@@ -35,12 +35,12 @@ impl LocalTrackPublication {
         }
     }
 
-    pub(crate) fn on_muted(&self, f: impl Fn()) {
-        self.inner.events.write().muted = Some(Arc::new(f));
+    pub(crate) fn on_muted(&self, f: impl Fn() + Send + 'static) {
+        *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_unmuted(&self, f: impl Fn()) {
-        self.inner.events.write().unmuted = Some(Arc::new(f));
+    pub(crate) fn on_unmuted(&self, f: impl Fn() + Send + 'static) {
+        *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
     pub(crate) fn set_track(&self, track: Option<Track>) {
@@ -84,7 +84,14 @@ impl LocalTrackPublication {
     }
 
     pub fn track(&self) -> LocalTrack {
-        self.inner.info.read().track.unwrap().try_into().unwrap()
+        self.inner
+            .info
+            .read()
+            .track
+            .clone()
+            .unwrap()
+            .try_into()
+            .unwrap()
     }
 
     pub fn mime_type(&self) -> String {

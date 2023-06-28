@@ -3,17 +3,19 @@ use crate::id::TrackSid;
 use crate::participant::ParticipantInternal;
 use crate::track::{RemoteTrack, TrackDimension, TrackKind, TrackSource};
 use livekit_protocol as proto;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
 use std::sync::{Arc, Weak};
 
 #[derive(Default)]
 struct RemoteEvents {
-    subscribed: Option<Arc<dyn Fn(RemoteTrack)>>,
-    unsubscribed: Option<Arc<dyn Fn(RemoteTrack)>>,
-    subscription_status_changed: Option<Arc<dyn Fn(SubscriptionStatus, SubscriptionStatus)>>, // Old status, new status
-    permission_status_changed: Option<Arc<dyn Fn(PermissionStatus, PermissionStatus)>>, // Old status, new status
-    subscription_failed: Option<Arc<dyn Fn()>>,
+    subscribed: Mutex<Option<Box<dyn Fn(RemoteTrack) + Send>>>,
+    unsubscribed: Mutex<Option<Box<dyn Fn(RemoteTrack) + Send>>>,
+    subscription_status_changed:
+        Mutex<Option<Box<dyn Fn(SubscriptionStatus, SubscriptionStatus) + Send>>>, // Old status, new status
+    permission_status_changed:
+        Mutex<Option<Box<dyn Fn(PermissionStatus, PermissionStatus) + Send>>>, // Old status, new status
+    subscription_failed: Mutex<Option<Box<dyn Fn() + Send>>>,
 }
 
 #[derive(Debug)]
@@ -24,7 +26,7 @@ struct RemoteInfo {
 
 struct RemoteInner {
     info: RwLock<RemoteInfo>,
-    events: RwLock<RemoteEvents>,
+    events: RemoteEvents,
 }
 
 #[derive(Clone)]
@@ -71,7 +73,7 @@ impl RemoteTrackPublication {
         let prev_track = self.track();
 
         if let Some(prev_track) = prev_track {
-            if let Some(unsubscribed) = self.remote.events.read().unsubscribed.clone() {
+            if let Some(unsubscribed) = self.remote.events.unsubscribed.lock().as_ref() {
                 unsubscribed(prev_track);
             }
         }
@@ -79,7 +81,7 @@ impl RemoteTrackPublication {
         self.inner.set_track(track.clone().map(Into::into));
 
         if let Some(track) = track {
-            if let Some(subscribed) = self.remote.events.read().subscribed.clone() {
+            if let Some(subscribed) = self.remote.events.subscribed.lock().as_ref() {
                 subscribed(track);
             }
         }
@@ -89,12 +91,12 @@ impl RemoteTrackPublication {
         self.inner.update_info(info);
     }
 
-    pub(crate) fn on_muted(&self, f: impl Fn()) {
-        self.inner.events.write().muted = Some(Arc::new(f));
+    pub(crate) fn on_muted(&self, f: impl Fn() + Send + 'static) {
+        *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_unmuted(&self, f: impl Fn()) {
-        self.inner.events.write().unmuted = Some(Arc::new(f));
+    pub(crate) fn on_unmuted(&self, f: impl Fn() + Send + 'static) {
+        *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
     pub async fn set_subscribed(&self, subscribed: bool) {
@@ -119,7 +121,7 @@ impl RemoteTrackPublication {
             track_sids: vec![self.sid().0],
             subscribe: subscribed,
             participant_tracks: vec![proto::ParticipantTracks {
-                participant_sid: participant.sid().0,
+                participant_sid: participant.info.read().sid.0.clone(),
                 track_sids: vec![self.sid().0],
             }],
         };
@@ -132,8 +134,12 @@ impl RemoteTrackPublication {
             .await;
 
         if old_subscription_state != self.subscription_status() {
-            if let Some(subscription_status_changed) =
-                &self.remote.events.read().subscription_status_changed
+            if let Some(subscription_status_changed) = self
+                .remote
+                .events
+                .subscription_status_changed
+                .lock()
+                .as_ref()
             {
                 subscription_status_changed(old_subscription_state, self.subscription_status());
             }
@@ -141,7 +147,7 @@ impl RemoteTrackPublication {
 
         if old_permission_state != self.permission_status() {
             if let Some(subscription_permission_changed) =
-                &self.remote.events.read().permission_status_changed
+                self.remote.events.permission_status_changed.lock().as_ref()
             {
                 subscription_permission_changed(old_permission_state, self.permission_status());
             }
@@ -205,6 +211,7 @@ impl RemoteTrackPublication {
             .info
             .read()
             .track
+            .clone()
             .map(|track| track.try_into().unwrap())
     }
 

@@ -9,26 +9,25 @@ use crate::rtc_engine::RtcEngine;
 use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
-use parking_lot::RwLock;
-use parking_lot::RwLockReadGuard;
+use parking_lot::{Mutex, RwLockReadGuard};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
 #[derive(Default)]
 struct LocalEvents {
-    local_track_published: Option<Box<dyn Fn(LocalTrackPublication)>>,
-    local_track_unpublished: Option<Box<dyn Fn(LocalTrackPublication)>>,
+    local_track_published: Mutex<Option<Box<dyn Fn(LocalTrackPublication) + Send>>>,
+    local_track_unpublished: Mutex<Option<Box<dyn Fn(LocalTrackPublication) + Send>>>,
 }
 
 struct LocalInfo {
-    participant_inner: Arc<ParticipantInternal>,
-    events: RwLock<LocalEvents>,
+    events: LocalEvents,
 }
 
 #[derive(Clone)]
 pub struct LocalParticipant {
-    inner: Arc<LocalInfo>,
+    inner: Arc<ParticipantInternal>,
+    local: Arc<LocalInfo>,
 }
 
 impl Debug for LocalParticipant {
@@ -50,11 +49,11 @@ impl LocalParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(LocalInfo {
-                participant_inner: Arc::new(ParticipantInternal::new(
-                    rtc_engine, sid, identity, name, metadata,
-                )),
-                events: RwLock::new(LocalEvents::default()),
+            inner: Arc::new(ParticipantInternal::new(
+                rtc_engine, sid, identity, name, metadata,
+            )),
+            local: Arc::new(LocalInfo {
+                events: LocalEvents::default(),
             }),
         }
     }
@@ -100,15 +99,10 @@ impl LocalParticipant {
                 });
             }
         }
-        let track_info = self
-            .inner
-            .participant_inner
-            .rtc_engine
-            .add_track(req)
-            .await?;
+        let track_info = self.inner.rtc_engine.add_track(req).await?;
         let publication = LocalTrackPublication::new(
             track_info.clone(),
-            Arc::downgrade(&self.inner.participant_inner),
+            Arc::downgrade(&self.inner),
             track.clone(),
         );
         track.update_info(track_info); // Update sid + source
@@ -116,7 +110,6 @@ impl LocalParticipant {
         log::debug!("publishing track with cid {:?}", track.rtc_track().id());
         let transceiver = self
             .inner
-            .participant_inner
             .rtc_engine
             .create_sender(track.clone(), options, encodings)
             .await?;
@@ -125,17 +118,17 @@ impl LocalParticipant {
         track.enable();
 
         tokio::spawn({
-            let rtc_engine = self.inner.participant_inner.rtc_engine.clone();
+            let rtc_engine = self.inner.rtc_engine.clone();
             async move {
                 let _ = rtc_engine.negotiate_publisher().await;
             }
         });
 
         self.inner
-            .participant_inner
             .add_publication(TrackPublication::Local(publication.clone()));
 
-        if let Some(local_track_published) = &self.inner.events.read().local_track_published {
+        if let Some(local_track_published) = self.local.events.local_track_published.lock().as_ref()
+        {
             local_track_published(publication.clone());
         }
 
@@ -147,19 +140,16 @@ impl LocalParticipant {
         track: TrackSid,
         _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
-        let mut tracks = self.inner.participant_inner.tracks.write();
+        let mut tracks = self.inner.tracks.write();
         if let Some(TrackPublication::Local(publication)) = tracks.remove(&track) {
             let track = publication.track();
             let sender = track.transceiver().unwrap().sender();
 
-            self.inner
-                .participant_inner
-                .rtc_engine
-                .remove_track(sender)
-                .await?;
+            self.inner.rtc_engine.remove_track(sender).await?;
             track.set_transceiver(None);
 
-            if let Some(local_track_unpublished) = &self.inner.events.read().local_track_unpublished
+            if let Some(local_track_unpublished) =
+                self.local.events.local_track_unpublished.lock().as_ref()
             {
                 local_track_unpublished(publication.clone());
             }
@@ -167,7 +157,7 @@ impl LocalParticipant {
             //publication.set_track(None);
 
             tokio::spawn({
-                let rtc_engine = self.inner.participant_inner.rtc_engine.clone();
+                let rtc_engine = self.inner.rtc_engine.clone();
                 async move {
                     let _ = rtc_engine.negotiate_publisher().await;
                 }
@@ -195,86 +185,67 @@ impl LocalParticipant {
         };
 
         self.inner
-            .participant_inner
             .rtc_engine
             .publish_data(&data, kind)
             .await
             .map_err(Into::into)
     }
 
-    #[inline]
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
-        self.inner
-            .participant_inner
-            .tracks
-            .read()
-            .get(sid)
-            .map(|track| {
-                if let TrackPublication::Local(local) = track {
-                    return local.clone();
-                }
+        self.inner.tracks.read().get(sid).map(|track| {
+            if let TrackPublication::Local(local) = track {
+                return local.clone();
+            }
 
-                unreachable!()
-            })
+            unreachable!()
+        })
     }
 
-    #[inline]
     pub fn sid(&self) -> ParticipantSid {
-        self.inner.participant_inner.sid()
+        self.inner.info.read().sid.clone()
     }
 
-    #[inline]
     pub fn identity(&self) -> ParticipantIdentity {
-        self.inner.participant_inner.identity()
+        self.inner.info.read().identity.clone()
     }
 
-    #[inline]
     pub fn name(&self) -> String {
-        self.inner.participant_inner.name()
+        self.inner.info.read().name.clone()
     }
 
-    #[inline]
     pub fn metadata(&self) -> String {
-        self.inner.participant_inner.metadata()
+        self.inner.info.read().metadata.clone()
     }
 
-    #[inline]
     pub fn is_speaking(&self) -> bool {
-        self.inner.participant_inner.is_speaking()
+        self.inner.info.read().speaking
     }
 
-    #[inline]
     pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
-        self.inner.participant_inner.tracks()
+        self.inner.tracks.read()
     }
 
-    #[inline]
     pub fn audio_level(&self) -> f32 {
-        self.inner.participant_inner.audio_level()
+        self.inner.info.read().audio_level
     }
 
-    #[inline]
     pub fn connection_quality(&self) -> ConnectionQuality {
-        self.inner.participant_inner.connection_quality()
+        self.inner.info.read().connection_quality
     }
 
-    #[inline]
     pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
-        self.inner.participant_inner.update_info(info);
+        self.inner.update_info(info);
     }
 
-    #[inline]
     pub(crate) fn set_speaking(&self, speaking: bool) {
-        self.inner.participant_inner.set_speaking(speaking);
+        self.inner.set_speaking(speaking);
     }
 
-    #[inline]
     pub(crate) fn set_audio_level(&self, level: f32) {
-        self.inner.participant_inner.set_audio_level(level);
+        self.inner.set_audio_level(level);
     }
 
-    #[inline]
     pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.inner.participant_inner.set_connection_quality(quality);
+        self.inner.set_connection_quality(quality);
     }
 }

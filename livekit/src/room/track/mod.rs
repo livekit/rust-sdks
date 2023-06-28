@@ -2,8 +2,8 @@ use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_webrtc::prelude::*;
-use parking_lot::RwLock;
-use std::{fmt::Debug, sync::Arc};
+use parking_lot::{Mutex, RwLock};
+use std::fmt::Debug;
 use thiserror::Error;
 
 mod audio_track;
@@ -67,8 +67,8 @@ macro_rules! track_dispatch {
             pub fn disable(self: &Self) -> ();
             pub fn is_muted(self: &Self) -> bool;
             pub fn is_remote(self: &Self) -> bool;
-            pub fn on_muted(self: &Self, on_mute: impl Fn()) -> ();
-            pub fn on_unmuted(self: &Self, on_unmute: impl Fn()) -> ();
+            pub fn on_muted(self: &Self, on_mute: impl Fn() + Send) -> ();
+            pub fn on_unmuted(self: &Self, on_unmute: impl Fn() + Send) -> ();
 
             pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
             pub(crate) fn set_transceiver(self: &Self, transceiver: Option<RtpTransceiver>) -> ();
@@ -102,8 +102,8 @@ pub(super) use track_dispatch;
 
 #[derive(Default)]
 struct TrackEvents {
-    pub muted: Option<Arc<dyn Fn()>>,
-    pub unmuted: Option<Arc<dyn Fn()>>,
+    pub muted: Mutex<Option<Box<dyn Fn() + Send>>>,
+    pub unmuted: Mutex<Option<Box<dyn Fn() + Send>>>,
 }
 
 #[derive(Debug)]
@@ -120,7 +120,7 @@ struct TrackInfo {
 pub(super) struct TrackInner {
     pub info: RwLock<TrackInfo>,
     pub rtc_track: MediaStreamTrack,
-    pub events: RwLock<TrackEvents>,
+    pub events: TrackEvents,
 }
 
 impl TrackInner {
@@ -157,11 +157,11 @@ impl TrackInner {
         self.info.write().muted = muted;
 
         if muted {
-            if let Some(on_mute) = self.events.read().muted.clone() {
+            if let Some(on_mute) = self.events.muted.lock().as_ref() {
                 on_mute();
             }
         } else {
-            if let Some(on_unmute) = self.events.read().unmuted.clone() {
+            if let Some(on_unmute) = self.events.unmuted.lock().as_ref() {
                 on_unmute();
             }
         }

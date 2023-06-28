@@ -4,7 +4,7 @@ use crate::prelude::*;
 use crate::track::Track;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::{Arc, Weak};
 
 mod local;
@@ -45,11 +45,19 @@ impl TrackPublication {
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
 
-        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn()) -> ();
-        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn()) -> ();
-        pub(crate) fn set_track(self: &Self, track: Option<Track>) -> ();
+        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn() + Send) -> ();
+        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn() + Send) -> ();
         pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
+
+    // pub(crate) fn set_track(self: &Self, track: Option<Track>) -> ();
+
+    pub(crate) fn set_track(&self, track: Option<Track>) {
+        match self {
+            TrackPublication::Local(p) => p.set_track(track),
+            TrackPublication::Remote(p) => p.set_track(track.map(|t| t.try_into().unwrap())),
+        }
+    }
 
     pub fn track(&self) -> Option<Track> {
         match self {
@@ -73,14 +81,14 @@ struct PublicationInfo {
 
 #[derive(Default)]
 struct PublicationEvents {
-    pub muted: Option<Arc<dyn Fn()>>,
-    pub unmuted: Option<Arc<dyn Fn()>>,
+    pub muted: Mutex<Option<Box<dyn Fn() + Send>>>,
+    pub unmuted: Mutex<Option<Box<dyn Fn() + Send>>>,
 }
 
 pub(super) struct TrackPublicationInner {
     pub info: RwLock<PublicationInfo>,
     pub participant: Weak<ParticipantInternal>,
-    pub events: Arc<RwLock<PublicationEvents>>,
+    pub events: Arc<PublicationEvents>,
 }
 
 impl TrackPublicationInner {
@@ -128,25 +136,26 @@ impl TrackPublicationInner {
 
     pub fn set_track(&self, track: Option<Track>) {
         let mut info = self.info.write();
-        if let Some(prev_track) = info.track {
+        if let Some(prev_track) = info.track.as_ref() {
             prev_track.on_muted(|| {});
             prev_track.on_unmuted(|| {});
         }
 
-        info.track = track;
+        info.track = track.clone();
 
-        if let Some(track) = track {
+        if let Some(track) = track.as_ref() {
             info.sid = track.sid();
 
             let events = self.events.clone();
             track.on_muted(move || {
-                if let Some(on_muted) = events.read().muted.clone() {
+                if let Some(on_muted) = events.muted.lock().as_ref() {
                     on_muted();
                 }
             });
 
+            let events = self.events.clone();
             track.on_unmuted(move || {
-                if let Some(on_unmuted) = events.read().unmuted.clone() {
+                if let Some(on_unmuted) = events.unmuted.lock().as_ref() {
                     on_unmuted();
                 }
             });
