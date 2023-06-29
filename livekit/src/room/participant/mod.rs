@@ -39,13 +39,14 @@ impl Participant {
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
         pub fn tracks(self: &Self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>>;
 
-
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 
         // Internal functions called by the Room when receiving the associated signal messages
         pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
+        pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
+        pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> ();
     );
 }
 
@@ -66,10 +67,10 @@ struct ParticipantEvents {
 }
 
 pub(super) struct ParticipantInner {
-    pub rtc_engine: Arc<RtcEngine>,
-    pub info: RwLock<ParticipantInfo>,
-    pub tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
-    pub events: Arc<ParticipantEvents>,
+    rtc_engine: Arc<RtcEngine>,
+    info: RwLock<ParticipantInfo>,
+    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    events: Arc<ParticipantEvents>,
 }
 
 pub(super) fn new_inner(
@@ -97,7 +98,7 @@ pub(super) fn new_inner(
 
 pub(super) fn update_info(
     inner: &Arc<ParticipantInner>,
-    participant: &Participant,
+    _participant: &Participant,
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
@@ -109,7 +110,7 @@ pub(super) fn update_info(
 
 pub(super) fn set_speaking(
     inner: &Arc<ParticipantInner>,
-    participant: &Participant,
+    _participant: &Participant,
     speaking: bool,
 ) {
     inner.info.write().speaking = speaking;
@@ -117,7 +118,7 @@ pub(super) fn set_speaking(
 
 pub(super) fn set_audio_level(
     inner: &Arc<ParticipantInner>,
-    participant: &Participant,
+    _participant: &Participant,
     audio_level: f32,
 ) {
     inner.info.write().audio_level = audio_level;
@@ -125,7 +126,7 @@ pub(super) fn set_audio_level(
 
 pub(super) fn set_connection_quality(
     inner: &Arc<ParticipantInner>,
-    participant: &Participant,
+    _participant: &Participant,
     quality: ConnectionQuality,
 ) {
     inner.info.write().connection_quality = quality;
@@ -133,7 +134,7 @@ pub(super) fn set_connection_quality(
 
 pub(super) fn remove_publication(
     inner: &Arc<ParticipantInner>,
-    participant: &Participant,
+    _participant: &Participant,
     sid: &TrackSid,
 ) {
     let mut tracks = inner.tracks.write();

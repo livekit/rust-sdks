@@ -1,11 +1,10 @@
 use super::track::TrackDimension;
-use crate::participant::ParticipantInner;
 use crate::prelude::*;
 use crate::track::Track;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 mod local;
 mod remote;
@@ -45,8 +44,8 @@ impl TrackPublication {
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
 
-        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send) -> ();
-        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send) -> ();
+        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
+        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
         pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
 
@@ -79,19 +78,17 @@ struct PublicationInfo {
 
 #[derive(Default)]
 struct PublicationEvents {
-    pub muted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
-    pub unmuted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
+    muted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
+    unmuted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
 }
 
 pub(super) struct TrackPublicationInner {
-    pub info: RwLock<PublicationInfo>,
-    pub participant: Weak<ParticipantInner>,
-    pub events: Arc<PublicationEvents>,
+    info: RwLock<PublicationInfo>,
+    events: Arc<PublicationEvents>,
 }
 
 pub(super) fn new_inner(
     info: proto::TrackInfo,
-    participant: Weak<ParticipantInner>,
     track: Option<Track>,
 ) -> Arc<TrackPublicationInner> {
     let info = PublicationInfo {
@@ -114,14 +111,13 @@ pub(super) fn new_inner(
 
     Arc::new(TrackPublicationInner {
         info: RwLock::new(info),
-        participant,
         events: Default::default(),
     })
 }
 
 pub(super) fn update_info(
     inner: &TrackPublicationInner,
-    publication: &TrackPublication,
+    _publication: &TrackPublication,
     new_info: proto::TrackInfo,
 ) {
     let mut info = inner.info.write();
@@ -150,19 +146,23 @@ pub(super) fn set_track(
     if let Some(track) = track.as_ref() {
         info.sid = track.sid();
 
-        let events = inner.events.clone();
-        let publication = publication.clone();
-        track.on_muted(move |track| {
-            if let Some(on_muted) = events.muted.lock().as_ref() {
-                on_muted(publication.clone(), track);
+        track.on_muted({
+            let events = inner.events.clone();
+            let publication = publication.clone();
+            move |track| {
+                if let Some(on_muted) = events.muted.lock().as_ref() {
+                    on_muted(publication.clone(), track);
+                }
             }
         });
 
-        let events = inner.events.clone();
-        let publication = publication.clone();
-        track.on_unmuted(move |track| {
-            if let Some(on_unmuted) = events.unmuted.lock().as_ref() {
-                on_unmuted(publication.clone(), track);
+        track.on_unmuted({
+            let events = inner.events.clone();
+            let publication = publication.clone();
+            move |track| {
+                if let Some(on_unmuted) = events.unmuted.lock().as_ref() {
+                    on_unmuted(publication.clone(), track);
+                }
             }
         });
     }

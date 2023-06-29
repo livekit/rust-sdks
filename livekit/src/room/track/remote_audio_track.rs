@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct RemoteAudioTrack {
-    pub(crate) inner: Arc<TrackInner>,
+    inner: Arc<TrackInner>,
 }
 
 impl Debug for RemoteAudioTrack {

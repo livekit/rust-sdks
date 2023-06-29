@@ -1,10 +1,9 @@
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
-use crate::participant::ParticipantInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 #[derive(Default)]
 struct RemoteEvents {
@@ -17,6 +16,7 @@ struct RemoteEvents {
         Option<Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>>,
     >, // Old status, new status
     subscription_failed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication) + Send>>>,
+    subscription_update_needed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication) + Send>>>,
 }
 
 #[derive(Debug)]
@@ -46,13 +46,9 @@ impl Debug for RemoteTrackPublication {
 }
 
 impl RemoteTrackPublication {
-    pub(crate) fn new(
-        info: proto::TrackInfo,
-        participant: Weak<ParticipantInner>,
-        track: Option<RemoteTrack>,
-    ) -> Self {
+    pub(crate) fn new(info: proto::TrackInfo, track: Option<RemoteTrack>) -> Self {
         Self {
-            inner: super::new_inner(info, participant, track.map(Into::into)),
+            inner: super::new_inner(info, track.map(Into::into)),
             remote: Arc::new(RemoteInner {
                 info: RwLock::new(RemoteInfo {
                     subscribed: false,
@@ -100,6 +96,48 @@ impl RemoteTrackPublication {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
+    pub(crate) fn on_subscribed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, RemoteTrack) + Send + 'static,
+    ) {
+        *self.remote.events.subscribed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_unsubscribed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, RemoteTrack) + Send + 'static,
+    ) {
+        *self.remote.events.unsubscribed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_subscription_status_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, SubscriptionStatus, SubscriptionStatus) + Send + 'static,
+    ) {
+        *self.remote.events.subscription_status_changed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_permission_status_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send + 'static,
+    ) {
+        *self.remote.events.permission_status_changed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_subscription_failed(
+        &self,
+        f: impl Fn(RemoteTrackPublication) + Send + 'static,
+    ) {
+        *self.remote.events.subscription_failed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_subscription_update_needed(
+        &self,
+        f: impl Fn(RemoteTrackPublication) + Send + 'static,
+    ) {
+        *self.remote.events.subscription_update_needed.lock() = Some(Box::new(f));
+    }
+
     pub async fn set_subscribed(&self, subscribed: bool) {
         let old_subscription_state = self.subscription_status();
         let old_permission_state = self.permission_status();
@@ -111,7 +149,7 @@ impl RemoteTrackPublication {
             info.allowed = true;
         }
 
-        let participant = self.inner.participant.upgrade();
+        /*let participant = self.inner.participant.upgrade();
         if participant.is_none() {
             log::warn!("publication's participant is invalid, set_subscribed failed");
             return;
@@ -132,7 +170,17 @@ impl RemoteTrackPublication {
             .send_request(proto::signal_request::Message::Subscription(
                 update_subscription,
             ))
-            .await;
+            .await;*/
+
+        if let Some(subscription_update_needed) = self
+            .remote
+            .events
+            .subscription_update_needed
+            .lock()
+            .as_ref()
+        {
+            subscription_update_needed(self.clone());
+        }
 
         if old_subscription_state != self.subscription_status() {
             if let Some(subscription_status_changed) = self

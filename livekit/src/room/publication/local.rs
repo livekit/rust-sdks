@@ -1,9 +1,8 @@
 use super::TrackPublicationInner;
-use crate::participant::ParticipantInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
 use std::fmt::Debug;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct LocalTrackPublication {
@@ -21,13 +20,9 @@ impl Debug for LocalTrackPublication {
 }
 
 impl LocalTrackPublication {
-    pub(crate) fn new(
-        info: proto::TrackInfo,
-        participant: Weak<ParticipantInner>,
-        track: LocalTrack,
-    ) -> Self {
+    pub(crate) fn new(info: proto::TrackInfo, track: LocalTrack) -> Self {
         Self {
-            inner: super::new_inner(info, participant, Some(track.into())),
+            inner: super::new_inner(info, Some(track.into())),
         }
     }
 

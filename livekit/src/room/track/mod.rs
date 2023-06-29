@@ -119,9 +119,9 @@ struct TrackInfo {
 }
 
 pub(super) struct TrackInner {
-    pub info: RwLock<TrackInfo>,
-    pub rtc_track: MediaStreamTrack,
-    pub events: TrackEvents,
+    info: RwLock<TrackInfo>,
+    rtc_track: MediaStreamTrack,
+    events: TrackEvents,
 }
 
 pub(super) fn new_inner(

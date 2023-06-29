@@ -121,12 +121,7 @@ impl RemoteParticipant {
                 ..Default::default()
             });
 
-            super::add_publication(
-                &self.inner,
-                &Participant::Remote(self.clone()),
-                TrackPublication::Remote(remote_publication.clone()),
-            );
-
+            self.add_publication(TrackPublication::Remote(remote_publication.clone()));
             track.enable();
 
             remote_publication.set_track(Some(track.into())); // This will fire TrackSubscribed on the publication
@@ -153,7 +148,7 @@ impl RemoteParticipant {
                 publication.set_track(None); // This will fire TrackUnsubscribed on the publication
             }
 
-            super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
+            self.remove_publication(sid);
 
             if let Some(track_unpublished) = self.remote.events.track_unpublished.lock().as_ref() {
                 track_unpublished(self.clone(), publication.clone());
@@ -173,14 +168,9 @@ impl RemoteParticipant {
             if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
                 publication.update_info(track.clone());
             } else {
-                let publication =
-                    RemoteTrackPublication::new(track.clone(), Arc::downgrade(&self.inner), None);
+                let publication = RemoteTrackPublication::new(track.clone(), None);
 
-                super::add_publication(
-                    &self.inner,
-                    &Participant::Remote(self.clone()),
-                    TrackPublication::Remote(publication.clone()),
-                );
+                self.add_publication(TrackPublication::Remote(publication.clone()));
 
                 // This is a new track, dispatch publish event
                 if let Some(track_published) = self.remote.events.track_published.lock().as_ref() {
@@ -241,6 +231,26 @@ impl RemoteParticipant {
             Some(Box::new(track_subscription_failed));
     }
 
+    pub(crate) fn set_speaking(&self, speaking: bool) {
+        super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
+    }
+
+    pub(crate) fn set_audio_level(&self, level: f32) {
+        super::set_audio_level(&self.inner, &Participant::Remote(self.clone()), level);
+    }
+
+    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
+        super::set_connection_quality(&self.inner, &Participant::Remote(self.clone()), quality);
+    }
+
+    pub(crate) fn add_publication(&self, publication: TrackPublication) {
+        super::add_publication(&self.inner, &Participant::Remote(self.clone()), publication);
+    }
+
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
+        super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
+    }
+
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
         self.inner.tracks.read().get(sid).map(|track| {
             if let TrackPublication::Remote(remote) = track {
@@ -280,17 +290,5 @@ impl RemoteParticipant {
 
     pub fn connection_quality(&self) -> ConnectionQuality {
         self.inner.info.read().connection_quality
-    }
-
-    pub(crate) fn set_speaking(&self, speaking: bool) {
-        super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
-    }
-
-    pub(crate) fn set_audio_level(&self, level: f32) {
-        super::set_audio_level(&self.inner, &Participant::Remote(self.clone()), level);
-    }
-
-    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
-        super::set_connection_quality(&self.inner, &Participant::Remote(self.clone()), quality);
     }
 }

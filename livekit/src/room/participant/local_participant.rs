@@ -16,8 +16,10 @@ use std::sync::Arc;
 
 #[derive(Default)]
 struct LocalEvents {
-    local_track_published: Mutex<Option<Box<dyn Fn(LocalTrackPublication) + Send>>>,
-    local_track_unpublished: Mutex<Option<Box<dyn Fn(LocalTrackPublication) + Send>>>,
+    local_track_published:
+        Mutex<Option<Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>>>,
+    local_track_unpublished:
+        Mutex<Option<Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>>>,
 }
 
 struct LocalInfo {
@@ -54,6 +56,44 @@ impl LocalParticipant {
                 events: LocalEvents::default(),
             }),
         }
+    }
+
+    pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
+        super::update_info(&self.inner, &Participant::Local(self.clone()), info);
+    }
+
+    pub(crate) fn set_speaking(&self, speaking: bool) {
+        super::set_speaking(&self.inner, &Participant::Local(self.clone()), speaking);
+    }
+
+    pub(crate) fn set_audio_level(&self, level: f32) {
+        super::set_audio_level(&self.inner, &Participant::Local(self.clone()), level);
+    }
+
+    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
+        super::set_connection_quality(&self.inner, &Participant::Local(self.clone()), quality);
+    }
+
+    pub(crate) fn on_local_track_published(
+        &self,
+        handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
+    ) {
+        *self.local.events.local_track_published.lock() = Some(Box::new(handler));
+    }
+
+    pub(crate) fn on_local_track_unpublished(
+        &self,
+        handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
+    ) {
+        *self.local.events.local_track_unpublished.lock() = Some(Box::new(handler));
+    }
+
+    pub(crate) fn add_publication(&self, publication: TrackPublication) {
+        super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
+    }
+
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
+        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid);
     }
 
     pub async fn publish_track(
@@ -98,11 +138,7 @@ impl LocalParticipant {
             }
         }
         let track_info = self.inner.rtc_engine.add_track(req).await?;
-        let publication = LocalTrackPublication::new(
-            track_info.clone(),
-            Arc::downgrade(&self.inner),
-            track.clone(),
-        );
+        let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
 
         log::debug!("publishing track with cid {:?}", track.rtc_track().id());
@@ -122,15 +158,11 @@ impl LocalParticipant {
             }
         });
 
-        super::add_publication(
-            &self.inner,
-            &Participant::Local(self.clone()),
-            TrackPublication::Local(publication.clone()),
-        );
+        self.add_publication(TrackPublication::Local(publication.clone()));
 
         if let Some(local_track_published) = self.local.events.local_track_published.lock().as_ref()
         {
-            local_track_published(publication.clone());
+            local_track_published(self.clone(), publication.clone());
         }
 
         Ok(publication)
@@ -152,10 +184,10 @@ impl LocalParticipant {
             if let Some(local_track_unpublished) =
                 self.local.events.local_track_unpublished.lock().as_ref()
             {
-                local_track_unpublished(publication.clone());
+                local_track_unpublished(self.clone(), publication.clone());
             }
 
-            //publication.set_track(None);
+            publication.set_track(None);
 
             tokio::spawn({
                 let rtc_engine = self.inner.rtc_engine.clone();
@@ -232,21 +264,5 @@ impl LocalParticipant {
 
     pub fn connection_quality(&self) -> ConnectionQuality {
         self.inner.info.read().connection_quality
-    }
-
-    pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
-        super::update_info(&self.inner, &Participant::Local(self.clone()), info);
-    }
-
-    pub(crate) fn set_speaking(&self, speaking: bool) {
-        super::set_speaking(&self.inner, &Participant::Local(self.clone()), speaking);
-    }
-
-    pub(crate) fn set_audio_level(&self, level: f32) {
-        super::set_audio_level(&self.inner, &Participant::Local(self.clone()), level);
-    }
-
-    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
-        super::set_connection_quality(&self.inner, &Participant::Local(self.clone()), quality);
     }
 }
