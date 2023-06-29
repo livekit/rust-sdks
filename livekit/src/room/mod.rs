@@ -6,7 +6,7 @@ use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
-use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -67,9 +67,9 @@ pub enum RoomEvent {
         participant: RemoteParticipant,
     },
     TrackSubscriptionFailed {
+        participant: RemoteParticipant,
         error: track::TrackError,
         sid: TrackSid,
-        participant: RemoteParticipant,
     },
     TrackMuted {
         participant: Participant,
@@ -595,6 +595,15 @@ impl RoomSession {
                 participant,
                 track,
                 publication,
+            });
+        });
+
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_subscription_failed(move |participant, sid, error| {
+            dispatcher.dispatch(&RoomEvent::TrackSubscriptionFailed {
+                participant,
+                sid,
+                error,
             });
         });
 
