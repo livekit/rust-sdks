@@ -3,7 +3,7 @@ use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::rtc_engine::EngineError;
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
-use crate::signal_client::SignalOptions;
+use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};

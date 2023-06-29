@@ -656,6 +656,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-rustls"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0646026eb1b3eea4cd9ba47912ea5ce9cc07713d105b1a14698f4e6433d348b7"
+dependencies = [
+ "http",
+ "hyper",
+ "rustls",
+ "tokio",
+ "tokio-rustls",
+]
+
+[[package]]
 name = "hyper-tls"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -813,6 +826,7 @@ version = "0.1.1"
 dependencies = [
  "futures-util",
  "lazy_static",
+ "livekit-api",
  "livekit-protocol",
  "livekit-webrtc",
  "log",
@@ -822,22 +836,25 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-tungstenite",
- "url",
 ]
 
 [[package]]
 name = "livekit-api"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "jsonwebtoken",
  "livekit-protocol",
+ "log",
+ "parking_lot",
  "prost",
  "reqwest",
  "serde",
  "serde_json",
  "sha2",
  "thiserror",
+ "tokio",
+ "tokio-tungstenite",
  "url",
 ]
 
@@ -1304,6 +1321,7 @@ dependencies = [
  "http",
  "http-body",
  "hyper",
+ "hyper-rustls",
  "hyper-tls",
  "ipnet",
  "js-sys",
@@ -1313,16 +1331,21 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots 0.22.6",
  "winreg",
 ]
 
@@ -1758,7 +1781,7 @@ dependencies = [
  "tokio-native-tls",
  "tokio-rustls",
  "tungstenite",
- "webpki-roots",
+ "webpki-roots 0.23.1",
 ]
 
 [[package]]
@@ -1997,6 +2020,15 @@ checksum = "f095d78192e208183081cc07bc5515ef55216397af48b873e5edcd72637fa1bd"
 dependencies = [
  "ring",
  "untrusted",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "0.22.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6c71e40d7d2c34a5106301fb632274ca37242cd0c9d3e64dbece371a40a2d87"
+dependencies = [
+ "webpki",
 ]
 
 [[package]]
