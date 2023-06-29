@@ -140,18 +140,11 @@ async fn room_task(
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
-    server
-        .async_runtime
-        .spawn(participant_task(Participant::Local(
-            room.local_participant(),
-        )));
-
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
                 let message = match event {
                     RoomEvent::ParticipantConnected(participant) => {
-                        server.async_runtime.spawn(participant_task(Participant::Remote(participant.clone())));
                         Some(proto::room_event::Message::ParticipantConnected(
                             proto::ParticipantConnected {
                                 info: Some(proto::ParticipantInfo::from(&participant)),
@@ -224,12 +217,5 @@ async fn room_task(
                 break;
             }
         };
-    }
-}
-
-async fn participant_task(participant: Participant) {
-    let mut participant_events = participant.register_observer();
-    while let Some(_event) = participant_events.recv().await {
-        // TODO(theomonnom): convert event to proto
     }
 }
