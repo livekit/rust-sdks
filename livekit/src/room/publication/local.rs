@@ -1,5 +1,5 @@
 use super::TrackPublicationInner;
-use crate::participant::ParticipantInternal;
+use crate::participant::ParticipantInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
 use std::fmt::Debug;
@@ -23,32 +23,28 @@ impl Debug for LocalTrackPublication {
 impl LocalTrackPublication {
     pub(crate) fn new(
         info: proto::TrackInfo,
-        participant: Weak<ParticipantInternal>,
+        participant: Weak<ParticipantInner>,
         track: LocalTrack,
     ) -> Self {
         Self {
-            inner: Arc::new(TrackPublicationInner::new(
-                info,
-                participant,
-                Some(track.into()),
-            )),
+            inner: super::new_inner(info, participant, Some(track.into())),
         }
     }
 
-    pub(crate) fn on_muted(&self, f: impl Fn() + Send + 'static) {
+    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_unmuted(&self, f: impl Fn() + Send + 'static) {
+    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
     pub(crate) fn set_track(&self, track: Option<Track>) {
-        self.inner.set_track(track);
+        super::set_track(&self.inner, &TrackPublication::Local(self.clone()), track);
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info);
+        super::update_info(&self.inner, &TrackPublication::Local(self.clone()), info);
     }
 
     pub fn mute(&self) {

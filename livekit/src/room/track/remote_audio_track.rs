@@ -1,4 +1,4 @@
-use super::TrackInner;
+use super::{remote_track, TrackInner};
 use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
@@ -23,7 +23,7 @@ impl Debug for RemoteAudioTrack {
 impl RemoteAudioTrack {
     pub(crate) fn new(sid: TrackSid, name: String, rtc_track: RtcAudioTrack) -> Self {
         Self {
-            inner: Arc::new(TrackInner::new(
+            inner: Arc::new(super::new_inner(
                 sid,
                 name,
                 TrackKind::Audio,
@@ -75,11 +75,11 @@ impl RemoteAudioTrack {
         true
     }
 
-    pub fn on_muted(&self, f: impl Fn() + Send + 'static) {
+    pub fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub fn on_unmuted(&self, f: impl Fn() + Send + 'static) {
+    pub fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
@@ -92,6 +92,6 @@ impl RemoteAudioTrack {
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info)
+        remote_track::update_info(&self.inner, &Track::RemoteAudio(self.clone()), info);
     }
 }

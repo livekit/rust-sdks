@@ -4,6 +4,7 @@ use livekit_protocol::enum_dispatch;
 use livekit_webrtc::prelude::*;
 use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
+use std::sync::Arc;
 use thiserror::Error;
 
 mod audio_track;
@@ -67,8 +68,8 @@ macro_rules! track_dispatch {
             pub fn disable(self: &Self) -> ();
             pub fn is_muted(self: &Self) -> bool;
             pub fn is_remote(self: &Self) -> bool;
-            pub fn on_muted(self: &Self, on_mute: impl Fn() + Send) -> ();
-            pub fn on_unmuted(self: &Self, on_unmute: impl Fn() + Send) -> ();
+            pub fn on_muted(self: &Self, on_mute: impl Fn(Track) + Send + 'static) -> ();
+            pub fn on_unmuted(self: &Self, on_unmute: impl Fn(Track) + Send + 'static) -> ();
 
             pub(crate) fn transceiver(self: &Self) -> Option<RtpTransceiver>;
             pub(crate) fn set_transceiver(self: &Self, transceiver: Option<RtpTransceiver>) -> ();
@@ -102,8 +103,8 @@ pub(super) use track_dispatch;
 
 #[derive(Default)]
 struct TrackEvents {
-    pub muted: Mutex<Option<Box<dyn Fn() + Send>>>,
-    pub unmuted: Mutex<Option<Box<dyn Fn() + Send>>>,
+    pub muted: Mutex<Option<Box<dyn Fn(Track) + Send>>>,
+    pub unmuted: Mutex<Option<Box<dyn Fn(Track) + Send>>>,
 }
 
 #[derive(Debug)]
@@ -123,56 +124,58 @@ pub(super) struct TrackInner {
     pub events: TrackEvents,
 }
 
-impl TrackInner {
-    pub fn new(sid: TrackSid, name: String, kind: TrackKind, rtc_track: MediaStreamTrack) -> Self {
-        Self {
-            info: RwLock::new(TrackInfo {
-                sid,
-                name,
-                kind,
-                source: TrackSource::Unknown,
-                stream_state: StreamState::Active,
-                muted: false,
-                transceiver: None,
-            }),
-            rtc_track,
-            events: Default::default(),
-        }
+pub(super) fn new_inner(
+    sid: TrackSid,
+    name: String,
+    kind: TrackKind,
+    rtc_track: MediaStreamTrack,
+) -> TrackInner {
+    TrackInner {
+        info: RwLock::new(TrackInfo {
+            sid,
+            name,
+            kind,
+            source: TrackSource::Unknown,
+            stream_state: StreamState::Active,
+            muted: false,
+            transceiver: None,
+        }),
+        rtc_track,
+        events: Default::default(),
+    }
+}
+
+pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
+    let info = inner.info.read();
+    log::debug!("set_muted: {} {}", info.sid, muted);
+    if info.muted == muted {
+        return;
+    }
+    drop(info);
+
+    if muted {
+        inner.rtc_track.set_enabled(false);
+    } else {
+        inner.rtc_track.set_enabled(true);
     }
 
-    pub fn set_muted(&self, muted: bool) {
-        let info = self.info.read();
-        log::debug!("set_muted: {} {}", info.sid, muted);
-        if info.muted == muted {
-            return;
+    inner.info.write().muted = muted;
+
+    if muted {
+        if let Some(on_mute) = inner.events.muted.lock().as_ref() {
+            on_mute(track.clone());
         }
-        drop(info);
-
-        if muted {
-            self.rtc_track.set_enabled(false);
-        } else {
-            self.rtc_track.set_enabled(true);
-        }
-
-        self.info.write().muted = muted;
-
-        if muted {
-            if let Some(on_mute) = self.events.muted.lock().as_ref() {
-                on_mute();
-            }
-        } else {
-            if let Some(on_unmute) = self.events.unmuted.lock().as_ref() {
-                on_unmute();
-            }
+    } else {
+        if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
+            on_unmute(track.clone());
         }
     }
+}
 
-    pub fn update_info(&self, new_info: proto::TrackInfo) {
-        let mut info = self.info.write();
-        info.name = new_info.name;
-        info.sid = new_info.sid.into();
-        info.kind =
-            TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
-        info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
-    }
+pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: proto::TrackInfo) {
+    let mut info = inner.info.write();
+    info.name = new_info.name;
+    info.sid = new_info.sid.into();
+    info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
+    info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
 }

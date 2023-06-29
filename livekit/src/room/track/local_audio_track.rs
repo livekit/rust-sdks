@@ -26,7 +26,7 @@ impl Debug for LocalAudioTrack {
 impl LocalAudioTrack {
     pub(crate) fn new(name: String, rtc_track: RtcAudioTrack, source: RtcAudioSource) -> Self {
         Self {
-            inner: Arc::new(TrackInner::new(
+            inner: Arc::new(super::new_inner(
                 "unknown".to_string().into(), // sid
                 name,
                 TrackKind::Audio,
@@ -84,11 +84,11 @@ impl LocalAudioTrack {
     }
 
     pub fn mute(&self) {
-        self.inner.set_muted(true);
+        super::set_muted(&self.inner, &Track::LocalAudio(self.clone()), true);
     }
 
     pub fn unmute(&self) {
-        self.inner.set_muted(false);
+        super::set_muted(&self.inner, &Track::LocalAudio(self.clone()), false);
     }
 
     pub fn rtc_track(&self) -> RtcAudioTrack {
@@ -106,11 +106,11 @@ impl LocalAudioTrack {
         false
     }
 
-    pub fn on_muted(&self, f: impl Fn() + Send + 'static) {
+    pub fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub fn on_unmuted(&self, f: impl Fn() + Send + 'static) {
+    pub fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
@@ -123,6 +123,6 @@ impl LocalAudioTrack {
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info)
+        super::update_info(&self.inner, &Track::LocalAudio(self.clone()), info);
     }
 }

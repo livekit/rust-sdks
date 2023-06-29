@@ -1,3 +1,4 @@
+use super::remote_track;
 use super::TrackInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
@@ -23,7 +24,7 @@ impl Debug for RemoteVideoTrack {
 impl RemoteVideoTrack {
     pub(crate) fn new(sid: TrackSid, name: String, rtc_track: RtcVideoTrack) -> Self {
         Self {
-            inner: Arc::new(TrackInner::new(
+            inner: Arc::new(super::new_inner(
                 sid,
                 name,
                 TrackKind::Video,
@@ -75,11 +76,11 @@ impl RemoteVideoTrack {
         true
     }
 
-    pub fn on_muted(&self, f: impl Fn() + Send + 'static) {
+    pub fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub fn on_unmuted(&self, f: impl Fn() + Send + 'static) {
+    pub fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
@@ -92,6 +93,6 @@ impl RemoteVideoTrack {
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info)
+        remote_track::update_info(&self.inner, &Track::RemoteVideo(self.clone()), info);
     }
 }

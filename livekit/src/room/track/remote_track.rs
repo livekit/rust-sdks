@@ -24,9 +24,9 @@ impl RemoteTrack {
     }
 }
 
-pub(crate) fn update_info(track: &Arc<TrackInner>, new_info: proto::TrackInfo) {
-    track.update_info(new_info.clone());
-    track.set_muted(new_info.muted);
+pub(super) fn update_info(inner: &Arc<TrackInner>, track: &Track, new_info: proto::TrackInfo) {
+    super::update_info(inner, track, new_info.clone());
+    super::set_muted(inner, track, new_info.muted);
 }
 
 impl From<RemoteTrack> for Track {

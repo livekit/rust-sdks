@@ -1,5 +1,5 @@
 use super::ConnectionQuality;
-use super::ParticipantInternal;
+use super::ParticipantInner;
 use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
@@ -26,7 +26,7 @@ struct LocalInfo {
 
 #[derive(Clone)]
 pub struct LocalParticipant {
-    inner: Arc<ParticipantInternal>,
+    inner: Arc<ParticipantInner>,
     local: Arc<LocalInfo>,
 }
 
@@ -49,9 +49,7 @@ impl LocalParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(ParticipantInternal::new(
-                rtc_engine, sid, identity, name, metadata,
-            )),
+            inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
             }),
@@ -124,8 +122,11 @@ impl LocalParticipant {
             }
         });
 
-        self.inner
-            .add_publication(TrackPublication::Local(publication.clone()));
+        super::add_publication(
+            &self.inner,
+            &Participant::Local(self.clone()),
+            TrackPublication::Local(publication.clone()),
+        );
 
         if let Some(local_track_published) = self.local.events.local_track_published.lock().as_ref()
         {
@@ -234,18 +235,18 @@ impl LocalParticipant {
     }
 
     pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
-        self.inner.update_info(info);
+        super::update_info(&self.inner, &Participant::Local(self.clone()), info);
     }
 
     pub(crate) fn set_speaking(&self, speaking: bool) {
-        self.inner.set_speaking(speaking);
+        super::set_speaking(&self.inner, &Participant::Local(self.clone()), speaking);
     }
 
     pub(crate) fn set_audio_level(&self, level: f32) {
-        self.inner.set_audio_level(level);
+        super::set_audio_level(&self.inner, &Participant::Local(self.clone()), level);
     }
 
     pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.inner.set_connection_quality(quality);
+        super::set_connection_quality(&self.inner, &Participant::Local(self.clone()), quality);
     }
 }

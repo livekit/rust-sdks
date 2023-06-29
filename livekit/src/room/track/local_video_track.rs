@@ -25,7 +25,7 @@ impl Debug for LocalVideoTrack {
 impl LocalVideoTrack {
     pub fn new(name: String, rtc_track: RtcVideoTrack, source: RtcVideoSource) -> Self {
         Self {
-            inner: Arc::new(TrackInner::new(
+            inner: Arc::new(super::new_inner(
                 "unknown".to_string().into(), // sid
                 name,
                 TrackKind::Video,
@@ -84,11 +84,11 @@ impl LocalVideoTrack {
     }
 
     pub fn mute(&self) {
-        self.inner.set_muted(true);
+        super::set_muted(&self.inner, &Track::LocalVideo(self.clone()), true);
     }
 
     pub fn unmute(&self) {
-        self.inner.set_muted(false);
+        super::set_muted(&self.inner, &Track::LocalVideo(self.clone()), false);
     }
 
     pub fn rtc_track(&self) -> RtcVideoTrack {
@@ -106,11 +106,11 @@ impl LocalVideoTrack {
         self.source.clone()
     }
 
-    pub fn on_muted(&self, f: impl Fn() + Send + 'static) {
+    pub fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub fn on_unmuted(&self, f: impl Fn() + Send + 'static) {
+    pub fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
@@ -123,6 +123,6 @@ impl LocalVideoTrack {
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info)
+        super::update_info(&self.inner, &&Track::LocalVideo(self.clone()), info);
     }
 }

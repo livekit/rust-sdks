@@ -1,7 +1,17 @@
-use crate::{track, DataPacketKind};
+use crate::{participant, track, DataPacketKind};
 use livekit_protocol::*;
 
 // Conversions
+impl From<ConnectionQuality> for participant::ConnectionQuality {
+    fn from(value: ConnectionQuality) -> Self {
+        match value {
+            ConnectionQuality::Excellent => Self::Excellent,
+            ConnectionQuality::Good => Self::Good,
+            ConnectionQuality::Poor => Self::Poor,
+        }
+    }
+}
+
 impl TryFrom<TrackType> for track::TrackKind {
     type Error = &'static str;
 
