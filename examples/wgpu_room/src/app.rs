@@ -25,8 +25,6 @@ use tokio::sync::{mpsc, oneshot};
 const DEFAULT_URL: &str = "ws://localhost:7880";
 const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTMyODgsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJuYXRpdmUiLCJuYmYiOjE2NzI2MTMyODgsInN1YiI6Im5hdGl2ZSIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.uSNIangMRu8jZD5mnRYoCHjcsQWCrJXgHCs0aNIgBFY";
 
-// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTM0MzcsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJ3ZWIiLCJuYmYiOjE2NzI2MTM0MzcsInN1YiI6IndlYiIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.DFTXt60n1kzGq4cSuOhbFBTQW2nd3rlcXKQ54sXsP8s
-
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -110,12 +108,11 @@ pub fn run(rt: tokio::runtime::Runtime) {
                 continue;
             }
 
-            println!("{} deadlocks detected", deadlocks.len());
+            log::error!("{} deadlocks detected", deadlocks.len());
             for (i, threads) in deadlocks.iter().enumerate() {
-                println!("Deadlock #{}", i);
+                log::error!("Deadlock #{}", i);
                 for t in threads {
-                    println!("Thread Id {:#?}", t.thread_id());
-                    println!("{:#?}", t.backtrace());
+                    log::error!("Thread Id {:#?}: \n{:#?}", t.thread_id(), t.backtrace());
                 }
             }
         });

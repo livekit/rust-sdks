@@ -62,7 +62,7 @@ pub extern "C" fn livekit_ffi_request(
 
     let handle_id = server::FFI_SERVER.next_id();
     server::FFI_SERVER
-        .ffi_handles()
+        .ffi_handles
         .insert(handle_id, Box::new(res));
 
     handle_id
@@ -71,8 +71,5 @@ pub extern "C" fn livekit_ffi_request(
 #[no_mangle]
 pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     // Free the memory
-    server::FFI_SERVER
-        .ffi_handles()
-        .remove(&handle_id)
-        .is_some()
+    server::FFI_SERVER.ffi_handles.remove(&handle_id).is_some()
 }

@@ -39,7 +39,7 @@ impl FfiVideoStream {
             .id as FfiHandleId;
 
         let track = server
-            .ffi_handles()
+            .ffi_handles
             .get(&handle_id)
             .ok_or(FfiError::InvalidRequest("track not found"))?;
 
@@ -75,7 +75,7 @@ impl FfiVideoStream {
         // Store the new video stream and return the info
         let info = proto::VideoStreamInfo::from(&stream);
         server
-            .ffi_handles()
+            .ffi_handles
             .insert(stream.handle_id, Box::new(stream));
 
         Ok(info)
@@ -110,7 +110,7 @@ impl FfiVideoStream {
                     let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &frame.buffer);
 
                     server
-                        .ffi_handles()
+                        .ffi_handles
                         .insert(handle_id, Box::new(frame.buffer));
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
@@ -167,7 +167,7 @@ impl FfiVideoSource {
         let source_info = proto::VideoSourceInfo::from(&video_source);
 
         server
-            .ffi_handles()
+            .ffi_handles
             .insert(video_source.handle_id, Box::new(video_source));
 
         Ok(source_info)
@@ -191,7 +191,7 @@ impl FfiVideoSource {
                     .id as FfiHandleId;
 
                 let buffer = server
-                    .ffi_handles()
+                    .ffi_handles
                     .get(&buffer_handle)
                     .ok_or(FfiError::InvalidRequest("handle not found"))?;
 
