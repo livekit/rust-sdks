@@ -512,7 +512,8 @@ impl RoomSession {
 
     fn handle_restarting(self: &Arc<Self>) {
         // Remove existing participants/subscriptions on full reconnect
-        for (_, participant) in self.participants.read().iter() {
+        let participants = self.participants.read().clone();
+        for (_, participant) in participants.iter() {
             self.clone()
                 .handle_participant_disconnect(participant.clone());
         }
