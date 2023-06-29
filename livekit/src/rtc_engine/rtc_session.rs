@@ -654,7 +654,10 @@ impl SessionInner {
         if track.kind() == TrackKind::Video {
             let capabilities = LkRuntime::instance()
                 .pc_factory()
-                .get_rtp_sender_capabilities(track.kind().into());
+                .get_rtp_sender_capabilities(match track.kind() {
+                    TrackKind::Video => MediaType::Video,
+                    TrackKind::Audio => MediaType::Audio,
+                });
 
             let mut matched = Vec::new();
             let mut partial_matched = Vec::new();

@@ -8,7 +8,6 @@ use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{native::I420BufferExt, BoxVideoFrameBuffer, I420Buffer};
 use parking_lot::Mutex;
 use prost::Message;
-use std::collections::HashMap;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -29,12 +28,12 @@ pub struct FfiConfig {
 }
 
 pub struct FfiServer {
-    rooms: Mutex<HashMap<RoomSid, FfiHandleId>>,
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
-    ffi_handles: DashMap<FfiHandleId, FfiHandle>,
+    pub ffi_handles: DashMap<FfiHandleId, FfiHandle>,
+    pub async_runtime: tokio::runtime::Runtime,
+
     next_id: AtomicUsize,
-    async_runtime: tokio::runtime::Runtime,
     config: Mutex<Option<FfiConfig>>,
 }
 
@@ -42,8 +41,30 @@ impl Default for FfiServer {
     fn default() -> Self {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+        // Create a background thread which checks for deadlocks every 10s
+        {
+            use parking_lot::deadlock;
+            use std::thread;
+            use std::time::Duration;
+
+            thread::spawn(move || loop {
+                thread::sleep(Duration::from_secs(10));
+                let deadlocks = deadlock::check_deadlock();
+                if deadlocks.is_empty() {
+                    continue;
+                }
+
+                log::error!("{} deadlocks detected", deadlocks.len());
+                for (i, threads) in deadlocks.iter().enumerate() {
+                    log::error!("Deadlock #{}", i);
+                    for t in threads {
+                        log::error!("Thread Id {:#?}: \n{:#?}", t.thread_id(), t.backtrace());
+                    }
+                }
+            });
+        }
+
         Self {
-            rooms: Default::default(),
             ffi_handles: Default::default(),
             next_id: AtomicUsize::new(1), // 0 is invalid
             async_runtime: tokio::runtime::Builder::new_multi_thread()
@@ -60,13 +81,19 @@ impl Default for FfiServer {
 impl FfiServer {
     pub async fn dispose(&'static self) {
         // Close all rooms
-        for (_, room_handle) in self.rooms.lock().drain() {
-            let room = self.ffi_handles.remove(&room_handle);
-            if let Some(room) = room {
-                let ffi_room = room.1.downcast::<room::FfiRoom>().unwrap();
-                ffi_room.close().await;
+        log::info!("disposing the FfiServer, closing all rooms...");
+
+        let mut rooms = Vec::new();
+        for handle in self.ffi_handles.iter_mut() {
+            if let Some(handle) = handle.value().downcast_ref::<room::HandleType>() {
+                rooms.push(handle.clone());
             }
         }
+
+        for room in rooms {
+            room.close().await;
+        }
+
         // Drop all handles
         self.ffi_handles.clear();
 
@@ -76,14 +103,6 @@ impl FfiServer {
 
     pub fn next_id(&'static self) -> usize {
         self.next_id.fetch_add(1, Ordering::Relaxed)
-    }
-
-    pub fn ffi_handles(&'static self) -> &DashMap<FfiHandleId, FfiHandle> {
-        &self.ffi_handles
-    }
-
-    pub fn rooms(&'static self) -> &Mutex<HashMap<RoomSid, FfiHandleId>> {
-        &self.rooms
     }
 
     pub fn send_event(&'static self, message: proto::ffi_event::Message) -> FfiResult<()> {
@@ -128,14 +147,13 @@ impl FfiServer {
     ) -> FfiResult<proto::DisposeResponse> {
         *self.config.lock() = None;
 
-        let close = self.dispose();
         if !dispose.r#async {
-            self.async_runtime.block_on(close);
+            self.async_runtime.block_on(self.dispose());
             Ok(proto::DisposeResponse::default())
         } else {
             let async_id = self.next_id();
             self.async_runtime.spawn(async move {
-                close.await;
+                self.dispose().await;
             });
             Ok(proto::DisposeResponse {
                 async_id: Some(proto::FfiAsyncId {
@@ -197,17 +215,19 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
             .id as FfiHandleId;
 
-        let ffi_room = self
-            .ffi_handles
-            .remove(&room_handle)
-            .ok_or(FfiError::InvalidRequest("room not found"))?
-            .1;
-
-        let ffi_room = ffi_room
-            .downcast::<room::FfiRoom>()
-            .map_err(|_| FfiError::InvalidRequest("room is not a FfiRoom"))?;
-
         self.async_runtime.spawn(async move {
+            let mut ffi_room = self
+                .ffi_handles
+                .get_mut(&room_handle)
+                .ok_or(FfiError::InvalidRequest("room not found"))
+                .unwrap();
+
+            let ffi_room = ffi_room
+                .value_mut()
+                .downcast_mut::<room::HandleType>()
+                .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))
+                .unwrap();
+
             ffi_room.close().await;
             let _ = self.send_event(proto::ffi_event::Message::Disconnect(
                 proto::DisconnectCallback {
@@ -313,7 +333,7 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("room not found"))?;
 
         let ffi_room = ffi_room
-            .downcast_ref::<room::FfiRoom>()
+            .downcast_ref::<room::HandleType>()
             .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
 
         // Push the data to an async queue (avoid blocking and keep the order)

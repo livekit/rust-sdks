@@ -1,13 +1,10 @@
 use super::track_dispatch;
 use super::TrackInner;
-use super::{RemoteAudioTrack, RemoteVideoTrack};
 use crate::prelude::*;
-use crate::track::TrackEvent;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_webrtc::prelude::*;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[derive(Clone, Debug)]
 pub enum RemoteTrack {
@@ -27,7 +24,28 @@ impl RemoteTrack {
     }
 }
 
-pub(crate) fn update_info(track: &Arc<TrackInner>, new_info: proto::TrackInfo) {
-    track.update_info(new_info.clone());
-    track.set_muted(new_info.muted);
+pub(super) fn update_info(inner: &Arc<TrackInner>, track: &Track, new_info: proto::TrackInfo) {
+    super::update_info(inner, track, new_info.clone());
+    super::set_muted(inner, track, new_info.muted);
+}
+
+impl From<RemoteTrack> for Track {
+    fn from(track: RemoteTrack) -> Self {
+        match track {
+            RemoteTrack::Audio(track) => Self::RemoteAudio(track),
+            RemoteTrack::Video(track) => Self::RemoteVideo(track),
+        }
+    }
+}
+
+impl TryFrom<Track> for RemoteTrack {
+    type Error = &'static str;
+
+    fn try_from(track: Track) -> Result<Self, Self::Error> {
+        match track {
+            Track::RemoteAudio(track) => Ok(Self::Audio(track)),
+            Track::RemoteVideo(track) => Ok(Self::Video(track)),
+            _ => Err("not a local track"),
+        }
+    }
 }

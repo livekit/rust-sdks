@@ -6,7 +6,6 @@ use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct LocalAudioTrack {
@@ -27,7 +26,7 @@ impl Debug for LocalAudioTrack {
 impl LocalAudioTrack {
     pub(crate) fn new(name: String, rtc_track: RtcAudioTrack, source: RtcAudioSource) -> Self {
         Self {
-            inner: Arc::new(TrackInner::new(
+            inner: Arc::new(super::new_inner(
                 "unknown".to_string().into(), // sid
                 name,
                 TrackKind::Audio,
@@ -37,96 +36,6 @@ impl LocalAudioTrack {
         }
     }
 
-    #[inline]
-    pub fn sid(&self) -> TrackSid {
-        self.inner.sid()
-    }
-
-    #[inline]
-    pub fn name(&self) -> String {
-        self.inner.name()
-    }
-
-    #[inline]
-    pub fn kind(&self) -> TrackKind {
-        self.inner.kind()
-    }
-
-    #[inline]
-    pub fn source(&self) -> TrackSource {
-        self.inner.source()
-    }
-
-    #[inline]
-    pub fn stream_state(&self) -> StreamState {
-        self.inner.stream_state()
-    }
-
-    #[inline]
-    pub fn enable(&self) {
-        self.inner.enable()
-    }
-
-    #[inline]
-    pub fn disable(&self) {
-        self.inner.disable()
-    }
-
-    #[inline]
-    pub fn is_muted(&self) -> bool {
-        self.inner.is_muted()
-    }
-
-    #[inline]
-    pub fn mute(&self) {
-        self.inner.set_muted(true);
-    }
-
-    #[inline]
-    pub fn unmute(&self) {
-        self.inner.set_muted(false);
-    }
-
-    #[inline]
-    pub fn rtc_track(&self) -> RtcAudioTrack {
-        if let MediaStreamTrack::Audio(audio) = self.inner.rtc_track() {
-            return audio;
-        }
-        unreachable!()
-    }
-
-    #[inline]
-    pub fn rtc_source(&self) -> RtcAudioSource {
-        self.source.clone()
-    }
-
-    #[inline]
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.inner.register_observer()
-    }
-
-    #[inline]
-    pub fn is_remote(&self) -> bool {
-        false
-    }
-
-    #[inline]
-    pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
-        self.inner.transceiver()
-    }
-
-    #[inline]
-    pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        self.inner.update_transceiver(transceiver)
-    }
-
-    #[inline]
-    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info)
-    }
-}
-
-impl LocalAudioTrack {
     pub fn create_audio_track(name: &str, source: RtcAudioSource) -> LocalAudioTrack {
         let rtc_track = match source.clone() {
             #[cfg(not(target_arch = "wasm32"))]
@@ -140,5 +49,80 @@ impl LocalAudioTrack {
             _ => panic!("unsupported audio source"),
         };
         Self::new(name.to_string(), rtc_track, source)
+    }
+
+    pub fn sid(&self) -> TrackSid {
+        self.inner.info.read().sid.clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.info.read().name.clone()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.inner.info.read().kind
+    }
+
+    pub fn source(&self) -> TrackSource {
+        self.inner.info.read().source
+    }
+
+    pub fn stream_state(&self) -> StreamState {
+        self.inner.info.read().stream_state
+    }
+
+    pub fn enable(&self) {
+        self.inner.rtc_track.set_enabled(true);
+    }
+
+    pub fn disable(&self) {
+        self.inner.rtc_track.set_enabled(false);
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.inner.info.read().muted
+    }
+
+    pub fn mute(&self) {
+        super::set_muted(&self.inner, &Track::LocalAudio(self.clone()), true);
+    }
+
+    pub fn unmute(&self) {
+        super::set_muted(&self.inner, &Track::LocalAudio(self.clone()), false);
+    }
+
+    pub fn rtc_track(&self) -> RtcAudioTrack {
+        if let MediaStreamTrack::Audio(audio) = self.inner.rtc_track.clone() {
+            return audio;
+        }
+        unreachable!();
+    }
+
+    pub fn rtc_source(&self) -> RtcAudioSource {
+        self.source.clone()
+    }
+
+    pub fn is_remote(&self) -> bool {
+        false
+    }
+
+    pub fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
+        *self.inner.events.muted.lock() = Some(Box::new(f));
+    }
+
+    pub fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
+        *self.inner.events.unmuted.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
+        self.inner.info.read().transceiver.clone()
+    }
+
+    pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
+        self.inner.info.write().transceiver = transceiver;
+    }
+
+    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+        super::update_info(&self.inner, &Track::LocalAudio(self.clone()), info);
     }
 }

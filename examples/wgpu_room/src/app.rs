@@ -9,20 +9,21 @@ use futures::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::SimulateScenario;
+use parking_lot::deadlock;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-
+use std::thread;
+use std::time::Duration;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot};
 
 // Useful default constants for developing
 const DEFAULT_URL: &str = "ws://localhost:7880";
 const DEFAULT_TOKEN : &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTMyODgsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJuYXRpdmUiLCJuYmYiOjE2NzI2MTMyODgsInN1YiI6Im5hdGl2ZSIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.uSNIangMRu8jZD5mnRYoCHjcsQWCrJXgHCs0aNIgBFY";
-
-// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTM0MzcsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJ3ZWIiLCJuYmYiOjE2NzI2MTM0MzcsInN1YiI6IndlYiIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.DFTXt60n1kzGq4cSuOhbFBTQW2nd3rlcXKQ54sXsP8s
 
 use winit::{
     event::*,
@@ -30,16 +31,16 @@ use winit::{
     window::{WindowBuilder, WindowId},
 };
 
-struct Session {
+struct SessionHandle {
     room: Arc<Room>,
-    logo_track: LogoTrack,
-    sine_track: SineTrack,
+    logo_track: Arc<AsyncMutex<LogoTrack>>,
+    sine_track: Arc<AsyncMutex<SineTrack>>,
     close_tx: oneshot::Sender<()>,
-    handle: tokio::task::JoinHandle<()>,
+    task_handle: tokio::task::JoinHandle<()>,
 }
 
 struct AppState {
-    session: Mutex<Option<Session>>,
+    session: Mutex<Option<SessionHandle>>,
     connecting: AtomicBool,
 }
 
@@ -54,11 +55,14 @@ struct App {
     cmd_tx: mpsc::UnboundedSender<AsyncCmd>,
     cmd_rx: mpsc::UnboundedReceiver<UiCmd>,
 
-    // UI State
+    // Ui State
     lk_url: String,
     lk_token: String,
     connection_failure: Option<String>,
     room_state: ConnectionState,
+
+    // Log events
+    events: Vec<String>,
 }
 
 pub fn run(rt: tokio::runtime::Runtime) {
@@ -97,7 +101,25 @@ pub fn run(rt: tokio::runtime::Runtime) {
             lk_token: DEFAULT_TOKEN.to_owned(),
             connection_failure: None,
             room_state: ConnectionState::Connected,
+            events: Vec::new(),
         };
+
+        // Create a background thread which checks for deadlocks every 10s
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(10));
+            let deadlocks = deadlock::check_deadlock();
+            if deadlocks.is_empty() {
+                continue;
+            }
+
+            log::error!("{} deadlocks detected", deadlocks.len());
+            for (i, threads) in deadlocks.iter().enumerate() {
+                log::error!("Deadlock #{}", i);
+                for t in threads {
+                    log::error!("Thread Id {:#?}: \n{:#?}", t.thread_id(), t.backtrace());
+                }
+            }
+        });
 
         // Async event loop
         tokio::spawn(async move {
@@ -112,19 +134,19 @@ pub fn run(rt: tokio::runtime::Runtime) {
                             let (close_tx, close_rx) = oneshot::channel();
                             let logo_track = LogoTrack::new(room.clone());
                             let sine_track = SineTrack::new(room.clone());
-                            let handle = tokio::spawn(room_task(
+                            let task_handle = tokio::spawn(room_task(
                                 state.clone(),
                                 room_events,
                                 close_rx,
                                 ui_cmd_tx.clone(),
                             ));
 
-                            *state.session.lock() = Some(Session {
+                            *state.session.lock() = Some(SessionHandle {
                                 room,
-                                logo_track,
-                                sine_track,
+                                logo_track: Arc::new(AsyncMutex::new(logo_track)),
+                                sine_track: Arc::new(AsyncMutex::new(sine_track)),
                                 close_tx,
-                                handle,
+                                task_handle,
                             });
 
                             let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Ok(()) });
@@ -135,20 +157,37 @@ pub fn run(rt: tokio::runtime::Runtime) {
                         state.connecting.store(false, Ordering::SeqCst);
                     }
                     AsyncCmd::RoomDisconnect => {
-                        if let Some(session) = state.session.lock().take() {
-                            let _ = session.room.close().await;
-                            let _ = session.close_tx.send(());
-                            let _ = session.handle.await;
+                        let handle = state.session.lock().take();
+                        if let Some(handle) = handle {
+                            let _ = handle.room.close().await;
+                            let _ = handle.close_tx.send(());
+                            let _ = handle.task_handle.await;
                         }
                     }
                     AsyncCmd::SimulateScenario { scenario } => {
-                        if let Some(session) = state.session.lock().as_ref() {
-                            let _ = session.room.simulate_scenario(scenario).await;
+                        let room = {
+                            state
+                                .session
+                                .lock()
+                                .as_ref()
+                                .map(|handle| handle.room.clone())
+                        };
+
+                        if let Some(room) = room {
+                            let _ = room.simulate_scenario(scenario).await;
                         }
                     }
                     AsyncCmd::ToggleLogo => {
-                        if let Some(session) = state.session.lock().as_mut() {
-                            let logo_track = &mut session.logo_track;
+                        let logo_track = {
+                            state
+                                .session
+                                .lock()
+                                .as_ref()
+                                .map(|handle| handle.logo_track.clone())
+                        };
+
+                        if let Some(logo_track) = logo_track {
+                            let mut logo_track = logo_track.lock().await;
                             if !logo_track.is_published() {
                                 logo_track.publish().await.unwrap();
                             } else {
@@ -157,8 +196,16 @@ pub fn run(rt: tokio::runtime::Runtime) {
                         }
                     }
                     AsyncCmd::ToggleSine => {
-                        if let Some(session) = state.session.lock().as_mut() {
-                            let sine_track = &mut session.sine_track;
+                        let sine_track = {
+                            state
+                                .session
+                                .lock()
+                                .as_ref()
+                                .map(|handle| handle.sine_track.clone())
+                        };
+
+                        if let Some(sine_track) = sine_track {
+                            let mut sine_track = sine_track.lock().await;
                             if !sine_track.is_published() {
                                 sine_track.publish().await.unwrap();
                             } else {
@@ -209,6 +256,8 @@ impl App {
                     }
                 }
                 UiCmd::RoomEvent { event } => {
+                    self.events.push(format!("{:?}", event));
+
                     match event {
                         RoomEvent::TrackSubscribed {
                             track, participant, ..
@@ -229,7 +278,7 @@ impl App {
                                             NativeAudioStream::new(audio_track.rtc_track());
 
                                         while let Some(_frame) = stream.next().await {
-                                            // Received audio frames
+                                            // TODO(theomonnom): Play audio using the libwebrtc ADM playout devices
                                         }
                                     });
                                 }
@@ -295,12 +344,10 @@ impl App {
     fn ui(&mut self, ui: &mut egui::Ui) {
         egui::TopBottomPanel::top("top_panel").show(ui.ctx(), |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("Tools", |ui| {
-                    if ui.button("Logs").clicked() {}
-                    if ui.button("Profiler").clicked() {}
-                    if ui.button("WebRTC Stats").clicked() {}
-                    if ui.button("Events").clicked() {}
-                });
+                ui.menu_button(
+                    "Tools",
+                    |ui| if ui.button("WebRTC Stats (TODO)").clicked() {},
+                );
                 ui.menu_button("Simulate", |ui| {
                     if ui.button("SignalReconnect").clicked() {
                         let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
@@ -399,19 +446,31 @@ impl App {
 
                 {
                     // Room Info
-                    if let Some(session) = self.state.session.lock().as_ref() {
-                        ui.label(format!("Name: {}", session.room.name()));
-                        ui.label(format!("SID: {}", session.room.sid()));
+                    if let Some(handle) = self.state.session.lock().as_ref() {
+                        ui.label(format!("Name: {}", handle.room.name()));
+                        ui.label(format!("SID: {}", handle.room.sid()));
                         ui.label(format!(
                             "ConnectionState: {:?}",
-                            session.room.connection_state()
+                            handle.room.connection_state()
                         ));
                         ui.label(format!(
                             "ParticipantCount: {:?}",
-                            session.room.participants().len() + 1
+                            handle.room.participants().len() + 1
                         ));
                     }
                 }
+            });
+
+        egui::TopBottomPanel::bottom("bottom_panel")
+            .default_height(128.0)
+            .show(ui.ctx(), |ui| {
+                ui.label("Events");
+
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for event in &self.events {
+                        ui.label(event);
+                    }
+                });
             });
 
         egui::CentralPanel::default().show(ui.ctx(), |ui| {
@@ -455,8 +514,8 @@ impl App {
                                     }
 
                                     let name =
-                                        self.state.session.lock().as_ref().and_then(|session| {
-                                            session
+                                        self.state.session.lock().as_ref().and_then(|handle| {
+                                            handle
                                                 .room
                                                 .participants()
                                                 .get(participant_sid)

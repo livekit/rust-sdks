@@ -1,14 +1,14 @@
-use super::{remote_track, TrackInner};
+use super::remote_track;
+use super::TrackInner;
 use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct RemoteVideoTrack {
-    pub(crate) inner: Arc<TrackInner>,
+    inner: Arc<TrackInner>,
 }
 
 impl Debug for RemoteVideoTrack {
@@ -24,7 +24,7 @@ impl Debug for RemoteVideoTrack {
 impl RemoteVideoTrack {
     pub(crate) fn new(sid: TrackSid, name: String, rtc_track: RtcVideoTrack) -> Self {
         Self {
-            inner: Arc::new(TrackInner::new(
+            inner: Arc::new(super::new_inner(
                 sid,
                 name,
                 TrackKind::Video,
@@ -33,78 +33,68 @@ impl RemoteVideoTrack {
         }
     }
 
-    #[inline]
     pub fn sid(&self) -> TrackSid {
-        self.inner.sid()
+        self.inner.info.read().sid.clone()
     }
 
-    #[inline]
     pub fn name(&self) -> String {
-        self.inner.name()
+        self.inner.info.read().name.clone()
     }
 
-    #[inline]
     pub fn kind(&self) -> TrackKind {
-        self.inner.kind()
+        self.inner.info.read().kind
     }
 
-    #[inline]
     pub fn source(&self) -> TrackSource {
-        self.inner.source()
+        self.inner.info.read().source
     }
 
-    #[inline]
     pub fn stream_state(&self) -> StreamState {
-        self.inner.stream_state()
+        self.inner.info.read().stream_state
     }
 
-    #[inline]
     pub fn enable(&self) {
-        self.inner.enable()
+        self.inner.rtc_track.set_enabled(true);
     }
 
-    #[inline]
     pub fn disable(&self) {
-        self.inner.disable()
+        self.inner.rtc_track.set_enabled(false);
     }
 
-    #[inline]
     pub fn is_muted(&self) -> bool {
-        self.inner.is_muted()
+        self.inner.info.read().muted
     }
 
-    #[inline]
     pub fn rtc_track(&self) -> RtcVideoTrack {
-        if let MediaStreamTrack::Video(video) = self.inner.rtc_track() {
+        if let MediaStreamTrack::Video(video) = self.inner.rtc_track.clone() {
             return video;
         }
-        unreachable!()
+        unreachable!();
     }
 
-    #[inline]
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.inner.register_observer()
-    }
-
-    #[inline]
     pub fn is_remote(&self) -> bool {
         true
     }
 
+    pub fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
+        *self.inner.events.muted.lock() = Some(Box::new(f));
+    }
+
+    pub fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
+        *self.inner.events.unmuted.lock() = Some(Box::new(f));
+    }
+
     #[allow(dead_code)]
-    #[inline]
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
-        self.inner.transceiver()
+        self.inner.info.read().transceiver.clone()
     }
 
     #[allow(dead_code)]
-    #[inline]
-    pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        self.inner.update_transceiver(transceiver)
+    pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
+        self.inner.info.write().transceiver = transceiver;
     }
 
-    #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        remote_track::update_info(&self.inner, info);
+        remote_track::update_info(&self.inner, &Track::RemoteVideo(self.clone()), info);
     }
 }

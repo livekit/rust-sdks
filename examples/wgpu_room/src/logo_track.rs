@@ -72,7 +72,7 @@ impl LogoTrack {
             .publish_track(
                 LocalTrack::Video(track.clone()),
                 TrackPublishOptions {
-                    source: TrackSource::Camera,
+                    source: TrackSource::Camera, // Using camera so it is shown on everyone's screen (Unknown is sometimes not shown)
                     ..Default::default()
                 },
             )

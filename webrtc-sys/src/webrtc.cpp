@@ -42,7 +42,6 @@ static webrtc::Mutex g_mutex{};
 static uint32_t g_release_counter(0);
 
 RtcRuntime::RtcRuntime() {
-  rtc::LogMessage::LogToDebug(rtc::LS_INFO);
   RTC_LOG(LS_VERBOSE) << "RtcRuntime()";
 
   {

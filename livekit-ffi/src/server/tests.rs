@@ -109,7 +109,7 @@ impl TestScope {
 impl Drop for TestScope {
     fn drop(&mut self) {
         // At the end of a test, no more handle should exist
-        assert!(server::FFI_SERVER.ffi_handles().is_empty());
+        assert!(server::FFI_SERVER.ffi_handles.is_empty());
     }
 }
 

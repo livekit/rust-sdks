@@ -11,8 +11,9 @@ livekit = { path = "../../livekit", version = "0.1.1" }
 futures = "0.3"
 wgpu = "0.16"
 winit = "0.28"
-parking_lot = { version = "0.12.1", features=["send_guard"] }
+parking_lot = { version = "0.12.1", features=["deadlock_detection"] }
 image = "0.24"
-egui = { git = "https://github.com/emilk/egui" }
-egui-wgpu = { git = "https://github.com/emilk/egui", features = ["winit"] }
-egui-winit = { git = "https://github.com/emilk/egui" }
+egui = "0.22"
+egui-wgpu = { version = "0.22", features = ["winit"] }
+egui-winit = "0.22"
+log = "0.4"

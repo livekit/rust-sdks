@@ -1,10 +1,13 @@
 use crate::server::FfiServer;
 use crate::{proto, FfiAsyncId, FfiError, FfiHandleId, FfiResult};
 use livekit::prelude::*;
+use parking_lot::Mutex;
 use std::slice;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
+
+pub type HandleType = Arc<FfiRoom>;
 
 struct DataPacket {
     data: Vec<u8>,
@@ -13,11 +16,15 @@ struct DataPacket {
     async_id: FfiAsyncId,
 }
 
-pub struct FfiRoom {
-    room: Arc<Room>,
+struct Handle {
     event_handle: JoinHandle<()>,
     data_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
+}
+
+pub struct FfiRoom {
+    room: Arc<Room>,
+    handle: Mutex<Option<Handle>>,
     data_tx: mpsc::UnboundedSender<DataPacket>,
 }
 
@@ -49,16 +56,17 @@ impl FfiRoom {
                 .async_runtime
                 .spawn(data_task(server, room.clone(), data_rx, close_rx));
 
-        let ffi_room = Self {
+        let ffi_room = Arc::new(Self {
             room: room.clone(),
-            event_handle,
-            data_handle,
-            close_tx,
+            handle: Mutex::new(Some(Handle {
+                event_handle,
+                data_handle,
+                close_tx,
+            })),
             data_tx,
-        };
+        });
 
-        server.ffi_handles().insert(next_id, Box::new(ffi_room));
-        server.rooms().lock().insert(room.sid(), next_id);
+        server.ffi_handles.insert(next_id, Box::new(ffi_room));
 
         let room_info = proto::RoomInfo::from_room(next_id, &room);
         Ok(room_info)
@@ -92,11 +100,15 @@ impl FfiRoom {
         })
     }
 
-    pub async fn close(self) {
+    pub async fn close(&self) {
         let _ = self.room.close().await;
-        let _ = self.close_tx.send(());
-        let _ = self.event_handle.await;
-        let _ = self.data_handle.await;
+
+        let handle = self.handle.lock().take();
+        if let Some(handle) = handle {
+            let _ = handle.close_tx.send(());
+            let _ = handle.event_handle.await;
+            let _ = handle.data_handle.await;
+        }
     }
 
     pub fn room(&self) -> &Arc<Room> {
@@ -135,23 +147,16 @@ async fn data_task(
 
 async fn room_task(
     server: &'static FfiServer,
-    room: Arc<Room>,
+    _room: Arc<Room>,
     room_handle: FfiHandleId,
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
-    server
-        .async_runtime
-        .spawn(participant_task(Participant::Local(
-            room.local_participant(),
-        )));
-
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
-                let message = match event {
+                if let Some(message)= match event {
                     RoomEvent::ParticipantConnected(participant) => {
-                        server.async_runtime.spawn(participant_task(Participant::Remote(participant.clone())));
                         Some(proto::room_event::Message::ParticipantConnected(
                             proto::ParticipantConnected {
                                 info: Some(proto::ParticipantInfo::from(&participant)),
@@ -190,7 +195,7 @@ async fn room_task(
                     } => {
                         let handle_id = server.next_id() as FfiHandleId;
                         let track_info = proto::TrackInfo::from_remote_track(handle_id, &track);
-                        server.ffi_handles().insert(handle_id, Box::new(Track::from(track)));
+                        server.ffi_handles.insert(handle_id, Box::new(Track::from(track)));
 
                         Some(proto::room_event::Message::TrackSubscribed(
                             proto::TrackSubscribed {
@@ -210,12 +215,11 @@ async fn room_task(
                         },
                     )),
                     _ => None
-                };
-
-                if message.is_some() {
+                } {
+                    // Send the event to the FfiClient
                     let _ = server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent{
                         room_handle: Some(room_handle.into()),
-                        message
+                        message: Some(message)
                     }));
                 }
 
@@ -224,12 +228,5 @@ async fn room_task(
                 break;
             }
         };
-    }
-}
-
-async fn participant_task(participant: Participant) {
-    let mut participant_events = participant.register_observer();
-    while let Some(_event) = participant_events.recv().await {
-        // TODO(theomonnom): convert event to proto
     }
 }
