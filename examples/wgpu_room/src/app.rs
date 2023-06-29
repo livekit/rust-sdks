@@ -11,7 +11,7 @@ use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::SimulateScenario;
 use parking_lot::deadlock;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -55,11 +55,14 @@ struct App {
     cmd_tx: mpsc::UnboundedSender<AsyncCmd>,
     cmd_rx: mpsc::UnboundedReceiver<UiCmd>,
 
-    // UI State
+    // Ui State
     lk_url: String,
     lk_token: String,
     connection_failure: Option<String>,
     room_state: ConnectionState,
+
+    // Log events
+    events: Vec<String>,
 }
 
 pub fn run(rt: tokio::runtime::Runtime) {
@@ -98,6 +101,7 @@ pub fn run(rt: tokio::runtime::Runtime) {
             lk_token: DEFAULT_TOKEN.to_owned(),
             connection_failure: None,
             room_state: ConnectionState::Connected,
+            events: Vec::new(),
         };
 
         // Create a background thread which checks for deadlocks every 10s
@@ -252,6 +256,8 @@ impl App {
                     }
                 }
                 UiCmd::RoomEvent { event } => {
+                    self.events.push(format!("{:?}", event));
+
                     match event {
                         RoomEvent::TrackSubscribed {
                             track, participant, ..
@@ -272,7 +278,7 @@ impl App {
                                             NativeAudioStream::new(audio_track.rtc_track());
 
                                         while let Some(_frame) = stream.next().await {
-                                            // Received audio frames
+                                            // TODO(theomonnom): Play audio using the libwebrtc ADM playout devices
                                         }
                                     });
                                 }
@@ -338,12 +344,10 @@ impl App {
     fn ui(&mut self, ui: &mut egui::Ui) {
         egui::TopBottomPanel::top("top_panel").show(ui.ctx(), |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("Tools", |ui| {
-                    if ui.button("Logs").clicked() {}
-                    if ui.button("Profiler").clicked() {}
-                    if ui.button("WebRTC Stats").clicked() {}
-                    if ui.button("Events").clicked() {}
-                });
+                ui.menu_button(
+                    "Tools",
+                    |ui| if ui.button("WebRTC Stats (TODO)").clicked() {},
+                );
                 ui.menu_button("Simulate", |ui| {
                     if ui.button("SignalReconnect").clicked() {
                         let _ = self.cmd_tx.send(AsyncCmd::SimulateScenario {
@@ -455,6 +459,18 @@ impl App {
                         ));
                     }
                 }
+            });
+
+        egui::TopBottomPanel::bottom("bottom_panel")
+            .default_height(128.0)
+            .show(ui.ctx(), |ui| {
+                ui.label("Events");
+
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for event in &self.events {
+                        ui.label(event);
+                    }
+                });
             });
 
         egui::CentralPanel::default().show(ui.ctx(), |ui| {
