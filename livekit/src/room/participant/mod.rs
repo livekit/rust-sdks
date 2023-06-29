@@ -136,10 +136,10 @@ pub(super) fn remove_publication(
     inner: &Arc<ParticipantInner>,
     _participant: &Participant,
     sid: &TrackSid,
-) {
+) -> Option<TrackPublication> {
     let mut tracks = inner.tracks.write();
     let publication = tracks.remove(sid);
-    if let Some(publication) = publication {
+    if let Some(publication) = publication.clone() {
         // remove events
         publication.on_muted(|_, _| {});
         publication.on_unmuted(|_, _| {});
@@ -147,6 +147,8 @@ pub(super) fn remove_publication(
         // shouldn't happen (internal)
         log::warn!("could not find publication to remove: {}", sid);
     }
+
+    publication
 }
 
 pub(super) fn add_publication(

@@ -1,5 +1,6 @@
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
 use crate::prelude::*;
+use crate::track::TrackError;
 use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
@@ -15,7 +16,6 @@ struct RemoteEvents {
     permission_status_changed: Mutex<
         Option<Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>>,
     >, // Old status, new status
-    subscription_failed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication) + Send>>>,
     subscription_update_needed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication) + Send>>>,
 }
 
@@ -63,6 +63,9 @@ impl RemoteTrackPublication {
     /// the track is being unsubscribed.
     /// We register the mute events from the track here so we can forward them.
     pub(crate) fn set_track(&self, track: Option<RemoteTrack>) {
+        let old_subscription_state = self.subscription_status();
+        let old_permission_state = self.permission_status();
+
         let prev_track = self.track();
 
         if let Some(prev_track) = prev_track {
@@ -80,6 +83,41 @@ impl RemoteTrackPublication {
         if let Some(track) = track {
             if let Some(subscribed) = self.remote.events.subscribed.lock().as_ref() {
                 subscribed(self.clone(), track);
+            }
+        }
+
+        self.emit_subscription_update(old_subscription_state);
+        self.emit_permission_update(old_permission_state);
+    }
+
+    pub(crate) fn emit_subscription_update(&self, old_subscription_state: SubscriptionStatus) {
+        if old_subscription_state != self.subscription_status() {
+            if let Some(subscription_status_changed) = self
+                .remote
+                .events
+                .subscription_status_changed
+                .lock()
+                .as_ref()
+            {
+                subscription_status_changed(
+                    self.clone(),
+                    old_subscription_state,
+                    self.subscription_status(),
+                );
+            }
+        }
+    }
+
+    pub(crate) fn emit_permission_update(&self, old_permission_state: PermissionStatus) {
+        if old_permission_state != self.permission_status() {
+            if let Some(subscription_permission_changed) =
+                self.remote.events.permission_status_changed.lock().as_ref()
+            {
+                subscription_permission_changed(
+                    self.clone(),
+                    old_permission_state,
+                    self.permission_status(),
+                );
             }
         }
     }
@@ -124,13 +162,6 @@ impl RemoteTrackPublication {
         *self.remote.events.permission_status_changed.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_subscription_failed(
-        &self,
-        f: impl Fn(RemoteTrackPublication) + Send + 'static,
-    ) {
-        *self.remote.events.subscription_failed.lock() = Some(Box::new(f));
-    }
-
     pub(crate) fn on_subscription_update_needed(
         &self,
         f: impl Fn(RemoteTrackPublication) + Send + 'static,
@@ -149,29 +180,7 @@ impl RemoteTrackPublication {
             info.allowed = true;
         }
 
-        /*let participant = self.inner.participant.upgrade();
-        if participant.is_none() {
-            log::warn!("publication's participant is invalid, set_subscribed failed");
-            return;
-        }
-        let participant = participant.unwrap();
-
-        let update_subscription = proto::UpdateSubscription {
-            track_sids: vec![self.sid().0],
-            subscribe: subscribed,
-            participant_tracks: vec![proto::ParticipantTracks {
-                participant_sid: participant.info.read().sid.0.clone(),
-                track_sids: vec![self.sid().0],
-            }],
-        };
-
-        let _ = participant
-            .rtc_engine
-            .send_request(proto::signal_request::Message::Subscription(
-                update_subscription,
-            ))
-            .await;*/
-
+        // Request to send an update to the SFU
         if let Some(subscription_update_needed) = self
             .remote
             .events
@@ -182,33 +191,8 @@ impl RemoteTrackPublication {
             subscription_update_needed(self.clone());
         }
 
-        if old_subscription_state != self.subscription_status() {
-            if let Some(subscription_status_changed) = self
-                .remote
-                .events
-                .subscription_status_changed
-                .lock()
-                .as_ref()
-            {
-                subscription_status_changed(
-                    self.clone(),
-                    old_subscription_state,
-                    self.subscription_status(),
-                );
-            }
-        }
-
-        if old_permission_state != self.permission_status() {
-            if let Some(subscription_permission_changed) =
-                self.remote.events.permission_status_changed.lock().as_ref()
-            {
-                subscription_permission_changed(
-                    self.clone(),
-                    old_permission_state,
-                    self.permission_status(),
-                );
-            }
-        }
+        self.emit_subscription_update(old_subscription_state);
+        self.emit_permission_update(old_permission_state);
     }
 
     pub fn subscription_status(&self) -> SubscriptionStatus {

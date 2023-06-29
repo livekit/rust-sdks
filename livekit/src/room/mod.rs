@@ -579,7 +579,7 @@ impl RoomSession {
         });
 
         let dispatcher = self.dispatcher.clone();
-        participant.on_track_subscribed(move |participant, track, publication| {
+        participant.on_track_subscribed(move |participant, publication, track| {
             dispatcher.dispatch(&RoomEvent::TrackSubscribed {
                 participant,
                 track,
@@ -588,7 +588,7 @@ impl RoomSession {
         });
 
         let dispatcher = self.dispatcher.clone();
-        participant.on_track_unsubscribed(move |participant, track, publication| {
+        participant.on_track_unsubscribed(move |participant, publication, track| {
             dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
                 participant,
                 track,

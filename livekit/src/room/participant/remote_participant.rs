@@ -19,15 +19,15 @@ struct RemoteEvents {
     track_published: Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>>>,
     track_unpublished: Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>>>,
     track_subscribed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrack, RemoteTrackPublication) + Send>>>,
+        Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>>>,
     track_unsubscribed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrack, RemoteTrackPublication) + Send>>>,
+        Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>>>,
     track_subscription_failed:
         Mutex<Option<Box<dyn Fn(RemoteParticipant, TrackSid, TrackError) + Send>>>,
 }
 
 struct RemoteInfo {
-    events: RemoteEvents,
+    events: Arc<RemoteEvents>,
 }
 
 #[derive(Clone)]
@@ -57,7 +57,7 @@ impl RemoteParticipant {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
             remote: Arc::new(RemoteInfo {
-                events: RemoteEvents::default(),
+                events: Default::default(),
             }),
         }
     }
@@ -207,7 +207,7 @@ impl RemoteParticipant {
 
     pub(crate) fn on_track_subscribed(
         &self,
-        track_subscribed: impl Fn(RemoteParticipant, RemoteTrack, RemoteTrackPublication)
+        track_subscribed: impl Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack)
             + Send
             + 'static,
     ) {
@@ -216,7 +216,7 @@ impl RemoteParticipant {
 
     pub(crate) fn on_track_unsubscribed(
         &self,
-        track_unsubscribed: impl Fn(RemoteParticipant, RemoteTrack, RemoteTrackPublication)
+        track_unsubscribed: impl Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack)
             + Send
             + 'static,
     ) {
@@ -244,11 +244,76 @@ impl RemoteParticipant {
     }
 
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
-        super::add_publication(&self.inner, &Participant::Remote(self.clone()), publication);
+        super::add_publication(
+            &self.inner,
+            &Participant::Remote(self.clone()),
+            publication.clone(),
+        );
+
+        let TrackPublication::Remote(publication) = publication else {
+            panic!("expected remote publication");
+        };
+
+        publication.on_subscription_update_needed({
+            let rtc_engine = self.inner.rtc_engine.clone();
+            let psid = self.sid().0.clone();
+            move |publication| {
+                let rtc_engine = rtc_engine.clone();
+                let psid = psid.clone();
+                tokio::spawn(async move {
+                    let tsid = publication.sid().0.clone();
+                    let update_subscription = proto::UpdateSubscription {
+                        track_sids: vec![tsid.clone()],
+                        subscribe: publication.is_subscribed(),
+                        participant_tracks: vec![proto::ParticipantTracks {
+                            participant_sid: psid,
+                            track_sids: vec![tsid.clone()],
+                        }],
+                    };
+
+                    let _ = rtc_engine
+                        .send_request(proto::signal_request::Message::Subscription(
+                            update_subscription,
+                        ))
+                        .await;
+                });
+            }
+        });
+
+        publication.on_subscribed({
+            let events = self.remote.events.clone();
+            let participant = self.clone();
+            move |publication, track| {
+                if let Some(track_subscribed) = events.track_subscribed.lock().as_ref() {
+                    track_subscribed(participant.clone(), publication, track);
+                }
+            }
+        });
+
+        publication.on_unsubscribed({
+            let events = self.remote.events.clone();
+            let participant = self.clone();
+            move |publication, track| {
+                if let Some(track_unsubscribed) = events.track_unsubscribed.lock().as_ref() {
+                    track_unsubscribed(participant.clone(), publication, track);
+                }
+            }
+        });
     }
 
     pub(crate) fn remove_publication(&self, sid: &TrackSid) {
-        super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
+        let publication =
+            super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
+
+        if let Some(publication) = publication {
+            let TrackPublication::Remote(publication) = publication else {
+                panic!("expected remote publication");
+            };
+
+            publication.on_subscription_update_needed(|_| {});
+            publication.on_subscribed(|_, _| {});
+            publication.on_unsubscribed(|_, _| {});
+        }
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
