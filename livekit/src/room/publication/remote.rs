@@ -147,6 +147,7 @@ impl RemoteTrackPublication {
         *self.remote.events.unsubscribed.lock() = Some(Box::new(f));
     }
 
+    #[allow(dead_code)]
     pub(crate) fn on_subscription_status_changed(
         &self,
         f: impl Fn(RemoteTrackPublication, SubscriptionStatus, SubscriptionStatus) + Send + 'static,
@@ -154,6 +155,7 @@ impl RemoteTrackPublication {
         *self.remote.events.subscription_status_changed.lock() = Some(Box::new(f));
     }
 
+    #[allow(dead_code)]
     pub(crate) fn on_permission_status_changed(
         &self,
         f: impl Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send + 'static,

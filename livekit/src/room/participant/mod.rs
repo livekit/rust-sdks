@@ -2,7 +2,7 @@ use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;

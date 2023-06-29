@@ -84,10 +84,12 @@ impl RemoteVideoTrack {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
+    #[allow(dead_code)]
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
         self.inner.info.read().transceiver.clone()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
         self.inner.info.write().transceiver = transceiver;
     }

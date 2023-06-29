@@ -5,7 +5,7 @@ use crate::rtc_engine::RtcEngine;
 use crate::track::TrackError;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
-use parking_lot::{Mutex, RwLockReadGuard};
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;

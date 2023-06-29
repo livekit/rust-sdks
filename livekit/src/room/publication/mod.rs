@@ -49,6 +49,7 @@ impl TrackPublication {
         pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
 
+    #[allow(dead_code)]
     pub(crate) fn set_track(&self, track: Option<Track>) {
         match self {
             TrackPublication::Local(p) => p.set_track(track),

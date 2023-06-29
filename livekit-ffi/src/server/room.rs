@@ -135,7 +135,7 @@ async fn data_task(
 
 async fn room_task(
     server: &'static FfiServer,
-    room: Arc<Room>,
+    _room: Arc<Room>,
     room_handle: FfiHandleId,
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: broadcast::Receiver<()>,

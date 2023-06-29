@@ -38,6 +38,7 @@ impl LocalTrackPublication {
         super::set_track(&self.inner, &TrackPublication::Local(self.clone()), track);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &TrackPublication::Local(self.clone()), info);
     }

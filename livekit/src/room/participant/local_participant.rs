@@ -9,7 +9,7 @@ use crate::rtc_engine::RtcEngine;
 use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
-use parking_lot::{Mutex, RwLockReadGuard};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -74,6 +74,7 @@ impl LocalParticipant {
         super::set_connection_quality(&self.inner, &Participant::Local(self.clone()), quality);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn on_local_track_published(
         &self,
         handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
@@ -81,6 +82,7 @@ impl LocalParticipant {
         *self.local.events.local_track_published.lock() = Some(Box::new(handler));
     }
 
+    #[allow(dead_code)]
     pub(crate) fn on_local_track_unpublished(
         &self,
         handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
@@ -92,6 +94,7 @@ impl LocalParticipant {
         super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn remove_publication(&self, sid: &TrackSid) {
         super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid);
     }
