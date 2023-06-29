@@ -1,6 +1,5 @@
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
 use crate::prelude::*;
-use crate::track::TrackError;
 use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;

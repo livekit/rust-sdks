@@ -9,13 +9,16 @@ use futures::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::SimulateScenario;
+use parking_lot::deadlock;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-
+use std::thread;
+use std::time::Duration;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot};
 
 // Useful default constants for developing
@@ -30,16 +33,16 @@ use winit::{
     window::{WindowBuilder, WindowId},
 };
 
-struct Session {
+struct SessionHandle {
     room: Arc<Room>,
-    logo_track: LogoTrack,
-    sine_track: SineTrack,
+    logo_track: Arc<AsyncMutex<LogoTrack>>,
+    sine_track: Arc<AsyncMutex<SineTrack>>,
     close_tx: oneshot::Sender<()>,
-    handle: tokio::task::JoinHandle<()>,
+    task_handle: tokio::task::JoinHandle<()>,
 }
 
 struct AppState {
-    session: Mutex<Option<Session>>,
+    session: Mutex<Option<SessionHandle>>,
     connecting: AtomicBool,
 }
 
@@ -99,6 +102,24 @@ pub fn run(rt: tokio::runtime::Runtime) {
             room_state: ConnectionState::Connected,
         };
 
+        // Create a background thread which checks for deadlocks every 10s
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(10));
+            let deadlocks = deadlock::check_deadlock();
+            if deadlocks.is_empty() {
+                continue;
+            }
+
+            println!("{} deadlocks detected", deadlocks.len());
+            for (i, threads) in deadlocks.iter().enumerate() {
+                println!("Deadlock #{}", i);
+                for t in threads {
+                    println!("Thread Id {:#?}", t.thread_id());
+                    println!("{:#?}", t.backtrace());
+                }
+            }
+        });
+
         // Async event loop
         tokio::spawn(async move {
             while let Some(event) = async_cmd_rx.recv().await {
@@ -112,19 +133,19 @@ pub fn run(rt: tokio::runtime::Runtime) {
                             let (close_tx, close_rx) = oneshot::channel();
                             let logo_track = LogoTrack::new(room.clone());
                             let sine_track = SineTrack::new(room.clone());
-                            let handle = tokio::spawn(room_task(
+                            let task_handle = tokio::spawn(room_task(
                                 state.clone(),
                                 room_events,
                                 close_rx,
                                 ui_cmd_tx.clone(),
                             ));
 
-                            *state.session.lock() = Some(Session {
+                            *state.session.lock() = Some(SessionHandle {
                                 room,
-                                logo_track,
-                                sine_track,
+                                logo_track: Arc::new(AsyncMutex::new(logo_track)),
+                                sine_track: Arc::new(AsyncMutex::new(sine_track)),
                                 close_tx,
-                                handle,
+                                task_handle,
                             });
 
                             let _ = ui_cmd_tx.send(UiCmd::ConnectResult { result: Ok(()) });
@@ -135,20 +156,37 @@ pub fn run(rt: tokio::runtime::Runtime) {
                         state.connecting.store(false, Ordering::SeqCst);
                     }
                     AsyncCmd::RoomDisconnect => {
-                        if let Some(session) = state.session.lock().take() {
-                            let _ = session.room.close().await;
-                            let _ = session.close_tx.send(());
-                            let _ = session.handle.await;
+                        let handle = state.session.lock().take();
+                        if let Some(handle) = handle {
+                            let _ = handle.room.close().await;
+                            let _ = handle.close_tx.send(());
+                            let _ = handle.task_handle.await;
                         }
                     }
                     AsyncCmd::SimulateScenario { scenario } => {
-                        if let Some(session) = state.session.lock().as_ref() {
-                            let _ = session.room.simulate_scenario(scenario).await;
+                        let room = {
+                            state
+                                .session
+                                .lock()
+                                .as_ref()
+                                .map(|handle| handle.room.clone())
+                        };
+
+                        if let Some(room) = room {
+                            let _ = room.simulate_scenario(scenario).await;
                         }
                     }
                     AsyncCmd::ToggleLogo => {
-                        if let Some(session) = state.session.lock().as_mut() {
-                            let logo_track = &mut session.logo_track;
+                        let logo_track = {
+                            state
+                                .session
+                                .lock()
+                                .as_ref()
+                                .map(|handle| handle.logo_track.clone())
+                        };
+
+                        if let Some(logo_track) = logo_track {
+                            let mut logo_track = logo_track.lock().await;
                             if !logo_track.is_published() {
                                 logo_track.publish().await.unwrap();
                             } else {
@@ -157,8 +195,16 @@ pub fn run(rt: tokio::runtime::Runtime) {
                         }
                     }
                     AsyncCmd::ToggleSine => {
-                        if let Some(session) = state.session.lock().as_mut() {
-                            let sine_track = &mut session.sine_track;
+                        let sine_track = {
+                            state
+                                .session
+                                .lock()
+                                .as_ref()
+                                .map(|handle| handle.sine_track.clone())
+                        };
+
+                        if let Some(sine_track) = sine_track {
+                            let mut sine_track = sine_track.lock().await;
                             if !sine_track.is_published() {
                                 sine_track.publish().await.unwrap();
                             } else {
@@ -399,16 +445,16 @@ impl App {
 
                 {
                     // Room Info
-                    if let Some(session) = self.state.session.lock().as_ref() {
-                        ui.label(format!("Name: {}", session.room.name()));
-                        ui.label(format!("SID: {}", session.room.sid()));
+                    if let Some(handle) = self.state.session.lock().as_ref() {
+                        ui.label(format!("Name: {}", handle.room.name()));
+                        ui.label(format!("SID: {}", handle.room.sid()));
                         ui.label(format!(
                             "ConnectionState: {:?}",
-                            session.room.connection_state()
+                            handle.room.connection_state()
                         ));
                         ui.label(format!(
                             "ParticipantCount: {:?}",
-                            session.room.participants().len() + 1
+                            handle.room.participants().len() + 1
                         ));
                     }
                 }
@@ -455,8 +501,8 @@ impl App {
                                     }
 
                                     let name =
-                                        self.state.session.lock().as_ref().and_then(|session| {
-                                            session
+                                        self.state.session.lock().as_ref().and_then(|handle| {
+                                            handle
                                                 .room
                                                 .participants()
                                                 .get(participant_sid)

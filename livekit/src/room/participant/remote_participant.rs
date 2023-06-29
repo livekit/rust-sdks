@@ -345,8 +345,8 @@ impl RemoteParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
-        self.inner.tracks.read()
+    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.inner.tracks.read().clone()
     }
 
     pub fn audio_level(&self) -> f32 {

@@ -37,7 +37,7 @@ impl Participant {
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
-        pub fn tracks(self: &Self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>>;
+        pub fn tracks(self: &Self) -> HashMap<TrackSid, TrackPublication>;
 
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 

@@ -1999,10 +1999,13 @@ version = "0.9.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9069cbb9f99e3a5083476ccb29ceb1de18b9118cafa53e90c9551235de2b9521"
 dependencies = [
+ "backtrace",
  "cfg-if",
  "libc",
+ "petgraph",
  "redox_syscall 0.2.16",
  "smallvec",
+ "thread-id",
  "windows-sys 0.45.0",
 ]
 
@@ -2734,6 +2737,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.16",
+]
+
+[[package]]
+name = "thread-id"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ee93aa2b8331c0fec9091548843f2c90019571814057da3b783f9de09349d73"
+dependencies = [
+ "libc",
+ "redox_syscall 0.2.16",
+ "winapi",
 ]
 
 [[package]]

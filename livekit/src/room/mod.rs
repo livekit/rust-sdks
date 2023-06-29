@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -135,7 +136,7 @@ struct RoomHandle {
 
 pub struct Room {
     inner: Arc<RoomSession>,
-    handle: Mutex<Option<RoomHandle>>,
+    handle: AsyncMutex<Option<RoomHandle>>,
 }
 
 impl Debug for Room {
@@ -206,7 +207,7 @@ impl Room {
 
         let session = Self {
             inner,
-            handle: Mutex::new(Some(RoomHandle {
+            handle: AsyncMutex::new(Some(RoomHandle {
                 session_task,
                 close_emitter,
             })),
@@ -217,10 +218,10 @@ impl Room {
     }
 
     pub async fn close(&self) -> RoomResult<()> {
-        if let Some(handle) = self.handle.lock().take() {
+        if let Some(handle) = self.handle.lock().await.take() {
             self.inner.close().await;
-            handle.close_emitter.send(()).ok();
-            handle.session_task.await.ok();
+            let _ = handle.close_emitter.send(());
+            let _ = handle.session_task.await;
             Ok(())
         } else {
             Err(RoomError::AlreadyClosed)
@@ -251,8 +252,8 @@ impl Room {
         self.inner.info.read().state
     }
 
-    pub fn participants(&self) -> RwLockReadGuard<HashMap<ParticipantSid, RemoteParticipant>> {
-        self.inner.participants.read()
+    pub fn participants(&self) -> HashMap<ParticipantSid, RemoteParticipant> {
+        self.inner.participants.read().clone()
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
@@ -596,21 +597,21 @@ impl RoomSession {
             });
         });
 
+        self.participants.write().insert(sid, participant.clone());
+
         participant
     }
 
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     fn handle_participant_disconnect(self: Arc<Self>, remote_participant: RemoteParticipant) {
-        tokio::spawn(async move {
-            for (sid, _) in &*remote_participant.tracks() {
-                remote_participant.unpublish_track(&sid);
-            }
+        for (sid, _) in remote_participant.tracks() {
+            remote_participant.unpublish_track(&sid);
+        }
 
-            self.participants.write().remove(&remote_participant.sid());
-            self.dispatcher
-                .dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
-        });
+        self.participants.write().remove(&remote_participant.sid());
+        self.dispatcher
+            .dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }
 
     fn get_participant(&self, sid: &ParticipantSid) -> Option<RemoteParticipant> {

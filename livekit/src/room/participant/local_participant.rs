@@ -173,8 +173,8 @@ impl LocalParticipant {
         track: TrackSid,
         _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
-        let mut tracks = self.inner.tracks.write();
-        if let Some(TrackPublication::Local(publication)) = tracks.remove(&track) {
+        let publication = self.inner.tracks.write().remove(&track);
+        if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track();
             let sender = track.transceiver().unwrap().sender();
 
@@ -254,8 +254,8 @@ impl LocalParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
-        self.inner.tracks.read()
+    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.inner.tracks.read().clone()
     }
 
     pub fn audio_level(&self) -> f32 {
