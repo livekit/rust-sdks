@@ -496,6 +496,10 @@ impl App {
                                         } else {
                                             ui.colored_label(egui::Color32::RED, "Unsubscribed");
                                         }
+
+                                        if track.is_muted() {
+                                            ui.colored_label(egui::Color32::DARK_GRAY, "Muted");
+                                        }
                                     });
                                 });
                             }
