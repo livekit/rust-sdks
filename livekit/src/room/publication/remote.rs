@@ -51,7 +51,7 @@ impl RemoteTrackPublication {
             remote: Arc::new(RemoteInner {
                 info: RwLock::new(RemoteInfo {
                     subscribed: false,
-                    allowed: false,
+                    allowed: true,
                 }),
                 events: Default::default(),
             }),
