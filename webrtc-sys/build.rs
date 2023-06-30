@@ -1,4 +1,5 @@
 use regex::Regex;
+use reqwest::StatusCode;
 use std::env;
 use std::fs;
 use std::io::BufRead;
@@ -6,7 +7,7 @@ use std::io::{self, Write};
 use std::path;
 use std::process::Command;
 
-const WEBRTC_TAG: &str = "webrtc-beb0471";
+const WEBRTC_TAG: &str = "webrtc-4a9b827";
 const IGNORE_DEFINES: [&str; 2] = ["CR_CLANG_REVISION", "CR_XCODE_VERSION"];
 
 fn download_prebuilt_webrtc(
@@ -30,6 +31,7 @@ fn download_prebuilt_webrtc(
 
     let target_os = match target_os.as_str() {
         "windows" => "win",
+        "macos" => "mac",
         _ => &target_os,
     };
 
@@ -52,6 +54,9 @@ fn download_prebuilt_webrtc(
             // Download WebRTC-SDK
             let res = reqwest::blocking::get(&file_url);
             if let Ok(mut res) = res {
+                if res.status() != StatusCode::OK {
+                    return Err(format!("Failed to download {}: {}", file_url, res.status()).into());
+                }
                 let mut writer = io::BufWriter::new(file);
                 io::copy(&mut res, &mut writer)?;
             } else {
