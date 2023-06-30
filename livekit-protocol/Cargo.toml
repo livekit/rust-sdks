@@ -1,6 +1,8 @@
 [package]
 name = "livekit-protocol"
 version = "0.1.2"
+license = "Apache-2.0"
+description = "Protocol for LiveKit server"
 edition = "2021"
 
 [dependencies]

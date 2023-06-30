@@ -1,6 +1,8 @@
 [package]
 name = "livekit-api"
 version = "0.1.2"
+license = "Apache-2.0"
+description = "Server SDK for livekit"
 edition = "2021"
 
 [features]
