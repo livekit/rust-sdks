@@ -22,7 +22,8 @@ jobs:
           submodules: true
       - name: Publish crates
         run: |
-          cd livekit-utils && cargo publish
+          cd livekit-protocol && cargo publish
           cd ../webrtc-sys && cargo publish
           cd ../livekit-webrtc && cargo publish
           cd ../livekit && cp ../README.md README.md && cargo publish --allow-dirty
+          cd ../livekit-ffi && cargo publish

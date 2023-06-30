@@ -822,7 +822,7 @@ checksum = "ef53942eb7bf7ff43a617b3e2c1c4a5ecf5944a7c1bc12d7ee39bbb15e5c1519"
 
 [[package]]
 name = "livekit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "futures-util",
  "lazy_static",
@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "futures-util",
  "jsonwebtoken",
@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "dashmap",
  "env_logger",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "futures-util",
  "parking_lot",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-webrtc"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cxx",
  "env_logger",
@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cxx",
  "cxx-build",
