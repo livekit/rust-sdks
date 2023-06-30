@@ -94,7 +94,7 @@ match event {
           rtc_track.on_frame(Box::new(move |frame, buffer| {
               // Just received a video frame!
               // The buffer is YuvEncoded, you can decode it to ABGR by using our yuv_helper
-              // See the simple_room example for the conversion
+              // See the basic_room example for the conversion
           });
       } else {
           // Audio Track..
@@ -106,7 +106,7 @@ match event {
 
 ## Examples
 
-We made a [simple room demo](https://github.com/livekit/client-sdk-native/tree/main/examples/basic_room) leveraging all the current SDK features. Videos are rendered using wgpu and egui.
+We made a [basic room demo](https://github.com/livekit/client-sdk-native/tree/main/examples/basic_room) leveraging all the current SDK features. Videos are rendered using wgpu and egui.
 
 ![](https://github.com/livekit/client-sdk-rust/blob/main/examples/images/simple-room-demo.gif)
 
