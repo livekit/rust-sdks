@@ -260,7 +260,7 @@ impl FfiServer {
                     .ok_or(FfiError::InvalidRequest("room not found"))?;
 
                 let ffi_room = ffi_room
-                    .downcast_ref::<room::FfiRoom>()
+                    .downcast_ref::<room::HandleType>()
                     .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
 
                 let track_handle = publish
