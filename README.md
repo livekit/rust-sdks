@@ -106,7 +106,7 @@ match event {
 
 ## Examples
 
-We made a [simple room demo](https://github.com/livekit/client-sdk-native/tree/main/examples/simple_room) leveraging all the current SDK features. Videos are rendered using wgpu and egui.
+We made a [simple room demo](https://github.com/livekit/client-sdk-native/tree/main/examples/basic_room) leveraging all the current SDK features. Videos are rendered using wgpu and egui.
 
 ![](https://github.com/livekit/client-sdk-rust/blob/main/examples/images/simple-room-demo.gif)
 
