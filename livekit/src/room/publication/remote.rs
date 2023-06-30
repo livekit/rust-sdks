@@ -51,7 +51,7 @@ impl RemoteTrackPublication {
             remote: Arc::new(RemoteInner {
                 info: RwLock::new(RemoteInfo {
                     subscribed: false,
-                    allowed: false,
+                    allowed: true,
                 }),
                 events: Default::default(),
             }),
@@ -122,7 +122,12 @@ impl RemoteTrackPublication {
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        super::update_info(&self.inner, &TrackPublication::Remote(self.clone()), info);
+        super::update_info(
+            &self.inner,
+            &TrackPublication::Remote(self.clone()),
+            info.clone(),
+        );
+        self.inner.info.write().muted = info.muted;
     }
 
     pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {

@@ -182,7 +182,8 @@ impl RemoteParticipant {
         }
 
         // remove tracks that are no longer valid
-        for (sid, _) in self.inner.tracks.read().iter() {
+        let tracks = self.inner.tracks.read().clone();
+        for (sid, _) in &tracks {
             if valid_tracks.contains(sid) {
                 continue;
             }

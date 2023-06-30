@@ -11,7 +11,7 @@ use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::SimulateScenario;
 use parking_lot::deadlock;
 use parking_lot::Mutex;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -61,6 +61,8 @@ struct App {
     connection_failure: Option<String>,
     room_state: ConnectionState,
 
+    auto_subscribe: bool,
+
     // Log events
     events: Vec<String>,
 }
@@ -100,7 +102,8 @@ pub fn run(rt: tokio::runtime::Runtime) {
             lk_url: DEFAULT_URL.to_owned(),
             lk_token: DEFAULT_TOKEN.to_owned(),
             connection_failure: None,
-            room_state: ConnectionState::Connected,
+            room_state: ConnectionState::Unknown,
+            auto_subscribe: true,
             events: Vec::new(),
         };
 
@@ -342,6 +345,9 @@ impl App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
+        let connecting = self.state.connecting.load(Ordering::SeqCst);
+        let connected = self.state.session.lock().is_some();
+
         egui::TopBottomPanel::top("top_panel").show(ui.ctx(), |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button(
@@ -397,11 +403,13 @@ impl App {
             });
         });
 
-        egui::SidePanel::right("room_panel")
+        egui::SidePanel::left("left_panel")
+            .resizable(true)
             .default_width(256.0)
             .show(ui.ctx(), |ui| {
-                ui.heading("Livekit - Connect to a room");
-                ui.separator();
+                ui.add_space(8.0);
+                ui.monospace("Livekit - Connect to a room");
+                ui.add_space(8.0);
 
                 ui.horizontal(|ui| {
                     ui.label("URL: ");
@@ -414,10 +422,7 @@ impl App {
                 });
 
                 ui.horizontal(|ui| {
-                    let connecting = self.state.connecting.load(Ordering::SeqCst);
-                    let session = self.state.session.lock();
-
-                    ui.add_enabled_ui(!connecting && session.is_none(), |ui| {
+                    ui.add_enabled_ui(!connected && !connecting, |ui| {
                         if ui.button("Connect").clicked() {
                             self.connection_failure = None;
                             let _ = self.cmd_tx.send(AsyncCmd::RoomConnect {
@@ -431,11 +436,17 @@ impl App {
                         ui.spinner();
                     }
 
-                    if session.is_some() {
+                    if connected {
                         if ui.button("Disconnect").clicked() {
                             let _ = self.cmd_tx.send(AsyncCmd::RoomDisconnect);
                         }
                     }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(!connected && !connecting, |ui| {
+                        ui.checkbox(&mut self.auto_subscribe, "Auto Subscribe");
+                    });
                 });
 
                 if let Some(err) = &self.connection_failure {
@@ -461,11 +472,47 @@ impl App {
                 }
             });
 
-        egui::TopBottomPanel::bottom("bottom_panel")
-            .default_height(128.0)
+        egui::SidePanel::right("right_panel")
+            .resizable(true)
+            .default_width(256.0)
             .show(ui.ctx(), |ui| {
-                ui.label("Events");
+                ui.monospace("Tracks");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    // Show all tracks
+                    if let Some(session) = self.state.session.lock().as_ref() {
+                        for (_, participant) in session.room.participants() {
+                            for (_, track) in participant.tracks() {
+                                let TrackPublication::Remote(track) = track else {
+                                    unreachable!();
+                                };
 
+                                ui.group(|ui| {
+                                    ui.label(format!("{} {}", track.sid().0, track.name()));
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("{:?}", track.source()));
+
+                                        if track.is_subscribed() {
+                                            ui.colored_label(egui::Color32::GREEN, "Subscribed");
+                                        } else {
+                                            ui.colored_label(egui::Color32::RED, "Unsubscribed");
+                                        }
+
+                                        if track.is_muted() {
+                                            ui.colored_label(egui::Color32::DARK_GRAY, "Muted");
+                                        }
+                                    });
+                                });
+                            }
+                        }
+                    }
+                });
+            });
+
+        egui::TopBottomPanel::bottom("bottom_panel")
+            .resizable(true)
+            .min_height(32.0)
+            .show(ui.ctx(), |ui| {
+                ui.monospace("Events");
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for event in &self.events {
                         ui.label(event);
