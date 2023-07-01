@@ -291,15 +291,51 @@ fn main() {
                 }
             }
 
-            builder.file("src/objc_video_factory.mm");
-
             builder
+                .file("src/objc_video_factory.mm")
                 .flag("-stdlib=libc++")
                 .flag("-std=c++17")
                 .flag(format!("-isysroot{}", sysroot).as_str());
         }
         "ios" => {
-            builder.flag("-std=c++17");
+            println!("cargo:rustc-link-lib=static=webrtc");
+            println!("cargo:rustc-link-lib=framework=AVFoundation");
+            println!("cargo:rustc-link-lib=framework=CoreAudio");
+            println!("cargo:rustc-link-lib=framework=UIKit");
+            println!("cargo:rustc-link-lib=framework=CoreVideo");
+            println!("cargo:rustc-link-lib=framework=CoreMedia");
+            println!("cargo:rustc-link-lib=framework=VideoToolbox");
+            println!("cargo:rustc-link-lib=framework=AudioToolbox");
+            println!("cargo:rustc-link-lib=clang_rt.ios");
+            println!("cargo:rustc-link-arg=-ObjC");
+
+            let sysroot = Command::new("xcrun")
+                .args(["--sdk", "iphoneos", "--show-sdk-path"])
+                .output()
+                .unwrap();
+
+            let sysroot = String::from_utf8_lossy(&sysroot.stdout);
+            let sysroot = sysroot.trim();
+
+            let search_dirs = Command::new("clang")
+                .arg("--print-search-dirs")
+                .output()
+                .unwrap();
+
+            let search_dirs = String::from_utf8_lossy(&search_dirs.stdout);
+            for line in search_dirs.lines() {
+                if line.contains("libraries: =") {
+                    let path = line.split('=').nth(1).unwrap();
+                    let path = format!("{}/lib/darwin", path);
+                    println!("cargo:rustc-link-search={}", path);
+                }
+            }
+
+            builder.file("src/objc_video_factory.mm");
+
+            builder
+                .flag("-std=c++17")
+                .flag(format!("-isysroot{}", sysroot).as_str());
         }
         "android" => {
             let ndk_env = env::var("ANDROID_NDK_HOME").expect(
