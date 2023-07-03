@@ -155,78 +155,104 @@ async fn room_task(
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
-                if let Some(message)= match event {
-                    RoomEvent::ParticipantConnected(participant) => {
-                        Some(proto::room_event::Message::ParticipantConnected(
-                            proto::ParticipantConnected {
-                                info: Some(proto::ParticipantInfo::from(&participant)),
-                            }
-                        ))
-                    },
-                    RoomEvent::ParticipantDisconnected(participant) => {
-                        Some(proto::room_event::Message::ParticipantDisconnected(
-                            proto::ParticipantDisconnected {
-                                info: Some(proto::ParticipantInfo::from(&participant)),
-                            },
-                        ))
-                    }
-                    RoomEvent::TrackPublished {
-                        publication,
-                        participant,
-                    } => Some(proto::room_event::Message::TrackPublished(
-                        proto::TrackPublished {
-                            participant_sid: participant.sid().to_string(),
-                            publication: Some(proto::TrackPublicationInfo::from(&publication))
-                        },
-                    )),
-                    RoomEvent::TrackUnpublished {
-                        publication,
-                        participant,
-                    } => Some(proto::room_event::Message::TrackUnpublished(
-                        proto::TrackUnpublished {
-                            participant_sid: participant.sid().to_string(),
-                            publication_sid: publication.sid().into(),
-                        },
-                    )),
-                    RoomEvent::TrackSubscribed {
-                        track,
-                        publication: _,
-                        participant,
-                    } => {
-                        let handle_id = server.next_id() as FfiHandleId;
-                        let track_info = proto::TrackInfo::from_remote_track(handle_id, &track);
-                        server.ffi_handles.insert(handle_id, Box::new(Track::from(track)));
-
-                        Some(proto::room_event::Message::TrackSubscribed(
-                            proto::TrackSubscribed {
-                                participant_sid: participant.sid().to_string(),
-                                track: Some(track_info),
-                            },
-                        ))
-                    },
-                    RoomEvent::TrackUnsubscribed {
-                        track,
-                        publication: _,
-                        participant,
-                    } => Some(proto::room_event::Message::TrackUnsubscribed(
-                        proto::TrackUnsubscribed {
-                            participant_sid: participant.sid().to_string(),
-                            track_sid: track.sid().to_string(),
-                        },
-                    )),
-                    _ => None
-                } {
-                    // Send the event to the FfiClient
-                    let _ = server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent{
-                        room_handle: Some(room_handle.into()),
-                        message: Some(message)
-                    }));
-                }
-
+                forward_event(server, room_handle, event);
             },
             _ = close_rx.recv() => {
                 break;
             }
         };
+    }
+
+    fn forward_event(server: &'static FfiServer, room_handle: FfiHandleId, event: RoomEvent) {
+        let event = match event {
+            RoomEvent::ParticipantConnected(participant) => Some(
+                proto::room_event::Message::ParticipantConnected(proto::ParticipantConnected {
+                    info: Some(proto::ParticipantInfo::from(&participant)),
+                }),
+            ),
+            RoomEvent::ParticipantDisconnected(participant) => {
+                Some(proto::room_event::Message::ParticipantDisconnected(
+                    proto::ParticipantDisconnected {
+                        info: Some(proto::ParticipantInfo::from(&participant)),
+                    },
+                ))
+            }
+            RoomEvent::TrackPublished {
+                publication,
+                participant,
+            } => Some(proto::room_event::Message::TrackPublished(
+                proto::TrackPublished {
+                    participant_sid: participant.sid().to_string(),
+                    publication: Some(proto::TrackPublicationInfo::from(&publication)),
+                },
+            )),
+            RoomEvent::TrackUnpublished {
+                publication,
+                participant,
+            } => Some(proto::room_event::Message::TrackUnpublished(
+                proto::TrackUnpublished {
+                    participant_sid: participant.sid().to_string(),
+                    publication_sid: publication.sid().into(),
+                },
+            )),
+            RoomEvent::TrackSubscribed {
+                track,
+                publication: _,
+                participant,
+            } => {
+                let handle_id = server.next_id() as FfiHandleId;
+                let track_info = proto::TrackInfo::from_remote_track(handle_id, &track);
+                server
+                    .ffi_handles
+                    .insert(handle_id, Box::new(Track::from(track)));
+
+                Some(proto::room_event::Message::TrackSubscribed(
+                    proto::TrackSubscribed {
+                        participant_sid: participant.sid().to_string(),
+                        track: Some(track_info),
+                    },
+                ))
+            }
+            RoomEvent::TrackUnsubscribed {
+                track,
+                publication: _,
+                participant,
+            } => Some(proto::room_event::Message::TrackUnsubscribed(
+                proto::TrackUnsubscribed {
+                    participant_sid: participant.sid().to_string(),
+                    track_sid: track.sid().to_string(),
+                },
+            )),
+            RoomEvent::DataReceived {
+                payload,
+                kind,
+                participant,
+            } => {
+                let data_ptr = payload.as_ptr();
+                let data_len = payload.len();
+
+                let next_id = server.next_id() as FfiHandleId;
+                server.ffi_handles.insert(next_id, Box::new(payload));
+
+                Some(proto::room_event::Message::DataReceived(
+                    proto::DataReceived {
+                        handle: Some(next_id.into()),
+                        participant_sid: Some(participant.sid().to_string()),
+                        kind: proto::DataPacketKind::from(kind).into(),
+                        data_ptr: data_ptr as u64,
+                        data_size: data_len as u64,
+                    },
+                ))
+            }
+
+            _ => None,
+        };
+
+        if let Some(event) = event {
+            let _ = server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
+                room_handle: Some(room_handle.into()),
+                message: Some(event),
+            }));
+        }
     }
 }
