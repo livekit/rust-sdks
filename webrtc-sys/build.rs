@@ -1,5 +1,6 @@
 use regex::Regex;
 use reqwest::StatusCode;
+use std::alloc::System;
 use std::env;
 use std::fs;
 use std::io::BufRead;
@@ -340,7 +341,7 @@ fn main() {
 
             let host_os = if cfg!(linux) {
                 "linux-x86_64"
-            } else if cfg!(macos) {
+            } else if cfg!(target_os = "macos") {
                 "darwin-x86_64"
             } else if cfg!(windows) {
                 "windows-x86_64"
@@ -349,6 +350,11 @@ fn main() {
             };
 
             let toolchain = android_ndk.join(std::format!("toolchains/llvm/prebuilt/{}", host_os));
+
+            println!(
+                "cargo:warning=Using Android NDK at {}",
+                android_ndk.display()
+            );
 
             // libgcc (redirects to libunwind)
             println!(
@@ -378,7 +384,7 @@ fn main() {
             // JNI Version Script & Keep JNI symbols
             let vs_path = path::PathBuf::from(env::var("OUT_DIR").unwrap()).join("webrtc_jni.map");
             let mut vs_file = fs::File::create(&vs_path).unwrap();
-            builder.file("src/jni_onload.cc");
+            //builder.file("src/jni_onload.cc");
             println!("cargo:rustc-link-arg=-Wl,--undefined=JNI_OnLoad");
 
             write!(vs_file, "JNI_WEBRTC {{\n\tglobal: ").unwrap();
@@ -394,6 +400,15 @@ fn main() {
                 vs_path.to_str().unwrap()
             );
 
+            println!("cargo:rustc-link-lib=static=webrtc");
+
+            // Set sysroot
+            let sysroot = toolchain.join("sysroot/usr").canonicalize().unwrap();
+            println!(
+                "cargo:warning=Using Android sysroot at {}",
+                sysroot.display()
+            );
+            builder.flag(format!("-isysroot{}", &sysroot.to_string_lossy().to_string()).as_str());
             builder.flag("-std=c++17");
         }
         _ => {
@@ -404,9 +419,13 @@ fn main() {
     // TODO(theomonnom) Only add this define when building tests
     builder.define("LIVEKIT_TEST", None);
 
-    builder.warnings(false).compile("lkwebrtc");
+    builder.warnings(false).compile("webrtcsys-cxx");
 
     for entry in glob::glob("./src/**/*.cpp").unwrap() {
+        println!("cargo:rerun-if-changed={}", entry.unwrap().display());
+    }
+
+    for entry in glob::glob("./src/**/*.mm").unwrap() {
         println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
 

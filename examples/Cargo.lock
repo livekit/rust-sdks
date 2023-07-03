@@ -3335,6 +3335,7 @@ dependencies = [
 name = "webrtc-sys"
 version = "0.1.2"
 dependencies = [
+ "cc",
  "cxx",
  "cxx-build",
  "flate2",
