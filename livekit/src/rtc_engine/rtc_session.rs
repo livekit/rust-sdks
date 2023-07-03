@@ -874,7 +874,7 @@ impl SessionInner {
 
         // Wait until the PeerConnection is connected
         let wait_connected = async {
-            while self.publisher_pc.lock().await.is_connected() && dc.state() == DataState::Open {
+            while !self.publisher_pc.lock().await.is_connected() || dc.state() != DataState::Open {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".to_string()));
                 }
