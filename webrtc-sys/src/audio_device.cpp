@@ -83,9 +83,6 @@ int32_t AudioDevice::Terminate() {
   initialized_ = false;
 
   audio_queue_->PostTask([this] { audio_task_.Stop(); });
-
-  StopRecording();
-  StopPlayout();
   return 0;
 }
 
