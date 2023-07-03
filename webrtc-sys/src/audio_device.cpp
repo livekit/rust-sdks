@@ -43,6 +43,10 @@ int32_t AudioDevice::RegisterAudioCallback(webrtc::AudioTransport* transport) {
 }
 
 int32_t AudioDevice::Init() {
+  webrtc::MutexLock lock(&mutex_);
+  if (initialized_)
+    return 0;
+
   audio_queue_ =
       std::make_unique<rtc::TaskQueue>(task_queue_factory_->CreateTaskQueue(
           "AudioDevice", webrtc::TaskQueueFactory::Priority::NORMAL));
@@ -72,19 +76,18 @@ int32_t AudioDevice::Init() {
 }
 
 int32_t AudioDevice::Terminate() {
+  webrtc::MutexLock lock(&mutex_);
   if (!initialized_)
     return 0;
 
   initialized_ = false;
 
   audio_queue_->PostTask([this] { audio_task_.Stop(); });
-
-  StopRecording();
-  StopPlayout();
   return 0;
 }
 
 bool AudioDevice::Initialized() const {
+  webrtc::MutexLock lock(&mutex_);
   return initialized_;
 }
 
@@ -162,7 +165,8 @@ int32_t AudioDevice::StopPlayout() {
 }
 
 bool AudioDevice::Playing() const {
-  return false;
+  webrtc::MutexLock lock(&mutex_);
+  return playing_;
 }
 
 int32_t AudioDevice::StartRecording() {
@@ -258,6 +262,7 @@ int32_t AudioDevice::MicrophoneMute(bool* enabled) const {
 }
 
 int32_t AudioDevice::StereoPlayoutIsAvailable(bool* available) const {
+  *available = true;
   return 0;
 }
 
@@ -278,6 +283,7 @@ int32_t AudioDevice::SetStereoRecording(bool enable) {
 }
 
 int32_t AudioDevice::StereoRecording(bool* enabled) const {
+  *enabled = true;
   return 0;
 }
 
