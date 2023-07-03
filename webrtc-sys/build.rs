@@ -10,30 +10,13 @@ use std::process::Command;
 const WEBRTC_TAG: &str = "webrtc-4a9b827";
 const IGNORE_DEFINES: [&str; 2] = ["CR_CLANG_REVISION", "CR_XCODE_VERSION"];
 
-fn download_prebuilt_webrtc(
-    out_path: path::PathBuf,
-) -> Result<path::PathBuf, Box<dyn std::error::Error>> {
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+fn target_os() -> String {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target = env::var("TARGET").unwrap();
+
     let is_simulator = target.ends_with("-sim");
 
-    // This is not yet supported on all platforms.
-    // On Windows, we need Rust to link against libcmtd.
-    let use_debug = {
-        let var = env::var("LK_DEBUG_WEBRTC");
-        var.is_ok() && var.unwrap() == "true"
-    };
-
-    let profile = if use_debug { "debug" } else { "release" };
-
-    let target_arch = match target_arch.as_str() {
-        "aarch64" => "arm64",
-        "x86_64" => "x64",
-        _ => &target_arch,
-    };
-
-    let target_os = match target_os.as_str() {
+    match target_os.as_str() {
         "windows" => "win",
         "macos" => "mac",
         "ios" => {
@@ -44,9 +27,33 @@ fn download_prebuilt_webrtc(
             }
         }
         _ => &target_os,
+    }
+    .to_string()
+}
+
+fn target_arch() -> String {
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    match target_arch.as_str() {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        _ => &target_arch,
+    }
+    .to_owned()
+}
+
+fn download_prebuilt_webrtc(
+    out_path: path::PathBuf,
+) -> Result<path::PathBuf, Box<dyn std::error::Error>> {
+    // This is not yet supported on all platforms.
+    // On Windows, we need Rust to link against libcmtd.
+    let use_debug = {
+        let var = env::var("LK_DEBUG_WEBRTC");
+        var.is_ok() && var.unwrap() == "true"
     };
 
-    let file_name = format!("webrtc-{}-{}-{}.zip", target_os, target_arch, profile);
+    let profile = if use_debug { "debug" } else { "release" };
+
+    let file_name = format!("webrtc-{}-{}-{}.zip", &target_os(), &target_arch(), profile);
     let file_url = format!(
         "https://github.com/livekit/client-sdk-rust/releases/download/{}/{}",
         WEBRTC_TAG, file_name
@@ -109,6 +116,51 @@ fn download_prebuilt_webrtc(
     Ok(out_path.join(file_name.replace(".zip", "")))
 }
 
+fn configure_darwin_sysroot(builder: &mut cc::Build) {
+    let target_os = target_os();
+
+    let sdk = match target_os.as_str() {
+        "mac" => "macosx",
+        "ios-device" => "iphoneos",
+        "ios-simulator" => "iphonesimulator",
+        _ => panic!("Unsupported target_os: {}", target_os),
+    };
+
+    let clang_rt = match target_os.as_str() {
+        "mac" => "clang_rt.osx",
+        "ios-device" => "clang_rt.ios",
+        "ios-simulator" => "clang_rt.iossim",
+        _ => panic!("Unsupported target_os: {}", target_os),
+    };
+
+    println!("cargo:rustc-link-lib={}", clang_rt);
+    println!("cargo:rustc-link-arg=-ObjC");
+
+    let sysroot = Command::new("xcrun")
+        .args(["--sdk", sdk, "--show-sdk-path"])
+        .output()
+        .unwrap();
+
+    let sysroot = String::from_utf8_lossy(&sysroot.stdout);
+    let sysroot = sysroot.trim();
+
+    let search_dirs = Command::new("clang")
+        .arg("--print-search-dirs")
+        .output()
+        .unwrap();
+
+    let search_dirs = String::from_utf8_lossy(&search_dirs.stdout);
+    for line in search_dirs.lines() {
+        if line.contains("libraries: =") {
+            let path = line.split('=').nth(1).unwrap();
+            let path = format!("{}/lib/darwin", path);
+            println!("cargo:rustc-link-search={}", path);
+        }
+    }
+
+    builder.flag(format!("-isysroot{}", sysroot).as_str());
+}
+
 fn main() {
     let use_custom_webrtc = {
         let var = env::var("LK_CUSTOM_WEBRTC");
@@ -116,36 +168,21 @@ fn main() {
     };
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
 
-    let (webrtc_dir, webrtc_include, webrtc_lib) = if use_custom_webrtc {
-        // Use a local WebRTC version (libwebrtc folder)
-        let webrtc_dir = path::PathBuf::from("./libwebrtc");
-        (
-            webrtc_dir.clone(),
-            webrtc_dir.join("include"),
-            webrtc_dir.join("lib"),
-        )
+    let webrtc_dir = if use_custom_webrtc {
+        path::PathBuf::from("./libwebrtc").canonicalize().unwrap()
     } else {
-        // Download a prebuilt version of WebRTC
         let download_dir = env::var("OUT_DIR").unwrap() + "/webrtc-sdk";
-        let webrtc_dir = download_prebuilt_webrtc(path::PathBuf::from(download_dir)).unwrap();
-        (
-            webrtc_dir.clone(),
-            webrtc_dir.join("include"),
-            webrtc_dir.join("lib"),
-        )
+        download_prebuilt_webrtc(path::PathBuf::from(download_dir))
+            .unwrap()
+            .canonicalize()
+            .unwrap()
     };
 
-    // Just required for the bridge build to succeed.
-    let includes = &[
-        path::PathBuf::from("./include"),
-        webrtc_include.clone(),
-        webrtc_include.join("third_party/abseil-cpp/"),
-        webrtc_include.join("third_party/libyuv/include/"),
-        webrtc_include.join("third_party/libc++/"),
-        // For mac & ios
-        webrtc_include.join("sdk/objc"),
-        webrtc_include.join("sdk/objc/base"),
-    ];
+    let (webrtc_dir, webrtc_include, webrtc_lib) = (
+        webrtc_dir.clone(),
+        webrtc_dir.join("include"),
+        webrtc_dir.join("lib"),
+    );
 
     let mut builder = cxx_build::bridges([
         "src/peer_connection.rs",
@@ -168,6 +205,17 @@ fn main() {
         "src/yuv_helper.rs",
         "src/helper.rs",
         "src/audio_resampler.rs",
+    ]);
+
+    builder.includes(&[
+        path::PathBuf::from("./include"),
+        webrtc_include.clone(),
+        webrtc_include.join("third_party/abseil-cpp/"),
+        webrtc_include.join("third_party/libyuv/include/"),
+        webrtc_include.join("third_party/libc++/"),
+        // For mac & ios
+        webrtc_include.join("sdk/objc"),
+        webrtc_include.join("sdk/objc/base"),
     ]);
 
     builder.files(&[
@@ -194,13 +242,9 @@ fn main() {
         "src/audio_resampler.cpp",
     ]);
 
-    for include in includes {
-        builder.include(include);
-    }
-
     println!(
         "cargo:rustc-link-search=native={}",
-        webrtc_lib.canonicalize().unwrap().to_str().unwrap()
+        webrtc_lib.to_str().unwrap()
     );
 
     // Read preprocessor definitions from webrtc.ninja
@@ -266,36 +310,13 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=IOKit");
             println!("cargo:rustc-link-lib=framework=IOSurface");
             println!("cargo:rustc-link-lib=static=webrtc");
-            println!("cargo:rustc-link-lib=clang_rt.osx");
-            println!("cargo:rustc-link-arg=-ObjC");
 
-            let sysroot = Command::new("xcrun")
-                .args(["--sdk", "macosx", "--show-sdk-path"])
-                .output()
-                .unwrap();
-
-            let sysroot = String::from_utf8_lossy(&sysroot.stdout);
-            let sysroot = sysroot.trim();
-
-            let search_dirs = Command::new("clang")
-                .arg("--print-search-dirs")
-                .output()
-                .unwrap();
-
-            let search_dirs = String::from_utf8_lossy(&search_dirs.stdout);
-            for line in search_dirs.lines() {
-                if line.contains("libraries: =") {
-                    let path = line.split('=').nth(1).unwrap();
-                    let path = format!("{}/lib/darwin", path);
-                    println!("cargo:rustc-link-search={}", path);
-                }
-            }
+            configure_darwin_sysroot(&mut builder);
 
             builder
                 .file("src/objc_video_factory.mm")
                 .flag("-stdlib=libc++")
-                .flag("-std=c++17")
-                .flag(format!("-isysroot{}", sysroot).as_str());
+                .flag("-std=c++17");
         }
         "ios" => {
             println!("cargo:rustc-link-lib=static=webrtc");
@@ -306,36 +327,10 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=CoreMedia");
             println!("cargo:rustc-link-lib=framework=VideoToolbox");
             println!("cargo:rustc-link-lib=framework=AudioToolbox");
-            println!("cargo:rustc-link-lib=clang_rt.ios");
-            println!("cargo:rustc-link-arg=-ObjC");
 
-            let sysroot = Command::new("xcrun")
-                .args(["--sdk", "iphoneos", "--show-sdk-path"])
-                .output()
-                .unwrap();
+            configure_darwin_sysroot(&mut builder);
 
-            let sysroot = String::from_utf8_lossy(&sysroot.stdout);
-            let sysroot = sysroot.trim();
-
-            let search_dirs = Command::new("clang")
-                .arg("--print-search-dirs")
-                .output()
-                .unwrap();
-
-            let search_dirs = String::from_utf8_lossy(&search_dirs.stdout);
-            for line in search_dirs.lines() {
-                if line.contains("libraries: =") {
-                    let path = line.split('=').nth(1).unwrap();
-                    let path = format!("{}/lib/darwin", path);
-                    println!("cargo:rustc-link-search={}", path);
-                }
-            }
-
-            builder.file("src/objc_video_factory.mm");
-
-            builder
-                .flag("-std=c++17")
-                .flag(format!("-isysroot{}", sysroot).as_str());
+            builder.file("src/objc_video_factory.mm").flag("-std=c++17");
         }
         "android" => {
             let ndk_env = env::var("ANDROID_NDK_HOME").expect(
