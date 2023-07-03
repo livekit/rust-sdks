@@ -21,6 +21,15 @@ impl From<proto::DataPacketKind> for DataPacketKind {
     }
 }
 
+impl From<DataPacketKind> for proto::DataPacketKind {
+    fn from(value: DataPacketKind) -> Self {
+        match value {
+            DataPacketKind::Reliable => Self::KindReliable,
+            DataPacketKind::Lossy => Self::KindLossy,
+        }
+    }
+}
+
 impl proto::RoomInfo {
     pub fn from_room(handle_id: FfiHandleId, session: &Room) -> Self {
         Self {
