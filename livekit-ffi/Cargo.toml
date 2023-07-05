@@ -19,7 +19,7 @@ livekit = { path = "../livekit", version = "0.1.2" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.1.2" }
 tokio = { version = "1.0", features = ["full"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-parking_lot = { version = "0.12.1", features=["deadlock_detection"] }
+parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 prost = "0.11.0"
 prost-types = "0.11.1"
 lazy_static = "1.4.0"
