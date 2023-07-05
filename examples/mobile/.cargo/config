@@ -3,6 +3,7 @@
 lto = true
 opt-level = "z"
 strip = true
+rpath = true
 
 
 [target.aarch64-apple-ios]
