@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use livekit::{Room, RoomOptions};
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, CStr};
 
 struct App {
     async_runtime: tokio::runtime::Runtime,

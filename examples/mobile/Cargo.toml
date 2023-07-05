@@ -9,4 +9,4 @@ livekit = { path = "../../livekit", version = "0.1.2", features = ["native-tls"]
 tokio = { version = "1", features = ["full"] }
 
 [lib]
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["cdylib"]

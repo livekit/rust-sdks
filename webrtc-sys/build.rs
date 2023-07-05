@@ -358,11 +358,6 @@ fn main() {
 
             let toolchain = android_ndk.join(std::format!("toolchains/llvm/prebuilt/{}", host_os));
 
-            println!(
-                "cargo:warning=Using Android NDK at {}",
-                android_ndk.display()
-            );
-
             // libgcc (redirects to libunwind)
             println!(
                 "cargo:rustc-link-search={}",
@@ -391,11 +386,8 @@ fn main() {
             // JNI Version Script & Keep JNI symbols
             let vs_path = path::PathBuf::from(env::var("OUT_DIR").unwrap()).join("webrtc_jni.map");
             let mut vs_file = fs::File::create(&vs_path).unwrap();
-            //builder.file("src/jni_onload.cc");
-            println!("cargo:rustc-link-arg=-Wl,--undefined=JNI_OnLoad");
 
             write!(vs_file, "JNI_WEBRTC {{\n\tglobal: ").unwrap();
-            write!(vs_file, "JNI_OnLoad; ").unwrap();
             for x in jni_symbols {
                 println!("cargo:rustc-link-arg=-Wl,--undefined={}", x);
                 write!(vs_file, "{}; ", x).unwrap();
@@ -410,11 +402,14 @@ fn main() {
             println!("cargo:rustc-link-lib=static=webrtc");
 
             // Set sysroot
-            let sysroot = toolchain.join("sysroot/usr").canonicalize().unwrap();
+            let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
+            let sysroot_include = sysroot.join("usr/include");
+
             println!(
-                "cargo:warning=Using Android sysroot at {}",
-                sysroot.display()
+                "cargo:rustc-link-search={}",
+                sysroot_include.to_str().unwrap()
             );
+
             builder.flag(format!("-isysroot{}", &sysroot.to_string_lossy().to_string()).as_str());
             builder.flag("-std=c++17");
         }
