@@ -44,11 +44,6 @@ jobs:
         run: |
           echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install Rust toolchain
         run: |
           rustup update --no-self-update stable
