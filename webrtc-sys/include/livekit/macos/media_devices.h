@@ -14,21 +14,13 @@
  * limitations under the License.
  */
 
-#include "livekit/objc_video_factory.h"
+#include <string>
 
-#import <sdk/objc/components/video_codec/RTCVideoDecoderFactoryH264.h>
-#import <sdk/objc/components/video_codec/RTCVideoEncoderFactoryH264.h>
-#include "sdk/objc/native/api/video_decoder_factory.h"
-#include "sdk/objc/native/api/video_encoder_factory.h"
+#include "livekit/media_devices.h"
 
 namespace livekit {
 
-std::unique_ptr<webrtc::VideoEncoderFactory> CreateObjCVideoEncoderFactory() {
-  return webrtc::ObjCToNativeVideoEncoderFactory([[RTCVideoEncoderFactoryH264 alloc] init]);
-}
-
-std::unique_ptr<webrtc::VideoDecoderFactory> CreateObjCVideoDecoderFactory() {
-  return webrtc::ObjCToNativeVideoDecoderFactory([[RTCVideoDecoderFactoryH264 alloc] init]);
-}
-
+class MacMediaDevices : public MediaDevices {
+  std::vector<DeviceInfo> ListDevices() const override;
+};
 }  // namespace livekit
