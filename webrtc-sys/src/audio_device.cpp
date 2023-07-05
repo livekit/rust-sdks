@@ -76,11 +76,13 @@ int32_t AudioDevice::Init() {
 }
 
 int32_t AudioDevice::Terminate() {
-  webrtc::MutexLock lock(&mutex_);
-  if (!initialized_)
-    return 0;
+  {
+    webrtc::MutexLock lock(&mutex_);
+    if (!initialized_)
+      return 0;
 
-  initialized_ = false;
+    initialized_ = false;
+  }
   audio_queue_ = nullptr;
   return 0;
 }
