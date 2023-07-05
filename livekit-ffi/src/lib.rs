@@ -3,10 +3,9 @@ use prost::Message;
 use std::any::Any;
 use thiserror::Error;
 
-mod proto {
-    include!(concat!(env!("OUT_DIR"), "/livekit.rs"));
-}
 mod conversion;
+#[path = "livekit.rs"]
+mod proto;
 mod server;
 
 #[derive(Error, Debug)]

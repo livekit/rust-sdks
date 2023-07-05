@@ -11,6 +11,3 @@ futures-util = { version = "0.3", features = ["sink"] }
 parking_lot = "0.12"
 prost = "0.11"
 prost-types = "0.11"
-
-[build-dependencies]
-prost-build = { version = "0.11.1" }
