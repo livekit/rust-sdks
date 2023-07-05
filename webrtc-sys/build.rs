@@ -1,6 +1,5 @@
 use regex::Regex;
 use reqwest::StatusCode;
-use std::alloc::System;
 use std::env;
 use std::fs;
 use std::io::BufRead;
@@ -321,13 +320,21 @@ fn main() {
         }
         "ios" => {
             println!("cargo:rustc-link-lib=static=webrtc");
+            println!("cargo:rustc-link-lib=framework=CoreFoundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
             println!("cargo:rustc-link-lib=framework=UIKit");
             println!("cargo:rustc-link-lib=framework=CoreVideo");
+            println!("cargo:rustc-link-lib=framework=CoreGraphics");
             println!("cargo:rustc-link-lib=framework=CoreMedia");
             println!("cargo:rustc-link-lib=framework=VideoToolbox");
             println!("cargo:rustc-link-lib=framework=AudioToolbox");
+            println!("cargo:rustc-link-lib=framework=OpenGLES");
+            println!("cargo:rustc-link-lib=framework=GLKit");
+            println!("cargo:rustc-link-lib=framework=Metal");
+            println!("cargo:rustc-link-lib=framework=Network");
+            println!("cargo:rustc-link-lib=framework=QuartzCore");
+            println!("cargo:rustc-link-lib=objc");
 
             configure_darwin_sysroot(&mut builder);
 

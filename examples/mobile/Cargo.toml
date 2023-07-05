@@ -1,0 +1,12 @@
+[package]
+name = "mobile"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lazy_static = "1.4.0"
+livekit = { path = "../../livekit", version = "0.1.2", features = ["native-tls"] }
+tokio = { version = "1", features = ["full"] }
+
+[lib]
+crate-type = ["staticlib", "cdylib"]

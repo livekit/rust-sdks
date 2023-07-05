@@ -1528,6 +1528,7 @@ dependencies = [
  "log",
  "parking_lot",
  "prost",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -1684,6 +1685,15 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.45.0",
+]
+
+[[package]]
+name = "mobile"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "livekit",
+ "tokio",
 ]
 
 [[package]]
@@ -2920,7 +2930,9 @@ checksum = "ec509ac96e9a0c43427c74f003127d953a265737636129424288d27cb5c4b12c"
 dependencies = [
  "futures-util",
  "log",
+ "native-tls",
  "tokio",
+ "tokio-native-tls",
  "tungstenite",
 ]
 
@@ -3043,6 +3055,7 @@ dependencies = [
  "http",
  "httparse",
  "log",
+ "native-tls",
  "rand",
  "sha1",
  "thiserror",

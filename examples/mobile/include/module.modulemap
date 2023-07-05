@@ -1,0 +1,26 @@
+module MobileExample {
+    umbrella header "mobile_example.h"
+    export *
+    module * { export * }
+
+    requires objc
+
+    /* Keep in sync with webrtc-sys build.rs */
+    link framework "CoreFoundation"
+    link framework "AVFoundation"
+    link framework "CoreAudio"
+    link framework "UIKit"
+    link framework "CoreVideo"
+    link framework "CoreGraphics"
+    link framework "CoreMedia"
+    link framework "VideoToolbox"
+    link framework "AudioToolbox"
+    link framework "OpenGLES"
+    link framework "GLKit"
+    link framework "Metal"
+    link framework "Network"
+    link framework "QuartzCore"
+
+    link "c++"
+    link "objc"
+}
