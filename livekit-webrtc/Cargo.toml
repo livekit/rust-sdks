@@ -12,6 +12,9 @@ livekit-protocol = { path = "../livekit-protocol", version = "0.1.2" }
 log = "0.4"
 thiserror = "1.0"
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 webrtc-sys = { path = "../webrtc-sys", version = "0.1.2" }
 lazy_static = "1.4"

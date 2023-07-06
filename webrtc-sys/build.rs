@@ -205,6 +205,7 @@ fn main() {
         "src/yuv_helper.rs",
         "src/helper.rs",
         "src/audio_resampler.rs",
+        "src/android.rs",
     ]);
 
     builder.includes(&[
@@ -240,6 +241,7 @@ fn main() {
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",
         "src/audio_resampler.cpp",
+        "src/android.cpp",
     ]);
 
     println!(
