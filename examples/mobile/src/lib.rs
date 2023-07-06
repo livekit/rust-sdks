@@ -43,3 +43,20 @@ pub extern "C" fn livekit_connect(url: *const c_char, token: *const c_char) {
         }
     });
 }
+
+#[cfg(target_os = "android")]
+mod android {
+    use jni::{
+        sys::{jint, JNI_VERSION_1_6},
+        JavaVM,
+    };
+    use std::os::raw::c_void;
+
+    #[allow(non_snake_case)]
+    #[no_mangle]
+    pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
+        println!("JNI_OnLoad, initializing LiveKit");
+        livekit::webrtc::android::initialize_android(&vm);
+        JNI_VERSION_1_6
+    }
+}

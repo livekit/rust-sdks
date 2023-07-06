@@ -53,3 +53,8 @@ pub mod native {
     pub use crate::imp::yuv_helper;
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 }
+
+#[cfg(target_os = "android")]
+pub mod android {
+    pub use crate::imp::android::*;
+}

@@ -5,8 +5,11 @@ edition = "2021"
 
 [dependencies]
 lazy_static = "1.4.0"
-livekit = { path = "../../livekit", version = "0.1.2", features = ["native-tls"] }
+livekit = { path = "../../livekit", version = "0.1.2", features = ["rustls-tls-native-roots"] }
 tokio = { version = "1", features = ["full"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
 
 [lib]
 crate-type = ["cdylib"]
