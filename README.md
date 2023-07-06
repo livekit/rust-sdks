@@ -62,7 +62,7 @@ We'll first use it as a basis for our Unity SDK (under development), but over ti
 
 Currently, Tokio is required to use this SDK, however we plan to make the async executor runtime agnostic.
 
-### Connecting to a Room and listen to events:
+### Connect to a Room and listen for events:
 
 ```rust
 use livekit::prelude::*;
