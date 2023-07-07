@@ -19,6 +19,7 @@
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
+#include "livekit/android.h"
 #include "livekit/objc_video_factory.h"
 #include "media/base/media_constants.h"
 #include "rtc_base/logging.h"
@@ -30,6 +31,10 @@ VideoDecoderFactory::VideoDecoderFactory() {
 
 #ifdef __APPLE__
   factories_.push_back(livekit::CreateObjCVideoDecoderFactory());
+#endif
+
+#ifdef WEBRTC_ANDROID
+  factories_.push_back(CreateAndroidVideoDecoderFactory());
 #endif
 
   // TODO(theomonnom): Add other HW decoders here
