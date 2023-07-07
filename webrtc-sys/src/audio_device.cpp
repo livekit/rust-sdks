@@ -317,11 +317,13 @@ int32_t AudioDevice::EnableBuiltInNS(bool enable) {
 }
 
 #if defined(WEBRTC_IOS)
-int AudioDevice::GetPlayoutAudioParameters(AudioParameters* params) const {
+int AudioDevice::GetPlayoutAudioParameters(
+    webrtc::AudioParameters* params) const {
   return 0;
 }
 
-int AudioDevice::GetRecordAudioParameters(AudioParameters* params) const {
+int AudioDevice::GetRecordAudioParameters(
+    webrtc::AudioParameters* params) const {
   return 0;
 }
 #endif  // WEBRTC_IOS

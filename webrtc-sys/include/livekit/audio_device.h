@@ -110,8 +110,8 @@ class AudioDevice : public webrtc::AudioDeviceModule {
   int32_t EnableBuiltInNS(bool enable) override;
 
 #if defined(WEBRTC_IOS)
-  int GetPlayoutAudioParameters(AudioParameters* params) const override;
-  int GetRecordAudioParameters(AudioParameters* params) const override;
+  int GetPlayoutAudioParameters(webrtc::AudioParameters* params) const override;
+  int GetRecordAudioParameters(webrtc::AudioParameters* params) const override;
 #endif  // WEBRTC_IOS
 
   int32_t SetAudioDeviceSink(webrtc::AudioDeviceSink* sink) const override;
