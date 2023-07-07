@@ -19,10 +19,13 @@
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
-#include "livekit/android.h"
 #include "livekit/objc_video_factory.h"
 #include "media/base/media_constants.h"
 #include "rtc_base/logging.h"
+
+#ifdef WEBRTC_ANDROID
+#include "livekit/android.h"
+#endif
 
 namespace livekit {
 
