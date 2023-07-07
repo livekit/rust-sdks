@@ -44,11 +44,6 @@ jobs:
         run: |
           echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install Rust toolchain
         run: |
           rustup update --no-self-update stable
@@ -65,7 +60,9 @@ jobs:
           submodules: true
 
       - name: Build
-        run: cargo build -p livekit-ffi --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+        run: | 
+          cd livekit-ffi/
+          cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' }}

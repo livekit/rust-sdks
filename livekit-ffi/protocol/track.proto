@@ -4,8 +4,6 @@ package livekit;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
-import "video_frame.proto";
-import "audio_frame.proto";
 
 // Create a new VideoTrack from a VideoSource
 message CreateVideoTrackRequest {
