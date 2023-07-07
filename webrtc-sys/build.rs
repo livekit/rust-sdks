@@ -34,6 +34,7 @@ fn main() {
         "src/video_frame.rs",
         "src/video_frame_buffer.rs",
         "src/helper.rs",
+        "src/yuv_helper.rs",
         "src/audio_resampler.rs",
         "src/android.rs",
     ]);
