@@ -1,3 +1,4 @@
+#[cfg(target_os = "android")]
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
     unsafe extern "C++" {

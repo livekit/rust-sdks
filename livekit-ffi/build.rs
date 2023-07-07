@@ -1,3 +1,4 @@
+use std::env;
 use std::io::Result;
 
 fn main() -> Result<()> {
@@ -15,5 +16,10 @@ fn main() -> Result<()> {
         ],
         &["protocol/"],
     )?;
+
+    if env::var("CARGO_CFG_TARGET_OS").unwrap() == "android" {
+        webrtc_sys_build::configure_jni_symbols().unwrap();
+    }
+
     Ok(())
 }

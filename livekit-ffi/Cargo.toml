@@ -30,6 +30,7 @@ env_logger = "0.10.0"
 
 [build-dependencies]
 prost-build = { version = "0.11.1" }
+webrtc-sys-build = { path = "../webrtc-sys/build", version = "0.1.2" }
 
 [dev-dependencies]
 livekit-api = { path = "../livekit-api", version = "0.1.2", default-features = false, features = ["access-token"] }
