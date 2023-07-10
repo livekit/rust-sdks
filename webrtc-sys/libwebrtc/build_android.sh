@@ -76,7 +76,7 @@ args="is_debug=$debug \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
-  rtc_libvpx_build_vp9=true \
+  rtc_libvpx_build_vp9=false \
   is_component_build=false \
   enable_stripping=true \
   use_goma=false \
@@ -93,14 +93,11 @@ fi
 # generate ninja files
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
-# std/android:native_api seems to be broken when compiling in using use_custom_libcxx=true
-# build native api 
-
 # build shared library
-ninja -C "$OUTPUT_DIR" sdk/android:native_api \
+ninja -C "$OUTPUT_DIR" :default \ 
+  sdk/android:native_api \
   sdk/android:libwebrtc \
   sdk/android:libjingle_peerconnection_so
-
 
 # make libwebrtc.a
 # don't include nasm
