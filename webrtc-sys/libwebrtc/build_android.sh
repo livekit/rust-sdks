@@ -94,7 +94,7 @@ fi
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
 # build shared library
-ninja -C "$OUTPUT_DIR" :default \ 
+ninja -C "$OUTPUT_DIR" :default \
   sdk/android:native_api \
   sdk/android:libwebrtc \
   sdk/android:libjingle_peerconnection_so
