@@ -6,10 +6,12 @@ edition = "2021"
 [dependencies]
 lazy_static = "1.4.0"
 livekit = { path = "../../livekit", version = "0.1.2", features = ["rustls-tls-native-roots"] }
+log = "0.4.19"
 tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
+android_logger = "0.13.1"
 
 [build-dependencies]
 webrtc-sys-build = { path = "../../webrtc-sys/build", version = "0.1.3" }
