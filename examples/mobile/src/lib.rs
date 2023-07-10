@@ -71,7 +71,7 @@ pub mod android {
     pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
         android_logger::init_once(
             Config::default()
-                .with_max_level(LevelFilter::Trace)
+                .with_max_level(LevelFilter::Debug)
                 .with_tag("livekit-rustexample"),
         );
 

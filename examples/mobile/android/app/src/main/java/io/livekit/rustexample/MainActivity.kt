@@ -17,17 +17,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val app = App()
-        app.connect("myurk", "thistoken")
+        app.connect(
+                "ws://localhost:7880",
+                "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MDY2MTMyODgsImlzcyI6IkFQSVRzRWZpZFpqclFvWSIsIm5hbWUiOiJuYXRpdmUiLCJuYmYiOjE2NzI2MTMyODgsInN1YiI6Im5hdGl2ZSIsInZpZGVvIjp7InJvb20iOiJ0ZXN0Iiwicm9vbUFkbWluIjp0cnVlLCJyb29tQ3JlYXRlIjp0cnVlLCJyb29tSm9pbiI6dHJ1ZSwicm9vbUxpc3QiOnRydWV9fQ.uSNIangMRu8jZD5mnRYoCHjcsQWCrJXgHCs0aNIgBFY"
+        )
 
         setContent {
             RustexampleTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    Greeting("Android")
-                }
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                ) { Greeting("Android") }
             }
         }
     }
@@ -35,16 +36,11 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
+    Text(text = "Hello $name!", modifier = modifier)
 }
 
 @Preview(showBackground = true)
 @Composable
 fun GreetingPreview() {
-    RustexampleTheme {
-        Greeting("Android")
-    }
+    RustexampleTheme { Greeting("Android") }
 }
