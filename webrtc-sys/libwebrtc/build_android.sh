@@ -56,6 +56,7 @@ cd src
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -71,11 +72,11 @@ args="is_debug=$debug \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=true \
+  use_custom_libcxx=false \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
-  rtc_libvpx_build_vp9=true \
+  rtc_libvpx_build_vp9=false \
   is_component_build=false \
   enable_stripping=true \
   use_goma=false \
@@ -92,12 +93,11 @@ fi
 # generate ninja files
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
-# build static library
-ninja -C "$OUTPUT_DIR" :default \
+# build shared library
+ninja -C "$OUTPUT_DIR" :default \ 
   sdk/android:native_api \
   sdk/android:libwebrtc \
   sdk/android:libjingle_peerconnection_so
-
 
 # make libwebrtc.a
 # don't include nasm
