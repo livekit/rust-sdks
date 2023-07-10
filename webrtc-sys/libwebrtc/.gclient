@@ -7,3 +7,4 @@ solutions = [
     "managed": False,
   },
 ]
+target_os = ['android']
