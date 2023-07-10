@@ -88,7 +88,6 @@ pub mod android {
         url: jni::objects::JString,
         token: jni::objects::JString,
     ) {
-        log::info!("This was just called");
         let url: String = env.get_string(&url).unwrap().into();
         let token: String = env.get_string(&token).unwrap().into();
 
