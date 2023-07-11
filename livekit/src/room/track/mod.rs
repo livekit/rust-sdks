@@ -122,6 +122,7 @@ pub(super) struct TrackInner {
     info: RwLock<TrackInfo>,
     rtc_track: MediaStreamTrack,
     events: TrackEvents,
+    receiver: Option<RtpReceiver>
 }
 
 pub(super) fn new_inner(
@@ -129,6 +130,7 @@ pub(super) fn new_inner(
     name: String,
     kind: TrackKind,
     rtc_track: MediaStreamTrack,
+    receiver: Option<RtpReceiver>
 ) -> TrackInner {
     TrackInner {
         info: RwLock::new(TrackInfo {
@@ -142,6 +144,7 @@ pub(super) fn new_inner(
         }),
         rtc_track,
         events: Default::default(),
+        receiver: receiver
     }
 }
 

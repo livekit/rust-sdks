@@ -41,6 +41,7 @@ impl LocalVideoTrack {
                 name,
                 TrackKind::Video,
                 MediaStreamTrack::Video(rtc_track),
+                None
             )),
             source,
         }

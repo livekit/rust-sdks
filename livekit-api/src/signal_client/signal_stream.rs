@@ -104,12 +104,7 @@ impl SignalStream {
                     signal,
                     response_chn,
                 } => {
-<<<<<<< HEAD:livekit/src/signal_client/signal_stream.rs
-                    println!("Signal request: {:?}", signal);
-                    event!(Level::TRACE, "sending SignalRequest: {:?}", signal);
-=======
                     log::debug!("sending SignalRequest: {:?}", signal);
->>>>>>> 71ef76c582ac393248142e9cecb8d7aaedfd2312:livekit-api/src/signal_client/signal_stream.rs
 
                     let data = Message::Binary(
                         proto::SignalRequest {
@@ -160,20 +155,9 @@ impl SignalStream {
                     let res = proto::SignalResponse::decode(data.as_slice())
                         .expect("failed to decode SignalResponse");
 
-<<<<<<< HEAD:livekit/src/signal_client/signal_stream.rs
-                    println!("res: {:?}", res);
-                    if let Some(msg) = res.message {
-                        event!(Level::TRACE, "received SignalResponse: {:?}", msg);
-                        let _ = emitter.send(SignalEvent::Signal(msg)).await;
-                    }
-                    else {
-                        println!("Failed to receive message!");
-                    }
-=======
                     let msg = res.message.unwrap();
                     log::debug!("received SignalResponse: {:?}", msg);
                     let _ = emitter.send(SignalEvent::Signal(msg)).await;
->>>>>>> 71ef76c582ac393248142e9cecb8d7aaedfd2312:livekit-api/src/signal_client/signal_stream.rs
                 }
                 Ok(Message::Ping(data)) => {
                     let _ = internal_tx

@@ -41,6 +41,7 @@ impl LocalAudioTrack {
                 name,
                 TrackKind::Audio,
                 MediaStreamTrack::Audio(rtc_track),
+                None
             )),
             source,
         }
