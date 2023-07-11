@@ -165,6 +165,7 @@ fn main() {
             webrtc_sys_build::configure_jni_symbols().unwrap();
 
             println!("cargo:rustc-link-lib=egl");
+            println!("cargo:rustc-link-lib=c++abi");
             println!("cargo:rustc-link-lib=OpenSLES");
 
             configure_android_sysroot(&mut builder);

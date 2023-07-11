@@ -84,9 +84,7 @@ args="is_debug=$debug \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
-  use_rtti=false \
-  use_errorprone_java_compiler=false \
-  use_cxx17=true"
+  use_rtti=true"
 
 if [ "$debug" = "true" ]; then
   args="${args} is_asan=true is_lsan=true";
