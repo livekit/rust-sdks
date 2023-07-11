@@ -169,7 +169,10 @@ fn main() {
 
             configure_android_sysroot(&mut builder);
 
-            builder.file("src/android.cpp").flag("-std=c++17");
+            builder
+                .file("src/android.cpp")
+                .flag("-std=c++17")
+                .cpp_link_stdlib("c++_static");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
