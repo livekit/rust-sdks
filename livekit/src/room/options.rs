@@ -58,36 +58,6 @@ impl AudioPreset {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct AudioCaptureOptions {
-    pub echo_cancellation: bool,
-    pub noise_suppression: bool,
-    pub auto_gain_control: bool,
-}
-
-impl Default for AudioCaptureOptions {
-    fn default() -> Self {
-        Self {
-            echo_cancellation: true,
-            noise_suppression: true,
-            auto_gain_control: true,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct VideoCaptureOptions {
-    pub resolution: VideoResolution,
-}
-
-impl Default for VideoCaptureOptions {
-    fn default() -> Self {
-        Self {
-            resolution: video::H720.resolution(),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct TrackPublishOptions {
     // If the encodings aren't set, LiveKit will compute the most appropriate ones
@@ -97,7 +67,7 @@ pub struct TrackPublishOptions {
     pub dtx: bool,
     pub red: bool,
     pub simulcast: bool,
-    pub name: String,
+    // pub name: String,
     pub source: TrackSource,
 }
 
@@ -110,7 +80,6 @@ impl Default for TrackPublishOptions {
             dtx: true,
             red: true,
             simulcast: true,
-            name: "unnamed track".to_owned(),
             source: TrackSource::Unknown,
         }
     }

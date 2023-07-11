@@ -1,23 +1,35 @@
-use super::{ConnectionQuality, ParticipantInner};
+use super::ConnectionQuality;
+use super::ParticipantInner;
 use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
+use crate::DataPacketKind;
 use livekit_protocol as proto;
 use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
-use parking_lot::RwLockReadGuard;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tracing::debug;
+
+#[derive(Default)]
+struct LocalEvents {
+    local_track_published:
+        Mutex<Option<Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>>>,
+    local_track_unpublished:
+        Mutex<Option<Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>>>,
+}
+
+struct LocalInfo {
+    events: LocalEvents,
+}
 
 #[derive(Clone)]
 pub struct LocalParticipant {
     inner: Arc<ParticipantInner>,
-    rtc_engine: Arc<RtcEngine>,
+    local: Arc<LocalInfo>,
 }
 
 impl Debug for LocalParticipant {
@@ -39,9 +51,52 @@ impl LocalParticipant {
         metadata: String,
     ) -> Self {
         Self {
-            inner: Arc::new(ParticipantInner::new(sid, identity, name, metadata)),
-            rtc_engine,
+            inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
+            local: Arc::new(LocalInfo {
+                events: LocalEvents::default(),
+            }),
         }
+    }
+
+    pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
+        super::update_info(&self.inner, &Participant::Local(self.clone()), info);
+    }
+
+    pub(crate) fn set_speaking(&self, speaking: bool) {
+        super::set_speaking(&self.inner, &Participant::Local(self.clone()), speaking);
+    }
+
+    pub(crate) fn set_audio_level(&self, level: f32) {
+        super::set_audio_level(&self.inner, &Participant::Local(self.clone()), level);
+    }
+
+    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
+        super::set_connection_quality(&self.inner, &Participant::Local(self.clone()), quality);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn on_local_track_published(
+        &self,
+        handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
+    ) {
+        *self.local.events.local_track_published.lock() = Some(Box::new(handler));
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn on_local_track_unpublished(
+        &self,
+        handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
+    ) {
+        *self.local.events.local_track_unpublished.lock() = Some(Box::new(handler));
+    }
+
+    pub(crate) fn add_publication(&self, publication: TrackPublication) {
+        super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
+        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid);
     }
 
     pub async fn publish_track(
@@ -51,7 +106,7 @@ impl LocalParticipant {
     ) -> RoomResult<LocalTrackPublication> {
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
-            name: options.name.clone(),
+            name: track.name().clone(),
             r#type: proto::TrackType::from(track.kind()) as i32,
             muted: track.is_muted(),
             source: proto::TrackSource::from(options.source) as i32,
@@ -65,9 +120,9 @@ impl LocalParticipant {
             LocalTrack::Video(video_track) => {
                 // Get the video dimension
                 // TODO(theomonnom): Use MediaStreamTrack::getSettings() on web
-                let capture_options = video_track.capture_options();
-                req.width = capture_options.resolution.width;
-                req.height = capture_options.resolution.height;
+                let resolution = video_track.rtc_source().video_resolution();
+                req.width = resolution.width;
+                req.height = resolution.height;
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
@@ -85,35 +140,33 @@ impl LocalParticipant {
                 });
             }
         }
+        let track_info = self.inner.rtc_engine.add_track(req).await?;
+        let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
+        track.update_info(track_info); // Update sid + source
 
-        let track_info = self.rtc_engine.add_track(req).await?;
-        let publication =
-            LocalTrackPublication::new(track_info.clone(), track.clone(), options.clone());
-        track.update_info(track_info); // Update SID + Source
-        debug!("publishing track with cid {:?}", track.rtc_track().id());
+        log::debug!("publishing track with cid {:?}", track.rtc_track().id());
         let transceiver = self
+            .inner
             .rtc_engine
             .create_sender(track.clone(), options, encodings)
             .await?;
 
-        track.update_transceiver(Some(transceiver));
-        track.start();
+        track.set_transceiver(Some(transceiver));
+        track.enable();
 
         tokio::spawn({
-            let rtc_engine = self.rtc_engine.clone();
+            let rtc_engine = self.inner.rtc_engine.clone();
             async move {
                 let _ = rtc_engine.negotiate_publisher().await;
             }
         });
 
-        self.inner
-            .add_track_publication(TrackPublication::Local(publication.clone()));
+        self.add_publication(TrackPublication::Local(publication.clone()));
 
-        self.inner
-            .dispatcher
-            .dispatch(&ParticipantEvent::LocalTrackPublished {
-                publication: publication.clone(),
-            });
+        if let Some(local_track_published) = self.local.events.local_track_published.lock().as_ref()
+        {
+            local_track_published(self.clone(), publication.clone());
+        }
 
         Ok(publication)
     }
@@ -123,22 +176,24 @@ impl LocalParticipant {
         track: TrackSid,
         _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
-        let mut tracks = self.inner.tracks.write();
-        if let Some(TrackPublication::Local(publication)) = tracks.remove(&track) {
-            let track = publication.track().unwrap();
+        let publication = self.inner.tracks.write().remove(&track);
+        if let Some(TrackPublication::Local(publication)) = publication {
+            let track = publication.track();
             let sender = track.transceiver().unwrap().sender();
-            self.rtc_engine.remove_track(sender).await?;
-            track.update_transceiver(None);
 
-            self.inner
-                .dispatcher
-                .dispatch(&ParticipantEvent::LocalTrackUnpublished {
-                    publication: publication.clone(),
-                });
-            publication.update_track(None);
+            self.inner.rtc_engine.remove_track(sender).await?;
+            track.set_transceiver(None);
+
+            if let Some(local_track_unpublished) =
+                self.local.events.local_track_unpublished.lock().as_ref()
+            {
+                local_track_unpublished(self.clone(), publication.clone());
+            }
+
+            publication.set_track(None);
 
             tokio::spawn({
-                let rtc_engine = self.rtc_engine.clone();
+                let rtc_engine = self.inner.rtc_engine.clone();
                 async move {
                     let _ = rtc_engine.negotiate_publisher().await;
                 }
@@ -152,26 +207,26 @@ impl LocalParticipant {
 
     pub async fn publish_data(
         &self,
-        data: &[u8],
-        kind: proto::data_packet::Kind,
-    ) -> Result<(), RoomError> {
+        data: Vec<u8>,
+        kind: DataPacketKind,
+        destination_sids: Vec<String>,
+    ) -> RoomResult<()> {
         let data = proto::DataPacket {
             kind: kind as i32,
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
-                participant_sid: self.sid().to_string(),
-                payload: data.to_vec(),
-                destination_sids: vec![],
+                payload: data,
+                destination_sids: destination_sids.to_owned(),
                 ..Default::default()
             })),
         };
 
-        self.rtc_engine
+        self.inner
+            .rtc_engine
             .publish_data(&data, kind)
             .await
             .map_err(Into::into)
     }
 
-    #[inline]
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
         self.inner.tracks.read().get(sid).map(|track| {
             if let TrackPublication::Local(local) = track {
@@ -182,68 +237,35 @@ impl LocalParticipant {
         })
     }
 
-    #[inline]
     pub fn sid(&self) -> ParticipantSid {
-        self.inner.sid()
+        self.inner.info.read().sid.clone()
     }
 
-    #[inline]
     pub fn identity(&self) -> ParticipantIdentity {
-        self.inner.identity()
+        self.inner.info.read().identity.clone()
     }
 
-    #[inline]
     pub fn name(&self) -> String {
-        self.inner.name()
+        self.inner.info.read().name.clone()
     }
 
-    #[inline]
     pub fn metadata(&self) -> String {
-        self.inner.metadata()
+        self.inner.info.read().metadata.clone()
     }
 
-    #[inline]
     pub fn is_speaking(&self) -> bool {
-        self.inner.is_speaking()
+        self.inner.info.read().speaking
     }
 
-    #[inline]
-    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
-        self.inner.tracks()
+    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.inner.tracks.read().clone()
     }
 
-    #[inline]
     pub fn audio_level(&self) -> f32 {
-        self.inner.audio_level()
+        self.inner.info.read().audio_level
     }
 
-    #[inline]
     pub fn connection_quality(&self) -> ConnectionQuality {
-        self.inner.connection_quality()
-    }
-
-    #[inline]
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
-        self.inner.register_observer()
-    }
-
-    #[inline]
-    pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
-        self.inner.update_info(info);
-    }
-
-    #[inline]
-    pub(crate) fn set_speaking(&self, speaking: bool) {
-        self.inner.set_speaking(speaking);
-    }
-
-    #[inline]
-    pub(crate) fn set_audio_level(&self, level: f32) {
-        self.inner.set_audio_level(level);
-    }
-
-    #[inline]
-    pub(crate) fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.inner.set_connection_quality(quality);
+        self.inner.info.read().connection_quality
     }
 }

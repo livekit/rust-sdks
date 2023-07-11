@@ -33,7 +33,7 @@ if [ -z "$arch" ]; then
   exit 1
 fi
 
-echo "Building LiveKit WebRTC"
+echo "Building LiveKit WebRTC - MacOS"
 echo "Arch: $arch"
 echo "Profile: $profile"
 
@@ -45,7 +45,7 @@ fi
 export COMMAND_DIR=$(cd $(dirname $0); pwd)
 export PATH="$(pwd)/depot_tools:$PATH"
 export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
-export ARTIFACTS_DIR="$(pwd)/macos-$arch-$profile"
+export ARTIFACTS_DIR="$(pwd)/mac-$arch-$profile"
 
 if [ ! -e "$(pwd)/src" ]
 then
@@ -53,7 +53,7 @@ then
 fi
 
 cd src
-git apply "$COMMAND_DIR/patches/add_license_dav1d.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..

@@ -1,67 +1,32 @@
-use crate::{proto, FfiHandleId, INVALID_HANDLE};
+use crate::{proto, FfiHandleId};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
-impl proto::RoomEvent {
-    pub fn from(room_handle: FfiHandleId, event: RoomEvent) -> Option<Self> {
-        let message = match event {
-            RoomEvent::ParticipantConnected(participant) => Some(
-                proto::room_event::Message::ParticipantConnected(proto::ParticipantConnected {
-                    info: Some((&participant).into()),
-                }),
-            ),
-            RoomEvent::ParticipantDisconnected(participant) => {
-                Some(proto::room_event::Message::ParticipantDisconnected(
-                    proto::ParticipantDisconnected {
-                        info: Some((&participant).into()),
-                    },
-                ))
-            }
-            RoomEvent::TrackPublished {
-                publication,
-                participant,
-            } => Some(proto::room_event::Message::TrackPublished(
-                proto::TrackPublished {
-                    participant_sid: participant.sid().to_string(),
-                    publication: Some((&publication).into()),
-                },
-            )),
-            RoomEvent::TrackUnpublished {
-                publication,
-                participant,
-            } => Some(proto::room_event::Message::TrackUnpublished(
-                proto::TrackUnpublished {
-                    participant_sid: participant.sid().to_string(),
-                    publication_sid: publication.sid().into(),
-                },
-            )),
-            RoomEvent::TrackSubscribed {
-                track,
-                publication: _,
-                participant,
-            } => Some(proto::room_event::Message::TrackSubscribed(
-                proto::TrackSubscribed {
-                    participant_sid: participant.sid().to_string(),
-                    track: Some(proto::TrackInfo::from_remote_track(INVALID_HANDLE, &track)),
-                },
-            )),
-            RoomEvent::TrackUnsubscribed {
-                track,
-                publication: _,
-                participant,
-            } => Some(proto::room_event::Message::TrackUnsubscribed(
-                proto::TrackUnsubscribed {
-                    participant_sid: participant.sid().to_string(),
-                    track_sid: track.sid().to_string(),
-                },
-            )),
-            _ => None,
-        };
+impl From<proto::RoomOptions> for RoomOptions {
+    fn from(value: proto::RoomOptions) -> Self {
+        Self {
+            adaptive_stream: value.adaptive_stream,
+            auto_subscribe: value.auto_subscribe,
+            dynacast: value.dynacast,
+        }
+    }
+}
 
-        message.map(|message| proto::RoomEvent {
-            room_handle: Some(room_handle.into()),
-            message: Some(message),
-        })
+impl From<proto::DataPacketKind> for DataPacketKind {
+    fn from(value: proto::DataPacketKind) -> Self {
+        match value {
+            proto::DataPacketKind::KindReliable => Self::Reliable,
+            proto::DataPacketKind::KindLossy => Self::Lossy,
+        }
+    }
+}
+
+impl From<DataPacketKind> for proto::DataPacketKind {
+    fn from(value: DataPacketKind) -> Self {
+        match value {
+            DataPacketKind::Reliable => Self::KindReliable,
+            DataPacketKind::Lossy => Self::KindLossy,
+        }
     }
 }
 
@@ -93,7 +58,6 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             dtx: opts.dtx,
             red: opts.red,
             simulcast: opts.simulcast,
-            name: opts.name,
             source: proto::TrackSource::from_i32(opts.source).unwrap().into(),
         }
     }

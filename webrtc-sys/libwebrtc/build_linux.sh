@@ -33,7 +33,7 @@ if [ -z "$arch" ]; then
   exit 1
 fi
 
-echo "Building LiveKit WebRTC"
+echo "Building LiveKit WebRTC - Linux"
 echo "Arch: $arch"
 echo "Profile: $profile"
 
@@ -53,7 +53,7 @@ then
 fi
 
 cd src
-git apply "$COMMAND_DIR/patches/add_license_dav1d.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..

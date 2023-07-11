@@ -1,6 +1,8 @@
 [package]
 name = "livekit-protocol"
-version = "0.1.0"
+version = "0.1.3"
+license = "Apache-2.0"
+description = "Protocol for LiveKit server"
 edition = "2021"
 
 [dependencies]
@@ -9,6 +11,3 @@ futures-util = { version = "0.3", features = ["sink"] }
 parking_lot = "0.12"
 prost = "0.11"
 prost-types = "0.11"
-
-[build-dependencies]
-prost-build = { version = "0.11.1" }

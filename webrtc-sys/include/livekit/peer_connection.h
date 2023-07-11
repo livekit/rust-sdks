@@ -48,6 +48,8 @@ class PeerConnection {
       std::unique_ptr<NativePeerConnectionObserver> observer,
       rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
+  ~PeerConnection();
+
   void create_offer(
       RtcOfferAnswerOptions options,
       rust::Box<AsyncContext> ctx,

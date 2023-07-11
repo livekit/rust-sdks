@@ -128,7 +128,8 @@ impl EgressClient {
                     file_outputs,
                     stream_outputs,
                     segment_outputs,
-                    output: None, // Deprecated
+                    output: None,              // Deprecated
+                    await_start_signal: false, // TODO Expose
                 },
                 self.base.auth_header(VideoGrants {
                     room_record: true,

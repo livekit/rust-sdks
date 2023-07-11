@@ -247,13 +247,9 @@ mod tests {
     use log::trace;
     use tokio::sync::mpsc;
 
-    fn init_log() {
-        let _ = env_logger::builder().is_test(true).try_init();
-    }
-
     #[tokio::test]
     async fn create_pc() {
-        init_log();
+        let _ = env_logger::builder().is_test(true).try_init();
 
         let factory = PeerConnectionFactory::default();
         let config = RtcConfiguration {
@@ -269,20 +265,20 @@ mod tests {
         let bob = factory.create_peer_connection(config.clone()).unwrap();
         let alice = factory.create_peer_connection(config.clone()).unwrap();
 
-        let (bob_ice_tx, mut bob_ice_rx) = mpsc::channel::<IceCandidate>(16);
-        let (alice_ice_tx, mut alice_ice_rx) = mpsc::channel::<IceCandidate>(16);
-        let (alice_dc_tx, mut alice_dc_rx) = mpsc::channel::<DataChannel>(16);
+        let (bob_ice_tx, mut bob_ice_rx) = mpsc::unbounded_channel::<IceCandidate>();
+        let (alice_ice_tx, mut alice_ice_rx) = mpsc::unbounded_channel::<IceCandidate>();
+        let (alice_dc_tx, mut alice_dc_rx) = mpsc::unbounded_channel::<DataChannel>();
 
         bob.on_ice_candidate(Some(Box::new(move |candidate| {
-            bob_ice_tx.blocking_send(candidate).unwrap();
+            bob_ice_tx.send(candidate).unwrap();
         })));
 
         alice.on_ice_candidate(Some(Box::new(move |candidate| {
-            alice_ice_tx.blocking_send(candidate).unwrap();
+            alice_ice_tx.send(candidate).unwrap();
         })));
 
         alice.on_data_channel(Some(Box::new(move |dc| {
-            alice_dc_tx.blocking_send(dc).unwrap();
+            alice_dc_tx.send(dc).unwrap();
         })));
 
         let bob_dc = bob
@@ -305,11 +301,11 @@ mod tests {
         bob.add_ice_candidate(alice_ice).await.unwrap();
         alice.add_ice_candidate(bob_ice).await.unwrap();
 
-        let (data_tx, mut data_rx) = mpsc::channel::<String>(1);
+        let (data_tx, mut data_rx) = mpsc::unbounded_channel::<String>();
         let alice_dc = alice_dc_rx.recv().await.unwrap();
         alice_dc.on_message(Some(Box::new(move |buffer| {
             data_tx
-                .blocking_send(String::from_utf8_lossy(buffer.data).to_string())
+                .send(String::from_utf8_lossy(buffer.data).to_string())
                 .unwrap();
         })));
 

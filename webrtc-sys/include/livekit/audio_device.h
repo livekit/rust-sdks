@@ -110,20 +110,20 @@ class AudioDevice : public webrtc::AudioDeviceModule {
   int32_t EnableBuiltInNS(bool enable) override;
 
 #if defined(WEBRTC_IOS)
-  int GetPlayoutAudioParameters(AudioParameters* params) const override;
-  int GetRecordAudioParameters(AudioParameters* params) const override;
+  int GetPlayoutAudioParameters(webrtc::AudioParameters* params) const override;
+  int GetRecordAudioParameters(webrtc::AudioParameters* params) const override;
 #endif  // WEBRTC_IOS
 
   int32_t SetAudioDeviceSink(webrtc::AudioDeviceSink* sink) const override;
 
  private:
   mutable webrtc::Mutex mutex_;
-  webrtc::TaskQueueFactory* task_queue_factory_;
+  std::vector<int16_t> data_;
   std::unique_ptr<rtc::TaskQueue> audio_queue_;
   webrtc::RepeatingTaskHandle audio_task_;
-  std::vector<int16_t> data_;
   webrtc::AudioTransport* audio_transport_;
-  std::atomic<bool> playing_{false};
-  std::atomic<bool> initialized_{false};
+  webrtc::TaskQueueFactory* task_queue_factory_;
+  bool playing_{false};
+  bool initialized_{false};
 };
 }  // namespace livekit

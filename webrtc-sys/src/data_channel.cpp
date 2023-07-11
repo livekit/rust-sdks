@@ -45,7 +45,14 @@ webrtc::DataChannelInit to_native_data_channel_init(DataChannelInit init) {
 DataChannel::DataChannel(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
-    : rtc_runtime_(rtc_runtime), data_channel_(std::move(data_channel)) {}
+    : rtc_runtime_(rtc_runtime), data_channel_(std::move(data_channel)) {
+  RTC_LOG(LS_VERBOSE) << "DataChannel::DataChannel()";
+}
+
+DataChannel::~DataChannel() {
+  RTC_LOG(LS_VERBOSE) << "DataChannel::~DataChannel()";
+  unregister_observer();
+}
 
 void DataChannel::register_observer(
     rust::Box<DataChannelObserverWrapper> observer) const {
@@ -85,10 +92,6 @@ NativeDataChannelObserver::NativeDataChannelObserver(
     rust::Box<DataChannelObserverWrapper> observer,
     const DataChannel* dc)
     : observer_(std::move(observer)), dc_(dc) {}
-
-NativeDataChannelObserver::~NativeDataChannelObserver() {
-  dc_->unregister_observer();
-}
 
 void NativeDataChannelObserver::OnStateChange() {
   observer_->on_state_change(dc_->state());

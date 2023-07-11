@@ -17,11 +17,11 @@
 #include "livekit/audio_track.h"
 
 #include <cstdint>
-
 #include <algorithm>
 #include <iostream>
 #include <memory>
 
+#include "api/audio_options.h"
 #include "api/media_stream_interface.h"
 #include "audio/remix_resample.h"
 #include "common_audio/include/audio_util.h"
@@ -30,8 +30,27 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/time_utils.h"
 #include "rust/cxx.h"
+#include "webrtc-sys/src/audio_track.rs.h"
 
 namespace livekit {
+
+inline cricket::AudioOptions to_native_audio_options(
+    const AudioSourceOptions& options) {
+  cricket::AudioOptions rtc_options{};
+  rtc_options.echo_cancellation = options.echo_cancellation;
+  rtc_options.noise_suppression = options.noise_suppression;
+  rtc_options.auto_gain_control = options.auto_gain_control;
+  return rtc_options;
+}
+
+inline AudioSourceOptions to_rust_audio_options(
+    const cricket::AudioOptions& rtc_options) {
+  AudioSourceOptions options{};
+  options.echo_cancellation = rtc_options.echo_cancellation.value_or(false);
+  options.noise_suppression = rtc_options.noise_suppression.value_or(false);
+  options.auto_gain_control = rtc_options.auto_gain_control.value_or(false);
+  return options;
+}
 
 AudioTrack::AudioTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
                        rtc::scoped_refptr<webrtc::AudioTrackInterface> track)
@@ -76,11 +95,8 @@ std::shared_ptr<NativeAudioSink> new_native_audio_sink(
   return std::make_shared<NativeAudioSink>(std::move(observer));
 }
 
-AudioTrackSource::InternalSource::InternalSource() {
-  options_.echo_cancellation = false;
-  options_.auto_gain_control = false;
-  options_.noise_suppression = false;
-}
+AudioTrackSource::InternalSource::InternalSource(
+    const cricket::AudioOptions& options) {}
 
 webrtc::MediaSourceInterface::SourceState
 AudioTrackSource::InternalSource::state() const {
@@ -92,7 +108,14 @@ bool AudioTrackSource::InternalSource::remote() const {
 }
 
 const cricket::AudioOptions AudioTrackSource::InternalSource::options() const {
+  webrtc::MutexLock lock(&mutex_);
   return options_;
+}
+
+void AudioTrackSource::InternalSource::set_options(
+    const cricket::AudioOptions& options) {
+  webrtc::MutexLock lock(&mutex_);
+  options_ = options;
 }
 
 void AudioTrackSource::InternalSource::AddSink(
@@ -119,8 +142,18 @@ void AudioTrackSource::InternalSource::on_captured_frame(
   }
 }
 
-AudioTrackSource::AudioTrackSource() {
-  source_ = rtc::make_ref_counted<InternalSource>();
+AudioTrackSource::AudioTrackSource(AudioSourceOptions options) {
+  source_ =
+      rtc::make_ref_counted<InternalSource>(to_native_audio_options(options));
+}
+
+AudioSourceOptions AudioTrackSource::audio_options() const {
+  return to_rust_audio_options(source_->options());
+}
+
+void AudioTrackSource::set_audio_options(
+    const AudioSourceOptions& options) const {
+  source_->set_options(to_native_audio_options(options));
 }
 
 void AudioTrackSource::on_captured_frame(rust::Slice<const int16_t> audio_data,
@@ -136,8 +169,9 @@ rtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
   return source_;
 }
 
-std::shared_ptr<AudioTrackSource> new_audio_track_source() {
-  return std::make_shared<AudioTrackSource>();
+std::shared_ptr<AudioTrackSource> new_audio_track_source(
+    AudioSourceOptions options) {
+  return std::make_shared<AudioTrackSource>(options);
 }
 
 }  // namespace livekit

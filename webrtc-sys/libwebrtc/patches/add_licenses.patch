@@ -1,0 +1,24 @@
+diff --git a/tools_webrtc/libs/generate_licenses.py b/tools_webrtc/libs/generate_licenses.py
+index d805477..374c46d 100755
+--- a/tools_webrtc/libs/generate_licenses.py
++++ b/tools_webrtc/libs/generate_licenses.py
+@@ -85,6 +85,19 @@ LIB_TO_LICENSES_DICT = {
+     'yasm': [],
+     'ow2_asm': [],
+     'jdk': [],
++
++    'dav1d': ['third_party/dav1d/LICENSE'],
++    'ffmpeg':[
++        'third_party/ffmpeg/COPYING.GPLv2',
++        'third_party/ffmpeg/COPYING.GPLv3',
++        'third_party/ffmpeg/COPYING.LGPLv2.1',
++        'third_party/ffmpeg/COPYING.LGPLv3'
++    ],
++    'openh264': ['third_party/openh264/src/LICENSE'],
++    'catapult': [],
++    'google_benchmark': [],
++    'googletest': [],
++    'vinn': [],
+ }
+ 
+ # Third_party library _regex_ to licences mapping. Keys are regular expression

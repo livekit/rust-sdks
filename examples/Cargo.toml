@@ -1,4 +1,7 @@
 [workspace]
-members = ["*"]
-exclude = ["target", "images", ".cargo"]
-resolver = "2"
+members = [
+    "basic_room",
+    "mobile",
+    "save_to_disk",
+    "wgpu_room",
+]

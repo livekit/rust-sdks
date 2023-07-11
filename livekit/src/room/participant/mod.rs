@@ -1,14 +1,11 @@
 use crate::prelude::*;
-use crate::track::TrackError;
+use crate::rtc_engine::RtcEngine;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use livekit_protocol::observer::Dispatcher;
-use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 mod local_participant;
 mod remote_participant;
@@ -16,78 +13,12 @@ mod remote_participant;
 pub use local_participant::*;
 pub use remote_participant::*;
 
-#[derive(Debug, Clone)]
-pub enum ParticipantEvent {
-    TrackPublished {
-        publication: RemoteTrackPublication,
-    },
-    TrackUnpublished {
-        publication: RemoteTrackPublication,
-    },
-    TrackSubscribed {
-        track: RemoteTrack,
-        publication: RemoteTrackPublication,
-    },
-    TrackUnsubscribed {
-        track: RemoteTrack,
-        publication: RemoteTrackPublication,
-    },
-    TrackSubscriptionFailed {
-        error: TrackError,
-        sid: TrackSid,
-    },
-    DataReceived {
-        payload: Arc<Vec<u8>>,
-        kind: proto::data_packet::Kind,
-    },
-    SpeakingChanged {
-        speaking: bool,
-    },
-    TrackMuted {
-        publication: TrackPublication,
-    },
-    TrackUnmuted {
-        publication: TrackPublication,
-    },
-    ConnectionQualityChanged {
-        quality: ConnectionQuality,
-    },
-    LocalTrackPublished {
-        publication: LocalTrackPublication,
-    },
-    LocalTrackUnpublished {
-        publication: LocalTrackPublication,
-    },
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[repr(u8)]
 pub enum ConnectionQuality {
     Unknown,
     Excellent,
     Good,
     Poor,
-}
-
-impl From<u8> for ConnectionQuality {
-    fn from(value: u8) -> Self {
-        match value {
-            1 => Self::Excellent,
-            2 => Self::Good,
-            3 => Self::Poor,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-impl From<proto::ConnectionQuality> for ConnectionQuality {
-    fn from(value: proto::ConnectionQuality) -> Self {
-        match value {
-            proto::ConnectionQuality::Excellent => Self::Excellent,
-            proto::ConnectionQuality::Good => Self::Good,
-            proto::ConnectionQuality::Poor => Self::Poor,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -106,108 +37,141 @@ impl Participant {
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
-        pub fn tracks(self: &Self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>>;
-        pub fn register_observer(self: &Self) -> mpsc::UnboundedReceiver<ParticipantEvent>;
+        pub fn tracks(self: &Self) -> HashMap<TrackSid, TrackPublication>;
 
-        // Internal functions
+        pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
+
+        // Internal functions called by the Room when receiving the associated signal messages
         pub(crate) fn set_speaking(self: &Self, speaking: bool) -> ();
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
-        pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
+        pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
+        pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> ();
     );
 }
 
-#[derive(Debug)]
-pub(crate) struct ParticipantInner {
-    pub sid: Mutex<ParticipantSid>,
-    pub identity: Mutex<ParticipantIdentity>,
-    pub name: Mutex<String>,
-    pub metadata: Mutex<String>,
-    pub speaking: AtomicBool,
-    pub tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
-    pub audio_level: AtomicU32,
-    pub connection_quality: AtomicU8,
-    pub dispatcher: Dispatcher<ParticipantEvent>,
+struct ParticipantInfo {
+    pub sid: ParticipantSid,
+    pub identity: ParticipantIdentity,
+    pub name: String,
+    pub metadata: String,
+    pub speaking: bool,
+    pub audio_level: f32,
+    pub connection_quality: ConnectionQuality,
 }
 
-impl ParticipantInner {
-    pub fn new(
-        sid: ParticipantSid,
-        identity: ParticipantIdentity,
-        name: String,
-        metadata: String,
-    ) -> Self {
-        Self {
-            sid: Mutex::new(sid),
-            identity: Mutex::new(identity),
-            name: Mutex::new(name),
-            metadata: Mutex::new(metadata),
-            tracks: Default::default(),
-            speaking: Default::default(),
-            audio_level: Default::default(),
-            connection_quality: AtomicU8::new(ConnectionQuality::Unknown as u8),
-            dispatcher: Default::default(),
+#[derive(Default)]
+struct ParticipantEvents {
+    track_muted: Mutex<Option<Box<dyn Fn(Participant, TrackPublication, Track) + Send>>>,
+    track_unmuted: Mutex<Option<Box<dyn Fn(Participant, TrackPublication, Track) + Send>>>,
+}
+
+pub(super) struct ParticipantInner {
+    rtc_engine: Arc<RtcEngine>,
+    info: RwLock<ParticipantInfo>,
+    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    events: Arc<ParticipantEvents>,
+}
+
+pub(super) fn new_inner(
+    rtc_engine: Arc<RtcEngine>,
+    sid: ParticipantSid,
+    identity: ParticipantIdentity,
+    name: String,
+    metadata: String,
+) -> Arc<ParticipantInner> {
+    Arc::new(ParticipantInner {
+        rtc_engine,
+        info: RwLock::new(ParticipantInfo {
+            sid,
+            identity,
+            name,
+            metadata,
+            speaking: false,
+            audio_level: 0.0,
+            connection_quality: ConnectionQuality::Unknown,
+        }),
+        tracks: Default::default(),
+        events: Default::default(),
+    })
+}
+
+pub(super) fn update_info(
+    inner: &Arc<ParticipantInner>,
+    _participant: &Participant,
+    new_info: proto::ParticipantInfo,
+) {
+    let mut info = inner.info.write();
+    info.sid = new_info.sid.into();
+    info.name = new_info.name;
+    info.identity = new_info.identity.into();
+    info.metadata = new_info.metadata; // TODO(theomonnom): callback MetadataChanged
+}
+
+pub(super) fn set_speaking(
+    inner: &Arc<ParticipantInner>,
+    _participant: &Participant,
+    speaking: bool,
+) {
+    inner.info.write().speaking = speaking;
+}
+
+pub(super) fn set_audio_level(
+    inner: &Arc<ParticipantInner>,
+    _participant: &Participant,
+    audio_level: f32,
+) {
+    inner.info.write().audio_level = audio_level;
+}
+
+pub(super) fn set_connection_quality(
+    inner: &Arc<ParticipantInner>,
+    _participant: &Participant,
+    quality: ConnectionQuality,
+) {
+    inner.info.write().connection_quality = quality;
+}
+
+pub(super) fn remove_publication(
+    inner: &Arc<ParticipantInner>,
+    _participant: &Participant,
+    sid: &TrackSid,
+) -> Option<TrackPublication> {
+    let mut tracks = inner.tracks.write();
+    let publication = tracks.remove(sid);
+    if let Some(publication) = publication.clone() {
+        // remove events
+        publication.on_muted(|_, _| {});
+        publication.on_unmuted(|_, _| {});
+    } else {
+        // shouldn't happen (internal)
+        log::warn!("could not find publication to remove: {}", sid);
+    }
+
+    publication
+}
+
+pub(super) fn add_publication(
+    inner: &Arc<ParticipantInner>,
+    participant: &Participant,
+    publication: TrackPublication,
+) {
+    let mut tracks = inner.tracks.write();
+    tracks.insert(publication.sid(), publication.clone());
+
+    let events = inner.events.clone();
+    let particiant = participant.clone();
+    publication.on_muted(move |publication, track| {
+        if let Some(cb) = events.track_muted.lock().as_ref() {
+            cb(particiant.clone(), publication, track);
         }
-    }
+    });
 
-    pub fn sid(&self) -> ParticipantSid {
-        self.sid.lock().clone()
-    }
-
-    pub fn identity(&self) -> ParticipantIdentity {
-        self.identity.lock().clone()
-    }
-
-    pub fn name(&self) -> String {
-        self.name.lock().clone()
-    }
-
-    pub fn metadata(&self) -> String {
-        self.metadata.lock().clone()
-    }
-
-    pub fn is_speaking(&self) -> bool {
-        self.speaking.load(Ordering::SeqCst)
-    }
-
-    pub fn tracks(&self) -> RwLockReadGuard<HashMap<TrackSid, TrackPublication>> {
-        self.tracks.read()
-    }
-
-    pub fn audio_level(&self) -> f32 {
-        f32::from_bits(self.audio_level.load(Ordering::SeqCst))
-    }
-
-    pub fn connection_quality(&self) -> ConnectionQuality {
-        self.connection_quality.load(Ordering::SeqCst).into()
-    }
-
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<ParticipantEvent> {
-        self.dispatcher.register()
-    }
-
-    pub fn update_info(&self, info: proto::ParticipantInfo) {
-        *self.sid.lock() = info.sid.into();
-        *self.identity.lock() = info.identity.into();
-        *self.name.lock() = info.name;
-        *self.metadata.lock() = info.metadata; // TODO(theomonnom): callback MetadataChanged
-    }
-
-    pub fn set_speaking(&self, speaking: bool) {
-        self.speaking.store(speaking, Ordering::SeqCst);
-    }
-
-    pub fn set_audio_level(&self, audio_level: f32) {
-        self.audio_level
-            .store(audio_level.to_bits(), Ordering::SeqCst)
-    }
-
-    pub fn set_connection_quality(&self, quality: ConnectionQuality) {
-        self.connection_quality
-            .store(quality as u8, Ordering::SeqCst);
-    }
-
-    pub fn add_track_publication(&self, publication: TrackPublication) {
-        self.tracks.write().insert(publication.sid(), publication);
-    }
+    let events = inner.events.clone();
+    let participant = participant.clone();
+    publication.on_unmuted(move |publication, track| {
+        if let Some(cb) = events.track_unmuted.lock().as_ref() {
+            cb(participant.clone(), publication, track);
+        }
+    });
 }

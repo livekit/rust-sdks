@@ -57,6 +57,7 @@ impl IngressClient {
                     participant_name: options.participant_name,
                     audio: Some(options.audio),
                     video: Some(options.video),
+                    bypass_transcoding: false, // TODO Expose
                 },
                 self.base.auth_header(VideoGrants {
                     ingress_admin: true,
@@ -84,6 +85,7 @@ impl IngressClient {
                     participant_name: options.participant_name,
                     audio: Some(options.audio),
                     video: Some(options.video),
+                    bypass_transcoding: None, // TODO Expose
                 },
                 self.base.auth_header(VideoGrants {
                     ingress_admin: true,
@@ -104,7 +106,7 @@ impl IngressClient {
                 SVC,
                 "ListIngress",
                 proto::ListIngressRequest {
-                    room_name: match filter{
+                    room_name: match filter {
                         IngressListFilter::All => Default::default(),
                         IngressListFilter::Room(room) => room,
                     },

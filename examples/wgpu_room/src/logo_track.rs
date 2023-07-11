@@ -1,7 +1,8 @@
 use image::ImageFormat;
 use image::RgbaImage;
-use livekit::options::{TrackPublishOptions, VideoCaptureOptions};
+use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
+use livekit::webrtc::video_source::RtcVideoSource;
 use livekit::webrtc::{
     native::yuv_helper,
     video_frame::native::I420BufferExt,
@@ -61,8 +62,7 @@ impl LogoTrack {
         let (close_tx, close_rx) = oneshot::channel();
         let track = LocalVideoTrack::create_video_track(
             "livekit_logo",
-            VideoCaptureOptions::default(),
-            self.rtc_source.clone(),
+            RtcVideoSource::Native(self.rtc_source.clone()),
         );
 
         let task = tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone()));
@@ -72,7 +72,7 @@ impl LogoTrack {
             .publish_track(
                 LocalTrack::Video(track.clone()),
                 TrackPublishOptions {
-                    source: TrackSource::Camera,
+                    source: TrackSource::Camera, // Using camera so it is shown on everyone's screen (Unknown is sometimes not shown)
                     ..Default::default()
                 },
             )
@@ -118,7 +118,7 @@ impl LogoTrack {
             video_frame: Arc::new(Mutex::new(VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
                 buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
-                timestamp: 0,
+                timestamp_us: 0,
             })),
             pos: (0, 0),
             direction: (1, 1),

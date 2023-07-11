@@ -4,6 +4,16 @@ use crate::FfiHandleId;
 use livekit::options::{VideoCodec, VideoResolution};
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame;
+use livekit::webrtc::video_source::VideoResolution as VideoSourceResolution;
+
+impl From<proto::VideoSourceResolution> for VideoSourceResolution {
+    fn from(res: proto::VideoSourceResolution) -> Self {
+        Self {
+            width: res.width,
+            height: res.height,
+        }
+    }
+}
 
 macro_rules! impl_yuv_into {
     (@fields, $buffer:ident, $data_y:ident, $data_u:ident, $data_v: ident) => {
@@ -72,7 +82,7 @@ impl proto::VideoFrameInfo {
         T: AsRef<dyn VideoFrameBuffer>,
     {
         Self {
-            timestamp: frame.timestamp,
+            timestamp_us: frame.timestamp_us,
             rotation: proto::VideoRotation::from(frame.rotation).into(),
         }
     }
@@ -236,7 +246,6 @@ impl From<&FfiVideoStream> for proto::VideoStreamInfo {
             handle: Some(proto::FfiHandleId {
                 id: stream.handle_id() as u64,
             }),
-            track_sid: stream.track_sid().clone().into(),
             r#type: stream.stream_type() as i32,
         }
     }

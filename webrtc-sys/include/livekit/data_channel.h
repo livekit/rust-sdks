@@ -40,6 +40,7 @@ class DataChannel {
   explicit DataChannel(
       std::shared_ptr<RtcRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel);
+  ~DataChannel();
 
   void register_observer(rust::Box<DataChannelObserverWrapper> observer) const;
   void unregister_observer() const;
@@ -63,8 +64,6 @@ class NativeDataChannelObserver : public webrtc::DataChannelObserver {
  public:
   NativeDataChannelObserver(rust::Box<DataChannelObserverWrapper> observer,
                             const DataChannel* dc);
-
-  ~NativeDataChannelObserver();
 
   void OnStateChange() override;
   void OnMessage(const webrtc::DataBuffer& buffer) override;

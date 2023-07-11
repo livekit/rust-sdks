@@ -1,5 +1,8 @@
-name: FFI builds
-on: workflow_dispatch
+name: FFI
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,6 +18,8 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: windows-latest
             dylib: livekit_ffi.dll
+            # due to ring 0.16 compatibilities with win aarch64, we need to use native-tls instead of rustls
+            buildargs: --no-default-features --features "native-tls" 
             target: aarch64-pc-windows-msvc
           - os: macos-latest
             dylib: liblivekit_ffi.dylib
@@ -39,11 +44,6 @@ jobs:
         run: |
           echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install Rust toolchain
         run: |
           rustup update --no-self-update stable
@@ -60,18 +60,20 @@ jobs:
           submodules: true
 
       - name: Build
-        run: cargo build -p livekit-ffi --release
+        run: | 
+          cd livekit-ffi/
+          cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
-          cd target/release/
+          cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ matrix.dylib }}
 
       - name: Zip artifact (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          cd target/release/
+          cd target/${{ matrix.target }}/release/
           Compress-Archive -Path ${{ matrix.dylib }} -DestinationPath  ${{ github.workspace }}\${{ steps.setup.outputs.ZIP }}
 
       # doublezip here but I don't think there is an alternative

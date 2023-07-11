@@ -23,6 +23,10 @@
 #include "media/base/media_constants.h"
 #include "rtc_base/logging.h"
 
+#ifdef WEBRTC_ANDROID
+#include "livekit/android.h"
+#endif
+
 namespace livekit {
 
 VideoDecoderFactory::VideoDecoderFactory() {
@@ -30,6 +34,10 @@ VideoDecoderFactory::VideoDecoderFactory() {
 
 #ifdef __APPLE__
   factories_.push_back(livekit::CreateObjCVideoDecoderFactory());
+#endif
+
+#ifdef WEBRTC_ANDROID
+  factories_.push_back(CreateAndroidVideoDecoderFactory());
 #endif
 
   // TODO(theomonnom): Add other HW decoders here

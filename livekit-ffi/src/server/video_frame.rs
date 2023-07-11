@@ -3,10 +3,8 @@ use futures_util::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, VideoFrame};
-use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use log::warn;
-use server::utils;
 use tokio::sync::oneshot;
 
 // ===== FFIVideoStream =====
@@ -14,7 +12,6 @@ use tokio::sync::oneshot;
 pub struct FfiVideoStream {
     handle_id: FfiHandleId,
     stream_type: proto::VideoStreamType,
-    track_sid: TrackSid,
 
     #[allow(dead_code)]
     close_tx: oneshot::Sender<()>, // Close the stream on drop
@@ -35,49 +32,50 @@ impl FfiVideoStream {
     ) -> FfiResult<proto::VideoStreamInfo> {
         let (close_tx, close_rx) = oneshot::channel();
         let stream_type = proto::VideoStreamType::from_i32(new_stream.r#type).unwrap();
-        let track_sid: TrackSid = new_stream.track_sid.into();
 
-        let room_handle = new_stream
-            .room_handle
-            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+        let handle_id = new_stream
+            .track_handle
+            .ok_or(FfiError::InvalidRequest("track_handle is empty"))?
             .id as FfiHandleId;
 
-        let track = utils::find_remote_track(
-            server,
-            &track_sid,
-            &new_stream.participant_sid.into(),
-            room_handle,
-        )?
-        .rtc_track();
+        let track = server
+            .ffi_handles
+            .get(&handle_id)
+            .ok_or(FfiError::InvalidRequest("track not found"))?;
 
-        let MediaStreamTrack::Video(track) = track else {
+        let track = track
+            .downcast_ref::<Track>()
+            .ok_or(FfiError::InvalidRequest("handle is not a Track"))?;
+
+        let rtc_track = track.rtc_track();
+
+        let MediaStreamTrack::Video(rtc_track) = rtc_track else {
             return Err(FfiError::InvalidRequest("not a video track"));
         };
 
         let stream = match stream_type {
+            #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
                 let video_stream = Self {
                     handle_id: server.next_id(),
                     close_tx,
                     stream_type,
-                    track_sid,
                 };
                 server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     video_stream.handle_id,
-                    NativeVideoStream::new(track),
+                    NativeVideoStream::new(rtc_track),
                     close_rx,
                 ));
                 Ok::<FfiVideoStream, FfiError>(video_stream)
             }
-            // TODO(theomonnom): Support other stream types
             _ => return Err(FfiError::InvalidRequest("unsupported video stream type")),
         }?;
 
         // Store the new video stream and return the info
         let info = proto::VideoStreamInfo::from(&stream);
         server
-            .ffi_handles()
+            .ffi_handles
             .insert(stream.handle_id, Box::new(stream));
 
         Ok(info)
@@ -89,10 +87,6 @@ impl FfiVideoStream {
 
     pub fn stream_type(&self) -> proto::VideoStreamType {
         self.stream_type
-    }
-
-    pub fn track_sid(&self) -> &TrackSid {
-        &self.track_sid
     }
 
     async fn native_video_stream_task(
@@ -116,7 +110,7 @@ impl FfiVideoStream {
                     let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &frame.buffer);
 
                     server
-                        .ffi_handles()
+                        .ffi_handles
                         .insert(handle_id, Box::new(frame.buffer));
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
@@ -143,12 +137,7 @@ impl FfiVideoStream {
 pub struct FfiVideoSource {
     handle_id: FfiHandleId,
     source_type: proto::VideoSourceType,
-    source: VideoSource,
-}
-
-#[derive(Clone)]
-pub enum VideoSource {
-    Native(NativeVideoSource),
+    source: RtcVideoSource,
 }
 
 impl FfiVideoSource {
@@ -157,11 +146,17 @@ impl FfiVideoSource {
         new_source: proto::NewVideoSourceRequest,
     ) -> FfiResult<proto::VideoSourceInfo> {
         let source_type = proto::VideoSourceType::from_i32(new_source.r#type).unwrap();
+        #[allow(unreachable_patterns)]
         let source_inner = match source_type {
+            #[cfg(not(target_arch = "wasm32"))]
             proto::VideoSourceType::VideoSourceNative => {
-                let video_source = NativeVideoSource::default();
-                VideoSource::Native(video_source)
+                use livekit::webrtc::video_source::native::NativeVideoSource;
+                let video_source = NativeVideoSource::new(
+                    new_source.resolution.map(Into::into).unwrap_or_default(),
+                );
+                RtcVideoSource::Native(video_source)
             }
+            _ => return Err(FfiError::InvalidRequest("unsupported video source type")),
         };
 
         let video_source = Self {
@@ -172,7 +167,7 @@ impl FfiVideoSource {
         let source_info = proto::VideoSourceInfo::from(&video_source);
 
         server
-            .ffi_handles()
+            .ffi_handles
             .insert(video_source.handle_id, Box::new(video_source));
 
         Ok(source_info)
@@ -184,7 +179,8 @@ impl FfiVideoSource {
         capture: proto::CaptureVideoFrameRequest,
     ) -> FfiResult<()> {
         match self.source {
-            VideoSource::Native(ref source) => {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcVideoSource::Native(ref source) => {
                 let frame_info = capture
                     .frame
                     .ok_or(FfiError::InvalidRequest("frame is empty"))?;
@@ -195,7 +191,7 @@ impl FfiVideoSource {
                     .id as FfiHandleId;
 
                 let buffer = server
-                    .ffi_handles()
+                    .ffi_handles
                     .get(&buffer_handle)
                     .ok_or(FfiError::InvalidRequest("handle not found"))?;
 
@@ -206,12 +202,13 @@ impl FfiVideoSource {
                 let rotation = proto::VideoRotation::from_i32(frame_info.rotation).unwrap();
                 let frame = VideoFrame {
                     rotation: rotation.into(),
-                    timestamp: frame_info.timestamp,
+                    timestamp_us: frame_info.timestamp_us,
                     buffer,
                 };
 
                 source.capture_frame(&frame);
             }
+            _ => {}
         }
         Ok(())
     }
@@ -224,7 +221,7 @@ impl FfiVideoSource {
         self.source_type
     }
 
-    pub fn inner_source(&self) -> &VideoSource {
+    pub fn inner_source(&self) -> &RtcVideoSource {
         &self.source
     }
 }
