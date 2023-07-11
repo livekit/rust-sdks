@@ -84,7 +84,7 @@ args="is_debug=$debug \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
-  use_rtti=true \
+  use_rtti=false \
   use_errorprone_java_compiler=false \
   use_cxx17=true"
 
