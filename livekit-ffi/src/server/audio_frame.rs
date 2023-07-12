@@ -21,7 +21,7 @@ impl FfiAudioSream {
     /// Setup a new AudioStream and forward the audio data to the client/the foreign
     /// language.
     ///
-    /// When FFIAudioStream is dropped (When the corresponding handle_id is dropped), the task
+    /// When FfiAudioStream is dropped (When the corresponding handle_id is dropped), the task
     /// is being closed.
     ///
     /// It is possible that the client receives an AudioFrame after the task is closed. The client
@@ -121,7 +121,7 @@ impl FfiAudioSream {
                                 },
                             )),
                         },
-                    )) {
+                    )).await {
                         warn!("failed to send audio frame: {}", err);
                     }
                 }
