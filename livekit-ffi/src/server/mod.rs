@@ -121,24 +121,16 @@ impl FfiServer {
         }
         .encode_to_vec();
 
-        let (tx, rx) = oneshot::channel();
-
-        self.async_runtime.spawn(async move {
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                    log::error!("sending an event to the foreign language took too much time, is your callback function blocking?");
-                }
-                _ = rx => {}
-            }
+        let cb_task = self.async_runtime.spawn_blocking(move || unsafe {
+            callback_fn(message.as_ptr(), message.len());
         });
 
-        let _ = self
-            .async_runtime
-            .spawn_blocking(move || unsafe {
-                callback_fn(message.as_ptr(), message.len());
-                let _ = tx.send(());
-            })
-            .await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                log::error!("sending an event to the foreign language took too much time, is your callback function blocking?");
+            }
+            _ = cb_task => {}
+        }
 
         Ok(())
     }
