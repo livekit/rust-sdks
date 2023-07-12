@@ -40,7 +40,7 @@ pub extern "C" fn livekit_ffi_request(
     let res = match proto::FfiRequest::decode(data) {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("failed to decode request: {}", err);
+            log::error!("failed to decode request: {}", err);
             return INVALID_HANDLE;
         }
     };
@@ -48,7 +48,7 @@ pub extern "C" fn livekit_ffi_request(
     let res = match server::FFI_SERVER.handle_request(res) {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("failed to handle request: {}", err);
+            log::error!("failed to handle request: {}", err);
             return INVALID_HANDLE;
         }
     }
