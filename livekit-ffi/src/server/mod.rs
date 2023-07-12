@@ -135,7 +135,6 @@ impl FfiServer {
         let _ = self
             .async_runtime
             .spawn_blocking(move || unsafe {
-                std::thread::sleep(Duration::from_secs(5));
                 callback_fn(message.as_ptr(), message.len());
                 let _ = tx.send(());
             })
