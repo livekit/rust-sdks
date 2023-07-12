@@ -8,7 +8,7 @@ repository = "https://github.com/livekit/client-sdk-rust"
 
 [features]
 # By default ws TLS is not enabled
-default = []
+default = ['rustls-tls-native-roots']
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys
