@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package livekit;
+package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";

@@ -4,7 +4,7 @@ use std::any::Any;
 use thiserror::Error;
 
 mod conversion;
-#[path = "livekit.rs"]
+#[path = "livekit.proto.rs"]
 mod proto;
 mod server;
 
