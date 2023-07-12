@@ -16,7 +16,7 @@ log = "0.4"
 tar = "0.4"
 flate2 = "1.0"
 webrtc-sys-build = { version = "0.1.2", path = "./build" }
-reqwest = { version = "0.11", features = ["blocking", "json"] }
+reqwest = { version = "0.11", features = ["blocking", "json"], default-features = false }
 cxx-build = "1.0"
 glob = "0.3.0"
 cc = "1.0"
