@@ -146,7 +146,7 @@ impl FfiServer {
 
         // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
         *self.config.lock() = Some(FfiConfig {
-            callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr) },
+            callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr as usize) },
         });
 
         Ok(proto::InitializeResponse::default())

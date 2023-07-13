@@ -164,7 +164,7 @@ fn main() {
         "android" => {
             webrtc_sys_build::configure_jni_symbols().unwrap();
 
-            println!("cargo:rustc-link-lib=egl");
+            println!("cargo:rustc-link-lib=EGL");
             println!("cargo:rustc-link-lib=c++abi");
             println!("cargo:rustc-link-lib=OpenSLES");
 
@@ -247,10 +247,7 @@ fn configure_android_sysroot(builder: &mut cc::Build) {
     let toolchain_lib = toolchain.join("lib");
 
     let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
-    let sysroot_include = sysroot.join("usr/include");
-
     println!("cargo:rustc-link-search={}", toolchain_lib.display());
-    println!("cargo:rustc-link-search={}", sysroot_include.display());
 
     builder.flag(format!("-isysroot{}", sysroot.display()).as_str());
 }
