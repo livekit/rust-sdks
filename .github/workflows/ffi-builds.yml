@@ -105,7 +105,7 @@ jobs:
         run: |
           docker buildx create --use
           docker buildx build --platform linux/arm64 --load -t lk-arm64:latest -f .github/aarch64-docker.dockerfile .
-          docker run --rm -v "$(pwd)":/usr/src/app -w /usr/src/app/livekit-ffi lk-arm64:latest cargo build --release --target aarch64-unknown-linux-gnu ${{ matrix.buildargs }}
+          docker run --rm -v "$(pwd)":/usr/src/app -w /usr/src/app lk-arm64:latest 'cd livekit-ffi && cargo build --release --target aarch64-unknown-linux-gnu ${{ matrix.buildargs }}'
 
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
