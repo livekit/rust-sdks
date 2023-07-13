@@ -1,3 +1,5 @@
+use std::io;
+
 use crate::signal_client::{SignalEmitter, SignalEvent, SignalResult};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
@@ -10,6 +12,8 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+
+use super::SignalError;
 
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -88,7 +92,12 @@ impl SignalStream {
             response_chn: send,
         };
         let _ = self.internal_tx.send(msg).await;
-        recv.await.expect("channel closed")
+        match recv.await {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                SignalResult::Err(SignalError::WsError(tokio_tungstenite::tungstenite::Error::Io(std::io::Error::new(io::ErrorKind::BrokenPipe, error))))
+            }
+        }
     }
 
     /// This task is used to send messages to the websocket
