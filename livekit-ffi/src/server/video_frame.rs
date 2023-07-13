@@ -123,7 +123,7 @@ impl FfiVideoStream {
                                 }
                             )),
                         }
-                    )) {
+                    )).await{
                         warn!("failed to send video frame: {}", err);
                     }
                 }

@@ -136,7 +136,7 @@ async fn data_task(
                     error: res.err().map(|e| e.to_string()),
                 };
 
-                let _ = server.send_event(proto::ffi_event::Message::PublishData(cb));
+                let _ = server.send_event(proto::ffi_event::Message::PublishData(cb)).await;
             },
             _ = close_rx.recv() => {
                 break;
@@ -155,7 +155,7 @@ async fn room_task(
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
-                forward_event(server, room_handle, event);
+                forward_event(server, room_handle, event).await;
             },
             _ = close_rx.recv() => {
                 break;
@@ -163,7 +163,7 @@ async fn room_task(
         };
     }
 
-    fn forward_event(server: &'static FfiServer, room_handle: FfiHandleId, event: RoomEvent) {
+    async fn forward_event(server: &'static FfiServer, room_handle: FfiHandleId, event: RoomEvent) {
         let event = match event {
             RoomEvent::ParticipantConnected(participant) => Some(
                 proto::room_event::Message::ParticipantConnected(proto::ParticipantConnected {
@@ -249,10 +249,12 @@ async fn room_task(
         };
 
         if let Some(event) = event {
-            let _ = server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
-                room_handle: Some(room_handle.into()),
-                message: Some(event),
-            }));
+            let _ = server
+                .send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
+                    room_handle: Some(room_handle.into()),
+                    message: Some(event),
+                }))
+                .await;
         }
     }
 }

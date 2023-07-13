@@ -513,6 +513,7 @@ impl SessionInner {
                         let _ = self.emitter.send(SessionEvent::Connected);
                     }
                 } else if state == PeerConnectionState::Failed {
+                    log::error!("{:?} pc state failed", target);
                     self.pc_state
                         .store(PeerState::Disconnected as u8, Ordering::SeqCst);
 

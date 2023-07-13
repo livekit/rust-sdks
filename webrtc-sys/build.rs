@@ -171,11 +171,15 @@ fn main() {
             webrtc_sys_build::configure_jni_symbols().unwrap();
 
             println!("cargo:rustc-link-lib=egl");
+            println!("cargo:rustc-link-lib=c++abi");
             println!("cargo:rustc-link-lib=OpenSLES");
 
             configure_android_sysroot(&mut builder);
 
-            builder.file("src/android.cpp").flag("-std=c++17");
+            builder
+                .file("src/android.cpp")
+                .flag("-std=c++17")
+                .cpp_link_stdlib("c++_static");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
