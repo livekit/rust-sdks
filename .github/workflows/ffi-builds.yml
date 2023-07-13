@@ -37,7 +37,7 @@ jobs:
           - os: ubuntu-latest
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
+          - os: buildjet-4vcpu-ubuntu-2204-arm
             dylib: liblivekit_ffi.so
             target: aarch64-unknown-linux-gnu
           - os: ubuntu-latest
