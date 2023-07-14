@@ -24,6 +24,10 @@
 #include "media/base/media_constants.h"
 #include "rtc_base/logging.h"
 
+#if defined(WEBRTC_USE_H264)
+#include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
+#endif
+
 #ifdef WEBRTC_ANDROID
 #include "livekit/android.h"
 #endif
