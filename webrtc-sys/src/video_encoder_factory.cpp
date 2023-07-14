@@ -30,12 +30,13 @@
 
 namespace livekit {
 
-using Factory = webrtc::VideoEncoderFactoryTemplate<
-    webrtc::LibvpxVp8EncoderTemplateAdapter
+using Factory =
+    webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter
 #if defined(WEBRTC_USE_H264)
-        webrtc::OpenH264EncoderTemplateAdapter,
+                                        ,
+                                        webrtc::OpenH264EncoderTemplateAdapter,
 #endif
-    >;
+                                        >;
 
 VideoEncoderFactory::VideoEncoderFactory() {
 #ifdef __APPLE__
