@@ -104,8 +104,9 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=gdi32");
             println!("cargo:rustc-link-lib=dylib=dxgi");
             println!("cargo:rustc-link-lib=dylib=dwmapi");
+            println!("cargo:rustc-link-lib=dylib=shcore");
 
-            builder.flag("/std:c++17").flag("/EHsc");
+            builder.flag("/std:c++20").flag("/EHsc");
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=Xext");
@@ -116,7 +117,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
-            builder.flag("-std=c++17");
+            builder.flag("-std=c++20");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
@@ -139,7 +140,7 @@ fn main() {
             builder
                 .file("src/objc_video_factory.mm")
                 .flag("-stdlib=libc++")
-                .flag("-std=c++17");
+                .flag("-std=c++20");
         }
         "ios" => {
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
@@ -159,7 +160,7 @@ fn main() {
 
             configure_darwin_sysroot(&mut builder);
 
-            builder.file("src/objc_video_factory.mm").flag("-std=c++17");
+            builder.file("src/objc_video_factory.mm").flag("-std=c++20");
         }
         "android" => {
             webrtc_sys_build::configure_jni_symbols().unwrap();
@@ -172,7 +173,7 @@ fn main() {
 
             builder
                 .file("src/android.cpp")
-                .flag("-std=c++17")
+                .flag("-std=c++20")
                 .cpp_link_stdlib("c++_static");
         }
         _ => {

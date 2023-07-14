@@ -34,7 +34,6 @@
 #include "livekit/video_encoder_factory.h"
 #include "livekit/webrtc.h"
 #include "media/engine/webrtc_media_engine.h"
-#include "rtc_base/location.h"
 #include "rtc_base/thread.h"
 #include "webrtc-sys/src/peer_connection.rs.h"
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
@@ -86,12 +85,10 @@ PeerConnectionFactory::PeerConnectionFactory(
   cricket::MediaEngineDependencies media_deps;
   media_deps.task_queue_factory = dependencies.task_queue_factory.get();
 
-  audio_device_ = rtc_runtime_->worker_thread()
-                      ->Invoke<rtc::scoped_refptr<livekit::AudioDevice>>(
-                          RTC_FROM_HERE, [&] {
-                            return rtc::make_ref_counted<livekit::AudioDevice>(
-                                media_deps.task_queue_factory);
-                          });
+  audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
+    return rtc::make_ref_counted<livekit::AudioDevice>(
+        media_deps.task_queue_factory);
+  });
 
   media_deps.adm = audio_device_;
 
@@ -119,8 +116,8 @@ PeerConnectionFactory::~PeerConnectionFactory() {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::~PeerConnectionFactory()";
 
   peer_factory_ = nullptr;
-  rtc_runtime_->worker_thread()->Invoke<void>(
-      RTC_FROM_HERE, [this] { audio_device_ = nullptr; });
+  rtc_runtime_->worker_thread()->BlockingCall(
+      [this] { audio_device_ = nullptr; });
 }
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
@@ -144,7 +141,7 @@ std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
     std::shared_ptr<VideoTrackSource> source) const {
   return std::static_pointer_cast<VideoTrack>(
       rtc_runtime_->get_or_create_media_stream_track(
-          peer_factory_->CreateVideoTrack(label.c_str(), source->get().get())));
+          peer_factory_->CreateVideoTrack(source->get(), label.c_str())));
 }
 
 std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(

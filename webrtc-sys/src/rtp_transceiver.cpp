@@ -114,31 +114,31 @@ rust::Vec<RtpCodecCapability> RtpTransceiver::codec_preferences() const {
 }
 
 rust::Vec<RtpHeaderExtensionCapability>
-RtpTransceiver::header_extensions_to_offer() const {
+RtpTransceiver::header_extensions_to_negotiate() const {
   rust::Vec<RtpHeaderExtensionCapability> rust;
-  for (auto header : transceiver_->HeaderExtensionsToOffer())
+  for (auto header : transceiver_->GetHeaderExtensionsToNegotiate())
     rust.push_back(to_rust_rtp_header_extension_capability(header));
 
   return rust;
 }
 
 rust::Vec<RtpHeaderExtensionCapability>
-RtpTransceiver::header_extensions_negotiated() const {
+RtpTransceiver::negotiated_header_extensions() const {
   rust::Vec<RtpHeaderExtensionCapability> rust;
-  for (auto header : transceiver_->HeaderExtensionsNegotiated())
+  for (auto header : transceiver_->GetNegotiatedHeaderExtensions())
     rust.push_back(to_rust_rtp_header_extension_capability(header));
 
   return rust;
 }
 
-void RtpTransceiver::set_offered_rtp_header_extensions(
+void RtpTransceiver::set_header_extensions_to_negotiate(
     rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_offer) const {
   std::vector<webrtc::RtpHeaderExtensionCapability> headers;
 
   for (auto header : header_extensions_to_offer)
     headers.push_back(to_native_rtp_header_extension_capability(header));
 
-  auto error = transceiver_->SetOfferedRtpHeaderExtensions(headers);
+  auto error = transceiver_->SetHeaderExtensionsToNegotiate(headers);
   if (!error.ok())
     throw std::runtime_error(serialize_error(to_error(error)));
 }
