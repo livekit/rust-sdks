@@ -61,18 +61,10 @@ pub mod ffi {
         pub clock_rate: i32,
         pub has_preferred_payload_type: bool,
         pub preferred_payload_type: i32,
-        pub has_max_ptime: bool,
-        pub max_ptime: i32,
-        pub has_ptime: bool,
-        pub ptime: i32,
         pub has_num_channels: bool,
         pub num_channels: i32,
         pub rtcp_feedback: Vec<RtcpFeedback>,
         pub parameters: Vec<StringKeyValue>,
-        pub options: Vec<StringKeyValue>,
-        pub max_temporal_layer_extensions: i32,
-        pub max_spatial_layer_extensions: i32,
-        pub svc_multi_stream_support: bool,
     }
 
     #[derive(Debug)]

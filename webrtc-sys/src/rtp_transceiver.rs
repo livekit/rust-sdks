@@ -48,10 +48,12 @@ pub mod ffi {
             codecs: Vec<RtpCodecCapability>,
         ) -> Result<()>;
         fn codec_preferences(self: &RtpTransceiver) -> Vec<RtpCodecCapability>;
-        fn header_extensions_to_offer(self: &RtpTransceiver) -> Vec<RtpHeaderExtensionCapability>;
-        fn header_extensions_negotiated(self: &RtpTransceiver)
+        fn header_extensions_to_negotiate(
+            self: &RtpTransceiver,
+        ) -> Vec<RtpHeaderExtensionCapability>;
+        fn negotiated_header_extensions(self: &RtpTransceiver)
             -> Vec<RtpHeaderExtensionCapability>;
-        fn set_offered_rtp_header_extensions(
+        fn set_header_extensions_to_negotiate(
             self: &RtpTransceiver,
             headers: Vec<RtpHeaderExtensionCapability>,
         ) -> Result<()>;

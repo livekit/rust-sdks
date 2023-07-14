@@ -16,10 +16,10 @@
 
 #include "livekit/video_encoder_factory.h"
 
-#include "api/video_codecs/builtin_video_decoder_factory.h"
-#include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
+#include "api/video_codecs/video_encoder_factory_template.h"
+#include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
 #include "livekit/objc_video_factory.h"
 #include "media/base/media_constants.h"
 #include "rtc_base/logging.h"
@@ -30,9 +30,14 @@
 
 namespace livekit {
 
-VideoEncoderFactory::VideoEncoderFactory() {
-  factories_.push_back(webrtc::CreateBuiltinVideoEncoderFactory());
+using Factory = webrtc::VideoEncoderFactoryTemplate<
+    webrtc::LibvpxVp8EncoderTemplateAdapter
+#if defined(WEBRTC_USE_H264)
+        webrtc::OpenH264EncoderTemplateAdapter,
+#endif
+    >;
 
+VideoEncoderFactory::VideoEncoderFactory() {
 #ifdef __APPLE__
   factories_.push_back(livekit::CreateObjCVideoEncoderFactory());
 #endif
@@ -46,7 +51,8 @@ VideoEncoderFactory::VideoEncoderFactory() {
 
 std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
     const {
-  std::vector<webrtc::SdpVideoFormat> formats;
+  std::vector<webrtc::SdpVideoFormat> formats = Factory().GetSupportedFormats();
+
   for (const auto& factory : factories_) {
     auto supported_formats = factory->GetSupportedFormats();
     formats.insert(formats.end(), supported_formats.begin(),
@@ -62,6 +68,13 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::CreateVideoEncoder(
       if (supported_format.IsSameCodec(format))
         return factory->CreateVideoEncoder(format);
     }
+  }
+
+  auto original_format =
+      webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
+
+  if (original_format) {
+    return Factory().CreateVideoEncoder(*original_format);
   }
 
   RTC_LOG(LS_ERROR) << "No VideoEncoder found for " << format.name;
