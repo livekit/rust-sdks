@@ -19,38 +19,75 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
+            #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
           - os: macos-latest
             target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-ios
+          - os: macos-latest
+            target: aarch64-apple-ios-sim
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          #- os: ubuntu-latest
-          # target: aarch64-unknown-linux-gnu
+          - os: buildjet-4vcpu-ubuntu-2204-arm
+            target: aarch64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+          - os: ubuntu-latest
+            target: x86_64-linux-android
+
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Install Rust toolchain
-        run: |
-          rustup update --no-self-update stable
-          rustup target add ${{ matrix.target }}
-
-      - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: |
-          sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
-
       - uses: actions/checkout@v3
         with:
           submodules: true
 
-      - name: Build
-        run: cargo build --workspace --release --verbose --target ${{ matrix.target }} ${{ matrix.extraargs }}
+      - name: Install linux dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.target != 'aarch64-unknown-linux-gnu' }}
+        run: |
+          sudo apt update -y
+          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
 
-      - name: Build examples
-        working-directory: examples
-        run: cargo build --release --verbose --target ${{ matrix.target }}
+      - name: Set up QEMU
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        uses: docker/setup-qemu-action@v1
 
+      - name: Set up Docker Buildx
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to GitHub Container Registry
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Build (Cargo)
+        if: ${{ !contains(matrix.target, 'android') && matrix.target != 'aarch64-unknown-linux-gnu' }}
+        run: |
+          cargo build --release --workspace -p livekit --target ${{ matrix.target }}
+
+      - name: Build (Docker)
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          docker buildx create --use
+          docker buildx build --platform linux/arm64 --load -t lk-arm64:latest -f .github/aarch64-docker.dockerfile .
+          docker run --rm -v "$(pwd)":/usr/src/app -w /usr/src/app lk-arm64:latest cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Build (Android)
+        if: ${{ contains(matrix.target, 'android') }}
+        run: |
+          cargo install cargo-ndk
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv

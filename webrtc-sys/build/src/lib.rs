@@ -206,22 +206,79 @@ pub fn download_webrtc() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn android_ndk_toolchain() -> Result<path::PathBuf, &'static str> {
-    let ndk_env = env::var("ANDROID_NDK_HOME");
+    let host_os = host_os();
 
-    if ndk_env.is_err() {
-        return Err("ANDROID_NDK_HOME is not set, please set it to the path of your Android NDK");
-    }
+    let home = env::var("HOME");
+    let local = env::var("LOCALAPPDATA");
 
-    let android_ndk = path::PathBuf::from(ndk_env.unwrap());
-    let host_os = if cfg!(linux) {
-        "linux-x86_64"
-    } else if cfg!(target_os = "macos") {
-        "darwin-x86_64"
-    } else if cfg!(windows) {
-        "windows-x86_64"
+    let home = if host_os == Some("linux") {
+        path::PathBuf::from(home.unwrap())
+    } else if host_os == Some("darwin") {
+        path::PathBuf::from(home.unwrap()).join("Library")
+    } else if host_os == Some("windows") {
+        path::PathBuf::from(local.unwrap())
     } else {
         return Err("Unsupported host OS");
     };
 
-    Ok(android_ndk.join(format!("toolchains/llvm/prebuilt/{}", host_os)))
+    let ndk_dir = || -> Option<path::PathBuf> {
+        let ndk_env = env::var("ANDROID_NDK_HOME");
+        if ndk_env.is_ok() {
+            return Some(path::PathBuf::from(ndk_env.unwrap()));
+        }
+
+        let ndk_dir = home.join("Android/sdk/ndk");
+        if !ndk_dir.exists() {
+            return None;
+        }
+
+        // Find the highest version
+        let versions = fs::read_dir(ndk_dir.clone());
+        if !versions.is_ok() {
+            return None;
+        }
+
+        let version = versions
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter_map(|dir| dir.file_name().to_str().map(ToOwned::to_owned))
+            .filter_map(|dir| semver::Version::parse(&dir).ok())
+            .max_by(semver::Version::cmp);
+
+        if version.is_none() {
+            return None;
+        }
+
+        let version = version.unwrap();
+        Some(ndk_dir.join(version.to_string()))
+    }();
+
+    if let Some(ndk_dir) = ndk_dir {
+        let llvm_dir = if host_os == Some("linux") {
+            "linux-x86_64"
+        } else if host_os == Some("darwin") {
+            "darwin-x86_64"
+        } else if host_os == Some("windows") {
+            "windows-x86_64"
+        } else {
+            return Err("Unsupported host OS");
+        };
+
+        Ok(ndk_dir.join(format!("toolchains/llvm/prebuilt/{}", llvm_dir)))
+    } else {
+        Err("Android NDK not found, please set ANDROID_NDK_HOME to your NDK path")
+    }
+}
+
+fn host_os() -> Option<&'static str> {
+    let host = env::var("HOST").unwrap();
+    if host.contains("darwin") {
+        Some("darwin")
+    } else if host.contains("linux") {
+        Some("linux")
+    } else if host.contains("windows") {
+        Some("windows")
+    } else {
+        None
+    }
 }
