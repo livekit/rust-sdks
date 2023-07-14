@@ -92,7 +92,9 @@ jobs:
 
       - name: Install linux dependencies
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
-        run: sudo apt install -y ninja-build pkg-config openjdk-11-jdk
+        run: |
+          sudo apt update -y
+          sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
       - name: Install macos dependencies
         if: ${{ matrix.target.os == 'macos-latest' }}
