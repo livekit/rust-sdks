@@ -104,6 +104,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=gdi32");
             println!("cargo:rustc-link-lib=dylib=dxgi");
             println!("cargo:rustc-link-lib=dylib=dwmapi");
+            println!("cargo:rustc-link-lib=dylib=shcore");
 
             builder.flag("/std:c++20").flag("/EHsc");
         }
