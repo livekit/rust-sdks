@@ -55,7 +55,6 @@ fi
 cd src
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -85,7 +84,8 @@ args="is_debug=$debug  \
   symbol_level=0 \
   enable_iterator_debugging=false \
   use_rtti=true \
-  rtc_use_x11=false"
+  rtc_use_x11=false \
+  use_cxx17=true"
 
 if [ "$debug" = "true" ]; then
   args="${args} is_asan=true is_lsan=true";

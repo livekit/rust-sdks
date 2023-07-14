@@ -66,7 +66,6 @@ fi
 cd src
 # git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -98,7 +97,8 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_custom_libcxx=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
-  use_lld=false"
+  use_lld=false \
+  use_cxx17=true"
 
 # build static library
 ninja -C "$OUTPUT_DIR" :default \
