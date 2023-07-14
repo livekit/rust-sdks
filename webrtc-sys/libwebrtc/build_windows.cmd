@@ -52,7 +52,6 @@ if not exist src (
 cd src
 call git apply "%COMMAND_DIR%/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 call git apply "%COMMAND_DIR%/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-call git apply "%COMMAND_DIR%/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir "%ARTIFACTS_DIR%\lib"
@@ -64,7 +63,7 @@ if "!profile!" == "debug" (
 
 rem generate ninja for release
 call gn.bat gen %OUTPUT_DIR% --root="src" ^
-  --args="is_debug=!debug! is_clang=true target_cpu=\"!arch!\" use_custom_libcxx=false rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false is_component_build=false rtc_enable_protobuf=false rtc_use_h264=true symbol_level=0 enable_iterator_debugging=false"
+  --args="is_debug=!debug! is_clang=true target_cpu=\"!arch!\" use_custom_libcxx=false rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false is_component_build=false rtc_enable_protobuf=false rtc_use_h264=true symbol_level=0 enable_iterator_debugging=false use_cxx17=true"
 
 rem build
 ninja.exe -C %OUTPUT_DIR% :default

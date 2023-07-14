@@ -55,7 +55,6 @@ fi
 cd src
 # git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
@@ -84,7 +83,8 @@ args="is_debug=$debug \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
-  use_rtti=true"
+  use_rtti=true \
+  use_cxx17=true"
 
 if [ "$debug" = "true" ]; then
   args="${args} is_asan=true is_lsan=true";
