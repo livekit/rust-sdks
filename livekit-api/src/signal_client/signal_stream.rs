@@ -1,4 +1,4 @@
-use crate::signal_client::{SignalEmitter, SignalEvent, SignalResult};
+use super::{SignalEmitter, SignalError, SignalEvent, SignalResult};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use livekit_protocol as proto;
@@ -88,7 +88,7 @@ impl SignalStream {
             response_chn: send,
         };
         let _ = self.internal_tx.send(msg).await;
-        recv.await.expect("channel closed")
+        recv.await.map_err(|_| SignalError::SendError)?
     }
 
     /// This task is used to send messages to the websocket

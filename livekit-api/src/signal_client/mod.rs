@@ -29,6 +29,8 @@ pub enum SignalError {
     ProtoParse(#[from] prost::DecodeError),
     #[error("{0}")]
     Timeout(String),
+    #[error("failed to send message to server")]
+    SendError,
 }
 
 /// Events used by the RTCEngine who will handle the reconnection logic
