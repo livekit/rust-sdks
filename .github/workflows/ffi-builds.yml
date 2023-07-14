@@ -108,6 +108,7 @@ jobs:
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
         run: |
+          cd livekit-ffi/
           cargo install cargo-ndk
           cargo ndk --target ${{ matrix.target }} build --release ${{ matrix.buildargs }} 
 
