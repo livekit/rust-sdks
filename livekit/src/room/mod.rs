@@ -103,7 +103,6 @@ pub enum ConnectionState {
     Disconnected,
     Connected,
     Reconnecting,
-    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
