@@ -24,6 +24,7 @@ pub struct LkApp {
     connection_failure: Option<String>,
     render_state: egui_wgpu::RenderState,
     service: LkService,
+    room_events: Vec<String>, // Show event logs on the UI
 }
 
 impl Default for AppState {
@@ -56,6 +57,7 @@ impl LkApp {
             connecting: false,
             connection_failure: None,
             render_state: cc.wgpu_render_state.clone().unwrap(),
+            room_events: Vec::new(),
         }
     }
 
@@ -67,61 +69,64 @@ impl LkApp {
                     self.connection_failure = Some(err.to_string());
                 }
             }
-            UiCmd::RoomEvent { event } => match event {
-                RoomEvent::TrackSubscribed {
-                    track,
-                    publication: _,
-                    participant,
-                } => {
-                    if let RemoteTrack::Video(ref video_track) = track {
-                        // Create a new VideoRenderer
-                        let video_renderer = VideoRenderer::new(
-                            self.async_runtime.handle(),
-                            self.render_state.clone(),
-                            video_track.rtc_track(),
-                        );
-                        self.video_renderers
-                            .insert((participant.sid(), track.sid()), video_renderer);
-                    } else if let RemoteTrack::Audio(_) = track {
-                        // TODO(theomonnom): Once we support media devices, we can play audio tracks here
+            UiCmd::RoomEvent { event } => {
+                self.room_events.push(format!("{:?}", event));
+                match event {
+                    RoomEvent::TrackSubscribed {
+                        track,
+                        publication: _,
+                        participant,
+                    } => {
+                        if let RemoteTrack::Video(ref video_track) = track {
+                            // Create a new VideoRenderer
+                            let video_renderer = VideoRenderer::new(
+                                self.async_runtime.handle(),
+                                self.render_state.clone(),
+                                video_track.rtc_track(),
+                            );
+                            self.video_renderers
+                                .insert((participant.sid(), track.sid()), video_renderer);
+                        } else if let RemoteTrack::Audio(_) = track {
+                            // TODO(theomonnom): Once we support media devices, we can play audio tracks here
+                        }
                     }
-                }
-                RoomEvent::TrackUnsubscribed {
-                    track,
-                    publication: _,
-                    participant,
-                } => {
-                    self.video_renderers
-                        .remove(&(participant.sid(), track.sid()));
-                }
-                RoomEvent::LocalTrackPublished {
-                    track,
-                    publication: _,
-                    participant,
-                } => {
-                    if let LocalTrack::Video(ref video_track) = track {
-                        // Also create a new VideoRenderer for local tracks
-                        let video_renderer = VideoRenderer::new(
-                            self.async_runtime.handle(),
-                            self.render_state.clone(),
-                            video_track.rtc_track(),
-                        );
+                    RoomEvent::TrackUnsubscribed {
+                        track,
+                        publication: _,
+                        participant,
+                    } => {
                         self.video_renderers
-                            .insert((participant.sid(), track.sid()), video_renderer);
+                            .remove(&(participant.sid(), track.sid()));
                     }
+                    RoomEvent::LocalTrackPublished {
+                        track,
+                        publication: _,
+                        participant,
+                    } => {
+                        if let LocalTrack::Video(ref video_track) = track {
+                            // Also create a new VideoRenderer for local tracks
+                            let video_renderer = VideoRenderer::new(
+                                self.async_runtime.handle(),
+                                self.render_state.clone(),
+                                video_track.rtc_track(),
+                            );
+                            self.video_renderers
+                                .insert((participant.sid(), track.sid()), video_renderer);
+                        }
+                    }
+                    RoomEvent::LocalTrackUnpublished {
+                        publication,
+                        participant,
+                    } => {
+                        self.video_renderers
+                            .remove(&(participant.sid(), publication.sid()));
+                    }
+                    RoomEvent::Disconnected => {
+                        self.video_renderers.clear();
+                    }
+                    _ => {}
                 }
-                RoomEvent::LocalTrackUnpublished {
-                    publication,
-                    participant,
-                } => {
-                    self.video_renderers
-                        .remove(&(participant.sid(), publication.sid()));
-                }
-                RoomEvent::Disconnected => {
-                    self.video_renderers.clear();
-                }
-                _ => {}
-            },
+            }
         }
     }
 
@@ -224,42 +229,51 @@ impl LkApp {
 
     /// Show participants and their tracks
     fn right_panel(&self, ui: &mut egui::Ui) {
-        let room = self.service.room();
-
         ui.label("Participants");
         ui.separator();
 
-        if let Some(room) = room {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for participant in room.participants().values() {
-                    ui.group(|ui| {
-                        let tracks = participant.tracks();
-                        ui.monospace(&participant.identity().0);
-                        for track in tracks.values() {
-                            ui.label(format!("{} - {:?}", track.name(), track.source()));
-                            ui.horizontal(|ui| {
-                                if track.is_muted() {
-                                    ui.colored_label(egui::Color32::DARK_GRAY, "Muted");
-                                }
+        let Some(room) = self.service.room() else { return; };
 
-                                if track.is_subscribed() {
-                                    ui.colored_label(egui::Color32::GREEN, "Subscribed");
-                                } else {
-                                    ui.colored_label(egui::Color32::RED, "Unsubscribed");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for participant in room.participants().values() {
+                let tracks = participant.tracks();
+                ui.monospace(&participant.identity().0);
+                for track in tracks.values() {
+                    ui.label(format!("{} - {:?}", track.name(), track.source()));
+                    ui.horizontal(|ui| {
+                        if track.is_muted() {
+                            ui.colored_label(egui::Color32::DARK_GRAY, "Muted");
+                        }
 
-                                    if ui.button("Subscribe").clicked() {
-                                        /*let _ = self.service.send(AsyncCmd::SubscribeTrack {
-                                            participant_sid: participant.sid(),
-                                            track_sid: track.sid(),
-                                        });*/
-                                    }
-                                }
-                            });
+                        if track.is_subscribed() {
+                            ui.colored_label(egui::Color32::GREEN, "Subscribed");
+                        } else {
+                            ui.colored_label(egui::Color32::RED, "Unsubscribed");
+
+                            if ui.button("Subscribe").clicked() {
+                                /*let _ = self.service.send(AsyncCmd::SubscribeTrack {
+                                    participant_sid: participant.sid(),
+                                    track_sid: track.sid(),
+                                });*/
+                            }
                         }
                     });
                 }
-            });
-        }
+                ui.separator();
+            }
+        });
+    }
+
+    fn bottom_panel(&mut self, ui: &mut egui::Ui) {
+        ui.label("Room Events");
+        ui.separator();
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for event in &self.room_events {
+                ui.add(egui::Label::new(event).wrap(false));
+                ui.add(egui::Separator::default().spacing(1.0));
+            }
+        });
     }
 
     /// Draw a video grid of all participants
@@ -311,7 +325,7 @@ impl eframe::App for LkApp {
         eframe::set_value(storage, eframe::APP_KEY, &self.state);
     }
 
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(event) = self.service.try_recv() {
             self.event(event);
         }
@@ -325,6 +339,13 @@ impl eframe::App for LkApp {
             .width_range(20.0..=360.0)
             .show(ctx, |ui| {
                 self.left_panel(ui);
+            });
+
+        egui::TopBottomPanel::bottom("bottom_panel")
+            .resizable(true)
+            .height_range(20.0..=256.0)
+            .show(ctx, |ui| {
+                self.bottom_panel(ui);
             });
 
         egui::SidePanel::right("right_panel")
