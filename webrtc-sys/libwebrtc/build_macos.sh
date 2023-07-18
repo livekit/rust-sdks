@@ -96,7 +96,9 @@ ninja -C "$OUTPUT_DIR" :default \
   sdk:default_codec_factory_objc \
   pc:peerconnection \
   sdk:videocapture_objc \
-  sdk:mac_framework_objc
+  sdk:mac_framework_objc \
+  builtin_video_decoder_factory \
+  builtin_video_encoder_factory
 
 # make libwebrtc.a
 # don't include nasm

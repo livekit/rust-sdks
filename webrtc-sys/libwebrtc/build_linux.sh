@@ -95,7 +95,9 @@ fi
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
 # build static library
-ninja -C "$OUTPUT_DIR" :default
+ninja -C "$OUTPUT_DIR" :default \
+  builtin_video_decoder_factory \
+  builtin_video_encoder_factory
 
 # make libwebrtc.a
 # don't include nasm

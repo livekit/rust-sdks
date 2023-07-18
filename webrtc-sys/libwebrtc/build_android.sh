@@ -97,7 +97,9 @@ gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 ninja -C "$OUTPUT_DIR" :default \
   sdk/android:native_api \
   sdk/android:libwebrtc \
-  sdk/android:libjingle_peerconnection_so
+  sdk/android:libjingle_peerconnection_so \
+  builtin_video_decoder_factory \
+  builtin_video_encoder_factory
 
 # make libwebrtc.a
 # don't include nasm
