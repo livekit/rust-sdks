@@ -179,11 +179,18 @@ impl RemoteTrackPublication {
         let old_subscription_state = self.subscription_status();
         let old_permission_state = self.permission_status();
 
-        let mut info = self.remote.info.write();
-        info.subscribed = subscribed;
+        {
+            let mut info = self.remote.info.write();
+            info.subscribed = subscribed;
 
-        if subscribed {
-            info.allowed = true;
+            if subscribed {
+                info.allowed = true;
+            }
+        }
+
+        {
+            let mut info = self.inner.info.write();
+            info.track = None;
         }
 
         // Request to send an update to the SFU
