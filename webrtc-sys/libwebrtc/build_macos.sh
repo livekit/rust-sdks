@@ -55,6 +55,7 @@ fi
 cd src
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -96,9 +97,7 @@ ninja -C "$OUTPUT_DIR" :default \
   sdk:default_codec_factory_objc \
   pc:peerconnection \
   sdk:videocapture_objc \
-  sdk:mac_framework_objc \
-  builtin_video_decoder_factory \
-  builtin_video_encoder_factory
+  sdk:mac_framework_objc
 
 # make libwebrtc.a
 # don't include nasm

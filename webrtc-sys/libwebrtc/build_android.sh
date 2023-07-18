@@ -55,6 +55,7 @@ fi
 cd src
 # git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
@@ -97,9 +98,7 @@ gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 ninja -C "$OUTPUT_DIR" :default \
   sdk/android:native_api \
   sdk/android:libwebrtc \
-  sdk/android:libjingle_peerconnection_so \
-  builtin_video_decoder_factory \
-  builtin_video_encoder_factory
+  sdk/android:libjingle_peerconnection_so
 
 # make libwebrtc.a
 # don't include nasm
