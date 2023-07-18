@@ -59,6 +59,22 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
   return formats;
 }
 
+VideoDecoderFactory::CodecSupport VideoDecoderFactory::QueryCodecSupport(
+    const webrtc::SdpVideoFormat& format,
+    bool reference_scaling) const {
+  if (reference_scaling) {
+    webrtc::VideoCodecType codec =
+        webrtc::PayloadStringToCodecType(format.name);
+    if (codec != webrtc::kVideoCodecVP9 && codec != webrtc::kVideoCodecAV1) {
+      return {/*is_supported=*/false, /*is_power_efficient=*/false};
+    }
+  }
+
+  CodecSupport codec_support;
+  codec_support.is_supported = format.IsCodecInList(GetSupportedFormats());
+  return codec_support;
+}
+
 std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::CreateVideoDecoder(
     const webrtc::SdpVideoFormat& format) {
   for (const auto& factory : factories_) {
