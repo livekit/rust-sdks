@@ -15,7 +15,7 @@ struct RemoteEvents {
     permission_status_changed: Mutex<
         Option<Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>>,
     >, // Old status, new status
-    subscription_update_needed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication) + Send>>>,
+    subscription_update_needed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication, bool) + Send>>>,
 }
 
 #[derive(Debug)]
@@ -170,7 +170,7 @@ impl RemoteTrackPublication {
 
     pub(crate) fn on_subscription_update_needed(
         &self,
-        f: impl Fn(RemoteTrackPublication) + Send + 'static,
+        f: impl Fn(RemoteTrackPublication, bool) + Send + 'static,
     ) {
         *self.remote.events.subscription_update_needed.lock() = Some(Box::new(f));
     }
@@ -188,10 +188,8 @@ impl RemoteTrackPublication {
             }
         }
 
-        {
-            let mut info = self.inner.info.write();
-            info.track = None;
-        }
+        // TODO(theomonnom): Wait for the PC onRemoveTrack event instead?
+        self.set_track(None);
 
         // Request to send an update to the SFU
         if let Some(subscription_update_needed) = self
@@ -201,7 +199,7 @@ impl RemoteTrackPublication {
             .lock()
             .as_ref()
         {
-            subscription_update_needed(self.clone());
+            subscription_update_needed(self.clone(), subscribed);
         }
 
         self.emit_subscription_update(old_subscription_state);
@@ -209,7 +207,7 @@ impl RemoteTrackPublication {
     }
 
     pub fn subscription_status(&self) -> SubscriptionStatus {
-        if !self.is_subscribed() {
+        if !self.remote.info.read().subscribed {
             return SubscriptionStatus::Unsubscribed;
         }
 

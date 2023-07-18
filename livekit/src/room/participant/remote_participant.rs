@@ -262,14 +262,14 @@ impl RemoteParticipant {
         publication.on_subscription_update_needed({
             let rtc_engine = self.inner.rtc_engine.clone();
             let psid = self.sid().0.clone();
-            move |publication| {
+            move |publication, subscribed| {
                 let rtc_engine = rtc_engine.clone();
                 let psid = psid.clone();
                 tokio::spawn(async move {
                     let tsid = publication.sid().0.clone();
                     let update_subscription = proto::UpdateSubscription {
                         track_sids: vec![tsid.clone()],
-                        subscribe: publication.is_subscribed(),
+                        subscribe: subscribed,
                         participant_tracks: vec![proto::ParticipantTracks {
                             participant_sid: psid,
                             track_sids: vec![tsid.clone()],
@@ -315,7 +315,7 @@ impl RemoteParticipant {
                 panic!("expected remote publication");
             };
 
-            publication.on_subscription_update_needed(|_| {});
+            publication.on_subscription_update_needed(|_, _| {});
             publication.on_subscribed(|_, _| {});
             publication.on_unsubscribed(|_, _| {});
         }
