@@ -82,9 +82,9 @@ impl LkApp {
                         );
                         self.video_renderers
                             .insert((participant.sid(), track.sid()), video_renderer);
+                    } else if let RemoteTrack::Audio(_) = track {
+                        // TODO(theomonnom): Once we support media devices, we can play audio tracks here
                     }
-
-                    // TODO(theomonnom): Once we support media devices, we can play audio tracks here
                 }
                 RoomEvent::TrackUnsubscribed {
                     track,
@@ -93,6 +93,32 @@ impl LkApp {
                 } => {
                     self.video_renderers
                         .remove(&(participant.sid(), track.sid()));
+                }
+                RoomEvent::LocalTrackPublished {
+                    track,
+                    publication: _,
+                    participant,
+                } => {
+                    if let LocalTrack::Video(ref video_track) = track {
+                        // Also create a new VideoRenderer for local tracks
+                        let video_renderer = VideoRenderer::new(
+                            self.async_runtime.handle(),
+                            self.render_state.clone(),
+                            video_track.rtc_track(),
+                        );
+                        self.video_renderers
+                            .insert((participant.sid(), track.sid()), video_renderer);
+                    }
+                }
+                RoomEvent::LocalTrackUnpublished {
+                    publication,
+                    participant,
+                } => {
+                    self.video_renderers
+                        .remove(&(participant.sid(), publication.sid()));
+                }
+                RoomEvent::Disconnected => {
+                    self.video_renderers.clear();
                 }
                 _ => {}
             },
@@ -193,11 +219,48 @@ impl LkApp {
         }
 
         egui::warn_if_debug_build(ui);
-
         ui.separator();
     }
 
-    fn right_panel(&self, _ui: &mut egui::Ui) {}
+    /// Show participants and their tracks
+    fn right_panel(&self, ui: &mut egui::Ui) {
+        let room = self.service.room();
+
+        ui.label("Participants");
+        ui.separator();
+
+        if let Some(room) = room {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for participant in room.participants().values() {
+                    ui.group(|ui| {
+                        let tracks = participant.tracks();
+                        ui.monospace(&participant.identity().0);
+                        for track in tracks.values() {
+                            ui.label(format!("{} - {:?}", track.name(), track.source()));
+                            ui.horizontal(|ui| {
+                                if track.is_muted() {
+                                    ui.colored_label(egui::Color32::DARK_GRAY, "Muted");
+                                }
+
+                                if track.is_subscribed() {
+                                    ui.colored_label(egui::Color32::GREEN, "Subscribed");
+                                } else {
+                                    ui.colored_label(egui::Color32::RED, "Unsubscribed");
+
+                                    if ui.button("Subscribe").clicked() {
+                                        /*let _ = self.service.send(AsyncCmd::SubscribeTrack {
+                                            participant_sid: participant.sid(),
+                                            track_sid: track.sid(),
+                                        });*/
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+    }
 
     /// Draw a video grid of all participants
     fn central_panel(&mut self, ui: &mut egui::Ui) {
@@ -282,6 +345,8 @@ impl eframe::App for LkApp {
 /// Draw a wgpu texture to the VideoGrid
 fn draw_video(name: &str, video_renderer: &VideoRenderer, ui: &mut egui::Ui) {
     let rect = ui.available_rect_before_wrap();
+
+    // Always draw a background in case we still didn't receive a frame
     ui.painter().rect(
         rect,
         Rounding::none(),

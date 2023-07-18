@@ -44,9 +44,12 @@ pub enum RoomEvent {
     ParticipantDisconnected(RemoteParticipant),
     LocalTrackPublished {
         publication: LocalTrackPublication,
+        track: LocalTrack,
+        participant: LocalParticipant,
     },
     LocalTrackUnpublished {
         publication: LocalTrackPublication,
+        participant: LocalParticipant,
     },
     TrackSubscribed {
         track: RemoteTrack,
@@ -176,6 +179,28 @@ impl Room {
             pi.metadata,
         );
 
+        let dispatcher = Dispatcher::<RoomEvent>::default();
+        local_participant.on_local_track_published({
+            let dispatcher = dispatcher.clone();
+            move |participant, publication| {
+                dispatcher.dispatch(&RoomEvent::LocalTrackPublished {
+                    participant,
+                    publication: publication.clone(),
+                    track: publication.track(),
+                });
+            }
+        });
+
+        local_participant.on_local_track_unpublished({
+            let dispatcher = dispatcher.clone();
+            move |participant, publication| {
+                dispatcher.dispatch(&RoomEvent::LocalTrackUnpublished {
+                    publication,
+                    participant,
+                });
+            }
+        });
+
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
             sid: room_info.sid.into(),
@@ -188,7 +213,7 @@ impl Room {
             active_speakers: Default::default(),
             rtc_engine,
             local_participant,
-            dispatcher: Default::default(),
+            dispatcher,
         });
 
         for pi in join_response.other_participants {

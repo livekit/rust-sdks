@@ -38,15 +38,14 @@ impl VideoRenderer {
             egui_texture: None,
         }));
 
+        // TODO(theomonnom) Gracefully close the thread
         let mut video_sink = NativeVideoStream::new(rtc_track.clone());
 
         std::thread::spawn({
             let async_handle = async_handle.clone();
             let internal = internal.clone();
             move || {
-                let internal = internal.clone();
                 while let Some(frame) = async_handle.block_on(video_sink.next()) {
-                    let internal = internal.clone();
                     // Process the frame
                     let mut internal = internal.lock();
                     let buffer = frame.buffer.to_i420();
@@ -76,29 +75,23 @@ impl VideoRenderer {
                     )
                     .unwrap();
 
-                    let copy_desc = wgpu::ImageCopyTexture {
-                        texture: internal.texture.as_ref().unwrap(),
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::default(),
-                        aspect: wgpu::TextureAspect::default(),
-                    };
-
-                    let copy_layout = wgpu::ImageDataLayout {
-                        bytes_per_row: Some(width * 4),
-                        ..Default::default()
-                    };
-
-                    let copy_size = wgpu::Extent3d {
-                        width,
-                        height,
-                        ..Default::default()
-                    };
-
                     internal.render_state.queue.write_texture(
-                        copy_desc,
+                        wgpu::ImageCopyTexture {
+                            texture: internal.texture.as_ref().unwrap(),
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::default(),
+                            aspect: wgpu::TextureAspect::default(),
+                        },
                         &internal.rgba_data,
-                        copy_layout,
-                        copy_size,
+                        wgpu::ImageDataLayout {
+                            bytes_per_row: Some(width * 4),
+                            ..Default::default()
+                        },
+                        wgpu::Extent3d {
+                            width,
+                            height,
+                            ..Default::default()
+                        },
                     );
                 }
             }
