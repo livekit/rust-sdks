@@ -363,6 +363,48 @@ impl FfiServer {
         ffi_room.publish_data(self, publish)
     }
 
+    fn on_set_subscribed(
+        &'static self,
+        set_subscribed: proto::SetSubscribedRequest,
+    ) -> FfiResult<proto::SetSubscribedResponse> {
+        let room_handle = set_subscribed
+            .room_handle
+            .as_ref()
+            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+            .id as FfiHandleId;
+
+        let ffi_room = self
+            .ffi_handles
+            .get(&room_handle)
+            .ok_or(FfiError::InvalidRequest("room not found"))?;
+
+        let ffi_room = ffi_room
+            .downcast_ref::<room::HandleType>()
+            .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
+
+        let participant = ffi_room
+            .room()
+            .participants()
+            .get(&ParticipantSid(set_subscribed.participant_sid.clone()))
+            .cloned();
+
+        let Some(participant) = participant else {
+            log::warn!("participant {} not found while setting set_subscribed, bad timing", set_subscribed.participant_sid);
+            return Ok(proto::SetSubscribedResponse {});
+        };
+
+        let publication =
+            participant.get_track_publication(&TrackSid(set_subscribed.track_sid.clone()));
+
+        let Some(publication) = publication else {
+            log::warn!("track {} not found while setting set_subscribed, bad timing", set_subscribed.track_sid);
+            return Ok(proto::SetSubscribedResponse {});
+        };
+
+        publication.set_subscribed(set_subscribed.subscribe);
+        Ok(proto::SetSubscribedResponse {})
+    }
+
     // Track
     fn on_create_video_track(
         &'static self,
@@ -796,6 +838,9 @@ impl FfiServer {
             }
             proto::ffi_request::Message::PublishData(publish) => {
                 proto::ffi_response::Message::PublishData(self.on_publish_data(publish)?)
+            }
+            proto::ffi_request::Message::SetSubscribed(subscribed) => {
+                proto::ffi_response::Message::SetSubscribed(self.on_set_subscribed(subscribed)?)
             }
             proto::ffi_request::Message::CreateVideoTrack(create) => {
                 proto::ffi_response::Message::CreateVideoTrack(self.on_create_video_track(create)?)

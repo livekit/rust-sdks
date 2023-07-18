@@ -175,7 +175,7 @@ impl RemoteTrackPublication {
         *self.remote.events.subscription_update_needed.lock() = Some(Box::new(f));
     }
 
-    pub async fn set_subscribed(&self, subscribed: bool) {
+    pub fn set_subscribed(&self, subscribed: bool) {
         let old_subscription_state = self.subscription_status();
         let old_permission_state = self.permission_status();
 

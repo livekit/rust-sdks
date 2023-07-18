@@ -177,6 +177,32 @@ async fn room_task(
                     },
                 ))
             }
+            RoomEvent::LocalTrackPublished {
+                publication,
+                track,
+                participant: _,
+            } => {
+                let handle_id = server.next_id() as FfiHandleId;
+                let track_info = proto::TrackInfo::from_local_track(handle_id, &track);
+                server
+                    .ffi_handles
+                    .insert(handle_id, Box::new(Track::from(track)));
+
+                Some(proto::room_event::Message::LocalTrackPublished(
+                    proto::LocalTrackPublished {
+                        publication: Some(proto::TrackPublicationInfo::from(&publication)),
+                        track: Some(track_info),
+                    },
+                ))
+            }
+            RoomEvent::LocalTrackUnpublished {
+                publication,
+                participant: _,
+            } => Some(proto::room_event::Message::LocalTrackUnpublished(
+                proto::LocalTrackUnpublished {
+                    publication_sid: publication.sid().into(),
+                },
+            )),
             RoomEvent::TrackPublished {
                 publication,
                 participant,
@@ -223,6 +249,52 @@ async fn room_task(
                     track_sid: track.sid().to_string(),
                 },
             )),
+            RoomEvent::TrackSubscriptionFailed {
+                participant,
+                error,
+                sid,
+            } => Some(proto::room_event::Message::TrackSubscriptionFailed(
+                proto::TrackSubscriptionFailed {
+                    participant_sid: participant.sid().to_string(),
+                    error: error.to_string(),
+                    track_sid: sid.into(),
+                },
+            )),
+            RoomEvent::TrackMuted {
+                participant,
+                publication,
+            } => Some(proto::room_event::Message::TrackMuted(proto::TrackMuted {
+                participant_sid: participant.sid().to_string(),
+                track_sid: publication.sid().into(),
+            })),
+            RoomEvent::TrackUnmuted {
+                participant,
+                publication,
+            } => Some(proto::room_event::Message::TrackUnmuted(
+                proto::TrackUnmuted {
+                    participant_sid: participant.sid().to_string(),
+                    track_sid: publication.sid().into(),
+                },
+            )),
+            RoomEvent::ActiveSpeakersChanged { speakers } => {
+                let participant_sids = speakers
+                    .iter()
+                    .map(|p| p.sid().to_string())
+                    .collect::<Vec<_>>();
+
+                Some(proto::room_event::Message::ActiveSpeakersChanged(
+                    proto::ActiveSpeakersChanged { participant_sids },
+                ))
+            }
+            RoomEvent::ConnectionQualityChanged {
+                quality,
+                participant,
+            } => Some(proto::room_event::Message::ConnectionQualityChanged(
+                proto::ConnectionQualityChanged {
+                    participant_sid: participant.sid().to_string(),
+                    quality: proto::ConnectionQuality::from(quality).into(),
+                },
+            )),
             RoomEvent::DataReceived {
                 payload,
                 kind,
@@ -244,7 +316,23 @@ async fn room_task(
                     },
                 ))
             }
-
+            RoomEvent::ConnectionStateChanged(state) => Some(
+                proto::room_event::Message::ConnectionStateChanged(proto::ConnectionStateChanged {
+                    state: proto::ConnectionState::from(state).into(),
+                }),
+            ),
+            RoomEvent::Connected => {
+                Some(proto::room_event::Message::Connected(proto::Connected {}))
+            }
+            RoomEvent::Disconnected => Some(proto::room_event::Message::Disconnected(
+                proto::Disconnected {},
+            )),
+            RoomEvent::Reconnecting => Some(proto::room_event::Message::Reconnecting(
+                proto::Reconnecting {},
+            )),
+            RoomEvent::Reconnected => Some(proto::room_event::Message::Reconnected(
+                proto::Reconnected {},
+            )),
             _ => None,
         };
 

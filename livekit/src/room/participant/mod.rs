@@ -15,7 +15,6 @@ pub use remote_participant::*;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionQuality {
-    Unknown,
     Excellent,
     Good,
     Poor,
@@ -95,7 +94,7 @@ pub(super) fn new_inner(
             metadata,
             speaking: false,
             audio_level: 0.0,
-            connection_quality: ConnectionQuality::Unknown,
+            connection_quality: ConnectionQuality::Excellent,
         }),
         tracks: Default::default(),
         events: Default::default(),

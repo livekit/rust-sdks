@@ -165,10 +165,10 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                 }
             }
             AsyncCmd::SubscribeTrack { publication } => {
-                publication.set_subscribed(true).await;
+                publication.set_subscribed(true);
             }
             AsyncCmd::UnsubscribeTrack { publication } => {
-                publication.set_subscribed(false).await;
+                publication.set_subscribed(false);
             }
         }
     }

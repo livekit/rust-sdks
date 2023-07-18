@@ -837,6 +837,23 @@ pub struct PublishDataCallback {
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
+/// Change the "desire" to subscribe to a track
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetSubscribedRequest {
+    #[prost(message, optional, tag="1")]
+    pub room_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(bool, tag="2")]
+    pub subscribe: bool,
+    #[prost(string, tag="3")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub track_sid: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetSubscribedResponse {
+}
 // /
 // / Options
 // /
@@ -889,7 +906,7 @@ pub struct RoomOptions {
 pub struct RoomEvent {
     #[prost(message, optional, tag="1")]
     pub room_handle: ::core::option::Option<FfiHandleId>,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -902,32 +919,38 @@ pub mod room_event {
         #[prost(message, tag="3")]
         ParticipantDisconnected(super::ParticipantDisconnected),
         #[prost(message, tag="4")]
-        TrackPublished(super::TrackPublished),
+        LocalTrackPublished(super::LocalTrackPublished),
         #[prost(message, tag="5")]
-        TrackUnpublished(super::TrackUnpublished),
+        LocalTrackUnpublished(super::LocalTrackUnpublished),
         #[prost(message, tag="6")]
-        TrackSubscribed(super::TrackSubscribed),
+        TrackPublished(super::TrackPublished),
         #[prost(message, tag="7")]
-        TrackUnsubscribed(super::TrackUnsubscribed),
+        TrackUnpublished(super::TrackUnpublished),
         #[prost(message, tag="8")]
-        TrackMuted(super::TrackMuted),
+        TrackSubscribed(super::TrackSubscribed),
         #[prost(message, tag="9")]
-        TrackUnmuted(super::TrackUnmuted),
+        TrackUnsubscribed(super::TrackUnsubscribed),
         #[prost(message, tag="10")]
-        SpeakersChanged(super::ActiveSpeakersChanged),
+        TrackSubscriptionFailed(super::TrackSubscriptionFailed),
         #[prost(message, tag="11")]
-        ConnectionQualityChanged(super::ConnectionQualityChanged),
+        TrackMuted(super::TrackMuted),
         #[prost(message, tag="12")]
-        DataReceived(super::DataReceived),
+        TrackUnmuted(super::TrackUnmuted),
         #[prost(message, tag="13")]
-        ConnectionStateChanged(super::ConnectionStateChanged),
+        ActiveSpeakersChanged(super::ActiveSpeakersChanged),
         #[prost(message, tag="14")]
-        Connected(super::Connected),
+        ConnectionQualityChanged(super::ConnectionQualityChanged),
         #[prost(message, tag="15")]
-        Disconnected(super::Disconnected),
+        DataReceived(super::DataReceived),
         #[prost(message, tag="16")]
-        Reconnecting(super::Reconnecting),
+        ConnectionStateChanged(super::ConnectionStateChanged),
         #[prost(message, tag="17")]
+        Connected(super::Connected),
+        #[prost(message, tag="18")]
+        Disconnected(super::Disconnected),
+        #[prost(message, tag="19")]
+        Reconnecting(super::Reconnecting),
+        #[prost(message, tag="20")]
         Reconnected(super::Reconnected),
     }
 }
@@ -949,18 +972,45 @@ pub struct RoomInfo {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DataReceived {
+pub struct ParticipantConnected {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
-    /// Can be empty if the data is sent a server SDK
-    #[prost(string, optional, tag="2")]
-    pub participant_sid: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(uint64, tag="3")]
-    pub data_ptr: u64,
-    #[prost(uint64, tag="4")]
-    pub data_size: u64,
-    #[prost(enumeration="DataPacketKind", tag="5")]
-    pub kind: i32,
+    pub info: ::core::option::Option<ParticipantInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantDisconnected {
+    #[prost(message, optional, tag="1")]
+    pub info: ::core::option::Option<ParticipantInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LocalTrackPublished {
+    #[prost(message, optional, tag="1")]
+    pub publication: ::core::option::Option<TrackPublicationInfo>,
+    #[prost(message, optional, tag="2")]
+    pub track: ::core::option::Option<TrackInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LocalTrackUnpublished {
+    #[prost(string, tag="1")]
+    pub publication_sid: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TrackPublished {
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub publication: ::core::option::Option<TrackPublicationInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TrackUnpublished {
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub publication_sid: ::prost::alloc::string::String,
 }
 /// Publication isn't needed for subscription events on the FFI
 /// The FFI will retrieve the publication using the Track sid
@@ -983,6 +1033,16 @@ pub struct TrackUnsubscribed {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TrackSubscriptionFailed {
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub track_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub error: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackMuted {
     #[prost(string, tag="1")]
     pub participant_sid: ::prost::alloc::string::String,
@@ -999,34 +1059,6 @@ pub struct TrackUnmuted {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ParticipantConnected {
-    #[prost(message, optional, tag="1")]
-    pub info: ::core::option::Option<ParticipantInfo>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ParticipantDisconnected {
-    #[prost(message, optional, tag="1")]
-    pub info: ::core::option::Option<ParticipantInfo>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TrackPublished {
-    #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="2")]
-    pub publication: ::core::option::Option<TrackPublicationInfo>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TrackUnpublished {
-    #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub publication_sid: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ActiveSpeakersChanged {
     #[prost(string, repeated, tag="1")]
     pub participant_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -1038,6 +1070,21 @@ pub struct ConnectionQualityChanged {
     pub participant_sid: ::prost::alloc::string::String,
     #[prost(enumeration="ConnectionQuality", tag="2")]
     pub quality: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataReceived {
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiHandleId>,
+    /// Can be empty if the data is sent a server SDK
+    #[prost(string, optional, tag="2")]
+    pub participant_sid: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, tag="3")]
+    pub data_ptr: u64,
+    #[prost(uint64, tag="4")]
+    pub data_size: u64,
+    #[prost(enumeration="DataPacketKind", tag="5")]
+    pub kind: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1100,7 +1147,6 @@ pub enum ConnectionState {
     ConnDisconnected = 0,
     ConnConnected = 1,
     ConnReconnecting = 2,
-    ConnUnknown = 3,
 }
 impl ConnectionState {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1112,7 +1158,6 @@ impl ConnectionState {
             ConnectionState::ConnDisconnected => "CONN_DISCONNECTED",
             ConnectionState::ConnConnected => "CONN_CONNECTED",
             ConnectionState::ConnReconnecting => "CONN_RECONNECTING",
-            ConnectionState::ConnUnknown => "CONN_UNKNOWN",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1121,7 +1166,6 @@ impl ConnectionState {
             "CONN_DISCONNECTED" => Some(Self::ConnDisconnected),
             "CONN_CONNECTED" => Some(Self::ConnConnected),
             "CONN_RECONNECTING" => Some(Self::ConnReconnecting),
-            "CONN_UNKNOWN" => Some(Self::ConnUnknown),
             _ => None,
         }
     }
@@ -1375,7 +1419,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
+    #[prost(oneof="ffi_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -1398,36 +1442,38 @@ pub mod ffi_request {
         UnpublishTrack(super::UnpublishTrackRequest),
         #[prost(message, tag="7")]
         PublishData(super::PublishDataRequest),
-        /// Track
         #[prost(message, tag="8")]
-        CreateVideoTrack(super::CreateVideoTrackRequest),
+        SetSubscribed(super::SetSubscribedRequest),
+        /// Track
         #[prost(message, tag="9")]
+        CreateVideoTrack(super::CreateVideoTrackRequest),
+        #[prost(message, tag="10")]
         CreateAudioTrack(super::CreateAudioTrackRequest),
         /// Video
-        #[prost(message, tag="10")]
-        AllocVideoBuffer(super::AllocVideoBufferRequest),
         #[prost(message, tag="11")]
-        NewVideoStream(super::NewVideoStreamRequest),
+        AllocVideoBuffer(super::AllocVideoBufferRequest),
         #[prost(message, tag="12")]
-        NewVideoSource(super::NewVideoSourceRequest),
+        NewVideoStream(super::NewVideoStreamRequest),
         #[prost(message, tag="13")]
-        CaptureVideoFrame(super::CaptureVideoFrameRequest),
+        NewVideoSource(super::NewVideoSourceRequest),
         #[prost(message, tag="14")]
-        ToI420(super::ToI420Request),
+        CaptureVideoFrame(super::CaptureVideoFrameRequest),
         #[prost(message, tag="15")]
+        ToI420(super::ToI420Request),
+        #[prost(message, tag="16")]
         ToArgb(super::ToArgbRequest),
         /// Audio
-        #[prost(message, tag="16")]
-        AllocAudioBuffer(super::AllocAudioBufferRequest),
         #[prost(message, tag="17")]
-        NewAudioStream(super::NewAudioStreamRequest),
+        AllocAudioBuffer(super::AllocAudioBufferRequest),
         #[prost(message, tag="18")]
-        NewAudioSource(super::NewAudioSourceRequest),
+        NewAudioStream(super::NewAudioStreamRequest),
         #[prost(message, tag="19")]
-        CaptureAudioFrame(super::CaptureAudioFrameRequest),
+        NewAudioSource(super::NewAudioSourceRequest),
         #[prost(message, tag="20")]
-        NewAudioResampler(super::NewAudioResamplerRequest),
+        CaptureAudioFrame(super::CaptureAudioFrameRequest),
         #[prost(message, tag="21")]
+        NewAudioResampler(super::NewAudioResamplerRequest),
+        #[prost(message, tag="22")]
         RemixAndResample(super::RemixAndResampleRequest),
     }
 }
@@ -1435,7 +1481,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
+    #[prost(oneof="ffi_response::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -1458,36 +1504,38 @@ pub mod ffi_response {
         UnpublishTrack(super::UnpublishTrackResponse),
         #[prost(message, tag="7")]
         PublishData(super::PublishDataResponse),
-        /// Track
         #[prost(message, tag="8")]
-        CreateVideoTrack(super::CreateVideoTrackResponse),
+        SetSubscribed(super::SetSubscribedResponse),
+        /// Track
         #[prost(message, tag="9")]
+        CreateVideoTrack(super::CreateVideoTrackResponse),
+        #[prost(message, tag="10")]
         CreateAudioTrack(super::CreateAudioTrackResponse),
         /// Video
-        #[prost(message, tag="10")]
-        AllocVideoBuffer(super::AllocVideoBufferResponse),
         #[prost(message, tag="11")]
-        NewVideoStream(super::NewVideoStreamResponse),
+        AllocVideoBuffer(super::AllocVideoBufferResponse),
         #[prost(message, tag="12")]
-        NewVideoSource(super::NewVideoSourceResponse),
+        NewVideoStream(super::NewVideoStreamResponse),
         #[prost(message, tag="13")]
-        CaptureVideoFrame(super::CaptureVideoFrameResponse),
+        NewVideoSource(super::NewVideoSourceResponse),
         #[prost(message, tag="14")]
-        ToI420(super::ToI420Response),
+        CaptureVideoFrame(super::CaptureVideoFrameResponse),
         #[prost(message, tag="15")]
+        ToI420(super::ToI420Response),
+        #[prost(message, tag="16")]
         ToArgb(super::ToArgbResponse),
         /// Audio
-        #[prost(message, tag="16")]
-        AllocAudioBuffer(super::AllocAudioBufferResponse),
         #[prost(message, tag="17")]
-        NewAudioStream(super::NewAudioStreamResponse),
+        AllocAudioBuffer(super::AllocAudioBufferResponse),
         #[prost(message, tag="18")]
-        NewAudioSource(super::NewAudioSourceResponse),
+        NewAudioStream(super::NewAudioStreamResponse),
         #[prost(message, tag="19")]
-        CaptureAudioFrame(super::CaptureAudioFrameResponse),
+        NewAudioSource(super::NewAudioSourceResponse),
         #[prost(message, tag="20")]
-        NewAudioResampler(super::NewAudioResamplerResponse),
+        CaptureAudioFrame(super::CaptureAudioFrameResponse),
         #[prost(message, tag="21")]
+        NewAudioResampler(super::NewAudioResamplerResponse),
+        #[prost(message, tag="22")]
         RemixAndResample(super::RemixAndResampleResponse),
     }
 }
