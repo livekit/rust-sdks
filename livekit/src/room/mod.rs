@@ -61,6 +61,11 @@ pub enum RoomEvent {
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     },
+    TrackSubscriptionFailed {
+        participant: RemoteParticipant,
+        error: track::TrackError,
+        sid: TrackSid,
+    },
     TrackPublished {
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
@@ -68,11 +73,6 @@ pub enum RoomEvent {
     TrackUnpublished {
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
-    },
-    TrackSubscriptionFailed {
-        participant: RemoteParticipant,
-        error: track::TrackError,
-        sid: TrackSid,
     },
     TrackMuted {
         participant: Participant,

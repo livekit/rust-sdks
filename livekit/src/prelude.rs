@@ -1,4 +1,4 @@
-pub use crate::participant::{LocalParticipant, Participant, RemoteParticipant};
+pub use crate::participant::{ConnectionQuality, LocalParticipant, Participant, RemoteParticipant};
 
 pub use crate::{
     ConnectionState, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions, RoomResult,
