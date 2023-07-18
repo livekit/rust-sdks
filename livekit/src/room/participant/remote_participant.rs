@@ -62,6 +62,10 @@ impl RemoteParticipant {
         }
     }
 
+    pub(crate) fn internal_tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.inner.tracks.read().clone()
+    }
+
     pub(crate) async fn add_subscribed_media_track(
         &self,
         sid: TrackSid,
@@ -346,8 +350,19 @@ impl RemoteParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
-        self.inner.tracks.read().clone()
+    pub fn tracks(&self) -> HashMap<TrackSid, RemoteTrackPublication> {
+        self.inner
+            .tracks
+            .read()
+            .clone()
+            .into_iter()
+            .map(|(sid, track)| {
+                if let TrackPublication::Remote(remote) = track {
+                    return (sid, remote);
+                }
+                unreachable!()
+            })
+            .collect()
     }
 
     pub fn audio_level(&self) -> f32 {

@@ -58,6 +58,10 @@ impl LocalParticipant {
         }
     }
 
+    pub(crate) fn internal_tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.inner.tracks.read().clone()
+    }
+
     pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
         super::update_info(&self.inner, &Participant::Local(self.clone()), info);
     }
@@ -257,8 +261,20 @@ impl LocalParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
-        self.inner.tracks.read().clone()
+    pub fn tracks(&self) -> HashMap<TrackSid, LocalTrackPublication> {
+        self.inner
+            .tracks
+            .read()
+            .clone()
+            .into_iter()
+            .map(|(sid, track)| {
+                if let TrackPublication::Local(local) = track {
+                    return (sid, local);
+                }
+
+                unreachable!()
+            })
+            .collect()
     }
 
     pub fn audio_level(&self) -> f32 {

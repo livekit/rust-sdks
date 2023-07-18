@@ -37,7 +37,6 @@ impl Participant {
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
-        pub fn tracks(self: &Self) -> HashMap<TrackSid, TrackPublication>;
 
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 
@@ -48,6 +47,13 @@ impl Participant {
         pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
         pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> ();
     );
+
+    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+        match self {
+            Participant::Local(p) => p.internal_tracks(),
+            Participant::Remote(p) => p.internal_tracks(),
+        }
+    }
 }
 
 struct ParticipantInfo {
