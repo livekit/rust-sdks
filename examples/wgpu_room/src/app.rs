@@ -24,7 +24,6 @@ pub struct LkApp {
     connection_failure: Option<String>,
     render_state: egui_wgpu::RenderState,
     service: LkService,
-    room_events: Vec<String>, // Show event logs on the UI
 }
 
 impl Default for AppState {
@@ -57,7 +56,6 @@ impl LkApp {
             connecting: false,
             connection_failure: None,
             render_state: cc.wgpu_render_state.clone().unwrap(),
-            room_events: Vec::new(),
         }
     }
 
@@ -70,7 +68,7 @@ impl LkApp {
                 }
             }
             UiCmd::RoomEvent { event } => {
-                self.room_events.push(format!("{:?}", event));
+                log::info!("{:?}", event);
                 match event {
                     RoomEvent::TrackSubscribed {
                         track,
@@ -235,43 +233,55 @@ impl LkApp {
         let Some(room) = self.service.room() else { return; };
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for participant in room.participants().values() {
+            // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
+            let participants = room.participants();
+            let mut sorted_participants = participants
+                .keys()
+                .cloned()
+                .collect::<Vec<ParticipantSid>>();
+            sorted_participants.sort_by(|a, b| a.0.cmp(&b.0));
+
+            for psid in sorted_participants {
+                let participant = participants.get(&psid).unwrap();
                 let tracks = participant.tracks();
+                let mut sorted_tracks = tracks.keys().cloned().collect::<Vec<TrackSid>>();
+                sorted_tracks.sort_by(|a, b| a.0.cmp(&b.0));
+
                 ui.monospace(&participant.identity().0);
-                for track in tracks.values() {
-                    ui.label(format!("{} - {:?}", track.name(), track.source()));
+                for tsid in sorted_tracks {
+                    let publication = tracks.get(&tsid).unwrap().clone();
+
+                    ui.label(format!(
+                        "{} - {:?}",
+                        publication.name(),
+                        publication.source()
+                    ));
+
                     ui.horizontal(|ui| {
-                        if track.is_muted() {
+                        if publication.is_muted() {
                             ui.colored_label(egui::Color32::DARK_GRAY, "Muted");
                         }
 
-                        if track.is_subscribed() {
+                        if publication.is_subscribed() {
                             ui.colored_label(egui::Color32::GREEN, "Subscribed");
                         } else {
                             ui.colored_label(egui::Color32::RED, "Unsubscribed");
+                        }
 
+                        if publication.is_subscribed() {
+                            if ui.button("Unsubscribe").clicked() {
+                                let _ = self
+                                    .service
+                                    .send(AsyncCmd::UnsubscribeTrack { publication });
+                            }
+                        } else {
                             if ui.button("Subscribe").clicked() {
-                                /*let _ = self.service.send(AsyncCmd::SubscribeTrack {
-                                    participant_sid: participant.sid(),
-                                    track_sid: track.sid(),
-                                });*/
+                                let _ = self.service.send(AsyncCmd::SubscribeTrack { publication });
                             }
                         }
                     });
                 }
                 ui.separator();
-            }
-        });
-    }
-
-    fn bottom_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label("Room Events");
-        ui.separator();
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for event in &self.room_events {
-                ui.add(egui::Label::new(event).wrap(false));
-                ui.add(egui::Separator::default().spacing(1.0));
             }
         });
     }
@@ -341,12 +351,12 @@ impl eframe::App for LkApp {
                 self.left_panel(ui);
             });
 
-        egui::TopBottomPanel::bottom("bottom_panel")
-            .resizable(true)
-            .height_range(20.0..=256.0)
-            .show(ctx, |ui| {
-                self.bottom_panel(ui);
-            });
+        /*egui::TopBottomPanel::bottom("bottom_panel")
+        .resizable(true)
+        .height_range(20.0..=256.0)
+        .show(ctx, |ui| {
+            self.bottom_panel(ui);
+        });*/
 
         egui::SidePanel::right("right_panel")
             .resizable(true)

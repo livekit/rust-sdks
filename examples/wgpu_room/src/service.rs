@@ -17,6 +17,12 @@ pub enum AsyncCmd {
     },
     ToggleLogo,
     ToggleSine,
+    SubscribeTrack {
+        publication: RemoteTrackPublication,
+    },
+    UnsubscribeTrack {
+        publication: RemoteTrackPublication,
+    },
 }
 
 #[derive(Debug)]
@@ -157,6 +163,12 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                         state.sine_track.publish().await.unwrap();
                     }
                 }
+            }
+            AsyncCmd::SubscribeTrack { publication } => {
+                publication.set_subscribed(true).await;
+            }
+            AsyncCmd::UnsubscribeTrack { publication } => {
+                publication.set_subscribed(false).await;
             }
         }
     }
