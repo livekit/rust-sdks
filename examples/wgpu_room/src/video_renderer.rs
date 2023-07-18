@@ -103,6 +103,13 @@ impl VideoRenderer {
         }
     }
 
+    // Returns the last frame resolution
+    pub fn resolution(&self) -> (u32, u32) {
+        let internal = self.internal.lock();
+        (internal.width, internal.height)
+    }
+
+    // Returns the texture id, can be used to draw the texture on the UI
     pub fn texture_id(&self) -> Option<egui::TextureId> {
         self.internal.lock().egui_texture.clone()
     }

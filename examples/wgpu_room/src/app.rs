@@ -375,6 +375,7 @@ fn draw_video(name: &str, video_renderer: &VideoRenderer, ui: &mut egui::Ui) {
         Stroke::NONE,
     );
 
+    let resolution = video_renderer.resolution();
     if let Some(tex) = video_renderer.texture_id() {
         ui.painter().image(
             tex,
@@ -387,7 +388,7 @@ fn draw_video(name: &str, video_renderer: &VideoRenderer, ui: &mut egui::Ui) {
     ui.painter().text(
         egui::pos2(rect.min.x + 5.0, rect.max.y - 5.0),
         egui::Align2::LEFT_BOTTOM,
-        name,
+        format!("{}x{} {}", resolution.0, resolution.1, name),
         egui::FontId::default(),
         egui::Color32::WHITE,
     );
