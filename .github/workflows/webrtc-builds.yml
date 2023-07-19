@@ -36,7 +36,7 @@ jobs:
             os: ubuntu-latest
             cmd: ./build_linux.sh
             arch: arm64 
-          
+
           - name: android
             os: ubuntu-latest
             cmd: ./build_android.sh
@@ -51,6 +51,11 @@ jobs:
             os: ubuntu-latest
             cmd: ./build_android.sh
             arch: x64
+
+          - name: winuwp
+            os: windows-latest
+            cmd: .\build_uwp.cmd
+            arch: arm64
 
           - name: ios
             out: ios-device-arm64
