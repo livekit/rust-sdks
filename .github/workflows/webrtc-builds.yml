@@ -76,6 +76,12 @@ jobs:
     name: Build webrtc (${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}) ${{ matrix.target.buildargs }}
     runs-on: ${{ matrix.target.os }}
     steps:
+      - name: Configure build for ARM64
+        if: ${{ matrix.target.name == 'winuwp' }}
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
       - name: Setup variables
         id: setup
         run: |
