@@ -158,13 +158,7 @@ impl LocalParticipant {
         track.set_transceiver(Some(transceiver));
         track.enable();
 
-        tokio::spawn({
-            let rtc_engine = self.inner.rtc_engine.clone();
-            async move {
-                let _ = rtc_engine.publisher_negotiation_needed().await;
-            }
-        });
-
+        self.inner.rtc_engine.publisher_negotiation_needed();
         self.add_publication(TrackPublication::Local(publication.clone()));
 
         if let Some(local_track_published) = self.local.events.local_track_published.lock().as_ref()
@@ -195,13 +189,7 @@ impl LocalParticipant {
             }
 
             publication.set_track(None);
-
-            tokio::spawn({
-                let rtc_engine = self.inner.rtc_engine.clone();
-                async move {
-                    let _ = rtc_engine.publisher_negotiation_needed().await;
-                }
-            });
+            self.inner.rtc_engine.publisher_negotiation_needed();
 
             Ok(publication)
         } else {

@@ -212,13 +212,15 @@ impl RtcEngine {
         session.create_sender(track, options, encodings).await
     }
 
-    pub async fn publisher_negotiation_needed(&self) -> EngineResult<()> {
-        // TODO(theomonnom): guard for reconnection
-        self.inner.wait_reconnection().await?;
-        let handle = self.inner.running_handle.read().await;
-        let session = &handle.as_ref().unwrap().session;
-        session.publisher_negotiation_needed();
-        Ok(())
+    pub fn publisher_negotiation_needed(&self) {
+        let inner = self.inner.clone();
+        tokio::spawn(async move {
+            if let Ok(_) = inner.wait_reconnection().await {
+                let handle = inner.running_handle.read().await;
+                let session = &handle.as_ref().unwrap().session;
+                session.publisher_negotiation_needed()
+            }
+        });
     }
 
     pub async fn send_request(&self, msg: proto::signal_request::Message) -> EngineResult<()> {
