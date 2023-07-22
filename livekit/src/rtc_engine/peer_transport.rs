@@ -4,13 +4,9 @@ use log::{debug, error};
 use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
-use tokio::task::JoinHandle;
+use tokio::sync::Mutex as AsyncMutex;
 
 use super::EngineResult;
-
-const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
 pub type OnOfferCreated = Box<dyn FnMut(SessionDescription) + Send + Sync>;
 
