@@ -1,6 +1,7 @@
 use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
 use crate::options::TrackPublishOptions;
 use crate::prelude::TrackKind;
+use crate::room::DisconnectReason;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
@@ -55,7 +56,7 @@ pub enum SessionEvent {
     // TODO(theomonnom): Move entirely the reconnection logic on mod.rs
     Close {
         source: String,
-        reason: proto::DisconnectReason,
+        reason: DisconnectReason,
         can_reconnect: bool,
         full_reconnect: bool,
         retry_now: bool,
@@ -372,7 +373,7 @@ impl SessionInner {
                             SignalEvent::Close => {
                                 self.on_session_disconnected(
                                     "SignalClient closed",
-                                    proto::DisconnectReason::UnknownReason,
+                                    DisconnectReason::UnknownReason,
                                     true,
                                     false,
                                     false
@@ -519,7 +520,7 @@ impl SessionInner {
 
                     self.on_session_disconnected(
                         "pc_state failed",
-                        proto::DisconnectReason::UnknownReason,
+                        DisconnectReason::UnknownReason,
                         true,
                         false,
                         false,
@@ -695,7 +696,7 @@ impl SessionInner {
     fn on_session_disconnected(
         &self,
         source: &str,
-        reason: proto::DisconnectReason,
+        reason: DisconnectReason,
         can_reconnect: bool,
         retry_now: bool,
         full_reconnect: bool,
@@ -710,6 +711,14 @@ impl SessionInner {
     }
 
     async fn close(&self) {
+        let _ = self
+            .signal_client
+            .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
+                can_reconnect: false,
+                reason: DisconnectReason::ClientInitiated as i32,
+            }))
+            .await;
+
         self.closed.store(true, Ordering::Release);
         self.signal_client.close().await;
         self.publisher_pc.lock().await.close();

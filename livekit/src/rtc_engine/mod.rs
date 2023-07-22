@@ -1,5 +1,6 @@
 use crate::options::TrackPublishOptions;
 use crate::prelude::LocalTrack;
+use crate::room::DisconnectReason;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents};
 use crate::DataPacketKind;
@@ -84,7 +85,9 @@ pub enum EngineEvent {
     Resumed,
     Restarting,
     Restarted,
-    Disconnected,
+    Disconnected {
+        reason: DisconnectReason,
+    },
 }
 
 pub const RECONNECT_ATTEMPTS: u32 = 10;
@@ -163,7 +166,7 @@ impl RtcEngine {
     }
 
     pub async fn close(&self) {
-        self.inner.close().await
+        self.inner.close(DisconnectReason::ClientInitiated).await
     }
 
     pub async fn publish_data(
@@ -278,7 +281,7 @@ impl EngineInner {
                     tokio::spawn({
                         let inner = self.clone();
                         async move {
-                            inner.close().await;
+                            inner.close(reason).await;
                         }
                     });
                 }
@@ -368,10 +371,13 @@ impl EngineInner {
         }
     }
 
-    async fn close(&self) {
+    async fn close(&self, reason: DisconnectReason) {
         self.closed.store(true, Ordering::Release);
         self.terminate_session().await;
-        let _ = self.engine_emitter.send(EngineEvent::Disconnected).await;
+        let _ = self
+            .engine_emitter
+            .send(EngineEvent::Disconnected { reason })
+            .await;
     }
 
     // Wait for the reconnection task to finish
@@ -434,7 +440,7 @@ impl EngineInner {
                     log::warn!("RTCEngine successfully reconnected")
                 } else {
                     log::error!("failed to reconnect after {} attemps", RECONNECT_ATTEMPTS);
-                    inner.close().await;
+                    inner.close(DisconnectReason::UnknownReason).await;
                 }
 
                 inner.reconnect_notifier.notify_waiters();
