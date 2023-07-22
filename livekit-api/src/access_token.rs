@@ -78,7 +78,8 @@ impl Default for VideoGrants {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Default, Deserialize)]
+#[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct Claims {
     pub exp: usize,  // Expiration

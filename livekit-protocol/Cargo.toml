@@ -11,3 +11,7 @@ futures-util = { version = "0.3", features = ["sink"] }
 parking_lot = "0.12"
 prost = "0.11"
 prost-types = "0.11"
+
+serde = "1.0"
+pbjson = "0.5.1"
+pbjson-types = "0.5.1"

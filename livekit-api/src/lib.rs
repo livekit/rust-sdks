@@ -6,7 +6,9 @@ pub mod services;
 
 #[cfg(feature = "signal-client")]
 pub mod signal_client;
-pub mod webhook_receiver;
+
+#[cfg(feature = "webhooks")]
+pub mod webhooks;
 
 #[allow(dead_code)]
 pub(crate) fn get_env_keys() -> Result<(String, String), std::env::VarError> {
