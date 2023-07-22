@@ -1,5 +1,3 @@
-extern crate core;
-
 pub mod proto;
 mod room;
 mod rtc_engine;

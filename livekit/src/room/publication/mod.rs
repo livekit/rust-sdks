@@ -1,37 +1,16 @@
 use super::track::TrackDimension;
-use crate::participant::ParticipantInternal;
 use crate::prelude::*;
 use crate::track::Track;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
-use proto::observer::Dispatcher;
 use std::sync::Arc;
-use std::sync::Weak;
-use tokio::sync::Notify;
 
 mod local;
 mod remote;
 
 pub use local::*;
 pub use remote::*;
-
-#[derive(Debug, Clone)]
-pub enum PublicationEvent {
-    Muted,
-    Unmuted,
-    Subscribed,
-    Unsubscribed,
-    SubscriptionStatusChanged {
-        old_state: SubscriptionStatus,
-        new_state: SubscriptionStatus,
-    },
-    SubscriptionPermissionChanged {
-        old_state: PermissionStatus,
-        new_state: PermissionStatus,
-    },
-    SubscriptionFailed,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubscriptionStatus {
@@ -64,7 +43,19 @@ impl TrackPublication {
         pub fn mime_type(self: &Self) -> String;
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
+
+        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
+        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
+        pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
+
+    #[allow(dead_code)]
+    pub(crate) fn set_track(&self, track: Option<Track>) {
+        match self {
+            TrackPublication::Local(p) => p.set_track(track),
+            TrackPublication::Remote(p) => p.set_track(track.map(|t| t.try_into().unwrap())),
+        }
+    }
 
     pub fn track(&self) -> Option<Track> {
         match self {
@@ -74,173 +65,106 @@ impl TrackPublication {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct PublicationInfo {
-    track: Option<Track>,
-    name: String,
-    sid: TrackSid,
-    kind: TrackKind,
-    source: TrackSource,
-    simulcasted: bool,
-    dimension: TrackDimension,
-    mime_type: String,
-    muted: bool,
+struct PublicationInfo {
+    pub track: Option<Track>,
+    pub name: String,
+    pub sid: TrackSid,
+    pub kind: TrackKind,
+    pub source: TrackSource,
+    pub simulcasted: bool,
+    pub dimension: TrackDimension,
+    pub mime_type: String,
+    pub muted: bool,
 }
 
-#[derive(Debug)]
-pub(crate) struct TrackPublicationInner {
+#[derive(Default)]
+struct PublicationEvents {
+    muted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
+    unmuted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
+}
+
+pub(super) struct TrackPublicationInner {
     info: RwLock<PublicationInfo>,
-    dispatcher: Dispatcher<PublicationEvent>,
-    participant: Weak<ParticipantInternal>,
-    //forward_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    forward_close: Arc<Notify>,
+    events: Arc<PublicationEvents>,
 }
 
-impl TrackPublicationInner {
-    pub fn new(
-        info: proto::TrackInfo,
-        participant: Weak<ParticipantInternal>,
-        track: Option<Track>,
-    ) -> Self {
-        let info = PublicationInfo {
-            track,
-            name: info.name,
-            sid: info.sid.into(),
-            kind: proto::TrackType::from_i32(info.r#type)
-                .unwrap()
-                .try_into()
-                .unwrap(),
-            source: proto::TrackSource::from_i32(info.source)
-                .unwrap()
-                .try_into()
-                .unwrap(),
-            simulcasted: info.simulcast,
-            dimension: TrackDimension(info.width, info.height),
-            mime_type: info.mime_type,
-            muted: info.muted,
-        };
+pub(super) fn new_inner(
+    info: proto::TrackInfo,
+    track: Option<Track>,
+) -> Arc<TrackPublicationInner> {
+    let info = PublicationInfo {
+        track,
+        name: info.name,
+        sid: info.sid.into(),
+        kind: proto::TrackType::from_i32(info.r#type)
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        source: proto::TrackSource::from_i32(info.source)
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        simulcasted: info.simulcast,
+        dimension: TrackDimension(info.width, info.height),
+        mime_type: info.mime_type,
+        muted: info.muted,
+    };
 
-        Self {
-            info: RwLock::new(info),
-            dispatcher: Default::default(),
-            participant,
-            //forward_handle: Default::default(),
-            forward_close: Default::default(),
-        }
+    Arc::new(TrackPublicationInner {
+        info: RwLock::new(info),
+        events: Default::default(),
+    })
+}
+
+pub(super) fn update_info(
+    inner: &TrackPublicationInner,
+    _publication: &TrackPublication,
+    new_info: proto::TrackInfo,
+) {
+    let mut info = inner.info.write();
+    info.name = new_info.name;
+    info.sid = new_info.sid.into();
+    info.dimension = TrackDimension(new_info.width, new_info.height);
+    info.mime_type = new_info.mime_type;
+    info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
+    info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
+    info.simulcasted = new_info.simulcast;
+}
+
+pub(super) fn set_track(
+    inner: &TrackPublicationInner,
+    publication: &TrackPublication,
+    track: Option<Track>,
+) {
+    let mut info = inner.info.write();
+    if let Some(prev_track) = info.track.as_ref() {
+        prev_track.on_muted(|_| {});
+        prev_track.on_unmuted(|_| {});
     }
 
-    // Forward track events to the publication events
-    // e.g: this also allow us to access the signal_client and notify the server if
-    //  a local track changed mute state
-    async fn track_forward_task(
-        close_notifier: Weak<Notify>,
-        track: Track,
-        dispatcher: Dispatcher<PublicationEvent>,
-    ) {
-        let mut track_events = track.register_observer();
-        loop {
-            let notifier = close_notifier.upgrade();
-            if notifier.is_none() {
-                break;
-            }
-            let notified = notifier.as_ref().unwrap().notified();
+    info.track = track.clone();
 
-            tokio::select! {
-                _ = notified => {
-                    break;
+    if let Some(track) = track.as_ref() {
+        info.sid = track.sid();
+
+        track.on_muted({
+            let events = inner.events.clone();
+            let publication = publication.clone();
+            move |track| {
+                if let Some(on_muted) = events.muted.lock().as_ref() {
+                    on_muted(publication.clone(), track);
                 }
-                Some(event) = track_events.recv() => {
-                    match event {
-                        TrackEvent::Muted => {
-                            dispatcher.dispatch(&PublicationEvent::Muted);
-                        }
-                        TrackEvent::Unmuted => {
-                            dispatcher.dispatch(&PublicationEvent::Unmuted);
-                        }
-                    }
+            }
+        });
+
+        track.on_unmuted({
+            let events = inner.events.clone();
+            let publication = publication.clone();
+            move |track| {
+                if let Some(on_unmuted) = events.unmuted.lock().as_ref() {
+                    on_unmuted(publication.clone(), track);
                 }
             }
-        }
-    }
-
-    pub fn update_track(&self, track: Option<Track>) {
-        //let forward_task = self.forward_handle.lock().take();
-        //if let Some(task) = forward_task {
-        // Make sure to close the old forwarder before changing the track
-        self.forward_close.notify_waiters();
-        //let _ = task.await;
-        // }
-
-        let mut info = self.info.write();
-        info.track = track.clone();
-
-        if let Some(track) = track {
-            let _handle = tokio::spawn(Self::track_forward_task(
-                Arc::downgrade(&self.forward_close),
-                track,
-                self.dispatcher.clone(),
-            ));
-            //let mut forward_handle = self.forward_handle.lock();
-            //*forward_handle = Some(handle);
-        }
-    }
-
-    // Called when updating a participant info
-    pub fn update_info(&self, new_info: proto::TrackInfo) {
-        let mut info = self.info.write();
-        info.name = new_info.name;
-        info.sid = new_info.sid.into();
-        info.dimension = TrackDimension(new_info.width, new_info.height);
-        info.mime_type = new_info.mime_type;
-        info.kind =
-            TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
-        info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
-        info.simulcasted = new_info.simulcast;
-
-        // TODO MUTE ?????????????????
-        // info.muted = new_info.muted;
-        // if let Some(track) = info.track.as_ref() {
-        //    track.set_muted(info.muted);
-        // }
-    }
-
-    pub fn participant(&self) -> Weak<ParticipantInternal> {
-        self.participant.clone()
-    }
-
-    pub fn sid(&self) -> TrackSid {
-        self.info.read().sid.clone()
-    }
-
-    pub fn name(&self) -> String {
-        self.info.read().name.clone()
-    }
-
-    pub fn kind(&self) -> TrackKind {
-        self.info.read().kind
-    }
-
-    pub fn source(&self) -> TrackSource {
-        self.info.read().source
-    }
-
-    pub fn simulcasted(&self) -> bool {
-        self.info.read().simulcasted
-    }
-
-    pub fn dimension(&self) -> TrackDimension {
-        self.info.read().dimension.clone()
-    }
-
-    pub fn mime_type(&self) -> String {
-        self.info.read().mime_type.clone()
-    }
-
-    pub fn track(&self) -> Option<Track> {
-        self.info.read().track.clone()
-    }
-
-    pub fn is_muted(&self) -> bool {
-        self.info.read().muted
+        });
     }
 }

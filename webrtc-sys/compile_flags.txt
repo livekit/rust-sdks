@@ -9,8 +9,12 @@
 -Ilibwebrtc/src/sdk/objc/base
 -Ilibwebrtc/src/sdk/objc
 -I../target/cxxbridge
--DWEBRTC_MAC
 -DWEBRTC_POSIX
+-DWEBRTC_ANDROID
 -DNDEBUG
 -DWEBRTC_ENABLE_SYMBOL_EXPORT
+-D__ANDROID_API__=29
 -DWEBRTC_LIBRARY_IMPL
+--sysroot=/Users/theomonnom/Library/Android/sdk/ndk-bundle/toolchains/llvm/prebuilt/darwin-x86_64/sysroot
+--target=aarch64-none-linux-android
+--gcc-toolchain=/Users/theomonnom/Library/Android/sdk/ndk-bundle/toolchains/llvm/prebuilt/darwin-x86_64

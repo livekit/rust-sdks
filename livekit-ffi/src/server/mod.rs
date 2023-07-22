@@ -8,10 +8,10 @@ use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{native::I420BufferExt, BoxVideoFrameBuffer, I420Buffer};
 use parking_lot::Mutex;
 use prost::Message;
-use std::collections::HashMap;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub mod audio_frame;
 pub mod room;
@@ -29,12 +29,12 @@ pub struct FfiConfig {
 }
 
 pub struct FfiServer {
-    rooms: Mutex<HashMap<RoomSid, FfiHandleId>>,
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
-    ffi_handles: DashMap<FfiHandleId, FfiHandle>,
+    pub ffi_handles: DashMap<FfiHandleId, FfiHandle>,
+    pub async_runtime: tokio::runtime::Runtime,
+
     next_id: AtomicUsize,
-    async_runtime: tokio::runtime::Runtime,
     config: Mutex<Option<FfiConfig>>,
 }
 
@@ -42,8 +42,32 @@ impl Default for FfiServer {
     fn default() -> Self {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+        #[cfg(feature = "tracing")]
+        console_subscriber::init();
+
+        // Create a background thread which checks for deadlocks every 10s
+        {
+            use parking_lot::deadlock;
+            use std::thread;
+
+            thread::spawn(move || loop {
+                thread::sleep(Duration::from_secs(10));
+                let deadlocks = deadlock::check_deadlock();
+                if deadlocks.is_empty() {
+                    continue;
+                }
+
+                log::error!("{} deadlocks detected", deadlocks.len());
+                for (i, threads) in deadlocks.iter().enumerate() {
+                    log::error!("Deadlock #{}", i);
+                    for t in threads {
+                        log::error!("Thread Id {:#?}: \n{:#?}", t.thread_id(), t.backtrace());
+                    }
+                }
+            });
+        }
+
         Self {
-            rooms: Default::default(),
             ffi_handles: Default::default(),
             next_id: AtomicUsize::new(1), // 0 is invalid
             async_runtime: tokio::runtime::Builder::new_multi_thread()
@@ -60,13 +84,19 @@ impl Default for FfiServer {
 impl FfiServer {
     pub async fn dispose(&'static self) {
         // Close all rooms
-        for (_, room_handle) in self.rooms.lock().drain() {
-            let room = self.ffi_handles.remove(&room_handle);
-            if let Some(room) = room {
-                let ffi_room = room.1.downcast::<room::FfiRoom>().unwrap();
-                ffi_room.close().await;
+        log::info!("disposing the FfiServer, closing all rooms...");
+
+        let mut rooms = Vec::new();
+        for handle in self.ffi_handles.iter_mut() {
+            if let Some(handle) = handle.value().downcast_ref::<room::HandleType>() {
+                rooms.push(handle.clone());
             }
         }
+
+        for room in rooms {
+            room.close().await;
+        }
+
         // Drop all handles
         self.ffi_handles.clear();
 
@@ -78,15 +108,7 @@ impl FfiServer {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn ffi_handles(&'static self) -> &DashMap<FfiHandleId, FfiHandle> {
-        &self.ffi_handles
-    }
-
-    pub fn rooms(&'static self) -> &Mutex<HashMap<RoomSid, FfiHandleId>> {
-        &self.rooms
-    }
-
-    pub fn send_event(&'static self, message: proto::ffi_event::Message) -> FfiResult<()> {
+    pub async fn send_event(&'static self, message: proto::ffi_event::Message) -> FfiResult<()> {
         let callback_fn = self
             .config
             .lock()
@@ -98,9 +120,17 @@ impl FfiServer {
         }
         .encode_to_vec();
 
-        unsafe {
+        let cb_task = self.async_runtime.spawn_blocking(move || unsafe {
             callback_fn(message.as_ptr(), message.len());
+        });
+
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                log::error!("sending an event to the foreign language took too much time, is your callback function blocking?");
+            }
+            _ = cb_task => {}
         }
+
         Ok(())
     }
 }
@@ -116,7 +146,7 @@ impl FfiServer {
 
         // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
         *self.config.lock() = Some(FfiConfig {
-            callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr) },
+            callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr as usize) },
         });
 
         Ok(proto::InitializeResponse::default())
@@ -128,14 +158,13 @@ impl FfiServer {
     ) -> FfiResult<proto::DisposeResponse> {
         *self.config.lock() = None;
 
-        let close = self.dispose();
         if !dispose.r#async {
-            self.async_runtime.block_on(close);
+            self.async_runtime.block_on(self.dispose());
             Ok(proto::DisposeResponse::default())
         } else {
             let async_id = self.next_id();
             self.async_runtime.spawn(async move {
-                close.await;
+                self.dispose().await;
             });
             Ok(proto::DisposeResponse {
                 async_id: Some(proto::FfiAsyncId {
@@ -155,26 +184,24 @@ impl FfiServer {
         self.async_runtime.spawn(async move {
             // Try to connect to the Room
             let res = room::FfiRoom::connect(&self, connect).await;
-
-            // match res
             match res {
                 Ok(room_info) => {
-                    let _ = self.send_event(proto::ffi_event::Message::Connect(
-                        proto::ConnectCallback {
+                    let _ = self
+                        .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
                             async_id: Some(async_id.into()),
                             error: None,
                             room: Some(room_info),
-                        },
-                    ));
+                        }))
+                        .await;
                 }
                 Err(err) => {
-                    let _ = self.send_event(proto::ffi_event::Message::Connect(
-                        proto::ConnectCallback {
+                    let _ = self
+                        .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
                             async_id: Some(async_id.into()),
                             error: Some(err.to_string()),
                             room: None,
-                        },
-                    ));
+                        }))
+                        .await;
                 }
             }
         });
@@ -197,23 +224,30 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
             .id as FfiHandleId;
 
-        let ffi_room = self
-            .ffi_handles
-            .remove(&room_handle)
-            .ok_or(FfiError::InvalidRequest("room not found"))?
-            .1;
-
-        let ffi_room = ffi_room
-            .downcast::<room::FfiRoom>()
-            .map_err(|_| FfiError::InvalidRequest("room is not a FfiRoom"))?;
-
         self.async_runtime.spawn(async move {
+            let ffi_room = {
+                let mut ffi_room = self
+                    .ffi_handles
+                    .get_mut(&room_handle)
+                    .ok_or(FfiError::InvalidRequest("room not found"))
+                    .unwrap();
+
+                ffi_room
+                    .value_mut()
+                    .downcast_mut::<room::HandleType>()
+                    .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))
+                    .unwrap()
+                    .clone()
+            };
+
             ffi_room.close().await;
-            let _ = self.send_event(proto::ffi_event::Message::Disconnect(
-                proto::DisconnectCallback {
-                    async_id: Some(async_id.into()),
-                },
-            ));
+            let _ = self
+                .send_event(proto::ffi_event::Message::Disconnect(
+                    proto::DisconnectCallback {
+                        async_id: Some(async_id.into()),
+                    },
+                ))
+                .await;
         });
 
         Ok(proto::DisconnectResponse {
@@ -234,14 +268,17 @@ impl FfiServer {
                     .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
                     .id as FfiHandleId;
 
-                let ffi_room = self
-                    .ffi_handles
-                    .get(&room_handle)
-                    .ok_or(FfiError::InvalidRequest("room not found"))?;
+                let ffi_room = {
+                    let ffi_room = self
+                        .ffi_handles
+                        .get(&room_handle)
+                        .ok_or(FfiError::InvalidRequest("room not found"))?;
 
-                let ffi_room = ffi_room
-                    .downcast_ref::<room::FfiRoom>()
-                    .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
+                    ffi_room
+                        .downcast_ref::<room::HandleType>()
+                        .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?
+                        .clone()
+                };
 
                 let track_handle = publish
                     .track_handle
@@ -249,16 +286,19 @@ impl FfiServer {
                     .ok_or(FfiError::InvalidRequest("track_handle is empty"))?
                     .id as FfiHandleId;
 
-                let track = self
-                    .ffi_handles
-                    .get(&track_handle)
-                    .ok_or(FfiError::InvalidRequest("track not found"))?;
+                let track = {
+                    let track = self
+                        .ffi_handles
+                        .get(&track_handle)
+                        .ok_or(FfiError::InvalidRequest("track not found"))?;
 
-                let track = track
-                    .downcast_ref::<Track>()
-                    .ok_or(FfiError::InvalidRequest("track is not a Track"))?;
+                    track
+                        .downcast_ref::<Track>()
+                        .ok_or(FfiError::InvalidRequest("track is not a Track"))?
+                        .clone()
+                };
 
-                let local_track = LocalTrack::try_from(track.clone())
+                let local_track = LocalTrack::try_from(track)
                     .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack"))?;
 
                 let publication = ffi_room
@@ -274,13 +314,16 @@ impl FfiServer {
             }
             .await;
 
-            if let Err(err) = self.send_event(proto::ffi_event::Message::PublishTrack(
-                proto::PublishTrackCallback {
-                    async_id: Some(async_id.into()),
-                    error: res.as_ref().err().map(|e| e.to_string()),
-                    publication: res.as_ref().ok().map(Into::into),
-                },
-            )) {
+            if let Err(err) = self
+                .send_event(proto::ffi_event::Message::PublishTrack(
+                    proto::PublishTrackCallback {
+                        async_id: Some(async_id.into()),
+                        error: res.as_ref().err().map(|e| e.to_string()),
+                        publication: res.as_ref().ok().map(Into::into),
+                    },
+                ))
+                .await
+            {
                 log::warn!("error sending PublishTrack callback: {}", err);
             }
         });
@@ -313,11 +356,53 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("room not found"))?;
 
         let ffi_room = ffi_room
-            .downcast_ref::<room::FfiRoom>()
+            .downcast_ref::<room::HandleType>()
             .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
 
         // Push the data to an async queue (avoid blocking and keep the order)
         ffi_room.publish_data(self, publish)
+    }
+
+    fn on_set_subscribed(
+        &'static self,
+        set_subscribed: proto::SetSubscribedRequest,
+    ) -> FfiResult<proto::SetSubscribedResponse> {
+        let room_handle = set_subscribed
+            .room_handle
+            .as_ref()
+            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
+            .id as FfiHandleId;
+
+        let ffi_room = self
+            .ffi_handles
+            .get(&room_handle)
+            .ok_or(FfiError::InvalidRequest("room not found"))?;
+
+        let ffi_room = ffi_room
+            .downcast_ref::<room::HandleType>()
+            .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
+
+        let participant = ffi_room
+            .room()
+            .participants()
+            .get(&ParticipantSid(set_subscribed.participant_sid.clone()))
+            .cloned();
+
+        let Some(participant) = participant else {
+            log::warn!("participant {} not found while setting set_subscribed, bad timing", set_subscribed.participant_sid);
+            return Ok(proto::SetSubscribedResponse {});
+        };
+
+        let publication =
+            participant.get_track_publication(&TrackSid(set_subscribed.track_sid.clone()));
+
+        let Some(publication) = publication else {
+            log::warn!("track {} not found while setting set_subscribed, bad timing", set_subscribed.track_sid);
+            return Ok(proto::SetSubscribedResponse {});
+        };
+
+        publication.set_subscribed(set_subscribed.subscribe);
+        Ok(proto::SetSubscribedResponse {})
     }
 
     // Track
@@ -753,6 +838,9 @@ impl FfiServer {
             }
             proto::ffi_request::Message::PublishData(publish) => {
                 proto::ffi_response::Message::PublishData(self.on_publish_data(publish)?)
+            }
+            proto::ffi_request::Message::SetSubscribed(subscribed) => {
+                proto::ffi_response::Message::SetSubscribed(self.on_set_subscribed(subscribed)?)
             }
             proto::ffi_request::Message::CreateVideoTrack(create) => {
                 proto::ffi_response::Message::CreateVideoTrack(self.on_create_video_track(create)?)

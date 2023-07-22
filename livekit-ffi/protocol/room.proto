@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package livekit;
+package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
@@ -73,6 +73,15 @@ message PublishDataCallback {
   optional string error = 2;
 }
 
+// Change the "desire" to subscribe to a track
+message SetSubscribedRequest {
+  FfiHandleId room_handle = 1;
+  bool subscribe = 2;
+  string participant_sid = 3;
+  string track_sid = 4;
+}
+message SetSubscribedResponse {}
+
 
 ///
 /// Options
@@ -118,7 +127,6 @@ enum ConnectionState {
   CONN_DISCONNECTED = 0;
   CONN_CONNECTED = 1;
   CONN_RECONNECTING = 2;
-  CONN_UNKNOWN = 3;
 }
 
 enum DataPacketKind {
@@ -131,20 +139,23 @@ message RoomEvent {
   oneof message {
     ParticipantConnected participant_connected = 2;
     ParticipantDisconnected participant_disconnected = 3;
-    TrackPublished track_published = 4;
-    TrackUnpublished track_unpublished = 5;
-    TrackSubscribed track_subscribed = 6;
-    TrackUnsubscribed track_unsubscribed = 7;
-    TrackMuted track_muted = 8;
-    TrackUnmuted track_unmuted = 9;
-    ActiveSpeakersChanged speakers_changed = 10;
-    ConnectionQualityChanged connection_quality_changed = 11;
-    DataReceived data_received = 12;
-    ConnectionStateChanged connection_state_changed = 13;
-    Connected connected = 14;
-    Disconnected disconnected = 15;
-    Reconnecting reconnecting = 16;
-    Reconnected reconnected = 17;
+    LocalTrackPublished local_track_published = 4;
+    LocalTrackUnpublished local_track_unpublished = 5;
+    TrackPublished track_published = 6;
+    TrackUnpublished track_unpublished = 7;
+    TrackSubscribed track_subscribed = 8;
+    TrackUnsubscribed track_unsubscribed = 9;
+    TrackSubscriptionFailed track_subscription_failed = 10;
+    TrackMuted track_muted = 11;
+    TrackUnmuted track_unmuted = 12;
+    ActiveSpeakersChanged active_speakers_changed = 13;
+    ConnectionQualityChanged connection_quality_changed = 14;
+    DataReceived data_received = 15;
+    ConnectionStateChanged connection_state_changed = 16;
+    Connected connected = 17;
+    Disconnected disconnected = 18;
+    Reconnecting reconnecting = 19;
+    Reconnected reconnected = 20;
   }
 }
 
@@ -157,12 +168,27 @@ message RoomInfo {
   repeated ParticipantInfo participants = 6;
 }
 
-message DataReceived {
-  FfiHandleId handle = 1;
-  optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
-  uint64 data_ptr = 3;
-  uint64 data_size = 4;
-  DataPacketKind kind = 5;
+message ParticipantConnected { ParticipantInfo info = 1; }
+
+message ParticipantDisconnected { ParticipantInfo info = 1; }
+
+message LocalTrackPublished {
+  TrackPublicationInfo publication = 1;
+  TrackInfo track = 2;
+}
+
+message LocalTrackUnpublished {
+  string publication_sid = 1;
+}
+
+message TrackPublished {
+  string participant_sid = 1;
+  TrackPublicationInfo publication = 2;
+}
+
+message TrackUnpublished {
+  string participant_sid = 1;
+  string publication_sid = 2;
 }
 
 // Publication isn't needed for subscription events on the FFI
@@ -178,6 +204,12 @@ message TrackUnsubscribed {
   string track_sid = 2;
 }
 
+message TrackSubscriptionFailed {
+  string participant_sid = 1;
+  string track_sid = 2;
+  string error = 3;
+}
+
 message TrackMuted {
   string participant_sid = 1;
   string track_sid = 2;
@@ -188,25 +220,19 @@ message TrackUnmuted {
   string track_sid = 2;
 }
 
-message ParticipantConnected { ParticipantInfo info = 1; }
-
-message ParticipantDisconnected { ParticipantInfo info = 1; }
-
-message TrackPublished {
-  string participant_sid = 1;
-  TrackPublicationInfo publication = 2;
-}
-
-message TrackUnpublished {
-  string participant_sid = 1;
-  string publication_sid = 2;
-}
-
 message ActiveSpeakersChanged { repeated string participant_sids = 1; }
 
 message ConnectionQualityChanged {
   string participant_sid = 1;
   ConnectionQuality quality = 2;
+}
+
+message DataReceived {
+  FfiHandleId handle = 1;
+  optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
+  uint64 data_ptr = 3;
+  uint64 data_size = 4;
+  DataPacketKind kind = 5;
 }
 
 message ConnectionStateChanged { ConnectionState state = 1; }

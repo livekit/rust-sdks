@@ -270,15 +270,7 @@ impl From<RtpCodecCapability> for sys_rp::ffi::RtpCodecCapability {
             mime_type: String::default(), // !!
             has_preferred_payload_type: false,
             preferred_payload_type: 0,
-            has_max_ptime: false,
-            max_ptime: 0,
-            has_ptime: false,
-            ptime: 0,
             rtcp_feedback: Vec::default(),
-            options: Vec::default(),
-            max_temporal_layer_extensions: 0,
-            max_spatial_layer_extensions: 0,
-            svc_multi_stream_support: false,
         }
     }
 }

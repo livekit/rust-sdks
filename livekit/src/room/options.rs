@@ -301,11 +301,11 @@ pub mod audio {
 pub mod video {
     use super::VideoPreset;
 
-    pub const H90: VideoPreset = VideoPreset::new(160, 90, 60_000, 15.0);
-    pub const H180: VideoPreset = VideoPreset::new(320, 180, 120_000, 15.0);
+    pub const H90: VideoPreset = VideoPreset::new(160, 90, 90_000, 15.0);
+    pub const H180: VideoPreset = VideoPreset::new(320, 180, 160_000, 15.0);
     pub const H216: VideoPreset = VideoPreset::new(384, 216, 180_000, 15.0);
-    pub const H360: VideoPreset = VideoPreset::new(640, 360, 300_000, 20.0);
-    pub const H540: VideoPreset = VideoPreset::new(960, 540, 600_000, 25.0);
+    pub const H360: VideoPreset = VideoPreset::new(640, 360, 450_000, 20.0);
+    pub const H540: VideoPreset = VideoPreset::new(960, 540, 800_000, 25.0);
     pub const H720: VideoPreset = VideoPreset::new(1280, 720, 1_700_000, 30.0);
     pub const H1080: VideoPreset = VideoPreset::new(1920, 1080, 3_000_000, 30.0);
     pub const H1440: VideoPreset = VideoPreset::new(2560, 1440, 5_000_000, 30.0);

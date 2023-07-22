@@ -3,6 +3,7 @@ use image::RgbaImage;
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::webrtc::video_source::RtcVideoSource;
+use livekit::webrtc::video_source::VideoResolution;
 use livekit::webrtc::{
     native::yuv_helper,
     video_frame::native::I420BufferExt,
@@ -46,7 +47,10 @@ pub struct LogoTrack {
 impl LogoTrack {
     pub fn new(room: Arc<Room>) -> Self {
         Self {
-            rtc_source: NativeVideoSource::default(),
+            rtc_source: NativeVideoSource::new(VideoResolution {
+                width: FB_WIDTH as u32,
+                height: FB_HEIGHT as u32,
+            }),
             room,
             handle: None,
         }
@@ -73,6 +77,7 @@ impl LogoTrack {
                 LocalTrack::Video(track.clone()),
                 TrackPublishOptions {
                     source: TrackSource::Camera,
+                    //simulcast: false,
                     ..Default::default()
                 },
             )

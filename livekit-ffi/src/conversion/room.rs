@@ -2,6 +2,26 @@ use crate::{proto, FfiHandleId};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
+impl From<ConnectionQuality> for proto::ConnectionQuality {
+    fn from(value: ConnectionQuality) -> Self {
+        match value {
+            ConnectionQuality::Excellent => Self::QualityExcellent,
+            ConnectionQuality::Good => Self::QualityGood,
+            ConnectionQuality::Poor => Self::QualityPoor,
+        }
+    }
+}
+
+impl From<ConnectionState> for proto::ConnectionState {
+    fn from(value: ConnectionState) -> Self {
+        match value {
+            ConnectionState::Connected => Self::ConnConnected,
+            ConnectionState::Reconnecting => Self::ConnReconnecting,
+            ConnectionState::Disconnected => Self::ConnDisconnected,
+        }
+    }
+}
+
 impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
         Self {
@@ -17,6 +37,15 @@ impl From<proto::DataPacketKind> for DataPacketKind {
         match value {
             proto::DataPacketKind::KindReliable => Self::Reliable,
             proto::DataPacketKind::KindLossy => Self::Lossy,
+        }
+    }
+}
+
+impl From<DataPacketKind> for proto::DataPacketKind {
+    fn from(value: DataPacketKind) -> Self {
+        match value {
+            DataPacketKind::Reliable => Self::KindReliable,
+            DataPacketKind::Lossy => Self::KindLossy,
         }
     }
 }

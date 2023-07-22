@@ -28,7 +28,6 @@ pub mod ffi {
         fn id(self: &VideoFrame) -> u16;
         fn timestamp_us(self: &VideoFrame) -> i64;
         fn ntp_time_ms(self: &VideoFrame) -> i64;
-        fn transport_frame_id(self: &VideoFrame) -> u32;
         fn timestamp(self: &VideoFrame) -> u32;
         fn rotation(self: &VideoFrame) -> VideoRotation;
         unsafe fn video_frame_buffer(self: &VideoFrame) -> UniquePtr<VideoFrameBuffer>;

@@ -1,127 +1,100 @@
 use super::TrackPublicationInner;
-use crate::id::TrackSid;
-use crate::participant::ParticipantInternal;
-use crate::track::{LocalTrack, TrackDimension, TrackKind, TrackSource};
+use crate::prelude::*;
 use livekit_protocol as proto;
-use std::sync::{Arc, Weak};
+use std::fmt::Debug;
+use std::sync::Arc;
 
-#[derive(Debug)]
-struct LocalTrackPublicationInner {
-    publication_inner: TrackPublicationInner,
+#[derive(Clone)]
+pub struct LocalTrackPublication {
+    inner: Arc<TrackPublicationInner>,
 }
 
-#[derive(Clone, Debug)]
-pub struct LocalTrackPublication {
-    inner: Arc<LocalTrackPublicationInner>,
+impl Debug for LocalTrackPublication {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalTrackPublication")
+            .field("sid", &self.sid())
+            .field("name", &self.name())
+            .field("kind", &self.kind())
+            .finish()
+    }
 }
 
 impl LocalTrackPublication {
-    pub(crate) fn new(
-        info: proto::TrackInfo,
-        participant: Weak<ParticipantInternal>,
-        track: LocalTrack,
-    ) -> Self {
+    pub(crate) fn new(info: proto::TrackInfo, track: LocalTrack) -> Self {
         Self {
-            inner: Arc::new(LocalTrackPublicationInner {
-                publication_inner: TrackPublicationInner::new(
-                    info,
-                    participant,
-                    Some(track.into()),
-                ),
-            }),
+            inner: super::new_inner(info, Some(track.into())),
         }
     }
 
-    pub async fn mute(&self) {}
+    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+        *self.inner.events.muted.lock() = Some(Box::new(f));
+    }
 
-    pub async fn unmute(&self) {}
+    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+        *self.inner.events.unmuted.lock() = Some(Box::new(f));
+    }
 
-    pub async fn pause_upstream(&self) {}
+    pub(crate) fn set_track(&self, track: Option<Track>) {
+        super::set_track(&self.inner, &TrackPublication::Local(self.clone()), track);
+    }
 
-    pub async fn resume_upstream(&self) {}
+    #[allow(dead_code)]
+    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+        super::update_info(&self.inner, &TrackPublication::Local(self.clone()), info);
+    }
 
-    /*pub fn set_muted(&self, muted: bool) {
-        if self.is_muted() == muted {
-            return;
-        }
+    pub fn mute(&self) {
+        self.track().mute();
+    }
 
-        self.track().rtc_track().set_enabled(!muted);
+    pub fn unmute(&self) {
+        self.track().unmute();
+    }
 
-        let participant = self.inner.publication_inner.participant().upgrade();
-        if participant.is_none() {
-            log::warn!("publication's participant is invalid, set_muted failed");
-            return;
-        }
-        let participant = participant.unwrap();
-
-        // Engine update muted
-
-        // Participant MUTED/UNMUTED event
-    }*/
-
-    #[inline]
     pub fn sid(&self) -> TrackSid {
-        self.inner.publication_inner.sid()
+        self.inner.info.read().sid.clone()
     }
 
-    #[inline]
     pub fn name(&self) -> String {
-        self.inner.publication_inner.name()
+        self.inner.info.read().name.clone()
     }
 
-    #[inline]
     pub fn kind(&self) -> TrackKind {
-        self.inner.publication_inner.kind()
+        self.inner.info.read().kind
     }
 
-    #[inline]
     pub fn source(&self) -> TrackSource {
-        self.inner.publication_inner.source()
+        self.inner.info.read().source
     }
 
-    #[inline]
     pub fn simulcasted(&self) -> bool {
-        self.inner.publication_inner.simulcasted()
+        self.inner.info.read().simulcasted
     }
 
-    #[inline]
     pub fn dimension(&self) -> TrackDimension {
-        self.inner.publication_inner.dimension()
+        self.inner.info.read().dimension
     }
 
-    #[inline]
     pub fn track(&self) -> LocalTrack {
         self.inner
-            .publication_inner
-            .track()
+            .info
+            .read()
+            .track
+            .clone()
             .unwrap()
             .try_into()
             .unwrap()
     }
 
-    #[inline]
     pub fn mime_type(&self) -> String {
-        self.inner.publication_inner.mime_type()
+        self.inner.info.read().mime_type.clone()
     }
 
-    #[inline]
     pub fn is_muted(&self) -> bool {
-        self.inner.publication_inner.is_muted()
+        self.inner.info.read().muted
     }
 
-    #[inline]
     pub fn is_remote(&self) -> bool {
         false
-    }
-
-    /*#[inline]
-    pub(crate) fn update_track(&self, track: Option<Track>) {
-        self.inner.publication_inner.update_track(track);
-    }*/
-
-    #[allow(dead_code)]
-    #[inline]
-    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.publication_inner.update_info(info);
     }
 }

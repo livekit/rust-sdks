@@ -27,11 +27,6 @@ jobs:
     name: Test (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install Rust toolchain
         run: |
           rustup update --no-self-update stable

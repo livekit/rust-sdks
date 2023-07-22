@@ -28,8 +28,7 @@ pub(crate) type EngineEmitter = mpsc::Sender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::Receiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[repr(u8)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
     SignalReconnect,
     Speaker,

@@ -64,9 +64,9 @@ then
 fi
 
 cd src
-git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+# git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -89,7 +89,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   rtc_include_tests=false \
   rtc_build_examples=false \
   rtc_build_tools=false \
-  rtc_libvpx_build_vp9=true \
+  rtc_libvpx_build_vp9=false \
   is_component_build=false \
   enable_stripping=true \
   rtc_enable_symbol_export=true \
@@ -98,7 +98,8 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_custom_libcxx=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
-  use_lld=false"
+  use_lld=false \
+  use_cxx17=true"
 
 # build static library
 ninja -C "$OUTPUT_DIR" :default \

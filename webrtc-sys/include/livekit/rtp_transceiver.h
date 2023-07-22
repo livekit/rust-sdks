@@ -69,11 +69,12 @@ class RtpTransceiver {
 
   rust::Vec<RtpCodecCapability> codec_preferences() const;
 
-  rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_offer() const;
+  rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_negotiate()
+      const;
 
-  rust::Vec<RtpHeaderExtensionCapability> header_extensions_negotiated() const;
+  rust::Vec<RtpHeaderExtensionCapability> negotiated_header_extensions() const;
 
-  void set_offered_rtp_header_extensions(
+  void set_header_extensions_to_negotiate(
       rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_offer) const;
 
  private:

@@ -3,10 +3,9 @@ use prost::Message;
 use std::any::Any;
 use thiserror::Error;
 
-mod proto {
-    include!(concat!(env!("OUT_DIR"), "/livekit.rs"));
-}
 mod conversion;
+#[path = "livekit.proto.rs"]
+mod proto;
 mod server;
 
 #[derive(Error, Debug)]
@@ -41,7 +40,7 @@ pub extern "C" fn livekit_ffi_request(
     let res = match proto::FfiRequest::decode(data) {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("failed to decode request: {}", err);
+            log::error!("failed to decode request: {}", err);
             return INVALID_HANDLE;
         }
     };
@@ -49,7 +48,7 @@ pub extern "C" fn livekit_ffi_request(
     let res = match server::FFI_SERVER.handle_request(res) {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("failed to handle request: {}", err);
+            log::error!("failed to handle request: {}", err);
             return INVALID_HANDLE;
         }
     }
@@ -62,7 +61,7 @@ pub extern "C" fn livekit_ffi_request(
 
     let handle_id = server::FFI_SERVER.next_id();
     server::FFI_SERVER
-        .ffi_handles()
+        .ffi_handles
         .insert(handle_id, Box::new(res));
 
     handle_id
@@ -71,8 +70,5 @@ pub extern "C" fn livekit_ffi_request(
 #[no_mangle]
 pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     // Free the memory
-    server::FFI_SERVER
-        .ffi_handles()
-        .remove(&handle_id)
-        .is_some()
+    server::FFI_SERVER.ffi_handles.remove(&handle_id).is_some()
 }

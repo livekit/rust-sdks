@@ -513,6 +513,7 @@ impl SessionInner {
                         let _ = self.emitter.send(SessionEvent::Connected);
                     }
                 } else if state == PeerConnectionState::Failed {
+                    log::error!("{:?} pc state failed", target);
                     self.pc_state
                         .store(PeerState::Disconnected as u8, Ordering::SeqCst);
 
@@ -654,7 +655,10 @@ impl SessionInner {
         if track.kind() == TrackKind::Video {
             let capabilities = LkRuntime::instance()
                 .pc_factory()
-                .get_rtp_sender_capabilities(track.kind().into());
+                .get_rtp_sender_capabilities(match track.kind() {
+                    TrackKind::Video => MediaType::Video,
+                    TrackKind::Audio => MediaType::Audio,
+                });
 
             let mut matched = Vec::new();
             let mut partial_matched = Vec::new();
@@ -871,7 +875,7 @@ impl SessionInner {
 
         // Wait until the PeerConnection is connected
         let wait_connected = async {
-            while self.publisher_pc.lock().await.is_connected() && dc.state() == DataState::Open {
+            while !self.publisher_pc.lock().await.is_connected() || dc.state() != DataState::Open {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".to_string()));
                 }

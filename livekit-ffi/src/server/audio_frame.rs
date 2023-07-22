@@ -21,7 +21,7 @@ impl FfiAudioSream {
     /// Setup a new AudioStream and forward the audio data to the client/the foreign
     /// language.
     ///
-    /// When FFIAudioStream is dropped (When the corresponding handle_id is dropped), the task
+    /// When FfiAudioStream is dropped (When the corresponding handle_id is dropped), the task
     /// is being closed.
     ///
     /// It is possible that the client receives an AudioFrame after the task is closed. The client
@@ -39,7 +39,7 @@ impl FfiAudioSream {
             .id as FfiHandleId;
 
         let track = server
-            .ffi_handles()
+            .ffi_handles
             .get(&handle_id)
             .ok_or(FfiError::InvalidRequest("track not found"))?;
 
@@ -77,7 +77,7 @@ impl FfiAudioSream {
         // Store the new audio stream and return the info
         let info = proto::AudioStreamInfo::from(&audio_stream);
         server
-            .ffi_handles()
+            .ffi_handles
             .insert(audio_stream.handle_id, Box::new(audio_stream));
 
         Ok(info)
@@ -110,7 +110,7 @@ impl FfiAudioSream {
                     let handle_id = server.next_id();
                     let buffer_info = proto::AudioFrameBufferInfo::from(handle_id, &frame);
 
-                    server.ffi_handles().insert(handle_id, Box::new(frame));
+                    server.ffi_handles.insert(handle_id, Box::new(frame));
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
                         proto::AudioStreamEvent {
@@ -121,7 +121,7 @@ impl FfiAudioSream {
                                 },
                             )),
                         },
-                    )) {
+                    )).await {
                         warn!("failed to send audio frame: {}", err);
                     }
                 }
@@ -164,7 +164,7 @@ impl FfiAudioSource {
         let source_info = proto::AudioSourceInfo::from(&audio_source);
 
         server
-            .ffi_handles()
+            .ffi_handles
             .insert(audio_source.handle_id, Box::new(audio_source));
 
         Ok(source_info)
@@ -184,7 +184,7 @@ impl FfiAudioSource {
                     .id as FfiHandleId;
 
                 let frame = server
-                    .ffi_handles()
+                    .ffi_handles
                     .get(&buffer_handle)
                     .ok_or(FfiError::InvalidRequest("handle not found"))?;
 

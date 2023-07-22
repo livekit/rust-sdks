@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.1.1"
+version = "0.1.3"
 edition = "2021"
 license = "Apache-2.0"
 description = "LiveKit interface for foreign languages"
@@ -14,12 +14,15 @@ rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit/__rustls-tls"]
 
+# Enable tokio-console to debug tasks
+tracing = ["tokio/tracing", "console-subscriber"]
+
 [dependencies]
-livekit = { path = "../livekit", version = "0.1.1" }
-livekit-protocol = { path = "../livekit-protocol", version = "0.1.0" }
-tokio = { version = "1.0", features = ["full"] }
+livekit = { path = "../livekit", version = "0.1.3" }
+livekit-protocol = { path = "../livekit-protocol", version = "0.1.3" }
+tokio = { version = "1.0", features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-parking_lot = { version = "0.12.1", features=["send_guard"] }
+parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 prost = "0.11.0"
 prost-types = "0.11.1"
 lazy_static = "1.4.0"
@@ -27,12 +30,13 @@ thiserror = "1.0.38"
 log = "0.4.17"
 dashmap = "5.4.0"
 env_logger = "0.10.0"
+console-subscriber = { version = "0.1.10", features = ["parking_lot"], optional = true }
 
 [build-dependencies]
-prost-build = { version = "0.11.1" }
+webrtc-sys-build = { path = "../webrtc-sys/build", version = "0.1.3" }
 
-[dev-dependencies]
-livekit-api = { path = "../livekit-api", version = "0.1.0" }
+#[dev-dependencies]
+#livekit-api = { path = "../livekit-api", version = "0.1.0" }
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib"]

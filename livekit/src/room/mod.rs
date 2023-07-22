@@ -6,11 +6,12 @@ use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
-use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -37,19 +38,21 @@ pub enum RoomError {
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum RoomEvent {
     ParticipantConnected(RemoteParticipant),
     ParticipantDisconnected(RemoteParticipant),
+    LocalTrackPublished {
+        publication: LocalTrackPublication,
+        track: LocalTrack,
+        participant: LocalParticipant,
+    },
+    LocalTrackUnpublished {
+        publication: LocalTrackPublication,
+        participant: LocalParticipant,
+    },
     TrackSubscribed {
         track: RemoteTrack,
-        publication: RemoteTrackPublication,
-        participant: RemoteParticipant,
-    },
-    TrackPublished {
-        publication: RemoteTrackPublication,
-        participant: RemoteParticipant,
-    },
-    TrackUnpublished {
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     },
@@ -59,8 +62,16 @@ pub enum RoomEvent {
         participant: RemoteParticipant,
     },
     TrackSubscriptionFailed {
+        participant: RemoteParticipant,
         error: track::TrackError,
         sid: TrackSid,
+    },
+    TrackPublished {
+        publication: RemoteTrackPublication,
+        participant: RemoteParticipant,
+    },
+    TrackUnpublished {
+        publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     },
     TrackMuted {
@@ -95,7 +106,6 @@ pub enum ConnectionState {
     Disconnected,
     Connected,
     Reconnecting,
-    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -128,7 +138,7 @@ struct RoomHandle {
 
 pub struct Room {
     inner: Arc<RoomSession>,
-    handle: Mutex<Option<RoomHandle>>,
+    handle: AsyncMutex<Option<RoomHandle>>,
 }
 
 impl Debug for Room {
@@ -169,6 +179,28 @@ impl Room {
             pi.metadata,
         );
 
+        let dispatcher = Dispatcher::<RoomEvent>::default();
+        local_participant.on_local_track_published({
+            let dispatcher = dispatcher.clone();
+            move |participant, publication| {
+                dispatcher.dispatch(&RoomEvent::LocalTrackPublished {
+                    participant,
+                    publication: publication.clone(),
+                    track: publication.track(),
+                });
+            }
+        });
+
+        local_participant.on_local_track_unpublished({
+            let dispatcher = dispatcher.clone();
+            move |participant, publication| {
+                dispatcher.dispatch(&RoomEvent::LocalTrackUnpublished {
+                    publication,
+                    participant,
+                });
+            }
+        });
+
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
             sid: room_info.sid.into(),
@@ -178,11 +210,10 @@ impl Room {
                 metadata: room_info.metadata,
             }),
             participants: Default::default(),
-            participants_tasks: Default::default(),
             active_speakers: Default::default(),
             rtc_engine,
             local_participant,
-            dispatcher: Default::default(),
+            dispatcher,
         });
 
         for pi in join_response.other_participants {
@@ -200,7 +231,7 @@ impl Room {
 
         let session = Self {
             inner,
-            handle: Mutex::new(Some(RoomHandle {
+            handle: AsyncMutex::new(Some(RoomHandle {
                 session_task,
                 close_emitter,
             })),
@@ -211,10 +242,10 @@ impl Room {
     }
 
     pub async fn close(&self) -> RoomResult<()> {
-        if let Some(handle) = self.handle.lock().take() {
+        if let Some(handle) = self.handle.lock().await.take() {
             self.inner.close().await;
-            handle.close_emitter.send(()).ok();
-            handle.session_task.await.ok();
+            let _ = handle.close_emitter.send(());
+            let _ = handle.session_task.await;
             Ok(())
         } else {
             Err(RoomError::AlreadyClosed)
@@ -245,8 +276,8 @@ impl Room {
         self.inner.info.read().state
     }
 
-    pub fn participants(&self) -> RwLockReadGuard<HashMap<ParticipantSid, RemoteParticipant>> {
-        self.inner.participants.read()
+    pub fn participants(&self) -> HashMap<ParticipantSid, RemoteParticipant> {
+        self.inner.participants.read().clone()
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
@@ -268,7 +299,6 @@ pub(crate) struct RoomSession {
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
-    participants_tasks: RwLock<HashMap<ParticipantSid, (JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
 impl Debug for RoomSession {
@@ -302,70 +332,6 @@ impl RoomSession {
                 }
             }
         }
-    }
-
-    /// Forward participant events to the room dispatcher
-    async fn participant_task(
-        self: Arc<Self>,
-        participant: Participant,
-        mut participant_events: mpsc::UnboundedReceiver<ParticipantEvent>,
-        mut close_rx: oneshot::Receiver<()>,
-    ) {
-        loop {
-            tokio::select! {
-                res = participant_events.recv() => {
-                    if let Some(event) = res {
-                        if let Err(err) = self.on_participant_event(&participant, event).await {
-                            log::error!("failed to handle participant event for {:?}: {:?}", participant.sid(), err);
-                        }
-                    }
-                },
-                _ = &mut close_rx => {
-                    log::trace!("closing participant_task for {:?}", participant.sid());
-                    break;
-                },
-            }
-        }
-    }
-
-    async fn on_participant_event(
-        self: &Arc<Self>,
-        participant: &Participant,
-        event: ParticipantEvent,
-    ) -> RoomResult<()> {
-        if let Participant::Remote(remote_participant) = participant {
-            match event {
-                ParticipantEvent::TrackPublished { publication } => {
-                    self.dispatcher.dispatch(&RoomEvent::TrackPublished {
-                        participant: remote_participant.clone(),
-                        publication,
-                    });
-                }
-                ParticipantEvent::TrackUnpublished { publication } => {
-                    self.dispatcher.dispatch(&RoomEvent::TrackUnpublished {
-                        participant: remote_participant.clone(),
-                        publication,
-                    });
-                }
-                ParticipantEvent::TrackSubscribed { track, publication } => {
-                    self.dispatcher.dispatch(&RoomEvent::TrackSubscribed {
-                        participant: remote_participant.clone(),
-                        track,
-                        publication,
-                    });
-                }
-                ParticipantEvent::TrackUnsubscribed { track, publication } => {
-                    self.dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
-                        participant: remote_participant.clone(),
-                        track,
-                        publication,
-                    });
-                }
-                _ => {}
-            };
-        }
-
-        Ok(())
     }
 
     async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
@@ -432,7 +398,7 @@ impl RoomSession {
                         participant: participant.clone(),
                     });
 
-                    participant.on_data_received(payload, kind);
+                    //participant.on_data_received(payload, kind);
                 }
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
@@ -570,7 +536,8 @@ impl RoomSession {
 
     fn handle_restarting(self: &Arc<Self>) {
         // Remove existing participants/subscriptions on full reconnect
-        for (_, participant) in self.participants.read().iter() {
+        let participants = self.participants.read().clone();
+        for (_, participant) in participants.iter() {
             self.clone()
                 .handle_participant_disconnect(participant.clone());
         }
@@ -621,44 +588,64 @@ impl RoomSession {
             metadata,
         );
 
-        // Create the participant task
-        let (close_tx, close_rx) = oneshot::channel();
-        let participant_task = tokio::spawn(self.clone().participant_task(
-            Participant::Remote(participant.clone()),
-            participant.register_observer(),
-            close_rx,
-        ));
-        self.participants_tasks
-            .write()
-            .insert(sid.clone(), (participant_task, close_tx));
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_published(move |participant, publication| {
+            dispatcher.dispatch(&RoomEvent::TrackPublished {
+                participant,
+                publication,
+            });
+        });
+
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_unpublished(move |participant, publication| {
+            dispatcher.dispatch(&RoomEvent::TrackUnpublished {
+                participant,
+                publication,
+            });
+        });
+
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_subscribed(move |participant, publication, track| {
+            dispatcher.dispatch(&RoomEvent::TrackSubscribed {
+                participant,
+                track,
+                publication,
+            });
+        });
+
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_unsubscribed(move |participant, publication, track| {
+            dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
+                participant,
+                track,
+                publication,
+            });
+        });
+
+        let dispatcher = self.dispatcher.clone();
+        participant.on_track_subscription_failed(move |participant, sid, error| {
+            dispatcher.dispatch(&RoomEvent::TrackSubscriptionFailed {
+                participant,
+                sid,
+                error,
+            });
+        });
 
         self.participants.write().insert(sid, participant.clone());
+
         participant
     }
 
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     fn handle_participant_disconnect(self: Arc<Self>, remote_participant: RemoteParticipant) {
-        tokio::spawn(async move {
-            for (sid, _) in &*remote_participant.tracks() {
-                remote_participant.unpublish_track(&sid);
-            }
+        for (sid, _) in remote_participant.tracks() {
+            remote_participant.unpublish_track(&sid);
+        }
 
-            // Close the participant task
-            let ptask = self
-                .participants_tasks
-                .write()
-                .remove(&remote_participant.sid());
-
-            if let Some((task, close_tx)) = ptask {
-                let _ = close_tx.send(());
-                let _ = task.await;
-            }
-
-            self.participants.write().remove(&remote_participant.sid());
-            self.dispatcher
-                .dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
-        });
+        self.participants.write().remove(&remote_participant.sid());
+        self.dispatcher
+            .dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }
 
     fn get_participant(&self, sid: &ParticipantSid) -> Option<RemoteParticipant> {

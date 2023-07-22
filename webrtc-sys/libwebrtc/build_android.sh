@@ -53,9 +53,10 @@ then
 fi
 
 cd src
-git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+# git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_mocks.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -75,7 +76,7 @@ args="is_debug=$debug \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
-  rtc_libvpx_build_vp9=true \
+  rtc_libvpx_build_vp9=false \
   is_component_build=false \
   enable_stripping=true \
   use_goma=false \
@@ -83,7 +84,8 @@ args="is_debug=$debug \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
-  use_rtti=true"
+  use_rtti=true \
+  use_cxx17=true"
 
 if [ "$debug" = "true" ]; then
   args="${args} is_asan=true is_lsan=true";
@@ -92,12 +94,11 @@ fi
 # generate ninja files
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
-# build static library
+# build shared library
 ninja -C "$OUTPUT_DIR" :default \
   sdk/android:native_api \
   sdk/android:libwebrtc \
   sdk/android:libjingle_peerconnection_so
-
 
 # make libwebrtc.a
 # don't include nasm
@@ -110,6 +111,8 @@ cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/libjingle_peerconnection_so.so" "$ARTIFACTS_DIR/lib"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/lib.java/sdk/android/libwebrtc.jar" "$ARTIFACTS_DIR"
+cp "src/sdk/android/AndroidManifest.xml" "$ARTIFACTS_DIR"
 
 cd src
 find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"

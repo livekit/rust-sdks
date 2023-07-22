@@ -6,7 +6,7 @@ ninja
 
 # builds
 win*
-macos*
+mac*
 linux*
 android*
 ios*

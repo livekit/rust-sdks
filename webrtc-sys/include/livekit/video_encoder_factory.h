@@ -21,15 +21,36 @@
 
 namespace livekit {
 class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
+  class InternalFactory : public webrtc::VideoEncoderFactory {
+   public:
+    InternalFactory();
+
+    std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
+
+    CodecSupport QueryCodecSupport(
+        const webrtc::SdpVideoFormat& format,
+        absl::optional<std::string> scalability_mode) const override;
+
+    std::unique_ptr<webrtc::VideoEncoder> CreateVideoEncoder(
+        const webrtc::SdpVideoFormat& format) override;
+
+   private:
+    std::vector<std::unique_ptr<webrtc::VideoEncoderFactory>> factories_;
+  };
+
  public:
   VideoEncoderFactory();
 
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
 
+  CodecSupport QueryCodecSupport(
+      const webrtc::SdpVideoFormat& format,
+      absl::optional<std::string> scalability_mode) const override;
+
   std::unique_ptr<webrtc::VideoEncoder> CreateVideoEncoder(
       const webrtc::SdpVideoFormat& format) override;
 
  private:
-  std::vector<std::unique_ptr<webrtc::VideoEncoderFactory>> factories_;
+  std::unique_ptr<InternalFactory> internal_factory_;
 };
 }  // namespace livekit

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::FfiHandleId;
 use crate::{proto, server};
-use livekit_api::access_token::{AccessToken, VideoGrants};
+//use livekit_api::access_token::{AccessToken, VideoGrants};
 
 // Small FfiClient implementation used for testing
 // This can be used as an example for a real implementation
@@ -109,7 +109,7 @@ impl TestScope {
 impl Drop for TestScope {
     fn drop(&mut self) {
         // At the end of a test, no more handle should exist
-        assert!(server::FFI_SERVER.ffi_handles().is_empty());
+        assert!(server::FFI_SERVER.ffi_handles.is_empty());
     }
 }
 
@@ -172,7 +172,7 @@ fn create_i420_buffer() {
     client::FfiHandle(to_i420.buffer.unwrap().handle.unwrap().id as FfiHandleId);
 }
 
-#[test]
+/*#[test]
 #[ignore] // Ignore for now ( need to setup GHA )
 fn publish_video_track() {
     let (_test, mut client) = TestScope::new();
@@ -327,3 +327,4 @@ fn publish_video_track() {
             }
         })
 }
+*/
