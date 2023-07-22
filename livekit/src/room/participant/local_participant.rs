@@ -161,7 +161,7 @@ impl LocalParticipant {
         tokio::spawn({
             let rtc_engine = self.inner.rtc_engine.clone();
             async move {
-                let _ = rtc_engine.negotiate_publisher().await;
+                let _ = rtc_engine.publisher_negotiation_needed().await;
             }
         });
 
@@ -199,7 +199,7 @@ impl LocalParticipant {
             tokio::spawn({
                 let rtc_engine = self.inner.rtc_engine.clone();
                 async move {
-                    let _ = rtc_engine.negotiate_publisher().await;
+                    let _ = rtc_engine.publisher_negotiation_needed().await;
                 }
             });
 

@@ -1,20 +1,30 @@
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use log::{debug, error};
+use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
+use tokio::task::JoinHandle;
 
-const _NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
+use super::EngineResult;
+
+const NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
 pub type OnOfferCreated = Box<dyn FnMut(SessionDescription) + Send + Sync>;
+
+struct TransportInner {
+    pending_candidates: Vec<IceCandidate>,
+    renegotiate: bool,
+    restarting_ice: bool,
+}
 
 pub struct PeerTransport {
     signal_target: proto::SignalTarget,
     peer_connection: PeerConnection,
-    pending_candidates: Vec<IceCandidate>,
-    on_offer_handler: Option<OnOfferCreated>,
-    renegotiate: bool,
-    restarting_ice: bool,
+    on_offer_handler: Mutex<Option<OnOfferCreated>>,
+    inner: Arc<AsyncMutex<TransportInner>>,
 }
 
 impl Debug for PeerTransport {
@@ -30,10 +40,12 @@ impl PeerTransport {
         Self {
             signal_target,
             peer_connection,
-            pending_candidates: Vec::default(),
-            on_offer_handler: None,
-            restarting_ice: false,
-            renegotiate: false,
+            on_offer_handler: Mutex::new(None),
+            inner: Arc::new(AsyncMutex::new(TransportInner {
+                pending_candidates: Vec::default(),
+                renegotiate: false,
+                restarting_ice: false,
+            })),
         }
     }
 
@@ -44,28 +56,31 @@ impl PeerTransport {
         )
     }
 
-    pub fn peer_connection(&mut self) -> &mut PeerConnection {
-        &mut self.peer_connection
+    pub fn peer_connection(&self) -> PeerConnection {
+        self.peer_connection.clone()
     }
 
     pub fn signal_target(&self) -> proto::SignalTarget {
         self.signal_target.clone()
     }
 
-    pub fn on_offer(&mut self, handler: Option<OnOfferCreated>) {
-        self.on_offer_handler = handler;
+    pub fn on_offer(&self, handler: Option<OnOfferCreated>) {
+        *self.on_offer_handler.lock() = handler;
     }
 
-    pub fn prepare_ice_restart(&mut self) {
-        self.restarting_ice = true;
-    }
-
-    pub fn close(&mut self) {
+    pub fn close(&self) {
         self.peer_connection.close();
     }
 
-    pub async fn add_ice_candidate(&mut self, ice_candidate: IceCandidate) -> Result<(), RtcError> {
-        if self.peer_connection.current_remote_description().is_some() && !self.restarting_ice {
+    pub async fn prepare_ice_restart(&self) {
+        self.inner.lock().await.restarting_ice = true;
+    }
+
+    pub async fn add_ice_candidate(&self, ice_candidate: IceCandidate) -> EngineResult<()> {
+        let mut inner = self.inner.lock().await;
+
+        if self.peer_connection.current_remote_description().is_some() && !inner.restarting_ice {
+            drop(inner);
             self.peer_connection
                 .add_ice_candidate(ice_candidate)
                 .await?;
@@ -73,41 +88,39 @@ impl PeerTransport {
             return Ok(());
         }
 
-        self.pending_candidates.push(ice_candidate);
+        inner.pending_candidates.push(ice_candidate);
         Ok(())
     }
 
     pub async fn set_remote_description(
-        &mut self,
+        &self,
         remote_description: SessionDescription,
-    ) -> Result<(), RtcError> {
+    ) -> EngineResult<()> {
+        let mut inner = self.inner.lock().await;
+
         self.peer_connection
             .set_remote_description(remote_description)
             .await?;
 
-        for ic in self.pending_candidates.drain(..) {
+        for ic in inner.pending_candidates.drain(..) {
             self.peer_connection.add_ice_candidate(ic).await?;
         }
-        self.restarting_ice = false;
 
-        if self.renegotiate {
-            self.renegotiate = false;
+        inner.restarting_ice = false;
+
+        if inner.renegotiate {
+            inner.renegotiate = false;
             self.create_and_send_offer(OfferOptions::default()).await?;
         }
 
         Ok(())
     }
 
-    pub async fn negotiate(&mut self) -> Result<(), RtcError> {
-        // TODO(theomonnom) Debounce here with NEGOTIATION_FREQUENCY
-        self.create_and_send_offer(OfferOptions::default()).await
-    }
-
     pub async fn create_anwser(
-        &mut self,
+        &self,
         offer: SessionDescription,
         options: AnswerOptions,
-    ) -> Result<SessionDescription, RtcError> {
+    ) -> EngineResult<SessionDescription> {
         self.set_remote_description(offer).await?;
         let answer = self.peer_connection().create_answer(options).await?;
         self.peer_connection()
@@ -117,14 +130,12 @@ impl PeerTransport {
         Ok(answer)
     }
 
-    pub async fn create_and_send_offer(&mut self, options: OfferOptions) -> Result<(), RtcError> {
-        if self.on_offer_handler.is_none() {
-            return Ok(());
-        }
+    pub async fn create_and_send_offer(&self, options: OfferOptions) -> EngineResult<()> {
+        let mut inner = self.inner.lock().await;
 
         if options.ice_restart {
             debug!("restarting ICE");
-            self.restarting_ice = true;
+            inner.restarting_ice = false;
         }
 
         if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
@@ -138,7 +149,7 @@ impl PeerTransport {
                     error!("trying to restart ICE when the pc doesn't have remote description");
                 }
             } else {
-                self.renegotiate = true;
+                inner.renegotiate = true;
                 return Ok(());
             }
         }
@@ -147,7 +158,11 @@ impl PeerTransport {
         self.peer_connection
             .set_local_description(offer.clone())
             .await?;
-        self.on_offer_handler.as_mut().unwrap()(offer);
+
+        if let Some(handler) = self.on_offer_handler.lock().as_mut() {
+            handler(offer);
+        }
+
         Ok(())
     }
 }
