@@ -119,7 +119,7 @@ impl LkApp {
                         self.video_renderers
                             .remove(&(participant.sid(), publication.sid()));
                     }
-                    RoomEvent::Disconnected => {
+                    RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
                     }
                     _ => {}

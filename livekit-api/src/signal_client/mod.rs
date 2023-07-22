@@ -158,6 +158,7 @@ fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalRes
     lk_url.set_path("/rtc");
     lk_url
         .query_pairs_mut()
+        .append_pair("sdk", "rust")
         .append_pair("access_token", token)
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
         .append_pair(

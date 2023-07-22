@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 pub use crate::rtc_engine::SimulateScenario;
+pub use proto::DisconnectReason;
 
 pub mod id;
 pub mod options;
@@ -96,7 +97,9 @@ pub enum RoomEvent {
     },
     ConnectionStateChanged(ConnectionState),
     Connected,
-    Disconnected,
+    Disconnected {
+        reason: DisconnectReason,
+    },
     Reconnecting,
     Reconnected,
 }
@@ -384,7 +387,7 @@ impl RoomSession {
             }
             EngineEvent::Restarting => self.handle_restarting(),
             EngineEvent::Restarted => self.handle_restarted(),
-            EngineEvent::Disconnected => self.handle_disconnected(),
+            EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
                 kind,
@@ -565,9 +568,10 @@ impl RoomSession {
         // TODO(theomonnom): unpublish & republish tracks
     }
 
-    fn handle_disconnected(&self) {
+    fn handle_disconnected(&self, reason: DisconnectReason) {
         if self.update_connection_state(ConnectionState::Disconnected) {
-            self.dispatcher.dispatch(&RoomEvent::Disconnected);
+            self.dispatcher
+                .dispatch(&RoomEvent::Disconnected { reason });
         }
     }
 

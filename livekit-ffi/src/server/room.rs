@@ -324,9 +324,9 @@ async fn room_task(
             RoomEvent::Connected => {
                 Some(proto::room_event::Message::Connected(proto::Connected {}))
             }
-            RoomEvent::Disconnected => Some(proto::room_event::Message::Disconnected(
-                proto::Disconnected {},
-            )),
+            RoomEvent::Disconnected { reason: _ } => Some(
+                proto::room_event::Message::Disconnected(proto::Disconnected {}),
+            ),
             RoomEvent::Reconnecting => Some(proto::room_event::Message::Reconnecting(
                 proto::Reconnecting {},
             )),
