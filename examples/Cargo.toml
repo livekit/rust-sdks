@@ -4,4 +4,5 @@ members = [
     "mobile",
     "save_to_disk",
     "wgpu_room",
+    "webhooks",
 ]
