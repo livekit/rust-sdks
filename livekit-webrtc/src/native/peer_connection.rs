@@ -22,6 +22,7 @@ use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::RtpTransceiver;
 use crate::rtp_transceiver::RtpTransceiverInit;
 use crate::MediaType;
+use crate::RtcErrorType;
 use crate::{session_description::SessionDescription, RtcError};
 use cxx::SharedPtr;
 use futures::channel::oneshot;
@@ -155,9 +156,14 @@ impl PeerConnection {
             },
         );
 
+        let map_err = |_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "create_offer cancelled".to_owned(),
+        };
+
         futures::select! {
-            sdp = sdp_rx => Ok(sdp.unwrap()),
-            err = err_rx => Err(err.unwrap()),
+            sdp = sdp_rx => Ok(sdp.map_err(map_err)?),
+            err = err_rx => Err(err.map_err(map_err)?),
         }
     }
 
@@ -188,9 +194,15 @@ impl PeerConnection {
                 let _ = err_tx.send(error.into());
             },
         );
+
+        let map_err = |_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "create_answer cancelled".to_owned(),
+        };
+
         futures::select! {
-            sdp = sdp_rx => Ok(sdp.unwrap()),
-            err = err_rx => Err(err.unwrap()),
+            sdp = sdp_rx => Ok(sdp.map_err(map_err)?),
+            err = err_rx => Err(err.map_err(map_err)?),
         }
     }
 
@@ -212,7 +224,10 @@ impl PeerConnection {
                 }
             });
 
-        rx.await.unwrap()
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "set_local_description cancelled".to_owned(),
+        })?
     }
 
     pub async fn set_remote_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
@@ -233,7 +248,10 @@ impl PeerConnection {
                 }
             });
 
-        rx.await.unwrap()
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "set_remote_description cancelled".to_owned(),
+        })?
     }
 
     pub async fn add_ice_candidate(&self, candidate: IceCandidate) -> Result<(), RtcError> {
@@ -254,7 +272,10 @@ impl PeerConnection {
                 }
             });
 
-        rx.await.unwrap()
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "add_ice_candidate cancelled".to_owned(),
+        })?
     }
 
     pub fn create_data_channel(
