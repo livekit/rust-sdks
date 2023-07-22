@@ -12,7 +12,7 @@ default = ["services", "access-token", "webhooks"]
 signal-client = ["dep:tokio-tungstenite", "dep:tokio", "dep:futures-util" ]
 services = ["dep:reqwest"]
 access-token = ["dep:jsonwebtoken"]
-webhooks = ["access-token", "livekit-protocol/json", "dep:pbjson", "dep:pbjson-types", "dep:serde_json"]
+webhooks = ["access-token", "dep:serde_json"]
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys
@@ -34,8 +34,6 @@ prost = "0.11"
 
 # webhooks
 serde_json = { version = "1.0", optional = true }
-pbjson = { version = "0.5", optional = true }
-pbjson-types = { version = "0.5", optional = true }
 
 # access_token & services
 jsonwebtoken = { version = "8", default-features = false, optional = true }

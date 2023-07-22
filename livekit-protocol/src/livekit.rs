@@ -24,8 +24,6 @@ pub struct Room {
     pub num_publishers: u32,
     #[prost(bool, tag = "10")]
     pub active_recording: bool,
-    #[prost(message, optional, tag = "12")]
-    pub playout_delay: ::core::option::Option<PlayoutDelay>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -34,16 +32,6 @@ pub struct Codec {
     pub mime: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub fmtp_line: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PlayoutDelay {
-    #[prost(bool, tag = "1")]
-    pub enabled: bool,
-    #[prost(uint32, tag = "2")]
-    pub min: u32,
-    #[prost(uint32, tag = "3")]
-    pub max: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -228,8 +216,6 @@ pub struct TrackInfo {
     pub disable_red: bool,
     #[prost(enumeration = "encryption::Type", tag = "16")]
     pub encryption: i32,
-    #[prost(string, tag = "17")]
-    pub stream: ::prost::alloc::string::String,
 }
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -495,9 +481,9 @@ pub struct DisabledCodecs {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RtpStats {
     #[prost(message, optional, tag = "1")]
-    pub start_time: ::core::option::Option<::prost_types::Timestamp>,
+    pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(message, optional, tag = "2")]
-    pub end_time: ::core::option::Option<::prost_types::Timestamp>,
+    pub end_time: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(double, tag = "3")]
     pub duration: f64,
     #[prost(uint32, tag = "4")]
@@ -559,11 +545,11 @@ pub struct RtpStats {
     #[prost(uint32, tag = "27")]
     pub plis: u32,
     #[prost(message, optional, tag = "28")]
-    pub last_pli: ::core::option::Option<::prost_types::Timestamp>,
+    pub last_pli: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(uint32, tag = "29")]
     pub firs: u32,
     #[prost(message, optional, tag = "30")]
-    pub last_fir: ::core::option::Option<::prost_types::Timestamp>,
+    pub last_fir: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(uint32, tag = "31")]
     pub rtt_current: u32,
     #[prost(uint32, tag = "32")]
@@ -571,11 +557,11 @@ pub struct RtpStats {
     #[prost(uint32, tag = "33")]
     pub key_frames: u32,
     #[prost(message, optional, tag = "34")]
-    pub last_key_frame: ::core::option::Option<::prost_types::Timestamp>,
+    pub last_key_frame: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(uint32, tag = "35")]
     pub layer_lock_plis: u32,
     #[prost(message, optional, tag = "36")]
-    pub last_layer_lock_pli: ::core::option::Option<::prost_types::Timestamp>,
+    pub last_layer_lock_pli: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(double, tag = "42")]
     pub sample_rate: f64,
     /// NEXT_ID: 44
@@ -1891,10 +1877,6 @@ pub struct AddTrackRequest {
     pub disable_red: bool,
     #[prost(enumeration = "encryption::Type", tag = "14")]
     pub encryption: i32,
-    /// which stream the track belongs to, used to group tracks together.
-    /// if not specified, server will infer it from track source to bundle camera/microphone, screenshare/audio together
-    #[prost(string, tag = "15")]
-    pub stream: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2653,8 +2635,6 @@ pub struct IngressState {
     pub started_at: i64,
     #[prost(int64, tag = "8")]
     pub ended_at: i64,
-    #[prost(string, tag = "9")]
-    pub resource_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "6")]
     pub tracks: ::prost::alloc::vec::Vec<TrackInfo>,
 }
@@ -2703,8 +2683,8 @@ pub struct InputVideoState {
     pub width: u32,
     #[prost(uint32, tag = "4")]
     pub height: u32,
-    #[prost(double, tag = "5")]
-    pub framerate: f64,
+    #[prost(uint32, tag = "5")]
+    pub framerate: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2884,4 +2864,5 @@ pub struct WebhookEvent {
     #[prost(int32, tag = "11")]
     pub num_dropped: i32,
 }
+include!("livekit.serde.rs");
 // @@protoc_insertion_point(module)
