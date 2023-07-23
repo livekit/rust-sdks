@@ -156,21 +156,7 @@ impl RtcSession {
         log::debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = RtcConfiguration {
-            ice_servers: {
-                let mut servers = vec![];
-                for ice_server in join_response.ice_servers.clone() {
-                    servers.push(IceServer {
-                        urls: ice_server.urls,
-                        username: ice_server.username,
-                        password: ice_server.credential,
-                    })
-                }
-                servers
-            },
-            continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
-            ice_transport_type: IceTransportsType::All,
-        };
+        let rtc_config = make_rtc_config_join(join_response.clone());
 
         let lk_runtime = LkRuntime::instance();
         let mut publisher_pc = PeerTransport::new(
@@ -476,6 +462,17 @@ impl SessionInner {
             }
             proto::signal_response::Message::Reconnect(reconnect) => {
                 log::debug!("received reconnect request: {:?}", reconnect);
+                let rtc_config = make_rtc_config_reconnect(reconnect);
+                self.publisher_pc
+                    .lock()
+                    .await
+                    .peer_connection()
+                    .set_configuration(rtc_config.clone())?;
+                self.subscriber_pc
+                    .lock()
+                    .await
+                    .peer_connection()
+                    .set_configuration(rtc_config)?;
             }
 
             _ => {}
@@ -916,3 +913,28 @@ impl SessionInner {
         }
     }
 }
+
+macro_rules! make_rtc_config {
+    ($fncname:ident, $proto:ty) => {
+        fn $fncname(value: $proto) -> RtcConfiguration {
+            RtcConfiguration {
+                ice_servers: {
+                    let mut servers = Vec::with_capacity(value.ice_servers.len());
+                    for ice_server in value.ice_servers.clone() {
+                        servers.push(IceServer {
+                            urls: ice_server.urls,
+                            username: ice_server.username,
+                            password: ice_server.credential,
+                        })
+                    }
+                    servers
+                },
+                continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
+                ice_transport_type: IceTransportsType::All,
+            }
+        }
+    };
+}
+
+make_rtc_config!(make_rtc_config_join, proto::JoinResponse);
+make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
