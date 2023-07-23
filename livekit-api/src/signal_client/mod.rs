@@ -1,6 +1,7 @@
 use crate::signal_client::signal_stream::SignalStream;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
+use reqwest::StatusCode;
 use std::fmt::Debug;
 use std::time::Duration;
 use thiserror::Error;
@@ -23,9 +24,13 @@ pub enum SignalError {
     AlreadyConnected,
     #[error("ws failure: {0}")]
     WsError(#[from] WsError),
-    #[error("failed to parse the url")]
+    #[error("failed to parse the url {0}")]
     UrlParse(#[from] url::ParseError),
-    #[error("failed to decode messages from server")]
+    #[error("client error: {0} - {1}")]
+    Client(StatusCode, String),
+    #[error("server error: {0} - {1}")]
+    Server(StatusCode, String),
+    #[error("failed to decode messages from server: {0}")]
     ProtoParse(#[from] prost::DecodeError),
     #[error("{0}")]
     Timeout(String),
@@ -73,22 +78,43 @@ impl SignalClient {
         options: SignalOptions,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
         let (emitter, mut events) = mpsc::channel(8);
-        let lk_url = get_livekit_url(url, token, &options)?;
-        let new_stream = SignalStream::connect(lk_url, emitter.clone()).await?;
-        let join_response = get_join_response(&mut events).await?;
+        let mut lk_url = get_livekit_url(url, token, &options)?;
 
-        Ok((
-            Self {
-                stream: AsyncRwLock::new(Some(new_stream)),
-                url: url.to_string(),
-                token: Mutex::new(token.to_string()),
-                join_response: join_response.clone(),
-                options,
-                emitter,
-            },
-            join_response,
-            events,
-        ))
+        match SignalStream::connect(lk_url.clone(), emitter.clone()).await {
+            Ok(stream) => {
+                let join_response = get_join_response(&mut events).await?;
+                let client = Self {
+                    stream: AsyncRwLock::new(Some(stream)),
+                    url: url.to_string(),
+                    token: Mutex::new(token.to_string()),
+                    join_response: join_response.clone(),
+                    options,
+                    emitter,
+                };
+
+                Ok((client, join_response, events))
+            }
+            Err(err) => {
+                if let SignalError::WsError(WsError::Http(_)) = err {
+                    // Make a request to /rtc/validate to get more informations
+                    lk_url.set_scheme("http").unwrap();
+                    lk_url.set_path("/rtc/validate");
+
+                    if let Ok(res) = reqwest::get(lk_url.as_str()).await {
+                        let status = res.status();
+                        let body = res.text().await.ok().unwrap_or_default();
+
+                        if status.is_client_error() {
+                            return Err(SignalError::Client(status, body));
+                        } else if status.is_server_error() {
+                            return Err(SignalError::Server(status, body));
+                        }
+                    }
+                }
+
+                Err(err)
+            }
+        }
     }
 
     // Restart is called when trying to resume the room (RtcSession resume)

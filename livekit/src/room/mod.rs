@@ -28,7 +28,7 @@ pub type RoomResult<T> = Result<T, RoomError>;
 
 #[derive(Error, Debug)]
 pub enum RoomError {
-    #[error("engine : {0}")]
+    #[error("engine: {0}")]
     Engine(#[from] EngineError),
     #[error("room failure: {0}")]
     Internal(String),

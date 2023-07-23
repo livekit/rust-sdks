@@ -225,7 +225,7 @@ impl RtcEngine {
 
     pub async fn send_request(&self, msg: proto::signal_request::Message) -> EngineResult<()> {
         if self.inner.reconnecting.load(Ordering::Acquire) {
-            // When doing a full reconnect, it is safe to ignore the messages, we don't wait for reconnection here
+            // When doing a full reconnect, it is OK to ignore the messages, we don't wait for reconnection here
             return Ok(()); // TODO(theomonnom): Maybe we should still return an error instead?
         }
 
