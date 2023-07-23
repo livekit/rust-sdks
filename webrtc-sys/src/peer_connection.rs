@@ -73,6 +73,32 @@ pub mod ffi {
         use_obsolete_sctp_sdp: bool,
     }
 
+    pub struct IceServer {
+        pub urls: Vec<String>,
+        pub username: String,
+        pub password: String,
+    }
+
+    #[repr(i32)]
+    pub enum ContinualGatheringPolicy {
+        GatherOnce,
+        GatherContinually,
+    }
+
+    #[repr(i32)]
+    pub enum IceTransportsType {
+        None,
+        Relay,
+        NoHost,
+        All,
+    }
+
+    pub struct RtcConfiguration {
+        pub ice_servers: Vec<IceServer>,
+        pub continual_gathering_policy: ContinualGatheringPolicy,
+        pub ice_transport_type: IceTransportsType,
+    }
+
     extern "C++" {
         include!("livekit/rtc_error.h");
         include!("livekit/helper.h");
@@ -118,6 +144,8 @@ pub mod ffi {
         fn create_native_peer_connection_observer(
             observer: Box<PeerConnectionObserverWrapper>,
         ) -> UniquePtr<NativePeerConnectionObserver>;
+
+        fn set_configuration(self: &PeerConnection, config: RtcConfiguration) -> Result<()>;
 
         fn create_offer(
             self: &PeerConnection,

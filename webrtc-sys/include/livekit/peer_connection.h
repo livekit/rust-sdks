@@ -39,6 +39,8 @@ class NativePeerConnectionObserver;
 
 namespace livekit {
 
+webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
+    RtcConfiguration config);
 class PeerConnectionFactory;
 
 class PeerConnection {
@@ -49,6 +51,8 @@ class PeerConnection {
       rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   ~PeerConnection();
+
+  void set_configuration(RtcConfiguration config) const;
 
   void create_offer(
       RtcOfferAnswerOptions options,

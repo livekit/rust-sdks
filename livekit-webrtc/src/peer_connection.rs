@@ -1,15 +1,15 @@
-use std::fmt::Debug;
-
 use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::ice_candidate::IceCandidate;
 use crate::imp::peer_connection as imp_pc;
 use crate::media_stream::MediaStream;
 use crate::media_stream_track::MediaStreamTrack;
+use crate::peer_connection_factory::RtcConfiguration;
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverInit};
 use crate::session_description::SessionDescription;
 use crate::{MediaType, RtcError};
+use std::fmt::Debug;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PeerConnectionState {
@@ -93,6 +93,10 @@ pub struct PeerConnection {
 }
 
 impl PeerConnection {
+    pub fn set_configuration(&self, config: RtcConfiguration) -> Result<(), RtcError> {
+        self.handle.set_configuration(config)
+    }
+
     pub async fn create_offer(
         &self,
         options: OfferOptions,

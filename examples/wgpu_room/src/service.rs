@@ -129,6 +129,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     let _ = inner.ui_tx.send(UiCmd::ConnectResult { result: Ok(()) });
                 } else if let Err(err) = res {
                     log::error!("failed to connect to room: {:?}", err);
+                    let _ = inner.ui_tx.send(UiCmd::ConnectResult { result: Err(err) });
                 }
             }
             AsyncCmd::RoomDisconnect => {
