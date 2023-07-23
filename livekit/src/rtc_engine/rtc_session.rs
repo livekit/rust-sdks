@@ -474,6 +474,9 @@ impl SessionInner {
                     let _ = tx.send(publish_res.track.unwrap());
                 }
             }
+            proto::signal_response::Message::Reconnect(reconnect) => {
+                log::debug!("received reconnect request: {:?}", reconnect);
+            }
 
             _ => {}
         }
