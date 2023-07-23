@@ -454,13 +454,9 @@ impl SessionInner {
                 log::debug!("received reconnect request: {:?}", reconnect);
                 let rtc_config = make_rtc_config_reconnect(reconnect);
                 self.publisher_pc
-                    .lock()
-                    .await
                     .peer_connection()
                     .set_configuration(rtc_config.clone())?;
                 self.subscriber_pc
-                    .lock()
-                    .await
                     .peer_connection()
                     .set_configuration(rtc_config)?;
             }
