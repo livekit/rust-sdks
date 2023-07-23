@@ -2,35 +2,11 @@ use crate::impl_thread_safety;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-    pub struct IceServer {
-        pub urls: Vec<String>,
-        pub username: String,
-        pub password: String,
-    }
-
-    #[repr(i32)]
-    pub enum ContinualGatheringPolicy {
-        GatherOnce,
-        GatherContinually,
-    }
-
-    #[repr(i32)]
-    pub enum IceTransportsType {
-        None,
-        Relay,
-        NoHost,
-        All,
-    }
-
-    pub struct RtcConfiguration {
-        pub ice_servers: Vec<IceServer>,
-        pub continual_gathering_policy: ContinualGatheringPolicy,
-        pub ice_transport_type: IceTransportsType,
-    }
 
     extern "C++" {
         include!("livekit/media_stream.h");
         include!("livekit/webrtc.h");
+        include!("livekit/peer_connection_factory.h");
         include!("livekit/rtp_parameters.h");
 
         type AudioTrackSource = crate::audio_track::ffi::AudioTrackSource;
@@ -41,6 +17,7 @@ pub mod ffi {
         type MediaType = crate::webrtc::ffi::MediaType;
         type NativePeerConnectionObserver =
             crate::peer_connection::ffi::NativePeerConnectionObserver;
+        type RtcConfiguration = crate::peer_connection::ffi::RtcConfiguration;
     }
 
     unsafe extern "C++" {
@@ -69,12 +46,12 @@ pub mod ffi {
             source: SharedPtr<AudioTrackSource>,
         ) -> SharedPtr<AudioTrack>;
 
-        fn get_rtp_sender_capabilities(
+        fn rtp_sender_capabilities(
             self: &PeerConnectionFactory,
             kind: MediaType,
         ) -> RtpCapabilities;
 
-        fn get_rtp_receiver_capabilities(
+        fn rtp_receiver_capabilities(
             self: &PeerConnectionFactory,
             kind: MediaType,
         ) -> RtpCapabilities;

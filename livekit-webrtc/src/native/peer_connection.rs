@@ -17,6 +17,9 @@ use crate::peer_connection::{
     OnIceGatheringChange, OnNegotiationNeeded, OnSignalingChange, OnTrack, PeerConnectionState,
     SignalingState, TrackEvent,
 };
+use crate::peer_connection_factory::{
+    ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration,
+};
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::RtpTransceiver;
@@ -110,6 +113,50 @@ impl From<sys_pc::ffi::SignalingState> for SignalingState {
     }
 }
 
+impl From<IceServer> for sys_pc::ffi::IceServer {
+    fn from(value: IceServer) -> Self {
+        sys_pc::ffi::IceServer {
+            urls: value.urls,
+            username: value.username,
+            password: value.password,
+        }
+    }
+}
+
+impl From<ContinualGatheringPolicy> for sys_pc::ffi::ContinualGatheringPolicy {
+    fn from(value: ContinualGatheringPolicy) -> Self {
+        match value {
+            ContinualGatheringPolicy::GatherOnce => {
+                sys_pc::ffi::ContinualGatheringPolicy::GatherOnce
+            }
+            ContinualGatheringPolicy::GatherContinually => {
+                sys_pc::ffi::ContinualGatheringPolicy::GatherContinually
+            }
+        }
+    }
+}
+
+impl From<IceTransportsType> for sys_pc::ffi::IceTransportsType {
+    fn from(value: IceTransportsType) -> Self {
+        match value {
+            IceTransportsType::None => sys_pc::ffi::IceTransportsType::None,
+            IceTransportsType::Relay => sys_pc::ffi::IceTransportsType::Relay,
+            IceTransportsType::NoHost => sys_pc::ffi::IceTransportsType::NoHost,
+            IceTransportsType::All => sys_pc::ffi::IceTransportsType::All,
+        }
+    }
+}
+
+impl From<RtcConfiguration> for sys_pc::ffi::RtcConfiguration {
+    fn from(value: RtcConfiguration) -> Self {
+        Self {
+            ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
+            continual_gathering_policy: value.continual_gathering_policy.into(),
+            ice_transport_type: value.ice_transport_type.into(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PeerConnection {
     observer: Arc<PeerObserver>,
@@ -124,6 +171,15 @@ impl PeerConnection {
         Self {
             sys_handle,
             observer,
+        }
+    }
+
+    pub fn set_configuration(&self, config: RtcConfiguration) -> Result<(), RtcError> {
+        let res = self.sys_handle.set_configuration(config.into());
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
     }
 

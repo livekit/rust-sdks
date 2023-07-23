@@ -40,32 +40,6 @@
 
 namespace livekit {
 
-webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
-    RtcConfiguration config) {
-  webrtc::PeerConnectionInterface::RTCConfiguration rtc_config{};
-
-  for (auto item : config.ice_servers) {
-    webrtc::PeerConnectionInterface::IceServer ice_server;
-    ice_server.username = item.username.c_str();
-    ice_server.password = item.password.c_str();
-
-    for (auto url : item.urls)
-      ice_server.urls.emplace_back(url.c_str());
-
-    rtc_config.servers.push_back(ice_server);
-  }
-
-  rtc_config.continual_gathering_policy =
-      static_cast<webrtc::PeerConnectionInterface::ContinualGatheringPolicy>(
-          config.continual_gathering_policy);
-
-  rtc_config.type =
-      static_cast<webrtc::PeerConnectionInterface::IceTransportsType>(
-          config.ice_transport_type);
-
-  return rtc_config;
-}
-
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
     : rtc_runtime_(rtc_runtime) {
@@ -151,14 +125,13 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
       rtc_runtime_->get_or_create_media_stream_track(
           peer_factory_->CreateAudioTrack(label.c_str(), source->get().get())));
 }
-
-RtpCapabilities PeerConnectionFactory::get_rtp_sender_capabilities(
+RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(
       static_cast<cricket::MediaType>(type)));
 }
 
-RtpCapabilities PeerConnectionFactory::get_rtp_receiver_capabilities(
+RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpReceiverCapabilities(
       static_cast<cricket::MediaType>(type)));
