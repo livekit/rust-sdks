@@ -12,6 +12,7 @@ use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
+use proto::debouncer::{self, Debouncer};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -19,7 +20,6 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -28,6 +28,7 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
 pub type SessionEmitter = mpsc::UnboundedSender<SessionEvent>;
 pub type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
@@ -102,8 +103,8 @@ struct SessionInner {
     pc_state: AtomicU8, // PcState
     has_published: AtomicBool,
 
-    publisher_pc: AsyncMutex<PeerTransport>,
-    subscriber_pc: AsyncMutex<PeerTransport>,
+    publisher_pc: PeerTransport,
+    subscriber_pc: PeerTransport,
 
     pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
 
@@ -118,6 +119,8 @@ struct SessionInner {
 
     closed: AtomicBool,
     emitter: SessionEmitter,
+
+    negotiation_debouncer: Mutex<Option<Debouncer>>,
 }
 
 impl Debug for SessionInner {
@@ -201,14 +204,15 @@ impl RtcSession {
             pc_state: AtomicU8::new(PeerState::New as u8),
             has_published: Default::default(),
             signal_client,
-            publisher_pc: AsyncMutex::new(publisher_pc),
-            subscriber_pc: AsyncMutex::new(subscriber_pc),
+            publisher_pc,
+            subscriber_pc,
             pending_tracks: Default::default(),
             lossy_dc,
             reliable_dc,
             subscriber_dc: Default::default(),
             closed: Default::default(),
             emitter: session_emitter,
+            negotiation_debouncer: Default::default(),
         });
 
         // Start session tasks
@@ -246,8 +250,8 @@ impl RtcSession {
     }
 
     #[inline]
-    pub async fn negotiate_publisher(&self) -> EngineResult<()> {
-        self.inner.negotiate_publisher().await
+    pub fn publisher_negotiation_needed(&self) {
+        self.inner.publisher_negotiation_needed()
     }
 
     /// Close the PeerConnections and the SignalClient
@@ -295,13 +299,13 @@ impl RtcSession {
 
     #[allow(dead_code)]
     #[inline]
-    pub fn publisher(&self) -> &AsyncMutex<PeerTransport> {
+    pub fn publisher(&self) -> &PeerTransport {
         &self.inner.publisher_pc
     }
 
     #[allow(dead_code)]
     #[inline]
-    pub fn subscriber(&self) -> &AsyncMutex<PeerTransport> {
+    pub fn subscriber(&self) -> &PeerTransport {
         &self.inner.subscriber_pc
     }
 
@@ -382,19 +386,13 @@ impl SessionInner {
                 log::debug!("received publisher answer: {:?}", answer);
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap())?;
-                self.publisher_pc
-                    .lock()
-                    .await
-                    .set_remote_description(answer)
-                    .await?;
+                self.publisher_pc.set_remote_description(answer).await?;
             }
             proto::signal_response::Message::Offer(offer) => {
                 log::debug!("received subscriber offer: {:?}", offer);
                 let offer = SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap())?;
                 let answer = self
                     .subscriber_pc
-                    .lock()
-                    .await
                     .create_anwser(offer, AnswerOptions::default())
                     .await?;
 
@@ -417,17 +415,9 @@ impl SessionInner {
                 log::debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
 
                 if target == proto::SignalTarget::Publisher {
-                    self.publisher_pc
-                        .lock()
-                        .await
-                        .add_ice_candidate(ice_candidate)
-                        .await?;
+                    self.publisher_pc.add_ice_candidate(ice_candidate).await?;
                 } else {
-                    self.subscriber_pc
-                        .lock()
-                        .await
-                        .add_ice_candidate(ice_candidate)
-                        .await?;
+                    self.subscriber_pc.add_ice_candidate(ice_candidate).await?;
                 }
             }
             proto::signal_response::Message::Leave(leave) => {
@@ -464,13 +454,9 @@ impl SessionInner {
                 log::debug!("received reconnect request: {:?}", reconnect);
                 let rtc_config = make_rtc_config_reconnect(reconnect);
                 self.publisher_pc
-                    .lock()
-                    .await
                     .peer_connection()
                     .set_configuration(rtc_config.clone())?;
                 self.subscriber_pc
-                    .lock()
-                    .await
                     .peer_connection()
                     .set_configuration(rtc_config)?;
             }
@@ -625,11 +611,7 @@ impl SessionInner {
             pending_tracks.remove(&track.id());
         }
 
-        self.publisher_pc
-            .lock()
-            .await
-            .peer_connection()
-            .remove_track(sender)?;
+        self.publisher_pc.peer_connection().remove_track(sender)?;
 
         Ok(())
     }
@@ -648,8 +630,6 @@ impl SessionInner {
 
         let transceiver = self
             .publisher_pc
-            .lock()
-            .await
             .peer_connection()
             .add_transceiver(track.rtc_track(), init)?;
 
@@ -721,8 +701,8 @@ impl SessionInner {
 
         self.closed.store(true, Ordering::Release);
         self.signal_client.close().await;
-        self.publisher_pc.lock().await.close();
-        self.subscriber_pc.lock().await.close();
+        self.publisher_pc.close();
+        self.subscriber_pc.close();
     }
 
     async fn simulate_scenario(&self, scenario: SimulateScenario) {
@@ -796,7 +776,7 @@ impl SessionInner {
     }
 
     async fn publish_data(
-        &self,
+        self: &Arc<Self>,
         data: &proto::DataPacket,
         kind: DataPacketKind,
     ) -> Result<(), EngineError> {
@@ -810,12 +790,10 @@ impl SessionInner {
     /// This reconnection if more seemless compared to the full reconnection implemented in ['RTCEngine']
     async fn restart_session(&self) -> EngineResult<()> {
         self.signal_client.restart().await?;
-        self.subscriber_pc.lock().await.prepare_ice_restart();
+        self.subscriber_pc.prepare_ice_restart().await;
 
         if self.has_published.load(Ordering::Acquire) {
             self.publisher_pc
-                .lock()
-                .await
                 .create_and_send_offer(OfferOptions {
                     ice_restart: true,
                     ..Default::default()
@@ -853,28 +831,41 @@ impl SessionInner {
     }
 
     /// Start publisher negotiation
-    async fn negotiate_publisher(&self) -> EngineResult<()> {
-        self.has_published.store(true, Ordering::Release);
-        let res = self.publisher_pc.lock().await.negotiate().await;
-        if let Err(err) = &res {
-            log::error!("failed to negotiate the publisher: {:?}", err);
+    fn publisher_negotiation_needed(self: &Arc<Self>) {
+        self.has_published.store(true, Ordering::Relaxed);
+
+        let mut debouncer = self.negotiation_debouncer.lock();
+
+        // call() returns an error if the debouncer has finished
+        if debouncer.is_none() || debouncer.as_ref().unwrap().call().is_err() {
+            let session = self.clone();
+
+            *debouncer = Some(debouncer::debounce(
+                PUBLISHER_NEGOTIATION_FREQUENCY,
+                async move {
+                    if let Err(err) = session
+                        .publisher_pc
+                        .create_and_send_offer(OfferOptions::default())
+                        .await
+                    {
+                        log::error!("failed to negotiate the publisher: {:?}", err);
+                    }
+                },
+            ));
         }
-        res.map_err(Into::into)
     }
 
     /// Ensure the Publisher PC is connected, if not, start the negotiation
     /// This is required when sending data to the server
-    async fn ensure_publisher_connected(&self, kind: DataPacketKind) -> EngineResult<()> {
-        if !self.publisher_pc.lock().await.is_connected()
-            && self
-                .publisher_pc
-                .lock()
-                .await
-                .peer_connection()
-                .ice_connection_state()
+    async fn ensure_publisher_connected(
+        self: &Arc<Self>,
+        kind: DataPacketKind,
+    ) -> EngineResult<()> {
+        if !self.publisher_pc.is_connected()
+            && self.publisher_pc.peer_connection().ice_connection_state()
                 != IceConnectionState::Checking
         {
-            let _ = self.negotiate_publisher().await;
+            self.publisher_negotiation_needed();
         }
 
         let dc = self.data_channel(kind);
@@ -884,7 +875,7 @@ impl SessionInner {
 
         // Wait until the PeerConnection is connected
         let wait_connected = async {
-            while !self.publisher_pc.lock().await.is_connected() || dc.state() != DataState::Open {
+            while !self.publisher_pc.is_connected() || dc.state() != DataState::Open {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".to_string()));
                 }
