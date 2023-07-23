@@ -3,6 +3,8 @@ use livekit_protocol as proto;
 use parking_lot::Mutex;
 use reqwest::StatusCode;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -11,8 +13,8 @@ use tokio_tungstenite::tungstenite::Error as WsError;
 
 mod signal_stream;
 
-pub type SignalEmitter = mpsc::Sender<SignalEvent>;
-pub type SignalEvents = mpsc::Receiver<SignalEvent>;
+pub type SignalEmitter = mpsc::UnboundedSender<SignalEvent>;
+pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
 pub type SignalResult<T> = Result<T, SignalError>;
 
 pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -22,6 +24,8 @@ pub const PROTOCOL_VERSION: u32 = 8;
 pub enum SignalError {
     #[error("already connected")]
     AlreadyConnected,
+    #[error("already reconnecting")]
+    AlreadyReconnecting,
     #[error("ws failure: {0}")]
     WsError(#[from] WsError),
     #[error("failed to parse the url {0}")]
@@ -38,7 +42,7 @@ pub enum SignalError {
     SendError,
 }
 
-/// Events used by the RTCEngine who will handle the reconnection logic
+/// Events used by the RtcSession who will handle the reconnection logic
 #[derive(Debug)]
 pub enum SignalEvent {
     Open,
@@ -61,14 +65,30 @@ impl Default for SignalOptions {
     }
 }
 
-#[derive(Debug)]
-pub struct SignalClient {
+struct SignalInner {
     stream: AsyncRwLock<Option<SignalStream>>,
-    url: String,
-    token: Mutex<String>, // TODO(theomonnom): Handle token refresh
-    join_response: proto::JoinResponse,
-    options: SignalOptions,
+    token: Mutex<String>, // Token can be refreshed
+}
+
+pub struct SignalClient {
+    inner: Arc<SignalInner>,
     emitter: SignalEmitter,
+    reconnecting: AtomicBool,
+
+    url: String,
+    options: SignalOptions,
+    join_response: proto::JoinResponse,
+}
+
+impl Debug for SignalClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignalClient")
+            .field("url", &self.url)
+            .field("reconnecting", &self.reconnecting)
+            .field("join_response", &self.join_response)
+            .field("options", &self.options)
+            .finish()
+    }
 }
 
 impl SignalClient {
@@ -77,83 +97,144 @@ impl SignalClient {
         token: &str,
         options: SignalOptions,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
-        let (emitter, mut events) = mpsc::channel(8);
-        let mut lk_url = get_livekit_url(url, token, &options)?;
+        let (internal_emitter, mut internal_events) = mpsc::unbounded_channel();
+        let lk_url = get_livekit_url(url, token, &options)?;
 
-        match SignalStream::connect(lk_url.clone(), emitter.clone()).await {
-            Ok(stream) => {
-                let join_response = get_join_response(&mut events).await?;
-                let client = Self {
-                    stream: AsyncRwLock::new(Some(stream)),
-                    url: url.to_string(),
-                    token: Mutex::new(token.to_string()),
-                    join_response: join_response.clone(),
-                    options,
-                    emitter,
-                };
-
-                Ok((client, join_response, events))
+        // Try to connect to the SignalClient
+        let stream_res = SignalStream::connect(lk_url.clone(), internal_emitter.clone()).await;
+        if let Err(err) = stream_res {
+            // Connection failed, try to retrieve more informations
+            if let SignalError::WsError(WsError::Http(_)) = err {
+                Self::validate(lk_url).await?;
             }
-            Err(err) => {
-                if let SignalError::WsError(WsError::Http(_)) = err {
-                    // Make a request to /rtc/validate to get more informations
-                    lk_url.set_scheme("http").unwrap();
-                    lk_url.set_path("/rtc/validate");
 
-                    if let Ok(res) = reqwest::get(lk_url.as_str()).await {
-                        let status = res.status();
-                        let body = res.text().await.ok().unwrap_or_default();
+            return Err(err);
+        }
 
-                        if status.is_client_error() {
-                            return Err(SignalError::Client(status, body));
-                        } else if status.is_server_error() {
-                            return Err(SignalError::Server(status, body));
-                        }
+        // Successfully connected to the SignalClient
+        let join_response = get_join_response(&mut internal_events).await?;
+        let inner = Arc::new(SignalInner {
+            stream: AsyncRwLock::new(Some(stream_res.unwrap())),
+            token: Mutex::new(token.to_owned()),
+        });
+
+        let (emitter, events) = mpsc::unbounded_channel();
+        tokio::spawn(Self::signal_task(inner.clone(), emitter, internal_events));
+
+        let client = Self {
+            inner,
+            emitter: internal_emitter,
+            reconnecting: AtomicBool::new(false),
+            options,
+            url: url.to_string(),
+            join_response: join_response.clone(),
+        };
+
+        Ok((client, join_response, events))
+    }
+
+    /// Validate the connection by calling rtc/validate
+    async fn validate(mut ws_url: url::Url) -> SignalResult<()> {
+        ws_url
+            .set_scheme(if ws_url.scheme() == "wss" {
+                "https"
+            } else {
+                "http"
+            })
+            .unwrap();
+        ws_url.set_path("/rtc/validate");
+
+        if let Ok(res) = reqwest::get(ws_url.as_str()).await {
+            let status = res.status();
+            let body = res.text().await.ok().unwrap_or_default();
+
+            if status.is_client_error() {
+                return Err(SignalError::Client(status, body));
+            } else if status.is_server_error() {
+                return Err(SignalError::Server(status, body));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Middleware task to receive SignalStream events and handle SignalClient specific logic
+    async fn signal_task(
+        inner: Arc<SignalInner>,
+        emitter: SignalEmitter, // Public emitter
+        mut internal_events: SignalEvents,
+    ) {
+        while let Some(event) = internal_events.recv().await {
+            if let SignalEvent::Signal(ref event) = event {
+                match event {
+                    proto::signal_response::Message::RefreshToken(ref token) => {
+                        // Refresh the token so the client can still reconnect if the initial join token expired
+                        *inner.token.lock() = token.clone();
                     }
+                    _ => {}
                 }
-
-                Err(err)
             }
+
+            let _ = emitter.send(event);
         }
     }
 
-    // Restart is called when trying to resume the room (RtcSession resume)
-    // TODO(theomonom): Should this be renamed to resume?
+    /// Restart is called when trying to resume the room (RtcSession resume)
     pub async fn restart(&self) -> SignalResult<()> {
+        self.reconnecting.store(true, Ordering::Release);
+
         self.close().await;
+        let mut stream = self.inner.stream.write().await;
 
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
-        let token = self.token.lock().clone();
+        let token = self.inner.token.lock().clone();
 
-        let mut lk_url = get_livekit_url(&self.url, &token, &self.options)?;
+        let mut lk_url = get_livekit_url(&self.url, &token, &self.options).unwrap();
         lk_url
             .query_pairs_mut()
             .append_pair("reconnect", "1")
             .append_pair("sid", sid);
 
-        let new_stream = SignalStream::connect(lk_url, self.emitter.clone()).await?;
-        *self.stream.write().await = Some(new_stream);
-        Ok(())
+        let res = SignalStream::connect(lk_url, self.emitter.clone()).await;
+        match res {
+            Ok(new_stream) => {
+                *stream = Some(new_stream);
+                self.reconnecting.store(false, Ordering::Release);
+                Ok(())
+            }
+            Err(err) => {
+                self.reconnecting.store(false, Ordering::Release);
+                Err(err)
+            }
+        }
     }
 
+    /// Close the connection
     pub async fn close(&self) {
-        if let Some(stream) = self.stream.write().await.take() {
+        let mut stream = self.inner.stream.write().await;
+        if let Some(stream) = stream.take() {
             stream.close().await;
         }
     }
 
+    /// Send a signal to the server
     pub async fn send(&self, signal: proto::signal_request::Message) {
-        // TODO: Check if currently reconnecting and queue message
+        if self.reconnecting.load(Ordering::Acquire) {
+            if is_queuable(&signal) {
+                // Push to queue
+            }
 
-        if let Some(stream) = self.stream.read().await.as_ref() {
-            if stream.send(signal).await.is_ok() {
-                return;
+            return;
+        }
+
+        let stream = self.inner.stream.read().await;
+        if let Some(stream) = stream.as_ref() {
+            if let Err(err) = stream.send(signal).await {
+                log::error!("failed to send signal: {}", err);
             }
         }
-        // TODO(theomonnom): return result?
     }
 
-    #[allow(dead_code)]
     pub async fn clear_queue(&self) {
         // TODO(theomonnom): Clear the queue
     }
@@ -174,9 +255,24 @@ impl SignalClient {
         self.url.clone()
     }
 
+    /// Returns the last refreshed token (Or initial token if not refreshed yet)
     pub fn token(&self) -> String {
-        self.token.lock().clone()
+        self.inner.token.lock().clone()
     }
+}
+
+/// Check if the signal is queuable
+/// Not every signal should be sent after signal reconnection
+fn is_queuable(signal: &proto::signal_request::Message) -> bool {
+    return matches!(
+        signal,
+        proto::signal_request::Message::SyncState(_)
+            | proto::signal_request::Message::Trickle(_)
+            | proto::signal_request::Message::Offer(_)
+            | proto::signal_request::Message::Answer(_)
+            | proto::signal_request::Message::Simulate(_)
+            | proto::signal_request::Message::Leave(_)
+    );
 }
 
 fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalResult<url::Url> {
