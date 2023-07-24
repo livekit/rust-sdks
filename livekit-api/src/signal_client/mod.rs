@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio_tungstenite::tungstenite::Error as WsError;
 
@@ -74,6 +75,7 @@ pub struct SignalClient {
     inner: Arc<SignalInner>,
     emitter: SignalEmitter,
     reconnecting: AtomicBool,
+    queue: AsyncMutex<Vec<proto::signal_request::Message>>,
 
     url: String,
     options: SignalOptions,
@@ -125,6 +127,7 @@ impl SignalClient {
             inner,
             emitter: internal_emitter,
             reconnecting: AtomicBool::new(false),
+            queue: Default::default(),
             options,
             url: url.to_string(),
             join_response: join_response.clone(),
@@ -159,6 +162,7 @@ impl SignalClient {
     }
 
     /// Middleware task to receive SignalStream events and handle SignalClient specific logic
+    /// TODO(theomonnom): should we use tokio_stream?
     async fn signal_task(
         inner: Arc<SignalInner>,
         emitter: SignalEmitter, // Public emitter
@@ -200,6 +204,9 @@ impl SignalClient {
             Ok(new_stream) => {
                 *stream = Some(new_stream);
                 self.reconnecting.store(false, Ordering::Release);
+
+                // Directly send the queue after a successful reconnection
+                self.flush_queue().await;
                 Ok(())
             }
             Err(err) => {
@@ -221,11 +228,13 @@ impl SignalClient {
     pub async fn send(&self, signal: proto::signal_request::Message) {
         if self.reconnecting.load(Ordering::Acquire) {
             if is_queuable(&signal) {
-                // Push to queue
+                self.queue.lock().await.push(signal);
             }
 
             return;
         }
+
+        self.flush_queue().await; // The queue must be flusehd before sending any new signal
 
         let stream = self.inner.stream.read().await;
         if let Some(stream) = stream.as_ref() {
@@ -235,12 +244,20 @@ impl SignalClient {
         }
     }
 
-    pub async fn clear_queue(&self) {
-        // TODO(theomonnom): Clear the queue
-    }
-
     pub async fn flush_queue(&self) {
-        // TODO(theomonnom): Send the queue
+        let mut queue = self.queue.lock().await;
+        if queue.is_empty() {
+            return;
+        }
+
+        let stream = self.inner.stream.read().await;
+        if let Some(stream) = stream.as_ref() {
+            for signal in queue.drain(..) {
+                if let Err(err) = stream.send(signal).await {
+                    log::error!("failed to send queued signal: {}", err);
+                }
+            }
+        }
     }
 
     pub fn join_response(&self) -> proto::JoinResponse {
