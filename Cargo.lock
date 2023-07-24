@@ -1055,6 +1055,7 @@ dependencies = [
  "futures-util",
  "lazy_static",
  "livekit",
+ "livekit-api",
  "livekit-protocol",
  "log",
  "parking_lot",

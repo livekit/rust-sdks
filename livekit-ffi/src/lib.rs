@@ -1,6 +1,5 @@
 use livekit::prelude::*;
 use prost::Message;
-use std::any::Any;
 use thiserror::Error;
 
 mod conversion;

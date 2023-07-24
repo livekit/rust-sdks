@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use livekit_api::access_token::{AccessToken, VideoGrants};
+
 use crate::FfiHandleId;
 use crate::{proto, server};
 //use livekit_api::access_token::{AccessToken, VideoGrants};
@@ -172,7 +174,7 @@ fn create_i420_buffer() {
     client::FfiHandle(to_i420.buffer.unwrap().handle.unwrap().id as FfiHandleId);
 }
 
-/*#[test]
+#[test]
 #[ignore] // Ignore for now ( need to setup GHA )
 fn publish_video_track() {
     let (_test, mut client) = TestScope::new();
@@ -327,4 +329,3 @@ fn publish_video_track() {
             }
         })
 }
-*/
