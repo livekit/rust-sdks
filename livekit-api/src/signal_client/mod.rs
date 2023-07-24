@@ -253,6 +253,7 @@ impl SignalClient {
         let stream = self.inner.stream.read().await;
         if let Some(stream) = stream.as_ref() {
             for signal in queue.drain(..) {
+                log::debug!("sending queued signal: {:?}", signal);
                 if let Err(err) = stream.send(signal).await {
                     log::error!("failed to send queued signal: {}", err);
                 }
