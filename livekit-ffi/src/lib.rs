@@ -25,7 +25,6 @@ pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 pub type FfiResult<T> = Result<T, FfiError>;
 pub type FfiAsyncId = usize;
 pub type FfiHandleId = usize;
-pub type FfiHandle = Box<dyn Any + Send + Sync>;
 
 pub const INVALID_HANDLE: FfiHandleId = 0;
 

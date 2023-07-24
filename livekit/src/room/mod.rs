@@ -18,7 +18,6 @@ use tokio::task::JoinHandle;
 pub use crate::rtc_engine::SimulateScenario;
 pub use proto::DisconnectReason;
 
-pub mod id;
 pub mod options;
 pub mod participant;
 pub mod publication;
@@ -65,7 +64,7 @@ pub enum RoomEvent {
     TrackSubscriptionFailed {
         participant: RemoteParticipant,
         error: track::TrackError,
-        sid: TrackSid,
+        track_sid: String,
     },
     TrackPublished {
         publication: RemoteTrackPublication,
@@ -259,7 +258,7 @@ impl Room {
         self.inner.dispatcher.register()
     }
 
-    pub fn sid(&self) -> RoomSid {
+    pub fn sid(&self) -> String {
         self.inner.sid.clone()
     }
 
@@ -279,7 +278,7 @@ impl Room {
         self.inner.info.read().state
     }
 
-    pub fn participants(&self) -> HashMap<ParticipantSid, RemoteParticipant> {
+    pub fn participants(&self) -> HashMap<String, RemoteParticipant> {
         self.inner.participants.read().clone()
     }
 
@@ -295,13 +294,13 @@ struct RoomInfo {
 
 pub(crate) struct RoomSession {
     rtc_engine: Arc<RtcEngine>,
-    sid: RoomSid,
+    sid: String,
     name: String,
     info: RwLock<RoomInfo>,
     dispatcher: Dispatcher<RoomEvent>,
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
-    participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
+    participants: RwLock<HashMap<String, RemoteParticipant>>,
 }
 
 impl Debug for RoomSession {
@@ -356,7 +355,7 @@ impl RoomSession {
 
                 let (participant_sid, track_sid) = lk_stream_id.unwrap();
                 let track_sid = track_sid.to_owned().into();
-                let remote_participant = self.get_participant(&participant_sid.to_string().into());
+                let remote_participant = self.get_participant(participant_sid);
 
                 if let Some(remote_participant) = remote_participant {
                     tokio::spawn(async move {
@@ -394,7 +393,7 @@ impl RoomSession {
                 participant_sid,
             } => {
                 let payload = Arc::new(payload);
-                if let Some(participant) = self.get_participant(&participant_sid.into()) {
+                if let Some(participant) = self.get_participant(&participant_sid) {
                     self.dispatcher.dispatch(&RoomEvent::DataReceived {
                         payload: payload.clone(),
                         kind,
@@ -444,7 +443,7 @@ impl RoomSession {
                 continue;
             }
 
-            let remote_participant = self.get_participant(&pi.sid.clone().into());
+            let remote_participant = self.get_participant(&pi.sid);
 
             if let Some(remote_participant) = remote_participant {
                 if pi.state == proto::participant_info::State::Disconnected as i32 {
@@ -483,7 +482,7 @@ impl RoomSession {
                 if speaker.sid == self.local_participant.sid() {
                     Participant::Local(self.local_participant.clone())
                 } else {
-                    if let Some(participant) = self.get_participant(&speaker.sid.into()) {
+                    if let Some(participant) = self.get_participant(&speaker.sid) {
                         Participant::Remote(participant)
                     } else {
                         continue;
@@ -515,8 +514,7 @@ impl RoomSession {
                 if update.participant_sid == self.local_participant.sid() {
                     Participant::Local(self.local_participant.clone())
                 } else {
-                    if let Some(participant) = self.get_participant(&update.participant_sid.into())
-                    {
+                    if let Some(participant) = self.get_participant(&update.participant_sid) {
                         Participant::Remote(participant)
                     } else {
                         continue;
@@ -579,8 +577,8 @@ impl RoomSession {
     /// Also add it to the participants list
     fn create_participant(
         self: &Arc<Self>,
-        sid: ParticipantSid,
-        identity: ParticipantIdentity,
+        sid: String,
+        identity: String,
         name: String,
         metadata: String,
     ) -> RemoteParticipant {
@@ -627,10 +625,10 @@ impl RoomSession {
         });
 
         let dispatcher = self.dispatcher.clone();
-        participant.on_track_subscription_failed(move |participant, sid, error| {
+        participant.on_track_subscription_failed(move |participant, track_sid, error| {
             dispatcher.dispatch(&RoomEvent::TrackSubscriptionFailed {
                 participant,
-                sid,
+                track_sid,
                 error,
             });
         });
@@ -652,7 +650,7 @@ impl RoomSession {
             .dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }
 
-    fn get_participant(&self, sid: &ParticipantSid) -> Option<RemoteParticipant> {
+    fn get_participant(&self, sid: &str) -> Option<RemoteParticipant> {
         self.participants.read().get(sid).cloned()
     }
 }

@@ -200,39 +200,16 @@ impl StreamState {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantInfo {
-    #[prost(string, tag="1")]
-    pub sid: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiHandleId>,
     #[prost(string, tag="2")]
-    pub name: ::prost::alloc::string::String,
+    pub sid: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
-    pub identity: ::prost::alloc::string::String,
+    pub name: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
+    pub identity: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
     pub metadata: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag="5")]
-    pub publications: ::prost::alloc::vec::Vec<TrackPublicationInfo>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ParticipantEvent {
-    #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
-    #[prost(oneof="participant_event::Message", tags="2")]
-    pub message: ::core::option::Option<participant_event::Message>,
-}
-/// Nested message and enum types in `ParticipantEvent`.
-pub mod participant_event {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Message {
-        #[prost(message, tag="2")]
-        SpeakingChanged(super::IsSpeakingChanged),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct IsSpeakingChanged {
-    #[prost(bool, tag="1")]
-    pub speaking: bool,
 }
 /// Allocate a new VideoFrameBuffer
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -737,6 +714,21 @@ pub struct ConnectCallback {
     pub error: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag="3")]
     pub room: ::core::option::Option<RoomInfo>,
+    #[prost(message, optional, tag="4")]
+    pub local_participant: ::core::option::Option<connect_callback::ParticipantWithTracks>,
+    #[prost(message, repeated, tag="5")]
+    pub participants: ::prost::alloc::vec::Vec<connect_callback::ParticipantWithTracks>,
+}
+/// Nested message and enum types in `ConnectCallback`.
+pub mod connect_callback {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ParticipantWithTracks {
+        #[prost(message, optional, tag="1")]
+        pub participant: ::core::option::Option<super::ParticipantInfo>,
+        #[prost(message, repeated, tag="2")]
+        pub tracks: ::prost::alloc::vec::Vec<super::TrackInfo>,
+    }
 }
 /// Disconnect from the a room
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -967,10 +959,6 @@ pub struct RoomInfo {
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
     pub metadata: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="5")]
-    pub local_participant: ::core::option::Option<ParticipantInfo>,
-    #[prost(message, repeated, tag="6")]
-    pub participants: ::prost::alloc::vec::Vec<ParticipantInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1544,7 +1532,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -1557,20 +1545,18 @@ pub mod ffi_event {
         #[prost(message, tag="2")]
         TrackEvent(super::TrackEvent),
         #[prost(message, tag="3")]
-        ParticipantEvent(super::ParticipantEvent),
-        #[prost(message, tag="4")]
         VideoStreamEvent(super::VideoStreamEvent),
-        #[prost(message, tag="5")]
+        #[prost(message, tag="4")]
         AudioStreamEvent(super::AudioStreamEvent),
-        #[prost(message, tag="6")]
+        #[prost(message, tag="5")]
         Connect(super::ConnectCallback),
-        #[prost(message, tag="7")]
+        #[prost(message, tag="6")]
         Disconnect(super::DisconnectCallback),
-        #[prost(message, tag="8")]
+        #[prost(message, tag="7")]
         Dispose(super::DisposeCallback),
-        #[prost(message, tag="9")]
+        #[prost(message, tag="8")]
         PublishTrack(super::PublishTrackCallback),
-        #[prost(message, tag="10")]
+        #[prost(message, tag="9")]
         PublishData(super::PublishDataCallback),
     }
 }

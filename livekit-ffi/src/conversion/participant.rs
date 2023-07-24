@@ -10,7 +10,6 @@ macro_rules! impl_participant_into {
                     sid: p.sid().to_string(),
                     identity: p.identity().to_string(),
                     metadata: p.metadata(),
-                    publications: p.tracks().iter().map(|(_, p)| p.into()).collect(),
                 }
             }
         }

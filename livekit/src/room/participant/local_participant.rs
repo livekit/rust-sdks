@@ -45,8 +45,8 @@ impl Debug for LocalParticipant {
 impl LocalParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
-        sid: ParticipantSid,
-        identity: ParticipantIdentity,
+        sid: String,
+        identity: String,
         name: String,
         metadata: String,
     ) -> Self {
@@ -58,7 +58,7 @@ impl LocalParticipant {
         }
     }
 
-    pub(crate) fn internal_tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+    pub(crate) fn internal_tracks(&self) -> HashMap<String, TrackPublication> {
         self.inner.tracks.read().clone()
     }
 
@@ -99,7 +99,7 @@ impl LocalParticipant {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
+    pub(crate) fn remove_publication(&self, sid: &str) {
         super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid);
     }
 
@@ -171,7 +171,7 @@ impl LocalParticipant {
 
     pub async fn unpublish_track(
         &self,
-        track: TrackSid,
+        track: String,
         _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
         let publication = self.inner.tracks.write().remove(&track);
@@ -219,7 +219,7 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
+    pub fn get_track_publication(&self, sid: &str) -> Option<LocalTrackPublication> {
         self.inner.tracks.read().get(sid).map(|track| {
             if let TrackPublication::Local(local) = track {
                 return local.clone();
@@ -229,11 +229,11 @@ impl LocalParticipant {
         })
     }
 
-    pub fn sid(&self) -> ParticipantSid {
+    pub fn sid(&self) -> String {
         self.inner.info.read().sid.clone()
     }
 
-    pub fn identity(&self) -> ParticipantIdentity {
+    pub fn identity(&self) -> String {
         self.inner.info.read().identity.clone()
     }
 
@@ -249,7 +249,7 @@ impl LocalParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> HashMap<TrackSid, LocalTrackPublication> {
+    pub fn tracks(&self) -> HashMap<String, LocalTrackPublication> {
         self.inner
             .tracks
             .read()

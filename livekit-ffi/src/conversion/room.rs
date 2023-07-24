@@ -1,4 +1,4 @@
-use crate::{proto, FfiHandleId};
+use crate::proto;
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
@@ -50,7 +50,7 @@ impl From<DataPacketKind> for proto::DataPacketKind {
     }
 }
 
-impl proto::RoomInfo {
+/*impl proto::RoomInfo {
     pub fn from_room(handle_id: FfiHandleId, session: &Room) -> Self {
         Self {
             handle: Some(handle_id.into()),
@@ -65,7 +65,7 @@ impl proto::RoomInfo {
                 .collect(),
         }
     }
-}
+}*/
 
 impl From<proto::TrackPublishOptions> for TrackPublishOptions {
     fn from(opts: proto::TrackPublishOptions) -> Self {

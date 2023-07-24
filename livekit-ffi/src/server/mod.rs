@@ -8,6 +8,7 @@ use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{native::I420BufferExt, BoxVideoFrameBuffer, I420Buffer};
 use parking_lot::Mutex;
 use prost::Message;
+use std::any::Any;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -27,6 +28,9 @@ lazy_static! {
 pub struct FfiConfig {
     callback_fn: FfiCallbackFn,
 }
+
+/// A trait to allow storing Ffi handles inside the ffi servers
+pub type FfiHandle = Box<dyn Any + Send + Sync>;
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
@@ -334,7 +338,7 @@ impl FfiServer {
         let participant = ffi_room
             .room()
             .participants()
-            .get(&ParticipantSid(set_subscribed.participant_sid.clone()))
+            .get(&set_subscribed.participant_sid)
             .cloned();
 
         let Some(participant) = participant else {
@@ -342,8 +346,7 @@ impl FfiServer {
             return Ok(proto::SetSubscribedResponse {});
         };
 
-        let publication =
-            participant.get_track_publication(&TrackSid(set_subscribed.track_sid.clone()));
+        let publication = participant.get_track_publication(&set_subscribed.track_sid);
 
         let Some(publication) = publication else {
             log::warn!("track {} not found while setting set_subscribed, bad timing", set_subscribed.track_sid);

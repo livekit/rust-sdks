@@ -18,9 +18,16 @@ message ConnectResponse {
   FfiAsyncId async_id = 1;
 }
 message ConnectCallback {
+  message ParticipantWithTracks {
+    ParticipantInfo participant = 1;
+    repeated TrackInfo tracks = 2;
+  }
+
   FfiAsyncId async_id = 1;
   optional string error = 2;
   RoomInfo room = 3;
+  ParticipantWithTracks local_participant = 4;
+  repeated ParticipantWithTracks participants = 5;
 }
 
 // Disconnect from the a room
@@ -164,8 +171,6 @@ message RoomInfo {
   string sid = 2;
   string name = 3;
   string metadata = 4;
-  ParticipantInfo local_participant = 5;
-  repeated ParticipantInfo participants = 6;
 }
 
 message ParticipantConnected { ParticipantInfo info = 1; }

@@ -51,7 +51,7 @@ impl LocalAudioTrack {
         Self::new(name.to_string(), rtc_track, source)
     }
 
-    pub fn sid(&self) -> TrackSid {
+    pub fn sid(&self) -> String {
         self.inner.info.read().sid.clone()
     }
 

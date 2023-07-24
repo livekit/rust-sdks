@@ -59,7 +59,7 @@ macro_rules! track_dispatch {
     ([$($variant:ident),+]) => {
         enum_dispatch!(
             [$($variant),+];
-            pub fn sid(self: &Self) -> TrackSid;
+            pub fn sid(self: &Self) -> String;
             pub fn name(self: &Self) -> String;
             pub fn kind(self: &Self) -> TrackKind;
             pub fn source(self: &Self) -> TrackSource;
@@ -109,7 +109,7 @@ struct TrackEvents {
 
 #[derive(Debug)]
 struct TrackInfo {
-    pub sid: TrackSid,
+    pub sid: String,
     pub name: String,
     pub kind: TrackKind,
     pub source: TrackSource,
@@ -125,7 +125,7 @@ pub(super) struct TrackInner {
 }
 
 pub(super) fn new_inner(
-    sid: TrackSid,
+    sid: String,
     name: String,
     kind: TrackKind,
     rtc_track: MediaStreamTrack,

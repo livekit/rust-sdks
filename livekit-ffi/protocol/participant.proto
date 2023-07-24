@@ -3,21 +3,13 @@ syntax = "proto3";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
-//import "handle.proto";
-import "track.proto";
+import "handle.proto";
 
 // Seems like we don't need a FfiHandle for participants (atm at least)
 message ParticipantInfo {
-  string sid = 1;
-  string name = 2;
-  string identity = 3;
-  string metadata = 4;
-  repeated TrackPublicationInfo publications = 5;
+  FfiHandleId handle = 1;
+  string sid = 2;
+  string name = 3;
+  string identity = 4;
+  string metadata = 5;
 }
-
-message ParticipantEvent {
-  string participant_sid = 1;
-  oneof message { IsSpeakingChanged speaking_changed = 2; }
-}
-
-message IsSpeakingChanged { bool speaking = 1; }

@@ -6,7 +6,6 @@ option csharp_namespace = "LiveKit.Proto";
 import "handle.proto";
 import "track.proto";
 import "room.proto";
-import "participant.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
 
@@ -87,14 +86,13 @@ message FfiEvent {
   oneof message {
     RoomEvent room_event = 1;
     TrackEvent track_event = 2;
-    ParticipantEvent participant_event = 3;
-    VideoStreamEvent video_stream_event = 4;
-    AudioStreamEvent audio_stream_event = 5;
-    ConnectCallback connect = 6;
-    DisconnectCallback disconnect = 7;
-    DisposeCallback dispose = 8;
-    PublishTrackCallback publish_track = 9;
-    PublishDataCallback publish_data = 10;
+    VideoStreamEvent video_stream_event = 3;
+    AudioStreamEvent audio_stream_event = 4;
+    ConnectCallback connect = 5;
+    DisconnectCallback disconnect = 6;
+    DisposeCallback dispose = 7;
+    PublishTrackCallback publish_track = 8;
+    PublishDataCallback publish_data = 9;
   }
 }
 

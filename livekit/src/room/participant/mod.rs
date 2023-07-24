@@ -29,8 +29,8 @@ pub enum Participant {
 impl Participant {
     enum_dispatch!(
         [Local, Remote];
-        pub fn sid(self: &Self) -> ParticipantSid;
-        pub fn identity(self: &Self) -> ParticipantIdentity;
+        pub fn sid(self: &Self) -> String;
+        pub fn identity(self: &Self) -> String;
         pub fn name(self: &Self) -> String;
         pub fn metadata(self: &Self) -> String;
         pub fn is_speaking(self: &Self) -> bool;
@@ -44,10 +44,10 @@ impl Participant {
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
         pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
-        pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> ();
+        pub(crate) fn remove_publication(self: &Self, sid: &str) -> ();
     );
 
-    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+    pub fn tracks(&self) -> HashMap<String, TrackPublication> {
         match self {
             Participant::Local(p) => p.internal_tracks(),
             Participant::Remote(p) => p.internal_tracks(),
@@ -56,8 +56,8 @@ impl Participant {
 }
 
 struct ParticipantInfo {
-    pub sid: ParticipantSid,
-    pub identity: ParticipantIdentity,
+    pub sid: String,
+    pub identity: String,
     pub name: String,
     pub metadata: String,
     pub speaking: bool,
@@ -74,14 +74,14 @@ struct ParticipantEvents {
 pub(super) struct ParticipantInner {
     rtc_engine: Arc<RtcEngine>,
     info: RwLock<ParticipantInfo>,
-    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    tracks: RwLock<HashMap<String, TrackPublication>>,
     events: Arc<ParticipantEvents>,
 }
 
 pub(super) fn new_inner(
     rtc_engine: Arc<RtcEngine>,
-    sid: ParticipantSid,
-    identity: ParticipantIdentity,
+    sid: String,
+    identity: String,
     name: String,
     metadata: String,
 ) -> Arc<ParticipantInner> {
@@ -140,7 +140,7 @@ pub(super) fn set_connection_quality(
 pub(super) fn remove_publication(
     inner: &Arc<ParticipantInner>,
     _participant: &Participant,
-    sid: &TrackSid,
+    sid: &str,
 ) -> Option<TrackPublication> {
     let mut tracks = inner.tracks.write();
     let publication = tracks.remove(sid);

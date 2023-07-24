@@ -3,7 +3,6 @@ use crate::{FfiAsyncId, FfiHandleId};
 
 pub mod audio_frame;
 pub mod participant;
-pub mod publication;
 pub mod room;
 pub mod track;
 pub mod video_frame;

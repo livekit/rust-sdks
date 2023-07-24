@@ -13,7 +13,7 @@ impl From<TrackSource> for proto::TrackSource {
     }
 }
 
-macro_rules! impl_publication_into {
+/*macro_rules! impl_publication_into {
     ($fnc:ident, $t:ty) => {
         impl proto::TrackPublicationInfo {
             #[allow(dead_code)]
@@ -38,7 +38,7 @@ macro_rules! impl_publication_into {
 
 impl_publication_into!(from_local_track_publication, &LocalTrackPublication);
 impl_publication_into!(from_remote_track_publication, &RemoteTrackPublication);
-impl_publication_into!(from_track_publication, &TrackPublication);
+impl_publication_into!(from_track_publication, &TrackPublication);*/
 
 macro_rules! impl_track_into {
     ($fnc:ident, $t:ty) => {

@@ -234,7 +234,7 @@ impl RemoteTrackPublication {
         self.remote.info.read().allowed
     }
 
-    pub fn sid(&self) -> TrackSid {
+    pub fn sid(&self) -> String {
         self.inner.info.read().sid.clone()
     }
 

@@ -34,7 +34,7 @@ pub enum TrackPublication {
 impl TrackPublication {
     enum_dispatch!(
         [Local, Remote];
-        pub fn sid(self: &Self) -> TrackSid;
+        pub fn sid(self: &Self) -> String;
         pub fn name(self: &Self) -> String;
         pub fn kind(self: &Self) -> TrackKind;
         pub fn source(self: &Self) -> TrackSource;
@@ -68,7 +68,7 @@ impl TrackPublication {
 struct PublicationInfo {
     pub track: Option<Track>,
     pub name: String,
-    pub sid: TrackSid,
+    pub sid: String,
     pub kind: TrackKind,
     pub source: TrackSource,
     pub simulcasted: bool,
