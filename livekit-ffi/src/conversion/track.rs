@@ -14,10 +14,12 @@ impl From<TrackSource> for proto::TrackSource {
 }
 
 macro_rules! impl_publication_into {
-    ($p:ty) => {
-        impl From<$p> for proto::TrackPublicationInfo {
-            fn from(p: $p) -> Self {
+    ($fnc:ident, $t:ty) => {
+        impl proto::TrackPublicationInfo {
+            #[allow(dead_code)]
+            pub fn $fnc(handle_id: FfiHandleId, p: $t) -> Self {
                 Self {
+                    handle: Some(handle_id.into()),
                     name: p.name(),
                     sid: p.sid().to_string(),
                     kind: proto::TrackKind::from(p.kind()).into(),
@@ -34,9 +36,9 @@ macro_rules! impl_publication_into {
     };
 }
 
-impl_publication_into!(&LocalTrackPublication);
-impl_publication_into!(&RemoteTrackPublication);
-impl_publication_into!(&TrackPublication);
+impl_publication_into!(from_local_track_publication, &LocalTrackPublication);
+impl_publication_into!(from_remote_track_publication, &RemoteTrackPublication);
+impl_publication_into!(from_track_publication, &TrackPublication);
 
 macro_rules! impl_track_into {
     ($fnc:ident, $t:ty) => {

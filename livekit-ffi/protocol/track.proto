@@ -52,16 +52,17 @@ enum StreamState {
 // TODO(theomonnom): Should we have a separate message whether the track is local or remote?
 
 message TrackPublicationInfo {
-  string sid = 1;
-  string name = 2;
-  TrackKind kind = 3;
-  TrackSource source = 4;
-  bool simulcasted = 5;
-  uint32 width = 6;
-  uint32 height = 7;
-  string mime_type = 8;
-  bool muted = 9;
-  bool remote = 10;
+  FfiHandleId handle = 1;
+  string sid = 2;
+  string name = 3;
+  TrackKind kind = 4;
+  TrackSource source = 5;
+  bool simulcasted = 6;
+  uint32 width = 7;
+  uint32 height = 8;
+  string mime_type = 9;
+  bool muted = 10;
+  bool remote = 11;
 }
 
 message TrackInfo {

@@ -62,25 +62,27 @@ pub struct TrackEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackPublicationInfo {
-    #[prost(string, tag="1")]
-    pub sid: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiHandleId>,
     #[prost(string, tag="2")]
+    pub sid: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
     pub name: ::prost::alloc::string::String,
-    #[prost(enumeration="TrackKind", tag="3")]
+    #[prost(enumeration="TrackKind", tag="4")]
     pub kind: i32,
-    #[prost(enumeration="TrackSource", tag="4")]
+    #[prost(enumeration="TrackSource", tag="5")]
     pub source: i32,
-    #[prost(bool, tag="5")]
+    #[prost(bool, tag="6")]
     pub simulcasted: bool,
-    #[prost(uint32, tag="6")]
-    pub width: u32,
     #[prost(uint32, tag="7")]
+    pub width: u32,
+    #[prost(uint32, tag="8")]
     pub height: u32,
-    #[prost(string, tag="8")]
+    #[prost(string, tag="9")]
     pub mime_type: ::prost::alloc::string::String,
-    #[prost(bool, tag="9")]
-    pub muted: bool,
     #[prost(bool, tag="10")]
+    pub muted: bool,
+    #[prost(bool, tag="11")]
     pub remote: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

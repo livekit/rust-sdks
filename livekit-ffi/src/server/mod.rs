@@ -133,6 +133,26 @@ impl FfiServer {
 
         Ok(())
     }
+
+    fn retrieve_handle<T>(&self, handle: &Option<proto::FfiHandleId>) -> FfiResult<&T> {
+        let handle_id = handle
+            .ok_or(FfiError::InvalidRequest("handle is empty"))?
+            .id as FfiHandleId;
+
+        let handle = self
+            .ffi_handles
+            .get(&handle_id)
+            .ok_or(FfiError::InvalidRequest("handle not found"))?;
+
+        let handle = handle
+            .downcast_ref::<T>()
+            .ok_or(FfiError::InvalidRequest(&format!(
+                "handle is not a {}",
+                std::any::type_name::<T>()
+            )))?;
+
+        Ok(handle)
+    }
 }
 
 impl FfiServer {
@@ -182,28 +202,14 @@ impl FfiServer {
     ) -> FfiResult<proto::ConnectResponse> {
         let async_id = self.next_id();
         self.async_runtime.spawn(async move {
-            // Try to connect to the Room
             let res = room::FfiRoom::connect(&self, connect).await;
-            match res {
-                Ok(room_info) => {
-                    let _ = self
-                        .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
-                            async_id: Some(async_id.into()),
-                            error: None,
-                            room: Some(room_info),
-                        }))
-                        .await;
-                }
-                Err(err) => {
-                    let _ = self
-                        .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
-                            async_id: Some(async_id.into()),
-                            error: Some(err.to_string()),
-                            room: None,
-                        }))
-                        .await;
-                }
-            }
+            let _ = self
+                .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
+                    async_id: Some(async_id.into()),
+                    error: res.err().map(|e| e.to_string()),
+                    room: res.ok().map(|r| r.into()),
+                }))
+                .await;
         });
 
         Ok(proto::ConnectResponse {
@@ -218,29 +224,14 @@ impl FfiServer {
         disconnect: proto::DisconnectRequest,
     ) -> FfiResult<proto::DisconnectResponse> {
         let async_id = self.next_id() as FfiAsyncId;
-        let room_handle = disconnect
-            .room_handle
-            .as_ref()
-            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
-            .id as FfiHandleId;
 
         self.async_runtime.spawn(async move {
-            let ffi_room = {
-                let mut ffi_room = self
-                    .ffi_handles
-                    .get_mut(&room_handle)
-                    .ok_or(FfiError::InvalidRequest("room not found"))
-                    .unwrap();
-
-                ffi_room
-                    .value_mut()
-                    .downcast_mut::<room::HandleType>()
-                    .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))
-                    .unwrap()
-                    .clone()
-            };
+            let ffi_room = self
+                .retrieve_handle::<room::HandleType>(&disconnect.room_handle)
+                .unwrap();
 
             ffi_room.close().await;
+
             let _ = self
                 .send_event(proto::ffi_event::Message::Disconnect(
                     proto::DisconnectCallback {
@@ -262,41 +253,10 @@ impl FfiServer {
         let async_id = self.next_id() as FfiAsyncId;
         self.async_runtime.spawn(async move {
             let res = async {
-                let room_handle = publish
-                    .room_handle
-                    .as_ref()
-                    .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
-                    .id as FfiHandleId;
-
-                let ffi_room = {
-                    let ffi_room = self
-                        .ffi_handles
-                        .get(&room_handle)
-                        .ok_or(FfiError::InvalidRequest("room not found"))?;
-
-                    ffi_room
-                        .downcast_ref::<room::HandleType>()
-                        .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?
-                        .clone()
-                };
-
-                let track_handle = publish
-                    .track_handle
-                    .as_ref()
-                    .ok_or(FfiError::InvalidRequest("track_handle is empty"))?
-                    .id as FfiHandleId;
-
-                let track = {
-                    let track = self
-                        .ffi_handles
-                        .get(&track_handle)
-                        .ok_or(FfiError::InvalidRequest("track not found"))?;
-
-                    track
-                        .downcast_ref::<Track>()
-                        .ok_or(FfiError::InvalidRequest("track is not a Track"))?
-                        .clone()
-                };
+                let ffi_room = self.retrieve_handle::<room::HandleType>(&publish.room_handle)?;
+                let track = self
+                    .retrieve_handle::<Track>(&publish.track_handle)?
+                    .clone();
 
                 let local_track = LocalTrack::try_from(track)
                     .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack"))?;
@@ -314,12 +274,28 @@ impl FfiServer {
             }
             .await;
 
+            let publication_info = {
+                let handle_id = self.next_id() as FfiHandleId;
+
+                if let Ok(publication) = res {
+                    self.ffi_handles
+                        .insert(handle_id, Box::new(TrackPublication::Local(publication)));
+
+                    Some(proto::TrackPublicationInfo::from_local_track_publication(
+                        handle_id,
+                        &publication,
+                    ))
+                } else {
+                    None
+                }
+            };
+
             if let Err(err) = self
                 .send_event(proto::ffi_event::Message::PublishTrack(
                     proto::PublishTrackCallback {
                         async_id: Some(async_id.into()),
                         error: res.as_ref().err().map(|e| e.to_string()),
-                        publication: res.as_ref().ok().map(Into::into),
+                        publication: publication_info,
                     },
                 ))
                 .await
@@ -344,22 +320,8 @@ impl FfiServer {
         &'static self,
         publish: proto::PublishDataRequest,
     ) -> FfiResult<proto::PublishDataResponse> {
-        let room_handle = publish
-            .room_handle
-            .as_ref()
-            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
-            .id as FfiHandleId;
-
-        let ffi_room = self
-            .ffi_handles
-            .get(&room_handle)
-            .ok_or(FfiError::InvalidRequest("room not found"))?;
-
-        let ffi_room = ffi_room
-            .downcast_ref::<room::HandleType>()
-            .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
-
         // Push the data to an async queue (avoid blocking and keep the order)
+        let ffi_room = self.retrieve_handle::<room::HandleType>(&publish.room_handle)?;
         ffi_room.publish_data(self, publish)
     }
 
@@ -367,20 +329,7 @@ impl FfiServer {
         &'static self,
         set_subscribed: proto::SetSubscribedRequest,
     ) -> FfiResult<proto::SetSubscribedResponse> {
-        let room_handle = set_subscribed
-            .room_handle
-            .as_ref()
-            .ok_or(FfiError::InvalidRequest("room_handle is empty"))?
-            .id as FfiHandleId;
-
-        let ffi_room = self
-            .ffi_handles
-            .get(&room_handle)
-            .ok_or(FfiError::InvalidRequest("room not found"))?;
-
-        let ffi_room = ffi_room
-            .downcast_ref::<room::HandleType>()
-            .ok_or(FfiError::InvalidRequest("room is not a FfiRoom"))?;
+        let ffi_room = self.retrieve_handle::<room::HandleType>(&set_subscribed.room_handle)?;
 
         let participant = ffi_room
             .room()
@@ -410,21 +359,11 @@ impl FfiServer {
         &'static self,
         create: proto::CreateVideoTrackRequest,
     ) -> FfiResult<proto::CreateVideoTrackResponse> {
-        let handle_id = create
-            .source_handle
-            .ok_or(FfiError::InvalidRequest("source_handle is empty"))?
-            .id as FfiHandleId;
-
         let source = self
-            .ffi_handles
-            .get(&handle_id)
-            .ok_or(FfiError::InvalidRequest("source not found"))?;
+            .retrieve_handle::<video_frame::FfiVideoSource>(&create.source_handle)?
+            .inner_source()
+            .clone();
 
-        let source = source
-            .downcast_ref::<video_frame::FfiVideoSource>()
-            .ok_or(FfiError::InvalidRequest("handle is not a video source"))?;
-
-        let source = source.inner_source().clone();
         let video_track = LocalVideoTrack::create_video_track(&create.name, source);
 
         let handle_id = self.next_id() as FfiHandleId;
@@ -442,21 +381,11 @@ impl FfiServer {
         &'static self,
         create: proto::CreateAudioTrackRequest,
     ) -> FfiResult<proto::CreateAudioTrackResponse> {
-        let handle_id = create
-            .source_handle
-            .ok_or(FfiError::InvalidRequest("source_handle is empty"))?
-            .id as FfiHandleId;
-
         let source = self
-            .ffi_handles
-            .get(&handle_id)
-            .ok_or(FfiError::InvalidRequest("source not found"))?;
+            .retrieve_handle::<audio_frame::FfiAudioSource>(&create.source_handle)?
+            .inner_source()
+            .clone();
 
-        let source = source
-            .downcast_ref::<audio_frame::FfiAudioSource>()
-            .ok_or(FfiError::InvalidRequest("handle is not an audio source"))?;
-
-        let source = source.inner_source().clone();
         let audio_track = LocalAudioTrack::create_audio_track(&create.name, source);
 
         let handle_id = self.next_id() as FfiHandleId;
@@ -517,22 +446,8 @@ impl FfiServer {
         &'static self,
         push: proto::CaptureVideoFrameRequest,
     ) -> FfiResult<proto::CaptureVideoFrameResponse> {
-        let handle_id = push
-            .source_handle
-            .as_ref()
-            .ok_or(FfiError::InvalidRequest("source_handle is empty"))?
-            .id as FfiHandleId;
-
-        let video_source = self
-            .ffi_handles
-            .get(&handle_id)
-            .ok_or(FfiError::InvalidRequest("source not found"))?;
-
-        let video_source = video_source
-            .downcast_ref::<video_frame::FfiVideoSource>()
-            .ok_or(FfiError::InvalidRequest("handle is not a video source"))?;
-
-        video_source.capture_frame(self, push)?;
+        let source = self.retrieve_handle::<video_frame::FfiVideoSource>(&push.source_handle)?;
+        source.capture_frame(self, push)?;
         Ok(proto::CaptureVideoFrameResponse::default())
     }
 
@@ -545,52 +460,31 @@ impl FfiServer {
             .ok_or(FfiError::InvalidRequest("from is empty"))?;
 
         let i420 = match from {
-            proto::to_i420_request::From::Argb(argb_info) => {
-                let mut i420 = I420Buffer::new(argb_info.width, argb_info.height);
-                let argb_format = proto::VideoFormatType::from_i32(argb_info.format).unwrap();
-                let argb_ptr = argb_info.ptr as *const u8;
-                let argb_len = (argb_info.stride * argb_info.height) as usize;
-                let argb = unsafe { slice::from_raw_parts(argb_ptr, argb_len) };
-                let argb_stride = argb_info.stride;
+            proto::to_i420_request::From::Argb(info) => {
+                let argb = unsafe {
+                    let len = (info.stride * info.height) as usize;
+                    slice::from_raw_parts(info.ptr as *const u8, len)
+                };
 
-                let (stride_y, stride_u, stride_v) = i420.strides();
-                let (data_y, data_u, data_v) = i420.data_mut();
-                let width = argb_info.width as i32;
-                let mut height = argb_info.height as i32;
+                let w = info.width as i32;
+                let mut h = info.height as i32;
                 if to_i420.flip_y {
-                    height = -height;
+                    h = -h;
                 }
 
-                match argb_format {
+                // Create a new I420 buffer
+                let mut i420 = I420Buffer::new(info.width, info.height);
+                let (sy, su, sv) = i420.strides();
+                let (dy, du, dv) = i420.data_mut();
+
+                match proto::VideoFormatType::from_i32(info.format).unwrap() {
                     proto::VideoFormatType::FormatArgb => {
-                        yuv_helper::argb_to_i420(
-                            argb,
-                            argb_stride,
-                            data_y,
-                            stride_y,
-                            data_u,
-                            stride_u,
-                            data_v,
-                            stride_v,
-                            width,
-                            height,
-                        )
-                        .unwrap();
+                        yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
+                            .unwrap();
                     }
                     proto::VideoFormatType::FormatAbgr => {
-                        yuv_helper::abgr_to_i420(
-                            argb,
-                            argb_stride,
-                            data_y,
-                            stride_y,
-                            data_u,
-                            stride_u,
-                            data_v,
-                            stride_v,
-                            width,
-                            height,
-                        )
-                        .unwrap();
+                        yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
+                            .unwrap();
                     }
                     _ => return Err(FfiError::InvalidRequest("the format is not supported")),
                 }
@@ -598,14 +492,8 @@ impl FfiServer {
                 i420
             }
             proto::to_i420_request::From::Buffer(handle) => {
-                let handle_id = handle.id as FfiHandleId;
-                let buffer = self
-                    .ffi_handles
-                    .get(&handle_id)
-                    .ok_or(FfiError::InvalidRequest("handle not found"))?;
-                let i420 = buffer
-                    .downcast_ref::<BoxVideoFrameBuffer>()
-                    .ok_or(FfiError::InvalidRequest("handle is not a video buffer"))?
+                let i420 = self
+                    .retrieve_handle::<BoxVideoFrameBuffer>(&Some(handle))?
                     .to_i420();
 
                 i420
@@ -625,42 +513,30 @@ impl FfiServer {
         &'static self,
         to_argb: proto::ToArgbRequest,
     ) -> FfiResult<proto::ToArgbResponse> {
-        let handle_id = to_argb
-            .buffer
-            .ok_or(FfiError::InvalidRequest("buffer is empty"))?
-            .id as FfiHandleId;
+        let buffer = self.retrieve_handle::<BoxVideoFrameBuffer>(&to_argb.buffer)?;
 
-        let buffer = self
-            .ffi_handles
-            .get(&handle_id)
-            .ok_or(FfiError::InvalidRequest("buffer is not found"))?;
-
-        let buffer = buffer
-            .downcast_ref::<BoxVideoFrameBuffer>()
-            .ok_or(FfiError::InvalidRequest("handle is not a video buffer"))?;
-
-        let flip_y = to_argb.flip_y;
-        let dst_format = proto::VideoFormatType::from_i32(to_argb.dst_format).unwrap();
-        let dst_buf = unsafe {
+        let argb = unsafe {
             slice::from_raw_parts_mut(
                 to_argb.dst_ptr as *mut u8,
                 (to_argb.dst_stride * to_argb.dst_height) as usize,
             )
         };
-        let dst_stride = to_argb.dst_stride;
-        let dst_width = to_argb.dst_width as i32;
-        let mut dst_height = to_argb.dst_height as i32;
-        if flip_y {
-            dst_height = -dst_height;
+
+        let w = to_argb.dst_width as i32;
+        let mut h = to_argb.dst_height as i32;
+        if to_argb.flip_y {
+            h = -h;
         }
 
         buffer
             .to_argb(
-                dst_format.into(),
-                dst_buf,
-                dst_stride,
-                dst_width,
-                dst_height,
+                proto::VideoFormatType::from_i32(to_argb.dst_format)
+                    .unwrap()
+                    .into(),
+                argb,
+                to_argb.dst_stride,
+                w,
+                h,
             )
             .unwrap();
 
@@ -712,22 +588,11 @@ impl FfiServer {
         &'static self,
         push: proto::CaptureAudioFrameRequest,
     ) -> FfiResult<proto::CaptureAudioFrameResponse> {
-        let handle_id = push
-            .source_handle
-            .as_ref()
-            .ok_or(FfiError::InvalidRequest("handle is empty"))?
-            .id as FfiHandleId;
+        let source = self
+            .retrieve_handle::<audio_frame::FfiAudioSource>(&push.source_handle)?
+            .clone();
 
-        let audio_source = self
-            .ffi_handles
-            .get(&handle_id)
-            .ok_or(FfiError::InvalidRequest("audio_source not found"))?;
-
-        let audio_source = audio_source
-            .downcast_ref::<audio_frame::FfiAudioSource>()
-            .ok_or(FfiError::InvalidRequest("handle is not a video source"))?;
-
-        audio_source.capture_frame(self, push)?;
+        source.capture_frame(self, push)?;
         Ok(proto::CaptureAudioFrameResponse::default())
     }
 
@@ -750,36 +615,19 @@ impl FfiServer {
         &'static self,
         remix: proto::RemixAndResampleRequest,
     ) -> FfiResult<proto::RemixAndResampleResponse> {
-        let resampler_id = remix
-            .resampler_handle
-            .ok_or(FfiError::InvalidRequest("handle is empty"))?
-            .id as FfiHandleId;
-
         let resampler = self
-            .ffi_handles
-            .get(&resampler_id)
-            .ok_or(FfiError::InvalidRequest("resampler not found"))?
-            .downcast_ref::<Arc<Mutex<audio_resampler::AudioResampler>>>()
-            .ok_or(FfiError::InvalidRequest("handle is not a resampler"))?
+            .retrieve_handle::<Arc<Mutex<audio_resampler::AudioResampler>>>(
+                &remix.resampler_handle,
+            )?
             .clone();
-
-        let buffer_id = remix
-            .buffer_handle
-            .ok_or(FfiError::InvalidRequest("handle is empty"))?
-            .id as FfiHandleId;
 
         let data = {
             let buffer = self
-                .ffi_handles
-                .get(&buffer_id)
-                .ok_or(FfiError::InvalidRequest("buffer not found"))?;
+                .retrieve_handle::<AudioFrame>(&remix.buffer_handle)?
+                .clone();
 
-            let buffer = buffer
-                .downcast_ref::<AudioFrame>()
-                .ok_or(FfiError::InvalidRequest("handle is not a buffer"))?;
-
-            let mut resampler = resampler.lock();
             resampler
+                .lock()
                 .remix_and_resample(
                     &buffer.data,
                     buffer.samples_per_channel,
