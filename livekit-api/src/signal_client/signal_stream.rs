@@ -47,7 +47,7 @@ impl SignalStream {
         log::info!("connecting to SignalClient: {}", url);
 
         let (ws_stream, _) = connect_async(url).await?;
-        let _ = emitter.send(SignalEvent::Open).await;
+        let _ = emitter.send(SignalEvent::Open);
 
         let (ws_writer, ws_reader) = ws_stream.split();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
@@ -104,8 +104,6 @@ impl SignalStream {
                     signal,
                     response_chn,
                 } => {
-                    log::debug!("sending SignalRequest: {:?}", signal);
-
                     let data = Message::Binary(
                         proto::SignalRequest {
                             message: Some(signal),
@@ -114,7 +112,6 @@ impl SignalStream {
                     );
 
                     if let Err(err) = ws_writer.send(data).await {
-                        log::error!("failed to send signal: {:?}", err);
                         let _ = response_chn.send(Err(err.into()));
                         break;
                     }
@@ -137,7 +134,7 @@ impl SignalStream {
         }
 
         let _ = ws_writer.close().await;
-        let _ = emitter.send(SignalEvent::Close).await;
+        let _ = emitter.send(SignalEvent::Close);
     }
 
     /// This task is used to read incoming messages from the websocket
@@ -156,8 +153,7 @@ impl SignalStream {
                         .expect("failed to decode SignalResponse");
 
                     let msg = res.message.unwrap();
-                    log::debug!("received SignalResponse: {:?}", msg);
-                    let _ = emitter.send(SignalEvent::Signal(msg)).await;
+                    let _ = emitter.send(SignalEvent::Signal(msg));
                 }
                 Ok(Message::Ping(data)) => {
                     let _ = internal_tx
