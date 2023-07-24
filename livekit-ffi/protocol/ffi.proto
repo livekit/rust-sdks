@@ -11,7 +11,7 @@ import "audio_frame.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
-// refer as the ffi client the foreign language the ffi server. (e.g Python SDK, Unity SDK, etc...)
+// refer as the ffi client the foreign language that commumicatesffi server. (e.g Python SDK, Unity SDK, etc...)
 //
 // We expose the Rust client implementation of livekit using the protocol defined here.
 // Everything starts with a FfiRequest, which is a oneof message that contains all the possible
