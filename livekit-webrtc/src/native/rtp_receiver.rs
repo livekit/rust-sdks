@@ -36,4 +36,8 @@ impl RtpReceiver {
     pub fn new_adapted_frame_transformer(&self, observer: Box<EncodedFrameSinkWrapper>, is_video: bool) -> SharedPtr<AdaptedNativeFrameTransformer> {
         sys_ft::ffi::new_adapted_frame_transformer(observer, is_video)
     }
+
+    pub fn request_key_frame(&self) {
+        self.sys_handle.request_key_frame();
+    }
 }

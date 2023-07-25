@@ -9,6 +9,7 @@ class EncodedVideoFrame;
 }  // namespace livekit
 #include "webrtc-sys/src/encoded_video_frame.rs.h"
 
+
 namespace livekit {
 
 class EncodedVideoFrame {
@@ -18,6 +19,11 @@ class EncodedVideoFrame {
   bool is_key_frame() const;
   uint16_t width() const;
   uint16_t height() const;
+
+  uint16_t first_seq_num() const;
+  uint16_t last_seq_num() const;
+  int64_t get_ntp_time_ms() const;
+
   uint32_t timestamp() const;
 
   uint8_t payload_type() const;

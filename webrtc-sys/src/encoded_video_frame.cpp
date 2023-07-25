@@ -33,8 +33,20 @@ uint16_t EncodedVideoFrame::height() const {
     return frame_->GetMetadata().GetHeight();
 }
 
+uint16_t EncodedVideoFrame::first_seq_num() const {
+    return frame_->first_seq_num();
+}
+
+uint16_t EncodedVideoFrame::last_seq_num() const {
+    return frame_->last_seq_num();
+}
+
 uint8_t EncodedVideoFrame::payload_type() const {
     return frame_->GetPayloadType();
+}
+
+int64_t EncodedVideoFrame::get_ntp_time_ms() const {
+    return frame_->GetNtpTimeMs();
 }
 
 std::shared_ptr<int64_t> EncodedVideoFrame::frame_id() const {
