@@ -90,9 +90,9 @@ message SetSubscribedRequest {
 message SetSubscribedResponse {}
 
 
-///
-/// Options
-///
+//
+// Options
+//
 
 message VideoEncoding {
   uint64 max_bitrate = 1;
@@ -120,9 +120,9 @@ message RoomOptions {
   bool dynacast = 3;
 }
 
-///
-/// Room
-///
+//
+// Room
+//
 
 enum ConnectionQuality {
   QUALITY_POOR = 0;
@@ -139,6 +139,12 @@ enum ConnectionState {
 enum DataPacketKind {
   KIND_LOSSY = 0;
   KIND_RELIABLE = 1;
+}
+
+message BufferOwned {
+  FfiOwnedHandle handle = 1;
+  uint64 data_ptr = 2;
+  uint64 data_size = 3;
 }
 
 message RoomEvent {
@@ -166,7 +172,7 @@ message RoomEvent {
   }
 }
 
-message RoomInfo {
+message RoomOwned {
   FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
@@ -233,11 +239,9 @@ message ConnectionQualityChanged {
 }
 
 message DataReceived {
-  FfiOwnedHandle handle = 1;
+  BufferOwned data = 1;
   optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
-  uint64 data_ptr = 3;
-  uint64 data_size = 4;
-  DataPacketKind kind = 5;
+  DataPacketKind kind = 3;
 }
 
 message ConnectionStateChanged { ConnectionState state = 1; }

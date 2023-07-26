@@ -5,8 +5,7 @@ option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
 
-// Seems like we don't need a FfiHandle for participants (atm at least)
-message ParticipantInfo {
+message ParticipantOwned {
   FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;

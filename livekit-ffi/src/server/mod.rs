@@ -1,9 +1,7 @@
-use self::room::{FfiParticipant, FfiPublication, FfiRoom, FfiTrack};
 use crate::{proto, FfiCallbackFn, INVALID_HANDLE};
 use crate::{FfiError, FfiHandleId, FfiResult};
 use dashmap::DashMap;
 use lazy_static::lazy_static;
-use livekit::webrtc::prelude::*;
 use parking_lot::deadlock;
 use parking_lot::Mutex;
 use prost::Message;
@@ -137,14 +135,14 @@ impl FfiServer {
 
     pub fn store_handle<T>(&'static self, id: FfiHandleId, handle: T)
     where
-        T: Send + Sync,
+        T: FfiHandle,
     {
         self.ffi_handles.insert(id, Box::new(handle));
     }
 
     pub fn retrieve_handle<T>(&'static self, id: FfiHandleId) -> FfiResult<&T>
     where
-        T: Send + Sync,
+        T: FfiHandle,
     {
         if id == INVALID_HANDLE {
             return Err(FfiError::InvalidRequest("handle is invalid"));

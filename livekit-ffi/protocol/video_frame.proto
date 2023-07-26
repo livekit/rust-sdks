@@ -63,9 +63,9 @@ message ToArgbRequest {
 }
 message ToArgbResponse {}
 
-///
-/// VideoFrame buffers ///
-///
+//
+// VideoFrame buffers
+//
 
 message VideoResolution {
   uint32 width = 1;
@@ -118,49 +118,51 @@ message VideoFrameInfo {
 }
 
 message VideoFrameBufferInfo {
-  FfiOwnedHandle handle = 1;
   VideoFrameBufferType buffer_type = 2;
   uint32 width = 3;
   uint32 height = 4;
   oneof buffer {
-    PlanarYuvBufferInfo yuv = 5;
-    BiplanarYuvBufferInfo bi_yuv = 6;
-    NativeBufferInfo native = 7;
+    PlanarYuvBufferOwned yuv = 5;
+    BiplanarYuvBufferOwned bi_yuv = 6;
+    NativeBufferOwned native = 7;
   }
 }
 
-message PlanarYuvBufferInfo {
-  uint32 chroma_width = 1;
-  uint32 chroma_height = 2;
-  uint32 stride_y = 3;
-  uint32 stride_u = 4;
-  uint32 stride_v = 5;
-  uint32 stride_a = 6;
+message PlanarYuvBufferOwned {
+  FfiOwnedHandle handle = 1;
+  uint32 chroma_width = 2;
+  uint32 chroma_height = 3;
+  uint32 stride_y = 4;
+  uint32 stride_u = 5;
+  uint32 stride_v = 6;
+  uint32 stride_a = 7;
 
   // *const u8 or *const u16
-  uint64 data_y_ptr = 7;
-  uint64 data_u_ptr = 8;
-  uint64 data_v_ptr = 9;
-  uint64 data_a_ptr = 10; // nullptr = no alpha
+  uint64 data_y_ptr = 8;
+  uint64 data_u_ptr = 9;
+  uint64 data_v_ptr = 10;
+  uint64 data_a_ptr = 11; // nullptr = no alpha
 }
 
-message BiplanarYuvBufferInfo {
-  uint32 chroma_width = 1;
-  uint32 chroma_height = 2;
-  uint32 stride_y = 3;
-  uint32 stride_uv = 4;
+message BiplanarYuvBufferOwned {
+  FfiOwnedHandle handle = 1;
+  uint32 chroma_width = 2;
+  uint32 chroma_height = 3;
+  uint32 stride_y = 4;
+  uint32 stride_uv = 5;
 
-  uint64 data_y_ptr = 5;
-  uint64 data_uv_ptr = 6;
+  uint64 data_y_ptr = 6;
+  uint64 data_uv_ptr = 7;
 }
 
-message NativeBufferInfo {
+message NativeBufferOwned {
+  FfiOwnedHandle handle = 1;
   // TODO(theomonnom): Expose graphic context?
 }
 
-///
-/// VideoStream ///
-///
+//
+// VideoStream
+//
 
 enum VideoStreamType {
   VIDEO_STREAM_NATIVE = 0;
@@ -168,7 +170,7 @@ enum VideoStreamType {
   VIDEO_STREAM_HTML = 2;
 }
 
-message VideoStreamInfo {
+message VideoStreamOwned {
   FfiOwnedHandle handle = 1;
   VideoStreamType type = 2;
 }
@@ -183,9 +185,9 @@ message VideoFrameReceived {
   VideoFrameBufferInfo buffer = 2;
 }
 
-///
-/// VideoSource ///
-///
+//
+// VideoSource
+//
 
 message VideoSourceResolution {
   uint32 width = 1;
@@ -196,8 +198,7 @@ enum VideoSourceType {
     VIDEO_SOURCE_NATIVE = 0;
 }
 
-message VideoSourceInfo {
+message VideoSourceOwned {
   FfiOwnedHandle handle = 1;
   VideoSourceType type = 2;
 }
-

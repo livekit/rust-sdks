@@ -23,9 +23,9 @@ message CreateAudioTrackResponse {
   TrackInfo track = 1;
 }
 
-///
-/// Track
-///
+//
+// Track
+//
 
 message TrackEvent {}
 
@@ -49,9 +49,7 @@ enum StreamState {
   STATE_PAUSED = 2;
 }
 
-// TODO(theomonnom): Should we have a separate message whether the track is local or remote?
-
-message TrackPublicationInfo {
+message TrackPublicationOwned {
   FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
@@ -65,7 +63,7 @@ message TrackPublicationInfo {
   bool remote = 11;
 }
 
-message TrackInfo {
+message TrackOwned {
   FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
