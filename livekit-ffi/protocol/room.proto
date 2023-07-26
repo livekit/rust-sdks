@@ -15,7 +15,7 @@ message ConnectRequest {
   RoomOptions options = 3;
 }
 message ConnectResponse {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 message ConnectCallback {
   message ParticipantWithTracks {
@@ -23,7 +23,7 @@ message ConnectCallback {
     repeated TrackInfo tracks = 2;
   }
 
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
   RoomInfo room = 3;
   ParticipantWithTracks local_participant = 4;
@@ -31,58 +31,58 @@ message ConnectCallback {
 }
 
 // Disconnect from the a room
-message DisconnectRequest { FfiHandleId room_handle = 1; }
-message DisconnectResponse { FfiAsyncId async_id = 1; }
-message DisconnectCallback { FfiAsyncId async_id = 1; }
+message DisconnectRequest { uint64 room_handle = 1; }
+message DisconnectResponse { uint64 async_id = 1; }
+message DisconnectCallback { uint64 async_id = 1; }
 
 // Publish a track to the room
 message PublishTrackRequest {
-  FfiHandleId room_handle = 1;
-  FfiHandleId track_handle = 2;
+  uint64 room_handle = 1;
+  uint64 track_handle = 2;
   TrackPublishOptions options = 3;
 }
 message PublishTrackResponse {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 message PublishTrackCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
   TrackPublicationInfo publication = 3;
 }
 
 // Unpublish a track from the room
 message UnpublishTrackRequest {
-  FfiHandleId room_handle = 1;
+  uint64 room_handle = 1;
   string track_sid = 2;
   bool stop_on_unpublish = 3;
 }
 message UnpublishTrackResponse {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 message UnpublishTrackCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Publish data to other participants
 message PublishDataRequest {
-  FfiHandleId room_handle = 1;
+  uint64 room_handle = 1;
   uint64 data_ptr = 2;
   uint64 data_size = 3;
   DataPacketKind kind = 4;
   repeated string destination_sids = 5; // destination
 }
 message PublishDataResponse {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 message PublishDataCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Change the "desire" to subscribe to a track
 message SetSubscribedRequest {
-  FfiHandleId room_handle = 1;
+  uint64 room_handle = 1;
   bool subscribe = 2;
   string participant_sid = 3;
   string track_sid = 4;
@@ -142,7 +142,7 @@ enum DataPacketKind {
 }
 
 message RoomEvent {
-  FfiHandleId room_handle = 1;
+  uint64 room_handle = 1;
   oneof message {
     ParticipantConnected participant_connected = 2;
     ParticipantDisconnected participant_disconnected = 3;
@@ -167,7 +167,7 @@ message RoomEvent {
 }
 
 message RoomInfo {
-  FfiHandleId handle = 1;
+  FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
   string metadata = 4;
@@ -233,7 +233,7 @@ message ConnectionQualityChanged {
 }
 
 message DataReceived {
-  FfiHandleId handle = 1;
+  FfiOwnedHandle handle = 1;
   optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
   uint64 data_ptr = 3;
   uint64 data_size = 4;

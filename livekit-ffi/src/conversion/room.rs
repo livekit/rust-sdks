@@ -50,23 +50,6 @@ impl From<DataPacketKind> for proto::DataPacketKind {
     }
 }
 
-/*impl proto::RoomInfo {
-    pub fn from_room(handle_id: FfiHandleId, session: &Room) -> Self {
-        Self {
-            handle: Some(handle_id.into()),
-            sid: session.sid().into(),
-            name: session.name(),
-            metadata: session.metadata(),
-            local_participant: Some((&session.local_participant()).into()),
-            participants: session
-                .participants()
-                .iter()
-                .map(|(_, p)| p.into())
-                .collect(),
-        }
-    }
-}*/
-
 impl From<proto::TrackPublishOptions> for TrackPublishOptions {
     fn from(opts: proto::TrackPublishOptions) -> Self {
         Self {

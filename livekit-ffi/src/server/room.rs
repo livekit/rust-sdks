@@ -1,5 +1,5 @@
 use crate::server::FfiServer;
-use crate::{proto, FfiAsyncId, FfiError, FfiHandleId, FfiResult};
+use crate::{proto, FfiError, FfiHandleId, FfiResult};
 use livekit::prelude::*;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -10,11 +10,15 @@ use tokio::task::JoinHandle;
 
 pub type HandleType = Arc<FfiRoom>;
 
-struct DataPacket {
-    data: Vec<u8>,
-    kind: DataPacketKind,
-    destination_sids: Vec<String>,
-    async_id: FfiAsyncId,
+pub struct FfiRoom {
+    inner: Arc<RoomInner>,
+    handle: Mutex<Option<Handle>>,
+    data_tx: mpsc::UnboundedSender<DataPacket>,
+}
+
+struct RoomInner {
+    room: Room,
+    tracks: Mutex<HashMap<(String, String), FfiHandleId>>, // (Participant, TrackSid) -> FfiPublication
 }
 
 struct Handle {
@@ -23,23 +27,11 @@ struct Handle {
     close_tx: broadcast::Sender<()>,
 }
 
-// Wrapper around a TrackPublication
-struct FfiPublication {
-    handle: FfiHandleId,
-    publication: TrackPublication,
-}
-
-struct RoomInner {
-    room: Room,
-
-    // (Participant, TrackSid) -> FfiPublication
-    tracks: Mutex<HashMap<(String, String), FfiHandleId>>,
-}
-
-pub struct FfiRoom {
-    inner: Arc<RoomInner>,
-    handle: Mutex<Option<Handle>>,
-    data_tx: mpsc::UnboundedSender<DataPacket>,
+struct DataPacket {
+    data: Vec<u8>,
+    kind: DataPacketKind,
+    destination_sids: Vec<String>,
+    async_id: FfiAsyncId,
 }
 
 impl FfiRoom {
@@ -329,7 +321,7 @@ async fn forward_event(
 
             Some(proto::room_event::Message::DataReceived(
                 proto::DataReceived {
-                    handle: Some(next_id.into()),
+                    handle: Some(proto::FfiOwnedHandle { id: next_id }),
                     participant_sid: Some(participant.sid().to_string()),
                     kind: proto::DataPacketKind::from(kind).into(),
                     data_ptr: data_ptr as u64,

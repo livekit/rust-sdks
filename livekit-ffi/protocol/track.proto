@@ -8,7 +8,7 @@ import "handle.proto";
 // Create a new VideoTrack from a VideoSource
 message CreateVideoTrackRequest {
   string name = 1;
-  FfiHandleId source_handle = 2;
+  uint64 source_handle = 2;
 }
 message CreateVideoTrackResponse {
   TrackInfo track = 1;
@@ -17,7 +17,7 @@ message CreateVideoTrackResponse {
 // Create a new AudioTrack from a AudioSource
 message CreateAudioTrackRequest {
   string name = 1;
-  FfiHandleId source_handle = 2;
+  uint64 source_handle = 2;
 }
 message CreateAudioTrackResponse {
   TrackInfo track = 1;
@@ -52,7 +52,7 @@ enum StreamState {
 // TODO(theomonnom): Should we have a separate message whether the track is local or remote?
 
 message TrackPublicationInfo {
-  FfiHandleId handle = 1;
+  FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
   TrackKind kind = 4;
@@ -66,7 +66,7 @@ message TrackPublicationInfo {
 }
 
 message TrackInfo {
-  FfiHandleId handle = 1;
+  FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
   TrackKind kind = 4;

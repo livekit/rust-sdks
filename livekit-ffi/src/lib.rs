@@ -22,8 +22,7 @@ pub enum FfiError {
 /// # SAFTEY: The "C" callback must be threadsafe and not block
 pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 pub type FfiResult<T> = Result<T, FfiError>;
-pub type FfiAsyncId = usize;
-pub type FfiHandleId = usize;
+pub type FfiHandleId = u64;
 
 pub const INVALID_HANDLE: FfiHandleId = 0;
 

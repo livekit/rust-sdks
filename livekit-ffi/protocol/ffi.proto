@@ -3,7 +3,7 @@ syntax = "proto3";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
-import "handle.proto";
+// import "handle.proto";
 import "track.proto";
 import "room.proto";
 import "video_frame.proto";
@@ -11,7 +11,7 @@ import "audio_frame.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
-// refer as the ffi client the foreign language that commumicatesffi server. (e.g Python SDK, Unity SDK, etc...)
+// refer as the ffi client the foreign language that commumicates with the ffi server. (e.g Python SDK, Unity SDK, etc...)
 //
 // We expose the Rust client implementation of livekit using the protocol defined here.
 // Everything starts with a FfiRequest, which is a oneof message that contains all the possible
@@ -25,9 +25,8 @@ import "audio_frame.proto";
 // **Useful things know when collaborating on the protocol:**
 // Everything is subject to discussion and change :-)
 //
-// - The ffi client implementation must never forget to correctly dispose all the handles
-//   that it receives from the server. (Each time a handle is received, it means a atomic reference count 
-//   has been incremented on the server side).enum
+// - The ffi client implementation must never forget to correctly dispose all the owned handles
+//   that it receives from the server.
 //
 // Therefore, the ffi client is easier to implement if there is less handles to manage.
 // 
@@ -138,11 +137,11 @@ message DisposeRequest {
   bool async = 1;
 }
 message DisposeResponse {
-  optional FfiAsyncId async_id = 1; // None if sync
+  optional uint64 async_id = 1; // None if sync
 }
 
 message DisposeCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 
 // TODO(theomonnom): Debug messages (Print handles, forward logs).

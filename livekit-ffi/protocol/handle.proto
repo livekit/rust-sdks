@@ -3,18 +3,15 @@ syntax = "proto3";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
-/// # Safety
-/// The foreign language is responsable for disposing handles
-/// Forgetting to dispose the handle may lead to memory leaks
-/// 
-/// A handle means that the foreign language may still use the corresponding object
-/// Dropping a handle doesn't necessarily mean that the object is destroyed if it is still used
-/// on the FfiServer (Rust)
-message FfiHandleId {
-  uint64 id = 1;
-}
-
-/// Link the request/response of an asynchronous call
-message FfiAsyncId {
+// # Safety
+// The foreign language is responsable for disposing handles
+// Forgetting to dispose the handle may lead to memory leaks
+// 
+// Dropping a handle doesn't necessarily mean that the object is destroyed if it is still used
+// on the FfiServer (Atomic reference counting)
+// 
+// When refering to a handle without owning it, we just use a uint32 without this message. 
+// (the variable name is suffixed with "_handle")
+message FfiOwnedHandle {
   uint64 id = 1;
 }
