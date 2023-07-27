@@ -1,4 +1,6 @@
 use crate::proto;
+use crate::server::audio_source::FfiAudioSource;
+use crate::server::audio_stream::FfiAudioStream;
 use livekit::webrtc::audio_source::AudioSourceOptions;
 use livekit::webrtc::prelude::*;
 
@@ -20,6 +22,24 @@ impl proto::AudioFrameBufferInfo {
             samples_per_channel: buffer.samples_per_channel,
             sample_rate: buffer.sample_rate,
             num_channels: buffer.num_channels,
+        }
+    }
+}
+
+impl proto::AudioSourceInfo {
+    pub fn from(handle_id: proto::FfiOwnedHandle, source: &FfiAudioSource) -> Self {
+        Self {
+            handle: Some(handle_id.into()),
+            r#type: source.source_type() as i32,
+        }
+    }
+}
+
+impl proto::AudioStreamInfo {
+    pub fn from(handle_id: proto::FfiOwnedHandle, stream: &FfiAudioStream) -> Self {
+        Self {
+            handle: Some(handle_id.into()),
+            r#type: stream.stream_type() as i32,
         }
     }
 }

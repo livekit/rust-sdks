@@ -1,6 +1,7 @@
+use super::track::FfiTrack;
+use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
-use livekit::prelude::*;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::prelude::*;
 use log::warn;
@@ -13,6 +14,8 @@ pub struct FfiAudioStream {
     #[allow(dead_code)]
     close_tx: oneshot::Sender<()>, // Close the stream on drop
 }
+
+impl FfiHandle for FfiAudioStream {}
 
 impl FfiAudioStream {
     /// Setup a new AudioStream and forward the audio data to the client/the foreign
@@ -27,24 +30,15 @@ impl FfiAudioStream {
         server: &'static server::FfiServer,
         new_stream: proto::NewAudioStreamRequest,
     ) -> FfiResult<proto::AudioStreamInfo> {
-        let (close_tx, close_rx) = oneshot::channel();
-        let stream_type = proto::AudioStreamType::from_i32(new_stream.r#type).unwrap();
-
-        let track = server
-            .ffi_handles
-            .get(&new_stream.track_handle)
-            .ok_or(FfiError::InvalidRequest("track not found"))?;
-
-        let track = track
-            .downcast_ref::<Track>()
-            .ok_or(FfiError::InvalidRequest("handle is not a Track"))?;
-
-        let rtc_track = track.rtc_track();
+        let track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?;
+        let rtc_track = track.track().rtc_track();
 
         let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
             return Err(FfiError::InvalidRequest("not an audio track"));
         };
 
+        let (close_tx, close_rx) = oneshot::channel();
+        let stream_type = proto::AudioStreamType::from_i32(new_stream.r#type).unwrap();
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
@@ -67,11 +61,13 @@ impl FfiAudioStream {
         }?;
 
         // Store the new audio stream and return the info
-        let info = proto::AudioStreamInfo::from(&audio_stream);
-        server
-            .ffi_handles
-            .insert(audio_stream.handle_id, Box::new(audio_stream));
-
+        let info = proto::AudioStreamInfo::from(
+            proto::FfiOwnedHandle {
+                id: audio_stream.handle_id,
+            },
+            &audio_stream,
+        );
+        server.store_handle(audio_stream.handle_id, audio_stream);
         Ok(info)
     }
 
@@ -100,9 +96,8 @@ impl FfiAudioStream {
                     };
 
                     let handle_id = server.next_id();
-                    let buffer_info = proto::AudioFrameBufferInfo::from(handle_id, &frame);
-
-                    server.ffi_handles.insert(handle_id, Box::new(frame));
+                    let buffer_info = proto::AudioFrameBufferInfo::from(proto::FfiOwnedHandle{ id: handle_id }, &frame);
+                    server.store_handle(handle_id, frame);
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
                         proto::AudioStreamEvent {

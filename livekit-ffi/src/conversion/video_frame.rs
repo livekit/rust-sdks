@@ -1,4 +1,6 @@
 use crate::proto;
+use crate::server::video_source::FfiVideoSource;
+use crate::server::video_stream::FfiVideoStream;
 use livekit::options::{VideoCodec, VideoResolution};
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame;
@@ -24,6 +26,7 @@ impl proto::VideoFrameInfo {
         }
     }
 }
+
 impl From<proto::VideoFormatType> for VideoFormatType {
     fn from(format: proto::VideoFormatType) -> Self {
         match format {
@@ -261,6 +264,24 @@ impl proto::VideoFrameBufferInfo {
             buffer: Some(proto::video_frame_buffer_info::Buffer::BiYuv(
                 proto::BiplanarYuvBufferInfo::from_nv12(handle, buffer),
             )),
+        }
+    }
+}
+
+impl proto::VideoSourceInfo {
+    pub fn from(handle_id: proto::FfiOwnedHandle, source: &FfiVideoSource) -> Self {
+        Self {
+            handle: Some(handle_id.into()),
+            r#type: source.source_type() as i32,
+        }
+    }
+}
+
+impl proto::VideoStreamInfo {
+    pub fn from(handle_id: proto::FfiOwnedHandle, stream: &FfiVideoStream) -> Self {
+        Self {
+            handle: Some(handle_id.into()),
+            r#type: stream.stream_type() as i32,
         }
     }
 }

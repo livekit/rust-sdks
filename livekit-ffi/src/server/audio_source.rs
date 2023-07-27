@@ -1,17 +1,14 @@
+use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
-use futures_util::StreamExt;
-use livekit::prelude::*;
-use livekit::webrtc::audio_frame::AudioFrame;
-use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::prelude::*;
-use log::warn;
-use tokio::sync::oneshot;
 
 pub struct FfiAudioSource {
     handle_id: FfiHandleId,
     source_type: proto::AudioSourceType,
     source: RtcAudioSource,
 }
+
+impl FfiHandle for FfiAudioSource {}
 
 impl FfiAudioSource {
     pub fn setup(
@@ -31,18 +28,20 @@ impl FfiAudioSource {
             _ => return Err(FfiError::InvalidRequest("unsupported audio source type")),
         };
 
-        let audio_source = Self {
+        let source = Self {
             handle_id: server.next_id(),
             source_type,
             source: source_inner,
         };
-        let source_info = proto::AudioSourceInfo::from(&audio_source);
 
-        server
-            .ffi_handles
-            .insert(audio_source.handle_id, Box::new(audio_source));
-
-        Ok(source_info)
+        let info = proto::AudioSourceInfo::from(
+            proto::FfiOwnedHandle {
+                id: source.handle_id,
+            },
+            &source,
+        );
+        server.store_handle(source.handle_id, source);
+        Ok(info)
     }
 
     pub fn capture_frame(
@@ -53,15 +52,7 @@ impl FfiAudioSource {
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Native(ref source) => {
-                let frame = server
-                    .ffi_handles
-                    .get(&capture.buffer_handle)
-                    .ok_or(FfiError::InvalidRequest("handle not found"))?;
-
-                let frame = frame
-                    .downcast_ref::<AudioFrame>()
-                    .ok_or(FfiError::InvalidRequest("handle is not an audio frame"))?;
-
+                let frame = server.retrieve_handle::<AudioFrame>(capture.buffer_handle)?;
                 source.capture_frame(frame);
             }
             _ => {}

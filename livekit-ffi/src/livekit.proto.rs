@@ -748,7 +748,7 @@ pub struct DisconnectCallback {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishTrackRequest {
     #[prost(uint64, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     #[prost(uint64, tag="2")]
     pub track_handle: u64,
     #[prost(message, optional, tag="3")]
@@ -767,15 +767,17 @@ pub struct PublishTrackCallback {
     pub async_id: u64,
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(message, optional, tag="3")]
-    pub publication: ::core::option::Option<TrackPublicationInfo>,
+    /// The TrackPublicationInfo comes from the LocalTrackPublished event
+    /// and the FfiClient musts wait for it
+    #[prost(string, tag="3")]
+    pub track_sid: ::prost::alloc::string::String,
 }
 /// Unpublish a track from the room
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnpublishTrackRequest {
     #[prost(uint64, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     #[prost(string, tag="2")]
     pub track_sid: ::prost::alloc::string::String,
     #[prost(bool, tag="3")]
@@ -800,7 +802,7 @@ pub struct UnpublishTrackCallback {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishDataRequest {
     #[prost(uint64, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     #[prost(uint64, tag="2")]
     pub data_ptr: u64,
     #[prost(uint64, tag="3")]
@@ -825,18 +827,14 @@ pub struct PublishDataCallback {
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
-/// Change the "desire" to subscribe to a track
+/// Change the "desire" to subs2ribe to a track
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetSubscribedRequest {
-    #[prost(uint64, tag="1")]
-    pub room_handle: u64,
-    #[prost(bool, tag="2")]
+    #[prost(bool, tag="1")]
     pub subscribe: bool,
-    #[prost(string, tag="3")]
-    pub participant_sid: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
-    pub track_sid: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub publication_handle: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -973,16 +971,14 @@ pub struct ParticipantConnected {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantDisconnected {
-    #[prost(message, optional, tag="1")]
-    pub info: ::core::option::Option<ParticipantInfo>,
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LocalTrackPublished {
     #[prost(message, optional, tag="1")]
     pub publication: ::core::option::Option<TrackPublicationInfo>,
-    #[prost(message, optional, tag="2")]
-    pub track: ::core::option::Option<TrackInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

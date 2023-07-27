@@ -8,14 +8,15 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
-pub type HandleType = Arc<FfiRoom>;
-impl FfiHandle for HandleType {}
-
+#[derive(Clone)]
 pub struct FfiRoom {
+    handle_id: FfiHandleId,
     inner: Arc<RoomInner>,
-    handle: Mutex<Option<Handle>>,
+    handle: Arc<Mutex<Option<Handle>>>,
     data_tx: mpsc::UnboundedSender<DataPacket>,
 }
+
+impl FfiHandle for FfiRoom {}
 
 struct RoomInner {
     room: Room,
@@ -50,12 +51,13 @@ impl FfiRoom {
         let (close_tx, close_rx) = broadcast::channel(1);
         let (data_tx, data_rx) = mpsc::unbounded_channel();
 
-        let next_id = server.next_id() as FfiHandleId;
+        let next_id = server.next_id();
         let inner = Arc::new(RoomInner {
             room,
             tracks: Default::default(),
         });
 
+        // Task used to received events
         let event_handle = server.async_runtime.spawn(room_task(
             server,
             inner.clone(),
@@ -63,23 +65,31 @@ impl FfiRoom {
             events,
             close_rx.resubscribe(),
         ));
+
+        // Task used to publish data
         let data_handle =
             server
                 .async_runtime
                 .spawn(data_task(server, inner.clone(), data_rx, close_rx));
 
-        let ffi_room = Arc::new(Self {
-            inner,
-            handle: Mutex::new(Some(Handle {
-                event_handle,
-                data_handle,
-                close_tx,
-            })),
-            data_tx,
-        });
+        let handle = Arc::new(Mutex::new(Some(Handle {
+            event_handle,
+            data_handle,
+            close_tx,
+        })));
 
-        server.ffi_handles.insert(next_id, Box::new(ffi_room));
-        Ok(proto::RoomInfo::from_room(next_id, &room))
+        let ffi_room = Self {
+            handle_id: next_id,
+            inner,
+            handle,
+            data_tx,
+        };
+
+        server.store_handle(next_id, ffi_room);
+        Ok(proto::RoomInfo::from(
+            proto::FfiOwnedHandle { id: next_id },
+            &ffi_room,
+        ))
     }
 
     pub fn publish_data(
@@ -115,6 +125,10 @@ impl FfiRoom {
             let _ = handle.event_handle.await;
             let _ = handle.data_handle.await;
         }
+    }
+
+    pub fn handle(&self) -> FfiHandleId {
+        self.handle_id
     }
 
     pub fn room(&self) -> &Room {

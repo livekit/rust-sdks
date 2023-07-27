@@ -1,8 +1,8 @@
+use super::track::FfiTrack;
+use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
-use livekit::prelude::*;
 use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, VideoFrame};
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use log::warn;
 use tokio::sync::oneshot;
@@ -14,6 +14,8 @@ pub struct FfiVideoStream {
     #[allow(dead_code)]
     close_tx: oneshot::Sender<()>, // Close the stream on drop
 }
+
+impl FfiHandle for FfiVideoStream {}
 
 impl FfiVideoStream {
     /// Setup a new VideoStream and forward the frame data to the client/the foreign
@@ -28,24 +30,15 @@ impl FfiVideoStream {
         server: &'static server::FfiServer,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FfiResult<proto::VideoStreamInfo> {
-        let (close_tx, close_rx) = oneshot::channel();
-        let stream_type = proto::VideoStreamType::from_i32(new_stream.r#type).unwrap();
-
-        let track = server
-            .ffi_handles
-            .get(&new_stream.track_handle)
-            .ok_or(FfiError::InvalidRequest("track not found"))?;
-
-        let track = track
-            .downcast_ref::<Track>()
-            .ok_or(FfiError::InvalidRequest("handle is not a Track"))?;
-
-        let rtc_track = track.rtc_track();
+        let track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?;
+        let rtc_track = track.track().rtc_track();
 
         let MediaStreamTrack::Video(rtc_track) = rtc_track else {
             return Err(FfiError::InvalidRequest("not a video track"));
         };
 
+        let (close_tx, close_rx) = oneshot::channel();
+        let stream_type = proto::VideoStreamType::from_i32(new_stream.r#type).unwrap();
         let stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
@@ -66,11 +59,13 @@ impl FfiVideoStream {
         }?;
 
         // Store the new video stream and return the info
-        let info = proto::VideoStreamInfo::from(&stream);
-        server
-            .ffi_handles
-            .insert(stream.handle_id, Box::new(stream));
-
+        let info = proto::VideoStreamInfo::from(
+            proto::FfiOwnedHandle {
+                id: stream.handle_id,
+            },
+            &stream,
+        );
+        server.store_handle(stream.handle_id, stream);
         Ok(info)
     }
 
@@ -100,11 +95,8 @@ impl FfiVideoStream {
 
                     let handle_id = server.next_id();
                     let frame_info = proto::VideoFrameInfo::from(&frame);
-                    let buffer_info = proto::VideoFrameBufferInfo::from(handle_id, &frame.buffer);
-
-                    server
-                        .ffi_handles
-                        .insert(handle_id, Box::new(frame.buffer));
+                    let buffer_info = proto::VideoFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &frame.buffer);
+                    server.store_handle(handle_id, frame.buffer);
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
                         proto::VideoStreamEvent {

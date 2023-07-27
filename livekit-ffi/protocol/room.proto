@@ -37,7 +37,7 @@ message DisconnectCallback { uint64 async_id = 1; }
 
 // Publish a track to the room
 message PublishTrackRequest {
-  uint64 room_handle = 1;
+  uint64 local_participant_handle = 1;
   uint64 track_handle = 2;
   TrackPublishOptions options = 3;
 }
@@ -47,12 +47,14 @@ message PublishTrackResponse {
 message PublishTrackCallback {
   uint64 async_id = 1;
   optional string error = 2;
-  TrackPublicationInfo publication = 3;
+  // The TrackPublicationInfo comes from the LocalTrackPublished event
+  // and the FfiClient musts wait for it
+  string track_sid = 3;
 }
 
 // Unpublish a track from the room
 message UnpublishTrackRequest {
-  uint64 room_handle = 1;
+  uint64 local_participant_handle = 1;
   string track_sid = 2;
   bool stop_on_unpublish = 3;
 }
@@ -66,7 +68,7 @@ message UnpublishTrackCallback {
 
 // Publish data to other participants
 message PublishDataRequest {
-  uint64 room_handle = 1;
+  uint64 local_participant_handle = 1;
   uint64 data_ptr = 2;
   uint64 data_size = 3;
   DataPacketKind kind = 4;
@@ -80,12 +82,10 @@ message PublishDataCallback {
   optional string error = 2;
 }
 
-// Change the "desire" to subscribe to a track
+// Change the "desire" to subs2ribe to a track
 message SetSubscribedRequest {
-  uint64 room_handle = 1;
-  bool subscribe = 2;
-  string participant_sid = 3;
-  string track_sid = 4;
+  bool subscribe = 1;
+  uint64 publication_handle = 2;
 }
 message SetSubscribedResponse {}
 
@@ -181,11 +181,12 @@ message RoomInfo {
 
 message ParticipantConnected { ParticipantInfo info = 1; }
 
-message ParticipantDisconnected { ParticipantInfo info = 1; }
+message ParticipantDisconnected { 
+  string participant_sid = 1;
+}
 
 message LocalTrackPublished {
   TrackPublicationInfo publication = 1;
-  TrackInfo track = 2;
 }
 
 message LocalTrackUnpublished {

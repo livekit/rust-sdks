@@ -1,4 +1,5 @@
 use crate::proto;
+use crate::server::room::FfiRoom;
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
@@ -79,6 +80,18 @@ impl From<proto::AudioEncoding> for AudioEncoding {
     fn from(opts: proto::AudioEncoding) -> Self {
         Self {
             max_bitrate: opts.max_bitrate,
+        }
+    }
+}
+
+impl proto::RoomInfo {
+    pub fn from(handle: proto::FfiOwnedHandle, room: &FfiRoom) -> Self {
+        let room = room.room();
+        Self {
+            handle: Some(handle),
+            sid: room.sid(),
+            name: room.name(),
+            metadata: room.metadata(),
         }
     }
 }

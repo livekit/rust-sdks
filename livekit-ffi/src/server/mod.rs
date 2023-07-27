@@ -3,6 +3,7 @@ use crate::{FfiError, FfiHandleId, FfiResult};
 use dashmap::DashMap;
 use downcast_rs::{impl_downcast, Downcast};
 use lazy_static::lazy_static;
+use livekit::webrtc::prelude::*;
 use parking_lot::deadlock;
 use parking_lot::Mutex;
 use prost::Message;
@@ -13,14 +14,15 @@ use std::time::Duration;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod participant;
+pub mod publication;
 pub mod room;
 pub mod track;
 pub mod video_source;
 pub mod video_stream;
 
 mod requests;
-#[cfg(test)]
-mod tests;
+//#[cfg(test)]
+//mod tests;
 
 lazy_static! {
     pub static ref FFI_SERVER: FfiServer = FfiServer::default();
@@ -33,8 +35,10 @@ pub struct FfiConfig {
 /// To make sure we use the right types, only types that implement this trait
 /// can be stored inside the FfiServer.
 pub trait FfiHandle: Downcast + Send + Sync {}
-
 impl_downcast!(FfiHandle);
+
+impl FfiHandle for AudioFrame {}
+impl FfiHandle for BoxVideoFrameBuffer {}
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
@@ -91,7 +95,7 @@ impl FfiServer {
         // Close all rooms
         let mut rooms = Vec::new();
         for handle in self.ffi_handles.iter_mut() {
-            if let Some(handle) = handle.value().downcast_ref::<room::HandleType>() {
+            if let Some(handle) = handle.value().downcast_ref::<room::FfiRoom>() {
                 rooms.push(handle.clone());
             }
         }

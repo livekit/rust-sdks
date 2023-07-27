@@ -1,17 +1,16 @@
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
-use futures_util::StreamExt;
-use livekit::prelude::*;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, VideoFrame};
-use livekit::webrtc::video_stream::native::NativeVideoStream;
-use log::warn;
-use tokio::sync::oneshot;
+
+use super::FfiHandle;
 
 pub struct FfiVideoSource {
     handle_id: FfiHandleId,
     source_type: proto::VideoSourceType,
     source: RtcVideoSource,
 }
+
+impl FfiHandle for FfiVideoSource {}
 
 impl FfiVideoSource {
     pub fn setup(
@@ -37,12 +36,14 @@ impl FfiVideoSource {
             source_type,
             source: source_inner,
         };
-        let source_info = proto::VideoSourceInfo::from(&video_source);
+        let source_info = proto::VideoSourceInfo::from(
+            proto::FfiOwnedHandle {
+                id: video_source.handle_id,
+            },
+            &video_source,
+        );
 
-        server
-            .ffi_handles
-            .insert(video_source.handle_id, Box::new(video_source));
-
+        server.store_handle(video_source.handle_id, video_source);
         Ok(source_info)
     }
 
