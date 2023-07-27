@@ -3,11 +3,13 @@ use crate::{FfiError, FfiHandleId, FfiResult};
 use dashmap::DashMap;
 use downcast_rs::{impl_downcast, Downcast};
 use lazy_static::lazy_static;
+use livekit::webrtc::native::audio_resampler::AudioResampler;
 use livekit::webrtc::prelude::*;
 use parking_lot::deadlock;
 use parking_lot::Mutex;
 use prost::Message;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -37,6 +39,7 @@ pub struct FfiConfig {
 pub trait FfiHandle: Downcast + Send + Sync {}
 impl_downcast!(FfiHandle);
 
+impl FfiHandle for Arc<Mutex<AudioResampler>> {}
 impl FfiHandle for AudioFrame {}
 impl FfiHandle for BoxVideoFrameBuffer {}
 

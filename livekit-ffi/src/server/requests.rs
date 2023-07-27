@@ -439,10 +439,12 @@ impl FfiServer {
         let resampler = Arc::new(Mutex::new(resampler));
 
         let handle_id = self.next_id();
-        self.ffi_handles.insert(handle_id, Box::new(resampler));
+        self.store_handle(handle_id, resampler);
 
         Ok(proto::NewAudioResamplerResponse {
-            resampler_handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            resampler: Some(proto::AudioResamplerInfo {
+                handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            }),
         })
     }
 
@@ -454,33 +456,33 @@ impl FfiServer {
             .retrieve_handle::<Arc<Mutex<audio_resampler::AudioResampler>>>(remix.resampler_handle)?
             .clone();
 
-        let data = {
-            let buffer = self.retrieve_handle::<AudioFrame>(remix.buffer_handle)?;
+        let buffer = self.retrieve_handle::<AudioFrame>(remix.buffer_handle)?;
+        let data = resampler
+            .lock()
+            .remix_and_resample(
+                &buffer.data,
+                buffer.samples_per_channel,
+                buffer.num_channels,
+                buffer.sample_rate,
+                remix.num_channels,
+                remix.sample_rate,
+            )
+            .to_owned();
+        drop(buffer);
 
-            resampler
-                .lock()
-                .remix_and_resample(
-                    &buffer.data,
-                    buffer.samples_per_channel,
-                    buffer.num_channels,
-                    buffer.sample_rate,
-                    remix.num_channels,
-                    remix.sample_rate,
-                )
-                .to_owned()
-        };
-
-        let samples_per_channel = data.len() / remix.num_channels as usize;
-        let new_buffer = AudioFrame {
+        let audio_frame = AudioFrame {
             data,
             num_channels: remix.num_channels,
-            samples_per_channel: samples_per_channel as u32,
+            samples_per_channel: (data.len() / remix.num_channels as usize) as u32,
             sample_rate: remix.sample_rate,
         };
 
-        let handle_id = self.next_id() as FfiHandleId;
-        let buffer_info = proto::AudioFrameBufferInfo::from(handle_id, &new_buffer);
-        self.ffi_handles.insert(handle_id, Box::new(new_buffer));
+        let handle_id = self.next_id();
+        let buffer_info = proto::AudioFrameBufferInfo::from(
+            proto::FfiOwnedHandle { id: handle_id },
+            &audio_frame,
+        );
+        self.store_handle(handle_id, audio_frame);
 
         Ok(proto::RemixAndResampleResponse {
             buffer: Some(buffer_info),
