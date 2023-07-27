@@ -1,4 +1,4 @@
-use crate::server::FfiServer;
+use crate::server::{FfiHandle, FfiServer};
 use crate::{proto, FfiError, FfiHandleId, FfiResult};
 use livekit::prelude::*;
 use parking_lot::Mutex;
@@ -9,6 +9,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
 pub type HandleType = Arc<FfiRoom>;
+impl FfiHandle for HandleType {}
 
 pub struct FfiRoom {
     inner: Arc<RoomInner>,
@@ -18,7 +19,7 @@ pub struct FfiRoom {
 
 struct RoomInner {
     room: Room,
-    tracks: Mutex<HashMap<(String, String), FfiHandleId>>, // (Participant, TrackSid) -> FfiPublication
+    tracks: Mutex<HashMap<(String, String), FfiHandleId>>, // Participant, TrackSid) -> FfiPublication
 }
 
 struct Handle {
@@ -31,7 +32,7 @@ struct DataPacket {
     data: Vec<u8>,
     kind: DataPacketKind,
     destination_sids: Vec<String>,
-    async_id: FfiAsyncId,
+    async_id: u64,
 }
 
 impl FfiRoom {
@@ -91,7 +92,7 @@ impl FfiRoom {
         };
         let kind = proto::DataPacketKind::from_i32(publish.kind).unwrap();
         let destination_sids: Vec<String> = publish.destination_sids;
-        let async_id = server.next_id() as FfiAsyncId;
+        let async_id = server.next_id();
 
         self.data_tx
             .send(DataPacket {
@@ -102,9 +103,7 @@ impl FfiRoom {
             })
             .map_err(|_| FfiError::InvalidRequest("failed to send data packet"))?;
 
-        Ok(proto::PublishDataResponse {
-            async_id: Some(async_id.into()),
-        })
+        Ok(proto::PublishDataResponse { async_id })
     }
 
     pub async fn close(&self) {
@@ -140,7 +139,7 @@ async fn data_task(
                 ).await;
 
                 let cb = proto::PublishDataCallback {
-                    async_id: Some(event.async_id.into()),
+                    async_id: event.async_id,
                     error: res.err().map(|e| e.to_string()),
                 };
 

@@ -1,7 +1,6 @@
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::prelude::*;
-use livekit::webrtc::audio_frame::AudioFrame;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::prelude::*;
 use log::warn;

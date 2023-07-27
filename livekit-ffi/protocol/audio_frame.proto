@@ -13,7 +13,7 @@ message AllocAudioBufferRequest {
   uint32 num_channels = 2;
   uint32 samples_per_channel = 3;
 }
-message AllocAudioBufferResponse { AudioFrameBufferOwned buffer = 1; }
+message AllocAudioBufferResponse { AudioFrameBufferInfo buffer = 1; }
 
 // Create a new AudioStream
 // AudioStream is used to receive audio frames from a track
@@ -40,7 +40,7 @@ message CaptureAudioFrameResponse {}
 // Create a new AudioResampler
 message NewAudioResamplerRequest {}
 message NewAudioResamplerResponse {
-  AudioResamplerOwned resampler = 1;
+  AudioResamplerInfo resampler = 1;
 }
 
 // Remix and resample an audio frame
@@ -59,7 +59,7 @@ message RemixAndResampleResponse {
 // AudioFrame buffer
 //
 
-message AudioFrameBufferOwned {
+message AudioFrameBufferInfo {
   FfiOwnedHandle handle = 1;
   uint64 data_ptr = 2;    // *const i16
   uint32 num_channels = 3;
@@ -76,7 +76,7 @@ enum AudioStreamType {
   AUDIO_STREAM_HTML = 1;
 }
 
-message AudioStreamOwned {
+message AudioStreamInfo {
   FfiOwnedHandle handle = 1;
   AudioStreamType type = 2;
 }
@@ -104,7 +104,7 @@ enum AudioSourceType {
   AUDIO_SOURCE_NATIVE = 0;
 }
 
-message AudioSourceOwned {
+message AudioSourceInfo {
   FfiOwnedHandle handle = 1;
   AudioSourceType type = 2;
 }
@@ -113,6 +113,6 @@ message AudioSourceOwned {
 // AudioResampler
 //
 
-message AudioResamplerOwned {
+message AudioResamplerInfo {
   FfiOwnedHandle handle = 1;
 }

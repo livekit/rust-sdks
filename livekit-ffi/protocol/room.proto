@@ -141,7 +141,7 @@ enum DataPacketKind {
   KIND_RELIABLE = 1;
 }
 
-message BufferOwned {
+message BufferInfo {
   FfiOwnedHandle handle = 1;
   uint64 data_ptr = 2;
   uint64 data_size = 3;
@@ -172,7 +172,7 @@ message RoomEvent {
   }
 }
 
-message RoomOwned {
+message RoomInfo {
   FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
@@ -239,7 +239,7 @@ message ConnectionQualityChanged {
 }
 
 message DataReceived {
-  BufferOwned data = 1;
+  BufferInfo data = 1;
   optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
   DataPacketKind kind = 3;
 }

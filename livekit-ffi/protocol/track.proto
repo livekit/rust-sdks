@@ -49,7 +49,7 @@ enum StreamState {
   STATE_PAUSED = 2;
 }
 
-message TrackPublicationOwned {
+message TrackPublicationInfo {
   FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
@@ -63,7 +63,7 @@ message TrackPublicationOwned {
   bool remote = 11;
 }
 
-message TrackOwned {
+message TrackInfo {
   FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;

@@ -1,3 +1,7 @@
+use livekit::prelude::*;
+
+use crate::FfiHandleId;
+
 pub struct FfiTrack {
     handle: FfiHandleId,
     track: Track,

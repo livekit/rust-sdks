@@ -5,7 +5,7 @@ option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
 
-message ParticipantOwned {
+message ParticipantInfo {
   FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;

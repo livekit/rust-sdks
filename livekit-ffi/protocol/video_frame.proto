@@ -122,13 +122,13 @@ message VideoFrameBufferInfo {
   uint32 width = 3;
   uint32 height = 4;
   oneof buffer {
-    PlanarYuvBufferOwned yuv = 5;
-    BiplanarYuvBufferOwned bi_yuv = 6;
-    NativeBufferOwned native = 7;
+    PlanarYuvBufferInfo yuv = 5;
+    BiplanarYuvBufferInfo bi_yuv = 6;
+    NativeBufferInfo native = 7;
   }
 }
 
-message PlanarYuvBufferOwned {
+message PlanarYuvBufferInfo {
   FfiOwnedHandle handle = 1;
   uint32 chroma_width = 2;
   uint32 chroma_height = 3;
@@ -144,7 +144,7 @@ message PlanarYuvBufferOwned {
   uint64 data_a_ptr = 11; // nullptr = no alpha
 }
 
-message BiplanarYuvBufferOwned {
+message BiplanarYuvBufferInfo {
   FfiOwnedHandle handle = 1;
   uint32 chroma_width = 2;
   uint32 chroma_height = 3;
@@ -155,7 +155,7 @@ message BiplanarYuvBufferOwned {
   uint64 data_uv_ptr = 7;
 }
 
-message NativeBufferOwned {
+message NativeBufferInfo {
   FfiOwnedHandle handle = 1;
   // TODO(theomonnom): Expose graphic context?
 }
@@ -170,7 +170,7 @@ enum VideoStreamType {
   VIDEO_STREAM_HTML = 2;
 }
 
-message VideoStreamOwned {
+message VideoStreamInfo {
   FfiOwnedHandle handle = 1;
   VideoStreamType type = 2;
 }
@@ -198,7 +198,7 @@ enum VideoSourceType {
     VIDEO_SOURCE_NATIVE = 0;
 }
 
-message VideoSourceOwned {
+message VideoSourceInfo {
   FfiOwnedHandle handle = 1;
   VideoSourceType type = 2;
 }

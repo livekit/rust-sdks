@@ -1,11 +1,11 @@
 use crate::{proto, FfiCallbackFn, INVALID_HANDLE};
 use crate::{FfiError, FfiHandleId, FfiResult};
 use dashmap::DashMap;
+use downcast_rs::{impl_downcast, Downcast};
 use lazy_static::lazy_static;
 use parking_lot::deadlock;
 use parking_lot::Mutex;
 use prost::Message;
-use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
@@ -32,7 +32,9 @@ pub struct FfiConfig {
 
 /// To make sure we use the right types, only types that implement this trait
 /// can be stored inside the FfiServer.
-pub trait FfiHandle: Any + Send + Sync {}
+pub trait FfiHandle: Downcast + Send + Sync {}
+
+impl_downcast!(FfiHandle);
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough

@@ -1,5 +1,4 @@
 use crate::proto;
-use crate::FfiHandleId;
 use livekit::options::{VideoCodec, VideoResolution};
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame;
@@ -119,152 +118,149 @@ macro_rules! impl_yuv_into {
             ..Default::default()
         }
     };
-    ($buffer:ty, ALPHA) => {
-        impl From<$buffer> for proto::PlanarYuvBufferInfo {
-            fn from(buffer: $buffer) -> Self {
-                let (data_y, data_u, data_v, data_a) = buffer.data();
-                let mut proto = impl_yuv_into!(@fields, buffer, data_y, data_u, data_v);
-                proto.stride_a = buffer.strides().3;
-                proto.data_a_ptr = data_a.map(|data_a| data_a.as_ptr() as u64).unwrap_or(0);
-                proto
-            }
+    ($fncname:ident, $buffer:ty, ALPHA) => {
+        pub fn $fncname(handle: proto::FfiOwnedHandle, buffer: $buffer) -> Self {
+            let (data_y, data_u, data_v, data_a) = buffer.data();
+            let mut proto = impl_yuv_into!(@fields, buffer, data_y, data_u, data_v);
+            proto.stride_a = buffer.strides().3;
+            proto.data_a_ptr = data_a.map(|data_a| data_a.as_ptr() as u64).unwrap_or(0);
+            proto
         }
     };
-    ($buffer:ty) => {
-        impl From<$buffer> for proto::PlanarYuvBufferInfo {
-            fn from(buffer: $buffer) -> Self {
-                let (data_y, data_u, data_v) = buffer.data();
-                impl_yuv_into!(@fields, buffer, data_y, data_u, data_v)
-            }
+    ($fncname:ident, $buffer:ty) => {
+        pub fn $fncname(handle: proto::FfiOwnedHandle, buffer: $buffer) -> Self {
+            let (data_y, data_u, data_v) = buffer.data();
+            impl_yuv_into!(@fields, buffer, data_y, data_u, data_v)
         }
     };
 }
 
 macro_rules! impl_biyuv_into {
-    ($b:ty) => {
-        impl From<$b> for proto::BiplanarYuvBufferInfo {
-            fn from(buffer: $b) -> Self {
-                let (stride_y, stride_uv) = buffer.strides();
-                let (data_y, data_uv) = buffer.data();
-                Self {
-                    chroma_width: buffer.chroma_width(),
-                    chroma_height: buffer.chroma_height(),
-                    stride_y: stride_y,
-                    stride_uv: stride_uv,
-                    data_y_ptr: data_y.as_ptr() as u64,
-                    data_uv_ptr: data_uv.as_ptr() as u64,
-                }
+    ($fncname:ident, $buffer:ty) => {
+        pub fn $fncname(handle: proto::FfiOwnedHandle, buffer: $buffer) -> Self {
+            let (stride_y, stride_uv) = buffer.strides();
+            let (data_y, data_uv) = buffer.data();
+            Self {
+                handle: Some(handle),
+                chroma_width: buffer.chroma_width(),
+                chroma_height: buffer.chroma_height(),
+                stride_y: stride_y,
+                stride_uv: stride_uv,
+                data_y_ptr: data_y.as_ptr() as u64,
+                data_uv_ptr: data_uv.as_ptr() as u64,
             }
         }
     };
 }
 
-impl_yuv_into!(&I420Buffer);
-impl_yuv_into!(&I420ABuffer, ALPHA);
-impl_yuv_into!(&I422Buffer);
-impl_yuv_into!(&I444Buffer);
-impl_yuv_into!(&I010Buffer);
-impl_biyuv_into!(&NV12Buffer);
+impl proto::PlanarYuvBufferInfo {
+    impl_yuv_into!(from_i420, &I420Buffer);
+    impl_yuv_into!(from_i420a, &I420ABuffer, ALPHA);
+    impl_yuv_into!(from_i422, &I422Buffer);
+    impl_yuv_into!(from_i444, &I444Buffer);
+    impl_yuv_into!(from_i010, &I010Buffer);
+}
+
+impl proto::BiplanarYuvBufferInfo {
+    impl_biyuv_into!(from_nv12, &NV12Buffer);
+}
 
 impl proto::VideoFrameBufferInfo {
-    pub fn from(handle: FfiHandleId, buffer: impl AsRef<dyn VideoFrameBuffer>) -> Self {
-        match &buffer.as_ref().buffer_type() {
+    pub fn from(handle: proto::FfiOwnedHandle, buffer: impl AsRef<dyn VideoFrameBuffer>) -> Self {
+        let buffer = buffer.as_ref();
+        match buffer.buffer_type() {
             #[cfg(not(target_arch = "wasm32"))]
-            VideoFrameBufferType::Native => {
-                Self::from_native(handle, buffer.as_ref().as_native().unwrap())
-            }
-            VideoFrameBufferType::I420 => {
-                Self::from_i420(handle, buffer.as_ref().as_i420().unwrap())
-            }
-            VideoFrameBufferType::I420A => {
-                Self::from_i420a(handle, buffer.as_ref().as_i420a().unwrap())
-            }
-            VideoFrameBufferType::I422 => {
-                Self::from_i422(handle, buffer.as_ref().as_i422().unwrap())
-            }
-            VideoFrameBufferType::I444 => {
-                Self::from_i444(handle, buffer.as_ref().as_i444().unwrap())
-            }
-            VideoFrameBufferType::I010 => {
-                Self::from_i010(handle, buffer.as_ref().as_i010().unwrap())
-            }
-            VideoFrameBufferType::NV12 => {
-                Self::from_nv12(handle, buffer.as_ref().as_nv12().unwrap())
-            }
+            VideoFrameBufferType::Native => Self::from_native(handle, buffer.as_native().unwrap()),
+            VideoFrameBufferType::I420 => Self::from_i420(handle, buffer.as_i420().unwrap()),
+            VideoFrameBufferType::I420A => Self::from_i420a(handle, buffer.as_i420a().unwrap()),
+            VideoFrameBufferType::I422 => Self::from_i422(handle, buffer.as_i422().unwrap()),
+            VideoFrameBufferType::I444 => Self::from_i444(handle, buffer.as_i444().unwrap()),
+            VideoFrameBufferType::I010 => Self::from_i010(handle, buffer.as_i010().unwrap()),
+            VideoFrameBufferType::NV12 => Self::from_nv12(handle, buffer.as_nv12().unwrap()),
             _ => panic!("unsupported buffer type on this platform"),
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn from_native(handle: FfiHandleId, buffer: &video_frame::native::NativeBuffer) -> Self {
+    pub fn from_native(
+        handle: proto::FfiOwnedHandle,
+        buffer: &video_frame::native::NativeBuffer,
+    ) -> Self {
         Self {
-            handle: Some(proto::FfiOwnedHandle { id: handle }),
             buffer_type: proto::VideoFrameBufferType::Native.into(),
             width: buffer.width(),
             height: buffer.height(),
             buffer: Some(proto::video_frame_buffer_info::Buffer::Native(
-                proto::NativeBufferInfo {},
+                proto::NativeBufferInfo {
+                    handle: Some(handle),
+                },
             )),
         }
     }
 
-    pub fn from_i420(handle: FfiHandleId, buffer: &I420Buffer) -> Self {
+    pub fn from_i420(handle: proto::FfiOwnedHandle, buffer: &I420Buffer) -> Self {
         Self {
-            handle: Some(proto::FfiOwnedHandle { id: handle }),
             buffer_type: proto::VideoFrameBufferType::I420.into(),
             width: buffer.width(),
             height: buffer.height(),
-            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(buffer.into())),
+            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(
+                proto::PlanarYuvBufferInfo::from_i420(handle, buffer),
+            )),
         }
     }
 
-    pub fn from_i420a(handle: FfiHandleId, buffer: &I420ABuffer) -> Self {
+    pub fn from_i420a(handle: proto::FfiOwnedHandle, buffer: &I420ABuffer) -> Self {
         Self {
-            handle: Some(proto::FfiOwnedHandle { id: handle }),
             buffer_type: proto::VideoFrameBufferType::I420a.into(),
             width: buffer.width(),
             height: buffer.height(),
-            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(buffer.into())),
+            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(
+                proto::PlanarYuvBufferInfo::from_i420a(handle, buffer),
+            )),
         }
     }
 
-    pub fn from_i422(handle: FfiHandleId, buffer: &I422Buffer) -> Self {
+    pub fn from_i422(handle: proto::FfiOwnedHandle, buffer: &I422Buffer) -> Self {
         Self {
-            handle: Some(proto::FfiOwnedHandle { id: handle }),
             buffer_type: proto::VideoFrameBufferType::I422.into(),
             width: buffer.width(),
             height: buffer.height(),
-            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(buffer.into())),
+            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(
+                proto::PlanarYuvBufferInfo::from_i422(handle, buffer),
+            )),
         }
     }
 
-    pub fn from_i444(handle: FfiHandleId, buffer: &I444Buffer) -> Self {
+    pub fn from_i444(handle: proto::FfiOwnedHandle, buffer: &I444Buffer) -> Self {
         Self {
-            handle: Some(proto::FfiOwnedHandle { id: handle }),
             buffer_type: proto::VideoFrameBufferType::I444.into(),
             width: buffer.width(),
             height: buffer.height(),
-            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(buffer.into())),
+            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(
+                proto::PlanarYuvBufferInfo::from_i444(handle, buffer),
+            )),
         }
     }
 
-    pub fn from_i010(handle: FfiHandleId, buffer: &I010Buffer) -> Self {
+    pub fn from_i010(handle: proto::FfiOwnedHandle, buffer: &I010Buffer) -> Self {
         Self {
-            handle: Some(proto::FfiOwnedHandle { id: handle }),
             buffer_type: proto::VideoFrameBufferType::I010.into(),
             width: buffer.width(),
             height: buffer.height(),
-            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(buffer.into())),
+            buffer: Some(proto::video_frame_buffer_info::Buffer::Yuv(
+                proto::PlanarYuvBufferInfo::from_i010(handle, buffer),
+            )),
         }
     }
 
-    pub fn from_nv12(handle: FfiHandleId, buffer: &NV12Buffer) -> Self {
+    pub fn from_nv12(handle: proto::FfiOwnedHandle, buffer: &NV12Buffer) -> Self {
         Self {
-            handle: Some(proto::FfiOwnedHandle { id: handle }),
             buffer_type: proto::VideoFrameBufferType::Nv12.into(),
             width: buffer.width(),
             height: buffer.height(),
-            buffer: Some(proto::video_frame_buffer_info::Buffer::BiYuv(buffer.into())),
+            buffer: Some(proto::video_frame_buffer_info::Buffer::BiYuv(
+                proto::BiplanarYuvBufferInfo::from_nv12(handle, buffer),
+            )),
         }
     }
 }

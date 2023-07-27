@@ -44,16 +44,14 @@ pub struct CreateAudioTrackResponse {
     #[prost(message, optional, tag="1")]
     pub track: ::core::option::Option<TrackInfo>,
 }
-// /
-// / Track
-// /
+//
+// Track
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackEvent {
 }
-// TODO(theomonnom): Should we have a separate message whether the track is local or remote?
-
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackPublicationInfo {
@@ -191,7 +189,6 @@ impl StreamState {
         }
     }
 }
-/// Seems like we don't need a FfiHandle for participants (atm at least)
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantInfo {
@@ -324,9 +321,9 @@ pub struct ToArgbRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ToArgbResponse {
 }
-// /
-// / VideoFrame buffers ///
-// /
+//
+// VideoFrame buffers
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -364,8 +361,6 @@ pub struct VideoFrameInfo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoFrameBufferInfo {
-    #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(enumeration="VideoFrameBufferType", tag="2")]
     pub buffer_type: i32,
     #[prost(uint32, tag="3")]
@@ -391,49 +386,55 @@ pub mod video_frame_buffer_info {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlanarYuvBufferInfo {
-    #[prost(uint32, tag="1")]
-    pub chroma_width: u32,
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(uint32, tag="2")]
-    pub chroma_height: u32,
+    pub chroma_width: u32,
     #[prost(uint32, tag="3")]
-    pub stride_y: u32,
+    pub chroma_height: u32,
     #[prost(uint32, tag="4")]
-    pub stride_u: u32,
+    pub stride_y: u32,
     #[prost(uint32, tag="5")]
-    pub stride_v: u32,
+    pub stride_u: u32,
     #[prost(uint32, tag="6")]
+    pub stride_v: u32,
+    #[prost(uint32, tag="7")]
     pub stride_a: u32,
     /// *const u8 or *const u16
-    #[prost(uint64, tag="7")]
-    pub data_y_ptr: u64,
     #[prost(uint64, tag="8")]
-    pub data_u_ptr: u64,
+    pub data_y_ptr: u64,
     #[prost(uint64, tag="9")]
+    pub data_u_ptr: u64,
+    #[prost(uint64, tag="10")]
     pub data_v_ptr: u64,
     /// nullptr = no alpha
-    #[prost(uint64, tag="10")]
+    #[prost(uint64, tag="11")]
     pub data_a_ptr: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BiplanarYuvBufferInfo {
-    #[prost(uint32, tag="1")]
-    pub chroma_width: u32,
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(uint32, tag="2")]
-    pub chroma_height: u32,
+    pub chroma_width: u32,
     #[prost(uint32, tag="3")]
-    pub stride_y: u32,
+    pub chroma_height: u32,
     #[prost(uint32, tag="4")]
+    pub stride_y: u32,
+    #[prost(uint32, tag="5")]
     pub stride_uv: u32,
-    #[prost(uint64, tag="5")]
-    pub data_y_ptr: u64,
     #[prost(uint64, tag="6")]
+    pub data_y_ptr: u64,
+    #[prost(uint64, tag="7")]
     pub data_uv_ptr: u64,
 }
-/// TODO(theomonnom): Expose graphic context?
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NativeBufferInfo {
+    /// TODO(theomonnom): Expose graphic context?
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -468,9 +469,9 @@ pub struct VideoFrameReceived {
     #[prost(message, optional, tag="2")]
     pub buffer: ::core::option::Option<VideoFrameBufferInfo>,
 }
-// /
-// / VideoSource ///
-// /
+//
+// VideoSource
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -625,9 +626,9 @@ impl VideoFrameBufferType {
         }
     }
 }
-// /
-// / VideoStream ///
-// /
+//
+// VideoStream
+//
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -841,9 +842,9 @@ pub struct SetSubscribedRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetSubscribedResponse {
 }
-// /
-// / Options
-// /
+//
+// Options
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -887,6 +888,16 @@ pub struct RoomOptions {
     pub adaptive_stream: bool,
     #[prost(bool, tag="3")]
     pub dynacast: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BufferInfo {
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
+    #[prost(uint64, tag="2")]
+    pub data_ptr: u64,
+    #[prost(uint64, tag="3")]
+    pub data_size: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1058,15 +1069,11 @@ pub struct ConnectionQualityChanged {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataReceived {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiOwnedHandle>,
+    pub data: ::core::option::Option<BufferInfo>,
     /// Can be empty if the data is sent a server SDK
     #[prost(string, optional, tag="2")]
     pub participant_sid: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(uint64, tag="3")]
-    pub data_ptr: u64,
-    #[prost(uint64, tag="4")]
-    pub data_size: u64,
-    #[prost(enumeration="DataPacketKind", tag="5")]
+    #[prost(enumeration="DataPacketKind", tag="3")]
     pub kind: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1091,9 +1098,9 @@ pub struct Reconnecting {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Reconnected {
 }
-// /
-// / Room
-// /
+//
+// Room
+//
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1251,7 +1258,7 @@ pub struct NewAudioResamplerRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NewAudioResamplerResponse {
     #[prost(message, optional, tag="1")]
-    pub resampler_handle: ::core::option::Option<FfiOwnedHandle>,
+    pub resampler: ::core::option::Option<AudioResamplerInfo>,
 }
 /// Remix and resample an audio frame
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1272,9 +1279,9 @@ pub struct RemixAndResampleResponse {
     #[prost(message, optional, tag="1")]
     pub buffer: ::core::option::Option<AudioFrameBufferInfo>,
 }
-// /
-// / AudioFrame buffer ///
-// /
+//
+// AudioFrame buffer
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1322,9 +1329,9 @@ pub struct AudioFrameReceived {
     #[prost(message, optional, tag="1")]
     pub frame: ::core::option::Option<AudioFrameBufferInfo>,
 }
-// /
-// / AudioSource ///
-// /
+//
+// AudioSource
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1344,9 +1351,19 @@ pub struct AudioSourceInfo {
     #[prost(enumeration="AudioSourceType", tag="2")]
     pub r#type: i32,
 }
-// /
-// / AudioStream ///
-// /
+//
+// AudioResampler
+//
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AudioResamplerInfo {
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
+}
+//
+// AudioStream
+//
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1413,9 +1430,8 @@ impl AudioSourceType {
 // **Useful things know when collaborating on the protocol:**
 // Everything is subject to discussion and change :-)
 //
-// - The ffi client implementation must never forget to correctly dispose all the handles
-//    that it receives from the server. (Each time a handle is received, it means a atomic reference count 
-//    has been incremented on the server side).
+// - The ffi client implementation must never forget to correctly dispose all the owned handles
+//    that it receives from the server.
 //
 // Therefore, the ffi client is easier to implement if there is less handles to manage.
 // 

@@ -1,4 +1,4 @@
-use crate::{proto, FfiHandleId};
+use crate::proto;
 use livekit::prelude::*;
 
 impl From<TrackSource> for proto::TrackSource {
@@ -13,13 +13,13 @@ impl From<TrackSource> for proto::TrackSource {
     }
 }
 
-/*macro_rules! impl_publication_into {
+macro_rules! impl_publication_into {
     ($fnc:ident, $t:ty) => {
         impl proto::TrackPublicationInfo {
             #[allow(dead_code)]
-            pub fn $fnc(handle_id: FfiHandleId, p: $t) -> Self {
+            pub fn $fnc(handle_id: proto::FfiOwnedHandle, p: $t) -> Self {
                 Self {
-                    handle: Some(handle_id.into()),
+                    handle: Some(handle_id),
                     name: p.name(),
                     sid: p.sid().to_string(),
                     kind: proto::TrackKind::from(p.kind()).into(),
@@ -38,15 +38,15 @@ impl From<TrackSource> for proto::TrackSource {
 
 impl_publication_into!(from_local_track_publication, &LocalTrackPublication);
 impl_publication_into!(from_remote_track_publication, &RemoteTrackPublication);
-impl_publication_into!(from_track_publication, &TrackPublication);*/
+impl_publication_into!(from_track_publication, &TrackPublication);
 
 macro_rules! impl_track_into {
     ($fnc:ident, $t:ty) => {
         impl proto::TrackInfo {
             #[allow(dead_code)]
-            pub fn $fnc(handle_id: FfiHandleId, track: $t) -> Self {
+            pub fn $fnc(handle_id: proto::FfiOwnedHandle, track: $t) -> Self {
                 Self {
-                    handle: Some(handle_id.into()),
+                    handle: Some(handle_id),
                     name: track.name(),
                     stream_state: proto::StreamState::from(track.stream_state()).into(),
                     sid: track.sid().to_string(),
