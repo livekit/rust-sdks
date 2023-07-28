@@ -7,6 +7,8 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
+use super::FfiDataBuffer;
+
 #[derive(Clone)]
 pub struct FfiRoom {
     pub inner: Arc<RoomInner>,
@@ -32,17 +34,10 @@ pub struct FfiTrack {
     pub track: Track,
 }
 
-#[derive(Clone)]
-pub struct FfiDataBuffer {
-    pub handle: FfiHandleId,
-    pub data: Arc<Vec<u8>>,
-}
-
 impl FfiHandle for FfiTrack {}
 impl FfiHandle for FfiPublication {}
 impl FfiHandle for FfiParticipant {}
 impl FfiHandle for FfiRoom {}
-impl FfiHandle for FfiDataBuffer {}
 
 struct RoomInner {
     pub room: Room,
@@ -232,7 +227,7 @@ async fn forward_event(
         ),
         RoomEvent::LocalTrackPublished {
             publication,
-            track,
+            track: _,
             participant: _,
         } => {
             let ffi_publication = FfiPublication {

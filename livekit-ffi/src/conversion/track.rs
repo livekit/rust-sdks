@@ -18,7 +18,7 @@ impl From<TrackSource> for proto::TrackSource {
 
 impl proto::TrackPublicationInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, ffi_publication: &FfiPublication) -> Self {
-        let publication = ffi_publication.publication;
+        let publication = &ffi_publication.publication;
         Self {
             handle: Some(handle_id),
             name: publication.name(),
@@ -37,7 +37,7 @@ impl proto::TrackPublicationInfo {
 
 impl proto::TrackInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, ffi_track: &FfiTrack) -> Self {
-        let track = ffi_track.track;
+        let track = &ffi_track.track;
         Self {
             handle: Some(handle_id),
             name: track.name(),

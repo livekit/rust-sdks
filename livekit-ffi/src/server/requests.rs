@@ -91,12 +91,12 @@ impl FfiServer {
 
                     // Build the remote participants info
                     let mut participants_info = Vec::with_capacity(participants.len());
-                    for (sid, participant) in participants {
+                    for (_, participant) in participants {
                         let tracks = participant.tracks();
 
                         // Build the tracks info
                         let mut publications_info = Vec::with_capacity(tracks.len());
-                        for (sid, track) in tracks {
+                        for (_, track) in tracks {
                             let publication = FfiPublication {
                                 handle: self.next_id(),
                                 publication: TrackPublication::Remote(track.clone()),
@@ -202,7 +202,7 @@ impl FfiServer {
                 let ffi_participant =
                     self.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
 
-                let Participant::Local(participant) = ffi_participant.participant else {
+                let Participant::Local(participant) = &ffi_participant.participant else {
                     return Err(FfiError::InvalidRequest("participant is not a LocalParticipant"));
                 };
 
@@ -275,7 +275,7 @@ impl FfiServer {
         let ffi_publication =
             self.retrieve_handle::<FfiPublication>(set_subscribed.publication_handle)?;
 
-        let TrackPublication::Remote(publication) = ffi_publication.publication else {
+        let TrackPublication::Remote(publication) = &ffi_publication.publication else {
             return Err(FfiError::InvalidRequest("publication is not a RemotePublication"));
         };
 
@@ -571,10 +571,11 @@ impl FfiServer {
 
         drop(buffer);
 
+        let data_len = (data.len() / remix.num_channels as usize) as u32;
         let audio_frame = AudioFrame {
             data,
             num_channels: remix.num_channels,
-            samples_per_channel: (data.len() / remix.num_channels as usize) as u32,
+            samples_per_channel: data_len,
             sample_rate: remix.sample_rate,
         };
 

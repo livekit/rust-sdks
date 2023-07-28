@@ -36,6 +36,15 @@ pub struct FfiConfig {
 pub trait FfiHandle: Downcast + Send + Sync {}
 impl_downcast!(FfiHandle);
 
+#[derive(Clone)]
+pub struct FfiDataBuffer {
+    pub handle: FfiHandleId,
+    pub data: Arc<Vec<u8>>,
+}
+
+impl FfiHandle for FfiDataBuffer {}
+
+// TODO(theomonnom) Wrap these types
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
 impl FfiHandle for AudioFrame {}
 impl FfiHandle for BoxVideoFrameBuffer {}
@@ -167,5 +176,9 @@ impl FfiServer {
             )))?;
 
         Ok(handle)
+    }
+
+    pub fn drop_handle(&'static self, id: FfiHandleId) -> bool {
+        self.ffi_handles.remove(&id).is_some()
     }
 }

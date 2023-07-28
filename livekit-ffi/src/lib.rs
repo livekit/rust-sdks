@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use livekit::prelude::*;
 use prost::Message;
+use server::FfiDataBuffer;
 use thiserror::Error;
 
 mod conversion;
@@ -57,15 +60,16 @@ pub extern "C" fn livekit_ffi_request(
     }
 
     let handle_id = server::FFI_SERVER.next_id();
-    server::FFI_SERVER
-        .ffi_handles
-        .insert(handle_id, Box::new(res));
+    let ffi_data = FfiDataBuffer {
+        handle: handle_id,
+        data: Arc::new(res),
+    };
 
+    server::FFI_SERVER.store_handle(handle_id, ffi_data);
     handle_id
 }
 
 #[no_mangle]
 pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
-    // Free the memory
-    server::FFI_SERVER.ffi_handles.remove(&handle_id).is_some()
+    server::FFI_SERVER.drop_handle(handle_id)
 }

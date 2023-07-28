@@ -108,8 +108,9 @@ impl From<proto::VideoCodec> for VideoCodec {
 }
 
 macro_rules! impl_yuv_into {
-    (@fields, $buffer:ident, $data_y:ident, $data_u:ident, $data_v: ident) => {
+    (@fields, $handle:ident, $buffer:ident, $data_y:ident, $data_u:ident, $data_v: ident) => {
         Self {
+            handle: Some($handle),
             chroma_width: $buffer.chroma_width(),
             chroma_height: $buffer.chroma_height(),
             stride_y: $buffer.strides().0,
@@ -124,7 +125,7 @@ macro_rules! impl_yuv_into {
     ($fncname:ident, $buffer:ty, ALPHA) => {
         pub fn $fncname(handle: proto::FfiOwnedHandle, buffer: $buffer) -> Self {
             let (data_y, data_u, data_v, data_a) = buffer.data();
-            let mut proto = impl_yuv_into!(@fields, buffer, data_y, data_u, data_v);
+            let mut proto = impl_yuv_into!(@fields, handle, buffer, data_y, data_u, data_v);
             proto.stride_a = buffer.strides().3;
             proto.data_a_ptr = data_a.map(|data_a| data_a.as_ptr() as u64).unwrap_or(0);
             proto
@@ -133,7 +134,7 @@ macro_rules! impl_yuv_into {
     ($fncname:ident, $buffer:ty) => {
         pub fn $fncname(handle: proto::FfiOwnedHandle, buffer: $buffer) -> Self {
             let (data_y, data_u, data_v) = buffer.data();
-            impl_yuv_into!(@fields, buffer, data_y, data_u, data_v)
+            impl_yuv_into!(@fields, handle, buffer, data_y, data_u, data_v)
         }
     };
 }
