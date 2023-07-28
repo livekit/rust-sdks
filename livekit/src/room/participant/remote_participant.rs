@@ -152,7 +152,7 @@ impl RemoteParticipant {
                 track_subscription_failed(
                     self.clone(),
                     sid.clone(),
-                    TrackError::TrackNotFound(sid.0),
+                    TrackError::TrackNotFound(sid),
                 );
             }
         }
@@ -183,7 +183,8 @@ impl RemoteParticipant {
 
         let mut valid_tracks = HashSet::<TrackSid>::new();
         for track in info.tracks {
-            if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
+            let track_sid = track.sid.clone().try_into().unwrap();
+            if let Some(publication) = self.get_track_publication(&track_sid) {
                 publication.update_info(track.clone());
             } else {
                 let publication = RemoteTrackPublication::new(track.clone(), None);
@@ -196,7 +197,7 @@ impl RemoteParticipant {
                 }
             }
 
-            valid_tracks.insert(track.sid.into());
+            valid_tracks.insert(track_sid);
         }
 
         // remove tracks that are no longer valid
@@ -275,18 +276,18 @@ impl RemoteParticipant {
 
         publication.on_subscription_update_needed({
             let rtc_engine = self.inner.rtc_engine.clone();
-            let psid = self.sid().0.clone();
+            let psid = self.sid();
             move |publication, subscribed| {
                 let rtc_engine = rtc_engine.clone();
                 let psid = psid.clone();
                 tokio::spawn(async move {
-                    let tsid = publication.sid().0.clone();
+                    let tsid: String = publication.sid().into();
                     let update_subscription = proto::UpdateSubscription {
                         track_sids: vec![tsid.clone()],
                         subscribe: subscribed,
                         participant_tracks: vec![proto::ParticipantTracks {
-                            participant_sid: psid,
-                            track_sids: vec![tsid.clone()],
+                            participant_sid: psid.into(),
+                            track_sids: vec![tsid],
                         }],
                     };
 

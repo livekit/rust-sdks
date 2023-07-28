@@ -41,8 +41,8 @@ pub use video_track::*;
 
 #[derive(Error, Debug, Clone)]
 pub enum TrackError {
-    #[error("could not find published track with sid: {0}")]
-    TrackNotFound(String),
+    #[error("could not find published track with sid: {0:?}")]
+    TrackNotFound(TrackSid),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,7 +161,7 @@ pub(super) fn new_inner(
 
 pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     let info = inner.info.read();
-    log::debug!("set_muted: {} {}", info.sid, muted);
+    log::debug!("set_muted: {:?} {:?}", info.sid, muted);
     if info.muted == muted {
         return;
     }
@@ -189,7 +189,7 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
 pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: proto::TrackInfo) {
     let mut info = inner.info.write();
     info.name = new_info.name;
-    info.sid = new_info.sid.into();
+    info.sid = new_info.sid.try_into().unwrap();
     info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
     info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
 }

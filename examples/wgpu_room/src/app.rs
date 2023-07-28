@@ -239,13 +239,13 @@ impl LkApp {
                 .keys()
                 .cloned()
                 .collect::<Vec<ParticipantSid>>();
-            sorted_participants.sort_by(|a, b| a.0.cmp(&b.0));
+            sorted_participants.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
 
             for psid in sorted_participants {
                 let participant = participants.get(&psid).unwrap();
                 let tracks = participant.tracks();
                 let mut sorted_tracks = tracks.keys().cloned().collect::<Vec<TrackSid>>();
-                sorted_tracks.sort_by(|a, b| a.0.cmp(&b.0));
+                sorted_tracks.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
 
                 ui.monospace(&participant.identity().0);
                 for tsid in sorted_tracks {

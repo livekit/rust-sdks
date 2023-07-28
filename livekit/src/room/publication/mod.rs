@@ -109,7 +109,7 @@ pub(super) fn new_inner(
     let info = PublicationInfo {
         track,
         name: info.name,
-        sid: info.sid.into(),
+        sid: info.sid.try_into().unwrap(),
         kind: proto::TrackType::from_i32(info.r#type)
             .unwrap()
             .try_into()
@@ -137,7 +137,7 @@ pub(super) fn update_info(
 ) {
     let mut info = inner.info.write();
     info.name = new_info.name;
-    info.sid = new_info.sid.into();
+    info.sid = new_info.sid.try_into().unwrap();
     info.dimension = TrackDimension(new_info.width, new_info.height);
     info.mime_type = new_info.mime_type;
     info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();

@@ -41,7 +41,7 @@ impl LocalAudioTrack {
     pub(crate) fn new(name: String, rtc_track: RtcAudioTrack, source: RtcAudioSource) -> Self {
         Self {
             inner: Arc::new(super::new_inner(
-                "unknown".to_string().into(), // sid
+                "TR_unknown".to_owned().try_into().unwrap(),
                 name,
                 TrackKind::Audio,
                 MediaStreamTrack::Audio(rtc_track),

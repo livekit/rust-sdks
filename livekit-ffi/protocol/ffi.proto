@@ -17,15 +17,40 @@ syntax = "proto3";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
-import "handle.proto";
+// import "handle.proto";
 import "track.proto";
 import "room.proto";
-import "participant.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
 
-/// This is the input of livekit_ffi_request function
-/// We always expect a response (FFIResponse)
+// **How is the livekit-ffi working:
+// We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
+// refer as the ffi client the foreign language that commumicates with the ffi server. (e.g Python SDK, Unity SDK, etc...)
+//
+// We expose the Rust client implementation of livekit using the protocol defined here.
+// Everything starts with a FfiRequest, which is a oneof message that contains all the possible
+// requests that can be made to the ffi server.
+// The server will then respond with a FfiResponse, which is also a oneof message that contains
+// all the possible responses.
+// The first request sent to the server must be an InitializeRequest, which contains the a pointer
+// to the callback function that will be used to send events and async responses to the ffi client.
+// (e.g participant joined, track published, etc...)
+//
+// **Useful things know when collaborating on the protocol:**
+// Everything is subject to discussion and change :-)
+//
+// - The ffi client implementation must never forget to correctly dispose all the owned handles
+//   that it receives from the server.
+//
+// Therefore, the ffi client is easier to implement if there is less handles to manage.
+// 
+// - We are mainly using FfiHandle on info messages (e.g: RoomInfo, TrackInfo, etc...)
+//   For this reason, info are only sent once, at creation (We're not using them for updates, we can infer them from
+//   events on the client implementation).
+//   e.g: set speaking to true when we receive a ActiveSpeakerChanged event.
+
+// This is the input of livekit_ffi_request function
+// We always expect a response (FFIResponse, even if it's empty)
 message FfiRequest {
   oneof message {
     InitializeRequest initialize = 1;
@@ -61,7 +86,7 @@ message FfiRequest {
   }
 }
 
-/// This is the output of livekit_ffi_request function.
+// This is the output of livekit_ffi_request function.
 message FfiResponse {
   oneof message {
     InitializeResponse initialize = 1;
@@ -97,18 +122,20 @@ message FfiResponse {
   }
 }
 
+// To minimize complexity, participant events are not included in the protocol.
+// It is easily deducible from the room events and it turned out that is is easier to implement
+// on the ffi client side.
 message FfiEvent {
   oneof message {
     RoomEvent room_event = 1;
     TrackEvent track_event = 2;
-    ParticipantEvent participant_event = 3;
-    VideoStreamEvent video_stream_event = 4;
-    AudioStreamEvent audio_stream_event = 5;
-    ConnectCallback connect = 6;
-    DisconnectCallback disconnect = 7;
-    DisposeCallback dispose = 8;
-    PublishTrackCallback publish_track = 9;
-    PublishDataCallback publish_data = 10;
+    VideoStreamEvent video_stream_event = 3;
+    AudioStreamEvent audio_stream_event = 4;
+    ConnectCallback connect = 5;
+    DisconnectCallback disconnect = 6;
+    DisposeCallback dispose = 7;
+    PublishTrackCallback publish_track = 8;
+    PublishDataCallback publish_data = 9;
   }
 }
 
@@ -119,16 +146,16 @@ message InitializeResponse {}
 
 // Stop all rooms synchronously (Do we need async here?).
 // e.g: This is used for the Unity Editor after each assemblies reload.
+// TODO(theomonnom): Implement a debug mode where we can find all leaked handles?
 message DisposeRequest {
   bool async = 1;
 }
-
 message DisposeResponse {
-  optional FfiAsyncId async_id = 1; // None if sync
+  optional uint64 async_id = 1; // None if sync
 }
 
 message DisposeCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 
 // TODO(theomonnom): Debug messages (Print handles, forward logs).

@@ -13,24 +13,17 @@
 // limitations under the License.
 
 use crate::proto;
-use livekit::prelude::*;
+use crate::server::room::FfiParticipant;
 
-macro_rules! impl_participant_into {
-    ($p:ty) => {
-        impl From<$p> for proto::ParticipantInfo {
-            fn from(p: $p) -> Self {
-                Self {
-                    name: p.name(),
-                    sid: p.sid().to_string(),
-                    identity: p.identity().to_string(),
-                    metadata: p.metadata(),
-                    publications: p.tracks().iter().map(|(_, p)| p.into()).collect(),
-                }
-            }
+impl proto::ParticipantInfo {
+    pub fn from(handle: proto::FfiOwnedHandle, ffi_participant: &FfiParticipant) -> Self {
+        let participant = &ffi_participant.participant;
+        Self {
+            handle: Some(handle),
+            sid: participant.sid().into(),
+            name: participant.name(),
+            identity: participant.identity().into(),
+            metadata: participant.metadata(),
         }
-    };
+    }
 }
-
-impl_participant_into!(&LocalParticipant);
-impl_participant_into!(&RemoteParticipant);
-impl_participant_into!(&Participant);

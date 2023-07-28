@@ -1,35 +1,16 @@
-// Copyright 2023 LiveKit, Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 // @generated
-/// / # Safety
-/// / The foreign language is responsable for disposing handles
-/// / Forgetting to dispose the handle may lead to memory leaks
-/// / 
-/// / A handle means that the foreign language may still use the corresponding object
-/// / Dropping a handle doesn't necessarily mean that the object is destroyed if it is still used
-/// / on the FfiServer (Rust)
+/// # Safety
+/// The foreign language is responsable for disposing handles
+/// Forgetting to dispose the handle may lead to memory leaks
+/// 
+/// Dropping a handle doesn't necessarily mean that the object is destroyed if it is still used
+/// on the FfiServer (Atomic reference counting)
+/// 
+/// When refering to a handle without owning it, we just use a uint32 without this message. 
+/// (the variable name is suffixed with "_handle")
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FfiHandleId {
-    #[prost(uint64, tag="1")]
-    pub id: u64,
-}
-/// / Link the request/response of an asynchronous call
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FfiAsyncId {
+pub struct FfiOwnedHandle {
     #[prost(uint64, tag="1")]
     pub id: u64,
 }
@@ -39,8 +20,8 @@ pub struct FfiAsyncId {
 pub struct CreateVideoTrackRequest {
     #[prost(string, tag="1")]
     pub name: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="2")]
-    pub source_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="2")]
+    pub source_handle: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -54,8 +35,8 @@ pub struct CreateVideoTrackResponse {
 pub struct CreateAudioTrackRequest {
     #[prost(string, tag="1")]
     pub name: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="2")]
-    pub source_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="2")]
+    pub source_handle: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -63,45 +44,45 @@ pub struct CreateAudioTrackResponse {
     #[prost(message, optional, tag="1")]
     pub track: ::core::option::Option<TrackInfo>,
 }
-// /
-// / Track
-// /
+//
+// Track
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackEvent {
 }
-// TODO(theomonnom): Should we have a separate message whether the track is local or remote?
-
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackPublicationInfo {
-    #[prost(string, tag="1")]
-    pub sid: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(string, tag="2")]
+    pub sid: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
     pub name: ::prost::alloc::string::String,
-    #[prost(enumeration="TrackKind", tag="3")]
+    #[prost(enumeration="TrackKind", tag="4")]
     pub kind: i32,
-    #[prost(enumeration="TrackSource", tag="4")]
+    #[prost(enumeration="TrackSource", tag="5")]
     pub source: i32,
-    #[prost(bool, tag="5")]
+    #[prost(bool, tag="6")]
     pub simulcasted: bool,
-    #[prost(uint32, tag="6")]
-    pub width: u32,
     #[prost(uint32, tag="7")]
+    pub width: u32,
+    #[prost(uint32, tag="8")]
     pub height: u32,
-    #[prost(string, tag="8")]
+    #[prost(string, tag="9")]
     pub mime_type: ::prost::alloc::string::String,
-    #[prost(bool, tag="9")]
-    pub muted: bool,
     #[prost(bool, tag="10")]
+    pub muted: bool,
+    #[prost(bool, tag="11")]
     pub remote: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackInfo {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(string, tag="2")]
     pub sid: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
@@ -208,43 +189,19 @@ impl StreamState {
         }
     }
 }
-/// Seems like we don't need a FfiHandle for participants (atm at least)
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantInfo {
-    #[prost(string, tag="1")]
-    pub sid: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(string, tag="2")]
-    pub name: ::prost::alloc::string::String,
+    pub sid: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
-    pub identity: ::prost::alloc::string::String,
+    pub name: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
+    pub identity: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
     pub metadata: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag="5")]
-    pub publications: ::prost::alloc::vec::Vec<TrackPublicationInfo>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ParticipantEvent {
-    #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
-    #[prost(oneof="participant_event::Message", tags="2")]
-    pub message: ::core::option::Option<participant_event::Message>,
-}
-/// Nested message and enum types in `ParticipantEvent`.
-pub mod participant_event {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Message {
-        #[prost(message, tag="2")]
-        SpeakingChanged(super::IsSpeakingChanged),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct IsSpeakingChanged {
-    #[prost(bool, tag="1")]
-    pub speaking: bool,
 }
 /// Allocate a new VideoFrameBuffer
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -269,8 +226,8 @@ pub struct AllocVideoBufferResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NewVideoStreamRequest {
-    #[prost(message, optional, tag="1")]
-    pub track_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub track_handle: u64,
     #[prost(enumeration="VideoStreamType", tag="2")]
     pub r#type: i32,
 }
@@ -302,12 +259,12 @@ pub struct NewVideoSourceResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureVideoFrameRequest {
-    #[prost(message, optional, tag="1")]
-    pub source_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub source_handle: u64,
     #[prost(message, optional, tag="2")]
     pub frame: ::core::option::Option<VideoFrameInfo>,
-    #[prost(message, optional, tag="3")]
-    pub buffer_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="3")]
+    pub buffer_handle: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -330,8 +287,8 @@ pub mod to_i420_request {
     pub enum From {
         #[prost(message, tag="2")]
         Argb(super::ArgbBufferInfo),
-        #[prost(message, tag="3")]
-        Buffer(super::FfiHandleId),
+        #[prost(uint64, tag="3")]
+        BufferHandle(u64),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -345,8 +302,8 @@ pub struct ToI420Response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ToArgbRequest {
-    #[prost(message, optional, tag="1")]
-    pub buffer: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub buffer_handle: u64,
     #[prost(uint64, tag="2")]
     pub dst_ptr: u64,
     #[prost(enumeration="VideoFormatType", tag="3")]
@@ -364,9 +321,9 @@ pub struct ToArgbRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ToArgbResponse {
 }
-// /
-// / VideoFrame buffers ///
-// /
+//
+// VideoFrame buffers
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -404,8 +361,6 @@ pub struct VideoFrameInfo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoFrameBufferInfo {
-    #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
     #[prost(enumeration="VideoFrameBufferType", tag="2")]
     pub buffer_type: i32,
     #[prost(uint32, tag="3")]
@@ -431,63 +386,69 @@ pub mod video_frame_buffer_info {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlanarYuvBufferInfo {
-    #[prost(uint32, tag="1")]
-    pub chroma_width: u32,
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(uint32, tag="2")]
-    pub chroma_height: u32,
+    pub chroma_width: u32,
     #[prost(uint32, tag="3")]
-    pub stride_y: u32,
+    pub chroma_height: u32,
     #[prost(uint32, tag="4")]
-    pub stride_u: u32,
+    pub stride_y: u32,
     #[prost(uint32, tag="5")]
-    pub stride_v: u32,
+    pub stride_u: u32,
     #[prost(uint32, tag="6")]
+    pub stride_v: u32,
+    #[prost(uint32, tag="7")]
     pub stride_a: u32,
     /// *const u8 or *const u16
-    #[prost(uint64, tag="7")]
-    pub data_y_ptr: u64,
     #[prost(uint64, tag="8")]
-    pub data_u_ptr: u64,
+    pub data_y_ptr: u64,
     #[prost(uint64, tag="9")]
+    pub data_u_ptr: u64,
+    #[prost(uint64, tag="10")]
     pub data_v_ptr: u64,
     /// nullptr = no alpha
-    #[prost(uint64, tag="10")]
+    #[prost(uint64, tag="11")]
     pub data_a_ptr: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BiplanarYuvBufferInfo {
-    #[prost(uint32, tag="1")]
-    pub chroma_width: u32,
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(uint32, tag="2")]
-    pub chroma_height: u32,
+    pub chroma_width: u32,
     #[prost(uint32, tag="3")]
-    pub stride_y: u32,
+    pub chroma_height: u32,
     #[prost(uint32, tag="4")]
+    pub stride_y: u32,
+    #[prost(uint32, tag="5")]
     pub stride_uv: u32,
-    #[prost(uint64, tag="5")]
-    pub data_y_ptr: u64,
     #[prost(uint64, tag="6")]
+    pub data_y_ptr: u64,
+    #[prost(uint64, tag="7")]
     pub data_uv_ptr: u64,
 }
-/// TODO(theomonnom): Expose graphic context?
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NativeBufferInfo {
+    /// TODO(theomonnom): Expose graphic context?
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoStreamInfo {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(enumeration="VideoStreamType", tag="2")]
     pub r#type: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoStreamEvent {
-    #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub handle: u64,
     #[prost(oneof="video_stream_event::Message", tags="2")]
     pub message: ::core::option::Option<video_stream_event::Message>,
 }
@@ -508,9 +469,9 @@ pub struct VideoFrameReceived {
     #[prost(message, optional, tag="2")]
     pub buffer: ::core::option::Option<VideoFrameBufferInfo>,
 }
-// /
-// / VideoSource ///
-// /
+//
+// VideoSource
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -523,10 +484,8 @@ pub struct VideoSourceResolution {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoSourceInfo {
-    /// # SAFETY
-    /// This handle must not be dropped if a track is currently using it
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(enumeration="VideoSourceType", tag="2")]
     pub r#type: i32,
 }
@@ -667,9 +626,9 @@ impl VideoFrameBufferType {
         }
     }
 }
-// /
-// / VideoStream ///
-// /
+//
+// VideoStream
+//
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -737,71 +696,90 @@ pub struct ConnectRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectResponse {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectCallback {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag="3")]
     pub room: ::core::option::Option<RoomInfo>,
+    #[prost(message, optional, tag="4")]
+    pub local_participant: ::core::option::Option<connect_callback::ParticipantWithTracks>,
+    #[prost(message, repeated, tag="5")]
+    pub participants: ::prost::alloc::vec::Vec<connect_callback::ParticipantWithTracks>,
+}
+/// Nested message and enum types in `ConnectCallback`.
+pub mod connect_callback {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ParticipantWithTracks {
+        #[prost(message, optional, tag="1")]
+        pub participant: ::core::option::Option<super::ParticipantInfo>,
+        /// TrackInfo are not needed here, if we're subscribed to a track, the FfiServer will send
+        /// a TrackSubscribed event
+        #[prost(message, repeated, tag="2")]
+        pub publications: ::prost::alloc::vec::Vec<super::TrackPublicationInfo>,
+    }
 }
 /// Disconnect from the a room
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisconnectRequest {
-    #[prost(message, optional, tag="1")]
-    pub room_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisconnectResponse {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisconnectCallback {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
 }
 /// Publish a track to the room
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishTrackRequest {
-    #[prost(message, optional, tag="1")]
-    pub room_handle: ::core::option::Option<FfiHandleId>,
-    #[prost(message, optional, tag="2")]
-    pub track_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(uint64, tag="2")]
+    pub track_handle: u64,
     #[prost(message, optional, tag="3")]
     pub options: ::core::option::Option<TrackPublishOptions>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishTrackResponse {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishTrackCallback {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(message, optional, tag="3")]
-    pub publication: ::core::option::Option<TrackPublicationInfo>,
+    /// The TrackPublicationInfo comes from the LocalTrackPublished event
+    /// and the FfiClient musts wait for it
+    #[prost(string, tag="3")]
+    pub track_sid: ::prost::alloc::string::String,
 }
 /// Unpublish a track from the room
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnpublishTrackRequest {
-    #[prost(message, optional, tag="1")]
-    pub room_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
     #[prost(string, tag="2")]
     pub track_sid: ::prost::alloc::string::String,
     #[prost(bool, tag="3")]
@@ -810,14 +788,14 @@ pub struct UnpublishTrackRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnpublishTrackResponse {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnpublishTrackCallback {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
@@ -825,12 +803,12 @@ pub struct UnpublishTrackCallback {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishDataRequest {
-    #[prost(message, optional, tag="1")]
-    pub room_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
     #[prost(uint64, tag="2")]
     pub data_ptr: u64,
     #[prost(uint64, tag="3")]
-    pub data_size: u64,
+    pub data_len: u64,
     #[prost(enumeration="DataPacketKind", tag="4")]
     pub kind: i32,
     /// destination
@@ -840,37 +818,33 @@ pub struct PublishDataRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishDataResponse {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishDataCallback {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
-/// Change the "desire" to subscribe to a track
+/// Change the "desire" to subs2ribe to a track
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetSubscribedRequest {
-    #[prost(message, optional, tag="1")]
-    pub room_handle: ::core::option::Option<FfiHandleId>,
-    #[prost(bool, tag="2")]
+    #[prost(bool, tag="1")]
     pub subscribe: bool,
-    #[prost(string, tag="3")]
-    pub participant_sid: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
-    pub track_sid: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub publication_handle: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetSubscribedResponse {
 }
-// /
-// / Options
-// /
+//
+// Options
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -917,9 +891,19 @@ pub struct RoomOptions {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RoomEvent {
+pub struct BufferInfo {
     #[prost(message, optional, tag="1")]
-    pub room_handle: ::core::option::Option<FfiHandleId>,
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
+    #[prost(uint64, tag="2")]
+    pub data_ptr: u64,
+    #[prost(uint64, tag="3")]
+    pub data_len: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RoomEvent {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
     #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20")]
     pub message: ::core::option::Option<room_event::Message>,
 }
@@ -972,17 +956,13 @@ pub mod room_event {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomInfo {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(string, tag="2")]
     pub sid: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
     pub metadata: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="5")]
-    pub local_participant: ::core::option::Option<ParticipantInfo>,
-    #[prost(message, repeated, tag="6")]
-    pub participants: ::prost::alloc::vec::Vec<ParticipantInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -993,16 +973,14 @@ pub struct ParticipantConnected {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantDisconnected {
-    #[prost(message, optional, tag="1")]
-    pub info: ::core::option::Option<ParticipantInfo>,
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LocalTrackPublished {
     #[prost(message, optional, tag="1")]
     pub publication: ::core::option::Option<TrackPublicationInfo>,
-    #[prost(message, optional, tag="2")]
-    pub track: ::core::option::Option<TrackInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1089,15 +1067,11 @@ pub struct ConnectionQualityChanged {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataReceived {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub data: ::core::option::Option<BufferInfo>,
     /// Can be empty if the data is sent a server SDK
     #[prost(string, optional, tag="2")]
     pub participant_sid: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(uint64, tag="3")]
-    pub data_ptr: u64,
-    #[prost(uint64, tag="4")]
-    pub data_size: u64,
-    #[prost(enumeration="DataPacketKind", tag="5")]
+    #[prost(enumeration="DataPacketKind", tag="3")]
     pub kind: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1122,9 +1096,9 @@ pub struct Reconnecting {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Reconnected {
 }
-// /
-// / Room
-// /
+//
+// Room
+//
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1234,8 +1208,8 @@ pub struct AllocAudioBufferResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NewAudioStreamRequest {
-    #[prost(message, optional, tag="1")]
-    pub track_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub track_handle: u64,
     #[prost(enumeration="AudioStreamType", tag="2")]
     pub r#type: i32,
 }
@@ -1264,10 +1238,10 @@ pub struct NewAudioSourceResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureAudioFrameRequest {
-    #[prost(message, optional, tag="1")]
-    pub source_handle: ::core::option::Option<FfiHandleId>,
-    #[prost(message, optional, tag="2")]
-    pub buffer_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub source_handle: u64,
+    #[prost(uint64, tag="2")]
+    pub buffer_handle: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1282,16 +1256,16 @@ pub struct NewAudioResamplerRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NewAudioResamplerResponse {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub resampler: ::core::option::Option<AudioResamplerInfo>,
 }
 /// Remix and resample an audio frame
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemixAndResampleRequest {
-    #[prost(message, optional, tag="1")]
-    pub resampler_handle: ::core::option::Option<FfiHandleId>,
-    #[prost(message, optional, tag="2")]
-    pub buffer_handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub resampler_handle: u64,
+    #[prost(uint64, tag="2")]
+    pub buffer_handle: u64,
     #[prost(uint32, tag="3")]
     pub num_channels: u32,
     #[prost(uint32, tag="4")]
@@ -1303,15 +1277,15 @@ pub struct RemixAndResampleResponse {
     #[prost(message, optional, tag="1")]
     pub buffer: ::core::option::Option<AudioFrameBufferInfo>,
 }
-// /
-// / AudioFrame buffer ///
-// /
+//
+// AudioFrame buffer
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AudioFrameBufferInfo {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     /// *const i16
     #[prost(uint64, tag="2")]
     pub data_ptr: u64,
@@ -1326,15 +1300,15 @@ pub struct AudioFrameBufferInfo {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AudioStreamInfo {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(enumeration="AudioStreamType", tag="2")]
     pub r#type: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AudioStreamEvent {
-    #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    #[prost(uint64, tag="1")]
+    pub source_handle: u64,
     #[prost(oneof="audio_stream_event::Message", tags="2")]
     pub message: ::core::option::Option<audio_stream_event::Message>,
 }
@@ -1353,9 +1327,9 @@ pub struct AudioFrameReceived {
     #[prost(message, optional, tag="1")]
     pub frame: ::core::option::Option<AudioFrameBufferInfo>,
 }
-// /
-// / AudioSource ///
-// /
+//
+// AudioSource
+//
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1371,13 +1345,23 @@ pub struct AudioSourceOptions {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AudioSourceInfo {
     #[prost(message, optional, tag="1")]
-    pub handle: ::core::option::Option<FfiHandleId>,
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(enumeration="AudioSourceType", tag="2")]
     pub r#type: i32,
 }
-// /
-// / AudioStream ///
-// /
+//
+// AudioResampler
+//
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AudioResamplerInfo {
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
+}
+//
+// AudioStream
+//
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1428,8 +1412,34 @@ impl AudioSourceType {
         }
     }
 }
-/// / This is the input of livekit_ffi_request function
-/// / We always expect a response (FFIResponse)
+// **How is the livekit-ffi working:
+// We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
+// refer as the ffi client the foreign language that commumicates with the ffi server. (e.g Python SDK, Unity SDK, etc...)
+//
+// We expose the Rust client implementation of livekit using the protocol defined here.
+// Everything starts with a FfiRequest, which is a oneof message that contains all the possible
+// requests that can be made to the ffi server.
+// The server will then respond with a FfiResponse, which is also a oneof message that contains
+// all the possible responses.
+// The first request sent to the server must be an InitializeRequest, which contains the a pointer
+// to the callback function that will be used to send events and async responses to the ffi client.
+// (e.g participant joined, track published, etc...)
+//
+// **Useful things know when collaborating on the protocol:**
+// Everything is subject to discussion and change :-)
+//
+// - The ffi client implementation must never forget to correctly dispose all the owned handles
+//    that it receives from the server.
+//
+// Therefore, the ffi client is easier to implement if there is less handles to manage.
+// 
+// - We are mainly using FfiHandle on info messages (e.g: RoomInfo, TrackInfo, etc...)
+//    For this reason, info are only sent once, at creation (We're not using them for updates, we can infer them from
+//    events on the client implementation).
+//    e.g: set speaking to true when we receive a ActiveSpeakerChanged event.
+
+/// This is the input of livekit_ffi_request function
+/// We always expect a response (FFIResponse, even if it's empty)
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
@@ -1491,7 +1501,7 @@ pub mod ffi_request {
         RemixAndResample(super::RemixAndResampleRequest),
     }
 }
-/// / This is the output of livekit_ffi_request function.
+/// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
@@ -1553,10 +1563,13 @@ pub mod ffi_response {
         RemixAndResample(super::RemixAndResampleResponse),
     }
 }
+/// To minimize complexity, participant events are not included in the protocol.
+/// It is easily deducible from the room events and it turned out that is is easier to implement
+/// on the ffi client side.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -1569,20 +1582,18 @@ pub mod ffi_event {
         #[prost(message, tag="2")]
         TrackEvent(super::TrackEvent),
         #[prost(message, tag="3")]
-        ParticipantEvent(super::ParticipantEvent),
-        #[prost(message, tag="4")]
         VideoStreamEvent(super::VideoStreamEvent),
-        #[prost(message, tag="5")]
+        #[prost(message, tag="4")]
         AudioStreamEvent(super::AudioStreamEvent),
-        #[prost(message, tag="6")]
+        #[prost(message, tag="5")]
         Connect(super::ConnectCallback),
-        #[prost(message, tag="7")]
+        #[prost(message, tag="6")]
         Disconnect(super::DisconnectCallback),
-        #[prost(message, tag="8")]
+        #[prost(message, tag="7")]
         Dispose(super::DisposeCallback),
-        #[prost(message, tag="9")]
+        #[prost(message, tag="8")]
         PublishTrack(super::PublishTrackCallback),
-        #[prost(message, tag="10")]
+        #[prost(message, tag="9")]
         PublishData(super::PublishDataCallback),
     }
 }
@@ -1600,6 +1611,7 @@ pub struct InitializeResponse {
 }
 /// Stop all rooms synchronously (Do we need async here?).
 /// e.g: This is used for the Unity Editor after each assemblies reload.
+/// TODO(theomonnom): Implement a debug mode where we can find all leaked handles?
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisposeRequest {
@@ -1610,13 +1622,13 @@ pub struct DisposeRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisposeResponse {
     /// None if sync
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, optional, tag="1")]
+    pub async_id: ::core::option::Option<u64>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisposeCallback {
-    #[prost(message, optional, tag="1")]
-    pub async_id: ::core::option::Option<FfiAsyncId>,
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
 }
 // @@protoc_insertion_point(module)

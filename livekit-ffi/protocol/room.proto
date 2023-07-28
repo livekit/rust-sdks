@@ -29,77 +29,87 @@ message ConnectRequest {
   RoomOptions options = 3;
 }
 message ConnectResponse {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 message ConnectCallback {
-  FfiAsyncId async_id = 1;
+  message ParticipantWithTracks {
+    ParticipantInfo participant = 1;
+
+    // TrackInfo are not needed here, if we're subscribed to a track, the FfiServer will send
+    // a TrackSubscribed event
+    repeated TrackPublicationInfo publications = 2;
+  }
+
+  uint64 async_id = 1;
   optional string error = 2;
   RoomInfo room = 3;
+  ParticipantWithTracks local_participant = 4;
+  repeated ParticipantWithTracks participants = 5;
 }
 
 // Disconnect from the a room
-message DisconnectRequest { FfiHandleId room_handle = 1; }
-message DisconnectResponse { FfiAsyncId async_id = 1; }
-message DisconnectCallback { FfiAsyncId async_id = 1; }
+message DisconnectRequest { uint64 room_handle = 1; }
+message DisconnectResponse { uint64 async_id = 1; }
+message DisconnectCallback { uint64 async_id = 1; }
 
 // Publish a track to the room
 message PublishTrackRequest {
-  FfiHandleId room_handle = 1;
-  FfiHandleId track_handle = 2;
+  uint64 local_participant_handle = 1;
+  uint64 track_handle = 2;
   TrackPublishOptions options = 3;
 }
 message PublishTrackResponse {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 message PublishTrackCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
-  TrackPublicationInfo publication = 3;
+  // The TrackPublicationInfo comes from the LocalTrackPublished event
+  // and the FfiClient musts wait for it
+  string track_sid = 3;
 }
 
 // Unpublish a track from the room
 message UnpublishTrackRequest {
-  FfiHandleId room_handle = 1;
+  uint64 local_participant_handle = 1;
   string track_sid = 2;
   bool stop_on_unpublish = 3;
 }
 message UnpublishTrackResponse {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 message UnpublishTrackCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Publish data to other participants
 message PublishDataRequest {
-  FfiHandleId room_handle = 1;
+  uint64 local_participant_handle = 1;
   uint64 data_ptr = 2;
-  uint64 data_size = 3;
+  uint64 data_len = 3;
   DataPacketKind kind = 4;
   repeated string destination_sids = 5; // destination
 }
 message PublishDataResponse {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 message PublishDataCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
-// Change the "desire" to subscribe to a track
+// Change the "desire" to subs2ribe to a track
 message SetSubscribedRequest {
-  FfiHandleId room_handle = 1;
-  bool subscribe = 2;
-  string participant_sid = 3;
-  string track_sid = 4;
+  bool subscribe = 1;
+  uint64 publication_handle = 2;
 }
 message SetSubscribedResponse {}
 
 
-///
-/// Options
-///
+//
+// Options
+//
 
 message VideoEncoding {
   uint64 max_bitrate = 1;
@@ -127,9 +137,9 @@ message RoomOptions {
   bool dynacast = 3;
 }
 
-///
-/// Room
-///
+//
+// Room
+//
 
 enum ConnectionQuality {
   QUALITY_POOR = 0;
@@ -148,8 +158,14 @@ enum DataPacketKind {
   KIND_RELIABLE = 1;
 }
 
+message BufferInfo {
+  FfiOwnedHandle handle = 1;
+  uint64 data_ptr = 2;
+  uint64 data_len = 3;
+}
+
 message RoomEvent {
-  FfiHandleId room_handle = 1;
+  uint64 room_handle = 1;
   oneof message {
     ParticipantConnected participant_connected = 2;
     ParticipantDisconnected participant_disconnected = 3;
@@ -174,21 +190,20 @@ message RoomEvent {
 }
 
 message RoomInfo {
-  FfiHandleId handle = 1;
+  FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
   string metadata = 4;
-  ParticipantInfo local_participant = 5;
-  repeated ParticipantInfo participants = 6;
 }
 
 message ParticipantConnected { ParticipantInfo info = 1; }
 
-message ParticipantDisconnected { ParticipantInfo info = 1; }
+message ParticipantDisconnected { 
+  string participant_sid = 1;
+}
 
 message LocalTrackPublished {
   TrackPublicationInfo publication = 1;
-  TrackInfo track = 2;
 }
 
 message LocalTrackUnpublished {
@@ -242,11 +257,9 @@ message ConnectionQualityChanged {
 }
 
 message DataReceived {
-  FfiHandleId handle = 1;
+  BufferInfo data = 1;
   optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
-  uint64 data_ptr = 3;
-  uint64 data_size = 4;
-  DataPacketKind kind = 5;
+  DataPacketKind kind = 3;
 }
 
 message ConnectionStateChanged { ConnectionState state = 1; }

@@ -79,7 +79,7 @@ pub enum RoomEvent {
     TrackSubscriptionFailed {
         participant: RemoteParticipant,
         error: track::TrackError,
-        sid: TrackSid,
+        track_sid: TrackSid,
     },
     TrackPublished {
         publication: RemoteTrackPublication,
@@ -190,7 +190,7 @@ impl Room {
         let pi = join_response.participant.unwrap().clone();
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
-            pi.sid.into(),
+            pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
             pi.metadata,
@@ -220,7 +220,7 @@ impl Room {
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
-            sid: room_info.sid.into(),
+            sid: room_info.sid.try_into().unwrap(),
             name: room_info.name,
             info: RwLock::new(RoomInfo {
                 state: ConnectionState::Disconnected,
@@ -236,7 +236,12 @@ impl Room {
         for pi in join_response.other_participants {
             let participant = {
                 let pi = pi.clone();
-                inner.create_participant(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata)
+                inner.create_participant(
+                    pi.sid.try_into().unwrap(),
+                    pi.identity.into(),
+                    pi.name,
+                    pi.metadata,
+                )
             };
             participant.update_info(pi.clone());
         }
@@ -369,8 +374,9 @@ impl RoomSession {
                 }
 
                 let (participant_sid, track_sid) = lk_stream_id.unwrap();
-                let track_sid = track_sid.to_owned().into();
-                let remote_participant = self.get_participant(&participant_sid.to_string().into());
+                let participant_sid = participant_sid.to_owned().try_into().unwrap();
+                let track_sid = track_sid.to_owned().try_into().unwrap();
+                let remote_participant = self.get_participant(&participant_sid);
 
                 if let Some(remote_participant) = remote_participant {
                     tokio::spawn(async move {
@@ -408,14 +414,12 @@ impl RoomSession {
                 participant_sid,
             } => {
                 let payload = Arc::new(payload);
-                if let Some(participant) = self.get_participant(&participant_sid.into()) {
+                if let Some(participant) = self.get_participant(&participant_sid) {
                     self.dispatcher.dispatch(&RoomEvent::DataReceived {
                         payload: payload.clone(),
                         kind,
                         participant: participant.clone(),
                     });
-
-                    //participant.on_data_received(payload, kind);
                 }
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
@@ -451,19 +455,22 @@ impl RoomSession {
     /// It also update the participant tracks.
     fn handle_participant_update(self: &Arc<Self>, updates: Vec<proto::ParticipantInfo>) {
         for pi in updates {
-            if pi.sid == self.local_participant.sid()
-                || pi.identity == self.local_participant.identity()
+            let participant_sid = pi.sid.clone().try_into().unwrap();
+            let participant_identity: ParticipantIdentity = pi.identity.clone().into();
+
+            if participant_sid == self.local_participant.sid()
+                || participant_identity == self.local_participant.identity()
             {
                 self.local_participant.clone().update_info(pi);
                 continue;
             }
 
-            let remote_participant = self.get_participant(&pi.sid.clone().into());
+            let remote_participant = self.get_participant(&participant_sid);
 
             if let Some(remote_participant) = remote_participant {
                 if pi.state == proto::participant_info::State::Disconnected as i32 {
                     // Participant disconnected
-                    log::info!("Participant disconnected: {}", pi.sid);
+                    log::info!("Participant disconnected: {:?}", participant_sid);
                     self.clone()
                         .handle_participant_disconnect(remote_participant)
                 } else {
@@ -472,10 +479,15 @@ impl RoomSession {
                 }
             } else {
                 // Create a new participant
-                log::info!("Participant connected: {}", pi.sid);
+                log::info!("Participant connected: {:?}", participant_sid);
                 let remote_participant = {
                     let pi = pi.clone();
-                    self.create_participant(pi.sid.into(), pi.identity.into(), pi.name, pi.metadata)
+                    self.create_participant(
+                        pi.sid.try_into().unwrap(),
+                        pi.identity.into(),
+                        pi.name,
+                        pi.metadata,
+                    )
                 };
 
                 let _ = self
@@ -493,11 +505,12 @@ impl RoomSession {
         let mut speakers = Vec::new();
 
         for speaker in speakers_info {
+            let sid: ParticipantSid = speaker.sid.try_into().unwrap();
             let participant = {
-                if speaker.sid == self.local_participant.sid() {
+                if sid == self.local_participant.sid() {
                     Participant::Local(self.local_participant.clone())
                 } else {
-                    if let Some(participant) = self.get_participant(&speaker.sid.into()) {
+                    if let Some(participant) = self.get_participant(&sid) {
                         Participant::Remote(participant)
                     } else {
                         continue;
@@ -525,12 +538,12 @@ impl RoomSession {
     /// Emit ConnectionQualityChanged event for the concerned participants
     fn handle_connection_quality_update(&self, updates: Vec<proto::ConnectionQualityInfo>) {
         for update in updates {
+            let sid: ParticipantSid = update.participant_sid.try_into().unwrap();
             let participant = {
-                if update.participant_sid == self.local_participant.sid() {
+                if sid == self.local_participant.sid() {
                     Participant::Local(self.local_participant.clone())
                 } else {
-                    if let Some(participant) = self.get_participant(&update.participant_sid.into())
-                    {
+                    if let Some(participant) = self.get_participant(&sid) {
                         Participant::Remote(participant)
                     } else {
                         continue;
@@ -641,10 +654,10 @@ impl RoomSession {
         });
 
         let dispatcher = self.dispatcher.clone();
-        participant.on_track_subscription_failed(move |participant, sid, error| {
+        participant.on_track_subscription_failed(move |participant, track_sid, error| {
             dispatcher.dispatch(&RoomEvent::TrackSubscriptionFailed {
                 participant,
-                sid,
+                track_sid,
                 error,
             });
         });

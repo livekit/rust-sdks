@@ -121,7 +121,7 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
-    info.sid = new_info.sid.into();
+    info.sid = new_info.sid.try_into().unwrap();
     info.name = new_info.name;
     info.identity = new_info.identity.into();
     info.metadata = new_info.metadata; // TODO(theomonnom): callback MetadataChanged
@@ -164,7 +164,7 @@ pub(super) fn remove_publication(
         publication.on_unmuted(|_, _| {});
     } else {
         // shouldn't happen (internal)
-        log::warn!("could not find publication to remove: {}", sid);
+        log::warn!("could not find publication to remove: {:?}", sid);
     }
 
     publication
