@@ -22,8 +22,8 @@ use log::warn;
 use tokio::sync::oneshot;
 
 pub struct FfiVideoStream {
-    handle_id: FfiHandleId,
-    stream_type: proto::VideoStreamType,
+    pub handle_id: FfiHandleId,
+    pub stream_type: proto::VideoStreamType,
 
     #[allow(dead_code)]
     close_tx: oneshot::Sender<()>, // Close the stream on drop
@@ -81,14 +81,6 @@ impl FfiVideoStream {
         );
         server.store_handle(stream.handle_id, stream);
         Ok(info)
-    }
-
-    pub fn handle_id(&self) -> FfiHandleId {
-        self.handle_id
-    }
-
-    pub fn stream_type(&self) -> proto::VideoStreamType {
-        self.stream_type
     }
 
     async fn native_video_stream_task(

@@ -287,7 +287,7 @@ impl proto::VideoSourceInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, source: &FfiVideoSource) -> Self {
         Self {
             handle: Some(handle_id.into()),
-            r#type: source.source_type() as i32,
+            r#type: source.source_type as i32,
         }
     }
 }
@@ -296,7 +296,7 @@ impl proto::VideoStreamInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, stream: &FfiVideoStream) -> Self {
         Self {
             handle: Some(handle_id.into()),
-            r#type: stream.stream_type() as i32,
+            r#type: stream.stream_type as i32,
         }
     }
 }

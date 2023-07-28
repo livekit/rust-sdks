@@ -22,8 +22,8 @@ use log::warn;
 use tokio::sync::oneshot;
 
 pub struct FfiAudioStream {
-    handle_id: FfiHandleId,
-    stream_type: proto::AudioStreamType,
+    pub handle_id: FfiHandleId,
+    pub stream_type: proto::AudioStreamType,
 
     #[allow(dead_code)]
     close_tx: oneshot::Sender<()>, // Close the stream on drop
@@ -83,14 +83,6 @@ impl FfiAudioStream {
         );
         server.store_handle(audio_stream.handle_id, audio_stream);
         Ok(info)
-    }
-
-    pub fn handle_id(&self) -> FfiHandleId {
-        self.handle_id
-    }
-
-    pub fn stream_type(&self) -> proto::AudioStreamType {
-        self.stream_type
     }
 
     async fn native_audio_stream_task(

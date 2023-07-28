@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_webrtc::prelude::*;

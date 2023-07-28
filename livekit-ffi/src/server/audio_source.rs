@@ -17,9 +17,9 @@ use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use livekit::webrtc::prelude::*;
 
 pub struct FfiAudioSource {
-    handle_id: FfiHandleId,
-    source_type: proto::AudioSourceType,
-    source: RtcAudioSource,
+    pub handle_id: FfiHandleId,
+    pub source_type: proto::AudioSourceType,
+    pub source: RtcAudioSource,
 }
 
 impl FfiHandle for FfiAudioSource {}
@@ -73,17 +73,5 @@ impl FfiAudioSource {
         }
 
         Ok(())
-    }
-
-    pub fn handle_id(&self) -> FfiHandleId {
-        self.handle_id
-    }
-
-    pub fn source_type(&self) -> proto::AudioSourceType {
-        self.source_type
-    }
-
-    pub fn inner_source(&self) -> &RtcAudioSource {
-        &self.source
     }
 }

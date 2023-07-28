@@ -44,7 +44,7 @@ impl proto::AudioSourceInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, source: &FfiAudioSource) -> Self {
         Self {
             handle: Some(handle_id.into()),
-            r#type: source.source_type() as i32,
+            r#type: source.source_type as i32,
         }
     }
 }
@@ -53,7 +53,7 @@ impl proto::AudioStreamInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, stream: &FfiAudioStream) -> Self {
         Self {
             handle: Some(handle_id.into()),
-            r#type: stream.stream_type() as i32,
+            r#type: stream.stream_type as i32,
         }
     }
 }

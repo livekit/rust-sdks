@@ -55,7 +55,7 @@ impl FfiHandle for FfiRoom {}
 
 pub struct RoomInner {
     pub room: Room,
-    #[allow(dead_code)]
+    #[allow(unused)]
     handle_id: FfiHandleId,
     data_tx: mpsc::UnboundedSender<DataPacket>,
 }

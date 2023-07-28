@@ -19,9 +19,9 @@ use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, VideoFrame};
 use super::FfiHandle;
 
 pub struct FfiVideoSource {
-    handle_id: FfiHandleId,
-    source_type: proto::VideoSourceType,
-    source: RtcVideoSource,
+    pub handle_id: FfiHandleId,
+    pub source_type: proto::VideoSourceType,
+    pub source: RtcVideoSource,
 }
 
 impl FfiHandle for FfiVideoSource {}
@@ -94,17 +94,5 @@ impl FfiVideoSource {
             _ => {}
         }
         Ok(())
-    }
-
-    pub fn handle_id(&self) -> FfiHandleId {
-        self.handle_id
-    }
-
-    pub fn source_type(&self) -> proto::VideoSourceType {
-        self.source_type
-    }
-
-    pub fn inner_source(&self) -> &RtcVideoSource {
-        &self.source
     }
 }

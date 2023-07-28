@@ -308,7 +308,7 @@ fn on_create_video_track(
 ) -> FfiResult<proto::CreateVideoTrackResponse> {
     let source = server
         .retrieve_handle::<video_source::FfiVideoSource>(create.source_handle)?
-        .inner_source()
+        .source
         .clone();
 
     let handle_id = server.next_id();
@@ -334,7 +334,7 @@ fn on_create_audio_track(
 ) -> FfiResult<proto::CreateAudioTrackResponse> {
     let source = server
         .retrieve_handle::<audio_source::FfiAudioSource>(create.source_handle)?
-        .inner_source()
+        .source
         .clone();
 
     let handle_id = server.next_id();
