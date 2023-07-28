@@ -218,7 +218,7 @@ fn on_publish_track(
                 .clone();
 
             let Participant::Local(participant) = &ffi_participant.participant else {
-                    return Err(FfiError::InvalidRequest("participant is not a LocalParticipant"));
+                    return Err(FfiError::InvalidRequest("participant is not a LocalParticipant".into()));
                 };
 
             let ffi_track = server
@@ -226,7 +226,7 @@ fn on_publish_track(
                 .clone();
 
             let track = LocalTrack::try_from(ffi_track.track.clone())
-                .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack"))?;
+                .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack".into()))?;
 
             let publication = participant
                 .publish_track(track, publish.options.map(Into::into).unwrap_or_default())
@@ -294,7 +294,7 @@ fn on_set_subscribed(
         server.retrieve_handle::<FfiPublication>(set_subscribed.publication_handle)?;
 
     let TrackPublication::Remote(publication) = &ffi_publication.publication else {
-            return Err(FfiError::InvalidRequest("publication is not a RemotePublication"));
+            return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
         };
 
     publication.set_subscribed(set_subscribed.subscribe);
@@ -360,7 +360,11 @@ fn on_alloc_video_buffer(
     let frame_type = proto::VideoFrameBufferType::from_i32(alloc.r#type).unwrap();
     let buffer: BoxVideoFrameBuffer = match frame_type {
         proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(alloc.width, alloc.height)),
-        _ => return Err(FfiError::InvalidRequest("frame type is not supported")),
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                "frame type is not supported".into(),
+            ))
+        }
     };
 
     let handle_id = server.next_id();
@@ -413,7 +417,7 @@ fn on_to_i420(
 ) -> FfiResult<proto::ToI420Response> {
     let from = to_i420
         .from
-        .ok_or(FfiError::InvalidRequest("from is empty"))?;
+        .ok_or(FfiError::InvalidRequest("from is empty".into()))?;
 
     let i420 = match from {
         // Create a new I420 buffer from a raw argb buffer
@@ -440,7 +444,11 @@ fn on_to_i420(
                     yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
                         .unwrap();
                 }
-                _ => return Err(FfiError::InvalidRequest("the format is not supported")),
+                _ => {
+                    return Err(FfiError::InvalidRequest(
+                        "the format is not supported".into(),
+                    ))
+                }
             }
 
             i420
@@ -606,7 +614,7 @@ pub fn handle_request(
 ) -> FfiResult<proto::FfiResponse> {
     let request = request
         .message
-        .ok_or(FfiError::InvalidRequest("message is empty"))?;
+        .ok_or(FfiError::InvalidRequest("message is empty".into()))?;
 
     let mut res = proto::FfiResponse::default();
     res.message = Some(match request {

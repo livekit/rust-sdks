@@ -39,7 +39,11 @@ impl FfiAudioSource {
                     NativeAudioSource::new(new_source.options.map(Into::into).unwrap_or_default());
                 RtcAudioSource::Native(audio_source)
             }
-            _ => return Err(FfiError::InvalidRequest("unsupported audio source type")),
+            _ => {
+                return Err(FfiError::InvalidRequest(
+                    "unsupported audio source type".into(),
+                ))
+            }
         };
 
         let source = Self {

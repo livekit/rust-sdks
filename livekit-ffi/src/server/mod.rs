@@ -108,7 +108,7 @@ impl Default for FfiServer {
 // Using &'static self inside the implementation, not sure if this is really idiomatic
 // It simplifies the code a lot tho. In most cases the server is used until the end of the process
 impl FfiServer {
-    pub async fn dispose(&'static self) {
+    pub async fn dispose(&self) {
         log::info!("disposing the FfiServer, closing all rooms...");
 
         // Close all rooms
@@ -128,7 +128,7 @@ impl FfiServer {
         *self.config.lock() = None; // Invalidate the config
     }
 
-    pub async fn send_event(&'static self, message: proto::ffi_event::Message) -> FfiResult<()> {
+    pub async fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
         let callback_fn = self
             .config
             .lock()
@@ -154,38 +154,44 @@ impl FfiServer {
         Ok(())
     }
 
-    pub fn next_id(&'static self) -> FfiHandleId {
+    pub fn next_id(&self) -> FfiHandleId {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn store_handle<T>(&'static self, id: FfiHandleId, handle: T)
+    pub fn store_handle<T>(&self, id: FfiHandleId, handle: T)
     where
         T: FfiHandle,
     {
         self.ffi_handles.insert(id, Box::new(handle));
     }
 
-    pub fn retrieve_handle<T>(
-        &'static self,
+    pub fn retrieve_handle<'a, T>(
+        &'a self,
         id: FfiHandleId,
-    ) -> FfiResult<MappedRef<'static, u64, Box<dyn FfiHandle>, T>>
+    ) -> FfiResult<MappedRef<'a, u64, Box<dyn FfiHandle>, T>>
     where
         T: FfiHandle,
     {
         if id == INVALID_HANDLE {
-            Err(FfiError::InvalidRequest("handle is invalid"))?;
+            return Err(FfiError::InvalidRequest("handle is invalid".into()));
         }
 
         let handle = self
             .ffi_handles
             .get(&id)
-            .ok_or(FfiError::InvalidRequest("handle not found"))?;
+            .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
+
+        if !handle.is::<T>() {
+            let tyname = std::any::type_name::<T>();
+            let msg = format!("handle is not a {}", tyname);
+            return Err(FfiError::InvalidRequest(msg.into()));
+        }
 
         let handle = handle.map(|v| v.downcast_ref::<T>().unwrap());
         Ok(handle)
     }
 
-    pub fn drop_handle(&'static self, id: FfiHandleId) -> bool {
+    pub fn drop_handle(&self, id: FfiHandleId) -> bool {
         self.ffi_handles.remove(&id).is_some()
     }
 }

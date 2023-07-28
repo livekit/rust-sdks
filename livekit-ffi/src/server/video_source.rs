@@ -42,7 +42,11 @@ impl FfiVideoSource {
                 );
                 RtcVideoSource::Native(video_source)
             }
-            _ => return Err(FfiError::InvalidRequest("unsupported video source type")),
+            _ => {
+                return Err(FfiError::InvalidRequest(
+                    "unsupported video source type".into(),
+                ))
+            }
         };
 
         let video_source = Self {
@@ -71,16 +75,16 @@ impl FfiVideoSource {
             RtcVideoSource::Native(ref source) => {
                 let frame_info = capture
                     .frame
-                    .ok_or(FfiError::InvalidRequest("frame is empty"))?;
+                    .ok_or(FfiError::InvalidRequest("frame is empty".into()))?;
 
                 let buffer = server
                     .ffi_handles
                     .get(&capture.buffer_handle)
-                    .ok_or(FfiError::InvalidRequest("handle not found"))?;
+                    .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
 
                 let buffer = buffer
                     .downcast_ref::<BoxVideoFrameBuffer>()
-                    .ok_or(FfiError::InvalidRequest("handle is not video frame"))?;
+                    .ok_or(FfiError::InvalidRequest("handle is not video frame".into()))?;
 
                 let rotation = proto::VideoRotation::from_i32(frame_info.rotation).unwrap();
                 let frame = VideoFrame {

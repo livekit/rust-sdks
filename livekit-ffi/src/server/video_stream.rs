@@ -48,7 +48,7 @@ impl FfiVideoStream {
         let rtc_track = ffi_track.track.rtc_track();
 
         let MediaStreamTrack::Video(rtc_track) = rtc_track else {
-            return Err(FfiError::InvalidRequest("not a video track"));
+            return Err(FfiError::InvalidRequest("not a video track".into()));
         };
 
         let (close_tx, close_rx) = oneshot::channel();
@@ -69,7 +69,11 @@ impl FfiVideoStream {
                 ));
                 Ok::<FfiVideoStream, FfiError>(video_stream)
             }
-            _ => return Err(FfiError::InvalidRequest("unsupported video stream type")),
+            _ => {
+                return Err(FfiError::InvalidRequest(
+                    "unsupported video stream type".into(),
+                ))
+            }
         }?;
 
         // Store the new video stream and return the info

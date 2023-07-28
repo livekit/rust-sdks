@@ -154,7 +154,7 @@ impl RoomInner {
                 destination_sids,
                 async_id,
             })
-            .map_err(|_| FfiError::InvalidRequest("failed to send data packet"))?;
+            .map_err(|_| FfiError::InvalidRequest("failed to send data packet".into()))?;
 
         Ok(proto::PublishDataResponse { async_id })
     }

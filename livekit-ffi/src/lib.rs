@@ -16,7 +16,7 @@ use lazy_static::lazy_static;
 use livekit::prelude::*;
 use prost::Message;
 use server::FfiDataBuffer;
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 use thiserror::Error;
 
 mod conversion;
@@ -33,7 +33,7 @@ pub enum FfiError {
     #[error("room error {0}")]
     Room(#[from] RoomError),
     #[error("invalid request: {0}")]
-    InvalidRequest(&'static str),
+    InvalidRequest(Cow<'static, str>),
 }
 
 /// # SAFTEY: The "C" callback must be threadsafe and not block

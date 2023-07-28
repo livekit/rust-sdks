@@ -48,7 +48,7 @@ impl FfiAudioStream {
         let rtc_track = ffi_track.track.rtc_track();
 
         let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
-            return Err(FfiError::InvalidRequest("not an audio track"));
+            return Err(FfiError::InvalidRequest("not an audio track".into()));
         };
 
         let (close_tx, close_rx) = oneshot::channel();
@@ -71,7 +71,11 @@ impl FfiAudioStream {
                 ));
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
             }
-            _ => return Err(FfiError::InvalidRequest("unsupported audio stream type")),
+            _ => {
+                return Err(FfiError::InvalidRequest(
+                    "unsupported audio stream type".into(),
+                ))
+            }
         }?;
 
         // Store the new audio stream and return the info
