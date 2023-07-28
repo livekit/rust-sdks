@@ -85,8 +85,8 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 }
 
 impl proto::RoomInfo {
-    pub fn from(handle: proto::FfiOwnedHandle, room: &FfiRoom) -> Self {
-        let room = room.room();
+    pub fn from(handle: proto::FfiOwnedHandle, ffi_room: &FfiRoom) -> Self {
+        let room = ffi_room.inner.room;
         Self {
             handle: Some(handle),
             sid: room.sid(),

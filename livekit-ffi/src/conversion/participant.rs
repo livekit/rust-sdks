@@ -1,8 +1,8 @@
-use crate::{proto, server::participant::FfiParticipant};
+use crate::{proto, server::room::FfiParticipant};
 
 impl proto::ParticipantInfo {
-    pub fn from(handle: proto::FfiOwnedHandle, participant: &FfiParticipant) -> Self {
-        let participant = participant.participant();
+    pub fn from(handle: proto::FfiOwnedHandle, ffi_participant: &FfiParticipant) -> Self {
+        let participant = ffi_participant.participant;
         Self {
             handle: Some(handle),
             sid: participant.sid(),

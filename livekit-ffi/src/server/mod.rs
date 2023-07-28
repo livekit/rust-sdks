@@ -15,10 +15,7 @@ use std::time::Duration;
 
 pub mod audio_source;
 pub mod audio_stream;
-pub mod participant;
-pub mod publication;
 pub mod room;
-pub mod track;
 pub mod video_source;
 pub mod video_stream;
 

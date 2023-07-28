@@ -2,7 +2,6 @@ use crate::server::{FfiHandle, FfiServer};
 use crate::{proto, FfiError, FfiHandleId, FfiResult};
 use livekit::prelude::*;
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
@@ -10,17 +9,45 @@ use tokio::task::JoinHandle;
 
 #[derive(Clone)]
 pub struct FfiRoom {
-    handle_id: FfiHandleId,
-    inner: Arc<RoomInner>,
-    handle: Arc<Mutex<Option<Handle>>>,
-    data_tx: mpsc::UnboundedSender<DataPacket>,
+    pub inner: Arc<RoomInner>,
+    pub handle: Arc<Mutex<Option<Handle>>>,
 }
 
+#[derive(Clone)]
+pub struct FfiParticipant {
+    pub handle: FfiHandleId,
+    pub participant: Participant,
+    pub room: Arc<RoomInner>,
+}
+
+#[derive(Clone)]
+pub struct FfiPublication {
+    pub handle: FfiHandleId,
+    pub publication: TrackPublication,
+}
+
+#[derive(Clone)]
+pub struct FfiTrack {
+    pub handle: FfiHandleId,
+    pub track: Track,
+}
+
+#[derive(Clone)]
+pub struct FfiDataBuffer {
+    pub handle: FfiHandleId,
+    pub data: Arc<Vec<u8>>,
+}
+
+impl FfiHandle for FfiTrack {}
+impl FfiHandle for FfiPublication {}
+impl FfiHandle for FfiParticipant {}
 impl FfiHandle for FfiRoom {}
+impl FfiHandle for FfiDataBuffer {}
 
 struct RoomInner {
-    room: Room,
-    tracks: Mutex<HashMap<(String, String), FfiHandleId>>, // Participant, TrackSid) -> FfiPublication
+    pub room: Room,
+    handle_id: FfiHandleId,
+    data_tx: mpsc::UnboundedSender<DataPacket>,
 }
 
 struct Handle {
@@ -54,7 +81,8 @@ impl FfiRoom {
         let next_id = server.next_id();
         let inner = Arc::new(RoomInner {
             room,
-            tracks: Default::default(),
+            handle_id: next_id,
+            data_tx,
         });
 
         // Task used to received events
@@ -78,24 +106,32 @@ impl FfiRoom {
             close_tx,
         })));
 
-        let ffi_room = Self {
-            handle_id: next_id,
-            inner,
-            handle,
-            data_tx,
-        };
+        let ffi_room = Self { inner, handle };
 
         server.store_handle(next_id, ffi_room.clone());
         Ok((proto::FfiOwnedHandle { id: next_id }, ffi_room))
     }
 
+    pub async fn close(&self) {
+        let _ = self.inner.room.close().await;
+
+        let handle = self.handle.lock().take();
+        if let Some(handle) = handle {
+            let _ = handle.close_tx.send(());
+            let _ = handle.event_handle.await;
+            let _ = handle.data_handle.await;
+        }
+    }
+}
+
+impl RoomInner {
     pub fn publish_data(
         &self,
         server: &'static FfiServer,
         publish: proto::PublishDataRequest,
     ) -> FfiResult<proto::PublishDataResponse> {
         let data = unsafe {
-            slice::from_raw_parts(publish.data_ptr as *const u8, publish.data_size as usize)
+            slice::from_raw_parts(publish.data_ptr as *const u8, publish.data_len as usize)
         };
         let kind = proto::DataPacketKind::from_i32(publish.kind).unwrap();
         let destination_sids: Vec<String> = publish.destination_sids;
@@ -111,25 +147,6 @@ impl FfiRoom {
             .map_err(|_| FfiError::InvalidRequest("failed to send data packet"))?;
 
         Ok(proto::PublishDataResponse { async_id })
-    }
-
-    pub async fn close(&self) {
-        let _ = self.inner.room.close().await;
-
-        let handle = self.handle.lock().take();
-        if let Some(handle) = handle {
-            let _ = handle.close_tx.send(());
-            let _ = handle.event_handle.await;
-            let _ = handle.data_handle.await;
-        }
-    }
-
-    pub fn handle(&self) -> FfiHandleId {
-        self.handle_id
-    }
-
-    pub fn room(&self) -> &Room {
-        &self.inner.room
     }
 }
 
@@ -190,14 +207,27 @@ async fn forward_event(
     event: RoomEvent,
 ) {
     let event = match event {
-        RoomEvent::ParticipantConnected(participant) => Some(
-            proto::room_event::Message::ParticipantConnected(proto::ParticipantConnected {
-                info: Some(proto::ParticipantInfo::from(&participant)),
-            }),
-        ),
+        RoomEvent::ParticipantConnected(participant) => {
+            let handle_id = server.next_id();
+            let ffi_participant = FfiParticipant {
+                handle: handle_id,
+                participant: Participant::Remote(participant.clone()),
+                room: inner.clone(),
+            };
+            server.store_handle(handle_id, ffi_participant.clone());
+
+            Some(proto::room_event::Message::ParticipantConnected(
+                proto::ParticipantConnected {
+                    info: Some(proto::ParticipantInfo::from(
+                        proto::FfiOwnedHandle { id: handle_id },
+                        &ffi_participant,
+                    )),
+                },
+            ))
+        }
         RoomEvent::ParticipantDisconnected(participant) => Some(
             proto::room_event::Message::ParticipantDisconnected(proto::ParticipantDisconnected {
-                info: Some(proto::ParticipantInfo::from(&participant)),
+                participant_sid: participant.sid(),
             }),
         ),
         RoomEvent::LocalTrackPublished {
@@ -205,16 +235,23 @@ async fn forward_event(
             track,
             participant: _,
         } => {
-            let handle_id = server.next_id() as FfiHandleId;
-            let track_info = proto::TrackInfo::from_local_track(handle_id, &track);
-            server
-                .ffi_handles
-                .insert(handle_id, Box::new(Track::from(track)));
+            let ffi_publication = FfiPublication {
+                handle: server.next_id(),
+                publication: TrackPublication::Local(publication.clone()),
+            };
+
+            let publication_info = proto::TrackPublicationInfo::from(
+                proto::FfiOwnedHandle {
+                    id: ffi_publication.handle,
+                },
+                &ffi_publication,
+            );
+
+            server.store_handle(ffi_publication.handle, ffi_publication);
 
             Some(proto::room_event::Message::LocalTrackPublished(
                 proto::LocalTrackPublished {
-                    publication: Some(proto::TrackPublicationInfo::from(&publication)),
-                    track: Some(track_info),
+                    publication: Some(publication_info),
                 },
             ))
         }
@@ -229,12 +266,28 @@ async fn forward_event(
         RoomEvent::TrackPublished {
             publication,
             participant,
-        } => Some(proto::room_event::Message::TrackPublished(
-            proto::TrackPublished {
-                participant_sid: participant.sid().to_string(),
-                publication: Some(proto::TrackPublicationInfo::from(&publication)),
-            },
-        )),
+        } => {
+            let ffi_publication = FfiPublication {
+                handle: server.next_id(),
+                publication: TrackPublication::Remote(publication.clone()),
+            };
+
+            let publication_info = proto::TrackPublicationInfo::from(
+                proto::FfiOwnedHandle {
+                    id: ffi_publication.handle,
+                },
+                &ffi_publication,
+            );
+
+            server.store_handle(ffi_publication.handle, ffi_publication);
+
+            Some(proto::room_event::Message::TrackPublished(
+                proto::TrackPublished {
+                    participant_sid: participant.sid().to_string(),
+                    publication: Some(publication_info),
+                },
+            ))
+        }
         RoomEvent::TrackUnpublished {
             publication,
             participant,
@@ -249,11 +302,19 @@ async fn forward_event(
             publication: _,
             participant,
         } => {
-            let handle_id = server.next_id() as FfiHandleId;
-            let track_info = proto::TrackInfo::from_remote_track(handle_id, &track);
-            server
-                .ffi_handles
-                .insert(handle_id, Box::new(Track::from(track)));
+            let ffi_track = FfiTrack {
+                handle: server.next_id(),
+                track: track.clone().into(),
+            };
+
+            let track_info = proto::TrackInfo::from(
+                proto::FfiOwnedHandle {
+                    id: ffi_track.handle,
+                },
+                &ffi_track,
+            );
+
+            server.store_handle(ffi_track.handle, ffi_track);
 
             Some(proto::room_event::Message::TrackSubscribed(
                 proto::TrackSubscribed {
@@ -323,19 +384,25 @@ async fn forward_event(
             kind,
             participant,
         } => {
-            let data_ptr = payload.as_ptr();
-            let data_len = payload.len();
+            let next_id = server.next_id();
+            let buffer_info = proto::BufferInfo {
+                handle: Some(proto::FfiOwnedHandle { id: next_id }),
+                data_ptr: payload.as_ptr() as u64,
+                data_len: payload.len() as u64,
+            };
 
-            let next_id = server.next_id() as FfiHandleId;
-            server.ffi_handles.insert(next_id, Box::new(payload));
-
+            server.store_handle(
+                next_id,
+                FfiDataBuffer {
+                    handle: next_id,
+                    data: payload,
+                },
+            );
             Some(proto::room_event::Message::DataReceived(
                 proto::DataReceived {
-                    handle: Some(proto::FfiOwnedHandle { id: next_id }),
+                    data: Some(buffer_info),
                     participant_sid: Some(participant.sid().to_string()),
                     kind: proto::DataPacketKind::from(kind).into(),
-                    data_ptr: data_ptr as u64,
-                    data_size: data_len as u64,
                 },
             ))
         }
@@ -360,7 +427,7 @@ async fn forward_event(
     if let Some(event) = event {
         let _ = server
             .send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
-                room_handle: Some(room_handle.into()),
+                room_handle,
                 message: Some(event),
             }))
             .await;

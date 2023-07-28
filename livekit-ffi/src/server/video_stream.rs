@@ -1,4 +1,4 @@
-use super::track::FfiTrack;
+use super::room::FfiTrack;
 use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
@@ -30,8 +30,8 @@ impl FfiVideoStream {
         server: &'static server::FfiServer,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FfiResult<proto::VideoStreamInfo> {
-        let track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?;
-        let rtc_track = track.track().rtc_track();
+        let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?;
+        let rtc_track = ffi_track.track.rtc_track();
 
         let MediaStreamTrack::Video(rtc_track) = rtc_track else {
             return Err(FfiError::InvalidRequest("not a video track"));
