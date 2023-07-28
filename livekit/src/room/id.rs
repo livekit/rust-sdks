@@ -1,5 +1,7 @@
 // https://doc.rust-lang.org/rust-by-example/generics/new_types.html
 
+use std::fmt::Display;
+
 const ROOM_PREFIX: &str = "RM_";
 const PARTICIPANT_PREFIX: &str = "PA_";
 const TRACK_PREFIX: &str = "TR_";
@@ -30,9 +32,15 @@ macro_rules! impl_string_into {
             }
         }
 
-        impl ToString for $from {
-            fn to_string(&self) -> String {
-                self.0.clone()
+        impl Display for $from {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+
+        impl $from {
+            pub fn as_str(&self) -> &str {
+                &self.0
             }
         }
     };
