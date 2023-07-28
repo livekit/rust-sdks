@@ -26,7 +26,7 @@ use super::FfiDataBuffer;
 #[derive(Clone)]
 pub struct FfiRoom {
     pub inner: Arc<RoomInner>,
-    pub handle: Arc<Mutex<Option<Handle>>>,
+    handle: Arc<Mutex<Option<Handle>>>,
 }
 
 #[derive(Clone)]
@@ -53,8 +53,9 @@ impl FfiHandle for FfiPublication {}
 impl FfiHandle for FfiParticipant {}
 impl FfiHandle for FfiRoom {}
 
-struct RoomInner {
+pub struct RoomInner {
     pub room: Room,
+    #[allow(dead_code)]
     handle_id: FfiHandleId,
     data_tx: mpsc::UnboundedSender<DataPacket>,
 }

@@ -14,6 +14,7 @@
 
 use crate::{proto, FfiCallbackFn, INVALID_HANDLE};
 use crate::{FfiError, FfiHandleId, FfiResult};
+use dashmap::mapref::one::MappedRef;
 use dashmap::DashMap;
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::native::audio_resampler::AudioResampler;
@@ -164,12 +165,15 @@ impl FfiServer {
         self.ffi_handles.insert(id, Box::new(handle));
     }
 
-    pub fn retrieve_handle<T>(&'static self, id: FfiHandleId) -> FfiResult<&T>
+    pub fn retrieve_handle<T>(
+        &'static self,
+        id: FfiHandleId,
+    ) -> FfiResult<MappedRef<'static, u64, Box<dyn FfiHandle>, T>>
     where
         T: FfiHandle,
     {
         if id == INVALID_HANDLE {
-            return Err(FfiError::InvalidRequest("handle is invalid"));
+            Err(FfiError::InvalidRequest("handle is invalid"))?;
         }
 
         let handle = self
@@ -177,13 +181,7 @@ impl FfiServer {
             .get(&id)
             .ok_or(FfiError::InvalidRequest("handle not found"))?;
 
-        let handle = handle
-            .downcast_ref::<T>()
-            .ok_or(FfiError::InvalidRequest(&format!(
-                "handle is not a {}",
-                std::any::type_name::<T>()
-            )))?;
-
+        let handle = handle.map(|v| v.downcast_ref::<T>().unwrap());
         Ok(handle)
     }
 

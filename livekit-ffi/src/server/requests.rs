@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::room::{FfiParticipant, FfiPublication, FfiTrack};
 use super::{
     audio_source, audio_stream, room, video_source, video_stream, FfiConfig, FfiError, FfiResult,
@@ -174,7 +188,8 @@ fn on_disconnect(
     server.async_runtime.spawn(async move {
         let ffi_room = server
             .retrieve_handle::<room::FfiRoom>(disconnect.room_handle)
-            .unwrap();
+            .unwrap()
+            .clone();
 
         ffi_room.close().await;
 
@@ -198,14 +213,18 @@ fn on_publish_track(
     server.async_runtime.spawn(async move {
         // Publish a track to the room and send a response to the fficlient
         let res = async {
-            let ffi_participant =
-                server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+            let ffi_participant = server
+                .retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?
+                .clone();
 
             let Participant::Local(participant) = &ffi_participant.participant else {
                     return Err(FfiError::InvalidRequest("participant is not a LocalParticipant"));
                 };
 
-            let ffi_track = server.retrieve_handle::<FfiTrack>(publish.track_handle)?;
+            let ffi_track = server
+                .retrieve_handle::<FfiTrack>(publish.track_handle)?
+                .clone();
+
             let track = LocalTrack::try_from(ffi_track.track.clone())
                 .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack"))?;
 
@@ -516,10 +535,7 @@ fn on_capture_audio_frame(
     server: &'static FfiServer,
     push: proto::CaptureAudioFrameRequest,
 ) -> FfiResult<proto::CaptureAudioFrameResponse> {
-    let source = server
-        .retrieve_handle::<audio_source::FfiAudioSource>(push.source_handle)?
-        .clone();
-
+    let source = server.retrieve_handle::<audio_source::FfiAudioSource>(push.source_handle)?;
     source.capture_frame(server, push)?;
     Ok(proto::CaptureAudioFrameResponse::default())
 }
