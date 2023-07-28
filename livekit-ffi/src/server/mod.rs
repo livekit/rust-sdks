@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{proto, FfiCallbackFn};
 use crate::{proto, FfiCallbackFn, INVALID_HANDLE};
-use crate::{FfiAsyncId, FfiError, FfiHandle, FfiHandleId, FfiResult};
 use crate::{FfiError, FfiHandleId, FfiResult};
 use dashmap::DashMap;
 use downcast_rs::{impl_downcast, Downcast};

@@ -16,7 +16,6 @@ use crate::{
     proto,
     server::room::{FfiPublication, FfiTrack},
 };
-use crate::{proto, FfiHandleId};
 use livekit::prelude::*;
 
 impl From<TrackSource> for proto::TrackSource {

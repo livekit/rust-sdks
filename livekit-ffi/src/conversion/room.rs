@@ -14,7 +14,6 @@
 
 use crate::proto;
 use crate::server::room::FfiRoom;
-use crate::{proto, FfiHandleId};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 

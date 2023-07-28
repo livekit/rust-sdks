@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::proto;
-use crate::{proto, server::room::FfiParticipant};
-use livekit::prelude::*;
+use crate::server::room::FfiParticipant;
 
 impl proto::ParticipantInfo {
     pub fn from(handle: proto::FfiOwnedHandle, ffi_participant: &FfiParticipant) -> Self {
