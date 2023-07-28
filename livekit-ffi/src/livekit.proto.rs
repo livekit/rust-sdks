@@ -720,8 +720,10 @@ pub mod connect_callback {
     pub struct ParticipantWithTracks {
         #[prost(message, optional, tag="1")]
         pub participant: ::core::option::Option<super::ParticipantInfo>,
+        /// TrackInfo are not needed here, if we're subscribed to a track, the FfiServer will send
+        /// a TrackSubscribed event
         #[prost(message, repeated, tag="2")]
-        pub tracks: ::prost::alloc::vec::Vec<super::TrackInfo>,
+        pub publications: ::prost::alloc::vec::Vec<super::TrackPublicationInfo>,
     }
 }
 /// Disconnect from the a room

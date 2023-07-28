@@ -1,3 +1,4 @@
+use super::participant::FfiParticipant;
 use super::{
     audio_source, audio_stream, participant, publication, room, track, video_source, video_stream,
     FfiConfig, FfiError, FfiResult, FfiServer,
@@ -55,20 +56,118 @@ impl FfiServer {
     ) -> FfiResult<proto::ConnectResponse> {
         let async_id = self.next_id();
         self.async_runtime.spawn(async move {
-            let res = room::FfiRoom::connect(&self, connect).await;
-            let _ = self
-                .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
-                    async_id,
-                    error: res.err().map(|e| e.to_string()),
-                    room: res.ok().map(|r| r.into()),
-                }))
-                .await;
+            match room::FfiRoom::connect(&self, connect).await {
+                Ok((handle, room)) => {
+                    // Successfully connected to the room
+                    // Build the initial state for the FfiClient
+                    // (Already connected participants and tracks)
+
+                    // TODO(theomonnom): In a bad timing, this may not be the initial states??
+                    let local_participant = room.room().local_participant();
+                    let participants = room.room().participants();
+
+                    // Create the local_participant info
+                    // Since this is a new connected room, we know that there is no
+                    // local tracks yet (This may change in the future if we enable auto publish)
+                    let local_participant = FfiParticipant {
+                        handle: self.next_id(),
+                        participant: Participant::Local(local_participant),
+                        room: room.clone(),
+                    };
+
+                    self.store_handle(local_participant.handle(), local_participant.clone());
+
+                    let lp_info = proto::ParticipantInfo::from(
+                        proto::FfiOwnedHandle {
+                            id: local_participant.handle(),
+                        },
+                        &local_participant,
+                    );
+
+                    let lp_info = proto::connect_callback::ParticipantWithTracks {
+                        participant: Some(lp_info),
+                        publications: Vec::default(), // No local tracks
+                    };
+
+                    // Build the remote participants info
+                    let mut participants_info = Vec::with_capacity(participants.len());
+                    for (sid, participant) in participants {
+                        let tracks = participant.tracks();
+
+                        // Build the tracks info
+                        let mut tracks_info = Vec::with_capacity(tracks.len());
+                        for (sid, track) in tracks {
+                            let publication = publication::FfiPublication {
+                                handle: self.next_id(),
+                                publication: TrackPublication::Remote(track.clone()),
+                            };
+
+                            self.store_handle(publication.handle(), publication.clone());
+
+                            let track_info =
+                                proto::TrackPublicationInfo::from_remote_track_publication(
+                                    proto::FfiOwnedHandle {
+                                        id: publication.handle(),
+                                    },
+                                    &track,
+                                );
+
+                            tracks_info.push(track_info);
+                        }
+
+                        let participant = FfiParticipant {
+                            handle: self.next_id(),
+                            participant: Participant::Remote(participant),
+                            room: room.clone(),
+                        };
+
+                        self.store_handle(participant.handle(), participant.clone());
+
+                        let p_info = proto::ParticipantInfo::from(
+                            proto::FfiOwnedHandle {
+                                id: participant.handle(),
+                            },
+                            &participant,
+                        );
+
+                        let p_info = proto::connect_callback::ParticipantWithTracks {
+                            participant: Some(p_info),
+                            publications: tracks_info,
+                        };
+
+                        participants_info.push(p_info);
+                    }
+
+                    let _ = self
+                        .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
+                            async_id,
+                            error: None,
+                            room: Some(proto::RoomInfo::from(handle, &room)),
+                            local_participant: Some(lp_info),
+                            participants: Vec::default(),
+                        }))
+                        .await;
+                }
+                Err(e) => {
+                    // Failed to connect to the room, send an error message to the FfiClient
+                    // TODO(theomonnom): Typed errors?
+                    log::error!("error while connecting to a room: {}", e);
+                    let _ = self
+                        .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
+                            async_id,
+                            error: Some(e.to_string()),
+                            ..Default::default()
+                        }))
+                        .await;
+                }
+            };
         });
 
         Ok(proto::ConnectResponse { async_id })
     }
 
     /// Disconnect to a room
+    /// This is an async function, the FfiClient must wait for the DisconnectCallback
     fn on_disconnect(
         &'static self,
         disconnect: proto::DisconnectRequest,
@@ -91,12 +190,15 @@ impl FfiServer {
         Ok(proto::DisconnectResponse { async_id })
     }
 
+    /// Publish a track to a room, and send a response to the FfiClient
+    /// The FfiClient musts wait for the LocalTrackPublication
     fn on_publish_track(
         &'static self,
         publish: proto::PublishTrackRequest,
     ) -> FfiResult<proto::PublishTrackResponse> {
         let async_id = self.next_id();
         self.async_runtime.spawn(async move {
+            // Publish a track to the room and send a response to the fficlient
             let res = async {
                 let participant = self.retrieve_handle::<participant::FfiParticipant>(
                     publish.local_participant_handle,
@@ -118,6 +220,7 @@ impl FfiServer {
             }
             .await;
 
+            // Store the ffi publication
             let handle_id = self.next_id();
             if let Ok(publication) = res.as_ref() {
                 let publication = publication::FfiPublication {
@@ -133,6 +236,11 @@ impl FfiServer {
                     proto::PublishTrackCallback {
                         async_id,
                         error: res.as_ref().err().map(|e| e.to_string()),
+
+                        // After a track publish, we're not sending a owned publication info
+                        // Instead we're just sending the track sid and the ffi client musts wait for the
+                        // LocalTrackPublished to get the publication and returns it.
+                        // This ensure that we're only creating one PublicationInfo per publication (Avoid duplications/out of sync)
                         track_sid: res.ok().map(|p| p.sid().to_owned()).unwrap_or_default(),
                     },
                 ))
@@ -149,6 +257,7 @@ impl FfiServer {
         Ok(proto::UnpublishTrackResponse::default())
     }
 
+    /// Publish data to the room
     fn on_publish_data(
         &'static self,
         publish: proto::PublishDataRequest,
@@ -160,6 +269,7 @@ impl FfiServer {
         local_participant.room().publish_data(self, publish)
     }
 
+    /// Change the desired subscription state of a publication
     fn on_set_subscribed(
         &'static self,
         set_subscribed: proto::SetSubscribedRequest,
@@ -175,7 +285,7 @@ impl FfiServer {
         Ok(proto::SetSubscribedResponse {})
     }
 
-    // Track
+    /// Create a new video track from a source
     fn on_create_video_track(
         &'static self,
         create: proto::CreateVideoTrackRequest,
@@ -205,6 +315,7 @@ impl FfiServer {
         })
     }
 
+    /// Create a new audio track from a source
     fn on_create_audio_track(
         &'static self,
         create: proto::CreateAudioTrackRequest,
@@ -234,8 +345,7 @@ impl FfiServer {
         })
     }
 
-    // Video
-
+    /// Allocate a new video buffer
     fn on_alloc_video_buffer(
         &'static self,
         alloc: proto::AllocVideoBufferRequest,

@@ -20,7 +20,10 @@ message ConnectResponse {
 message ConnectCallback {
   message ParticipantWithTracks {
     ParticipantInfo participant = 1;
-    repeated TrackInfo tracks = 2;
+
+    // TrackInfo are not needed here, if we're subscribed to a track, the FfiServer will send
+    // a TrackSubscribed event
+    repeated TrackPublicationInfo publications = 2;
   }
 
   uint64 async_id = 1;

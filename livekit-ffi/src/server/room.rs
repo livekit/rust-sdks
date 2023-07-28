@@ -40,7 +40,7 @@ impl FfiRoom {
     pub async fn connect(
         server: &'static FfiServer,
         connect: proto::ConnectRequest,
-    ) -> FfiResult<proto::RoomInfo> {
+    ) -> FfiResult<(proto::FfiOwnedHandle, Self)> {
         let (room, events) = Room::connect(
             &connect.url,
             &connect.token,
@@ -85,11 +85,8 @@ impl FfiRoom {
             data_tx,
         };
 
-        server.store_handle(next_id, ffi_room);
-        Ok(proto::RoomInfo::from(
-            proto::FfiOwnedHandle { id: next_id },
-            &ffi_room,
-        ))
+        server.store_handle(next_id, ffi_room.clone());
+        Ok((proto::FfiOwnedHandle { id: next_id }, ffi_room))
     }
 
     pub fn publish_data(
