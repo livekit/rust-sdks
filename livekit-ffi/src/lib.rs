@@ -1,8 +1,8 @@
-use std::sync::Arc;
-
+use lazy_static::lazy_static;
 use livekit::prelude::*;
 use prost::Message;
 use server::FfiDataBuffer;
+use std::sync::Arc;
 use thiserror::Error;
 
 mod conversion;
@@ -29,6 +29,10 @@ pub type FfiHandleId = u64;
 
 pub const INVALID_HANDLE: FfiHandleId = 0;
 
+lazy_static! {
+    pub static ref FFI_SERVER: server::FfiServer = server::FfiServer::default();
+}
+
 #[no_mangle]
 pub extern "C" fn livekit_ffi_request(
     data: *const u8,
@@ -45,7 +49,7 @@ pub extern "C" fn livekit_ffi_request(
         }
     };
 
-    let res = match server::FFI_SERVER.handle_request(res) {
+    let res = match server::requests::handle_request(&FFI_SERVER, res) {
         Ok(res) => res,
         Err(err) => {
             log::error!("failed to handle request: {}", err);
@@ -59,17 +63,17 @@ pub extern "C" fn livekit_ffi_request(
         *res_len = res.len();
     }
 
-    let handle_id = server::FFI_SERVER.next_id();
+    let handle_id = FFI_SERVER.next_id();
     let ffi_data = FfiDataBuffer {
         handle: handle_id,
         data: Arc::new(res),
     };
 
-    server::FFI_SERVER.store_handle(handle_id, ffi_data);
+    FFI_SERVER.store_handle(handle_id, ffi_data);
     handle_id
 }
 
 #[no_mangle]
 pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
-    server::FFI_SERVER.drop_handle(handle_id)
+    FFI_SERVER.drop_handle(handle_id)
 }

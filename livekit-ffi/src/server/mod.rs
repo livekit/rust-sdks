@@ -2,7 +2,6 @@ use crate::{proto, FfiCallbackFn, INVALID_HANDLE};
 use crate::{FfiError, FfiHandleId, FfiResult};
 use dashmap::DashMap;
 use downcast_rs::{impl_downcast, Downcast};
-use lazy_static::lazy_static;
 use livekit::webrtc::native::audio_resampler::AudioResampler;
 use livekit::webrtc::prelude::*;
 use parking_lot::deadlock;
@@ -15,17 +14,13 @@ use std::time::Duration;
 
 pub mod audio_source;
 pub mod audio_stream;
+pub mod requests;
 pub mod room;
 pub mod video_source;
 pub mod video_stream;
 
-mod requests;
 //#[cfg(test)]
 //mod tests;
-
-lazy_static! {
-    pub static ref FFI_SERVER: FfiServer = FfiServer::default();
-}
 
 pub struct FfiConfig {
     callback_fn: FfiCallbackFn,
