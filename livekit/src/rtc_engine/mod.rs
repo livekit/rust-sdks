@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::id::ParticipantSid;
 use crate::options::TrackPublishOptions;
 use crate::prelude::LocalTrack;
 use crate::room::DisconnectReason;
@@ -85,7 +86,7 @@ pub enum EngineEvent {
         receiver: RtpReceiver,
     },
     Data {
-        participant_sid: String,
+        participant_sid: ParticipantSid,
         payload: Vec<u8>,
         kind: DataPacketKind,
     },

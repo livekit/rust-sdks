@@ -237,7 +237,7 @@ async fn forward_event(
         }
         RoomEvent::ParticipantDisconnected(participant) => Some(
             proto::room_event::Message::ParticipantDisconnected(proto::ParticipantDisconnected {
-                participant_sid: participant.sid(),
+                participant_sid: participant.sid().into(),
             }),
         ),
         RoomEvent::LocalTrackPublished {
@@ -351,7 +351,7 @@ async fn forward_event(
             proto::TrackSubscriptionFailed {
                 participant_sid: participant.sid().to_string(),
                 error: error.to_string(),
-                track_sid,
+                track_sid: track_sid.into(),
             },
         )),
         RoomEvent::TrackMuted {

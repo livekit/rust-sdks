@@ -36,7 +36,7 @@ impl Debug for RemoteVideoTrack {
 }
 
 impl RemoteVideoTrack {
-    pub(crate) fn new(sid: String, name: String, rtc_track: RtcVideoTrack) -> Self {
+    pub(crate) fn new(sid: TrackSid, name: String, rtc_track: RtcVideoTrack) -> Self {
         Self {
             inner: Arc::new(super::new_inner(
                 sid,
@@ -47,7 +47,7 @@ impl RemoteVideoTrack {
         }
     }
 
-    pub fn sid(&self) -> String {
+    pub fn sid(&self) -> TrackSid {
         self.inner.info.read().sid.clone()
     }
 

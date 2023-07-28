@@ -35,7 +35,7 @@ impl Debug for RemoteAudioTrack {
 }
 
 impl RemoteAudioTrack {
-    pub(crate) fn new(sid: String, name: String, rtc_track: RtcAudioTrack) -> Self {
+    pub(crate) fn new(sid: TrackSid, name: String, rtc_track: RtcAudioTrack) -> Self {
         Self {
             inner: Arc::new(super::new_inner(
                 sid,
@@ -46,7 +46,7 @@ impl RemoteAudioTrack {
         }
     }
 
-    pub fn sid(&self) -> String {
+    pub fn sid(&self) -> TrackSid {
         self.inner.info.read().sid.clone()
     }
 

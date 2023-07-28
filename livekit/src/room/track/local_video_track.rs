@@ -40,7 +40,7 @@ impl LocalVideoTrack {
     pub fn new(name: String, rtc_track: RtcVideoTrack, source: RtcVideoSource) -> Self {
         Self {
             inner: Arc::new(super::new_inner(
-                "unknown".to_string().into(), // sid
+                "TR_unknown".to_owned().try_into().unwrap(),
                 name,
                 TrackKind::Video,
                 MediaStreamTrack::Video(rtc_track),
@@ -65,7 +65,7 @@ impl LocalVideoTrack {
         Self::new(name.to_string(), rtc_track, source)
     }
 
-    pub fn sid(&self) -> String {
+    pub fn sid(&self) -> TrackSid {
         self.inner.info.read().sid.clone()
     }
 

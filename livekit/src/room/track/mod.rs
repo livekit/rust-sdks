@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use livekit_webrtc::prelude::*;
@@ -40,8 +41,8 @@ pub use video_track::*;
 
 #[derive(Error, Debug, Clone)]
 pub enum TrackError {
-    #[error("could not find published track with sid: {0}")]
-    TrackNotFound(String),
+    #[error("could not find published track with sid: {0:?}")]
+    TrackNotFound(TrackSid),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +73,7 @@ macro_rules! track_dispatch {
     ([$($variant:ident),+]) => {
         enum_dispatch!(
             [$($variant),+];
-            pub fn sid(self: &Self) -> String;
+            pub fn sid(self: &Self) -> TrackSid;
             pub fn name(self: &Self) -> String;
             pub fn kind(self: &Self) -> TrackKind;
             pub fn source(self: &Self) -> TrackSource;
@@ -122,7 +123,7 @@ struct TrackEvents {
 
 #[derive(Debug)]
 struct TrackInfo {
-    pub sid: String,
+    pub sid: TrackSid,
     pub name: String,
     pub kind: TrackKind,
     pub source: TrackSource,
@@ -138,7 +139,7 @@ pub(super) struct TrackInner {
 }
 
 pub(super) fn new_inner(
-    sid: String,
+    sid: TrackSid,
     name: String,
     kind: TrackKind,
     rtc_track: MediaStreamTrack,
@@ -160,7 +161,7 @@ pub(super) fn new_inner(
 
 pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     let info = inner.info.read();
-    log::debug!("set_muted: {} {}", info.sid, muted);
+    log::debug!("set_muted: {:?} {:?}", info.sid, muted);
     if info.muted == muted {
         return;
     }
@@ -188,7 +189,7 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
 pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: proto::TrackInfo) {
     let mut info = inner.info.write();
     info.name = new_info.name;
-    info.sid = new_info.sid.into();
+    info.sid = new_info.sid.try_into().unwrap();
     info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
     info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
 }

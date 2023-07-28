@@ -20,9 +20,9 @@ impl proto::ParticipantInfo {
         let participant = &ffi_participant.participant;
         Self {
             handle: Some(handle),
-            sid: participant.sid(),
+            sid: participant.sid().into(),
             name: participant.name(),
-            identity: participant.identity(),
+            identity: participant.identity().into(),
             metadata: participant.metadata(),
         }
     }

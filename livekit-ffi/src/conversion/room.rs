@@ -103,7 +103,7 @@ impl proto::RoomInfo {
         let room = &ffi_room.inner.room;
         Self {
             handle: Some(handle),
-            sid: room.sid(),
+            sid: room.sid().into(),
             name: room.name(),
             metadata: room.metadata(),
         }

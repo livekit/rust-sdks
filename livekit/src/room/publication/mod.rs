@@ -48,7 +48,7 @@ pub enum TrackPublication {
 impl TrackPublication {
     enum_dispatch!(
         [Local, Remote];
-        pub fn sid(self: &Self) -> String;
+        pub fn sid(self: &Self) -> TrackSid;
         pub fn name(self: &Self) -> String;
         pub fn kind(self: &Self) -> TrackKind;
         pub fn source(self: &Self) -> TrackSource;
@@ -82,7 +82,7 @@ impl TrackPublication {
 struct PublicationInfo {
     pub track: Option<Track>,
     pub name: String,
-    pub sid: String,
+    pub sid: TrackSid,
     pub kind: TrackKind,
     pub source: TrackSource,
     pub simulcasted: bool,
@@ -109,7 +109,7 @@ pub(super) fn new_inner(
     let info = PublicationInfo {
         track,
         name: info.name,
-        sid: info.sid.into(),
+        sid: info.sid.try_into().unwrap(),
         kind: proto::TrackType::from_i32(info.r#type)
             .unwrap()
             .try_into()
@@ -137,7 +137,7 @@ pub(super) fn update_info(
 ) {
     let mut info = inner.info.write();
     info.name = new_info.name;
-    info.sid = new_info.sid.into();
+    info.sid = new_info.sid.try_into().unwrap();
     info.dimension = TrackDimension(new_info.width, new_info.height);
     info.mime_type = new_info.mime_type;
     info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();

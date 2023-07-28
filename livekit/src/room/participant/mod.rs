@@ -43,8 +43,8 @@ pub enum Participant {
 impl Participant {
     enum_dispatch!(
         [Local, Remote];
-        pub fn sid(self: &Self) -> String;
-        pub fn identity(self: &Self) -> String;
+        pub fn sid(self: &Self) -> ParticipantSid;
+        pub fn identity(self: &Self) -> ParticipantIdentity;
         pub fn name(self: &Self) -> String;
         pub fn metadata(self: &Self) -> String;
         pub fn is_speaking(self: &Self) -> bool;
@@ -58,10 +58,10 @@ impl Participant {
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
         pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
-        pub(crate) fn remove_publication(self: &Self, sid: &str) -> ();
+        pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> ();
     );
 
-    pub fn tracks(&self) -> HashMap<String, TrackPublication> {
+    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
         match self {
             Participant::Local(p) => p.internal_tracks(),
             Participant::Remote(p) => p.internal_tracks(),
@@ -70,8 +70,8 @@ impl Participant {
 }
 
 struct ParticipantInfo {
-    pub sid: String,
-    pub identity: String,
+    pub sid: ParticipantSid,
+    pub identity: ParticipantIdentity,
     pub name: String,
     pub metadata: String,
     pub speaking: bool,
@@ -88,14 +88,14 @@ struct ParticipantEvents {
 pub(super) struct ParticipantInner {
     rtc_engine: Arc<RtcEngine>,
     info: RwLock<ParticipantInfo>,
-    tracks: RwLock<HashMap<String, TrackPublication>>,
+    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
     events: Arc<ParticipantEvents>,
 }
 
 pub(super) fn new_inner(
     rtc_engine: Arc<RtcEngine>,
-    sid: String,
-    identity: String,
+    sid: ParticipantSid,
+    identity: ParticipantIdentity,
     name: String,
     metadata: String,
 ) -> Arc<ParticipantInner> {
@@ -121,7 +121,7 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
-    info.sid = new_info.sid.into();
+    info.sid = new_info.sid.try_into().unwrap();
     info.name = new_info.name;
     info.identity = new_info.identity.into();
     info.metadata = new_info.metadata; // TODO(theomonnom): callback MetadataChanged
@@ -154,7 +154,7 @@ pub(super) fn set_connection_quality(
 pub(super) fn remove_publication(
     inner: &Arc<ParticipantInner>,
     _participant: &Participant,
-    sid: &str,
+    sid: &TrackSid,
 ) -> Option<TrackPublication> {
     let mut tracks = inner.tracks.write();
     let publication = tracks.remove(sid);
@@ -164,7 +164,7 @@ pub(super) fn remove_publication(
         publication.on_unmuted(|_, _| {});
     } else {
         // shouldn't happen (internal)
-        log::warn!("could not find publication to remove: {}", sid);
+        log::warn!("could not find publication to remove: {:?}", sid);
     }
 
     publication

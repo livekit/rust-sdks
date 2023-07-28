@@ -37,7 +37,7 @@ struct RemoteEvents {
     track_unsubscribed:
         Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>>>,
     track_subscription_failed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, String, TrackError) + Send>>>,
+        Mutex<Option<Box<dyn Fn(RemoteParticipant, TrackSid, TrackError) + Send>>>,
 }
 
 struct RemoteInfo {
@@ -63,8 +63,8 @@ impl Debug for RemoteParticipant {
 impl RemoteParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
-        sid: String,
-        identity: String,
+        sid: ParticipantSid,
+        identity: ParticipantIdentity,
         name: String,
         metadata: String,
     ) -> Self {
@@ -76,13 +76,13 @@ impl RemoteParticipant {
         }
     }
 
-    pub(crate) fn internal_tracks(&self) -> HashMap<String, TrackPublication> {
+    pub(crate) fn internal_tracks(&self) -> HashMap<TrackSid, TrackPublication> {
         self.inner.tracks.read().clone()
     }
 
     pub(crate) async fn add_subscribed_media_track(
         &self,
-        sid: String,
+        sid: TrackSid,
         media_track: MediaStreamTrack,
     ) {
         let wait_publication = {
@@ -158,7 +158,7 @@ impl RemoteParticipant {
         }
     }
 
-    pub(crate) fn unpublish_track(&self, sid: &str) {
+    pub(crate) fn unpublish_track(&self, sid: &TrackSid) {
         if let Some(publication) = self.get_track_publication(sid) {
             // Unsubscribe to the track if needed
             if let Some(track) = publication.track() {
@@ -181,9 +181,10 @@ impl RemoteParticipant {
             info.clone(),
         );
 
-        let mut valid_tracks = HashSet::<String>::new();
+        let mut valid_tracks = HashSet::<TrackSid>::new();
         for track in info.tracks {
-            if let Some(publication) = self.get_track_publication(&track.sid) {
+            let track_sid = track.sid.clone().try_into().unwrap();
+            if let Some(publication) = self.get_track_publication(&track_sid) {
                 publication.update_info(track.clone());
             } else {
                 let publication = RemoteTrackPublication::new(track.clone(), None);
@@ -196,7 +197,7 @@ impl RemoteParticipant {
                 }
             }
 
-            valid_tracks.insert(track.sid.into());
+            valid_tracks.insert(track_sid);
         }
 
         // remove tracks that are no longer valid
@@ -244,7 +245,7 @@ impl RemoteParticipant {
 
     pub(crate) fn on_track_subscription_failed(
         &self,
-        track_subscription_failed: impl Fn(RemoteParticipant, String, TrackError) + Send + 'static,
+        track_subscription_failed: impl Fn(RemoteParticipant, TrackSid, TrackError) + Send + 'static,
     ) {
         *self.remote.events.track_subscription_failed.lock() =
             Some(Box::new(track_subscription_failed));
@@ -280,13 +281,13 @@ impl RemoteParticipant {
                 let rtc_engine = rtc_engine.clone();
                 let psid = psid.clone();
                 tokio::spawn(async move {
-                    let tsid = publication.sid();
+                    let tsid: String = publication.sid().into();
                     let update_subscription = proto::UpdateSubscription {
                         track_sids: vec![tsid.clone()],
                         subscribe: subscribed,
                         participant_tracks: vec![proto::ParticipantTracks {
-                            participant_sid: psid,
-                            track_sids: vec![tsid.clone()],
+                            participant_sid: psid.into(),
+                            track_sids: vec![tsid],
                         }],
                     };
 
@@ -320,7 +321,7 @@ impl RemoteParticipant {
         });
     }
 
-    pub(crate) fn remove_publication(&self, sid: &str) {
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
         let publication =
             super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
 
@@ -335,7 +336,7 @@ impl RemoteParticipant {
         }
     }
 
-    pub fn get_track_publication(&self, sid: &str) -> Option<RemoteTrackPublication> {
+    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
         self.inner.tracks.read().get(sid).map(|track| {
             if let TrackPublication::Remote(remote) = track {
                 return remote.clone();
@@ -344,11 +345,11 @@ impl RemoteParticipant {
         })
     }
 
-    pub fn sid(&self) -> String {
+    pub fn sid(&self) -> ParticipantSid {
         self.inner.info.read().sid.clone()
     }
 
-    pub fn identity(&self) -> String {
+    pub fn identity(&self) -> ParticipantIdentity {
         self.inner.info.read().identity.clone()
     }
 
@@ -364,7 +365,7 @@ impl RemoteParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> HashMap<String, RemoteTrackPublication> {
+    pub fn tracks(&self) -> HashMap<TrackSid, RemoteTrackPublication> {
         self.inner
             .tracks
             .read()

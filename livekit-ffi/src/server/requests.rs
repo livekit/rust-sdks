@@ -257,7 +257,7 @@ fn on_publish_track(
                     // Instead we're just sending the track sid and the ffi client musts wait for the
                     // LocalTrackPublished to get the publication and returns it.
                     // This ensure that we're only creating one PublicationInfo per publication (Avoid duplications/out of sync)
-                    track_sid: res.ok().map(|p| p.sid().to_owned()).unwrap_or_default(),
+                    track_sid: res.ok().map(|p| p.sid().to_string()).unwrap_or_default(),
                 },
             ))
             .await;

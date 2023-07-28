@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
+use crate::id::ParticipantSid;
 use crate::options::TrackPublishOptions;
 use crate::prelude::TrackKind;
 use crate::room::DisconnectReason;
@@ -53,7 +54,7 @@ pub enum SessionEvent {
         updates: Vec<proto::ParticipantInfo>,
     },
     Data {
-        participant_sid: String,
+        participant_sid: ParticipantSid,
         payload: Vec<u8>,
         kind: DataPacketKind,
     },
@@ -573,7 +574,7 @@ impl SessionInner {
                 match data.value.unwrap() {
                     proto::data_packet::Value::User(user) => {
                         let _ = self.emitter.send(SessionEvent::Data {
-                            participant_sid: user.participant_sid,
+                            participant_sid: user.participant_sid.try_into().unwrap(),
                             payload: user.payload,
                             kind: proto::data_packet::Kind::from_i32(data.kind)
                                 .unwrap()

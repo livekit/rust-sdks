@@ -65,7 +65,7 @@ impl LocalTrackPublication {
         self.track().unmute();
     }
 
-    pub fn sid(&self) -> String {
+    pub fn sid(&self) -> TrackSid {
         self.inner.info.read().sid.clone()
     }
 
