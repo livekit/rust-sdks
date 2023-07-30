@@ -303,6 +303,7 @@ impl RtcSession {
             .unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn publisher(&self) -> &PeerTransport {
         &self.inner.publisher_pc
     }
@@ -315,6 +316,7 @@ impl RtcSession {
         &self.inner.signal_client
     }
 
+    #[allow(dead_code)]
     pub fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
         &self.inner.data_channel(kind)
     }
@@ -364,7 +366,7 @@ impl SessionInner {
                             }
                             SignalEvent::Close => {
                                 self.on_session_disconnected(
-                                    "SignalClient closed",
+                                    "signalclient closed",
                                     DisconnectReason::UnknownReason,
                                     true,
                                     false,
@@ -408,7 +410,7 @@ impl SessionInner {
                     .await;
             }
             proto::signal_response::Message::Trickle(trickle) => {
-                let target = proto::SignalTarget::from_i32(trickle.target).unwrap();
+                let target = trickle.target();
                 let ice_candidate = {
                     let json = serde_json::from_str::<IceCandidateJson>(&trickle.candidate_init)?;
                     IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)?
@@ -423,6 +425,7 @@ impl SessionInner {
                 }
             }
             proto::signal_response::Message::Leave(leave) => {
+                log::debug!("received leave request: {:?}", leave);
                 self.on_session_disconnected(
                     "server request to leave",
                     leave.reason(),
@@ -558,14 +561,12 @@ impl SessionInner {
                 }
 
                 let data = proto::DataPacket::decode(&*data)?;
-                match data.value.unwrap() {
+                match data.value.as_ref().unwrap() {
                     proto::data_packet::Value::User(user) => {
                         let _ = self.emitter.send(SessionEvent::Data {
-                            participant_sid: user.participant_sid.try_into().unwrap(),
-                            payload: user.payload,
-                            kind: proto::data_packet::Kind::from_i32(data.kind)
-                                .unwrap()
-                                .into(),
+                            kind: data.kind().into(),
+                            participant_sid: user.participant_sid.clone().try_into().unwrap(),
+                            payload: user.payload.clone(),
                         });
                     }
                     proto::data_packet::Value::Speaker(_) => {}

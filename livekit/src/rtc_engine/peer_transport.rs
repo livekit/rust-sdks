@@ -164,6 +164,11 @@ impl PeerTransport {
             }
         }
 
+        // TODO(theomonnom): Check that the target_os isn't wasm
+        if options.ice_restart {
+            self.peer_connection.restart_ice();
+        }
+
         let offer = self.peer_connection.create_offer(options).await?;
         self.peer_connection
             .set_local_description(offer.clone())

@@ -13,14 +13,22 @@
 // limitations under the License.
 
 use super::TrackPublicationInner;
+use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use livekit_protocol as proto;
+use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+#[derive(Default)]
+struct LocalInfo {
+    publish_options: Mutex<TrackPublishOptions>,
+}
 
 #[derive(Clone)]
 pub struct LocalTrackPublication {
     inner: Arc<TrackPublicationInner>,
+    local: Arc<LocalInfo>,
 }
 
 impl Debug for LocalTrackPublication {
@@ -37,6 +45,7 @@ impl LocalTrackPublication {
     pub(crate) fn new(info: proto::TrackInfo, track: LocalTrack) -> Self {
         Self {
             inner: super::new_inner(info, Some(track.into())),
+            local: Arc::new(LocalInfo::default()),
         }
     }
 
@@ -59,6 +68,14 @@ impl LocalTrackPublication {
     #[allow(dead_code)]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &TrackPublication::Local(self.clone()), info);
+    }
+
+    pub(crate) fn update_publish_options(&self, opts: TrackPublishOptions) {
+        *self.local.publish_options.lock() = opts;
+    }
+
+    pub fn publish_options(&self) -> TrackPublishOptions {
+        self.local.publish_options.lock().clone()
     }
 
     pub fn mute(&self) {

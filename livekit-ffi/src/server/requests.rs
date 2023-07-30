@@ -357,8 +357,7 @@ fn on_alloc_video_buffer(
     server: &'static FfiServer,
     alloc: proto::AllocVideoBufferRequest,
 ) -> FfiResult<proto::AllocVideoBufferResponse> {
-    let frame_type = proto::VideoFrameBufferType::from_i32(alloc.r#type).unwrap();
-    let buffer: BoxVideoFrameBuffer = match frame_type {
+    let buffer: BoxVideoFrameBuffer = match alloc.r#type() {
         proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(alloc.width, alloc.height)),
         _ => {
             return Err(FfiError::InvalidRequest(
@@ -435,7 +434,7 @@ fn on_to_i420(
             let (sy, su, sv) = i420.strides();
             let (dy, du, dv) = i420.data_mut();
 
-            match proto::VideoFormatType::from_i32(info.format).unwrap() {
+            match info.format() {
                 proto::VideoFormatType::FormatArgb => {
                     yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
                         .unwrap();
@@ -487,7 +486,7 @@ fn on_to_argb(
     let w = to_argb.dst_width as i32;
     let h = to_argb.dst_height as i32 * (if to_argb.flip_y { -1 } else { 1 });
 
-    let video_format = proto::VideoFormatType::from_i32(to_argb.dst_format).unwrap();
+    let video_format = to_argb.dst_format();
     buffer
         .to_argb(video_format.into(), argb, to_argb.dst_stride, w, h)
         .unwrap();

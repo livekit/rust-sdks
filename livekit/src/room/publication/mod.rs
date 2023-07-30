@@ -111,16 +111,10 @@ pub(super) fn new_inner(
     let info = PublicationInfo {
         track,
         proto_info: info.clone(),
+        source: info.source().try_into().unwrap(),
+        kind: info.r#type().try_into().unwrap(),
         name: info.name,
         sid: info.sid.try_into().unwrap(),
-        kind: proto::TrackType::from_i32(info.r#type)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        source: proto::TrackSource::from_i32(info.source)
-            .unwrap()
-            .try_into()
-            .unwrap(),
         simulcasted: info.simulcast,
         dimension: TrackDimension(info.width, info.height),
         mime_type: info.mime_type,
@@ -139,13 +133,13 @@ pub(super) fn update_info(
     new_info: proto::TrackInfo,
 ) {
     let mut info = inner.info.write();
+    info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
+    info.source = TrackSource::from(new_info.source());
     info.proto_info = new_info.clone();
     info.name = new_info.name;
     info.sid = new_info.sid.try_into().unwrap();
     info.dimension = TrackDimension(new_info.width, new_info.height);
     info.mime_type = new_info.mime_type;
-    info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
-    info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
     info.simulcasted = new_info.simulcast;
 }
 

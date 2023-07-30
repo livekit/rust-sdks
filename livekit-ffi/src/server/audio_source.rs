@@ -29,7 +29,7 @@ impl FfiAudioSource {
         server: &'static server::FfiServer,
         new_source: proto::NewAudioSourceRequest,
     ) -> FfiResult<proto::AudioSourceInfo> {
-        let source_type = proto::AudioSourceType::from_i32(new_source.r#type).unwrap();
+        let source_type = new_source.r#type();
         #[allow(unreachable_patterns)]
         let source_inner = match source_type {
             #[cfg(not(target_arch = "wasm32"))]

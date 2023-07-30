@@ -188,8 +188,8 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
 
 pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: proto::TrackInfo) {
     let mut info = inner.info.write();
+    info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
+    info.source = TrackSource::from(new_info.source());
     info.name = new_info.name;
     info.sid = new_info.sid.try_into().unwrap();
-    info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
-    info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
 }

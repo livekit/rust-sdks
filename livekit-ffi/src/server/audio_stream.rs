@@ -52,7 +52,7 @@ impl FfiAudioStream {
         };
 
         let (close_tx, close_rx) = oneshot::channel();
-        let stream_type = proto::AudioStreamType::from_i32(new_stream.r#type).unwrap();
+        let stream_type = new_stream.r#type();
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {

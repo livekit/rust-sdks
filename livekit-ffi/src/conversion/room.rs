@@ -68,15 +68,13 @@ impl From<DataPacketKind> for proto::DataPacketKind {
 impl From<proto::TrackPublishOptions> for TrackPublishOptions {
     fn from(opts: proto::TrackPublishOptions) -> Self {
         Self {
+            video_codec: opts.video_codec().into(),
+            source: opts.source().into(),
             video_encoding: opts.video_encoding.map(Into::into),
             audio_encoding: opts.audio_encoding.map(Into::into),
-            video_codec: proto::VideoCodec::from_i32(opts.video_codec)
-                .unwrap()
-                .into(),
             dtx: opts.dtx,
             red: opts.red,
             simulcast: opts.simulcast,
-            source: proto::TrackSource::from_i32(opts.source).unwrap().into(),
         }
     }
 }

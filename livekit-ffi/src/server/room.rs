@@ -143,7 +143,7 @@ impl RoomInner {
         let data = unsafe {
             slice::from_raw_parts(publish.data_ptr as *const u8, publish.data_len as usize)
         };
-        let kind = proto::DataPacketKind::from_i32(publish.kind).unwrap();
+        let kind = publish.kind();
         let destination_sids: Vec<String> = publish.destination_sids;
         let async_id = server.next_id();
 

@@ -397,7 +397,7 @@ impl RoomSession {
             EngineEvent::Resuming => self.handle_resuming(),
             EngineEvent::Resumed => self.clone().handle_resumed(),
             EngineEvent::Restarting => self.handle_restarting(),
-            EngineEvent::Restarted => self.handle_restarted(),
+            EngineEvent::Restarted => self.clone().handle_restarted(),
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
@@ -529,6 +529,7 @@ impl RoomSession {
     /// Emit ConnectionQualityChanged event for the concerned participants
     fn handle_connection_quality_update(&self, updates: Vec<proto::ConnectionQualityInfo>) {
         for update in updates {
+            let quality: ConnectionQuality = update.quality().into();
             let sid: ParticipantSid = update.participant_sid.try_into().unwrap();
             let participant = {
                 if sid == self.local_participant.sid() {
@@ -541,10 +542,6 @@ impl RoomSession {
                     }
                 }
             };
-
-            let quality: ConnectionQuality = proto::ConnectionQuality::from_i32(update.quality)
-                .unwrap()
-                .into();
 
             participant.set_connection_quality(quality);
             self.dispatcher
@@ -625,22 +622,34 @@ impl RoomSession {
         }
     }
 
-    fn handle_restarted(self: &Arc<Self>) {
+    fn handle_restarted(self: Arc<Self>) {
         // Full reconnect succeeded!
         let join_response = self.rtc_engine.last_info().join_response;
+        self.local_participant
+            .update_info(join_response.participant.unwrap()); // The sid may have changed
 
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
-        if let Some(pi) = join_response.participant {
-            self.local_participant.update_info(pi); // The sid may have changed
-        }
-
         self.handle_participant_update(join_response.other_participants);
 
-        // TODO(theomonnom): Synchronize states
-        // TODO(theomonnom): Room info changed?
-        // TODO(theomonnom): unpublish & republish tracks
+        // unpublish & republish tracks
+        let published_tracks = self.local_participant.tracks();
+        tokio::spawn(async move {
+            for (_, publication) in published_tracks {
+                let track = publication.track();
+
+                let _ = self
+                    .local_participant
+                    .unpublish_track(&publication.sid())
+                    .await;
+
+                let _ = self
+                    .local_participant
+                    .publish_track(track.unwrap(), publication.publish_options())
+                    .await;
+            }
+        });
     }
 
     fn handle_disconnected(&self, reason: DisconnectReason) {

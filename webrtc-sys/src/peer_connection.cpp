@@ -144,6 +144,10 @@ void PeerConnection::set_remote_description(
   peer_connection_->SetRemoteDescription(desc->clone()->release(), observer);
 }
 
+void PeerConnection::restart_ice() const {
+  peer_connection_->RestartIce();
+}
+
 void PeerConnection::add_ice_candidate(
     std::shared_ptr<IceCandidate> candidate,
     rust::Box<AsyncContext> ctx,

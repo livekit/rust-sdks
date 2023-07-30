@@ -20,8 +20,6 @@ use prost::Message as ProstMessage;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
@@ -36,9 +34,7 @@ enum InternalMessage {
     Pong {
         ping_data: Vec<u8>,
     },
-    Close {
-        close_frame: Option<CloseFrame<'static>>,
-    },
+    Close,
 }
 
 /// SignalStream hold the WebSocket connection
@@ -79,16 +75,7 @@ impl SignalStream {
     /// Close the websocket
     /// It sends a CloseFrame to the server before closing
     pub async fn close(self) {
-        let _ = self
-            .internal_tx
-            .send(InternalMessage::Close {
-                close_frame: Some(CloseFrame {
-                    code: CloseCode::Normal,
-                    reason: "disconnected by client".into(),
-                }),
-            })
-            .await;
-
+        let _ = self.internal_tx.send(InternalMessage::Close).await;
         let _ = self.write_handle.await;
         let _ = self.read_handle.await;
     }
@@ -137,13 +124,7 @@ impl SignalStream {
                         log::error!("failed to send pong message: {:?}", err);
                     }
                 }
-                InternalMessage::Close { close_frame } => {
-                    if let Some(close_frame) = close_frame {
-                        let _ = ws_writer.send(Message::Close(Some(close_frame))).await;
-                        let _ = ws_writer.flush().await;
-                    }
-                    break;
-                }
+                InternalMessage::Close => break,
             }
         }
 
@@ -186,8 +167,6 @@ impl SignalStream {
             }
         }
 
-        let _ = internal_tx
-            .send(InternalMessage::Close { close_frame: None })
-            .await;
+        let _ = internal_tx.send(InternalMessage::Close).await;
     }
 }

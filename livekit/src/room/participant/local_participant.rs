@@ -182,13 +182,15 @@ impl LocalParticipant {
         let transceiver = self
             .inner
             .rtc_engine
-            .create_sender(track.clone(), options, encodings)
+            .create_sender(track.clone(), options.clone(), encodings)
             .await?;
 
         track.set_transceiver(Some(transceiver));
         track.enable();
 
         self.inner.rtc_engine.publisher_negotiation_needed();
+
+        publication.update_publish_options(options);
         self.add_publication(TrackPublication::Local(publication.clone()));
 
         if let Some(local_track_published) = self.local.events.local_track_published.lock().as_ref()
@@ -201,10 +203,10 @@ impl LocalParticipant {
 
     pub async fn unpublish_track(
         &self,
-        track: TrackSid,
-        _stop_on_unpublish: bool,
+        track: &TrackSid,
+        // _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
-        let publication = self.inner.tracks.write().remove(&track);
+        let publication = self.inner.tracks.write().remove(track);
         if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();

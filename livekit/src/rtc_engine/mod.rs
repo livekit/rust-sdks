@@ -454,7 +454,7 @@ impl EngineInner {
             return;
         }
 
-        if self.reconnecting.load(Ordering::SeqCst) {
+        if self.reconnecting.load(Ordering::Acquire) {
             let inner = self.clone();
             if retry_now {
                 tokio::spawn(async move {
@@ -465,6 +465,7 @@ impl EngineInner {
             return;
         }
 
+        self.reconnecting.store(true, Ordering::Release);
         log::warn!("reconnecting RTCEngine...");
 
         tokio::spawn({
@@ -472,7 +473,6 @@ impl EngineInner {
             async move {
                 // Reconnetion logic
                 inner.reconnect_interval.lock().await.reset(); // Retry directly
-                inner.reconnecting.store(true, Ordering::Release);
                 inner
                     .full_reconnect
                     .store(full_reconnect, Ordering::Release);
