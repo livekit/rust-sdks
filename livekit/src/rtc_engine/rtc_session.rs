@@ -165,7 +165,7 @@ impl RtcSession {
         url: &str,
         token: &str,
         options: SignalOptions,
-    ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+    ) -> EngineResult<(Self, SessionEvents)> {
         let (session_emitter, session_events) = mpsc::unbounded_channel();
 
         let (signal_client, join_response, signal_events) =
@@ -174,7 +174,7 @@ impl RtcSession {
         log::debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = make_rtc_config_join(join_response.clone());
+        let rtc_config = make_rtc_config_join(join_response);
 
         let lk_runtime = LkRuntime::instance();
         let mut publisher_pc = PeerTransport::new(
@@ -241,20 +241,17 @@ impl RtcSession {
             rtc_task,
         };
 
-        Ok((session, join_response, session_events))
+        Ok((session, session_events))
     }
 
-    #[inline]
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         self.inner.add_track(req).await
     }
 
-    #[inline]
     pub async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
         self.inner.remove_track(sender).await
     }
 
-    #[inline]
     pub async fn create_sender(
         &self,
         track: LocalTrack,
@@ -264,7 +261,6 @@ impl RtcSession {
         self.inner.create_sender(track, options, encodings).await
     }
 
-    #[inline]
     pub fn publisher_negotiation_needed(&self) {
         self.inner.publisher_negotiation_needed()
     }
@@ -278,7 +274,6 @@ impl RtcSession {
         let _ = self.signal_task.await;
     }
 
-    #[inline]
     pub async fn publish_data(
         &self,
         data: &proto::DataPacket,
@@ -287,23 +282,19 @@ impl RtcSession {
         self.inner.publish_data(data, kind).await
     }
 
-    #[inline]
     pub async fn restart(&self) -> EngineResult<()> {
         self.inner.restart_session().await
     }
 
-    #[inline]
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
     }
 
-    #[inline]
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) {
         self.inner.simulate_scenario(scenario).await
     }
 
     #[allow(dead_code)]
-    #[inline]
     pub fn state(&self) -> PeerState {
         self.inner
             .pc_state
@@ -312,28 +303,24 @@ impl RtcSession {
             .unwrap()
     }
 
-    #[allow(dead_code)]
-    #[inline]
     pub fn publisher(&self) -> &PeerTransport {
         &self.inner.publisher_pc
     }
 
-    #[allow(dead_code)]
-    #[inline]
     pub fn subscriber(&self) -> &PeerTransport {
         &self.inner.subscriber_pc
     }
 
-    #[allow(dead_code)]
-    #[inline]
     pub fn signal_client(&self) -> &Arc<SignalClient> {
         &self.inner.signal_client
     }
 
-    #[allow(dead_code)]
-    #[inline]
     pub fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
         &self.inner.data_channel(kind)
+    }
+
+    pub fn data_channels_info(&self) -> Vec<proto::DataChannelInfo> {
+        self.inner.data_channels_info()
     }
 }
 
@@ -821,8 +808,8 @@ impl SessionInner {
         Ok(())
     }
 
-    // Wait for PeerState to become PeerState::Connected
-    // Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
+    /// Wait for PeerState to become PeerState::Connected
+    /// Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
             while self.pc_state.load(Ordering::Acquire) != PeerState::Connected as u8 {
@@ -917,6 +904,33 @@ impl SessionInner {
         } else {
             &self.lossy_dc
         }
+    }
+
+    /// Used to send client states to the server on migration
+    fn data_channels_info(&self) -> Vec<proto::DataChannelInfo> {
+        let mut vec = Vec::with_capacity(4);
+
+        vec.push(proto::DataChannelInfo {
+            label: self.lossy_dc.label(),
+            id: self.lossy_dc.id() as u32,
+            target: proto::SignalTarget::Publisher as i32,
+        });
+
+        vec.push(proto::DataChannelInfo {
+            label: self.reliable_dc.label(),
+            id: self.reliable_dc.id() as u32,
+            target: proto::SignalTarget::Publisher as i32,
+        });
+
+        for dc in self.subscriber_dc.lock().iter() {
+            vec.push(proto::DataChannelInfo {
+                label: dc.label(),
+                id: dc.id() as u32,
+                target: proto::SignalTarget::Subscriber as i32,
+            });
+        }
+
+        vec
     }
 }
 

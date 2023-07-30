@@ -52,17 +52,25 @@ impl LocalTrackPublication {
         super::set_track(&self.inner, &TrackPublication::Local(self.clone()), track);
     }
 
+    pub(crate) fn proto_info(&self) -> proto::TrackInfo {
+        self.inner.info.read().proto_info.clone()
+    }
+
     #[allow(dead_code)]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &TrackPublication::Local(self.clone()), info);
     }
 
     pub fn mute(&self) {
-        self.track().mute();
+        if let Some(track) = self.track() {
+            track.mute();
+        }
     }
 
     pub fn unmute(&self) {
-        self.track().unmute();
+        if let Some(track) = self.track() {
+            track.unmute();
+        }
     }
 
     pub fn sid(&self) -> TrackSid {
@@ -89,15 +97,13 @@ impl LocalTrackPublication {
         self.inner.info.read().dimension
     }
 
-    pub fn track(&self) -> LocalTrack {
+    pub fn track(&self) -> Option<LocalTrack> {
         self.inner
             .info
             .read()
             .track
             .clone()
-            .unwrap()
-            .try_into()
-            .unwrap()
+            .map(|track| track.try_into().unwrap())
     }
 
     pub fn mime_type(&self) -> String {

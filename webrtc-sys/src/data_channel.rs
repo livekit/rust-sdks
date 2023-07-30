@@ -65,6 +65,7 @@ pub mod ffi {
         fn unregister_observer(self: &DataChannel);
 
         fn send(self: &DataChannel, data: &DataBuffer) -> bool;
+        fn id(self: &DataChannel) -> i32;
         fn label(self: &DataChannel) -> String;
         fn state(self: &DataChannel) -> DataState;
         fn close(self: &DataChannel);

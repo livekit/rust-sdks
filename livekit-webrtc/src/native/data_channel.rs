@@ -87,6 +87,10 @@ impl DataChannel {
             .ok_or(DataChannelError::Send)
     }
 
+    pub fn id(&self) -> i32 {
+        self.sys_handle.id()
+    }
+
     pub fn label(&self) -> String {
         self.sys_handle.label()
     }

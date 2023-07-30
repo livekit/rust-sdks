@@ -135,6 +135,11 @@ impl RemoteTrackPublication {
         }
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn proto_info(&self) -> proto::TrackInfo {
+        self.inner.info.read().proto_info.clone()
+    }
+
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(
             &self.inner,
@@ -241,7 +246,11 @@ impl RemoteTrackPublication {
     }
 
     pub fn is_subscribed(&self) -> bool {
-        self.is_allowed() && self.track().is_some()
+        self.track().is_some() && self.remote.info.read().subscribed
+    }
+
+    pub fn is_desired(&self) -> bool {
+        self.remote.info.read().subscribed
     }
 
     pub fn is_allowed(&self) -> bool {

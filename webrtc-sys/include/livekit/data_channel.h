@@ -45,6 +45,7 @@ class DataChannel {
   void register_observer(rust::Box<DataChannelObserverWrapper> observer) const;
   void unregister_observer() const;
   bool send(const DataBuffer& buffer) const;
+  int id() const;
   rust::String label() const;
   DataState state() const;
   void close() const;
