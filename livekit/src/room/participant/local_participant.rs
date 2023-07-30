@@ -117,6 +117,22 @@ impl LocalParticipant {
         super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid);
     }
 
+    pub(crate) fn published_tracks_info(&self) -> Vec<proto::TrackPublishedResponse> {
+        let tracks = self.tracks();
+        let mut vec = Vec::with_capacity(tracks.len());
+
+        for p in tracks.values() {
+            if let Some(track) = p.track() {
+                vec.push(proto::TrackPublishedResponse {
+                    cid: track.rtc_track().id(),
+                    track: Some(p.proto_info()),
+                });
+            }
+        }
+
+        vec
+    }
+
     pub async fn publish_track(
         &self,
         track: LocalTrack,
@@ -190,7 +206,7 @@ impl LocalParticipant {
     ) -> RoomResult<LocalTrackPublication> {
         let publication = self.inner.tracks.write().remove(&track);
         if let Some(TrackPublication::Local(publication)) = publication {
-            let track = publication.track();
+            let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();
 
             self.inner.rtc_engine.remove_track(sender).await?;

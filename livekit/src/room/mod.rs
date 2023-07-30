@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use self::track::RemoteTrack;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::rtc_engine::EngineError;
@@ -186,7 +185,7 @@ impl Room {
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
 
-        let join_response = rtc_engine.join_response();
+        let join_response = rtc_engine.last_info().join_response;
         let pi = join_response.participant.unwrap().clone();
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
@@ -203,7 +202,7 @@ impl Room {
                 dispatcher.dispatch(&RoomEvent::LocalTrackPublished {
                     participant,
                     publication: publication.clone(),
-                    track: publication.track(),
+                    track: publication.track().unwrap(),
                 });
             }
         });
@@ -228,6 +227,7 @@ impl Room {
             }),
             participants: Default::default(),
             active_speakers: Default::default(),
+            options,
             rtc_engine,
             local_participant,
             dispatcher,
@@ -318,6 +318,7 @@ pub(crate) struct RoomSession {
     name: String,
     info: RwLock<RoomInfo>,
     dispatcher: Dispatcher<RoomEvent>,
+    options: RoomOptions,
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
@@ -393,18 +394,8 @@ impl RoomSession {
                     )))?;
                 }
             }
-            EngineEvent::Resuming => {
-                if self.update_connection_state(ConnectionState::Reconnecting) {
-                    self.dispatcher.dispatch(&RoomEvent::Reconnecting);
-                }
-            }
-            EngineEvent::Resumed => {
-                self.update_connection_state(ConnectionState::Connected);
-                self.dispatcher.dispatch(&RoomEvent::Reconnected);
-
-                // TODO(theomonnom): Update subscriptions settings
-                // TODO(theomonnom): Send sync state
-            }
+            EngineEvent::Resuming => self.handle_resuming(),
+            EngineEvent::Resumed => self.clone().handle_resumed(),
             EngineEvent::Restarting => self.handle_restarting(),
             EngineEvent::Restarted => self.handle_restarted(),
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
@@ -564,6 +555,63 @@ impl RoomSession {
         }
     }
 
+    async fn send_sync_state(self: &Arc<Self>) {
+        let last_info = self.rtc_engine.last_info();
+        let auto_subscribe = self.options.auto_subscribe;
+
+        if last_info.subscriber_answer.is_none() {
+            log::warn!("skipping sendSyncState, no subscriber answer");
+            return;
+        }
+
+        let mut track_sids = Vec::new();
+        for (_, participant) in self.participants.read().clone() {
+            for (track_sid, track) in participant.tracks() {
+                if track.is_desired() != auto_subscribe {
+                    track_sids.push(track_sid.to_string());
+                }
+            }
+        }
+
+        let sync_state = proto::SyncState {
+            answer: Some(proto::SessionDescription {
+                sdp: last_info.subscriber_answer.unwrap().to_string(),
+                r#type: "answer".to_string(),
+            }),
+            offer: Some(proto::SessionDescription {
+                sdp: last_info.subscriber_offer.unwrap().to_string(),
+                r#type: "offer".to_string(),
+            }),
+            subscription: Some(proto::UpdateSubscription {
+                track_sids,
+                subscribe: !auto_subscribe,
+                participant_tracks: Vec::new(),
+            }),
+            publish_tracks: self.local_participant.published_tracks_info(),
+            data_channels: last_info.data_channels_info,
+        };
+
+        let _ = self
+            .rtc_engine
+            .send_request(proto::signal_request::Message::SyncState(sync_state))
+            .await;
+    }
+
+    fn handle_resuming(self: &Arc<Self>) {
+        if self.update_connection_state(ConnectionState::Reconnecting) {
+            self.dispatcher.dispatch(&RoomEvent::Reconnecting);
+        }
+    }
+
+    fn handle_resumed(self: Arc<Self>) {
+        self.update_connection_state(ConnectionState::Connected);
+        self.dispatcher.dispatch(&RoomEvent::Reconnected);
+
+        tokio::spawn(async move {
+            self.send_sync_state().await;
+        });
+    }
+
     fn handle_restarting(self: &Arc<Self>) {
         // Remove existing participants/subscriptions on full reconnect
         let participants = self.participants.read().clone();
@@ -579,7 +627,7 @@ impl RoomSession {
 
     fn handle_restarted(self: &Arc<Self>) {
         // Full reconnect succeeded!
-        let join_response = self.rtc_engine.join_response();
+        let join_response = self.rtc_engine.last_info().join_response;
 
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
@@ -596,6 +644,7 @@ impl RoomSession {
     }
 
     fn handle_disconnected(&self, reason: DisconnectReason) {
+        log::info!("disconnected from room,: {:?}", reason);
         if self.update_connection_state(ConnectionState::Disconnected) {
             self.dispatcher
                 .dispatch(&RoomEvent::Disconnected { reason });

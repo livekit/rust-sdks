@@ -60,6 +60,7 @@ impl TrackPublication {
 
         pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
         pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
+        pub(crate) fn proto_info(self: &Self) -> proto::TrackInfo;
         pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
 
@@ -73,7 +74,7 @@ impl TrackPublication {
 
     pub fn track(&self) -> Option<Track> {
         match self {
-            TrackPublication::Local(p) => Some(p.track().into()),
+            TrackPublication::Local(p) => p.track().map(Into::into),
             TrackPublication::Remote(p) => p.track().map(Into::into),
         }
     }
@@ -89,6 +90,7 @@ struct PublicationInfo {
     pub dimension: TrackDimension,
     pub mime_type: String,
     pub muted: bool,
+    pub proto_info: proto::TrackInfo,
 }
 
 #[derive(Default)]
@@ -108,6 +110,7 @@ pub(super) fn new_inner(
 ) -> Arc<TrackPublicationInner> {
     let info = PublicationInfo {
         track,
+        proto_info: info.clone(),
         name: info.name,
         sid: info.sid.try_into().unwrap(),
         kind: proto::TrackType::from_i32(info.r#type)
@@ -136,6 +139,7 @@ pub(super) fn update_info(
     new_info: proto::TrackInfo,
 ) {
     let mut info = inner.info.write();
+    info.proto_info = new_info.clone();
     info.name = new_info.name;
     info.sid = new_info.sid.try_into().unwrap();
     info.dimension = TrackDimension(new_info.width, new_info.height);

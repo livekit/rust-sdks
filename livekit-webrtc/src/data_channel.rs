@@ -77,6 +77,10 @@ impl DataChannel {
         self.handle.send(data, binary)
     }
 
+    pub fn id(&self) -> i32 {
+        self.handle.id()
+    }
+
     pub fn label(&self) -> String {
         self.handle.label()
     }

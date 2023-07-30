@@ -76,6 +76,10 @@ bool DataChannel::send(const DataBuffer& buffer) const {
       rtc::CopyOnWriteBuffer(buffer.ptr, buffer.len), buffer.binary});
 }
 
+int DataChannel::id() const {
+  return data_channel_->id();
+}
+
 rust::String DataChannel::label() const {
   return data_channel_->label();
 }

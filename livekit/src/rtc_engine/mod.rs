@@ -117,17 +117,26 @@ struct EngineHandle {
     close_sender: oneshot::Sender<()>,
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct LastInfo {
+    // The join response is updated each time a full reconnect is done
+    pub join_response: proto::JoinResponse,
+
+    // The last offer/answer exchanged during the last session
+    pub subscriber_offer: Option<SessionDescription>,
+    pub subscriber_answer: Option<SessionDescription>,
+
+    pub data_channels_info: Vec<proto::DataChannelInfo>,
+}
+
 struct EngineInner {
     // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection factory accross multiple Rtc sessions
     #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     engine_emitter: EngineEmitter,
 
-    // Last/current session JoinResponse
-    // We keep a clone of the join response here because the room needs it
-    // (directly accessing the running_handle requires an async context to lock the Mutex and a getter needs a short lock)
-    // Maybe there is a better way to do it?
-    join_response: Mutex<proto::JoinResponse>,
+    // Last/current session states (needed by the room)
+    last_info: Mutex<LastInfo>,
     running_handle: AsyncRwLock<Option<EngineHandle>>,
 
     // Reconnecting fields
@@ -168,7 +177,7 @@ impl RtcEngine {
             lk_runtime: LkRuntime::instance(),
             running_handle: Default::default(),
             engine_emitter,
-            join_response: Default::default(), // Will directly be replaced by the connect method below
+            last_info: Default::default(),
             closed: Default::default(),
             reconnecting: Default::default(),
             full_reconnect: Default::default(),
@@ -253,8 +262,8 @@ impl RtcEngine {
         Ok(())
     }
 
-    pub fn join_response(&self) -> proto::JoinResponse {
-        self.inner.join_response.lock().clone()
+    pub fn last_info(&self) -> LastInfo {
+        self.inner.last_info.lock().clone()
     }
 }
 
@@ -362,9 +371,11 @@ impl EngineInner {
         options: SignalOptions,
     ) -> EngineResult<()> {
         let mut running_handle = self.running_handle.write().await;
+        if running_handle.is_some() {
+            unreachable!("engine is already connected");
+        }
 
-        let (session, join_response, session_events) =
-            RtcSession::connect(url, token, options).await?;
+        let (session, session_events) = RtcSession::connect(url, token, options).await?;
 
         let (close_sender, close_receiver) = oneshot::channel();
         let engine_task = tokio::spawn(self.clone().engine_task(session_events, close_receiver));
@@ -375,10 +386,25 @@ impl EngineInner {
             close_sender,
         };
 
-        // Always update the join response after a new session is created (first session or full reconnect)
-        *self.join_response.lock() = join_response;
         *running_handle = Some(engine_handle);
+
+        // Always update the join response after a new session is created (first session or full reconnect)
+        drop(running_handle);
+        self.update_last_info().await;
+
         Ok(())
+    }
+
+    async fn update_last_info(&self) {
+        if let Some(handle) = self.running_handle.read().await.as_ref() {
+            let mut last_info = self.last_info.lock();
+            let subscriber_pc = handle.session.subscriber().peer_connection();
+
+            last_info.join_response = handle.session.signal_client().join_response();
+            last_info.subscriber_offer = subscriber_pc.current_local_description();
+            last_info.subscriber_answer = subscriber_pc.current_remote_description();
+            last_info.data_channels_info = handle.session.data_channels_info();
+        }
     }
 
     async fn terminate_session(&self) {
@@ -470,12 +496,18 @@ impl EngineInner {
     /// We first try to resume the connection, if it fails, we start a full reconnect.
     async fn reconnect_task(self: &Arc<Self>) -> EngineResult<()> {
         // Get the latest connection info from the signal_client (including the refreshed token because the initial join token may have expired)
-        let running_handle = self.running_handle.read().await;
-        let signal_client = running_handle.as_ref().unwrap().session.signal_client();
-        let url = signal_client.url();
-        let token = signal_client.token();
-        let options = signal_client.options();
-        drop(running_handle);
+        let (url, token, options) = {
+            let running_handle = self.running_handle.read().await;
+            let signal_client = running_handle.as_ref().unwrap().session.signal_client();
+            (
+                signal_client.url(),
+                signal_client.token(), // Refreshed token
+                signal_client.options(),
+            )
+        };
+
+        // Update last info before trying to reconnect/resume
+        self.update_last_info().await;
 
         for i in 0..RECONNECT_ATTEMPTS {
             if self.closed.load(Ordering::Acquire) {
@@ -542,6 +574,7 @@ impl EngineInner {
         let handle = self.running_handle.read().await;
         let session = &handle.as_ref().unwrap().session;
         session.restart().await?;
-        session.wait_pc_connection().await
+        session.wait_pc_connection().await?;
+        Ok(())
     }
 }
