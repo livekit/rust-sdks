@@ -804,7 +804,6 @@ impl SessionInner {
                 .await?;
         }
 
-        self.wait_pc_connection().await?;
         self.signal_client.flush_queue().await;
         Ok(())
     }

@@ -165,6 +165,7 @@ impl PeerTransport {
         }
 
         // TODO(theomonnom): Check that the target_os isn't wasm
+        // Not sure if this is really needed
         if options.ice_restart {
             self.peer_connection.restart_ice();
         }

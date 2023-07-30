@@ -98,8 +98,10 @@ pub enum EngineEvent {
     },
     Resuming,
     Resumed,
+    SignalResumed,
     Restarting,
     Restarted,
+    SignalRestarted,
     Disconnected {
         reason: DisconnectReason,
     },
@@ -251,14 +253,12 @@ impl RtcEngine {
     }
 
     pub async fn send_request(&self, msg: proto::signal_request::Message) -> EngineResult<()> {
-        if self.inner.reconnecting.load(Ordering::Acquire) {
-            // When doing a full reconnect, it is OK to ignore the messages, we don't wait for reconnection here
-            return Ok(()); // TODO(theomonnom): Maybe we should still return an error instead?
-        }
-
         let handle = self.inner.running_handle.read().await;
-        let session = &handle.as_ref().unwrap().session; // Unwrap should be OK here (running_handle is always valid when not reconnecting)
-        session.signal_client().send(msg).await;
+        if let Some(handle) = handle.as_ref() {
+            handle.session.signal_client().send(msg).await;
+        } else {
+            // Should be OK to ignore the signal message (full reconnect)
+        }
         Ok(())
     }
 
@@ -563,6 +563,7 @@ impl EngineInner {
     ) -> EngineResult<()> {
         self.terminate_session().await;
         self.connect(url, token, options).await?;
+        let _ = self.engine_emitter.send(EngineEvent::SignalRestarted).await;
 
         let handle = self.running_handle.read().await;
         let session = &handle.as_ref().unwrap().session;
@@ -573,8 +574,10 @@ impl EngineInner {
     async fn try_resume_connection(&self) -> EngineResult<()> {
         let handle = self.running_handle.read().await;
         let session = &handle.as_ref().unwrap().session;
+
         session.restart().await?;
-        session.wait_pc_connection().await?;
-        Ok(())
+        // With SignalResumed, the room will send a SyncState message to the server
+        let _ = self.engine_emitter.send(EngineEvent::SignalResumed).await;
+        session.wait_pc_connection().await
     }
 }

@@ -395,9 +395,11 @@ impl RoomSession {
                 }
             }
             EngineEvent::Resuming => self.handle_resuming(),
-            EngineEvent::Resumed => self.clone().handle_resumed(),
+            EngineEvent::Resumed => self.handle_resumed(),
+            EngineEvent::SignalResumed => self.clone().handle_signal_resumed(),
             EngineEvent::Restarting => self.handle_restarting(),
-            EngineEvent::Restarted => self.clone().handle_restarted(),
+            EngineEvent::Restarted => self.handle_restarted(),
+            EngineEvent::SignalRestarted => self.clone().handle_signal_restarted(),
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
@@ -588,10 +590,14 @@ impl RoomSession {
             data_channels: last_info.data_channels_info,
         };
 
-        let _ = self
+        log::info!("sending sync state {:?}", sync_state);
+        if let Err(err) = self
             .rtc_engine
             .send_request(proto::signal_request::Message::SyncState(sync_state))
-            .await;
+            .await
+        {
+            log::error!("failed to send sync state: {:?}", err);
+        }
     }
 
     fn handle_resuming(self: &Arc<Self>) {
@@ -600,10 +606,12 @@ impl RoomSession {
         }
     }
 
-    fn handle_resumed(self: Arc<Self>) {
+    fn handle_resumed(self: &Arc<Self>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
+    }
 
+    fn handle_signal_resumed(self: Arc<Self>) {
         tokio::spawn(async move {
             self.send_sync_state().await;
         });
@@ -622,14 +630,15 @@ impl RoomSession {
         }
     }
 
-    fn handle_restarted(self: Arc<Self>) {
-        // Full reconnect succeeded!
+    fn handle_restarted(self: &Arc<Self>) {
+        self.update_connection_state(ConnectionState::Connected);
+        self.dispatcher.dispatch(&RoomEvent::Reconnected);
+    }
+
+    fn handle_signal_restarted(self: Arc<Self>) {
         let join_response = self.rtc_engine.last_info().join_response;
         self.local_participant
             .update_info(join_response.participant.unwrap()); // The sid may have changed
-
-        self.update_connection_state(ConnectionState::Connected);
-        self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
         self.handle_participant_update(join_response.other_participants);
 
