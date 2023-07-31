@@ -17,13 +17,13 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use std::fmt::Debug;
 use thiserror::Error;
 
-pub mod room;
 pub mod egress;
 pub mod ingress;
+pub mod room;
 
 mod twirp_client;
 
-pub const LIVEKIT_PACKAGE: &'static str = "livekit";
+pub const LIVEKIT_PACKAGE: &str = "livekit";
 
 #[derive(Debug, Error)]
 pub enum ServiceError {

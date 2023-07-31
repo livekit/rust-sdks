@@ -15,7 +15,6 @@
 use std::env;
 use std::path;
 use std::process::Command;
-use webrtc_sys_build;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
@@ -94,7 +93,7 @@ fn main() {
     );
 
     for (key, value) in webrtc_sys_build::webrtc_defines() {
-        let value = value.as_ref().map(|v| v.as_str());
+        let value = value.as_deref();
         builder.define(key.as_str(), value);
     }
 

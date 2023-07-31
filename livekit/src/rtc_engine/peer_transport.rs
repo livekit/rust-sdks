@@ -71,7 +71,7 @@ impl PeerTransport {
     }
 
     pub fn signal_target(&self) -> proto::SignalTarget {
-        self.signal_target.clone()
+        self.signal_target
     }
 
     pub fn on_offer(&self, handler: Option<OnOfferCreated>) {

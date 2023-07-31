@@ -150,7 +150,9 @@ pub fn compute_video_encodings(
     let low_preset = simulcast_presets.pop();
 
     let size = u32::max(width, height);
+
     if size >= 960 && low_preset.is_some() {
+        #[allow(clippy::unnecessary_unwrap)]
         return into_rtp_encodings(
             width,
             height,
@@ -370,7 +372,7 @@ pub mod screenshare {
             initial.height / SCALE_DOWN_FACTOR,
             u64::max(
                 150_000,
-                initial.encoding.max_bitrate as u64
+                initial.encoding.max_bitrate
                     / (SCALE_DOWN_FACTOR.pow(2) as u64
                         * (initial.encoding.max_framerate / FPS) as u64),
             ),

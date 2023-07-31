@@ -105,6 +105,7 @@ impl SignalStream {
                     signal,
                     response_chn,
                 } => {
+                    log::debug!("sending signal: {:?}", signal);
                     let data = Message::Binary(
                         proto::SignalRequest {
                             message: Some(signal),
@@ -148,7 +149,8 @@ impl SignalStream {
                         .expect("failed to decode SignalResponse");
 
                     let msg = res.message.unwrap();
-                    let _ = emitter.send(SignalEvent::Signal(msg));
+                    log::debug!("received signal: {:?}", msg);
+                    let _ = emitter.send(SignalEvent::Signal(Box::new(msg)));
                 }
                 Ok(Message::Ping(data)) => {
                     let _ = internal_tx

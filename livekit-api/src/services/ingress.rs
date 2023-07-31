@@ -33,7 +33,7 @@ pub enum IngressListFilter {
     Room(String),
 }
 
-const SVC: &'static str = "Ingress";
+const SVC: &str = "Ingress";
 
 #[derive(Debug)]
 pub struct IngressClient {

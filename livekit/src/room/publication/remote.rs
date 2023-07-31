@@ -278,7 +278,7 @@ impl RemoteTrackPublication {
     }
 
     pub fn dimension(&self) -> TrackDimension {
-        self.inner.info.read().dimension.clone()
+        self.inner.info.read().dimension
     }
 
     pub fn track(&self) -> Option<RemoteTrack> {

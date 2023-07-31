@@ -147,7 +147,7 @@ pub fn forward_pc_events(transport: &mut PeerTransport, rtc_emitter: RtcEmitter)
             rtc_emitter.clone(),
         )));
 
-    transport.on_offer(Some(on_offer(signal_target, rtc_emitter.clone())));
+    transport.on_offer(Some(on_offer(signal_target, rtc_emitter)));
 }
 
 fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
@@ -160,5 +160,5 @@ fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
 }
 
 pub fn forward_dc_events(dc: &mut DataChannel, rtc_emitter: RtcEmitter) {
-    dc.on_message(Some(on_message(rtc_emitter.clone())));
+    dc.on_message(Some(on_message(rtc_emitter)));
 }

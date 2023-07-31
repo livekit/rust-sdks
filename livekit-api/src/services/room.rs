@@ -17,7 +17,7 @@ use crate::services::twirp_client::TwirpClient;
 use crate::{access_token::VideoGrants, get_env_keys};
 use livekit_protocol as proto;
 
-const SVC: &'static str = "RoomService";
+const SVC: &str = "RoomService";
 
 #[derive(Debug, Clone, Default)]
 pub struct CreateRoomOptions {

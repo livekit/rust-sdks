@@ -31,7 +31,7 @@ impl From<proto::AudioSourceOptions> for AudioSourceOptions {
 impl proto::AudioFrameBufferInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, buffer: &AudioFrame) -> Self {
         Self {
-            handle: Some(handle_id.into()),
+            handle: Some(handle_id),
             data_ptr: buffer.data.as_ptr() as u64,
             samples_per_channel: buffer.samples_per_channel,
             sample_rate: buffer.sample_rate,
@@ -43,7 +43,7 @@ impl proto::AudioFrameBufferInfo {
 impl proto::AudioSourceInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, source: &FfiAudioSource) -> Self {
         Self {
-            handle: Some(handle_id.into()),
+            handle: Some(handle_id),
             r#type: source.source_type as i32,
         }
     }
@@ -52,7 +52,7 @@ impl proto::AudioSourceInfo {
 impl proto::AudioStreamInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, stream: &FfiAudioStream) -> Self {
         Self {
-            handle: Some(handle_id.into()),
+            handle: Some(handle_id),
             r#type: stream.stream_type as i32,
         }
     }

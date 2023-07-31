@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use crate::imp::session_description as sd_imp;
-use std::{fmt::Debug, str::FromStr};
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+};
 use thiserror::Error;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -35,6 +38,18 @@ impl FromStr for SdpType {
             "rollback" => Ok(Self::Rollback),
             _ => Err("invalid SdpType"),
         }
+    }
+}
+
+impl Display for SdpType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            SdpType::Offer => "offer",
+            SdpType::PrAnswer => "pranswer",
+            SdpType::Answer => "answer",
+            SdpType::Rollback => "rollback",
+        };
+        write!(f, "{}", s)
     }
 }
 

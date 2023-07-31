@@ -76,7 +76,7 @@ impl LocalParticipant {
         self.inner.tracks.read().clone()
     }
 
-    pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) {
+    pub(crate) fn update_info(&self, info: proto::ParticipantInfo) {
         super::update_info(&self.inner, &Participant::Local(self.clone()), info);
     }
 
@@ -140,7 +140,7 @@ impl LocalParticipant {
     ) -> RoomResult<LocalTrackPublication> {
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
-            name: track.name().clone(),
+            name: track.name(),
             r#type: proto::TrackType::from(track.kind()) as i32,
             muted: track.is_muted(),
             source: proto::TrackSource::from(options.source) as i32,

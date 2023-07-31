@@ -221,7 +221,7 @@ async fn forward_event(
             let handle_id = server.next_id();
             let ffi_participant = FfiParticipant {
                 handle: handle_id,
-                participant: Participant::Remote(participant.clone()),
+                participant: Participant::Remote(participant),
                 room: inner.clone(),
             };
             server.store_handle(handle_id, ffi_participant.clone());
@@ -247,7 +247,7 @@ async fn forward_event(
         } => {
             let ffi_publication = FfiPublication {
                 handle: server.next_id(),
-                publication: TrackPublication::Local(publication.clone()),
+                publication: TrackPublication::Local(publication),
             };
 
             let publication_info = proto::TrackPublicationInfo::from(
@@ -279,7 +279,7 @@ async fn forward_event(
         } => {
             let ffi_publication = FfiPublication {
                 handle: server.next_id(),
-                publication: TrackPublication::Remote(publication.clone()),
+                publication: TrackPublication::Remote(publication),
             };
 
             let publication_info = proto::TrackPublicationInfo::from(
@@ -314,7 +314,7 @@ async fn forward_event(
         } => {
             let ffi_track = FfiTrack {
                 handle: server.next_id(),
-                track: track.clone().into(),
+                track: track.into(),
             };
 
             let track_info = proto::TrackInfo::from(

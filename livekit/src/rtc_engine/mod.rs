@@ -244,7 +244,7 @@ impl RtcEngine {
     pub fn publisher_negotiation_needed(&self) {
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            if let Ok(_) = inner.wait_reconnection().await {
+            if inner.wait_reconnection().await.is_ok() {
                 let handle = inner.running_handle.read().await;
                 let session = &handle.as_ref().unwrap().session;
                 session.publisher_negotiation_needed()
@@ -254,10 +254,11 @@ impl RtcEngine {
 
     pub async fn send_request(&self, msg: proto::signal_request::Message) -> EngineResult<()> {
         let handle = self.inner.running_handle.read().await;
+
         if let Some(handle) = handle.as_ref() {
             handle.session.signal_client().send(msg).await;
         } else {
-            // Should be OK to ignore the signal message (full reconnect)
+            // Should be OK to ignore (full reconnect)
         }
         Ok(())
     }
@@ -454,25 +455,27 @@ impl EngineInner {
             return;
         }
 
-        if self.reconnecting.load(Ordering::Acquire) {
-            let inner = self.clone();
-            if retry_now {
-                tokio::spawn(async move {
-                    inner.reconnect_interval.lock().await.reset(); // Retry directly
-                });
-                self.full_reconnect.store(full_reconnect, Ordering::Release);
-            }
-            return;
+        self.full_reconnect.store(full_reconnect, Ordering::Release);
+        let inner = self.clone();
+        if retry_now {
+            tokio::spawn(async move {
+                inner.reconnect_interval.lock().await.reset();
+            });
         }
 
-        self.reconnecting.store(true, Ordering::Release);
-        log::warn!("reconnecting RTCEngine...");
+        if self
+            .reconnecting
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
 
         tokio::spawn({
             let inner = self.clone();
             async move {
                 // Reconnetion logic
-                inner.reconnect_interval.lock().await.reset(); // Retry directly
+                inner.reconnect_interval.lock().await.reset();
                 inner
                     .full_reconnect
                     .store(full_reconnect, Ordering::Release);
@@ -481,9 +484,9 @@ impl EngineInner {
                 inner.reconnecting.store(false, Ordering::Release);
 
                 if res.is_ok() {
-                    log::warn!("RTCEngine successfully reconnected")
+                    log::info!("RTCEngine successfully reconnected")
                 } else {
-                    log::error!("failed to reconnect after {} attemps", RECONNECT_ATTEMPTS);
+                    log::error!("failed to reconnect after {} attempts", RECONNECT_ATTEMPTS);
                     inner.close(DisconnectReason::UnknownReason).await;
                 }
 
@@ -520,7 +523,7 @@ impl EngineInner {
                     let _ = self.engine_emitter.send(EngineEvent::Restarting).await;
                 }
 
-                log::info!("restarting connection... attempt: {}", i);
+                log::error!("restarting connection... attempt: {}", i);
                 if let Err(err) = self
                     .try_restart_connection(&url, &token, options.clone())
                     .await
@@ -535,7 +538,7 @@ impl EngineInner {
                     let _ = self.engine_emitter.send(EngineEvent::Resuming).await;
                 }
 
-                log::info!("resuming connection... attempt: {}", i);
+                log::error!("resuming connection... attempt: {}", i);
                 if let Err(err) = self.try_resume_connection().await {
                     log::error!("resuming connection failed: {}", err);
                     if let EngineError::Signal(_) = err {

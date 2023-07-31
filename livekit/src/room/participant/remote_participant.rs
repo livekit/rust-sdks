@@ -105,7 +105,7 @@ impl RemoteParticipant {
                 TrackKind::Audio => {
                     if let MediaStreamTrack::Audio(rtc_track) = media_track {
                         let audio_track = RemoteAudioTrack::new(
-                            remote_publication.sid().into(),
+                            remote_publication.sid(),
                             remote_publication.name(),
                             rtc_track,
                         );
@@ -117,7 +117,7 @@ impl RemoteParticipant {
                 TrackKind::Video => {
                     if let MediaStreamTrack::Video(rtc_track) = media_track {
                         let video_track = RemoteVideoTrack::new(
-                            remote_publication.sid().into(),
+                            remote_publication.sid(),
                             remote_publication.name(),
                             rtc_track,
                         );
@@ -133,7 +133,7 @@ impl RemoteParticipant {
             //track.set_muted(remote_publication.is_muted());
             track.update_info(proto::TrackInfo {
                 sid: remote_publication.sid().to_string(),
-                name: remote_publication.name().to_string(),
+                name: remote_publication.name(),
                 r#type: proto::TrackType::from(remote_publication.kind()) as i32,
                 source: proto::TrackSource::from(remote_publication.source()) as i32,
                 ..Default::default()
@@ -142,7 +142,7 @@ impl RemoteParticipant {
             self.add_publication(TrackPublication::Remote(remote_publication.clone()));
             track.enable();
 
-            remote_publication.set_track(Some(track.into())); // This will fire TrackSubscribed on the publication
+            remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the publication
         } else {
             log::error!("could not find published track with sid: {:?}", sid);
 
@@ -169,7 +169,7 @@ impl RemoteParticipant {
             self.remove_publication(sid);
 
             if let Some(track_unpublished) = self.remote.events.track_unpublished.lock().as_ref() {
-                track_unpublished(self.clone(), publication.clone());
+                track_unpublished(self.clone(), publication);
             }
         }
     }
@@ -202,7 +202,7 @@ impl RemoteParticipant {
 
         // remove tracks that are no longer valid
         let tracks = self.inner.tracks.read().clone();
-        for (sid, _) in &tracks {
+        for sid in tracks.keys() {
             if valid_tracks.contains(sid) {
                 continue;
             }

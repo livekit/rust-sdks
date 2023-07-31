@@ -179,10 +179,8 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
         if let Some(on_mute) = inner.events.muted.lock().as_ref() {
             on_mute(track.clone());
         }
-    } else {
-        if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
-            on_unmute(track.clone());
-        }
+    } else if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
+        on_unmute(track.clone());
     }
 }
 

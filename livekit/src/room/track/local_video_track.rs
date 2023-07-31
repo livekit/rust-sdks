@@ -137,6 +137,6 @@ impl LocalVideoTrack {
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        super::update_info(&self.inner, &&Track::LocalVideo(self.clone()), info);
+        super::update_info(&self.inner, &Track::LocalVideo(self.clone()), info);
     }
 }
