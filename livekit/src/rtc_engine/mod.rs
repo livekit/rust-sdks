@@ -402,8 +402,8 @@ impl EngineInner {
             let subscriber_pc = handle.session.subscriber().peer_connection();
 
             last_info.join_response = handle.session.signal_client().join_response();
-            last_info.subscriber_offer = subscriber_pc.current_local_description();
-            last_info.subscriber_answer = subscriber_pc.current_remote_description();
+            last_info.subscriber_offer = subscriber_pc.current_remote_description();
+            last_info.subscriber_answer = subscriber_pc.current_local_description();
             last_info.data_channels_info = handle.session.data_channels_info();
         }
     }
