@@ -165,10 +165,10 @@ impl FfiServer {
         self.ffi_handles.insert(id, Box::new(handle));
     }
 
-    pub fn retrieve_handle<'a, T>(
-        &'a self,
+    pub fn retrieve_handle<T>(
+        &self,
         id: FfiHandleId,
-    ) -> FfiResult<MappedRef<'a, u64, Box<dyn FfiHandle>, T>>
+    ) -> FfiResult<MappedRef<'_, u64, Box<dyn FfiHandle>, T>>
     where
         T: FfiHandle,
     {

@@ -92,6 +92,8 @@ class PeerConnection {
 
   void remove_track(std::shared_ptr<RtpSender> sender) const;
 
+  void restart_ice() const;
+
   std::shared_ptr<RtpTransceiver> add_transceiver(
       std::shared_ptr<MediaStreamTrack> track,
       RtpTransceiverInit init) const;

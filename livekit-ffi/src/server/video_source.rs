@@ -31,7 +31,7 @@ impl FfiVideoSource {
         server: &'static server::FfiServer,
         new_source: proto::NewVideoSourceRequest,
     ) -> FfiResult<proto::VideoSourceInfo> {
-        let source_type = proto::VideoSourceType::from_i32(new_source.r#type).unwrap();
+        let source_type = new_source.r#type();
         #[allow(unreachable_patterns)]
         let source_inner = match source_type {
             #[cfg(not(target_arch = "wasm32"))]
@@ -86,9 +86,8 @@ impl FfiVideoSource {
                     .downcast_ref::<BoxVideoFrameBuffer>()
                     .ok_or(FfiError::InvalidRequest("handle is not video frame".into()))?;
 
-                let rotation = proto::VideoRotation::from_i32(frame_info.rotation).unwrap();
                 let frame = VideoFrame {
-                    rotation: rotation.into(),
+                    rotation: frame_info.rotation().into(),
                     timestamp_us: frame_info.timestamp_us,
                     buffer,
                 };

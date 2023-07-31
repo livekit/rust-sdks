@@ -20,7 +20,6 @@ use std::{borrow::Cow, sync::Arc};
 use thiserror::Error;
 
 mod conversion;
-#[path = "livekit.proto.rs"]
 mod proto;
 mod server;
 
@@ -47,8 +46,11 @@ lazy_static! {
     pub static ref FFI_SERVER: server::FfiServer = server::FfiServer::default();
 }
 
+/// # Safety
+///
+/// The foreign language must only provide valid pointers
 #[no_mangle]
-pub extern "C" fn livekit_ffi_request(
+pub unsafe extern "C" fn livekit_ffi_request(
     data: *const u8,
     len: usize,
     res_ptr: *mut *const u8,

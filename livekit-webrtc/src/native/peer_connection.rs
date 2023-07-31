@@ -419,6 +419,10 @@ impl PeerConnection {
         }
     }
 
+    pub fn restart_ice(&self) {
+        self.sys_handle.restart_ice();
+    }
+
     pub fn close(&self) {
         self.sys_handle.close();
     }

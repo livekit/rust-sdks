@@ -217,6 +217,7 @@ pub mod ffi {
             ctx: Box<AsyncContext>,
             on_complete: fn(ctx: Box<AsyncContext>, error: RtcError),
         );
+        fn restart_ice(self: &PeerConnection);
         fn current_local_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
         fn current_remote_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
         fn connection_state(self: &PeerConnection) -> PeerConnectionState;

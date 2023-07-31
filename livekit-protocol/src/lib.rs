@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(non_snake_case)]
+#![allow(clippy::large_enum_variant)]
+
 pub mod debouncer;
 pub mod enum_dispatch;
-pub mod livekit;
 pub mod observer;
 
-pub use livekit::*;
+include!("livekit.rs");
 
 #[cfg(feature = "serde")]
 include!("livekit.serde.rs");

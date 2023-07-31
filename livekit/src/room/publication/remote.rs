@@ -19,17 +19,21 @@ use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
 use std::sync::Arc;
 
+type SubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
+type UnsubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
+type SubscriptionStatusChangedHandler =
+    Box<dyn Fn(RemoteTrackPublication, SubscriptionStatus, SubscriptionStatus) + Send>; // old_status, new_status
+type PermissionStatusChangedHandler =
+    Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>; // old_status, new_status
+type SubscriptionUpdateNeededHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
+
 #[derive(Default)]
 struct RemoteEvents {
-    subscribed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>>>,
-    unsubscribed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>>>,
-    subscription_status_changed: Mutex<
-        Option<Box<dyn Fn(RemoteTrackPublication, SubscriptionStatus, SubscriptionStatus) + Send>>,
-    >, // Old status, new status
-    permission_status_changed: Mutex<
-        Option<Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>>,
-    >, // Old status, new status
-    subscription_update_needed: Mutex<Option<Box<dyn Fn(RemoteTrackPublication, bool) + Send>>>,
+    subscribed: Mutex<Option<SubscribedHandler>>,
+    unsubscribed: Mutex<Option<UnsubscribedHandler>>,
+    subscription_status_changed: Mutex<Option<SubscriptionStatusChangedHandler>>,
+    permission_status_changed: Mutex<Option<PermissionStatusChangedHandler>>,
+    subscription_update_needed: Mutex<Option<SubscriptionUpdateNeededHandler>>,
 }
 
 #[derive(Debug)]
@@ -278,7 +282,7 @@ impl RemoteTrackPublication {
     }
 
     pub fn dimension(&self) -> TrackDimension {
-        self.inner.info.read().dimension.clone()
+        self.inner.info.read().dimension
     }
 
     pub fn track(&self) -> Option<RemoteTrack> {

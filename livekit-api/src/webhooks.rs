@@ -51,8 +51,8 @@ impl WebhookReceiver {
         hasher.update(body);
         let hash = hasher.finalize();
 
-        let claim_hash = base64::engine::general_purpose::STANDARD.decode(&claims.sha256)?;
-        if &claim_hash[..] != &hash[..] {
+        let claim_hash = base64::engine::general_purpose::STANDARD.decode(claims.sha256)?;
+        if claim_hash[..] != hash[..] {
             return Err(WebhookError::InvalidSignature);
         }
 

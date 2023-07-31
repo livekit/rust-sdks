@@ -100,7 +100,7 @@ impl LogoTrack {
 
             self.room
                 .local_participant()
-                .unpublish_track(handle.track.sid(), true)
+                .unpublish_track(&handle.track.sid())
                 .await?;
         }
         Ok(())

@@ -36,6 +36,8 @@ fn on_initialize(
         return Err(FfiError::AlreadyInitialized);
     }
 
+    log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
+
     // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
     *server.config.lock() = Some(FfiConfig {
         callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr as usize) },
@@ -69,7 +71,7 @@ fn on_connect(
 ) -> FfiResult<proto::ConnectResponse> {
     let async_id = server.next_id();
     server.async_runtime.spawn(async move {
-        match room::FfiRoom::connect(&server, connect).await {
+        match room::FfiRoom::connect(server, connect).await {
             Ok((handle, ffi_room)) => {
                 // Successfully connected to the room
                 // Build the initial state for the FfiClient
@@ -315,7 +317,7 @@ fn on_create_video_track(
     let video_track = LocalVideoTrack::create_video_track(&create.name, source);
     let ffi_track = FfiTrack {
         handle: handle_id,
-        track: Track::LocalVideo(video_track.clone()),
+        track: Track::LocalVideo(video_track),
     };
 
     let track_info = proto::TrackInfo::from(proto::FfiOwnedHandle { id: handle_id }, &ffi_track);
@@ -341,7 +343,7 @@ fn on_create_audio_track(
     let audio_track = LocalAudioTrack::create_audio_track(&create.name, source);
     let ffi_track = FfiTrack {
         handle: handle_id,
-        track: Track::LocalAudio(audio_track.clone()),
+        track: Track::LocalAudio(audio_track),
     };
     let track_info = proto::TrackInfo::from(proto::FfiOwnedHandle { id: handle_id }, &ffi_track);
 
@@ -357,8 +359,7 @@ fn on_alloc_video_buffer(
     server: &'static FfiServer,
     alloc: proto::AllocVideoBufferRequest,
 ) -> FfiResult<proto::AllocVideoBufferResponse> {
-    let frame_type = proto::VideoFrameBufferType::from_i32(alloc.r#type).unwrap();
-    let buffer: BoxVideoFrameBuffer = match frame_type {
+    let buffer: BoxVideoFrameBuffer = match alloc.r#type() {
         proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(alloc.width, alloc.height)),
         _ => {
             return Err(FfiError::InvalidRequest(
@@ -435,7 +436,7 @@ fn on_to_i420(
             let (sy, su, sv) = i420.strides();
             let (dy, du, dv) = i420.data_mut();
 
-            match proto::VideoFormatType::from_i32(info.format).unwrap() {
+            match info.format() {
                 proto::VideoFormatType::FormatArgb => {
                     yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
                         .unwrap();
@@ -487,7 +488,7 @@ fn on_to_argb(
     let w = to_argb.dst_width as i32;
     let h = to_argb.dst_height as i32 * (if to_argb.flip_y { -1 } else { 1 });
 
-    let video_format = proto::VideoFormatType::from_i32(to_argb.dst_format).unwrap();
+    let video_format = to_argb.dst_format();
     buffer
         .to_argb(video_format.into(), argb, to_argb.dst_stride, w, h)
         .unwrap();
@@ -608,6 +609,7 @@ fn remix_and_resample(
     })
 }
 
+#[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
     request: proto::FfiRequest,
@@ -617,6 +619,7 @@ pub fn handle_request(
         .ok_or(FfiError::InvalidRequest("message is empty".into()))?;
 
     let mut res = proto::FfiResponse::default();
+
     res.message = Some(match request {
         proto::ffi_request::Message::Initialize(init) => {
             proto::ffi_response::Message::Initialize(on_initialize(server, init)?)

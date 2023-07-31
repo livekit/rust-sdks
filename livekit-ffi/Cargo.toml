@@ -30,8 +30,8 @@ thiserror = "1.0.38"
 log = "0.4.17"
 dashmap = "5.4.0"
 env_logger = "0.10.0"
-console-subscriber = { version = "0.1.10", features = ["parking_lot"], optional = true }
 downcast-rs = "1.2.0"
+console-subscriber = { version = "0.1.10", features = ["parking_lot"], optional = true }
 
 [build-dependencies]
 webrtc-sys-build = { path = "../webrtc-sys/build", version = "0.1.3" }

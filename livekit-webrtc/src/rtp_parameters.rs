@@ -36,7 +36,7 @@ pub struct RtpParameters {
     pub rtcp: RtcpParameters,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RtpCodecParameters {
     pub payload_type: u8,
     pub mime_type: String, // read-only
@@ -78,17 +78,6 @@ pub struct RtpHeaderExtensionCapability {
 pub struct RtpCapabilities {
     pub codecs: Vec<RtpCodecCapability>,
     pub header_extensions: Vec<RtpHeaderExtensionCapability>,
-}
-
-impl Default for RtpCodecParameters {
-    fn default() -> Self {
-        Self {
-            payload_type: 0,
-            mime_type: String::default(),
-            clock_rate: None,
-            channels: None,
-        }
-    }
 }
 
 impl Default for RtpEncodingParameters {

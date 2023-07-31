@@ -115,10 +115,13 @@ impl Track {
 
 pub(super) use track_dispatch;
 
+type MutedHandler = Box<dyn Fn(Track) + Send>;
+type UnmutedHandler = Box<dyn Fn(Track) + Send>;
+
 #[derive(Default)]
 struct TrackEvents {
-    pub muted: Mutex<Option<Box<dyn Fn(Track) + Send>>>,
-    pub unmuted: Mutex<Option<Box<dyn Fn(Track) + Send>>>,
+    pub muted: Mutex<Option<MutedHandler>>,
+    pub unmuted: Mutex<Option<UnmutedHandler>>,
 }
 
 #[derive(Debug)]
@@ -179,17 +182,15 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
         if let Some(on_mute) = inner.events.muted.lock().as_ref() {
             on_mute(track.clone());
         }
-    } else {
-        if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
-            on_unmute(track.clone());
-        }
+    } else if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
+        on_unmute(track.clone());
     }
 }
 
 pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: proto::TrackInfo) {
     let mut info = inner.info.write();
+    info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
+    info.source = TrackSource::from(new_info.source());
     info.name = new_info.name;
     info.sid = new_info.sid.try_into().unwrap();
-    info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
-    info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
 }

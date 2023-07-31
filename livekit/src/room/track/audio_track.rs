@@ -29,8 +29,8 @@ impl AudioTrack {
 
     pub fn rtc_track(&self) -> RtcAudioTrack {
         match self {
-            Self::Local(track) => track.rtc_track().into(),
-            Self::Remote(track) => track.rtc_track().into(),
+            Self::Local(track) => track.rtc_track(),
+            Self::Remote(track) => track.rtc_track(),
         }
     }
 }

@@ -76,7 +76,7 @@ pub fn use_debug() -> bool {
 
 /// The location of the custom build is defined by the user
 pub fn custom_dir() -> Option<path::PathBuf> {
-    if let Some(path) = env::var("LK_CUSTOM_WEBRTC").ok() {
+    if let Ok(path) = env::var("LK_CUSTOM_WEBRTC") {
         return Some(path::PathBuf::from(path));
     }
     None
@@ -159,7 +159,6 @@ pub fn configure_jni_symbols() -> Result<(), Box<dyn Error>> {
     let content = String::from_utf8_lossy(&readelf_output.stdout);
     let jni_symbols: Vec<&str> = jni_regex
         .captures_iter(&content)
-        .into_iter()
         .map(|cap| cap.get(1).unwrap().as_str())
         .collect();
 
@@ -206,15 +205,15 @@ pub fn download_webrtc() -> Result<(), Box<dyn Error>> {
     let tmp_dir = path::Path::new(&tmp_dir);
 
     {
-        let file = fs::File::create(&tmp_dir)?;
+        let file = fs::File::create(tmp_dir)?;
         let mut writer = io::BufWriter::new(file);
         io::copy(&mut resp, &mut writer)?;
     }
 
-    let file = fs::File::open(&tmp_dir)?;
+    let file = fs::File::open(tmp_dir)?;
 
     let mut archive = zip::ZipArchive::new(file)?;
-    archive.extract(&webrtc_dir.parent().unwrap())?;
+    archive.extract(webrtc_dir.parent().unwrap())?;
 
     Ok(())
 }
@@ -237,8 +236,8 @@ pub fn android_ndk_toolchain() -> Result<path::PathBuf, &'static str> {
 
     let ndk_dir = || -> Option<path::PathBuf> {
         let ndk_env = env::var("ANDROID_NDK_HOME");
-        if ndk_env.is_ok() {
-            return Some(path::PathBuf::from(ndk_env.unwrap()));
+        if let Ok(ndk_env) = ndk_env {
+            return Some(path::PathBuf::from(ndk_env));
         }
 
         let ndk_dir = home.join("Android/sdk/ndk");
@@ -248,7 +247,7 @@ pub fn android_ndk_toolchain() -> Result<path::PathBuf, &'static str> {
 
         // Find the highest version
         let versions = fs::read_dir(ndk_dir.clone());
-        if !versions.is_ok() {
+        if versions.is_err() {
             return None;
         }
 
@@ -259,9 +258,7 @@ pub fn android_ndk_toolchain() -> Result<path::PathBuf, &'static str> {
             .filter_map(|dir| semver::Version::parse(&dir).ok())
             .max_by(semver::Version::cmp);
 
-        if version.is_none() {
-            return None;
-        }
+        version.as_ref()?;
 
         let version = version.unwrap();
         Some(ndk_dir.join(version.to_string()))

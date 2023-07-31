@@ -176,6 +176,10 @@ impl PeerConnection {
         self.handle.close()
     }
 
+    pub fn restart_ice(&self) {
+        self.handle.restart_ice()
+    }
+
     pub fn connection_state(&self) -> PeerConnectionState {
         self.handle.connection_state()
     }

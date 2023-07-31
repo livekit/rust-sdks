@@ -31,9 +31,10 @@ pub struct IngressOptions {
 pub enum IngressListFilter {
     All,
     Room(String),
+    IngressId(String),
 }
 
-const SVC: &'static str = "Ingress";
+const SVC: &str = "Ingress";
 
 #[derive(Debug)]
 pub struct IngressClient {
@@ -120,9 +121,13 @@ impl IngressClient {
                 SVC,
                 "ListIngress",
                 proto::ListIngressRequest {
+                    ingress_id: match filter.clone() {
+                        IngressListFilter::IngressId(id) => id,
+                        _ => Default::default(),
+                    },
                     room_name: match filter {
-                        IngressListFilter::All => Default::default(),
                         IngressListFilter::Room(room) => room,
+                        _ => Default::default(),
                     },
                 },
                 self.base.auth_header(VideoGrants {

@@ -37,10 +37,6 @@ pub const PROTOCOL_VERSION: u32 = 8;
 
 #[derive(Error, Debug)]
 pub enum SignalError {
-    #[error("already connected")]
-    AlreadyConnected,
-    #[error("already reconnecting")]
-    AlreadyReconnecting,
     #[error("ws failure: {0}")]
     WsError(#[from] WsError),
     #[error("failed to parse the url {0}")]
@@ -57,14 +53,6 @@ pub enum SignalError {
     SendError,
 }
 
-/// Events used by the RtcSession who will handle the reconnection logic
-#[derive(Debug)]
-pub enum SignalEvent {
-    Open,
-    Signal(proto::signal_response::Message),
-    Close,
-}
-
 #[derive(Debug, Clone)]
 pub struct SignalOptions {
     pub auto_subscribe: bool,
@@ -78,6 +66,11 @@ impl Default for SignalOptions {
             adaptive_stream: false,
         }
     }
+}
+
+pub enum SignalEvent {
+    Message(Box<proto::signal_response::Message>),
+    Close, // Need restart
 }
 
 struct SignalInner {
@@ -113,33 +106,31 @@ impl SignalClient {
         token: &str,
         options: SignalOptions,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
-        let (internal_emitter, mut internal_events) = mpsc::unbounded_channel();
         let lk_url = get_livekit_url(url, token, &options)?;
 
         // Try to connect to the SignalClient
-        let stream_res = SignalStream::connect(lk_url.clone(), internal_emitter.clone()).await;
-        if let Err(err) = stream_res {
-            // Connection failed, try to retrieve more informations
-            if let SignalError::WsError(WsError::Http(_)) = err {
+        let (stream, mut stream_events) = match SignalStream::connect(lk_url.clone()).await {
+            Ok(stream) => stream,
+            Err(err) => {
+                // Connection failed, try to retrieve more informations
                 Self::validate(lk_url).await?;
+                return Err(err);
             }
-
-            return Err(err);
-        }
+        };
 
         // Successfully connected to the SignalClient
-        let join_response = get_join_response(&mut internal_events).await?;
         let inner = Arc::new(SignalInner {
-            stream: AsyncRwLock::new(Some(stream_res.unwrap())),
+            stream: AsyncRwLock::new(Some(stream)),
             token: Mutex::new(token.to_owned()),
         });
 
+        let join_response = get_join_response(&mut stream_events).await?;
         let (emitter, events) = mpsc::unbounded_channel();
-        tokio::spawn(Self::signal_task(inner.clone(), emitter, internal_events));
+        tokio::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
 
         let client = Self {
             inner,
-            emitter: internal_emitter,
+            emitter,
             reconnecting: AtomicBool::new(false),
             queue: Default::default(),
             options,
@@ -175,35 +166,15 @@ impl SignalClient {
         Ok(())
     }
 
-    /// Middleware task to receive SignalStream events and handle SignalClient specific logic
-    /// TODO(theomonnom): should we use tokio_stream?
-    async fn signal_task(
-        inner: Arc<SignalInner>,
-        emitter: SignalEmitter, // Public emitter
-        mut internal_events: SignalEvents,
-    ) {
-        while let Some(event) = internal_events.recv().await {
-            if let SignalEvent::Signal(ref event) = event {
-                match event {
-                    proto::signal_response::Message::RefreshToken(ref token) => {
-                        // Refresh the token so the client can still reconnect if the initial join token expired
-                        *inner.token.lock() = token.clone();
-                    }
-                    _ => {}
-                }
-            }
-
-            let _ = emitter.send(event);
-        }
-    }
-
     /// Restart is called when trying to resume the room (RtcSession resume)
-    pub async fn restart(&self) -> SignalResult<()> {
+    pub async fn restart(&self) -> SignalResult<proto::ReconnectResponse> {
         self.reconnecting.store(true, Ordering::Release);
+        scopeguard::defer!(self.reconnecting.store(false, Ordering::Release));
 
         self.close().await;
-        let mut stream = self.inner.stream.write().await;
 
+        // Lock while we are reconnecting
+        let mut stream = self.inner.stream.write().await;
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
         let token = self.inner.token.lock().clone();
 
@@ -213,27 +184,24 @@ impl SignalClient {
             .append_pair("reconnect", "1")
             .append_pair("sid", sid);
 
-        let res = SignalStream::connect(lk_url, self.emitter.clone()).await;
-        match res {
-            Ok(new_stream) => {
-                *stream = Some(new_stream);
-                self.reconnecting.store(false, Ordering::Release);
+        let (new_stream, mut signal_events) = SignalStream::connect(lk_url).await?;
+        let reconnect_response = get_reconnect_response(&mut signal_events).await?;
+        tokio::spawn(signal_task(
+            self.inner.clone(),
+            self.emitter.clone(),
+            signal_events,
+        ));
 
-                // Directly send the queue after a successful reconnection
-                self.flush_queue().await;
-                Ok(())
-            }
-            Err(err) => {
-                self.reconnecting.store(false, Ordering::Release);
-                Err(err)
-            }
-        }
+        *stream = Some(new_stream);
+        drop(stream);
+        self.flush_queue().await;
+
+        Ok(reconnect_response)
     }
 
     /// Close the connection
     pub async fn close(&self) {
-        let mut stream = self.inner.stream.write().await;
-        if let Some(stream) = stream.take() {
+        if let Some(stream) = self.inner.stream.write().await.take() {
             stream.close().await;
         }
     }
@@ -241,20 +209,22 @@ impl SignalClient {
     /// Send a signal to the server
     pub async fn send(&self, signal: proto::signal_request::Message) {
         if self.reconnecting.load(Ordering::Acquire) {
-            if is_queuable(&signal) {
-                self.queue.lock().await.push(signal);
-            }
-
+            self.queue_message(signal).await;
             return;
         }
 
         self.flush_queue().await; // The queue must be flusehd before sending any new signal
 
-        let stream = self.inner.stream.read().await;
-        if let Some(stream) = stream.as_ref() {
-            if let Err(err) = stream.send(signal).await {
-                log::error!("failed to send signal: {}", err);
+        if let Some(stream) = self.inner.stream.read().await.as_ref() {
+            if stream.send(signal.clone()).await.is_err() {
+                self.queue_message(signal).await;
             }
+        }
+    }
+
+    async fn queue_message(&self, signal: proto::signal_request::Message) {
+        if is_queuable(&signal) {
+            self.queue.lock().await.push(signal);
         }
     }
 
@@ -264,12 +234,12 @@ impl SignalClient {
             return;
         }
 
-        let stream = self.inner.stream.read().await;
-        if let Some(stream) = stream.as_ref() {
+        if let Some(stream) = self.inner.stream.read().await.as_ref() {
             for signal in queue.drain(..) {
-                log::debug!("sending queued signal: {:?}", signal);
+                log::warn!("sending queued signal: {:?}", signal);
+
                 if let Err(err) = stream.send(signal).await {
-                    log::error!("failed to send queued signal: {}", err);
+                    log::error!("failed to send queued signal: {}", err); // Lost message
                 }
             }
         }
@@ -293,10 +263,30 @@ impl SignalClient {
     }
 }
 
+/// Middleware task to receive SignalStream events and handle SignalClient specific logic
+/// TODO(theomonnom): should we use tokio_stream?
+async fn signal_task(
+    inner: Arc<SignalInner>,
+    emitter: SignalEmitter, // Public emitter
+    mut internal_events: mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+) {
+    while let Some(signal) = internal_events.recv().await {
+        if let proto::signal_response::Message::RefreshToken(ref token) = signal.as_ref() {
+            *inner.token.lock() = token.clone(); // Refresh the token so the client can still reconnect if the initial join token expired
+        }
+
+        // TODO(theomonnom): should we handle signal ping pong on native side?
+        let _ = emitter.send(SignalEvent::Message(signal));
+    }
+
+    // internal_events is closed, send an event to notify the close
+    let _ = emitter.send(SignalEvent::Close);
+}
+
 /// Check if the signal is queuable
 /// Not every signal should be sent after signal reconnection
 fn is_queuable(signal: &proto::signal_request::Message) -> bool {
-    return matches!(
+    matches!(
         signal,
         proto::signal_request::Message::SyncState(_)
             | proto::signal_request::Message::Trickle(_)
@@ -304,7 +294,7 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
             | proto::signal_request::Message::Answer(_)
             | proto::signal_request::Message::Simulate(_)
             | proto::signal_request::Message::Leave(_)
-    );
+    )
 }
 
 fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalResult<url::Url> {
@@ -327,29 +317,41 @@ fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalRes
     Ok(lk_url)
 }
 
-async fn get_join_response(receiver: &mut SignalEvents) -> SignalResult<proto::JoinResponse> {
-    let join = async {
-        while let Some(event) = receiver.recv().await {
-            match event {
-                SignalEvent::Signal(proto::signal_response::Message::Join(join)) => {
-                    return Ok(join)
+macro_rules! get_async_message {
+    ($fnc:ident, $pattern:pat => $result:expr, $ty:ty) => {
+        async fn $fnc(
+            receiver: &mut mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+        ) -> SignalResult<$ty> {
+            let join = async {
+                while let Some(event) = receiver.recv().await {
+                    if let $pattern = *event {
+                        return Ok($result);
+                    }
                 }
-                SignalEvent::Close => break,
-                SignalEvent::Open => continue,
-                _ => {
-                    log::warn!(
-                        "received unexpected message while waiting for JoinResponse: {:?}",
-                        event
-                    );
-                    continue;
-                }
-            }
+
+                Err(WsError::ConnectionClosed)?
+            };
+
+            tokio::time::timeout(JOIN_RESPONSE_TIMEOUT, join)
+                .await
+                .map_err(|_| {
+                    SignalError::Timeout(format!(
+                        "failed to receive {}",
+                        std::any::type_name::<$ty>()
+                    ))
+                })?
         }
-
-        Err(WsError::ConnectionClosed)?
     };
-
-    tokio::time::timeout(JOIN_RESPONSE_TIMEOUT, join)
-        .await
-        .map_err(|_| SignalError::Timeout("failed to receive JoinResponse".to_string()))?
 }
+
+get_async_message!(
+    get_join_response,
+    proto::signal_response::Message::Join(msg) => msg,
+    proto::JoinResponse
+);
+
+get_async_message!(
+    get_reconnect_response,
+    proto::signal_response::Message::Reconnect(msg) => msg,
+    proto::ReconnectResponse
+);

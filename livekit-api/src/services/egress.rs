@@ -49,7 +49,7 @@ pub enum EgressOutput {
 
 #[derive(Debug, Clone)]
 pub enum TrackEgressOutput {
-    File(proto::DirectFileOutput),
+    File(Box<proto::DirectFileOutput>),
     WebSocket(String),
 }
 
@@ -66,7 +66,7 @@ pub struct EgressListOptions {
     pub active: bool,
 }
 
-const SVC: &'static str = "Egress";
+const SVC: &str = "Egress";
 
 #[derive(Debug)]
 pub struct EgressClient {
@@ -200,7 +200,7 @@ impl EgressClient {
                     room_name: room.to_string(),
                     output: match output {
                         TrackEgressOutput::File(f) => {
-                            Some(proto::track_egress_request::Output::File(f))
+                            Some(proto::track_egress_request::Output::File(*f))
                         }
                         TrackEgressOutput::WebSocket(url) => {
                             Some(proto::track_egress_request::Output::WebsocketUrl(url))

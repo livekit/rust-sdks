@@ -162,8 +162,8 @@ macro_rules! impl_biyuv_into {
                 handle: Some(handle),
                 chroma_width: buffer.chroma_width(),
                 chroma_height: buffer.chroma_height(),
-                stride_y: stride_y,
-                stride_uv: stride_uv,
+                stride_y,
+                stride_uv,
                 data_y_ptr: data_y.as_ptr() as u64,
                 data_uv_ptr: data_uv.as_ptr() as u64,
             }
@@ -286,7 +286,7 @@ impl proto::VideoFrameBufferInfo {
 impl proto::VideoSourceInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, source: &FfiVideoSource) -> Self {
         Self {
-            handle: Some(handle_id.into()),
+            handle: Some(handle_id),
             r#type: source.source_type as i32,
         }
     }
@@ -295,7 +295,7 @@ impl proto::VideoSourceInfo {
 impl proto::VideoStreamInfo {
     pub fn from(handle_id: proto::FfiOwnedHandle, stream: &FfiVideoStream) -> Self {
         Self {
-            handle: Some(handle_id.into()),
+            handle: Some(handle_id),
             r#type: stream.stream_type as i32,
         }
     }

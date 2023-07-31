@@ -71,7 +71,7 @@ impl PeerTransport {
     }
 
     pub fn signal_target(&self) -> proto::SignalTarget {
-        self.signal_target.clone()
+        self.signal_target
     }
 
     pub fn on_offer(&self, handler: Option<OnOfferCreated>) {
@@ -162,6 +162,12 @@ impl PeerTransport {
                 inner.renegotiate = true;
                 return Ok(());
             }
+        }
+
+        // TODO(theomonnom): Check that the target_os isn't wasm
+        // Not sure if this is really needed
+        if options.ice_restart {
+            self.peer_connection.restart_ice();
         }
 
         let offer = self.peer_connection.create_offer(options).await?;
