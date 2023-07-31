@@ -356,15 +356,16 @@ impl SessionInner {
                 res = signal_events.recv() => {
                     if let Some(signal) = res {
                         match signal {
-                            SignalEvent::Open => {}
-                            SignalEvent::Signal(signal) => {
+                            SignalEvent::Message(signal) => {
+                                // Received a signal
                                 if let Err(err) = self.on_signal_event(*signal).await {
                                     log::error!("failed to handle signal: {:?}", err);
                                 }
                             }
                             SignalEvent::Close => {
+                                // SignalClient has been closed
                                 self.on_session_disconnected(
-                                    "signalclient closed",
+                                    "SignalClient closed",
                                     DisconnectReason::UnknownReason,
                                     true,
                                     false,
@@ -453,17 +454,6 @@ impl SessionInner {
                     let _ = tx.send(publish_res.track.unwrap());
                 }
             }
-            proto::signal_response::Message::Reconnect(reconnect) => {
-                log::debug!("received reconnect request: {:?}", reconnect);
-                let rtc_config = make_rtc_config_reconnect(reconnect);
-                self.publisher_pc
-                    .peer_connection()
-                    .set_configuration(rtc_config.clone())?;
-                self.subscriber_pc
-                    .peer_connection()
-                    .set_configuration(rtc_config)?;
-            }
-
             _ => {}
         }
 
@@ -789,7 +779,17 @@ impl SessionInner {
     /// Try to restart the session by doing an ICE Restart (The SignalClient is also restarted)
     /// This reconnection if more seemless compared to the full reconnection implemented in ['RTCEngine']
     async fn restart_session(&self) -> EngineResult<()> {
-        self.signal_client.restart().await?;
+        let reconnect_response = self.signal_client.restart().await?;
+        log::info!("received reconnect response: {:?}", reconnect_response);
+
+        let rtc_config = make_rtc_config_reconnect(reconnect_response);
+        self.publisher_pc
+            .peer_connection()
+            .set_configuration(rtc_config.clone())?;
+        self.subscriber_pc
+            .peer_connection()
+            .set_configuration(rtc_config)?;
+
         self.subscriber_pc.prepare_ice_restart().await;
 
         if self.has_published.load(Ordering::Acquire) {
@@ -801,7 +801,6 @@ impl SessionInner {
                 .await?;
         }
 
-        self.signal_client.flush_queue().await;
         self.pc_state
             .store(PeerState::Reconnecting as u8, Ordering::Release);
 

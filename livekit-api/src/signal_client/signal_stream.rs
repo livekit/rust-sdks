@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{SignalEmitter, SignalError, SignalEvent, SignalResult};
+use super::{SignalError, SignalResult};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use livekit_protocol as proto;
@@ -53,23 +53,30 @@ impl SignalStream {
     ///
     /// SignalStream will never try to reconnect if the connection has been
     /// closed.
-    pub async fn connect(url: url::Url, emitter: SignalEmitter) -> SignalResult<Self> {
+    pub async fn connect(
+        url: url::Url,
+    ) -> SignalResult<(
+        Self,
+        mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+    )> {
         log::info!("connecting to SignalClient: {}", url);
 
         let (ws_stream, _) = connect_async(url).await?;
-        let _ = emitter.send(SignalEvent::Open);
-
         let (ws_writer, ws_reader) = ws_stream.split();
-        let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
 
-        let write_handle = tokio::spawn(Self::write_task(internal_rx, ws_writer, emitter.clone()));
+        let (emitter, events) = mpsc::unbounded_channel();
+        let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
+        let write_handle = tokio::spawn(Self::write_task(internal_rx, ws_writer));
         let read_handle = tokio::spawn(Self::read_task(internal_tx.clone(), ws_reader, emitter));
 
-        Ok(Self {
-            internal_tx,
-            read_handle,
-            write_handle,
-        })
+        Ok((
+            Self {
+                internal_tx,
+                read_handle,
+                write_handle,
+            },
+            events,
+        ))
     }
 
     /// Close the websocket
@@ -97,7 +104,6 @@ impl SignalStream {
     async fn write_task(
         mut internal_rx: mpsc::Receiver<InternalMessage>,
         mut ws_writer: SplitSink<WebSocket, Message>,
-        emitter: SignalEmitter,
     ) {
         while let Some(msg) = internal_rx.recv().await {
             match msg {
@@ -105,15 +111,12 @@ impl SignalStream {
                     signal,
                     response_chn,
                 } => {
-                    log::debug!("sending signal: {:?}", signal);
-                    let data = Message::Binary(
-                        proto::SignalRequest {
-                            message: Some(signal),
-                        }
-                        .encode_to_vec(),
-                    );
+                    let data = proto::SignalRequest {
+                        message: Some(signal),
+                    }
+                    .encode_to_vec();
 
-                    if let Err(err) = ws_writer.send(data).await {
+                    if let Err(err) = ws_writer.send(Message::Binary(data)).await {
                         let _ = response_chn.send(Err(err.into()));
                         break;
                     }
@@ -130,7 +133,6 @@ impl SignalStream {
         }
 
         let _ = ws_writer.close().await;
-        let _ = emitter.send(SignalEvent::Close);
     }
 
     /// This task is used to read incoming messages from the websocket
@@ -140,7 +142,7 @@ impl SignalStream {
     async fn read_task(
         internal_tx: mpsc::Sender<InternalMessage>,
         mut ws_reader: SplitStream<WebSocket>,
-        emitter: SignalEmitter,
+        emitter: mpsc::UnboundedSender<Box<proto::signal_response::Message>>,
     ) {
         while let Some(msg) = ws_reader.next().await {
             match msg {
@@ -149,8 +151,7 @@ impl SignalStream {
                         .expect("failed to decode SignalResponse");
 
                     let msg = res.message.unwrap();
-                    log::debug!("received signal: {:?}", msg);
-                    let _ = emitter.send(SignalEvent::Signal(Box::new(msg)));
+                    let _ = emitter.send(Box::new(msg));
                 }
                 Ok(Message::Ping(data)) => {
                     let _ = internal_tx
