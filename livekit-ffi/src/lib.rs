@@ -20,7 +20,6 @@ use std::{borrow::Cow, sync::Arc};
 use thiserror::Error;
 
 mod conversion;
-#[path = "livekit.proto.rs"]
 mod proto;
 mod server;
 

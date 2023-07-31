@@ -115,10 +115,13 @@ impl Track {
 
 pub(super) use track_dispatch;
 
+type MutedHandler = Box<dyn Fn(Track) + Send>;
+type UnmutedHandler = Box<dyn Fn(Track) + Send>;
+
 #[derive(Default)]
 struct TrackEvents {
-    pub muted: Mutex<Option<Box<dyn Fn(Track) + Send>>>,
-    pub unmuted: Mutex<Option<Box<dyn Fn(Track) + Send>>>,
+    pub muted: Mutex<Option<MutedHandler>>,
+    pub unmuted: Mutex<Option<UnmutedHandler>>,
 }
 
 #[derive(Debug)]

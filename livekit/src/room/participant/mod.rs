@@ -79,10 +79,13 @@ struct ParticipantInfo {
     pub connection_quality: ConnectionQuality,
 }
 
+type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication, Track) + Send>;
+type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication, Track) + Send>;
+
 #[derive(Default)]
 struct ParticipantEvents {
-    track_muted: Mutex<Option<Box<dyn Fn(Participant, TrackPublication, Track) + Send>>>,
-    track_unmuted: Mutex<Option<Box<dyn Fn(Participant, TrackPublication, Track) + Send>>>,
+    track_muted: Mutex<Option<TrackMutedHandler>>,
+    track_unmuted: Mutex<Option<TrackUnmutedHandler>>,
 }
 
 pub(super) struct ParticipantInner {

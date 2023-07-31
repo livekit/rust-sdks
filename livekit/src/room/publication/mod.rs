@@ -93,10 +93,13 @@ struct PublicationInfo {
     pub proto_info: proto::TrackInfo,
 }
 
+pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
+pub(crate) type UnmutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
+
 #[derive(Default)]
 struct PublicationEvents {
-    muted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
-    unmuted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
+    muted: Mutex<Option<MutedHandler>>,
+    unmuted: Mutex<Option<UnmutedHandler>>,
 }
 
 pub(super) struct TrackPublicationInner {

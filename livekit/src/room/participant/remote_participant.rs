@@ -28,16 +28,21 @@ use tokio::time::timeout;
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
+type TrackPublishedHandler = Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>;
+type TrackUnpublishedHandler = Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>;
+type TrackSubscribedHandler =
+    Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>;
+type TrackUnsubscribedHandler =
+    Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>;
+type TrackSubscriptionFailedHandler = Box<dyn Fn(RemoteParticipant, TrackSid, TrackError) + Send>;
+
 #[derive(Default)]
 struct RemoteEvents {
-    track_published: Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>>>,
-    track_unpublished: Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>>>,
-    track_subscribed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>>>,
-    track_unsubscribed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>>>,
-    track_subscription_failed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, TrackSid, TrackError) + Send>>>,
+    track_published: Mutex<Option<TrackPublishedHandler>>,
+    track_unpublished: Mutex<Option<TrackUnpublishedHandler>>,
+    track_subscribed: Mutex<Option<TrackSubscribedHandler>>,
+    track_unsubscribed: Mutex<Option<TrackUnsubscribedHandler>>,
+    track_subscription_failed: Mutex<Option<TrackSubscriptionFailedHandler>>,
 }
 
 struct RemoteInfo {

@@ -28,12 +28,13 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
+type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
+
 #[derive(Default)]
 struct LocalEvents {
-    local_track_published:
-        Mutex<Option<Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>>>,
-    local_track_unpublished:
-        Mutex<Option<Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>>>,
+    local_track_published: Mutex<Option<LocalTrackPublishedHandler>>,
+    local_track_unpublished: Mutex<Option<LocalTrackUnpublishedHandler>>,
 }
 
 struct LocalInfo {
