@@ -99,11 +99,6 @@ fn on_connect(
                     &local_participant,
                 );
 
-                let lp_info = proto::connect_callback::ParticipantWithTracks {
-                    participant: Some(lp_info),
-                    publications: Vec::default(), // No local tracks
-                };
-
                 // Build the remote participants info
                 let mut participants_info = Vec::with_capacity(participants.len());
                 for (_, participant) in participants {
@@ -211,61 +206,11 @@ fn on_publish_track(
     server: &'static FfiServer,
     publish: proto::PublishTrackRequest,
 ) -> FfiResult<proto::PublishTrackResponse> {
-    let async_id = server.next_id();
-    server.async_runtime.spawn(async move {
-        // Publish a track to the room and send a response to the fficlient
-        let res = async {
-            let ffi_participant = server
-                .retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?
-                .clone();
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?
+        .clone();
 
-            let Participant::Local(participant) = &ffi_participant.participant else {
-                    return Err(FfiError::InvalidRequest("participant is not a LocalParticipant".into()));
-                };
-
-            let ffi_track = server
-                .retrieve_handle::<FfiTrack>(publish.track_handle)?
-                .clone();
-
-            let track = LocalTrack::try_from(ffi_track.track.clone())
-                .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack".into()))?;
-
-            let publication = participant
-                .publish_track(track, publish.options.map(Into::into).unwrap_or_default())
-                .await?;
-
-            Ok::<LocalTrackPublication, FfiError>(publication)
-        }
-        .await;
-
-        // Store the ffi publication
-        let handle_id = server.next_id();
-        if let Ok(publication) = res.as_ref() {
-            let publication = FfiPublication {
-                handle: handle_id,
-                publication: TrackPublication::Local(publication.clone()),
-            };
-
-            server.store_handle(handle_id, publication);
-        }
-
-        let _ = server
-            .send_event(proto::ffi_event::Message::PublishTrack(
-                proto::PublishTrackCallback {
-                    async_id,
-                    error: res.as_ref().err().map(|e| e.to_string()),
-
-                    // After a track publish, we're not sending a owned publication info
-                    // Instead we're just sending the track sid and the ffi client musts wait for the
-                    // LocalTrackPublished to get the publication and returns it.
-                    // This ensure that we're only creating one PublicationInfo per publication (Avoid duplications/out of sync)
-                    track_sid: res.ok().map(|p| p.sid().to_string()).unwrap_or_default(),
-                },
-            ))
-            .await;
-    });
-
-    Ok(proto::PublishTrackResponse { async_id })
+    ffi_participant.room.publish_track(server, publish)
 }
 
 fn on_unpublish_track(

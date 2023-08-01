@@ -110,7 +110,7 @@ impl FfiVideoStream {
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
                         proto::VideoStreamEvent {
-                            handle: stream_handle,
+                            stream_handle,
                             message: Some(proto::video_stream_event::Message::FrameReceived(
                                 proto::VideoFrameReceived {
                                     frame: Some(frame_info),
