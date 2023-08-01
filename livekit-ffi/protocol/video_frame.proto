@@ -132,6 +132,7 @@ message VideoFrameInfo {
 }
 
 message VideoFrameBufferInfo {
+  FfiOwnedHandle handle = 1;
   VideoFrameBufferType buffer_type = 2;
   uint32 width = 3;
   uint32 height = 4;
@@ -143,34 +144,31 @@ message VideoFrameBufferInfo {
 }
 
 message PlanarYuvBufferInfo {
-  FfiOwnedHandle handle = 1;
-  uint32 chroma_width = 2;
-  uint32 chroma_height = 3;
-  uint32 stride_y = 4;
-  uint32 stride_u = 5;
-  uint32 stride_v = 6;
-  uint32 stride_a = 7;
+  uint32 chroma_width = 1;
+  uint32 chroma_height = 2;
+  uint32 stride_y = 3;
+  uint32 stride_u = 4;
+  uint32 stride_v = 5;
+  uint32 stride_a = 6;
 
   // *const u8 or *const u16
-  uint64 data_y_ptr = 8;
-  uint64 data_u_ptr = 9;
-  uint64 data_v_ptr = 10;
-  uint64 data_a_ptr = 11; // nullptr = no alpha
+  uint64 data_y_ptr = 7;
+  uint64 data_u_ptr = 8;
+  uint64 data_v_ptr = 9;
+  uint64 data_a_ptr = 10; // nullptr = no alpha
 }
 
 message BiplanarYuvBufferInfo {
-  FfiOwnedHandle handle = 1;
-  uint32 chroma_width = 2;
-  uint32 chroma_height = 3;
-  uint32 stride_y = 4;
-  uint32 stride_uv = 5;
+  uint32 chroma_width = 1;
+  uint32 chroma_height = 2;
+  uint32 stride_y = 3;
+  uint32 stride_uv = 4;
 
-  uint64 data_y_ptr = 6;
-  uint64 data_uv_ptr = 7;
+  uint64 data_y_ptr = 5;
+  uint64 data_uv_ptr = 6;
 }
 
 message NativeBufferInfo {
-  FfiOwnedHandle handle = 1;
   // TODO(theomonnom): Expose graphic context?
 }
 
@@ -190,7 +188,7 @@ message VideoStreamInfo {
 }
 
 message VideoStreamEvent {
-  uint64 handle = 1;
+  uint64 stream_handle = 1;
   oneof message { VideoFrameReceived frame_received = 2; }
 }
 

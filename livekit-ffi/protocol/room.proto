@@ -43,7 +43,7 @@ message ConnectCallback {
   uint64 async_id = 1;
   optional string error = 2;
   RoomInfo room = 3;
-  ParticipantWithTracks local_participant = 4;
+  ParticipantInfo local_participant = 4;
   repeated ParticipantWithTracks participants = 5;
 }
 
@@ -64,9 +64,7 @@ message PublishTrackResponse {
 message PublishTrackCallback {
   uint64 async_id = 1;
   optional string error = 2;
-  // The TrackPublicationInfo comes from the LocalTrackPublished event
-  // and the FfiClient musts wait for it
-  string track_sid = 3;
+  TrackPublicationInfo publication = 3;
 }
 
 // Unpublish a track from the room
@@ -203,7 +201,9 @@ message ParticipantDisconnected {
 }
 
 message LocalTrackPublished {
-  TrackPublicationInfo publication = 1;
+  // The TrackPublicationInfo comes from the PublishTrack response
+  // and the FfiClient musts wait for it before firing this event
+  string track_sid = 1;
 }
 
 message LocalTrackUnpublished {
