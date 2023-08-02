@@ -78,56 +78,142 @@ struct DataPacket {
 }
 
 impl FfiRoom {
-    pub async fn connect(
+    pub fn connect(
         server: &'static FfiServer,
         connect: proto::ConnectRequest,
-    ) -> FfiResult<(proto::FfiOwnedHandle, Self)> {
-        let (room, events) = Room::connect(
-            &connect.url,
-            &connect.token,
-            connect.options.map(Into::into).unwrap_or_default(),
-        )
-        .await?;
+    ) -> proto::ConnectResponse {
+        let async_id = server.next_id();
 
-        let (data_tx, data_rx) = mpsc::unbounded_channel();
-        let (close_tx, close_rx) = broadcast::channel(1);
+        server.async_runtime.spawn(async move {
+            match Room::connect(
+                &connect.url,
+                &connect.token,
+                connect.options.map(Into::into).unwrap_or_default(),
+            )
+            .await
+            {
+                Ok((room, mut events)) => {
+                    // Successfully connected to the room
+                    // Forward the initial state for the FfiClient
 
-        let inner = Arc::new(RoomInner {
-            room,
-            handle_id: server.next_id(),
-            data_tx,
-            pending_published_tracks: Default::default(),
+                    let Some(RoomEvent::Connected { participants_with_tracks}) = events.recv().await else {
+                            unreachable!("Connected event should always be the first event")
+                        };
+
+                    let (data_tx, data_rx) = mpsc::unbounded_channel();
+                    let (close_tx, close_rx) = broadcast::channel(1);
+
+                    let inner = Arc::new(RoomInner {
+                        room,
+                        handle_id: server.next_id(),
+                        data_tx,
+                        pending_published_tracks: Default::default(),
+                    });
+
+                    // Send the async response to the FfiClient *before* starting the tasks.
+                    // Ensure no events are sent before the callback
+                    let local_participant = inner.room.local_participant(); // Should this be included in the initial states?
+                    let local_participant = FfiParticipant {
+                        handle: server.next_id(),
+                        participant: Participant::Local(local_participant),
+                        room: inner.clone(),
+                    };
+                    server.store_handle(local_participant.handle, local_participant.clone());
+                    
+                    let local_info = proto::ParticipantInfo::from(
+                        proto::FfiOwnedHandle {
+                            id: local_participant.handle,
+                        },
+                        &local_participant,
+                    );
+
+                    let remote_infos = participants_with_tracks
+                        .into_iter()
+                        .map(|(participant, tracks)| {
+                            let ffi_participant = FfiParticipant {
+                                handle: server.next_id(),
+                                participant: Participant::Remote(participant),
+                                room: inner.clone(),
+                            };
+                            server.store_handle(ffi_participant.handle, ffi_participant.clone());
+
+                            let remote_info = proto::ParticipantInfo::from(
+                                proto::FfiOwnedHandle {
+                                    id: ffi_participant.handle,
+                                },
+                                &ffi_participant,
+                            );
+
+                            let tracks = tracks.into_iter().map(|track| {
+                                let ffi_publication = FfiPublication {
+                                    handle: server.next_id(),
+                                    publication: TrackPublication::Remote(track),
+                                };
+                                
+                                server.store_handle(ffi_publication.handle, ffi_publication.clone());
+
+                                proto::TrackPublicationInfo::from(
+                                    proto::FfiOwnedHandle {
+                                        id: ffi_publication.handle,
+                                    },
+                                    &ffi_publication,
+                                )
+                            }).collect::<Vec<_>>();
+
+                            proto::connect_callback::ParticipantWithTracks {
+                                participant: Some(remote_info),
+                                publications: tracks,
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    // Send callback
+                    let _ = server
+                        .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
+                            async_id,
+                            error: None,
+                            room: Some(proto::RoomInfo::from(proto::FfiOwnedHandle { 
+                                id: inner.handle_id,
+                            }, &inner)),
+                            local_participant: Some(local_info),
+                            participants: remote_infos,
+                        }))
+                        .await;
+
+
+                    // Forward events
+                    let event_handle = {
+                        let close_rx = close_rx.resubscribe();
+                        tokio::spawn(room_task(server, inner.clone(), events, close_rx))
+                    };
+                    let data_handle =
+                        tokio::spawn(data_task(server, inner.clone(), data_rx, close_rx)); // Publish data
+
+                    let handle = Handle {
+                        event_handle,
+                        data_handle,
+                        close_tx,
+                    };
+
+                    let ffi_room = Self { inner, handle: Arc::new(Mutex::new(Some(handle))) };
+                    server.store_handle(ffi_room.inner.handle_id, ffi_room);
+                }
+                Err(e) => {
+                    // Failed to connect to the room, send an error message to the FfiClient
+                    // TODO(theomonnom): Typed errors?
+                    log::error!("error while connecting to a room: {}", e);
+                    let _ = server
+                        .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
+                            async_id,
+                            error: Some(e.to_string()),
+                            ..Default::default()
+                        }))
+                        .await;
+                }
+            };
         });
 
-        // task used to received room events
-        let event_handle = server.async_runtime.spawn(room_task(
-            server,
-            inner.clone(),
-            events,
-            close_rx.resubscribe(),
-        ));
-
-        // task used to publish data
-        let data_handle =
-            server
-                .async_runtime
-                .spawn(data_task(server, inner.clone(), data_rx, close_rx));
-
-        let handle = Arc::new(Mutex::new(Some(Handle {
-            event_handle,
-            data_handle,
-            close_tx,
-        })));
-
-        let ffi_room = Self { inner, handle };
-
-        server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
-        Ok((
-            proto::FfiOwnedHandle {
-                id: ffi_room.inner.handle_id,
-            },
-            ffi_room,
-        ))
+        proto::ConnectResponse { async_id }
     }
 
     pub async fn close(&self) {
@@ -544,8 +630,9 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             ))
             .await;
         }
-        RoomEvent::Connected => {
-            let _ = send_event(proto::room_event::Message::Connected(proto::Connected {})).await;
+        RoomEvent::Connected { .. } => {
+            // Ignore here, we're already sending the event on connect
+            // let _ = send_event(proto::room_event::Message::Connected(proto::Connected {})).await;
         }
         RoomEvent::Disconnected { reason: _ } => {
             let _ = send_event(proto::room_event::Message::Disconnected(
