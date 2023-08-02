@@ -201,20 +201,20 @@ pub fn download_webrtc() -> Result<(), Box<dyn Error>> {
         return Err(format!("failed to download webrtc: {}", resp.status()).into());
     }
 
-    let tmp_dir = env::var("OUT_DIR").unwrap() + "/webrtc.zip";
-    let tmp_dir = path::Path::new(&tmp_dir);
-
-    {
-        let file = fs::File::create(tmp_dir)?;
-        let mut writer = io::BufWriter::new(file);
-        io::copy(&mut resp, &mut writer)?;
-    }
-
-    let file = fs::File::open(tmp_dir)?;
+    let tmp_path = env::var("OUT_DIR").unwrap() + "/webrtc.zip";
+    let tmp_path = path::Path::new(&tmp_path);
+    let mut file = fs::File::options()
+        .write(true)
+        .read(true)
+        .create(true)
+        .open(tmp_path)?;
+    resp.copy_to(&mut file)?;
 
     let mut archive = zip::ZipArchive::new(file)?;
     archive.extract(webrtc_dir.parent().unwrap())?;
+    drop(archive);
 
+    fs::remove_file(tmp_path)?;
     Ok(())
 }
 
