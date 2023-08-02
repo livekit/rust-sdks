@@ -90,14 +90,13 @@ impl FfiRoom {
                 &connect.token,
                 connect.options.map(Into::into).unwrap_or_default(),
             )
-            .await
-            {
+            .await {
                 Ok((room, mut events)) => {
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
 
                     let Some(RoomEvent::Connected { participants_with_tracks}) = events.recv().await else {
-                            unreachable!("Connected event should always be the first event")
+                            unreachable!("Connected event should always be the first event");
                         };
 
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
@@ -110,6 +109,9 @@ impl FfiRoom {
                         pending_published_tracks: Default::default(),
                     });
 
+
+
+
                     // Send the async response to the FfiClient *before* starting the tasks.
                     // Ensure no events are sent before the callback
                     let local_participant = inner.room.local_participant(); // Should this be included in the initial states?
@@ -119,7 +121,7 @@ impl FfiRoom {
                         room: inner.clone(),
                     };
                     server.store_handle(local_participant.handle, local_participant.clone());
-                    
+
                     let local_info = proto::ParticipantInfo::from(
                         proto::FfiOwnedHandle {
                             id: local_participant.handle,
@@ -149,7 +151,6 @@ impl FfiRoom {
                                     handle: server.next_id(),
                                     publication: TrackPublication::Remote(track),
                                 };
-                                
                                 server.store_handle(ffi_publication.handle, ffi_publication.clone());
 
                                 proto::TrackPublicationInfo::from(
@@ -168,13 +169,15 @@ impl FfiRoom {
                         .collect::<Vec<_>>();
 
                     // Send callback
+                    let room_handle = proto::FfiOwnedHandle {
+                        id: inner.handle_id,
+                    };
+
                     let _ = server
                         .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
                             async_id,
                             error: None,
-                            room: Some(proto::RoomInfo::from(proto::FfiOwnedHandle { 
-                                id: inner.handle_id,
-                            }, &inner)),
+                            room: Some(proto::RoomInfo::from(room_handle, &inner)),
                             local_participant: Some(local_info),
                             participants: remote_infos,
                         }))
