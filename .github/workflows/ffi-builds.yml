@@ -85,7 +85,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.target != 'aarch64-unknown-linux-gnu' }}
+        if: ${{ matrix.os == 'ubuntu-20.04' && matrix.target != 'aarch64-unknown-linux-gnu' }}
         run: |
           sudo apt update -y
           sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
