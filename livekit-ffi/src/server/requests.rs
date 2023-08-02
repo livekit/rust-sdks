@@ -153,7 +153,7 @@ fn on_connect(
                         error: None,
                         room: Some(proto::RoomInfo::from(handle, &ffi_room)),
                         local_participant: Some(lp_info),
-                        participants: Vec::default(),
+                        participants: participants_info,
                     }))
                     .await;
             }
