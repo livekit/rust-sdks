@@ -2,4 +2,3 @@
 lto = true
 opt-level = "z"
 strip = true
-rpath = true
