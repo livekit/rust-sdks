@@ -272,7 +272,7 @@ impl RoomInner {
         self: &Arc<Self>,
         server: &'static FfiServer,
         publish: proto::PublishTrackRequest,
-    ) -> FfiResult<proto::PublishTrackResponse> {
+    ) -> proto::PublishTrackResponse {
         let async_id = server.next_id();
 
         server.async_runtime.spawn({
@@ -344,7 +344,7 @@ impl RoomInner {
             }
         });
 
-        Ok(proto::PublishTrackResponse { async_id })
+        proto::PublishTrackResponse { async_id }
     }
 }
 
