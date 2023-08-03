@@ -646,8 +646,7 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             .await;
         }
         RoomEvent::Connected { .. } => {
-            // Ignore here, we're already sending the event on connect
-            // let _ = send_event(proto::room_event::Message::Connected(proto::Connected {})).await;
+            // Ignore here, we're already sent the event on connect (see above)
         }
         RoomEvent::Disconnected { reason: _ } => {
             let _ = send_event(proto::room_event::Message::Disconnected(
