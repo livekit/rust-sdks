@@ -261,10 +261,11 @@ impl Room {
             .map(|p| (p.clone(), p.tracks().into_values().collect()))
             .collect();
 
-        inner.update_connection_state(ConnectionState::Connected);
+        let events = inner.dispatcher.register();
         inner.dispatcher.dispatch(&RoomEvent::Connected {
             participants_with_tracks,
         });
+        inner.update_connection_state(ConnectionState::Connected);
 
         let (close_emitter, close_receiver) = oneshot::channel();
         let session_task = tokio::spawn(inner.clone().room_task(engine_events, close_receiver));
@@ -277,7 +278,6 @@ impl Room {
             })),
         };
 
-        let events = session.subscribe();
         Ok((session, events))
     }
 

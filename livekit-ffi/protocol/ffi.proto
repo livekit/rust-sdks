@@ -135,7 +135,8 @@ message FfiEvent {
     DisconnectCallback disconnect = 6;
     DisposeCallback dispose = 7;
     PublishTrackCallback publish_track = 8;
-    PublishDataCallback publish_data = 9;
+    UnpublishTrackCallback unpublish_track = 9;
+    PublishDataCallback publish_data = 10;
   }
 }
 
