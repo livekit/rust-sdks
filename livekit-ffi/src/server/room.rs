@@ -184,7 +184,7 @@ impl FfiRoom {
                     };
                     server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
 
-                    // Keep the lock until the handle is "Some" (So it is OK for the client directly request a disconnect quickly after connecting)
+                    // Keep the lock until the handle is "Some" (So it is OK for the client to request a disconnect quickly after connecting)
                     // (When requesting a disconnect, the handle will still be locked and the disconnect will wait for the lock to be released and gracefully close the room)
                     let mut handle = ffi_room.handle.lock().await;
 
