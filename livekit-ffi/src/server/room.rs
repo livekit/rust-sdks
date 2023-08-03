@@ -19,6 +19,7 @@ use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::slice;
 use std::sync::Arc;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
@@ -51,7 +52,7 @@ impl FfiHandle for FfiRoom {}
 #[derive(Clone)]
 pub struct FfiRoom {
     pub inner: Arc<RoomInner>,
-    handle: Arc<Mutex<Option<Handle>>>,
+    handle: Arc<AsyncMutex<Option<Handle>>>,
 }
 
 pub struct RoomInner {
@@ -84,13 +85,14 @@ impl FfiRoom {
     ) -> proto::ConnectResponse {
         let async_id = server.next_id();
 
-        server.async_runtime.spawn(async move {
+        let connect = async move {
             match Room::connect(
                 &connect.url,
                 &connect.token,
                 connect.options.map(Into::into).unwrap_or_default(),
             )
-            .await {
+            .await
+            {
                 Ok((room, mut events)) => {
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
@@ -108,9 +110,6 @@ impl FfiRoom {
                         data_tx,
                         pending_published_tracks: Default::default(),
                     });
-
-
-
 
                     // Send the async response to the FfiClient *before* starting the tasks.
                     // Ensure no events are sent before the callback
@@ -146,20 +145,26 @@ impl FfiRoom {
                                 &ffi_participant,
                             );
 
-                            let tracks = tracks.into_iter().map(|track| {
-                                let ffi_publication = FfiPublication {
-                                    handle: server.next_id(),
-                                    publication: TrackPublication::Remote(track),
-                                };
-                                server.store_handle(ffi_publication.handle, ffi_publication.clone());
+                            let tracks = tracks
+                                .into_iter()
+                                .map(|track| {
+                                    let ffi_publication = FfiPublication {
+                                        handle: server.next_id(),
+                                        publication: TrackPublication::Remote(track),
+                                    };
+                                    server.store_handle(
+                                        ffi_publication.handle,
+                                        ffi_publication.clone(),
+                                    );
 
-                                proto::TrackPublicationInfo::from(
-                                    proto::FfiOwnedHandle {
-                                        id: ffi_publication.handle,
-                                    },
-                                    &ffi_publication,
-                                )
-                            }).collect::<Vec<_>>();
+                                    proto::TrackPublicationInfo::from(
+                                        proto::FfiOwnedHandle {
+                                            id: ffi_publication.handle,
+                                        },
+                                        &ffi_publication,
+                                    )
+                                })
+                                .collect::<Vec<_>>();
 
                             proto::connect_callback::ParticipantWithTracks {
                                 participant: Some(remote_info),
@@ -173,16 +178,25 @@ impl FfiRoom {
                         id: inner.handle_id,
                     };
 
+                    let ffi_room = Self {
+                        inner: inner.clone(),
+                        handle: Default::default(),
+                    };
+                    server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
+
+                    // Keep the lock until the end of the function (So it is safe if the client directly request a disconnect)
+                    // (The handle will be locked, then available to gracefully close the room)
+                    let mut handle = ffi_room.handle.lock().await;
+
                     let _ = server
                         .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
                             async_id,
                             error: None,
-                            room: Some(proto::RoomInfo::from(room_handle, &inner)),
+                            room: Some(proto::RoomInfo::from(room_handle, &ffi_room)),
                             local_participant: Some(local_info),
                             participants: remote_infos,
                         }))
                         .await;
-
 
                     // Forward events
                     let event_handle = {
@@ -192,14 +206,11 @@ impl FfiRoom {
                     let data_handle =
                         tokio::spawn(data_task(server, inner.clone(), data_rx, close_rx)); // Publish data
 
-                    let handle = Handle {
+                    *handle = Some(Handle {
                         event_handle,
                         data_handle,
                         close_tx,
-                    };
-
-                    let ffi_room = Self { inner, handle: Arc::new(Mutex::new(Some(handle))) };
-                    server.store_handle(ffi_room.inner.handle_id, ffi_room);
+                    });
                 }
                 Err(e) => {
                     // Failed to connect to the room, send an error message to the FfiClient
@@ -214,15 +225,16 @@ impl FfiRoom {
                         .await;
                 }
             };
-        });
+        };
 
+        server.async_runtime.spawn(connect);
         proto::ConnectResponse { async_id }
     }
 
     pub async fn close(&self) {
         let _ = self.inner.room.close().await;
 
-        let handle = self.handle.lock().take();
+        let handle = self.handle.lock().await.take();
         if let Some(handle) = handle {
             let _ = handle.close_tx.send(());
             let _ = handle.event_handle.await;

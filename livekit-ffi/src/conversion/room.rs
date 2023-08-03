@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use crate::proto;
-use crate::server::room::RoomInner;
+use crate::server::room::FfiRoom;
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
-use std::sync::Arc;
 
 impl From<ConnectionQuality> for proto::ConnectionQuality {
     fn from(value: ConnectionQuality) -> Self {
@@ -98,12 +97,13 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 }
 
 impl proto::RoomInfo {
-    pub fn from(handle: proto::FfiOwnedHandle, inner: &Arc<RoomInner>) -> Self {
+    pub fn from(handle: proto::FfiOwnedHandle, ffi_room: &FfiRoom) -> Self {
+        let room = &ffi_room.inner.room;
         Self {
             handle: Some(handle),
-            sid: inner.room.sid().into(),
-            name: inner.room.name(),
-            metadata: inner.room.metadata(),
+            sid: room.sid().into(),
+            name: room.name(),
+            metadata: room.metadata(),
         }
     }
 }
