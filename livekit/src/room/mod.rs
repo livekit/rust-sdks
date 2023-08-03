@@ -109,7 +109,12 @@ pub enum RoomEvent {
         participant: RemoteParticipant,
     },
     ConnectionStateChanged(ConnectionState),
-    Connected,
+    Connected {
+        /// Initial participants & their tracks prior to joining the room
+        /// We're not returning this directly inside Room::connect because it is unlikely to be used
+        /// and will break the current API.
+        participants_with_tracks: Vec<(RemoteParticipant, Vec<RemoteTrackPublication>)>,
+    },
     Disconnected {
         reason: DisconnectReason,
     },
@@ -245,10 +250,24 @@ impl Room {
             participant.update_info(pi.clone());
         }
 
-        let (close_emitter, close_receiver) = oneshot::channel();
-        let session_task = tokio::spawn(inner.clone().room_task(engine_events, close_receiver));
+        // Get the initial states (Can be useful on some usecases, like the FfiServer)
+        // Getting them here ensure nothing happening before (Like a new participant joining) because the room task
+        // is not started yet
+        let participants_with_tracks = inner
+            .participants
+            .read()
+            .clone()
+            .into_values()
+            .map(|p| (p.clone(), p.tracks().into_values().collect()))
+            .collect();
 
         inner.update_connection_state(ConnectionState::Connected);
+        inner.dispatcher.dispatch(&RoomEvent::Connected {
+            participants_with_tracks,
+        });
+
+        let (close_emitter, close_receiver) = oneshot::channel();
+        let session_task = tokio::spawn(inner.clone().room_task(engine_events, close_receiver));
 
         let session = Self {
             inner,
