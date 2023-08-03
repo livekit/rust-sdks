@@ -250,7 +250,7 @@ impl RemoteTrackPublication {
     }
 
     pub fn is_subscribed(&self) -> bool {
-        self.track().is_some() && self.remote.info.read().subscribed
+        self.track().is_some()
     }
 
     pub fn is_desired(&self) -> bool {
