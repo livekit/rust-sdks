@@ -453,6 +453,11 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
                 },
             ))
             .await;
+
+            inner
+                .pending_unpublished_tracks
+                .lock()
+                .insert(publication.sid());
         }
         RoomEvent::TrackPublished {
             publication,
