@@ -1565,7 +1565,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -1590,6 +1590,8 @@ pub mod ffi_event {
         #[prost(message, tag="8")]
         PublishTrack(super::PublishTrackCallback),
         #[prost(message, tag="9")]
+        UnpublishTrack(super::UnpublishTrackCallback),
+        #[prost(message, tag="10")]
         PublishData(super::PublishDataCallback),
     }
 }
