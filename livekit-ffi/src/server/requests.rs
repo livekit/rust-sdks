@@ -107,14 +107,18 @@ fn on_publish_track(
         .retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?
         .clone();
 
-    ffi_participant.room.publish_track(server, publish)
+    Ok(ffi_participant.room.publish_track(server, publish))
 }
 
 fn on_unpublish_track(
-    _server: &'static FfiServer,
-    _unpublish: proto::UnpublishTrackRequest,
+    server: &'static FfiServer,
+    unpublish: proto::UnpublishTrackRequest,
 ) -> FfiResult<proto::UnpublishTrackResponse> {
-    Ok(proto::UnpublishTrackResponse::default())
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(unpublish.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant.room.unpublish_track(server, unpublish))
 }
 
 /// Publish data to the room

@@ -221,7 +221,7 @@ impl RoomInner {
         self: &Arc<Self>,
         server: &'static FfiServer,
         publish: proto::PublishTrackRequest,
-    ) -> FfiResult<proto::PublishTrackResponse> {
+    ) -> proto::PublishTrackResponse {
         let async_id = server.next_id();
         let inner = self.clone();
         server.async_runtime.spawn(async move {
@@ -289,7 +289,7 @@ impl RoomInner {
             }
         });
 
-        Ok(proto::PublishTrackResponse { async_id })
+        proto::PublishTrackResponse { async_id }
     }
 
     /// Unpublish a track and make sure to sync the async callback
