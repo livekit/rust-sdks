@@ -145,6 +145,7 @@ fn on_set_subscribed(
             return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
         };
 
+    let _guard = server.async_runtime.enter();
     publication.set_subscribed(set_subscribed.subscribe);
     Ok(proto::SetSubscribedResponse {})
 }
