@@ -18,6 +18,7 @@ pub struct AudioFrame {
     pub sample_rate: u32,
     pub num_channels: u32,
     pub samples_per_channel: u32,
+    pub timestamp_ms: i64,
 }
 
 impl AudioFrame {
@@ -27,6 +28,7 @@ impl AudioFrame {
             sample_rate,
             num_channels,
             samples_per_channel,
+            timestamp_ms: 0,
         }
     }
 }

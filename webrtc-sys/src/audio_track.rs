@@ -47,6 +47,7 @@ pub mod ffi {
             sample_rate: i32,
             nb_channels: usize,
             nb_frames: usize,
+            timestamp_ms: i64,
         );
         fn audio_options(self: &AudioTrackSource) -> AudioSourceOptions;
         fn set_audio_options(self: &AudioTrackSource, options: &AudioSourceOptions);

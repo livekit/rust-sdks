@@ -15,7 +15,10 @@
 use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions};
 use cxx::SharedPtr;
 use parking_lot::Mutex;
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use webrtc_sys::audio_track as sys_at;
 
 impl From<sys_at::ffi::AudioSourceOptions> for AudioSourceOptions {
@@ -83,6 +86,12 @@ impl NativeAudioSource {
             inner.num_channels = frame.num_channels;
         }
 
+        let mut timestamp = frame.timestamp_ms;
+        if timestamp == 0 {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            timestamp = now.as_millis() as i64;
+        }
+
         // Split the frame into 10ms chunks
         let mut i = 0;
         loop {
@@ -116,8 +125,10 @@ impl NativeAudioSource {
                 frame.sample_rate as i32,
                 frame.num_channels as usize,
                 samples_10ms / frame.num_channels as usize,
+                timestamp,
             );
 
+            timestamp += 10;
             i += needed_data;
         }
     }

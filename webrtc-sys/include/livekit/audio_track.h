@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include "api/audio_options.h"
@@ -24,6 +25,7 @@
 #include "livekit/webrtc.h"
 #include "pc/local_audio_source.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
 
 namespace livekit {
@@ -96,10 +98,12 @@ class AudioTrackSource {
     void on_captured_frame(rust::Slice<const int16_t> audio_data,
                            int sample_rate,
                            size_t number_of_channels,
-                           size_t number_of_frames);
+                           size_t number_of_frames,
+                           int64_t timestamp_ms);
 
    private:
     mutable webrtc::Mutex mutex_;
+    rtc::TimestampAligner timestamp_aligner_;
     std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
     cricket::AudioOptions options_{};
   };
@@ -114,7 +118,8 @@ class AudioTrackSource {
   void on_captured_frame(rust::Slice<const int16_t> audio_data,
                          int sample_rate,
                          size_t number_of_channels,
-                         size_t number_of_frames) const;
+                         size_t number_of_frames,
+                         int64_t timestamp_ms) const;
 
   rtc::scoped_refptr<InternalSource> get() const;
 

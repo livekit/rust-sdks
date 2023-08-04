@@ -84,6 +84,7 @@ impl sys_at::AudioSink for AudioTrackObserver {
             sample_rate: sample_rate as u32,
             num_channels: nb_channels as u32,
             samples_per_channel: nb_frames as u32,
+            timestamp_ms: 0, // TODO(theomonnom): How can we receive timestamp here?
         });
     }
 }

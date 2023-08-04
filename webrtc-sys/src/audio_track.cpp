@@ -17,6 +17,7 @@
 #include "livekit/audio_track.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 
@@ -133,11 +134,12 @@ void AudioTrackSource::InternalSource::on_captured_frame(
     rust::Slice<const int16_t> data,
     int sample_rate,
     size_t number_of_channels,
-    size_t number_of_frames) {
+    size_t number_of_frames,
+    int64_t timestamp_ms) {
   webrtc::MutexLock lock(&mutex_);
   for (auto sink : sinks_) {
     sink->OnData(data.data(), 16, sample_rate, number_of_channels,
-                 number_of_frames);
+                 number_of_frames, timestamp_ms);
   }
 }
 
@@ -158,9 +160,10 @@ void AudioTrackSource::set_audio_options(
 void AudioTrackSource::on_captured_frame(rust::Slice<const int16_t> audio_data,
                                          int sample_rate,
                                          size_t number_of_channels,
-                                         size_t number_of_frames) const {
+                                         size_t number_of_frames,
+                                         int64_t timestamp_ms) const {
   source_->on_captured_frame(audio_data, sample_rate, number_of_channels,
-                             number_of_frames);
+                             number_of_frames, timestamp_ms);
 }
 
 rtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
