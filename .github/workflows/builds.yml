@@ -29,30 +29,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-            #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
           - os: macos-latest
             target: x86_64-apple-darwin
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: macos-latest
-            target: aarch64-apple-ios
-          - os: macos-latest
-            target: aarch64-apple-ios-sim
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: buildjet-4vcpu-ubuntu-2204-arm
-            target: aarch64-unknown-linux-gnu
-          - os: ubuntu-latest
-            target: aarch64-linux-android
-          - os: ubuntu-latest
-            target: armv7-linux-androideabi
-          - os: ubuntu-latest
-            target: x86_64-linux-android
-
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -105,3 +83,6 @@ jobs:
         run: |
           cargo install cargo-ndk
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3    
