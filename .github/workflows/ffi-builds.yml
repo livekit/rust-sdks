@@ -141,8 +141,9 @@ jobs:
       # zip the files
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
+        # using sudo because the above container (manylinux) runs as root
         run: |
-          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
+          sudo cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
           cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h
 
