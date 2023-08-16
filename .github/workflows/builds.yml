@@ -62,26 +62,10 @@ jobs:
           submodules: true
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.target != 'aarch64-unknown-linux-gnu' }}
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm'}}
         run: |
           sudo apt update -y
           sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
-
-      - name: Set up QEMU
-        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
-        uses: docker/setup-qemu-action@v1
-
-      - name: Set up Docker Buildx
-        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
-        uses: docker/setup-buildx-action@v1
-
-      - name: Login to GitHub Container Registry
-        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions-rs/toolchain@v1
         with:
@@ -89,16 +73,9 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Build (Cargo)
-        if: ${{ !contains(matrix.target, 'android') && matrix.target != 'aarch64-unknown-linux-gnu' }}
+        if: ${{ !contains(matrix.target, 'android') }}
         run: |
           cargo build --release --workspace -p livekit --target ${{ matrix.target }}
-
-      - name: Build (Docker)
-        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
-        run: |
-          docker buildx create --use
-          docker buildx build --platform linux/arm64 --load -t lk-arm64:latest -f .github/aarch64-docker.dockerfile .
-          docker run --rm -v "$(pwd)":/usr/src/app -w /usr/src/app lk-arm64:latest cargo build --release --target aarch64-unknown-linux-gnu
 
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
