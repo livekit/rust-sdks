@@ -16,6 +16,7 @@
 arch=""
 platform=""
 version=""
+output=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -44,6 +45,10 @@ while [ "$#" -gt 0 ]; do
       version="$2"
       shift 2
       ;;
+    --output)
+      output="$2"
+      shift 2
+      ;;
     *)
       echo "Error: Unknown argument '$1'"
       exit 1
@@ -66,6 +71,18 @@ if [ -z "$version" ]; then
   exit 1
 fi
 
+if [ -z "$output" ]; then
+  echo "Error: --output must be set."
+  exit 1
+fi
+
 url="https://github.com/livekit/client-sdk-rust/releases/download/ffi-v$version/ffi-$platform-$arch.zip"
 echo "Downloading $url"
-curl $url -L --fail --output ffi-$platform-$arch.zip
+tmpfile=$(mktemp)
+echo "Tmp dir: $tmpfile"
+curl $url -L --fail --output $tmpfile
+
+# unzip to output
+mkdir -p $output
+unzip -o $tmpfile -d $output
+rm $tmpfile
