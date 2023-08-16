@@ -13,6 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+# This file is used to download prebuilt binaries of livekit-ffi from our GH releases.
+# It is mostly used by our bindings (e.g https://github.com/livekit/client-sdk-python)
+
 arch=""
 platform=""
 version=""
