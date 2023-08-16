@@ -59,9 +59,13 @@ def download_ffi(platform, arch, version, output):
 
     tmp = os.path.join(tempfile.gettempdir(), filename)
 
+    # download the binary
     resp = requests.get(url, stream=True)
+    if resp.status_code != 200:
+        raise Exception("failed to download, status: %d" % (resp.status_code))
+
     with open(tmp, mode="wb") as f:
-        for chunk in resp.iter_content(chunk_size=1024 * 128):
+        for chunk in resp.iter_content(chunk_size=1024 * 8):
             f.write(chunk)
 
     # unzip to output
