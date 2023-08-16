@@ -148,7 +148,9 @@ jobs:
       - name: Zip artifact (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          Compress-Archive -Path target\${{ matrix.target }}\release\${{ matrix.dylib }} livekit-ffi\include\livekit_ffi.h -DestinationPath ${{ github.workspace }}\${{ matrix.name }}.zip
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
+          cd target/${{ matrix.target }}/release/
+          Get-ChildItem -Path ${{ matrix.dylib }}, livekit_ffi.h | Compress-Archive -DestinationPath ${{ github.workspace }}\${{ matrix.name }}.zip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
