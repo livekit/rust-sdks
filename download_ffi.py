@@ -19,13 +19,14 @@
 
 
 import argparse
-import sys
-import platform
-import requests
-import tempfile
-import re
 import os
+import platform
+import re
+import sys
+import tempfile
 from zipfile import ZipFile
+
+import requests
 
 
 def target_os():
