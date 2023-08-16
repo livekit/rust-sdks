@@ -142,8 +142,9 @@ jobs:
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
-          zip ${{ github.workspace }}/${{ matrix.name }}.zip target/${{ matrix.target }}/release/${{ matrix.dylib }} \
-            livekit-ffi/include/livekit_ffi.h
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
+          cd target/${{ matrix.target }}/release/
+          zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h
 
       - name: Zip artifact (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
