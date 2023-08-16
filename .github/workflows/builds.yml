@@ -62,7 +62,7 @@ jobs:
           submodules: true
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' }}
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm'}}
         run: |
           sudo apt update -y
           sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
