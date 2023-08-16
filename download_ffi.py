@@ -53,6 +53,13 @@ def target_arch():
     return arch_mapping.get(arch)
 
 
+# extract the version from livekit-ffi/Cargo.toml
+def ffi_version():
+    file = os.path.join(os.path.dirname(__file__), "livekit-ffi", "Cargo.toml")
+    with open(file, 'r') as f:
+        return re.search(r'version\s*=\s*"(\d+\.\d+\.\d+)"', f.read()).group(1)
+
+
 def download_ffi(platform, arch, version, output):
     filename = "ffi-%s-%s.zip" % (platform, arch)
     url = "https://github.com/livekit/client-sdk-rust/releases/download/ffi-v%s/%s"
@@ -75,18 +82,10 @@ def download_ffi(platform, arch, version, output):
     zip.extractall(output)
 
 
-def _extract_version(file_path):
-    with open(file_path, 'r') as f:
-        return re.search(r'version\s*=\s*"(\d+\.\d+\.\d+)"', f.read()).group(1)
-
-
 if __name__ == "__main__":
     target_os = target_os()
     target_arch = target_arch()
-
-    # by default extract the ffi version from the livekit-ffi/Cargo.toml
-    ffi_version = _extract_version(os.path.join(
-        os.path.dirname(__file__), "livekit-ffi", "Cargo.toml"))
+    ffi_version = ffi_version()
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
