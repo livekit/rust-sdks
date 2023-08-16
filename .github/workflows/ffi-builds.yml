@@ -83,7 +83,7 @@ jobs:
             platform: android
             dylib: liblivekit_ffi.so
             target: armv7-linux-androideabi
-            name: ffi-android-arm
+            name: ffi-android-armv7
           - os: ubuntu-latest
             platform: android
             dylib: liblivekit_ffi.so
