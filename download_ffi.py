@@ -23,6 +23,7 @@ import sys
 import platform
 import requests
 import tempfile
+import re
 import os
 from zipfile import ZipFile
 
@@ -74,9 +75,18 @@ def download_ffi(platform, arch, version, output):
     zip.extractall(output)
 
 
+def _extract_version(file_path):
+    with open(file_path, 'r') as f:
+        return re.search(r'version\s*=\s*"(\d+\.\d+\.\d+)"', f.read()).group(1)
+
+
 if __name__ == "__main__":
     target_os = target_os()
     target_arch = target_arch()
+
+    # by default extract the ffi version from the livekit-ffi/Cargo.toml
+    ffi_version = _extract_version(os.path.join(
+        os.path.dirname(__file__), "livekit-ffi", "Cargo.toml"))
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -91,7 +101,11 @@ if __name__ == "__main__":
         default=target_arch,
         choices=["x86_64", "arm64", "armv7"],
     )
-    parser.add_argument("--version", help="version to download", required=True)
+    parser.add_argument(
+        "--version",
+        help="version to download",
+        default=ffi_version,
+    )
     parser.add_argument("--output", help="output path", required=True)
     args = parser.parse_args()
 
