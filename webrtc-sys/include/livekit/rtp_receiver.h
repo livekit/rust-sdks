@@ -62,6 +62,8 @@ class RtpReceiver {
     return receiver_;
   }
 
+  void request_key_frame() const;
+
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;

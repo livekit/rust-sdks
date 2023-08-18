@@ -40,6 +40,10 @@ impl RtpReceiver {
         }
         None
     }
+
+    pub fn request_key_frame(&self) {
+        self.handle.request_key_frame();
+    }
 }
 
 impl Debug for RtpReceiver {

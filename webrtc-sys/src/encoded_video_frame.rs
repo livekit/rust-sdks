@@ -17,6 +17,9 @@ pub mod ffi {
         fn height(self: &EncodedVideoFrame) -> u16;
         fn timestamp(self: &EncodedVideoFrame) -> u32;
 
+        fn first_seq_num(self: &EncodedVideoFrame) -> u16;
+        fn last_seq_num(self: &EncodedVideoFrame) -> u16;
+        fn get_ntp_time_ms(self: &EncodedVideoFrame) -> i64;
 
         fn frame_id(self: &EncodedVideoFrame) -> SharedPtr<i64>;
         fn temporal_index(self: &EncodedVideoFrame) -> i32;

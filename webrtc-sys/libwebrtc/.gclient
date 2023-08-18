@@ -1,9 +1,11 @@
 solutions = [
-  {
-    "name": 'src',
-    "url": 'https://github.com/webrtc-sdk/webrtc.git',
-    "custom_deps": {},
-    "deps_file": "DEPS",
-    "managed": False,
+  { 
+    "name"        : 'src',
+    "url"         : 'git@github.com:LightTwist/webrtc.git',
+    "deps_file"   : 'DEPS',
+    "managed"     : False,
+    "custom_deps" : {
+    },
+    "custom_vars": {},
   },
 ]

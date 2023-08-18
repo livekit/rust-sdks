@@ -67,10 +67,20 @@ void RtpReceiver::set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<
   receiver_->SetDepacketizerToDecoderFrameTransformer(transformer);
 }
 
+
 void RtpReceiver::set_jitter_buffer_minimum_delay(bool is_some,
                                                   double delay_seconds) const {
   receiver_->SetJitterBufferMinimumDelay(
       is_some ? absl::make_optional(delay_seconds) : absl::nullopt);
 }
 
+void RtpReceiver::request_key_frame() const {
+  fprintf(stderr, "RtpReceiver::request_key_frame\n");
+  receiver_->LTRequestKeyFrame();
+}
+
 }  // namespace livekit
+
+
+
+

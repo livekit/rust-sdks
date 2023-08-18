@@ -34,6 +34,8 @@ pub mod ffi {
         fn set_jitter_buffer_minimum_delay(self: &RtpReceiver, is_some: bool, delay_seconds: f64);
         fn set_depacketizer_to_decoder_frame_transformer(self: &RtpReceiver, frame_transformer: SharedPtr<AdaptedNativeFrameTransformer>);
 
+        fn request_key_frame(self: &RtpReceiver);
+
         fn _shared_rtp_receiver() -> SharedPtr<RtpReceiver>;
     }
 }

@@ -35,6 +35,18 @@ impl EncodedVideoFrame {
         self.frame.height()
     }
 
+    pub fn first_seq_num(&self) -> u16 {
+        self.frame.first_seq_num()
+    }
+
+    pub fn last_seq_num(&self) -> u16 {
+        self.frame.last_seq_num()
+    }
+
+    pub fn get_ntp_time_ms(&self) -> i64 {
+        self.frame.get_ntp_time_ms()
+    }
+
     pub fn payload_type(&self) -> u8 {
         self.frame.payload_type()
     }
