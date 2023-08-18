@@ -26,6 +26,9 @@ class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
 
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
 
+  CodecSupport QueryCodecSupport(const webrtc::SdpVideoFormat& format,
+                                 bool reference_scaling) const override;
+
   std::unique_ptr<webrtc::VideoDecoder> CreateVideoDecoder(
       const webrtc::SdpVideoFormat& format) override;
 

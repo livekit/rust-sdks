@@ -1,10 +1,20 @@
-// Webhooks are not yet integrated into the Rust SDK.
-// Our webhooks protocol use protojson which isn't supported by Prost
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-/*
 use crate::access_token::{AccessTokenError, TokenVerifier};
+use base64::Engine;
 use livekit_protocol as proto;
-use serde_json;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -12,6 +22,8 @@ use thiserror::Error;
 pub enum WebhookError {
     #[error("invalid signature")]
     InvalidSignature,
+    #[error("invalid base64")]
+    InvalidBase64(#[from] base64::DecodeError),
     #[error("failed to verify the authorization: {0}")]
     InvalidAuth(#[from] AccessTokenError),
     #[error("invalid body, failed to decode: {0}")]
@@ -39,17 +51,11 @@ impl WebhookReceiver {
         hasher.update(body);
         let hash = hasher.finalize();
 
-        let hex: Result<Vec<u8>, std::num::ParseIntError> = (0..claims.sha256.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&claims.sha256[i..i + 2], 16))
-            .collect();
-
-        let hex = hex.map_err(|_| WebhookError::InvalidSignature)?; // Failed to parse
-
-        if &hex[..] != &hash[..] {
+        let claim_hash = base64::engine::general_purpose::STANDARD.decode(claims.sha256)?;
+        if claim_hash[..] != hash[..] {
             return Err(WebhookError::InvalidSignature);
         }
 
         Ok(serde_json::from_str(body)?)
     }
-}*/
+}

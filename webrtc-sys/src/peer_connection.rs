@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::candidate::ffi::Candidate;
 use crate::data_channel::ffi::DataChannel;
 use crate::impl_thread_safety;
@@ -73,6 +87,32 @@ pub mod ffi {
         use_obsolete_sctp_sdp: bool,
     }
 
+    pub struct IceServer {
+        pub urls: Vec<String>,
+        pub username: String,
+        pub password: String,
+    }
+
+    #[repr(i32)]
+    pub enum ContinualGatheringPolicy {
+        GatherOnce,
+        GatherContinually,
+    }
+
+    #[repr(i32)]
+    pub enum IceTransportsType {
+        None,
+        Relay,
+        NoHost,
+        All,
+    }
+
+    pub struct RtcConfiguration {
+        pub ice_servers: Vec<IceServer>,
+        pub continual_gathering_policy: ContinualGatheringPolicy,
+        pub ice_transport_type: IceTransportsType,
+    }
+
     extern "C++" {
         include!("livekit/rtc_error.h");
         include!("livekit/helper.h");
@@ -118,6 +158,8 @@ pub mod ffi {
         fn create_native_peer_connection_observer(
             observer: Box<PeerConnectionObserverWrapper>,
         ) -> UniquePtr<NativePeerConnectionObserver>;
+
+        fn set_configuration(self: &PeerConnection, config: RtcConfiguration) -> Result<()>;
 
         fn create_offer(
             self: &PeerConnection,
@@ -175,6 +217,7 @@ pub mod ffi {
             ctx: Box<AsyncContext>,
             on_complete: fn(ctx: Box<AsyncContext>, error: RtcError),
         );
+        fn restart_ice(self: &PeerConnection);
         fn current_local_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
         fn current_remote_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
         fn connection_state(self: &PeerConnection) -> PeerConnectionState;

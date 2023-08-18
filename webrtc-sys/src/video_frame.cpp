@@ -42,9 +42,6 @@ int64_t VideoFrame::timestamp_us() const {
 int64_t VideoFrame::ntp_time_ms() const {
   return frame_.ntp_time_ms();
 }
-uint32_t VideoFrame::transport_frame_id() const {
-  return frame_.transport_frame_id();
-}
 uint32_t VideoFrame::timestamp() const {
   return frame_.timestamp();
 }

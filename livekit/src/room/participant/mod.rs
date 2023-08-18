@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
 use livekit_protocol as proto;
@@ -15,7 +29,6 @@ pub use remote_participant::*;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionQuality {
-    Unknown,
     Excellent,
     Good,
     Poor,
@@ -37,7 +50,6 @@ impl Participant {
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
-        pub fn tracks(self: &Self) -> HashMap<TrackSid, TrackPublication>;
 
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 
@@ -48,6 +60,13 @@ impl Participant {
         pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
         pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> ();
     );
+
+    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+        match self {
+            Participant::Local(p) => p.internal_tracks(),
+            Participant::Remote(p) => p.internal_tracks(),
+        }
+    }
 }
 
 struct ParticipantInfo {
@@ -60,10 +79,13 @@ struct ParticipantInfo {
     pub connection_quality: ConnectionQuality,
 }
 
+type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication, Track) + Send>;
+type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication, Track) + Send>;
+
 #[derive(Default)]
 struct ParticipantEvents {
-    track_muted: Mutex<Option<Box<dyn Fn(Participant, TrackPublication, Track) + Send>>>,
-    track_unmuted: Mutex<Option<Box<dyn Fn(Participant, TrackPublication, Track) + Send>>>,
+    track_muted: Mutex<Option<TrackMutedHandler>>,
+    track_unmuted: Mutex<Option<TrackUnmutedHandler>>,
 }
 
 pub(super) struct ParticipantInner {
@@ -89,7 +111,7 @@ pub(super) fn new_inner(
             metadata,
             speaking: false,
             audio_level: 0.0,
-            connection_quality: ConnectionQuality::Unknown,
+            connection_quality: ConnectionQuality::Excellent,
         }),
         tracks: Default::default(),
         events: Default::default(),
@@ -102,7 +124,7 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
-    info.sid = new_info.sid.into();
+    info.sid = new_info.sid.try_into().unwrap();
     info.name = new_info.name;
     info.identity = new_info.identity.into();
     info.metadata = new_info.metadata; // TODO(theomonnom): callback MetadataChanged
@@ -145,7 +167,7 @@ pub(super) fn remove_publication(
         publication.on_unmuted(|_, _| {});
     } else {
         // shouldn't happen (internal)
-        log::warn!("could not find publication to remove: {}", sid);
+        log::warn!("could not find publication to remove: {:?}", sid);
     }
 
     publication

@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
@@ -27,8 +41,8 @@ pub use video_track::*;
 
 #[derive(Error, Debug, Clone)]
 pub enum TrackError {
-    #[error("could not find published track with sid: {0}")]
-    TrackNotFound(String),
+    #[error("could not find published track with sid: {0:?}")]
+    TrackNotFound(TrackSid),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,10 +115,13 @@ impl Track {
 
 pub(super) use track_dispatch;
 
+type MutedHandler = Box<dyn Fn(Track) + Send>;
+type UnmutedHandler = Box<dyn Fn(Track) + Send>;
+
 #[derive(Default)]
 struct TrackEvents {
-    pub muted: Mutex<Option<Box<dyn Fn(Track) + Send>>>,
-    pub unmuted: Mutex<Option<Box<dyn Fn(Track) + Send>>>,
+    pub muted: Mutex<Option<MutedHandler>>,
+    pub unmuted: Mutex<Option<UnmutedHandler>>,
 }
 
 #[derive(Debug)]
@@ -150,7 +167,7 @@ pub(super) fn new_inner(
 
 pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     let info = inner.info.read();
-    log::debug!("set_muted: {} {}", info.sid, muted);
+    log::debug!("set_muted: {:?} {:?}", info.sid, muted);
     if info.muted == muted {
         return;
     }
@@ -168,17 +185,15 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
         if let Some(on_mute) = inner.events.muted.lock().as_ref() {
             on_mute(track.clone());
         }
-    } else {
-        if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
-            on_unmute(track.clone());
-        }
+    } else if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
+        on_unmute(track.clone());
     }
 }
 
 pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: proto::TrackInfo) {
     let mut info = inner.info.write();
+    info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
+    info.source = TrackSource::from(new_info.source());
     info.name = new_info.name;
-    info.sid = new_info.sid.into();
-    info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
-    info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
+    info.sid = new_info.sid.try_into().unwrap();
 }

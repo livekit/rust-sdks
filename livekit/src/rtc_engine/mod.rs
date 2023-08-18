@@ -1,5 +1,21 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::id::ParticipantSid;
 use crate::options::TrackPublishOptions;
 use crate::prelude::LocalTrack;
+use crate::room::DisconnectReason;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents};
 use crate::DataPacketKind;
@@ -28,8 +44,7 @@ pub(crate) type EngineEmitter = mpsc::Sender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::Receiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[repr(u8)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
     SignalReconnect,
     Speaker,
@@ -71,7 +86,7 @@ pub enum EngineEvent {
         receiver: RtpReceiver,
     },
     Data {
-        participant_sid: String,
+        participant_sid: ParticipantSid,
         payload: Vec<u8>,
         kind: DataPacketKind,
     },
@@ -83,9 +98,13 @@ pub enum EngineEvent {
     },
     Resuming,
     Resumed,
+    SignalResumed,
     Restarting,
     Restarted,
-    Disconnected,
+    SignalRestarted,
+    Disconnected {
+        reason: DisconnectReason,
+    },
 }
 
 pub const RECONNECT_ATTEMPTS: u32 = 10;
@@ -100,17 +119,26 @@ struct EngineHandle {
     close_sender: oneshot::Sender<()>,
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct LastInfo {
+    // The join response is updated each time a full reconnect is done
+    pub join_response: proto::JoinResponse,
+
+    // The last offer/answer exchanged during the last session
+    pub subscriber_offer: Option<SessionDescription>,
+    pub subscriber_answer: Option<SessionDescription>,
+
+    pub data_channels_info: Vec<proto::DataChannelInfo>,
+}
+
 struct EngineInner {
     // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection factory accross multiple Rtc sessions
     #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     engine_emitter: EngineEmitter,
 
-    // Last/current session JoinResponse
-    // We keep a clone of the join response here because the room needs it
-    // (directly accessing the running_handle requires an async context to lock the Mutex and a getter needs a short lock)
-    // Maybe there is a better way to do it?
-    join_response: Mutex<proto::JoinResponse>,
+    // Last/current session states (needed by the room)
+    last_info: Mutex<LastInfo>,
     running_handle: AsyncRwLock<Option<EngineHandle>>,
 
     // Reconnecting fields
@@ -151,7 +179,7 @@ impl RtcEngine {
             lk_runtime: LkRuntime::instance(),
             running_handle: Default::default(),
             engine_emitter,
-            join_response: Default::default(), // Will directly be replaced by the connect method below
+            last_info: Default::default(),
             closed: Default::default(),
             reconnecting: Default::default(),
             full_reconnect: Default::default(),
@@ -164,7 +192,7 @@ impl RtcEngine {
     }
 
     pub async fn close(&self) {
-        self.inner.close().await
+        self.inner.close(DisconnectReason::ClientInitiated).await
     }
 
     pub async fn publish_data(
@@ -213,28 +241,30 @@ impl RtcEngine {
         session.create_sender(track, options, encodings).await
     }
 
-    pub async fn negotiate_publisher(&self) -> EngineResult<()> {
-        // TODO(theomonnom): guard for reconnection
-        self.inner.wait_reconnection().await?;
-        let handle = self.inner.running_handle.read().await;
-        let session = &handle.as_ref().unwrap().session;
-        session.negotiate_publisher().await
+    pub fn publisher_negotiation_needed(&self) {
+        let inner = self.inner.clone();
+        tokio::spawn(async move {
+            if inner.wait_reconnection().await.is_ok() {
+                let handle = inner.running_handle.read().await;
+                let session = &handle.as_ref().unwrap().session;
+                session.publisher_negotiation_needed()
+            }
+        });
     }
 
     pub async fn send_request(&self, msg: proto::signal_request::Message) -> EngineResult<()> {
-        if self.inner.reconnecting.load(Ordering::Acquire) {
-            // When doing a full reconnect, it is safe to ignore the messages, we don't wait for reconnection here
-            return Ok(()); // TODO(theomonnom): Maybe we should still return an error instead?
-        }
-
         let handle = self.inner.running_handle.read().await;
-        let session = &handle.as_ref().unwrap().session; // Unwrap should be OK here (running_handle is always valid when not reconnecting)
-        session.signal_client().send(msg).await;
+
+        if let Some(handle) = handle.as_ref() {
+            handle.session.signal_client().send(msg).await;
+        } else {
+            // Should be OK to ignore (full reconnect)
+        }
         Ok(())
     }
 
-    pub fn join_response(&self) -> proto::JoinResponse {
-        self.inner.join_response.lock().clone()
+    pub fn last_info(&self) -> LastInfo {
+        self.inner.last_info.lock().clone()
     }
 }
 
@@ -279,7 +309,7 @@ impl EngineInner {
                     tokio::spawn({
                         let inner = self.clone();
                         async move {
-                            inner.close().await;
+                            inner.close(reason).await;
                         }
                     });
                 }
@@ -342,9 +372,11 @@ impl EngineInner {
         options: SignalOptions,
     ) -> EngineResult<()> {
         let mut running_handle = self.running_handle.write().await;
+        if running_handle.is_some() {
+            unreachable!("engine is already connected");
+        }
 
-        let (session, join_response, session_events) =
-            RtcSession::connect(url, token, options).await?;
+        let (session, session_events) = RtcSession::connect(url, token, options).await?;
 
         let (close_sender, close_receiver) = oneshot::channel();
         let engine_task = tokio::spawn(self.clone().engine_task(session_events, close_receiver));
@@ -355,10 +387,25 @@ impl EngineInner {
             close_sender,
         };
 
-        // Always update the join response after a new session is created (first session or full reconnect)
-        *self.join_response.lock() = join_response;
         *running_handle = Some(engine_handle);
+
+        // Always update the join response after a new session is created (first session or full reconnect)
+        drop(running_handle);
+        self.update_last_info().await;
+
         Ok(())
+    }
+
+    async fn update_last_info(&self) {
+        if let Some(handle) = self.running_handle.read().await.as_ref() {
+            let mut last_info = self.last_info.lock();
+            let subscriber_pc = handle.session.subscriber().peer_connection();
+
+            last_info.join_response = handle.session.signal_client().join_response();
+            last_info.subscriber_offer = subscriber_pc.current_remote_description();
+            last_info.subscriber_answer = subscriber_pc.current_local_description();
+            last_info.data_channels_info = handle.session.data_channels_info();
+        }
     }
 
     async fn terminate_session(&self) {
@@ -369,10 +416,13 @@ impl EngineInner {
         }
     }
 
-    async fn close(&self) {
+    async fn close(&self, reason: DisconnectReason) {
         self.closed.store(true, Ordering::Release);
         self.terminate_session().await;
-        let _ = self.engine_emitter.send(EngineEvent::Disconnected).await;
+        let _ = self
+            .engine_emitter
+            .send(EngineEvent::Disconnected { reason })
+            .await;
     }
 
     // Wait for the reconnection task to finish
@@ -405,25 +455,27 @@ impl EngineInner {
             return;
         }
 
-        if self.reconnecting.load(Ordering::SeqCst) {
-            let inner = self.clone();
-            if retry_now {
-                tokio::spawn(async move {
-                    inner.reconnect_interval.lock().await.reset(); // Retry directly
-                });
-                self.full_reconnect.store(full_reconnect, Ordering::Release);
-            }
-            return;
+        self.full_reconnect.store(full_reconnect, Ordering::Release);
+        let inner = self.clone();
+        if retry_now {
+            tokio::spawn(async move {
+                inner.reconnect_interval.lock().await.reset();
+            });
         }
 
-        log::warn!("reconnecting RTCEngine...");
+        if self
+            .reconnecting
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
 
         tokio::spawn({
             let inner = self.clone();
             async move {
                 // Reconnetion logic
-                inner.reconnect_interval.lock().await.reset(); // Retry directly
-                inner.reconnecting.store(true, Ordering::Release);
+                inner.reconnect_interval.lock().await.reset();
                 inner
                     .full_reconnect
                     .store(full_reconnect, Ordering::Release);
@@ -432,10 +484,10 @@ impl EngineInner {
                 inner.reconnecting.store(false, Ordering::Release);
 
                 if res.is_ok() {
-                    log::warn!("RTCEngine successfully reconnected")
+                    log::info!("RTCEngine successfully reconnected")
                 } else {
-                    log::error!("failed to reconnect after {} attemps", RECONNECT_ATTEMPTS);
-                    inner.close().await;
+                    log::error!("failed to reconnect after {} attempts", RECONNECT_ATTEMPTS);
+                    inner.close(DisconnectReason::UnknownReason).await;
                 }
 
                 inner.reconnect_notifier.notify_waiters();
@@ -447,12 +499,18 @@ impl EngineInner {
     /// We first try to resume the connection, if it fails, we start a full reconnect.
     async fn reconnect_task(self: &Arc<Self>) -> EngineResult<()> {
         // Get the latest connection info from the signal_client (including the refreshed token because the initial join token may have expired)
-        let running_handle = self.running_handle.read().await;
-        let signal_client = running_handle.as_ref().unwrap().session.signal_client();
-        let url = signal_client.url();
-        let token = signal_client.token();
-        let options = signal_client.options();
-        drop(running_handle);
+        let (url, token, options) = {
+            let running_handle = self.running_handle.read().await;
+            let signal_client = running_handle.as_ref().unwrap().session.signal_client();
+            (
+                signal_client.url(),
+                signal_client.token(), // Refreshed token
+                signal_client.options(),
+            )
+        };
+
+        // Update last info before trying to reconnect/resume
+        self.update_last_info().await;
 
         for i in 0..RECONNECT_ATTEMPTS {
             if self.closed.load(Ordering::Acquire) {
@@ -465,7 +523,7 @@ impl EngineInner {
                     let _ = self.engine_emitter.send(EngineEvent::Restarting).await;
                 }
 
-                log::info!("restarting connection... attempt: {}", i);
+                log::error!("restarting connection... attempt: {}", i);
                 if let Err(err) = self
                     .try_restart_connection(&url, &token, options.clone())
                     .await
@@ -480,7 +538,7 @@ impl EngineInner {
                     let _ = self.engine_emitter.send(EngineEvent::Resuming).await;
                 }
 
-                log::info!("resuming connection... attempt: {}", i);
+                log::error!("resuming connection... attempt: {}", i);
                 if let Err(err) = self.try_resume_connection().await {
                     log::error!("resuming connection failed: {}", err);
                     if let EngineError::Signal(_) = err {
@@ -508,6 +566,7 @@ impl EngineInner {
     ) -> EngineResult<()> {
         self.terminate_session().await;
         self.connect(url, token, options).await?;
+        let _ = self.engine_emitter.send(EngineEvent::SignalRestarted).await;
 
         let handle = self.running_handle.read().await;
         let session = &handle.as_ref().unwrap().session;
@@ -518,7 +577,10 @@ impl EngineInner {
     async fn try_resume_connection(&self) -> EngineResult<()> {
         let handle = self.running_handle.read().await;
         let session = &handle.as_ref().unwrap().session;
+
         session.restart().await?;
+        // With SignalResumed, the room will send a SyncState message to the server
+        let _ = self.engine_emitter.send(EngineEvent::SignalResumed).await;
         session.wait_pc_connection().await
     }
 }

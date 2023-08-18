@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::TrackKind;
 use super::{ConnectionQuality, ParticipantInner};
 use crate::prelude::*;
@@ -14,16 +28,21 @@ use tokio::time::timeout;
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
+type TrackPublishedHandler = Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>;
+type TrackUnpublishedHandler = Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>;
+type TrackSubscribedHandler =
+    Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>;
+type TrackUnsubscribedHandler =
+    Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>;
+type TrackSubscriptionFailedHandler = Box<dyn Fn(RemoteParticipant, TrackSid, TrackError) + Send>;
+
 #[derive(Default)]
 struct RemoteEvents {
-    track_published: Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>>>,
-    track_unpublished: Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication) + Send>>>,
-    track_subscribed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>>>,
-    track_unsubscribed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack) + Send>>>,
-    track_subscription_failed:
-        Mutex<Option<Box<dyn Fn(RemoteParticipant, TrackSid, TrackError) + Send>>>,
+    track_published: Mutex<Option<TrackPublishedHandler>>,
+    track_unpublished: Mutex<Option<TrackUnpublishedHandler>>,
+    track_subscribed: Mutex<Option<TrackSubscribedHandler>>,
+    track_unsubscribed: Mutex<Option<TrackUnsubscribedHandler>>,
+    track_subscription_failed: Mutex<Option<TrackSubscriptionFailedHandler>>,
 }
 
 struct RemoteInfo {
@@ -62,6 +81,10 @@ impl RemoteParticipant {
         }
     }
 
+    pub(crate) fn internal_tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.inner.tracks.read().clone()
+    }
+
     pub(crate) async fn add_subscribed_media_track(
         &self,
         sid: TrackSid,
@@ -88,7 +111,7 @@ impl RemoteParticipant {
                 TrackKind::Audio => {
                     if let MediaStreamTrack::Audio(rtc_track) = media_track {
                         let audio_track = RemoteAudioTrack::new(
-                            remote_publication.sid().into(),
+                            remote_publication.sid(),
                             remote_publication.name(),
                             rtc_track,
                             receiver
@@ -101,7 +124,7 @@ impl RemoteParticipant {
                 TrackKind::Video => {
                     if let MediaStreamTrack::Video(rtc_track) = media_track {
                         let video_track = RemoteVideoTrack::new(
-                            remote_publication.sid().into(),
+                            remote_publication.sid(),
                             remote_publication.name(),
                             rtc_track,
                             receiver
@@ -118,7 +141,7 @@ impl RemoteParticipant {
             //track.set_muted(remote_publication.is_muted());
             track.update_info(proto::TrackInfo {
                 sid: remote_publication.sid().to_string(),
-                name: remote_publication.name().to_string(),
+                name: remote_publication.name(),
                 r#type: proto::TrackType::from(remote_publication.kind()) as i32,
                 source: proto::TrackSource::from(remote_publication.source()) as i32,
                 ..Default::default()
@@ -127,7 +150,7 @@ impl RemoteParticipant {
             self.add_publication(TrackPublication::Remote(remote_publication.clone()));
             track.enable();
 
-            remote_publication.set_track(Some(track.into())); // This will fire TrackSubscribed on the publication
+            remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the publication
         } else {
             log::error!("could not find published track with sid: {:?}", sid);
 
@@ -137,7 +160,7 @@ impl RemoteParticipant {
                 track_subscription_failed(
                     self.clone(),
                     sid.clone(),
-                    TrackError::TrackNotFound(sid.0),
+                    TrackError::TrackNotFound(sid),
                 );
             }
         }
@@ -154,7 +177,7 @@ impl RemoteParticipant {
             self.remove_publication(sid);
 
             if let Some(track_unpublished) = self.remote.events.track_unpublished.lock().as_ref() {
-                track_unpublished(self.clone(), publication.clone());
+                track_unpublished(self.clone(), publication);
             }
         }
     }
@@ -168,7 +191,8 @@ impl RemoteParticipant {
 
         let mut valid_tracks = HashSet::<TrackSid>::new();
         for track in info.tracks {
-            if let Some(publication) = self.get_track_publication(&track.sid.clone().into()) {
+            let track_sid = track.sid.clone().try_into().unwrap();
+            if let Some(publication) = self.get_track_publication(&track_sid) {
                 publication.update_info(track.clone());
             } else {
                 let publication = RemoteTrackPublication::new(track.clone(), None);
@@ -181,12 +205,12 @@ impl RemoteParticipant {
                 }
             }
 
-            valid_tracks.insert(track.sid.into());
+            valid_tracks.insert(track_sid);
         }
 
         // remove tracks that are no longer valid
         let tracks = self.inner.tracks.read().clone();
-        for (sid, _) in &tracks {
+        for sid in tracks.keys() {
             if valid_tracks.contains(sid) {
                 continue;
             }
@@ -260,18 +284,18 @@ impl RemoteParticipant {
 
         publication.on_subscription_update_needed({
             let rtc_engine = self.inner.rtc_engine.clone();
-            let psid = self.sid().0.clone();
-            move |publication| {
+            let psid = self.sid();
+            move |publication, subscribed| {
                 let rtc_engine = rtc_engine.clone();
                 let psid = psid.clone();
                 tokio::spawn(async move {
-                    let tsid = publication.sid().0.clone();
+                    let tsid: String = publication.sid().into();
                     let update_subscription = proto::UpdateSubscription {
                         track_sids: vec![tsid.clone()],
-                        subscribe: publication.is_subscribed(),
+                        subscribe: subscribed,
                         participant_tracks: vec![proto::ParticipantTracks {
-                            participant_sid: psid,
-                            track_sids: vec![tsid.clone()],
+                            participant_sid: psid.into(),
+                            track_sids: vec![tsid],
                         }],
                     };
 
@@ -314,7 +338,7 @@ impl RemoteParticipant {
                 panic!("expected remote publication");
             };
 
-            publication.on_subscription_update_needed(|_| {});
+            publication.on_subscription_update_needed(|_, _| {});
             publication.on_subscribed(|_, _| {});
             publication.on_unsubscribed(|_, _| {});
         }
@@ -349,8 +373,19 @@ impl RemoteParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
-        self.inner.tracks.read().clone()
+    pub fn tracks(&self) -> HashMap<TrackSid, RemoteTrackPublication> {
+        self.inner
+            .tracks
+            .read()
+            .clone()
+            .into_iter()
+            .map(|(sid, track)| {
+                if let TrackPublication::Remote(remote) = track {
+                    return (sid, remote);
+                }
+                unreachable!()
+            })
+            .collect()
     }
 
     pub fn audio_level(&self) -> f32 {

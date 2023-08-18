@@ -1,3 +1,17 @@
+# Copyright 2023 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 name: Builds
 
 on:
@@ -19,38 +33,52 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
+            #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
           - os: macos-latest
             target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-ios
+          - os: macos-latest
+            target: aarch64-apple-ios-sim
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          #- os: ubuntu-latest
-          # target: aarch64-unknown-linux-gnu
+          - os: buildjet-4vcpu-ubuntu-2204-arm
+            target: aarch64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+          - os: ubuntu-latest
+            target: x86_64-linux-android
+
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Install Rust toolchain
-        run: |
-          rustup update --no-self-update stable
-          rustup target add ${{ matrix.target }}
-
-      - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: |
-          sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
-
       - uses: actions/checkout@v3
         with:
           submodules: true
 
-      - name: Build
-        run: cargo build --workspace --release --verbose --target ${{ matrix.target }} ${{ matrix.extraargs }}
+      - name: Install linux dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm'}}
+        run: |
+          sudo apt update -y
+          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
 
-      - name: Build examples
-        working-directory: examples
-        run: cargo build --release --verbose --target ${{ matrix.target }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
 
+      - name: Build (Cargo)
+        if: ${{ !contains(matrix.target, 'android') }}
+        run: |
+          cargo build --release --workspace -p livekit --target ${{ matrix.target }}
+
+      - name: Build (Android)
+        if: ${{ contains(matrix.target, 'android') }}
+        run: |
+          cargo install cargo-ndk
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv

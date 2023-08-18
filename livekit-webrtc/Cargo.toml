@@ -1,24 +1,24 @@
 [package]
 name = "livekit-webrtc"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 homepage = "https://livekit.io"
 license = "Apache-2.0"
 description = "Livekit safe bindings to libwebrtc"
-repository = "https://github.com/livekit/client-sdk-rust" 
+repository = "https://github.com/livekit/client-sdk-rust"
 
 [dependencies]
-livekit-protocol = { path = "../livekit-protocol", version = "0.1.3" }
+livekit-protocol = { path = "../livekit-protocol", version = "0.2.0" }
 log = "0.4"
 thiserror = "1.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21.1"
+jni = "0.21"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-webrtc-sys = { path = "../webrtc-sys", version = "0.1.3" }
+webrtc-sys = { path = "../webrtc-sys", version = "0.2.0" }
 lazy_static = "1.4"
-parking_lot = { version = "0.12.1" }
+parking_lot = { version = "0.12" }
 futures = { version = "0.3" }
 tokio = { version = "1", features = ["full"] }
 cxx = "1.0"
@@ -26,8 +26,8 @@ cxx = "1.0"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 js-sys = "0.3"
-wasm-bindgen-futures = "0.4.34"
-web-sys = { version = "0.3", features=[
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
   "MessageEvent",
   "RtcPeerConnection",
   "RtcSignalingState",

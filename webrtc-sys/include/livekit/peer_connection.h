@@ -39,6 +39,8 @@ class NativePeerConnectionObserver;
 
 namespace livekit {
 
+webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
+    RtcConfiguration config);
 class PeerConnectionFactory;
 
 class PeerConnection {
@@ -49,6 +51,8 @@ class PeerConnection {
       rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   ~PeerConnection();
+
+  void set_configuration(RtcConfiguration config) const;
 
   void create_offer(
       RtcOfferAnswerOptions options,
@@ -87,6 +91,8 @@ class PeerConnection {
       const rust::Vec<rust::String>& stream_ids) const;
 
   void remove_track(std::shared_ptr<RtpSender> sender) const;
+
+  void restart_ice() const;
 
   std::shared_ptr<RtpTransceiver> add_transceiver(
       std::shared_ptr<MediaStreamTrack> track,

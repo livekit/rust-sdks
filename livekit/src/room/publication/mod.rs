@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::track::TrackDimension;
 use crate::prelude::*;
 use crate::track::Track;
@@ -46,6 +60,7 @@ impl TrackPublication {
 
         pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
         pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
+        pub(crate) fn proto_info(self: &Self) -> proto::TrackInfo;
         pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
 
@@ -59,7 +74,7 @@ impl TrackPublication {
 
     pub fn track(&self) -> Option<Track> {
         match self {
-            TrackPublication::Local(p) => Some(p.track().into()),
+            TrackPublication::Local(p) => p.track().map(Into::into),
             TrackPublication::Remote(p) => p.track().map(Into::into),
         }
     }
@@ -75,12 +90,16 @@ struct PublicationInfo {
     pub dimension: TrackDimension,
     pub mime_type: String,
     pub muted: bool,
+    pub proto_info: proto::TrackInfo,
 }
+
+pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
+pub(crate) type UnmutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
 
 #[derive(Default)]
 struct PublicationEvents {
-    muted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
-    unmuted: Mutex<Option<Box<dyn Fn(TrackPublication, Track) + Send>>>,
+    muted: Mutex<Option<MutedHandler>>,
+    unmuted: Mutex<Option<UnmutedHandler>>,
 }
 
 pub(super) struct TrackPublicationInner {
@@ -94,16 +113,11 @@ pub(super) fn new_inner(
 ) -> Arc<TrackPublicationInner> {
     let info = PublicationInfo {
         track,
+        proto_info: info.clone(),
+        source: info.source().try_into().unwrap(),
+        kind: info.r#type().try_into().unwrap(),
         name: info.name,
-        sid: info.sid.into(),
-        kind: proto::TrackType::from_i32(info.r#type)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        source: proto::TrackSource::from_i32(info.source)
-            .unwrap()
-            .try_into()
-            .unwrap(),
+        sid: info.sid.try_into().unwrap(),
         simulcasted: info.simulcast,
         dimension: TrackDimension(info.width, info.height),
         mime_type: info.mime_type,
@@ -122,12 +136,13 @@ pub(super) fn update_info(
     new_info: proto::TrackInfo,
 ) {
     let mut info = inner.info.write();
+    info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
+    info.source = TrackSource::from(new_info.source());
+    info.proto_info = new_info.clone();
     info.name = new_info.name;
-    info.sid = new_info.sid.into();
+    info.sid = new_info.sid.try_into().unwrap();
     info.dimension = TrackDimension(new_info.width, new_info.height);
     info.mime_type = new_info.mime_type;
-    info.kind = TrackKind::try_from(proto::TrackType::from_i32(new_info.r#type).unwrap()).unwrap();
-    info.source = TrackSource::from(proto::TrackSource::from_i32(new_info.source).unwrap());
     info.simulcasted = new_info.simulcast;
 }
 

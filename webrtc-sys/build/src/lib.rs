@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::{
     env,
     error::Error,
@@ -12,7 +26,7 @@ use regex::Regex;
 use reqwest::StatusCode;
 
 pub const SCRATH_PATH: &str = "livekit_webrtc";
-pub const WEBRTC_TAG: &str = "webrtc-4a9b827";
+pub const WEBRTC_TAG: &str = "webrtc-d5ec6fa";
 pub const IGNORE_DEFINES: [&str; 2] = ["CR_CLANG_REVISION", "CR_XCODE_VERSION"];
 
 pub fn target_os() -> String {
@@ -62,7 +76,7 @@ pub fn use_debug() -> bool {
 
 /// The location of the custom build is defined by the user
 pub fn custom_dir() -> Option<path::PathBuf> {
-    if let Some(path) = env::var("LK_CUSTOM_WEBRTC").ok() {
+    if let Ok(path) = env::var("LK_CUSTOM_WEBRTC") {
         return Some(path::PathBuf::from(path));
     }
     None
@@ -145,7 +159,6 @@ pub fn configure_jni_symbols() -> Result<(), Box<dyn Error>> {
     let content = String::from_utf8_lossy(&readelf_output.stdout);
     let jni_symbols: Vec<&str> = jni_regex
         .captures_iter(&content)
-        .into_iter()
         .map(|cap| cap.get(1).unwrap().as_str())
         .collect();
 
@@ -188,40 +201,95 @@ pub fn download_webrtc() -> Result<(), Box<dyn Error>> {
         return Err(format!("failed to download webrtc: {}", resp.status()).into());
     }
 
-    let tmp_dir = env::var("OUT_DIR").unwrap() + "/webrtc.zip";
-    let tmp_dir = path::Path::new(&tmp_dir);
-
-    {
-        let file = fs::File::create(&tmp_dir)?;
-        let mut writer = io::BufWriter::new(file);
-        io::copy(&mut resp, &mut writer)?;
-    }
-
-    let file = fs::File::open(&tmp_dir)?;
+    let tmp_path = env::var("OUT_DIR").unwrap() + "/webrtc.zip";
+    let tmp_path = path::Path::new(&tmp_path);
+    let mut file = fs::File::options()
+        .write(true)
+        .read(true)
+        .create(true)
+        .open(tmp_path)?;
+    resp.copy_to(&mut file)?;
 
     let mut archive = zip::ZipArchive::new(file)?;
-    archive.extract(&webrtc_dir.parent().unwrap())?;
+    archive.extract(webrtc_dir.parent().unwrap())?;
+    drop(archive);
 
+    fs::remove_file(tmp_path)?;
     Ok(())
 }
 
 pub fn android_ndk_toolchain() -> Result<path::PathBuf, &'static str> {
-    let ndk_env = env::var("ANDROID_NDK_HOME");
+    let host_os = host_os();
 
-    if ndk_env.is_err() {
-        return Err("ANDROID_NDK_HOME is not set, please set it to the path of your Android NDK");
-    }
+    let home = env::var("HOME");
+    let local = env::var("LOCALAPPDATA");
 
-    let android_ndk = path::PathBuf::from(ndk_env.unwrap());
-    let host_os = if cfg!(linux) {
-        "linux-x86_64"
-    } else if cfg!(target_os = "macos") {
-        "darwin-x86_64"
-    } else if cfg!(windows) {
-        "windows-x86_64"
+    let home = if host_os == Some("linux") {
+        path::PathBuf::from(home.unwrap())
+    } else if host_os == Some("darwin") {
+        path::PathBuf::from(home.unwrap()).join("Library")
+    } else if host_os == Some("windows") {
+        path::PathBuf::from(local.unwrap())
     } else {
         return Err("Unsupported host OS");
     };
 
-    Ok(android_ndk.join(format!("toolchains/llvm/prebuilt/{}", host_os)))
+    let ndk_dir = || -> Option<path::PathBuf> {
+        let ndk_env = env::var("ANDROID_NDK_HOME");
+        if let Ok(ndk_env) = ndk_env {
+            return Some(path::PathBuf::from(ndk_env));
+        }
+
+        let ndk_dir = home.join("Android/sdk/ndk");
+        if !ndk_dir.exists() {
+            return None;
+        }
+
+        // Find the highest version
+        let versions = fs::read_dir(ndk_dir.clone());
+        if versions.is_err() {
+            return None;
+        }
+
+        let version = versions
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter_map(|dir| dir.file_name().to_str().map(ToOwned::to_owned))
+            .filter_map(|dir| semver::Version::parse(&dir).ok())
+            .max_by(semver::Version::cmp);
+
+        version.as_ref()?;
+
+        let version = version.unwrap();
+        Some(ndk_dir.join(version.to_string()))
+    }();
+
+    if let Some(ndk_dir) = ndk_dir {
+        let llvm_dir = if host_os == Some("linux") {
+            "linux-x86_64"
+        } else if host_os == Some("darwin") {
+            "darwin-x86_64"
+        } else if host_os == Some("windows") {
+            "windows-x86_64"
+        } else {
+            return Err("Unsupported host OS");
+        };
+
+        Ok(ndk_dir.join(format!("toolchains/llvm/prebuilt/{}", llvm_dir)))
+    } else {
+        Err("Android NDK not found, please set ANDROID_NDK_HOME to your NDK path")
+    }
+}
+
+fn host_os() -> Option<&'static str> {
+    let host = env::var("HOST").unwrap();
+    if host.contains("darwin") {
+        Some("darwin")
+    } else if host.contains("linux") {
+        Some("linux")
+    } else if host.contains("windows") {
+        Some("windows")
+    } else {
+        None
+    }
 }

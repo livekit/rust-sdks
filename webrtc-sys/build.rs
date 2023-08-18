@@ -1,7 +1,20 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::env;
 use std::path;
 use std::process::Command;
-use webrtc_sys_build;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
@@ -86,7 +99,7 @@ fn main() {
     );
 
     for (key, value) in webrtc_sys_build::webrtc_defines() {
-        let value = value.as_ref().map(|v| v.as_str());
+        let value = value.as_deref();
         builder.define(key.as_str(), value);
     }
 
@@ -110,8 +123,9 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=gdi32");
             println!("cargo:rustc-link-lib=dylib=dxgi");
             println!("cargo:rustc-link-lib=dylib=dwmapi");
+            println!("cargo:rustc-link-lib=dylib=shcore");
 
-            builder.flag("/std:c++17").flag("/EHsc");
+            builder.flag("/std:c++20").flag("/EHsc");
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=Xext");
@@ -122,7 +136,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
-            builder.flag("-std=c++17");
+            builder.flag("-std=c++2a");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
@@ -145,7 +159,7 @@ fn main() {
             builder
                 .file("src/objc_video_factory.mm")
                 .flag("-stdlib=libc++")
-                .flag("-std=c++17");
+                .flag("-std=c++20");
         }
         "ios" => {
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
@@ -165,12 +179,12 @@ fn main() {
 
             configure_darwin_sysroot(&mut builder);
 
-            builder.file("src/objc_video_factory.mm").flag("-std=c++17");
+            builder.file("src/objc_video_factory.mm").flag("-std=c++20");
         }
         "android" => {
             webrtc_sys_build::configure_jni_symbols().unwrap();
 
-            println!("cargo:rustc-link-lib=egl");
+            println!("cargo:rustc-link-lib=EGL");
             println!("cargo:rustc-link-lib=c++abi");
             println!("cargo:rustc-link-lib=OpenSLES");
 
@@ -178,7 +192,7 @@ fn main() {
 
             builder
                 .file("src/android.cpp")
-                .flag("-std=c++17")
+                .flag("-std=c++20")
                 .cpp_link_stdlib("c++_static");
         }
         _ => {
@@ -253,10 +267,7 @@ fn configure_android_sysroot(builder: &mut cc::Build) {
     let toolchain_lib = toolchain.join("lib");
 
     let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
-    let sysroot_include = sysroot.join("usr/include");
-
     println!("cargo:rustc-link-search={}", toolchain_lib.display());
-    println!("cargo:rustc-link-search={}", sysroot_include.display());
 
     builder.flag(format!("-isysroot{}", sysroot.display()).as_str());
 }

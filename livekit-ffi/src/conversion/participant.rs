@@ -1,22 +1,29 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::proto;
-use livekit::prelude::*;
+use crate::server::room::FfiParticipant;
 
-macro_rules! impl_participant_into {
-    ($p:ty) => {
-        impl From<$p> for proto::ParticipantInfo {
-            fn from(p: $p) -> Self {
-                Self {
-                    name: p.name(),
-                    sid: p.sid().to_string(),
-                    identity: p.identity().to_string(),
-                    metadata: p.metadata(),
-                    publications: p.tracks().iter().map(|(_, p)| p.into()).collect(),
-                }
-            }
+impl proto::ParticipantInfo {
+    pub fn from(handle: proto::FfiOwnedHandle, ffi_participant: &FfiParticipant) -> Self {
+        let participant = &ffi_participant.participant;
+        Self {
+            handle: Some(handle),
+            sid: participant.sid().into(),
+            name: participant.name(),
+            identity: participant.identity().into(),
+            metadata: participant.metadata(),
         }
-    };
+    }
 }
-
-impl_participant_into!(&LocalParticipant);
-impl_participant_into!(&RemoteParticipant);
-impl_participant_into!(&Participant);

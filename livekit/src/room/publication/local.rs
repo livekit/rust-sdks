@@ -1,12 +1,34 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::TrackPublicationInner;
+use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use livekit_protocol as proto;
+use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+#[derive(Default)]
+struct LocalInfo {
+    publish_options: Mutex<TrackPublishOptions>,
+}
 
 #[derive(Clone)]
 pub struct LocalTrackPublication {
     inner: Arc<TrackPublicationInner>,
+    local: Arc<LocalInfo>,
 }
 
 impl Debug for LocalTrackPublication {
@@ -23,6 +45,7 @@ impl LocalTrackPublication {
     pub(crate) fn new(info: proto::TrackInfo, track: LocalTrack) -> Self {
         Self {
             inner: super::new_inner(info, Some(track.into())),
+            local: Arc::new(LocalInfo::default()),
         }
     }
 
@@ -38,17 +61,33 @@ impl LocalTrackPublication {
         super::set_track(&self.inner, &TrackPublication::Local(self.clone()), track);
     }
 
+    pub(crate) fn proto_info(&self) -> proto::TrackInfo {
+        self.inner.info.read().proto_info.clone()
+    }
+
     #[allow(dead_code)]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &TrackPublication::Local(self.clone()), info);
     }
 
+    pub(crate) fn update_publish_options(&self, opts: TrackPublishOptions) {
+        *self.local.publish_options.lock() = opts;
+    }
+
+    pub fn publish_options(&self) -> TrackPublishOptions {
+        self.local.publish_options.lock().clone()
+    }
+
     pub fn mute(&self) {
-        self.track().mute();
+        if let Some(track) = self.track() {
+            track.mute();
+        }
     }
 
     pub fn unmute(&self) {
-        self.track().unmute();
+        if let Some(track) = self.track() {
+            track.unmute();
+        }
     }
 
     pub fn sid(&self) -> TrackSid {
@@ -75,15 +114,13 @@ impl LocalTrackPublication {
         self.inner.info.read().dimension
     }
 
-    pub fn track(&self) -> LocalTrack {
+    pub fn track(&self) -> Option<LocalTrack> {
         self.inner
             .info
             .read()
             .track
             .clone()
-            .unwrap()
-            .try_into()
-            .unwrap()
+            .map(|track| track.try_into().unwrap())
     }
 
     pub fn mime_type(&self) -> String {

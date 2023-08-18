@@ -16,13 +16,18 @@
 
 #include "livekit/video_encoder_factory.h"
 
-#include "api/video_codecs/builtin_video_decoder_factory.h"
-#include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
+#include "api/video_codecs/video_encoder_factory_template.h"
+#include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
 #include "livekit/objc_video_factory.h"
 #include "media/base/media_constants.h"
+#include "media/engine/simulcast_encoder_adapter.h"
 #include "rtc_base/logging.h"
+
+#if defined(WEBRTC_USE_H264)
+#include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
+#endif
 
 #ifdef WEBRTC_ANDROID
 #include "livekit/android.h"
@@ -30,9 +35,15 @@
 
 namespace livekit {
 
-VideoEncoderFactory::VideoEncoderFactory() {
-  factories_.push_back(webrtc::CreateBuiltinVideoEncoderFactory());
+using Factory =
+    webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter
+#if defined(WEBRTC_USE_H264)
+                                        ,
+                                        webrtc::OpenH264EncoderTemplateAdapter
+#endif
+                                        >;
 
+VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef __APPLE__
   factories_.push_back(livekit::CreateObjCVideoEncoderFactory());
 #endif
@@ -44,9 +55,10 @@ VideoEncoderFactory::VideoEncoderFactory() {
   // TODO(theomonnom): Add other HW encoders here
 }
 
-std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
-    const {
-  std::vector<webrtc::SdpVideoFormat> formats;
+std::vector<webrtc::SdpVideoFormat>
+VideoEncoderFactory::InternalFactory::GetSupportedFormats() const {
+  std::vector<webrtc::SdpVideoFormat> formats = Factory().GetSupportedFormats();
+
   for (const auto& factory : factories_) {
     auto supported_formats = factory->GetSupportedFormats();
     formats.insert(formats.end(), supported_formats.begin(),
@@ -55,7 +67,19 @@ std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
   return formats;
 }
 
-std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::CreateVideoEncoder(
+VideoEncoderFactory::CodecSupport
+VideoEncoderFactory::InternalFactory::QueryCodecSupport(
+    const webrtc::SdpVideoFormat& format,
+    absl::optional<std::string> scalability_mode) const {
+  auto original_format =
+      webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
+  return original_format
+             ? Factory().QueryCodecSupport(*original_format, scalability_mode)
+             : webrtc::VideoEncoderFactory::CodecSupport{.is_supported = false};
+}
+
+std::unique_ptr<webrtc::VideoEncoder>
+VideoEncoderFactory::InternalFactory::CreateVideoEncoder(
     const webrtc::SdpVideoFormat& format) {
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
@@ -64,8 +88,41 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::CreateVideoEncoder(
     }
   }
 
+  auto original_format =
+      webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
+
+  if (original_format) {
+    return Factory().CreateVideoEncoder(*original_format);
+  }
+
   RTC_LOG(LS_ERROR) << "No VideoEncoder found for " << format.name;
   return nullptr;
+}
+
+VideoEncoderFactory::VideoEncoderFactory() {
+  internal_factory_ = std::make_unique<InternalFactory>();
+}
+
+std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
+    const {
+  return internal_factory_->GetSupportedFormats();
+}
+
+VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
+    const webrtc::SdpVideoFormat& format,
+    absl::optional<std::string> scalability_mode) const {
+  return internal_factory_->QueryCodecSupport(format, scalability_mode);
+}
+
+std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::CreateVideoEncoder(
+    const webrtc::SdpVideoFormat& format) {
+  std::unique_ptr<webrtc::VideoEncoder> encoder;
+  if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
+    encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
+        internal_factory_.get(), format);
+  }
+
+  return encoder;
 }
 
 }  // namespace livekit
