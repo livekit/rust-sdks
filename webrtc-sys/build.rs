@@ -85,6 +85,7 @@ fn main() {
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",
         "src/audio_resampler.cpp",
+        "src/frame_cryptor.cpp"
     ]);
 
     println!(
