@@ -1,27 +1,28 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 syntax = "proto3";
 
-package livekit;
+package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
-import "video_frame.proto";
-import "audio_frame.proto";
-
-message VideoCaptureOptions {
-  VideoResolution resolution = 1;
-}
-
-message AudioCaptureOptions {
-  bool echo_cancellation = 1;
-  bool noise_suppression = 2;
-  bool auto_gain_control = 3;
-}
 
 // Create a new VideoTrack from a VideoSource
 message CreateVideoTrackRequest {
   string name = 1;
-  VideoCaptureOptions options = 2;
-  FfiHandleId source_handle = 3;
+  uint64 source_handle = 2;
 }
 message CreateVideoTrackResponse {
   TrackInfo track = 1;
@@ -30,16 +31,15 @@ message CreateVideoTrackResponse {
 // Create a new AudioTrack from a AudioSource
 message CreateAudioTrackRequest {
   string name = 1;
-  AudioCaptureOptions options = 2;
-  FfiHandleId source_handle = 3;
+  uint64 source_handle = 2;
 }
 message CreateAudioTrackResponse {
   TrackInfo track = 1;
 }
 
-///
-/// Track
-///
+//
+// Track
+//
 
 message TrackEvent {}
 
@@ -63,24 +63,22 @@ enum StreamState {
   STATE_PAUSED = 2;
 }
 
-// TODO(theomonnom): Should we have a separate message whether the track is local or remote?
-
 message TrackPublicationInfo {
-  string sid = 1;
-  string name = 2;
-  TrackKind kind = 3;
-  TrackSource source = 4;
-  bool simulcasted = 5;
-  uint32 width = 6;
-  uint32 height = 7;
-  string mime_type = 8;
-  bool muted = 9;
-  bool remote = 10;
+  FfiOwnedHandle handle = 1;
+  string sid = 2;
+  string name = 3;
+  TrackKind kind = 4;
+  TrackSource source = 5;
+  bool simulcasted = 6;
+  uint32 width = 7;
+  uint32 height = 8;
+  string mime_type = 9;
+  bool muted = 10;
+  bool remote = 11;
 }
 
 message TrackInfo {
-  // Tracks created/owned by the client will have a handle
-  FfiHandleId opt_handle = 1;
+  FfiOwnedHandle handle = 1;
   string sid = 2;
   string name = 3;
   TrackKind kind = 4;

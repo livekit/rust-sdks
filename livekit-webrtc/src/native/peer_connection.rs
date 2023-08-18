@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::data_channel::DataChannel;
 use crate::data_channel::DataChannelInit;
 use crate::ice_candidate::IceCandidate;
@@ -17,11 +31,15 @@ use crate::peer_connection::{
     OnIceGatheringChange, OnNegotiationNeeded, OnSignalingChange, OnTrack, PeerConnectionState,
     SignalingState, TrackEvent,
 };
+use crate::peer_connection_factory::{
+    ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration,
+};
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::RtpTransceiver;
 use crate::rtp_transceiver::RtpTransceiverInit;
 use crate::MediaType;
+use crate::RtcErrorType;
 use crate::{session_description::SessionDescription, RtcError};
 use cxx::SharedPtr;
 use futures::channel::oneshot;
@@ -110,6 +128,50 @@ impl From<sys_pc::ffi::SignalingState> for SignalingState {
     }
 }
 
+impl From<IceServer> for sys_pc::ffi::IceServer {
+    fn from(value: IceServer) -> Self {
+        sys_pc::ffi::IceServer {
+            urls: value.urls,
+            username: value.username,
+            password: value.password,
+        }
+    }
+}
+
+impl From<ContinualGatheringPolicy> for sys_pc::ffi::ContinualGatheringPolicy {
+    fn from(value: ContinualGatheringPolicy) -> Self {
+        match value {
+            ContinualGatheringPolicy::GatherOnce => {
+                sys_pc::ffi::ContinualGatheringPolicy::GatherOnce
+            }
+            ContinualGatheringPolicy::GatherContinually => {
+                sys_pc::ffi::ContinualGatheringPolicy::GatherContinually
+            }
+        }
+    }
+}
+
+impl From<IceTransportsType> for sys_pc::ffi::IceTransportsType {
+    fn from(value: IceTransportsType) -> Self {
+        match value {
+            IceTransportsType::None => sys_pc::ffi::IceTransportsType::None,
+            IceTransportsType::Relay => sys_pc::ffi::IceTransportsType::Relay,
+            IceTransportsType::NoHost => sys_pc::ffi::IceTransportsType::NoHost,
+            IceTransportsType::All => sys_pc::ffi::IceTransportsType::All,
+        }
+    }
+}
+
+impl From<RtcConfiguration> for sys_pc::ffi::RtcConfiguration {
+    fn from(value: RtcConfiguration) -> Self {
+        Self {
+            ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
+            continual_gathering_policy: value.continual_gathering_policy.into(),
+            ice_transport_type: value.ice_transport_type.into(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PeerConnection {
     observer: Arc<PeerObserver>,
@@ -124,6 +186,15 @@ impl PeerConnection {
         Self {
             sys_handle,
             observer,
+        }
+    }
+
+    pub fn set_configuration(&self, config: RtcConfiguration) -> Result<(), RtcError> {
+        let res = self.sys_handle.set_configuration(config.into());
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
     }
 
@@ -155,9 +226,14 @@ impl PeerConnection {
             },
         );
 
+        let map_err = |_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "create_offer cancelled".to_owned(),
+        };
+
         futures::select! {
-            sdp = sdp_rx => Ok(sdp.unwrap()),
-            err = err_rx => Err(err.unwrap()),
+            sdp = sdp_rx => Ok(sdp.map_err(map_err)?),
+            err = err_rx => Err(err.map_err(map_err)?),
         }
     }
 
@@ -188,9 +264,15 @@ impl PeerConnection {
                 let _ = err_tx.send(error.into());
             },
         );
+
+        let map_err = |_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "create_answer cancelled".to_owned(),
+        };
+
         futures::select! {
-            sdp = sdp_rx => Ok(sdp.unwrap()),
-            err = err_rx => Err(err.unwrap()),
+            sdp = sdp_rx => Ok(sdp.map_err(map_err)?),
+            err = err_rx => Err(err.map_err(map_err)?),
         }
     }
 
@@ -212,7 +294,10 @@ impl PeerConnection {
                 }
             });
 
-        rx.await.unwrap()
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "set_local_description cancelled".to_owned(),
+        })?
     }
 
     pub async fn set_remote_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
@@ -233,7 +318,10 @@ impl PeerConnection {
                 }
             });
 
-        rx.await.unwrap()
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "set_remote_description cancelled".to_owned(),
+        })?
     }
 
     pub async fn add_ice_candidate(&self, candidate: IceCandidate) -> Result<(), RtcError> {
@@ -254,7 +342,10 @@ impl PeerConnection {
                 }
             });
 
-        rx.await.unwrap()
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "add_ice_candidate cancelled".to_owned(),
+        })?
     }
 
     pub fn create_data_channel(
@@ -326,6 +417,10 @@ impl PeerConnection {
             }),
             Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
+    }
+
+    pub fn restart_ice(&self) {
+        self.sys_handle.restart_ice();
     }
 
     pub fn close(&self) {

@@ -1,5 +1,6 @@
-use livekit::options::{AudioCaptureOptions, TrackPublishOptions};
+use livekit::options::TrackPublishOptions;
 use livekit::webrtc::audio_frame::AudioFrame;
+use livekit::webrtc::audio_source::RtcAudioSource;
 use livekit::{prelude::*, webrtc::audio_source::native::NativeAudioSource};
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,12 +55,7 @@ impl SineTrack {
         let (close_tx, close_rx) = oneshot::channel();
         let track = LocalAudioTrack::create_audio_track(
             "sine_wave",
-            AudioCaptureOptions {
-                auto_gain_control: false,
-                echo_cancellation: false,
-                noise_suppression: false,
-            },
-            self.rtc_source.clone(),
+            RtcAudioSource::Native(self.rtc_source.clone()),
         );
 
         let task = tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone()));
@@ -91,7 +87,7 @@ impl SineTrack {
             handle.task.await.ok();
             self.room
                 .local_participant()
-                .unpublish_track(handle.track.sid(), true)
+                .unpublish_track(&handle.track.sid())
                 .await?;
         }
 

@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 pub const DEFAULT_BITRATE_PRIORITY: f64 = 1.0;
 
 #[cxx::bridge(namespace = "livekit")]
@@ -61,18 +75,10 @@ pub mod ffi {
         pub clock_rate: i32,
         pub has_preferred_payload_type: bool,
         pub preferred_payload_type: i32,
-        pub has_max_ptime: bool,
-        pub max_ptime: i32,
-        pub has_ptime: bool,
-        pub ptime: i32,
         pub has_num_channels: bool,
         pub num_channels: i32,
         pub rtcp_feedback: Vec<RtcpFeedback>,
         pub parameters: Vec<StringKeyValue>,
-        pub options: Vec<StringKeyValue>,
-        pub max_temporal_layer_extensions: i32,
-        pub max_spatial_layer_extensions: i32,
-        pub svc_multi_stream_support: bool,
     }
 
     #[derive(Debug)]

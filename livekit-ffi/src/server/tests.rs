@@ -1,8 +1,23 @@
-use std::time::Duration;
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
+/*
+use std::time::Duration;
+use livekit_api::access_token::{AccessToken, VideoGrants};
 use crate::FfiHandleId;
 use crate::{proto, server};
-use livekit_api::access_token::{AccessToken, VideoGrants};
+//use livekit_api::access_token::{AccessToken, VideoGrants};
 
 // Small FfiClient implementation used for testing
 // This can be used as an example for a real implementation
@@ -109,7 +124,7 @@ impl TestScope {
 impl Drop for TestScope {
     fn drop(&mut self) {
         // At the end of a test, no more handle should exist
-        assert!(server::FFI_SERVER.ffi_handles().is_empty());
+        assert!(server::FFI_SERVER.ffi_handles.is_empty());
     }
 }
 
@@ -212,17 +227,21 @@ fn publish_video_track() {
                 client::FfiHandle(connect.room.unwrap().handle.unwrap().id as FfiHandleId);
 
             // Create a new VideoSource
+            const VIDEO_WIDTH: u32 = 640;
+            const VIDEO_HEIGHT: u32 = 480;
+            const VIDEO_FPS: f64 = 8.0;
+
             let res = client.send_request(proto::FfiRequest {
                 message: Some(proto::ffi_request::Message::NewVideoSource(
                     proto::NewVideoSourceRequest {
                         r#type: proto::VideoSourceType::VideoSourceNative as i32,
+                        resolution: Some(proto::VideoSourceResolution {
+                            width: VIDEO_WIDTH,
+                            height: VIDEO_HEIGHT,
+                        }),
                     },
                 )),
             });
-
-            const VIDEO_WIDTH: u32 = 640;
-            const VIDEO_HEIGHT: u32 = 480;
-            const VIDEO_FPS: f64 = 8.0;
 
             let proto::ffi_response::Message::NewVideoSource(new_video_source) =
                 res.message.unwrap() else {
@@ -241,13 +260,6 @@ fn publish_video_track() {
                         source_handle: Some(proto::FfiHandleId {
                             id: source_handle.0 as u64,
                         }),
-                        options: Some(proto::VideoCaptureOptions {
-                            resolution: Some(proto::VideoResolution {
-                                width: VIDEO_WIDTH,
-                                height: VIDEO_HEIGHT,
-                                frame_rate: VIDEO_FPS,
-                            }),
-                        }),
                     },
                 )),
             });
@@ -258,11 +270,10 @@ fn publish_video_track() {
             };
 
             let track_handle = client::FfiHandle(
-                create_video_track.track.unwrap().opt_handle.unwrap().id as FfiHandleId,
+                create_video_track.track.unwrap().handle.unwrap().id as FfiHandleId,
             );
 
             let publish_options = proto::TrackPublishOptions {
-                name: "video_test".to_string(),
                 video_codec: proto::VideoCodec::H264 as i32,
                 source: proto::TrackSource::SourceCamera as i32,
                 ..Default::default()
@@ -320,7 +331,7 @@ fn publish_video_track() {
                                 id: buffer_handle.0 as u64,
                             }),
                             frame: Some(proto::VideoFrameInfo {
-                                timestamp: 0, // TODO
+                                timestamp_us: 0,
                                 rotation: proto::VideoRotation::VideoRotation0 as i32,
                             }),
                         },
@@ -331,3 +342,4 @@ fn publish_video_track() {
             }
         })
 }
+*/

@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::video_frame::new_video_frame_buffer;
 use crate::video_frame::{BoxVideoFrame, VideoFrame};
 use crate::video_track::RtcVideoTrack;
@@ -67,7 +81,7 @@ impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         let _ = self.frame_tx.send(VideoFrame {
             rotation: frame.rotation().into(),
-            timestamp: frame.timestamp_us(),
+            timestamp_us: frame.timestamp_us(),
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         });
     }

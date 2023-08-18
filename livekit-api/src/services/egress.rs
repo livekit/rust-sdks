@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use crate::services::twirp_client::TwirpClient;
 use crate::{access_token::VideoGrants, get_env_keys};
@@ -35,7 +49,7 @@ pub enum EgressOutput {
 
 #[derive(Debug, Clone)]
 pub enum TrackEgressOutput {
-    File(proto::DirectFileOutput),
+    File(Box<proto::DirectFileOutput>),
     WebSocket(String),
 }
 
@@ -52,7 +66,7 @@ pub struct EgressListOptions {
     pub active: bool,
 }
 
-const SVC: &'static str = "Egress";
+const SVC: &str = "Egress";
 
 #[derive(Debug)]
 pub struct EgressClient {
@@ -128,7 +142,8 @@ impl EgressClient {
                     file_outputs,
                     stream_outputs,
                     segment_outputs,
-                    output: None, // Deprecated
+                    output: None,              // Deprecated
+                    await_start_signal: false, // TODO Expose
                 },
                 self.base.auth_header(VideoGrants {
                     room_record: true,
@@ -185,7 +200,7 @@ impl EgressClient {
                     room_name: room.to_string(),
                     output: match output {
                         TrackEgressOutput::File(f) => {
-                            Some(proto::track_egress_request::Output::File(f))
+                            Some(proto::track_egress_request::Output::File(*f))
                         }
                         TrackEgressOutput::WebSocket(url) => {
                             Some(proto::track_egress_request::Output::WebsocketUrl(url))

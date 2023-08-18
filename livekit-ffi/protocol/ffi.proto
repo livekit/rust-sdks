@@ -1,17 +1,56 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 syntax = "proto3";
 
-package livekit;
+package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
-import "handle.proto";
+// import "handle.proto";
 import "track.proto";
 import "room.proto";
-import "participant.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
 
-/// This is the input of livekit_ffi_request function
-/// We always expect a response (FFIResponse)
+// **How is the livekit-ffi working:
+// We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
+// refer as the ffi client the foreign language that commumicates with the ffi server. (e.g Python SDK, Unity SDK, etc...)
+//
+// We expose the Rust client implementation of livekit using the protocol defined here.
+// Everything starts with a FfiRequest, which is a oneof message that contains all the possible
+// requests that can be made to the ffi server.
+// The server will then respond with a FfiResponse, which is also a oneof message that contains
+// all the possible responses.
+// The first request sent to the server must be an InitializeRequest, which contains the a pointer
+// to the callback function that will be used to send events and async responses to the ffi client.
+// (e.g participant joined, track published, etc...)
+//
+// **Useful things know when collaborating on the protocol:**
+// Everything is subject to discussion and change :-)
+//
+// - The ffi client implementation must never forget to correctly dispose all the owned handles
+//   that it receives from the server.
+//
+// Therefore, the ffi client is easier to implement if there is less handles to manage.
+// 
+// - We are mainly using FfiHandle on info messages (e.g: RoomInfo, TrackInfo, etc...)
+//   For this reason, info are only sent once, at creation (We're not using them for updates, we can infer them from
+//   events on the client implementation).
+//   e.g: set speaking to true when we receive a ActiveSpeakerChanged event.
+
+// This is the input of livekit_ffi_request function
+// We always expect a response (FFIResponse, even if it's empty)
 message FfiRequest {
   oneof message {
     InitializeRequest initialize = 1;
@@ -22,30 +61,32 @@ message FfiRequest {
     DisconnectRequest disconnect = 4;
     PublishTrackRequest publish_track = 5;
     UnpublishTrackRequest unpublish_track = 6;
+    PublishDataRequest publish_data = 7;
+    SetSubscribedRequest set_subscribed = 8;
 
     // Track
-    CreateVideoTrackRequest create_video_track = 7;
-    CreateAudioTrackRequest create_audio_track = 8;
+    CreateVideoTrackRequest create_video_track = 9;
+    CreateAudioTrackRequest create_audio_track = 10;
 
     // Video
-    AllocVideoBufferRequest alloc_video_buffer = 9;
-    NewVideoStreamRequest new_video_stream = 10;
-    NewVideoSourceRequest new_video_source = 11;
-    CaptureVideoFrameRequest capture_video_frame = 12;
-    ToI420Request to_i420 = 13;
-    ToArgbRequest to_argb = 14;
+    AllocVideoBufferRequest alloc_video_buffer = 11;
+    NewVideoStreamRequest new_video_stream = 12;
+    NewVideoSourceRequest new_video_source = 13;
+    CaptureVideoFrameRequest capture_video_frame = 14;
+    ToI420Request to_i420 = 15;
+    ToArgbRequest to_argb = 16;
 
     // Audio
-    AllocAudioBufferRequest alloc_audio_buffer = 15;
-    NewAudioStreamRequest new_audio_stream = 16;
-    NewAudioSourceRequest new_audio_source = 17;
-    CaptureAudioFrameRequest capture_audio_frame = 18;
-    NewAudioResamplerRequest new_audio_resampler = 19;
-    RemixAndResampleRequest remix_and_resample = 20;
+    AllocAudioBufferRequest alloc_audio_buffer = 17;
+    NewAudioStreamRequest new_audio_stream = 18;
+    NewAudioSourceRequest new_audio_source = 19;
+    CaptureAudioFrameRequest capture_audio_frame = 20;
+    NewAudioResamplerRequest new_audio_resampler = 21;
+    RemixAndResampleRequest remix_and_resample = 22;
   }
 }
 
-/// This is the output of livekit_ffi_request function.
+// This is the output of livekit_ffi_request function.
 message FfiResponse {
   oneof message {
     InitializeResponse initialize = 1;
@@ -56,39 +97,46 @@ message FfiResponse {
     DisconnectResponse disconnect = 4;
     PublishTrackResponse publish_track = 5;
     UnpublishTrackResponse unpublish_track = 6;
+    PublishDataResponse publish_data = 7;
+    SetSubscribedResponse set_subscribed = 8;
 
     // Track
-    CreateVideoTrackResponse create_video_track = 7;
-    CreateAudioTrackResponse create_audio_track = 8;
+    CreateVideoTrackResponse create_video_track = 9;
+    CreateAudioTrackResponse create_audio_track = 10;
 
     // Video
-    AllocVideoBufferResponse alloc_video_buffer = 9;
-    NewVideoStreamResponse new_video_stream = 10;
-    NewVideoSourceResponse new_video_source = 11;
-    CaptureVideoFrameResponse capture_video_frame = 12;
-    ToI420Response to_i420 = 13;
-    ToArgbResponse to_argb = 14;
+    AllocVideoBufferResponse alloc_video_buffer = 11;
+    NewVideoStreamResponse new_video_stream = 12;
+    NewVideoSourceResponse new_video_source = 13;
+    CaptureVideoFrameResponse capture_video_frame = 14;
+    ToI420Response to_i420 = 15;
+    ToArgbResponse to_argb = 16;
 
     // Audio
-    AllocAudioBufferResponse alloc_audio_buffer = 15;
-    NewAudioStreamResponse new_audio_stream = 16;
-    NewAudioSourceResponse new_audio_source = 17;
-    CaptureAudioFrameResponse capture_audio_frame = 18;
-    NewAudioResamplerResponse new_audio_resampler = 19;
-    RemixAndResampleResponse remix_and_resample = 20;
+    AllocAudioBufferResponse alloc_audio_buffer = 17;
+    NewAudioStreamResponse new_audio_stream = 18;
+    NewAudioSourceResponse new_audio_source = 19;
+    CaptureAudioFrameResponse capture_audio_frame = 20;
+    NewAudioResamplerResponse new_audio_resampler = 21;
+    RemixAndResampleResponse remix_and_resample = 22;
   }
 }
 
+// To minimize complexity, participant events are not included in the protocol.
+// It is easily deducible from the room events and it turned out that is is easier to implement
+// on the ffi client side.
 message FfiEvent {
   oneof message {
     RoomEvent room_event = 1;
     TrackEvent track_event = 2;
-    ParticipantEvent participant_event = 3;
-    VideoStreamEvent video_stream_event = 4;
-    AudioStreamEvent audio_stream_event = 5;
-    ConnectCallback connect = 6;
+    VideoStreamEvent video_stream_event = 3;
+    AudioStreamEvent audio_stream_event = 4;
+    ConnectCallback connect = 5;
+    DisconnectCallback disconnect = 6;
     DisposeCallback dispose = 7;
     PublishTrackCallback publish_track = 8;
+    UnpublishTrackCallback unpublish_track = 9;
+    PublishDataCallback publish_data = 10;
   }
 }
 
@@ -99,16 +147,16 @@ message InitializeResponse {}
 
 // Stop all rooms synchronously (Do we need async here?).
 // e.g: This is used for the Unity Editor after each assemblies reload.
+// TODO(theomonnom): Implement a debug mode where we can find all leaked handles?
 message DisposeRequest {
   bool async = 1;
 }
-
 message DisposeResponse {
-  optional FfiAsyncId async_id = 1; // None if sync
+  optional uint64 async_id = 1; // None if sync
 }
 
 message DisposeCallback {
-  FfiAsyncId async_id = 1;
+  uint64 async_id = 1;
 }
 
 // TODO(theomonnom): Debug messages (Print handles, forward logs).

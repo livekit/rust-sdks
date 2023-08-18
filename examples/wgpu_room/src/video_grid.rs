@@ -15,9 +15,9 @@ impl State {
     }
 }
 
-pub const DEFAULT_VIDEO_SIZE: egui::Vec2 = egui::vec2(320.0, 180.0);
+pub const DEFAULT_VIDEO_SIZE: egui::Vec2 = egui::vec2(320.0 / 1.4, 180.0 / 1.4);
 pub const DEFAULT_MAX_COLUMNS: u32 = 4;
-pub const DEFAULT_SPACING: f32 = 16.0;
+pub const DEFAULT_SPACING: f32 = 8.0;
 
 pub struct VideoGrid {
     id: egui::Id,

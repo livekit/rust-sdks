@@ -1,7 +1,9 @@
 use image::ImageFormat;
 use image::RgbaImage;
-use livekit::options::{TrackPublishOptions, VideoCaptureOptions};
+use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
+use livekit::webrtc::video_source::RtcVideoSource;
+use livekit::webrtc::video_source::VideoResolution;
 use livekit::webrtc::{
     native::yuv_helper,
     video_frame::native::I420BufferExt,
@@ -45,7 +47,10 @@ pub struct LogoTrack {
 impl LogoTrack {
     pub fn new(room: Arc<Room>) -> Self {
         Self {
-            rtc_source: NativeVideoSource::default(),
+            rtc_source: NativeVideoSource::new(VideoResolution {
+                width: FB_WIDTH as u32,
+                height: FB_HEIGHT as u32,
+            }),
             room,
             handle: None,
         }
@@ -61,8 +66,7 @@ impl LogoTrack {
         let (close_tx, close_rx) = oneshot::channel();
         let track = LocalVideoTrack::create_video_track(
             "livekit_logo",
-            VideoCaptureOptions::default(),
-            self.rtc_source.clone(),
+            RtcVideoSource::Native(self.rtc_source.clone()),
         );
 
         let task = tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone()));
@@ -73,6 +77,7 @@ impl LogoTrack {
                 LocalTrack::Video(track.clone()),
                 TrackPublishOptions {
                     source: TrackSource::Camera,
+                    //simulcast: false,
                     ..Default::default()
                 },
             )
@@ -95,7 +100,7 @@ impl LogoTrack {
 
             self.room
                 .local_participant()
-                .unpublish_track(handle.track.sid(), true)
+                .unpublish_track(&handle.track.sid())
                 .await?;
         }
         Ok(())
@@ -118,7 +123,7 @@ impl LogoTrack {
             video_frame: Arc::new(Mutex::new(VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
                 buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
-                timestamp: 0,
+                timestamp_us: 0,
             })),
             pos: (0, 0),
             direction: (1, 1),

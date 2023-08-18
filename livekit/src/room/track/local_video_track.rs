@@ -1,23 +1,29 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::TrackInner;
+use crate::prelude::*;
 use crate::rtc_engine::lk_runtime::LkRuntime;
-use crate::{options::VideoCaptureOptions, prelude::*};
 use livekit_protocol as proto;
-use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 use livekit_webrtc::prelude::*;
-use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-
-#[derive(Debug)]
-struct LocalVideoTrackInner {
-    track_inner: TrackInner,
-    capture_options: Mutex<VideoCaptureOptions>,
-}
 
 #[derive(Clone)]
 pub struct LocalVideoTrack {
-    inner: Arc<LocalVideoTrackInner>,
+    inner: Arc<TrackInner>,
+    source: RtcVideoSource,
 }
 
 impl Debug for LocalVideoTrack {
@@ -31,119 +37,118 @@ impl Debug for LocalVideoTrack {
 }
 
 impl LocalVideoTrack {
-    pub fn new(
-        name: String,
-        rtc_track: RtcVideoTrack,
-        capture_options: VideoCaptureOptions,
-    ) -> Self {
+    pub fn new(name: String, rtc_track: RtcVideoTrack, source: RtcVideoSource) -> Self {
         Self {
-            inner: Arc::new(LocalVideoTrackInner {
-                track_inner: TrackInner::new(
-                    "unknown".to_string().into(), // sid
-                    name,
-                    TrackKind::Video,
-                    MediaStreamTrack::Video(rtc_track),
-                    None
-                ),
-                capture_options: Mutex::new(capture_options),
-            }),
+            // inner: Arc::new(LocalVideoTrackInner {
+            //     track_inner: TrackInner::new(
+            //         "unknown".to_string().into(), // sid
+            //         name,
+            //         TrackKind::Video,
+            //         MediaStreamTrack::Video(rtc_track),
+            //         None
+            //     ),
+            //     capture_options: Mutex::new(capture_options),
+            // }),
+
+            inner: Arc::new(super::new_inner(
+                "TR_unknown".to_owned().try_into().unwrap(),
+                name,
+                TrackKind::Video,
+                MediaStreamTrack::Video(rtc_track),
+                None
+            )),
+            source,
         }
     }
 
-    #[inline]
-    pub fn capture_options(&self) -> VideoCaptureOptions {
-        self.inner.capture_options.lock().clone()
+    pub fn create_video_track(name: &str, source: RtcVideoSource) -> LocalVideoTrack {
+        let rtc_track = match source.clone() {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcVideoSource::Native(native_source) => {
+                use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+                LkRuntime::instance().pc_factory().create_video_track(
+                    &livekit_webrtc::native::create_random_uuid(),
+                    native_source,
+                )
+            }
+            _ => panic!("unsupported video source"),
+        };
+
+        Self::new(name.to_string(), rtc_track, source)
     }
 
-    #[inline]
     pub fn sid(&self) -> TrackSid {
-        self.inner.track_inner.sid()
+        self.inner.info.read().sid.clone()
     }
 
-    #[inline]
     pub fn name(&self) -> String {
-        self.inner.track_inner.name()
+        self.inner.info.read().name.clone()
     }
 
-    #[inline]
     pub fn kind(&self) -> TrackKind {
-        self.inner.track_inner.kind()
+        self.inner.info.read().kind
     }
 
-    #[inline]
     pub fn source(&self) -> TrackSource {
-        self.inner.track_inner.source()
+        self.inner.info.read().source
     }
 
-    #[inline]
     pub fn stream_state(&self) -> StreamState {
-        self.inner.track_inner.stream_state()
+        self.inner.info.read().stream_state
     }
 
-    #[inline]
-    pub fn start(&self) {
-        self.inner.track_inner.start()
+    pub fn enable(&self) {
+        self.inner.rtc_track.set_enabled(true);
     }
 
-    #[inline]
-    pub fn stop(&self) {
-        self.inner.track_inner.stop()
+    pub fn disable(&self) {
+        self.inner.rtc_track.set_enabled(false);
     }
 
-    #[inline]
     pub fn is_muted(&self) -> bool {
-        self.inner.track_inner.is_muted()
+        self.inner.info.read().muted
     }
 
-    #[inline]
-    pub fn set_muted(&self, muted: bool) {
-        self.inner.track_inner.set_muted(muted)
+    pub fn mute(&self) {
+        super::set_muted(&self.inner, &Track::LocalVideo(self.clone()), true);
     }
 
-    #[inline]
+    pub fn unmute(&self) {
+        super::set_muted(&self.inner, &Track::LocalVideo(self.clone()), false);
+    }
+
     pub fn rtc_track(&self) -> RtcVideoTrack {
-        if let MediaStreamTrack::Video(video) = self.inner.track_inner.rtc_track() {
+        if let MediaStreamTrack::Video(video) = self.inner.rtc_track.clone() {
             return video;
         }
-        unreachable!()
+        unreachable!();
     }
 
-    #[inline]
-    pub fn register_observer(&self) -> mpsc::UnboundedReceiver<TrackEvent> {
-        self.inner.track_inner.register_observer()
-    }
-
-    #[inline]
     pub fn is_remote(&self) -> bool {
         false
     }
 
-    #[inline]
+    pub fn rtc_source(&self) -> RtcVideoSource {
+        self.source.clone()
+    }
+
+    pub fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
+        *self.inner.events.muted.lock() = Some(Box::new(f));
+    }
+
+    pub fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
+        *self.inner.events.unmuted.lock() = Some(Box::new(f));
+    }
+
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
-        self.inner.track_inner.transceiver()
+        self.inner.info.read().transceiver.clone()
     }
 
-    #[inline]
-    pub(crate) fn update_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        self.inner.track_inner.update_transceiver(transceiver)
+    pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
+        self.inner.info.write().transceiver = transceiver;
     }
 
-    #[inline]
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.track_inner.update_info(info)
-    }
-}
-
-impl LocalVideoTrack {
-    pub fn create_video_track(
-        name: &str,
-        options: VideoCaptureOptions,
-        source: livekit_webrtc::video_source::native::NativeVideoSource,
-    ) -> LocalVideoTrack {
-        let rtc_track = LkRuntime::instance()
-            .pc_factory()
-            .create_video_track(&livekit_webrtc::native::create_random_uuid(), source);
-
-        Self::new(name.to_string(), rtc_track, options)
+        super::update_info(&self.inner, &Track::LocalVideo(self.clone()), info);
     }
 }

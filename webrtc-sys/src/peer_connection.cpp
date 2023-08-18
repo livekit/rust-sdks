@@ -25,10 +25,37 @@
 #include "livekit/media_stream.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_transceiver.h"
+#include "rtc_base/logging.h"
 #include "webrtc-sys/src/peer_connection.rs.h"
 #include "webrtc-sys/src/rtc_error.rs.h"
 
 namespace livekit {
+
+webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
+    RtcConfiguration config) {
+  webrtc::PeerConnectionInterface::RTCConfiguration rtc_config{};
+
+  for (auto item : config.ice_servers) {
+    webrtc::PeerConnectionInterface::IceServer ice_server;
+    ice_server.username = item.username.c_str();
+    ice_server.password = item.password.c_str();
+
+    for (auto url : item.urls)
+      ice_server.urls.emplace_back(url.c_str());
+
+    rtc_config.servers.push_back(ice_server);
+  }
+
+  rtc_config.continual_gathering_policy =
+      static_cast<webrtc::PeerConnectionInterface::ContinualGatheringPolicy>(
+          config.continual_gathering_policy);
+
+  rtc_config.type =
+      static_cast<webrtc::PeerConnectionInterface::IceTransportsType>(
+          config.ice_transport_type);
+
+  return rtc_config;
+}
 
 inline webrtc::PeerConnectionInterface::RTCOfferAnswerOptions
 to_native_offer_answer_options(const RtcOfferAnswerOptions& options) {
@@ -50,7 +77,22 @@ PeerConnection::PeerConnection(
     rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
     : rtc_runtime_(rtc_runtime),
       observer_(std::move(observer)),
-      peer_connection_(std::move(peer_connection)) {}
+      peer_connection_(std::move(peer_connection)) {
+  RTC_LOG(LS_VERBOSE) << "PeerConnection::PeerConnection()";
+}
+
+PeerConnection::~PeerConnection() {
+  RTC_LOG(LS_VERBOSE) << "PeerConnection::~PeerConnection()";
+}
+
+void PeerConnection::set_configuration(RtcConfiguration config) const {
+  auto result =
+      peer_connection_->SetConfiguration(to_native_rtc_configuration(config));
+
+  if (!result.ok()) {
+    throw std::runtime_error(serialize_error(to_error(result)));
+  }
+}
 
 void PeerConnection::create_offer(
     RtcOfferAnswerOptions options,
@@ -100,6 +142,10 @@ void PeerConnection::set_remote_description(
                                                         on_complete);
 
   peer_connection_->SetRemoteDescription(desc->clone()->release(), observer);
+}
+
+void PeerConnection::restart_ice() const {
+  peer_connection_->RestartIce();
 }
 
 void PeerConnection::add_ice_candidate(

@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::prelude::*;
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
@@ -58,36 +72,6 @@ impl AudioPreset {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct AudioCaptureOptions {
-    pub echo_cancellation: bool,
-    pub noise_suppression: bool,
-    pub auto_gain_control: bool,
-}
-
-impl Default for AudioCaptureOptions {
-    fn default() -> Self {
-        Self {
-            echo_cancellation: true,
-            noise_suppression: true,
-            auto_gain_control: true,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct VideoCaptureOptions {
-    pub resolution: VideoResolution,
-}
-
-impl Default for VideoCaptureOptions {
-    fn default() -> Self {
-        Self {
-            resolution: video::H720.resolution(),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct TrackPublishOptions {
     // If the encodings aren't set, LiveKit will compute the most appropriate ones
@@ -97,7 +81,7 @@ pub struct TrackPublishOptions {
     pub dtx: bool,
     pub red: bool,
     pub simulcast: bool,
-    pub name: String,
+    // pub name: String,
     pub source: TrackSource,
 }
 
@@ -110,7 +94,6 @@ impl Default for TrackPublishOptions {
             dtx: true,
             red: true,
             simulcast: true,
-            name: "unnamed track".to_owned(),
             source: TrackSource::Unknown,
         }
     }
@@ -167,7 +150,9 @@ pub fn compute_video_encodings(
     let low_preset = simulcast_presets.pop();
 
     let size = u32::max(width, height);
+
     if size >= 960 && low_preset.is_some() {
+        #[allow(clippy::unnecessary_unwrap)]
         return into_rtp_encodings(
             width,
             height,
@@ -332,11 +317,11 @@ pub mod audio {
 pub mod video {
     use super::VideoPreset;
 
-    pub const H90: VideoPreset = VideoPreset::new(160, 90, 60_000, 15.0);
-    pub const H180: VideoPreset = VideoPreset::new(320, 180, 120_000, 15.0);
+    pub const H90: VideoPreset = VideoPreset::new(160, 90, 90_000, 15.0);
+    pub const H180: VideoPreset = VideoPreset::new(320, 180, 160_000, 15.0);
     pub const H216: VideoPreset = VideoPreset::new(384, 216, 180_000, 15.0);
-    pub const H360: VideoPreset = VideoPreset::new(640, 360, 300_000, 20.0);
-    pub const H540: VideoPreset = VideoPreset::new(960, 540, 600_000, 25.0);
+    pub const H360: VideoPreset = VideoPreset::new(640, 360, 450_000, 20.0);
+    pub const H540: VideoPreset = VideoPreset::new(960, 540, 800_000, 25.0);
     pub const H720: VideoPreset = VideoPreset::new(1280, 720, 1_700_000, 30.0);
     pub const H1080: VideoPreset = VideoPreset::new(1920, 1080, 3_000_000, 30.0);
     pub const H1440: VideoPreset = VideoPreset::new(2560, 1440, 5_000_000, 30.0);
@@ -387,7 +372,7 @@ pub mod screenshare {
             initial.height / SCALE_DOWN_FACTOR,
             u64::max(
                 150_000,
-                initial.encoding.max_bitrate as u64
+                initial.encoding.max_bitrate
                     / (SCALE_DOWN_FACTOR.pow(2) as u64
                         * (initial.encoding.max_framerate / FPS) as u64),
             ),

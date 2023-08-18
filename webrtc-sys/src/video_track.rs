@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::impl_thread_safety;
 use crate::video_frame::ffi::VideoFrame;
 use cxx::UniquePtr;
@@ -19,6 +33,12 @@ pub mod ffi {
         pub min_fps: f64,
         pub has_max_fps: bool,
         pub max_fps: f64,
+    }
+
+    #[derive(Debug)]
+    pub struct VideoResolution {
+        pub width: u32,
+        pub height: u32,
     }
 
     extern "C++" {
@@ -44,9 +64,9 @@ pub mod ffi {
         fn set_content_hint(self: &VideoTrack, hint: ContentHint);
         fn new_native_video_sink(observer: Box<VideoSinkWrapper>) -> SharedPtr<NativeVideoSink>;
 
+        fn video_resolution(self: &VideoTrackSource) -> VideoResolution;
         fn on_captured_frame(self: &VideoTrackSource, frame: &UniquePtr<VideoFrame>) -> bool;
-        fn new_video_track_source() -> SharedPtr<VideoTrackSource>;
-
+        fn new_video_track_source(resolution: &VideoResolution) -> SharedPtr<VideoTrackSource>;
         fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;
         fn _shared_video_track() -> SharedPtr<VideoTrack>;

@@ -17,11 +17,12 @@
 #pragma once
 
 #include "api/peer_connection_interface.h"
+#include "api/scoped_refptr.h"
+#include "livekit/audio_device.h"
 #include "media_stream.h"
 #include "peer_connection.h"
 #include "rtp_parameters.h"
 #include "rust/cxx.h"
-#include "webrtc-sys/src/peer_connection.rs.h"
 #include "webrtc.h"
 
 namespace livekit {
@@ -51,12 +52,13 @@ class PeerConnectionFactory {
       rust::String label,
       std::shared_ptr<AudioTrackSource> source) const;
 
-  RtpCapabilities get_rtp_sender_capabilities(MediaType type) const;
+  RtpCapabilities rtp_sender_capabilities(MediaType type) const;
 
-  RtpCapabilities get_rtp_receiver_capabilities(MediaType type) const;
+  RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
+  rtc::scoped_refptr<AudioDevice> audio_device_;
   rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
 };
 

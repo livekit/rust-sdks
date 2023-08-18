@@ -1,5 +1,22 @@
-name: FFI builds
-on: workflow_dispatch
+# Copyright 2023 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: FFI
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -11,72 +28,134 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            platform: windows
             dylib: livekit_ffi.dll
             target: x86_64-pc-windows-msvc
+            name: ffi-windows-x86_64
           - os: windows-latest
+            platform: windows
             dylib: livekit_ffi.dll
+            buildargs: --no-default-features --features "native-tls" # ring 0.16 is incompatible with win aarch64
             target: aarch64-pc-windows-msvc
+            name: ffi-windows-arm64
           - os: macos-latest
+            platform: macos
             dylib: liblivekit_ffi.dylib
             target: x86_64-apple-darwin
+            macosx_deployment_target: "10.11"
+            name: ffi-macos-x86_64
           - os: macos-latest
+            platform: macos
             dylib: liblivekit_ffi.dylib
             target: aarch64-apple-darwin
+            macosx_deployment_target: "11.0" # aarch64 requires 11
+            name: ffi-macos-arm64
+          - os: macos-latest
+            platform: ios
+            dylib: liblivekit_ffi.dylib
+            target: aarch64-apple-ios
+            iphoneos_deployment_target: "13.0"
+            name: ffi-ios-arm64
+          - os: macos-latest
+            platform: ios
+            dylib: liblivekit_ffi.dylib
+            target: aarch64-apple-ios-sim
+            iphoneos_deployment_target: "13.0"
+            name: ffi-ios-sim-arm64
           - os: ubuntu-latest
+            platform: linux
+            build_image: quay.io/pypa/manylinux2014_x86_64
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
+            name: ffi-linux-x86_64
+          - os: buildjet-4vcpu-ubuntu-2204-arm
+            platform: linux
+            build_image: quay.io/pypa/manylinux2014_aarch64
+            dylib: liblivekit_ffi.so
+            target: aarch64-unknown-linux-gnu
+            name: ffi-linux-arm64
+          - os: ubuntu-latest
+            platform: android
+            dylib: liblivekit_ffi.so
+            target: aarch64-linux-android
+            name: ffi-android-arm64
+          - os: ubuntu-latest
+            platform: android
+            dylib: liblivekit_ffi.so
+            target: armv7-linux-androideabi
+            name: ffi-android-armv7
+          - os: ubuntu-latest
+            platform: android
+            dylib: liblivekit_ffi.so
+            target: x86_64-linux-android
+            name: ffi-android-x86_64
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Setup vars
-        id: setup
-        run: |
-          echo "ZIP=liblivekit_ffi-${{ matrix.target }}.zip" >> "$GITHUB_OUTPUT"
-        shell: bash
-
-      - name: Info
-        run: |
-          echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Rust toolchain
-        run: |
-          rustup update --no-self-update stable
-          rustup target add ${{ matrix.target }}
-
-      - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: |
-          sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
-
       - uses: actions/checkout@v3
         with:
           submodules: true
 
-      - name: Build
-        run: cargo build -p livekit-ffi --release
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
 
+      - name: Build (macOS)
+        if: ${{ matrix.platform == 'macos' }}
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macosx_deployment_target }}
+        run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+
+      - name: Build (iOS)
+        if: ${{ matrix.platform == 'ios' }}
+        # TODO(theomonnom): Seems like this is causing issues with the linker (let’s ignore for now)
+        #env:
+        #  IPHONEOS_DEPLOYMENT_TARGET: ${{ matrix.iphoneos_deployment_target }}
+        run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+
+      - name: Build (Windows)
+        if: ${{ matrix.platform == 'windows' }}
+        run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+
+      # Use Docker on linux, so we can use manylinux images (ensure maximum mcompatibility)
+      - name: Build (Linux)
+        if: ${{ matrix.platform == 'linux' }}
+        run: |
+          docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
+            uname -a; \
+            export PATH=/root/.cargo/bin:\$PATH; \
+            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel -y; \
+            curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
+            cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
+
+      # on android use cargo ndk
+      - name: Build (Android)
+        if: ${{ matrix.platform == 'android' }}
+        run: |
+          cd livekit-ffi/
+          cargo install cargo-ndk
+          cargo ndk --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
+
+      # zip the files
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
+        # using sudo because the above container (manylinux) runs as root
         run: |
-          cd target/release/
-          zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ matrix.dylib }}
+          sudo cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
+          cd target/${{ matrix.target }}/release/
+          zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h
 
       - name: Zip artifact (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          cd target/release/
-          Compress-Archive -Path ${{ matrix.dylib }} -DestinationPath  ${{ github.workspace }}\${{ steps.setup.outputs.ZIP }}
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
+          cd target/${{ matrix.target }}/release/
+          Get-ChildItem -Path ${{ matrix.dylib }}, livekit_ffi.h | Compress-Archive -DestinationPath ${{ github.workspace }}\${{ matrix.name }}.zip
 
-      # doublezip here but I don't think there is an alternative
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ steps.setup.outputs.ZIP }}
-          path: ${{ steps.setup.outputs.ZIP }}
+          name: ${{ matrix.name }}.zip
+          path: ${{ matrix.name }}.zip

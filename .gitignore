@@ -2,3 +2,5 @@ target
 /.idea
 /libwebrtc
 /webrtc-sys/libwebrtc
+/webrtc-sys/__MACOSX
+/webrtc-sys/webrtc-linux-x64-release

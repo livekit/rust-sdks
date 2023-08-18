@@ -42,12 +42,6 @@ webrtc::RtpCodecCapability to_native_rtp_codec_capability(
   if (capability.has_preferred_payload_type)
     native.preferred_payload_type = capability.preferred_payload_type;
 
-  if (capability.has_max_ptime)
-    native.max_ptime = capability.max_ptime;
-
-  if (capability.has_ptime)
-    native.ptime = capability.ptime;
-
   if (capability.has_num_channels)
     native.num_channels = capability.num_channels;
 
@@ -56,14 +50,6 @@ webrtc::RtpCodecCapability to_native_rtp_codec_capability(
 
   for (auto pair : capability.parameters)
     native.parameters.insert(std::pair(pair.key, pair.value));
-
-  for (auto pair : capability.options)
-    native.options.insert(std::pair(pair.key, pair.value));
-
-  native.max_temporal_layer_extensions =
-      capability.max_temporal_layer_extensions;
-  native.max_spatial_layer_extensions = capability.max_spatial_layer_extensions;
-  native.svc_multi_stream_support = capability.svc_multi_stream_support;
 
   return native;
 }
@@ -159,12 +145,6 @@ webrtc::RtpCodecParameters to_native_rtp_codec_parameters(
   if (params.has_num_channels)
     native.num_channels = params.num_channels;
 
-  if (params.has_ptime)
-    native.ptime = params.ptime;
-
-  if (params.has_max_ptime)
-    native.max_ptime = params.max_ptime;
-
   if (params.has_clock_rate)
     native.clock_rate = params.clock_rate;
 
@@ -250,16 +230,6 @@ RtpCodecCapability to_rust_rtp_codec_capability(
     rust.preferred_payload_type = capability.preferred_payload_type.value();
   }
 
-  if (capability.max_ptime.has_value()) {
-    rust.has_max_ptime = true;
-    rust.max_ptime = capability.max_ptime.value();
-  }
-
-  if (capability.ptime.has_value()) {
-    rust.has_ptime = true;
-    rust.ptime = capability.ptime.value();
-  }
-
   if (capability.num_channels) {
     rust.has_num_channels = true;
     rust.num_channels = capability.num_channels.value();
@@ -271,12 +241,6 @@ RtpCodecCapability to_rust_rtp_codec_capability(
   for (auto param : capability.parameters)
     rust.parameters.push_back(StringKeyValue{param.first, param.second});
 
-  for (auto option : capability.options)
-    rust.options.push_back(StringKeyValue{option.first, option.second});
-
-  rust.max_temporal_layer_extensions = capability.max_temporal_layer_extensions;
-  rust.max_spatial_layer_extensions = capability.max_spatial_layer_extensions;
-  rust.svc_multi_stream_support = capability.svc_multi_stream_support;
   return rust;
 }
 
@@ -383,16 +347,6 @@ RtpCodecParameters to_rust_rtp_codec_parameters(
   if (params.num_channels.has_value()) {
     rust.has_num_channels = true;
     rust.num_channels = params.num_channels.value();
-  }
-
-  if (params.max_ptime.has_value()) {
-    rust.has_max_ptime = true;
-    rust.max_ptime = params.max_ptime.value();
-  }
-
-  if (params.ptime.has_value()) {
-    rust.has_ptime = true;
-    rust.ptime = params.ptime.value();
   }
 
   for (auto feedback : params.rtcp_feedback)

@@ -1,8 +1,42 @@
-use crate::audio_frame::AudioFrame;
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions};
 use cxx::SharedPtr;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use webrtc_sys::audio_track as sys_at;
+
+impl From<sys_at::ffi::AudioSourceOptions> for AudioSourceOptions {
+    fn from(options: sys_at::ffi::AudioSourceOptions) -> Self {
+        Self {
+            echo_cancellation: options.echo_cancellation,
+            noise_suppression: options.noise_suppression,
+            auto_gain_control: options.auto_gain_control,
+        }
+    }
+}
+
+impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
+    fn from(options: AudioSourceOptions) -> Self {
+        Self {
+            echo_cancellation: options.echo_cancellation,
+            noise_suppression: options.noise_suppression,
+            auto_gain_control: options.auto_gain_control,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct NativeAudioSource {
@@ -18,18 +52,25 @@ struct AudioSourceInner {
     num_channels: u32,
 }
 
-impl Default for NativeAudioSource {
-    fn default() -> Self {
+impl NativeAudioSource {
+    pub fn new(options: AudioSourceOptions) -> NativeAudioSource {
         Self {
-            sys_handle: sys_at::ffi::new_audio_track_source(),
+            sys_handle: sys_at::ffi::new_audio_track_source(options.into()),
             inner: Default::default(),
         }
     }
-}
 
-impl NativeAudioSource {
     pub fn sys_handle(&self) -> SharedPtr<sys_at::ffi::AudioTrackSource> {
         self.sys_handle.clone()
+    }
+
+    pub fn set_audio_options(&self, options: AudioSourceOptions) {
+        self.sys_handle
+            .set_audio_options(&sys_at::ffi::AudioSourceOptions::from(options))
+    }
+
+    pub fn audio_options(&self) -> AudioSourceOptions {
+        self.sys_handle.audio_options().into()
     }
 
     pub fn capture_frame(&self, frame: &AudioFrame) {

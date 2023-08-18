@@ -1,16 +1,49 @@
 [package]
 name = "livekit-api"
-version = "0.1.0"
+version = "0.2.0"
+license = "Apache-2.0"
+description = "Rust Server SDK for LiveKit"
 edition = "2021"
+repository = "https://github.com/livekit/client-sdk-rust" 
+
+[features]
+# By default ws TLS is not enabled
+default = ["services", "access-token", "webhooks"]
+
+signal-client = ["dep:tokio-tungstenite", "dep:tokio", "dep:futures-util", "dep:reqwest"]
+services = ["dep:reqwest"]
+access-token = ["dep:jsonwebtoken"]
+webhooks = ["access-token", "dep:serde_json", "dep:base64"]
+
+# Note that the following features only change the behavior of tokio-tungstenite.
+# It doesn't change the behavior of libwebrtc/webrtc-sys
+native-tls = ["tokio-tungstenite?/native-tls", "reqwest?/native-tls"]
+native-tls-vendored = ["tokio-tungstenite?/native-tls-vendored", "reqwest?/native-tls-vendored"]
+rustls-tls-native-roots = ["tokio-tungstenite?/rustls-tls-native-roots", "reqwest?/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["tokio-tungstenite?/rustls-tls-webpki-roots", "reqwest?/rustls-tls-webpki-roots"]
+__rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
 [dependencies]
-jsonwebtoken = {version = "8", default-features = false }
+livekit-protocol = { path = "../livekit-protocol", version = "0.2.0" }
 thiserror = "1.0"
-serde = {version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-livekit-protocol = { path = "../livekit-protocol", version = "0.1.0" }
-sha2 = "0.10.6"
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls"] }
-rustls = "0.21.1"
-url = "2.3.1"
-prost = "0.11.9"
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+url = "2.3"
+log = "0.4"
+parking_lot = { version = "0.12" }
+prost = "0.11"
+
+# webhooks
+serde_json = { version = "1.0", optional = true }
+base64 = { version = "0.21", optional = true }
+
+# access_token & services
+jsonwebtoken = { version = "8", default-features = false, optional = true }
+
+# signal_client
+tokio-tungstenite = { version = "0.20", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink"], optional = true }
+
+reqwest = { version = "0.11", default-features = false, features = ["json"], optional = true }
+scopeguard = "1.2.0"

@@ -1,9 +1,23 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::peer_transport::PeerTransport;
 use crate::rtc_engine::peer_transport::OnOfferCreated;
 use livekit_protocol as proto;
 use livekit_webrtc::{self as rtc, prelude::*};
+use log::error;
 use tokio::sync::mpsc;
-use tracing::{error};
 
 pub type RtcEmitter = mpsc::UnboundedSender<RtcEvent>;
 pub type RtcEvents = mpsc::UnboundedReceiver<RtcEvent>;
@@ -133,7 +147,7 @@ pub fn forward_pc_events(transport: &mut PeerTransport, rtc_emitter: RtcEmitter)
             rtc_emitter.clone(),
         )));
 
-    transport.on_offer(Some(on_offer(signal_target, rtc_emitter.clone())));
+    transport.on_offer(Some(on_offer(signal_target, rtc_emitter)));
 }
 
 fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
@@ -146,5 +160,5 @@ fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
 }
 
 pub fn forward_dc_events(dc: &mut DataChannel, rtc_emitter: RtcEmitter) {
-    dc.on_message(Some(on_message(rtc_emitter.clone())));
+    dc.on_message(Some(on_message(rtc_emitter)));
 }

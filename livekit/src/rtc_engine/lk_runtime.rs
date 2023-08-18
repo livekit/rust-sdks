@@ -1,9 +1,22 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use lazy_static::lazy_static;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Weak};
-use tracing::trace;
 
 lazy_static! {
     static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
@@ -25,7 +38,7 @@ impl LkRuntime {
         if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
             lk_runtime
         } else {
-            trace!("LkRuntime::new()");
+            log::trace!("LkRuntime::new()");
             let new_runtime = Arc::new(Self {
                 pc_factory: PeerConnectionFactory::default(),
             });
@@ -41,6 +54,6 @@ impl LkRuntime {
 
 impl Drop for LkRuntime {
     fn drop(&mut self) {
-        trace!("LkRuntime::drop()");
+        log::trace!("LkRuntime::drop()");
     }
 }

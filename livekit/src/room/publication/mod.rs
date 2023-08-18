@@ -1,140 +1,42 @@
-use super::track::{TrackDimension, TrackEvent};
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use super::track::TrackDimension;
 use crate::prelude::*;
 use crate::track::Track;
-use futures_util::stream::StreamExt;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use livekit_protocol::observer::Dispatcher;
-use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
-use tokio::sync::Notify;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 mod local;
-pub use local::*;
-
 mod remote;
+
+pub use local::*;
 pub use remote::*;
 
-#[derive(Debug)]
-pub(crate) struct TrackPublicationInner {
-    track: Mutex<Option<Track>>,
-    name: Mutex<String>,
-    sid: Mutex<TrackSid>,
-    kind: AtomicU8,   // Casted to TrackKind
-    source: AtomicU8, // Casted to TrackSource
-    simulcasted: AtomicBool,
-    dimension: Mutex<TrackDimension>,
-    mime_type: Mutex<String>,
-    muted: AtomicBool,
-    dispatcher: Dispatcher<TrackEvent>,
-    close_notifier: Arc<Notify>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionStatus {
+    Desired,
+    Subscribed,
+    Unsubscribed,
 }
 
-impl TrackPublicationInner {
-    pub fn new(info: proto::TrackInfo, track: Option<Track>) -> Self {
-        Self {
-            track: Mutex::new(track),
-            name: Mutex::new(info.name),
-            sid: Mutex::new(info.sid.into()),
-            kind: AtomicU8::new(
-                TrackKind::try_from(proto::TrackType::from_i32(info.r#type).unwrap()).unwrap()
-                    as u8,
-            ),
-            source: AtomicU8::new(TrackSource::from(
-                proto::TrackSource::from_i32(info.source).unwrap(),
-            ) as u8),
-            simulcasted: AtomicBool::new(info.simulcast),
-            dimension: Mutex::new(TrackDimension(info.width, info.height)),
-            mime_type: Mutex::new(info.mime_type),
-            muted: AtomicBool::new(info.muted),
-            dispatcher: Default::default(),
-            close_notifier: Default::default(),
-        }
-    }
-
-    pub fn update_track(&self, track: Option<Track>) {
-        let mut old_track = self.track.lock();
-        *old_track = track.clone();
-
-        self.close_notifier.notify_waiters();
-
-        if let Some(track) = track.as_ref() {
-            let track_stream = UnboundedReceiverStream::new(track.register_observer());
-            tokio::spawn({
-                let dispatcher = self.dispatcher.clone();
-                let notifier = self.close_notifier.clone();
-
-                async move {
-                    let notified = notifier.notified();
-                    futures_util::pin_mut!(notified);
-                    futures_util::future::select(
-                        track_stream.map(Ok).forward(dispatcher),
-                        notified,
-                    )
-                    .await;
-                }
-            });
-        }
-    }
-
-    pub fn update_info(&self, info: proto::TrackInfo) {
-        *self.name.lock() = info.name;
-        *self.sid.lock() = info.sid.into();
-        *self.dimension.lock() = TrackDimension(info.width, info.height);
-        *self.mime_type.lock() = info.mime_type;
-        self.kind.store(
-            TrackKind::try_from(proto::TrackType::from_i32(info.r#type).unwrap()).unwrap() as u8,
-            Ordering::SeqCst,
-        );
-        self.source.store(
-            TrackSource::from(proto::TrackSource::from_i32(info.source).unwrap()) as u8,
-            Ordering::SeqCst,
-        );
-        self.simulcasted.store(info.simulcast, Ordering::SeqCst);
-        self.muted.store(info.muted, Ordering::SeqCst);
-
-        if let Some(track) = self.track.lock().as_ref() {
-            track.set_muted(info.muted);
-        }
-    }
-
-    pub fn sid(&self) -> TrackSid {
-        self.sid.lock().clone()
-    }
-
-    pub fn name(&self) -> String {
-        self.name.lock().clone()
-    }
-
-    pub fn kind(&self) -> TrackKind {
-        self.kind.load(Ordering::SeqCst).try_into().unwrap()
-    }
-
-    pub fn source(&self) -> TrackSource {
-        self.source.load(Ordering::SeqCst).into()
-    }
-
-    pub fn simulcasted(&self) -> bool {
-        self.simulcasted.load(Ordering::Relaxed)
-    }
-
-    pub fn dimension(&self) -> TrackDimension {
-        self.dimension.lock().clone()
-    }
-
-    pub fn mime_type(&self) -> String {
-        self.mime_type.lock().clone()
-    }
-
-    pub fn track(&self) -> Option<Track> {
-        self.track.lock().clone()
-    }
-
-    pub fn is_muted(&self) -> bool {
-        self.muted.load(Ordering::Relaxed)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionStatus {
+    Allowed,
+    NotAllowed,
 }
 
 #[derive(Clone, Debug)]
@@ -155,12 +57,129 @@ impl TrackPublication {
         pub fn mime_type(self: &Self) -> String;
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
+
+        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
+        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
+        pub(crate) fn proto_info(self: &Self) -> proto::TrackInfo;
+        pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
+
+    #[allow(dead_code)]
+    pub(crate) fn set_track(&self, track: Option<Track>) {
+        match self {
+            TrackPublication::Local(p) => p.set_track(track),
+            TrackPublication::Remote(p) => p.set_track(track.map(|t| t.try_into().unwrap())),
+        }
+    }
 
     pub fn track(&self) -> Option<Track> {
         match self {
             TrackPublication::Local(p) => p.track().map(Into::into),
             TrackPublication::Remote(p) => p.track().map(Into::into),
         }
+    }
+}
+
+struct PublicationInfo {
+    pub track: Option<Track>,
+    pub name: String,
+    pub sid: TrackSid,
+    pub kind: TrackKind,
+    pub source: TrackSource,
+    pub simulcasted: bool,
+    pub dimension: TrackDimension,
+    pub mime_type: String,
+    pub muted: bool,
+    pub proto_info: proto::TrackInfo,
+}
+
+pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
+pub(crate) type UnmutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
+
+#[derive(Default)]
+struct PublicationEvents {
+    muted: Mutex<Option<MutedHandler>>,
+    unmuted: Mutex<Option<UnmutedHandler>>,
+}
+
+pub(super) struct TrackPublicationInner {
+    info: RwLock<PublicationInfo>,
+    events: Arc<PublicationEvents>,
+}
+
+pub(super) fn new_inner(
+    info: proto::TrackInfo,
+    track: Option<Track>,
+) -> Arc<TrackPublicationInner> {
+    let info = PublicationInfo {
+        track,
+        proto_info: info.clone(),
+        source: info.source().try_into().unwrap(),
+        kind: info.r#type().try_into().unwrap(),
+        name: info.name,
+        sid: info.sid.try_into().unwrap(),
+        simulcasted: info.simulcast,
+        dimension: TrackDimension(info.width, info.height),
+        mime_type: info.mime_type,
+        muted: info.muted,
+    };
+
+    Arc::new(TrackPublicationInner {
+        info: RwLock::new(info),
+        events: Default::default(),
+    })
+}
+
+pub(super) fn update_info(
+    inner: &TrackPublicationInner,
+    _publication: &TrackPublication,
+    new_info: proto::TrackInfo,
+) {
+    let mut info = inner.info.write();
+    info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
+    info.source = TrackSource::from(new_info.source());
+    info.proto_info = new_info.clone();
+    info.name = new_info.name;
+    info.sid = new_info.sid.try_into().unwrap();
+    info.dimension = TrackDimension(new_info.width, new_info.height);
+    info.mime_type = new_info.mime_type;
+    info.simulcasted = new_info.simulcast;
+}
+
+pub(super) fn set_track(
+    inner: &TrackPublicationInner,
+    publication: &TrackPublication,
+    track: Option<Track>,
+) {
+    let mut info = inner.info.write();
+    if let Some(prev_track) = info.track.as_ref() {
+        prev_track.on_muted(|_| {});
+        prev_track.on_unmuted(|_| {});
+    }
+
+    info.track = track.clone();
+
+    if let Some(track) = track.as_ref() {
+        info.sid = track.sid();
+
+        track.on_muted({
+            let events = inner.events.clone();
+            let publication = publication.clone();
+            move |track| {
+                if let Some(on_muted) = events.muted.lock().as_ref() {
+                    on_muted(publication.clone(), track);
+                }
+            }
+        });
+
+        track.on_unmuted({
+            let events = inner.events.clone();
+            let publication = publication.clone();
+            move |track| {
+                if let Some(on_unmuted) = events.unmuted.lock().as_ref() {
+                    on_unmuted(publication.clone(), track);
+                }
+            }
+        });
     }
 }

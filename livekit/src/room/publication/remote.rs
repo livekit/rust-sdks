@@ -1,78 +1,308 @@
-use super::TrackPublicationInner;
-use crate::id::TrackSid;
-use crate::track::{RemoteTrack, Track, TrackDimension, TrackKind, TrackSource};
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
+use crate::prelude::*;
 use livekit_protocol as proto;
+use parking_lot::{Mutex, RwLock};
+use std::fmt::Debug;
 use std::sync::Arc;
 
-#[derive(Clone, Debug)]
+type SubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
+type UnsubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
+type SubscriptionStatusChangedHandler =
+    Box<dyn Fn(RemoteTrackPublication, SubscriptionStatus, SubscriptionStatus) + Send>; // old_status, new_status
+type PermissionStatusChangedHandler =
+    Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>; // old_status, new_status
+type SubscriptionUpdateNeededHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
+
+#[derive(Default)]
+struct RemoteEvents {
+    subscribed: Mutex<Option<SubscribedHandler>>,
+    unsubscribed: Mutex<Option<UnsubscribedHandler>>,
+    subscription_status_changed: Mutex<Option<SubscriptionStatusChangedHandler>>,
+    permission_status_changed: Mutex<Option<PermissionStatusChangedHandler>>,
+    subscription_update_needed: Mutex<Option<SubscriptionUpdateNeededHandler>>,
+}
+
+#[derive(Debug)]
+struct RemoteInfo {
+    subscribed: bool,
+    allowed: bool,
+}
+
+struct RemoteInner {
+    info: RwLock<RemoteInfo>,
+    events: RemoteEvents,
+}
+
+#[derive(Clone)]
 pub struct RemoteTrackPublication {
     inner: Arc<TrackPublicationInner>,
+    remote: Arc<RemoteInner>,
+}
+
+impl Debug for RemoteTrackPublication {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteTrackPublication")
+            .field("is_subscribed", &self.is_subscribed())
+            .field("is_allowed", &self.is_allowed())
+            .finish()
+    }
 }
 
 impl RemoteTrackPublication {
     pub(crate) fn new(info: proto::TrackInfo, track: Option<RemoteTrack>) -> Self {
         Self {
-            inner: Arc::new(TrackPublicationInner::new(info, track.map(Into::into))),
+            inner: super::new_inner(info, track.map(Into::into)),
+            remote: Arc::new(RemoteInner {
+                info: RwLock::new(RemoteInfo {
+                    subscribed: false,
+                    allowed: true,
+                }),
+                events: Default::default(),
+            }),
         }
     }
 
-    #[inline]
+    /// This is called by the RemoteParticipant when it successfully subscribe to the track or when
+    /// the track is being unsubscribed.
+    /// We register the mute events from the track here so we can forward them.
+    pub(crate) fn set_track(&self, track: Option<RemoteTrack>) {
+        let old_subscription_state = self.subscription_status();
+        let old_permission_state = self.permission_status();
+
+        let prev_track = self.track();
+
+        if let Some(prev_track) = prev_track {
+            if let Some(unsubscribed) = self.remote.events.unsubscribed.lock().as_ref() {
+                unsubscribed(self.clone(), prev_track);
+            }
+        }
+
+        super::set_track(
+            &self.inner,
+            &TrackPublication::Remote(self.clone()),
+            track.clone().map(Into::into),
+        );
+
+        if let Some(track) = track {
+            if let Some(subscribed) = self.remote.events.subscribed.lock().as_ref() {
+                subscribed(self.clone(), track);
+            }
+        }
+
+        self.emit_subscription_update(old_subscription_state);
+        self.emit_permission_update(old_permission_state);
+    }
+
+    pub(crate) fn emit_subscription_update(&self, old_subscription_state: SubscriptionStatus) {
+        if old_subscription_state != self.subscription_status() {
+            if let Some(subscription_status_changed) = self
+                .remote
+                .events
+                .subscription_status_changed
+                .lock()
+                .as_ref()
+            {
+                subscription_status_changed(
+                    self.clone(),
+                    old_subscription_state,
+                    self.subscription_status(),
+                );
+            }
+        }
+    }
+
+    pub(crate) fn emit_permission_update(&self, old_permission_state: PermissionStatus) {
+        if old_permission_state != self.permission_status() {
+            if let Some(subscription_permission_changed) =
+                self.remote.events.permission_status_changed.lock().as_ref()
+            {
+                subscription_permission_changed(
+                    self.clone(),
+                    old_permission_state,
+                    self.permission_status(),
+                );
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn proto_info(&self) -> proto::TrackInfo {
+        self.inner.info.read().proto_info.clone()
+    }
+
+    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+        super::update_info(
+            &self.inner,
+            &TrackPublication::Remote(self.clone()),
+            info.clone(),
+        );
+        self.inner.info.write().muted = info.muted;
+    }
+
+    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+        *self.inner.events.muted.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+        *self.inner.events.unmuted.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_subscribed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, RemoteTrack) + Send + 'static,
+    ) {
+        *self.remote.events.subscribed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_unsubscribed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, RemoteTrack) + Send + 'static,
+    ) {
+        *self.remote.events.unsubscribed.lock() = Some(Box::new(f));
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn on_subscription_status_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, SubscriptionStatus, SubscriptionStatus) + Send + 'static,
+    ) {
+        *self.remote.events.subscription_status_changed.lock() = Some(Box::new(f));
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn on_permission_status_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send + 'static,
+    ) {
+        *self.remote.events.permission_status_changed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_subscription_update_needed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, bool) + Send + 'static,
+    ) {
+        *self.remote.events.subscription_update_needed.lock() = Some(Box::new(f));
+    }
+
+    pub fn set_subscribed(&self, subscribed: bool) {
+        let old_subscription_state = self.subscription_status();
+        let old_permission_state = self.permission_status();
+
+        {
+            let mut info = self.remote.info.write();
+            info.subscribed = subscribed;
+
+            if subscribed {
+                info.allowed = true;
+            }
+        }
+
+        // TODO(theomonnom): Wait for the PC onRemoveTrack event instead?
+        self.set_track(None);
+
+        // Request to send an update to the SFU
+        if let Some(subscription_update_needed) = self
+            .remote
+            .events
+            .subscription_update_needed
+            .lock()
+            .as_ref()
+        {
+            subscription_update_needed(self.clone(), subscribed);
+        }
+
+        self.emit_subscription_update(old_subscription_state);
+        self.emit_permission_update(old_permission_state);
+    }
+
+    pub fn subscription_status(&self) -> SubscriptionStatus {
+        if !self.remote.info.read().subscribed {
+            return SubscriptionStatus::Unsubscribed;
+        }
+
+        if self.track().is_none() {
+            return SubscriptionStatus::Desired;
+        }
+
+        SubscriptionStatus::Subscribed
+    }
+
+    pub fn permission_status(&self) -> PermissionStatus {
+        if self.is_allowed() {
+            PermissionStatus::Allowed
+        } else {
+            PermissionStatus::NotAllowed
+        }
+    }
+
+    pub fn is_subscribed(&self) -> bool {
+        self.track().is_some()
+    }
+
+    pub fn is_desired(&self) -> bool {
+        self.remote.info.read().subscribed
+    }
+
+    pub fn is_allowed(&self) -> bool {
+        self.remote.info.read().allowed
+    }
+
     pub fn sid(&self) -> TrackSid {
-        self.inner.sid()
+        self.inner.info.read().sid.clone()
     }
 
-    #[inline]
     pub fn name(&self) -> String {
-        self.inner.name()
+        self.inner.info.read().name.clone()
     }
 
-    #[inline]
     pub fn kind(&self) -> TrackKind {
-        self.inner.kind()
+        self.inner.info.read().kind
     }
 
-    #[inline]
     pub fn source(&self) -> TrackSource {
-        self.inner.source()
+        self.inner.info.read().source
     }
 
-    #[inline]
     pub fn simulcasted(&self) -> bool {
-        self.inner.simulcasted()
+        self.inner.info.read().simulcasted
     }
 
-    #[inline]
     pub fn dimension(&self) -> TrackDimension {
-        self.inner.dimension()
+        self.inner.info.read().dimension
     }
 
-    #[inline]
     pub fn track(&self) -> Option<RemoteTrack> {
-        self.inner.track().map(|track| track.try_into().unwrap())
+        self.inner
+            .info
+            .read()
+            .track
+            .clone()
+            .map(|track| track.try_into().unwrap())
     }
 
-    #[inline]
     pub fn mime_type(&self) -> String {
-        self.inner.mime_type()
+        self.inner.info.read().mime_type.clone()
     }
 
-    #[inline]
     pub fn is_muted(&self) -> bool {
-        self.inner.is_muted()
+        self.inner.info.read().muted
     }
 
-    #[inline]
     pub fn is_remote(&self) -> bool {
         true
-    }
-
-    #[inline]
-    pub(crate) fn update_track(&self, track: Option<Track>) {
-        self.inner.update_track(track);
-    }
-
-    #[inline]
-    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        self.inner.update_info(info);
     }
 }

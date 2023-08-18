@@ -1,8 +1,29 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::impl_thread_safety;
 use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
+
+    pub struct AudioSourceOptions {
+        pub echo_cancellation: bool,
+        pub noise_suppression: bool,
+        pub auto_gain_control: bool,
+    }
+
     extern "C++" {
         include!("livekit/media_stream_track.h");
 
@@ -27,7 +48,9 @@ pub mod ffi {
             nb_channels: usize,
             nb_frames: usize,
         );
-        fn new_audio_track_source() -> SharedPtr<AudioTrackSource>;
+        fn audio_options(self: &AudioTrackSource) -> AudioSourceOptions;
+        fn set_audio_options(self: &AudioTrackSource, options: &AudioSourceOptions);
+        fn new_audio_track_source(options: AudioSourceOptions) -> SharedPtr<AudioTrackSource>;
 
         fn audio_to_media(track: SharedPtr<AudioTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_audio(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<AudioTrack>;

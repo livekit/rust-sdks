@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::impl_thread_safety;
 
 #[cxx::bridge(namespace = "livekit")]
@@ -48,10 +62,12 @@ pub mod ffi {
             codecs: Vec<RtpCodecCapability>,
         ) -> Result<()>;
         fn codec_preferences(self: &RtpTransceiver) -> Vec<RtpCodecCapability>;
-        fn header_extensions_to_offer(self: &RtpTransceiver) -> Vec<RtpHeaderExtensionCapability>;
-        fn header_extensions_negotiated(self: &RtpTransceiver)
+        fn header_extensions_to_negotiate(
+            self: &RtpTransceiver,
+        ) -> Vec<RtpHeaderExtensionCapability>;
+        fn negotiated_header_extensions(self: &RtpTransceiver)
             -> Vec<RtpHeaderExtensionCapability>;
-        fn set_offered_rtp_header_extensions(
+        fn set_header_extensions_to_negotiate(
             self: &RtpTransceiver,
             headers: Vec<RtpHeaderExtensionCapability>,
         ) -> Result<()>;

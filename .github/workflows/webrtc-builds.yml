@@ -1,3 +1,17 @@
+# Copyright 2023 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 name: WebRTC builds
 on: workflow_dispatch
 
@@ -6,35 +20,78 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-          - ubuntu-latest
-          - macos-latest
-        arch:
-          - x64
-          - arm64
+        target:
+          - name: win
+            os: windows-latest
+            cmd: .\build_windows.cmd
+            arch: x64
+
+          - name: win
+            os: windows-latest
+            cmd: .\build_windows.cmd
+            arch: arm64
+
+          - name: mac
+            os: macos-latest
+            cmd: ./build_macos.sh
+            arch: x64
+
+          - name: mac
+            os: macos-latest
+            cmd: ./build_macos.sh
+            arch: arm64
+
+          - name: linux 
+            os: ubuntu-latest
+            cmd: ./build_linux.sh
+            arch: x64
+
+          - name: linux
+            os: ubuntu-latest
+            cmd: ./build_linux.sh
+            arch: arm64 
+          
+          - name: android
+            os: ubuntu-latest
+            cmd: ./build_android.sh
+            arch: arm64
+
+          - name: android
+            os: ubuntu-latest
+            cmd: ./build_android.sh
+            arch: arm
+
+          - name: android
+            os: ubuntu-latest
+            cmd: ./build_android.sh
+            arch: x64
+
+          - name: ios
+            out: ios-device-arm64
+            os: macos-latest
+            cmd: ./build_ios.sh
+            arch: arm64
+
+          - name: ios
+            out: ios-simulator-arm64
+            os: macos-latest
+            cmd: ./build_ios.sh
+            arch: arm64
+            buildargs: --environment simulator 
         profile:
           - release
-          - debug
-        include:
-          - os: windows-latest
-            cmd: .\build_windows.cmd
-            name: win
-          - os: ubuntu-latest
-            cmd: ./build_linux.sh
-            name: linux
-          - os: macos-latest
-            cmd: ./build_macos.sh
-            name: macos
+#          - debug
 
-    name: Build webrtc (${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }})
-    runs-on: ${{ matrix.os }}
+    name: Build webrtc (${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}) ${{ matrix.target.buildargs }}
+    runs-on: ${{ matrix.target.os }}
     steps:
-      - name: Setup vars
+      - name: Setup variables
         id: setup
         run: |
-          echo "OUT=${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}" >> "$GITHUB_OUTPUT"
-          echo "ZIP=webrtc-${{ matrix.name }}-${{ matrix.arch }}-${{ matrix.profile }}.zip" >> "$GITHUB_OUTPUT"
+          DEFAULT_OUT=${{ matrix.target.name }}-${{ matrix.target.arch }}
+          OUT=${{ matrix.target.out == '' && '$DEFAULT_OUT' || matrix.target.out }}-${{ matrix.profile }}
+          echo OUT=$OUT >> $GITHUB_OUTPUT
+          echo ZIP=webrtc-$OUT.zip >> $GITHUB_OUTPUT
         shell: bash
 
       # Print some debug infos to be sure everything is ok before doing really long tasks..
@@ -48,16 +105,18 @@ jobs:
           submodules: true
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: sudo apt install -y ninja-build pkg-config
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          sudo apt update -y
+          sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
       - name: Install macos dependencies
-        if: ${{ matrix.os == 'macos-latest' }}
+        if: ${{ matrix.target.os == 'macos-latest' }}
         run: brew install ninja
 
       # It doesn't seem to be used?
       - name: Install windows dependencies
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.target.os == 'windows-latest' }}
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ninja
@@ -66,18 +125,23 @@ jobs:
       - name: Print ninja version
         run: ninja --version
 
+      - name: Target OS
+        run: echo -e "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
+        shell: bash
+        working-directory: webrtc-sys/libwebrtc
+        
       - name: Build WebRTC
-        run: ${{ matrix.cmd }} --arch ${{ matrix.arch }} --profile ${{ matrix.profile }}
+        run: ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
+        if: ${{ matrix.target.os != 'windows-latest' }}
         run: |
           cd webrtc-sys/libwebrtc/${{ steps.setup.outputs.OUT }}
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ./* -r
 
       - name: Zip artifact (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.target.os == 'windows-latest' }}
         run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }}\* -DestinationPath ${{ steps.setup.outputs.ZIP }}
 
       # doublezip here but I don't think there is an alternative

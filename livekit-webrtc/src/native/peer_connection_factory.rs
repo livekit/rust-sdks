@@ -1,12 +1,24 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::audio_source::native::NativeAudioSource;
 use crate::audio_track::RtcAudioTrack;
 use crate::imp::audio_track as imp_at;
 use crate::imp::peer_connection as imp_pc;
 use crate::imp::video_track as imp_vt;
 use crate::peer_connection::PeerConnection;
-use crate::peer_connection_factory::{
-    ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration,
-};
+use crate::peer_connection_factory::RtcConfiguration;
 use crate::rtp_parameters::RtpCapabilities;
 use crate::video_source::native::NativeVideoSource;
 use crate::video_track::RtcVideoTrack;
@@ -104,59 +116,14 @@ impl PeerConnectionFactory {
 
     pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.sys_handle
-            .get_rtp_sender_capabilities(media_type.into())
+            .rtp_sender_capabilities(media_type.into())
             .into()
     }
 
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.sys_handle
-            .get_rtp_receiver_capabilities(media_type.into())
+            .rtp_receiver_capabilities(media_type.into())
             .into()
-    }
-}
-
-// Conversions
-impl From<IceServer> for sys_pcf::ffi::IceServer {
-    fn from(value: IceServer) -> Self {
-        sys_pcf::ffi::IceServer {
-            urls: value.urls,
-            username: value.username,
-            password: value.password,
-        }
-    }
-}
-
-impl From<ContinualGatheringPolicy> for sys_pcf::ffi::ContinualGatheringPolicy {
-    fn from(value: ContinualGatheringPolicy) -> Self {
-        match value {
-            ContinualGatheringPolicy::GatherOnce => {
-                sys_pcf::ffi::ContinualGatheringPolicy::GatherOnce
-            }
-            ContinualGatheringPolicy::GatherContinually => {
-                sys_pcf::ffi::ContinualGatheringPolicy::GatherContinually
-            }
-        }
-    }
-}
-
-impl From<IceTransportsType> for sys_pcf::ffi::IceTransportsType {
-    fn from(value: IceTransportsType) -> Self {
-        match value {
-            IceTransportsType::None => sys_pcf::ffi::IceTransportsType::None,
-            IceTransportsType::Relay => sys_pcf::ffi::IceTransportsType::Relay,
-            IceTransportsType::NoHost => sys_pcf::ffi::IceTransportsType::NoHost,
-            IceTransportsType::All => sys_pcf::ffi::IceTransportsType::All,
-        }
-    }
-}
-
-impl From<RtcConfiguration> for sys_pcf::ffi::RtcConfiguration {
-    fn from(value: RtcConfiguration) -> Self {
-        Self {
-            ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
-            continual_gathering_policy: value.continual_gathering_policy.into(),
-            ice_transport_type: value.ice_transport_type.into(),
-        }
     }
 }
 

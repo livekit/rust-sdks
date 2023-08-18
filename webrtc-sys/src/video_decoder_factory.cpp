@@ -16,20 +16,26 @@
 
 #include "livekit/video_decoder_factory.h"
 
-#include "api/video_codecs/builtin_video_decoder_factory.h"
-#include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "livekit/objc_video_factory.h"
 #include "media/base/media_constants.h"
+#include "modules/video_coding/codecs/h264/include/h264.h"
+#include "modules/video_coding/codecs/vp8/include/vp8.h"
 #include "rtc_base/logging.h"
+
+#ifdef WEBRTC_ANDROID
+#include "livekit/android.h"
+#endif
 
 namespace livekit {
 
 VideoDecoderFactory::VideoDecoderFactory() {
-  factories_.push_back(webrtc::CreateBuiltinVideoDecoderFactory());
-
 #ifdef __APPLE__
   factories_.push_back(livekit::CreateObjCVideoDecoderFactory());
+#endif
+
+#ifdef WEBRTC_ANDROID
+  factories_.push_back(CreateAndroidVideoDecoderFactory());
 #endif
 
   // TODO(theomonnom): Add other HW decoders here
@@ -38,12 +44,35 @@ VideoDecoderFactory::VideoDecoderFactory() {
 std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
     const {
   std::vector<webrtc::SdpVideoFormat> formats;
+
   for (const auto& factory : factories_) {
     auto supported_formats = factory->GetSupportedFormats();
     formats.insert(formats.end(), supported_formats.begin(),
                    supported_formats.end());
   }
+
+  formats.push_back(webrtc::SdpVideoFormat(cricket::kVp8CodecName));
+  for (const webrtc::SdpVideoFormat& h264_format :
+       webrtc::SupportedH264DecoderCodecs())
+    formats.push_back(h264_format);
+
   return formats;
+}
+
+VideoDecoderFactory::CodecSupport VideoDecoderFactory::QueryCodecSupport(
+    const webrtc::SdpVideoFormat& format,
+    bool reference_scaling) const {
+  if (reference_scaling) {
+    webrtc::VideoCodecType codec =
+        webrtc::PayloadStringToCodecType(format.name);
+    if (codec != webrtc::kVideoCodecVP9 && codec != webrtc::kVideoCodecAV1) {
+      return {/*is_supported=*/false, /*is_power_efficient=*/false};
+    }
+  }
+
+  CodecSupport codec_support;
+  codec_support.is_supported = format.IsCodecInList(GetSupportedFormats());
+  return codec_support;
 }
 
 std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::CreateVideoDecoder(
@@ -54,6 +83,11 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::CreateVideoDecoder(
         return factory->CreateVideoDecoder(format);
     }
   }
+
+  if (absl::EqualsIgnoreCase(format.name, cricket::kVp8CodecName))
+    return webrtc::VP8Decoder::Create();
+  if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName))
+    return webrtc::H264Decoder::Create();
 
   RTC_LOG(LS_ERROR) << "No VideoDecoder found for " << format.name;
   return nullptr;

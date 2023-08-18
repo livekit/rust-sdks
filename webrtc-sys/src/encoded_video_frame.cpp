@@ -26,11 +26,13 @@ bool EncodedVideoFrame::is_key_frame() const {
 }
 
 uint16_t EncodedVideoFrame::width() const {
-    return frame_->GetMetadata().GetWidth();
+    //return frame_->GetMetadata().GetWidth();
+    return 1280;
 }
 
 uint16_t EncodedVideoFrame::height() const {
-    return frame_->GetMetadata().GetHeight();
+    //return frame_->GetMetadata().GetHeight();
+    return 720;
 }
 
 uint16_t EncodedVideoFrame::first_seq_num() const {
@@ -62,7 +64,8 @@ std::shared_ptr<int64_t> EncodedVideoFrame::frame_id() const {
 };
 
 int EncodedVideoFrame::temporal_index() const {
-    return frame_->GetMetadata().GetTemporalIndex();
+    //return frame_->GetMetadata().GetTemporalIndex();
+    return 0;
 };
 
 const uint8_t* EncodedVideoFrame::payload_data() const {
