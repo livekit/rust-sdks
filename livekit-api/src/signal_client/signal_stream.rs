@@ -23,8 +23,6 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
-use super::SignalError;
-
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 #[derive(Debug)]
