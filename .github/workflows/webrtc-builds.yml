@@ -105,7 +105,7 @@ jobs:
           submodules: true
 
       - name: Install linux dependencies
-        if: ${{ matrix.target.os == 'ubuntu-20-04' }}
+        if: ${{ matrix.target.os == 'ubuntu-20.04' || matrix.target.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
