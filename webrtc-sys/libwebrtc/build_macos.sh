@@ -100,8 +100,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_custom_libcxx=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
-  use_lld=false \
-  use_cxx17=true"
+  use_lld=false"
 
 # build static library
 ninja -C "$OUTPUT_DIR" :default \
