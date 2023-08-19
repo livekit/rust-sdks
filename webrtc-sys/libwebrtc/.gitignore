@@ -5,8 +5,8 @@ depot_tools
 ninja
 
 # builds
-win*
-mac*
-linux*
-android*
-ios*
+win-*
+mac-*
+linux-*
+android-*
+ios-*
