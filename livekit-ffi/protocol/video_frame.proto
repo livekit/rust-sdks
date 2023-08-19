@@ -25,7 +25,7 @@ message AllocVideoBufferRequest {
   uint32 width = 2;
   uint32 height = 3;
 }
-message AllocVideoBufferResponse { VideoFrameBufferInfo buffer = 1; }
+message AllocVideoBufferResponse { OwnedVideoFrameBuffer buffer = 1; }
 
 // Create a new VideoStream
 // VideoStream is used to receive video frames from a track
@@ -41,7 +41,7 @@ message NewVideoSourceRequest {
   VideoSourceType type = 1; 
   // Used to determine which encodings to use + simulcast layers
   // Most of the time it corresponds to the source resolution 
-  optional VideoSourceResolution resolution = 2;
+  VideoSourceResolution resolution = 2;
 }
 message NewVideoSourceResponse { VideoSourceInfo source = 1; }
 
@@ -49,7 +49,11 @@ message NewVideoSourceResponse { VideoSourceInfo source = 1; }
 message CaptureVideoFrameRequest {
   uint64 source_handle = 1;
   VideoFrameInfo frame = 2;
-  uint64 buffer_handle = 3;
+
+  // TODO(theomonnom): Maybe we could accept an info instead?
+  // So users could capture arbitrary pointers
+  // Check if the memory musts be aligned before?
+  uint64 buffer_handle = 3; 
 }
 message CaptureVideoFrameResponse {}
 
@@ -58,11 +62,15 @@ message CaptureVideoFrameResponse {}
 message ToI420Request {
   bool flip_y = 1;
   oneof from {
-    ARGBBufferInfo argb = 2;
-    uint64 buffer_handle = 3;
+    ArgbBufferInfo argb = 2;
+    uint64 yuv_handle = 3; // Another yuv buffer
   }
+  optional uint64 dst_handle = 4;
 }
-message ToI420Response { VideoFrameBufferInfo buffer = 1; }
+message ToI420Response { 
+  // Empty if dst_handle is provided
+  OwnedVideoFrameBuffer buffer = 1; 
+}
 
 // Convert a YUV frame to a RGBA frame
 // Only I420 is supported atm
@@ -118,7 +126,7 @@ enum VideoFrameBufferType {
   WEBGL = 7;
 }
 
-message ARGBBufferInfo {
+message ArgbBufferInfo {
   uint64 ptr = 1;
   VideoFormatType format = 2;
   uint32 stride = 3;
@@ -132,15 +140,19 @@ message VideoFrameInfo {
 }
 
 message VideoFrameBufferInfo {
-  FfiOwnedHandle handle = 1;
-  VideoFrameBufferType buffer_type = 2;
-  uint32 width = 3;
-  uint32 height = 4;
+  VideoFrameBufferType buffer_type = 1;
+  uint32 width = 2;
+  uint32 height = 3;
   oneof buffer {
-    PlanarYuvBufferInfo yuv = 5;
-    BiplanarYuvBufferInfo bi_yuv = 6;
-    NativeBufferInfo native = 7;
+    PlanarYuvBufferInfo yuv = 4;
+    BiplanarYuvBufferInfo bi_yuv = 5;
+    NativeBufferInfo native = 6;
   }
+}
+
+message OwnedVideoFrameBuffer {
+  FfiOwnedHandle handle = 1;
+  VideoFrameBufferInfo info = 2;
 }
 
 message PlanarYuvBufferInfo {
@@ -183,8 +195,12 @@ enum VideoStreamType {
 }
 
 message VideoStreamInfo {
+  VideoStreamType type = 1;
+}
+
+message OwnedVideoStream {
   FfiOwnedHandle handle = 1;
-  VideoStreamType type = 2;
+  VideoStreamInfo info = 2;
 }
 
 message VideoStreamEvent {
@@ -211,6 +227,10 @@ enum VideoSourceType {
 }
 
 message VideoSourceInfo {
+  VideoSourceType type = 1;
+}
+
+message OwnedVideoSource {
   FfiOwnedHandle handle = 1;
-  VideoSourceType type = 2;
+  VideoSourceInfo info = 2;
 }

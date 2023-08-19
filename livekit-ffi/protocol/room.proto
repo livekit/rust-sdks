@@ -157,9 +157,13 @@ enum DataPacketKind {
 }
 
 message BufferInfo {
+  uint64 data_ptr = 1;
+  uint64 data_len = 2;
+}
+
+message OwnedBuffer {
   FfiOwnedHandle handle = 1;
-  uint64 data_ptr = 2;
-  uint64 data_len = 3;
+  BufferInfo data = 2;
 }
 
 message RoomEvent {
@@ -180,7 +184,7 @@ message RoomEvent {
     ConnectionQualityChanged connection_quality_changed = 14;
     DataReceived data_received = 15;
     ConnectionStateChanged connection_state_changed = 16;
-    Connected connected = 17;
+    // Connected connected = 17;
     Disconnected disconnected = 18;
     Reconnecting reconnecting = 19;
     Reconnected reconnected = 20;
