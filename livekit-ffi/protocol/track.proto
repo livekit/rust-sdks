@@ -25,7 +25,7 @@ message CreateVideoTrackRequest {
   uint64 source_handle = 2;
 }
 message CreateVideoTrackResponse {
-  TrackInfo track = 1;
+  OwnedTrack track = 1;
 }
 
 // Create a new AudioTrack from a AudioSource
@@ -34,7 +34,7 @@ message CreateAudioTrackRequest {
   uint64 source_handle = 2;
 }
 message CreateAudioTrackResponse {
-  TrackInfo track = 1;
+  OwnedTrack track = 1;
 }
 
 //

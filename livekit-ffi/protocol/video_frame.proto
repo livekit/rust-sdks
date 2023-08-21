@@ -33,7 +33,7 @@ message NewVideoStreamRequest {
   uint64 track_handle = 1;
   VideoStreamType type = 2;
 }
-message NewVideoStreamResponse { VideoStreamInfo stream = 1; }
+message NewVideoStreamResponse { OwnedVideoStream stream = 1; }
 
 // Create a new VideoSource
 // VideoSource is used to send video frame to a track
@@ -43,7 +43,7 @@ message NewVideoSourceRequest {
   // Most of the time it corresponds to the source resolution 
   VideoSourceResolution resolution = 2;
 }
-message NewVideoSourceResponse { VideoSourceInfo source = 1; }
+message NewVideoSourceResponse { OwnedVideoSource source = 1; }
 
 // Push a frame to a VideoSource
 message CaptureVideoFrameRequest {
@@ -210,7 +210,7 @@ message VideoStreamEvent {
 
 message VideoFrameReceived {
   VideoFrameInfo frame = 1;
-  VideoFrameBufferInfo buffer = 2;
+  OwnedVideoFrameBuffer buffer = 2;
 }
 
 //
@@ -223,7 +223,7 @@ message VideoSourceResolution {
 }
 
 enum VideoSourceType {
-    VIDEO_SOURCE_NATIVE = 0;
+  VIDEO_SOURCE_NATIVE = 0;
 }
 
 message VideoSourceInfo {
