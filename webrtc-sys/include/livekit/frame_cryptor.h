@@ -16,69 +16,57 @@
 
 #pragma once
 
-#include "api/crypto/frame_crypto_transformer.h"
-#include "api/rtp_receiver_interface.h"
-#include "api/rtp_sender_interface.h"
-
-#include "rust/cxx.h"
 #include <stdint.h>
 
-#include <vector>
-#include <string>
 #include <memory>
+#include <string>
+#include <vector>
+
+#include "api/crypto/frame_crypto_transformer.h"
+#include "livekit/rtp_receiver.h"
+#include "livekit/rtp_sender.h"
+#include "rtc_base/synchronization/mutex.h"
+#include "rust/cxx.h"
 
 namespace livekit {
 
-enum class Algorithm {
-  kAesGcm = 0,
-  kAesCbc,
-};
-
-struct KeyProviderOptions {
-  bool shared_key;
-  std::vector<uint8_t> ratchet_salt;
-  std::vector<uint8_t> uncrypted_magic_bytes;
-  int ratchet_window_size;
-  KeyProviderOptions()
-      : shared_key(false),
-        ratchet_salt(std::vector<uint8_t>()),
-        ratchet_window_size(0) {}
-  KeyProviderOptions(KeyProviderOptions& copy)
-      : shared_key(copy.shared_key),
-        ratchet_salt(copy.ratchet_salt),
-        ratchet_window_size(copy.ratchet_window_size) {}
-};
-
+struct KeyProviderOptions;
+enum class Algorithm : ::std::int32_t;
+class RTCFrameCryptorObserver;
+class NativeFrameCryptorObserver;
 
 /// Shared secret key for frame encryption.
 class KeyProvider {
  public:
-  KeyProvider(KeyProviderOptions* options) {
-    webrtc::KeyProviderOptions rtc_options;
-    rtc_options.shared_key = options->shared_key;
-    rtc_options.ratchet_salt = options->ratchet_salt;
-    rtc_options.uncrypted_magic_bytes =
-        options->uncrypted_magic_bytes;
-    rtc_options.ratchet_window_size = options->ratchet_window_size;
-    impl_ =
-        new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
-  }
+  KeyProvider(KeyProviderOptions options);
   ~KeyProvider() {}
   /// Set the key at the given index.
-  bool SetKey(const std::string participant_id,
-              int index,
-              std::vector<uint8_t> key)  {
-    return impl_->SetKey(participant_id, index, key);
+  bool set_key(const ::rust::String participant_id,
+               int32_t index,
+               rust::Vec<::std::uint8_t> key) const {
+    std::vector<uint8_t> key_vec;
+    std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
+    return impl_->SetKey(
+        std::string(participant_id.data(), participant_id.size()), index,
+        key_vec);
   }
 
-  std::vector<uint8_t> RatchetKey(const std::string participant_id,
-                             int key_index)  {
-    return impl_->RatchetKey(participant_id, key_index);
+  rust::Vec<::std::uint8_t> ratchet_key(const ::rust::String participant_id,
+                                        int32_t key_index) const {
+    rust::Vec<uint8_t> vec;
+    auto data = impl_->RatchetKey(
+        std::string(participant_id.data(), participant_id.size()), key_index);
+    std::move(data.begin(), data.end(), std::back_inserter(vec));
+    return vec;
   }
 
-  std::vector<uint8_t> ExportKey(const std::string participant_id,
-                            int key_index) {
-    return impl_->ExportKey(participant_id, key_index);
+  rust::Vec<::std::uint8_t> export_key(const ::rust::String participant_id,
+                                       int32_t key_index) const {
+    rust::Vec<uint8_t> vec;
+    auto data = impl_->ExportKey(
+        std::string(participant_id.data(), participant_id.size()), key_index);
+    std::move(data.begin(), data.end(), std::back_inserter(vec));
+    return vec;
   }
 
   rtc::scoped_refptr<webrtc::KeyProvider> rtc_key_provider() { return impl_; }
@@ -87,89 +75,70 @@ class KeyProvider {
   rtc::scoped_refptr<webrtc::DefaultKeyProviderImpl> impl_;
 };
 
-
-enum RTCFrameCryptionState {
-  kNew = 0,
-  kOk,
-  kEncryptionFailed,
-  kDecryptionFailed,
-  kMissingKey,
-  kKeyRatcheted,
-  kInternalError,
-};
-
-class RTCFrameCryptorObserver {
+class FrameCryptor {
  public:
-  virtual void OnFrameCryptionStateChanged(const std::string participant_id,
-                                           RTCFrameCryptionState state) = 0;
+  FrameCryptor(const std::string participant_id,
+               webrtc::FrameCryptorTransformer::Algorithm algorithm,
+               rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
+               rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
- protected:
-  virtual ~RTCFrameCryptorObserver() {}
-};
-
-class RTCFrameCryptor : public webrtc::FrameCryptorTransformerObserver, public rtc::RefCountInterface {
- public:
-  RTCFrameCryptor(const std::string participant_id,
-                      Algorithm algorithm,
-                      rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
-                      rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
-
-  RTCFrameCryptor(const std::string participant_id,
-                      Algorithm algorithm,
-                      rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
-                      rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
-  ~RTCFrameCryptor();
+  FrameCryptor(const std::string participant_id,
+               webrtc::FrameCryptorTransformer::Algorithm algorithm,
+               rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
+               rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
+  ~FrameCryptor();
 
   /// Enable/Disable frame crypto for the sender or receiver.
-  bool SetEnabled(bool enabled) ;
+  void set_enabled(bool enabled) const;
 
   /// Get the enabled state for the sender or receiver.
-  bool enabled() const ;
+  bool enabled() const;
 
   /// Set the key index for the sender or receiver.
   /// If the key index is not set, the key index will be set to 0.
-  bool SetKeyIndex(int index) ;
+  void set_key_index(int32_t index) const;
 
   /// Get the key index for the sender or receiver.
-  int key_index() const ;
+  int32_t key_index() const;
 
-  const std::string participant_id() const  { return participant_id_; }
+  rust::String participant_id() const { return participant_id_; }
 
-  void RegisterRTCFrameCryptorObserver(
-      RTCFrameCryptorObserver* observer) ;
+  void register_observer(rust::Box<RTCFrameCryptorObserver> observer) const;
 
-  void DeRegisterRTCFrameCryptorObserver() ;
-
-  void OnFrameCryptionStateChanged(const std::string participant_id,
-                                   webrtc::FrameCryptionState error) ;
+  void unregister_observer() const;
 
  private:
-  std::string participant_id_;
+  const rust::String participant_id_;
   mutable webrtc::Mutex mutex_;
-  bool enabled_;
-  int key_index_;
+  int32_t key_index_;
   rtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
   rtc::scoped_refptr<webrtc::KeyProvider> key_provider_;
   rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
-  RTCFrameCryptorObserver* observer_ = nullptr;
+  mutable std::unique_ptr<NativeFrameCryptorObserver> observer_;
 };
 
-class FrameCryptorFactory {
+class NativeFrameCryptorObserver
+    : public webrtc::FrameCryptorTransformerObserver {
  public:
-  /// Create a frame cyrptor for [RTCRtpSender].
-  static rtc::scoped_refptr<RTCFrameCryptor>
-  frameCryptorFromRtpSender(const std::string participant_id,
-                            rtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
-                            Algorithm algorithm,
-                            rtc::scoped_refptr<webrtc::KeyProvider> key_provider);
+  NativeFrameCryptorObserver(rust::Box<RTCFrameCryptorObserver> observer,
+                             const FrameCryptor* fc);
 
-  /// Create a frame cyrptor for [RTCRtpReceiver].
-  static rtc::scoped_refptr<RTCFrameCryptor>
-  frameCryptorFromRtpReceiver(const std::string participant_id,
-                              rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
-                              Algorithm algorithm,
-                              rtc::scoped_refptr<webrtc::KeyProvider> key_provider);
+  void OnFrameCryptionStateChanged(const std::string participant_id,
+                                   webrtc::FrameCryptionState error) override;
+
+ private:
+  rust::Box<RTCFrameCryptorObserver> observer_;
+  const FrameCryptor* fc_;
 };
+
+std::shared_ptr<FrameCryptor> new_frame_cryptor(
+    const ::rust::String participant_id,
+    Algorithm algorithm,
+    std::shared_ptr<KeyProvider> key_provider,
+    std::shared_ptr<RtpSender> sender,
+    std::shared_ptr<RtpReceiver> receiver);
+
+std::shared_ptr<KeyProvider> new_key_provider(KeyProviderOptions options);
 
 }  // namespace livekit
