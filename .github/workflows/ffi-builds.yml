@@ -42,7 +42,7 @@ jobs:
             platform: macos
             dylib: liblivekit_ffi.dylib
             target: x86_64-apple-darwin
-            macosx_deployment_target: "10.11"
+            macosx_deployment_target: "10.15"
             name: ffi-macos-x86_64
           - os: macos-latest
             platform: macos
