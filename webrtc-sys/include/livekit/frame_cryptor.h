@@ -132,11 +132,16 @@ class NativeFrameCryptorObserver
   const FrameCryptor* fc_;
 };
 
-std::shared_ptr<FrameCryptor> new_frame_cryptor(
+std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_sender(
     const ::rust::String participant_id,
     Algorithm algorithm,
     std::shared_ptr<KeyProvider> key_provider,
-    std::shared_ptr<RtpSender> sender,
+    std::shared_ptr<RtpSender> sender);
+
+std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_receiver(
+    const ::rust::String participant_id,
+    Algorithm algorithm,
+    std::shared_ptr<KeyProvider> key_provider,
     std::shared_ptr<RtpReceiver> receiver);
 
 std::shared_ptr<KeyProvider> new_key_provider(KeyProviderOptions options);

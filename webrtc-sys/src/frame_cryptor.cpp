@@ -148,18 +148,22 @@ std::shared_ptr<KeyProvider> new_key_provider(KeyProviderOptions options) {
   return std::make_shared<KeyProvider>(options);
 }
 
-std::shared_ptr<FrameCryptor> new_frame_cryptor(
+std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_sender(
     const ::rust::String participant_id,
     Algorithm algorithm,
     std::shared_ptr<KeyProvider> key_provider,
-    std::shared_ptr<RtpSender> sender,
-    std::shared_ptr<RtpReceiver> receiver) {
-  if (sender) {
-    return std::make_shared<FrameCryptor>(
+    std::shared_ptr<RtpSender> sender) {
+  return std::make_shared<FrameCryptor>(
         std::string(participant_id.data(), participant_id.size()),
         AlgorithmToFrameCryptorAlgorithm(algorithm),
         key_provider->rtc_key_provider(), sender->rtc_sender());
-  }
+}
+
+std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_receiver(
+    const ::rust::String participant_id,
+    Algorithm algorithm,
+    std::shared_ptr<KeyProvider> key_provider,
+    std::shared_ptr<RtpReceiver> receiver) {
   return std::make_shared<FrameCryptor>(
       std::string(participant_id.data(), participant_id.size()),
       AlgorithmToFrameCryptorAlgorithm(algorithm),

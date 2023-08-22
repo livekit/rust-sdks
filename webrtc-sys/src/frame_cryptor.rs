@@ -70,11 +70,17 @@ pub mod ffi {
 
         type FrameCryptor;
 
-        fn new_frame_cryptor(
+        fn new_frame_cryptor_for_rtp_sender(
             participant_id: String,
             algorithm: Algorithm,
             key_provider: SharedPtr<KeyProvider>,
             sender: SharedPtr<RtpSender>,
+        ) -> SharedPtr<FrameCryptor>;
+
+        fn new_frame_cryptor_for_rtp_receiver(
+            participant_id: String,
+            algorithm: Algorithm,
+            key_provider: SharedPtr<KeyProvider>,
             receiver: SharedPtr<RtpReceiver>,
         ) -> SharedPtr<FrameCryptor>;
 
