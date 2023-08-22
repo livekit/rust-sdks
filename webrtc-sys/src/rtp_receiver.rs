@@ -30,6 +30,7 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type MediaStream = crate::media_stream::ffi::MediaStream;
         type AdaptedNativeFrameTransformer = crate::frame_transformer::ffi::AdaptedNativeFrameTransformer;
+        type AdaptedNativeSenderReportCallback = crate::frame_transformer::ffi::AdaptedNativeSenderReportCallback;
     }
 
     unsafe extern "C++" {

@@ -54,6 +54,7 @@ class RtpReceiver {
   // bool set_parameters(RtpParameters parameters) const; // Seems unsupported
 
   void set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<AdaptedNativeFrameTransformer> frame_transformer) const;
+  void set_sender_report_callback(std::shared_ptr<AdaptedNativeSenderReportCallback> sender_report_interface) const;
 
   void set_jitter_buffer_minimum_delay(bool is_some,
                                        double delay_seconds) const;

@@ -20,12 +20,16 @@ pub mod ffi {
         include!("livekit/encoded_audio_frame.h");
 
         type AdaptedNativeFrameTransformer;
-        
+        type AdaptedNativeSenderReportCallback;
 
         fn new_adapted_frame_transformer(
             observer: Box<EncodedFrameSinkWrapper>,
             is_video: bool
         ) -> SharedPtr<AdaptedNativeFrameTransformer>;
+
+        fn new_adapted_sender_report_callback(
+            observer: Box<SenderReportSinkWrapper>
+        ) -> SharedPtr<AdaptedNativeSenderReportCallback>;
     }
 
     unsafe extern "C++" {
@@ -34,13 +38,17 @@ pub mod ffi {
 
     extern "Rust" {
         type EncodedFrameSinkWrapper;
+        type SenderReportSinkWrapper;
 
         fn on_encoded_video_frame(self: &EncodedFrameSinkWrapper, frame: UniquePtr<EncodedVideoFrame>);
         fn on_encoded_audio_frame(self: &EncodedFrameSinkWrapper, frame: UniquePtr<EncodedAudioFrame>);
+
+        fn on_sender_report(self: &SenderReportSinkWrapper);
     }
 }
 
 impl_thread_safety!(ffi::AdaptedNativeFrameTransformer, Send + Sync);
+impl_thread_safety!(ffi::AdaptedNativeSenderReportCallback, Send + Sync);
 
 pub trait EncodedFrameSink: Send {
     // fn on_frame(&self, frame: UniquePtr<EncodedFrame>);
@@ -70,6 +78,30 @@ impl EncodedFrameSinkWrapper {
         // println!("EncodedFrameSinkWrapper::on_frame");
         unsafe {
             (*self.observer).on_encoded_audio_frame(frame);
+        }
+    }
+}
+
+pub trait SenderReportSink: Send {
+    // TODO: add the actual sender report
+    fn on_sender_report(&self);
+}
+
+pub struct SenderReportSinkWrapper {
+    observer: *mut dyn SenderReportSink,
+}
+
+impl SenderReportSinkWrapper {
+    /// # Safety
+    /// SenderReportSink must live as long as SenderReportSinkWrapper does
+    pub unsafe fn new(observer: *mut dyn SenderReportSink) -> Self {
+        Self { observer }
+    }
+
+    fn on_sender_report(&self) {
+        println!("SenderReportSinkWrapper::on_sender_report");
+        unsafe {
+            (*self.observer).on_sender_report();
         }
     }
 }

@@ -13,6 +13,8 @@ class EncodedVideoFrame;
 class EncodedAudioFrame;
 class FrameTransformerInterface;
 class AdaptedNativeFrameTransformer;
+class AdaptedNativeSenderReportCallback;
+class SenderReportInterface;
 }
 #include "webrtc-sys/src/frame_transformer.rs.h"
 
@@ -43,5 +45,29 @@ class AdaptedNativeFrameTransformer {
 std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer(
   rust::Box<EncodedFrameSinkWrapper> observer,
   bool is_video
+  );
+
+class NativeSenderReportCallback : public rtc::RefCountedObject<webrtc::SenderReportInterface> {
+ public:
+  explicit NativeSenderReportCallback(rust::Box<SenderReportSinkWrapper> observer);
+
+  void OnSenderReport(std::unique_ptr<webrtc::rtcp::SenderReport> sender_report);
+
+ private:
+  rust::Box<SenderReportSinkWrapper> observer_;
+};
+
+class AdaptedNativeSenderReportCallback {
+ public:
+  AdaptedNativeSenderReportCallback(rtc::scoped_refptr<NativeSenderReportCallback> source);
+
+  rtc::scoped_refptr<NativeSenderReportCallback> get() const;
+
+ private:
+  rtc::scoped_refptr<NativeSenderReportCallback> source_;
+};
+
+std::shared_ptr<AdaptedNativeSenderReportCallback> new_adapted_sender_report_callback(
+  rust::Box<SenderReportSinkWrapper> observer
   );
 }  // namespace livekit
