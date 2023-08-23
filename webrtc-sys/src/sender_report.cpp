@@ -7,6 +7,10 @@ SenderReport::SenderReport(
     : sender_report_(std::move(sender_report)) {}
 
 
+uint32_t SenderReport::ssrc() const {
+    return sender_report_->ssrc_;
+}
+
 uint32_t SenderReport::rtp_timestamp() const {
     return sender_report_->sender_report_.rtp_timestamp();
 }

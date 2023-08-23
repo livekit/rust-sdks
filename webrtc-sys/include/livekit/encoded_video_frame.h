@@ -32,6 +32,8 @@ class EncodedVideoFrame {
   size_t payload_size() const;
 
   int temporal_index() const;
+  
+  uint32_t ssrc() const;
 
   std::shared_ptr<uint64_t> absolute_capture_timestamp() const;
   std::shared_ptr<int64_t> estimated_capture_clock_offset() const;

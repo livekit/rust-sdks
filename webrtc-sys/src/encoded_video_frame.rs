@@ -15,6 +15,8 @@ pub mod ffi {
 
         fn width(self: &EncodedVideoFrame) -> u16;
         fn height(self: &EncodedVideoFrame) -> u16;
+
+        fn ssrc(self: &EncodedVideoFrame) -> u32;
         fn timestamp(self: &EncodedVideoFrame) -> u32;
 
         fn first_seq_num(self: &EncodedVideoFrame) -> u16;

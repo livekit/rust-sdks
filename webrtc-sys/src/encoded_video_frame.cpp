@@ -35,6 +35,10 @@ uint16_t EncodedVideoFrame::height() const {
     return 720;
 }
 
+uint32_t EncodedVideoFrame::ssrc() const {
+    return frame_->Metadata().GetSsrc();
+}
+
 uint16_t EncodedVideoFrame::first_seq_num() const {
     return frame_->first_seq_num();
 }

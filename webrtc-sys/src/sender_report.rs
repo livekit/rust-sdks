@@ -10,7 +10,7 @@ pub mod ffi {
         include!("livekit/sender_report.h");
 
         type SenderReport;
-
+        fn ssrc(self: &SenderReport) -> u32;        
         fn rtp_timestamp(self: &SenderReport) -> u32;
         fn ntp_time_ms(self: &SenderReport) -> i64;
     }

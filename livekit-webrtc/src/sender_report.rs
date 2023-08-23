@@ -13,6 +13,10 @@ impl SenderReport {
         }
     }
 
+    pub fn ssrc(&self) -> u32 {
+        self.sender_report.ssrc()
+    }
+
     pub fn rtp_timestamp(&self) -> u32 {
         self.sender_report.rtp_timestamp()
     }

@@ -35,6 +35,10 @@ impl EncodedVideoFrame {
         self.frame.height()
     }
 
+    pub fn ssrc(&self) -> u32 {
+        self.frame.ssrc()
+    }
+
     pub fn first_seq_num(&self) -> u16 {
         self.frame.first_seq_num()
     }
