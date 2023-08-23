@@ -11,9 +11,8 @@ pub mod ffi {
 
         type SenderReport;
 
-        // fn width(self: &SenderReport) -> u16;
-        // fn height(self: &SenderReport) -> u16;
-        // fn timestamp(self: &SenderReport) -> u32;
+        fn rtp_timestamp(self: &SenderReport) -> u32;
+        fn ntp_time_ms(self: &SenderReport) -> i64;
     }
 
     impl UniquePtr<SenderReport> {}

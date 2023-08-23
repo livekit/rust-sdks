@@ -12,4 +12,12 @@ impl SenderReport {
             sender_report: sender_report
         }
     }
+
+    pub fn rtp_timestamp(&self) -> u32 {
+        self.sender_report.rtp_timestamp()
+    }
+
+    pub fn ntp_time_ms(&self) -> i64 {
+        self.sender_report.ntp_time_ms()
+    }
 }
