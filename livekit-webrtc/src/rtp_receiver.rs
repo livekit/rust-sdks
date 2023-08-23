@@ -15,7 +15,7 @@
 use std::fmt::Debug;
 
 use cxx::SharedPtr;
-use webrtc_sys::frame_transformer::{ffi::AdaptedNativeFrameTransformer, EncodedFrameSinkWrapper};
+use webrtc_sys::frame_transformer::{ffi::AdaptedNativeFrameTransformer, ffi::AdaptedNativeSenderReportCallback, EncodedFrameSinkWrapper, SenderReportSinkWrapper};
 
 use crate::{
     imp::rtp_receiver as imp_rr, media_stream_track::MediaStreamTrack,
@@ -37,8 +37,13 @@ impl RtpReceiver {
     }
 
     pub fn set_depacketizer_to_decoder_frame_transformer(&self, transformer:  SharedPtr<AdaptedNativeFrameTransformer>) {
-        println!("Called!");
+        println!("Called set_depacketizer_to_decoder_frame_transformer!");
         self.handle.set_depacketizer_to_decoder_frame_transformer(transformer);
+    }
+    
+    pub fn set_sender_report_callback(&self, transformer:  SharedPtr<AdaptedNativeSenderReportCallback>) {
+        println!("Called set_sender_report_callback!");
+        self.handle.set_sender_report_callback(transformer);
     }
 
     pub fn new_adapted_frame_transformer(&self, observer: Box<EncodedFrameSinkWrapper>) -> Option<SharedPtr<AdaptedNativeFrameTransformer>> {
@@ -51,6 +56,13 @@ impl RtpReceiver {
                     return Some(self.handle.new_adapted_frame_transformer(observer, false));
                 },
             }
+        }
+        None
+    }
+
+    pub fn new_adapted_sender_report_callback(&self, observer: Box<SenderReportSinkWrapper>) -> Option<SharedPtr<AdaptedNativeSenderReportCallback>> {
+        if let Some(track) = &self.handle.track() {
+            return Some(self.handle.new_adapted_sender_report_callback(observer));
         }
         None
     }

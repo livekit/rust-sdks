@@ -15,6 +15,7 @@ class FrameTransformerInterface;
 class AdaptedNativeFrameTransformer;
 class AdaptedNativeSenderReportCallback;
 class SenderReportInterface;
+class SenderReport;
 }
 #include "webrtc-sys/src/frame_transformer.rs.h"
 
@@ -51,7 +52,7 @@ class NativeSenderReportCallback : public rtc::RefCountedObject<webrtc::SenderRe
  public:
   explicit NativeSenderReportCallback(rust::Box<SenderReportSinkWrapper> observer);
 
-  void OnSenderReport(std::unique_ptr<webrtc::rtcp::SenderReport> sender_report);
+  void OnSenderReport(std::unique_ptr<webrtc::LTSenderReport> sender_report);
 
  private:
   rust::Box<SenderReportSinkWrapper> observer_;

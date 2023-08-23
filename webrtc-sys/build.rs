@@ -52,6 +52,7 @@ fn main() {
         "src/frame_transformer.rs",
         "src/encoded_video_frame.rs",
         "src/encoded_audio_frame.rs",
+        "src/sender_report.rs",
         "src/android.rs",
     ]);
 
@@ -91,6 +92,7 @@ fn main() {
         "src/frame_transformer.cpp",
         "src/encoded_video_frame.cpp",
         "src/encoded_audio_frame.cpp",
+        "src/sender_report.cpp",
     ]);
 
     println!(

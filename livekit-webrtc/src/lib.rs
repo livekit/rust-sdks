@@ -64,6 +64,8 @@ pub mod encoded_video_frame;
 pub mod encoded_audio_frame_stream;
 pub mod encoded_audio_frame;
 pub mod video_track;
+pub mod sender_report_stream;
+pub mod sender_report;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {

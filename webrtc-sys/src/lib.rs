@@ -37,6 +37,7 @@ pub mod yuv_helper;
 pub mod frame_transformer;
 pub mod encoded_video_frame;
 pub mod encoded_audio_frame;
+pub mod sender_report;
 
 pub const MEDIA_TYPE_VIDEO: &str = "video";
 pub const MEDIA_TYPE_AUDIO: &str = "audio";

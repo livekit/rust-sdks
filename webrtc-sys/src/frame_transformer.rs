@@ -2,6 +2,7 @@ use crate::impl_thread_safety;
 use cxx::UniquePtr;
 use crate::encoded_video_frame::ffi::EncodedVideoFrame;
 use crate::encoded_audio_frame::ffi::EncodedAudioFrame;
+use crate::sender_report::ffi::SenderReport;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -9,15 +10,19 @@ pub mod ffi {
     extern "C++" {
         include!("livekit/encoded_video_frame.h");
         include!("livekit/encoded_audio_frame.h");
+        include!("livekit/sender_report.h");
 
         type EncodedVideoFrame = crate::encoded_video_frame::ffi::EncodedVideoFrame;
         type EncodedAudioFrame = crate::encoded_audio_frame::ffi::EncodedAudioFrame;
+
+        type SenderReport = crate::sender_report::ffi::SenderReport;
     }
 
     unsafe extern "C++" {
         include!("livekit/frame_transformer.h");
         include!("livekit/encoded_video_frame.h");
         include!("livekit/encoded_audio_frame.h");
+        include!("livekit/sender_report.h");
 
         type AdaptedNativeFrameTransformer;
         type AdaptedNativeSenderReportCallback;
@@ -43,7 +48,7 @@ pub mod ffi {
         fn on_encoded_video_frame(self: &EncodedFrameSinkWrapper, frame: UniquePtr<EncodedVideoFrame>);
         fn on_encoded_audio_frame(self: &EncodedFrameSinkWrapper, frame: UniquePtr<EncodedAudioFrame>);
 
-        fn on_sender_report(self: &SenderReportSinkWrapper);
+        fn on_sender_report(self: &SenderReportSinkWrapper, sender_report: UniquePtr<SenderReport>);
     }
 }
 
@@ -83,8 +88,7 @@ impl EncodedFrameSinkWrapper {
 }
 
 pub trait SenderReportSink: Send {
-    // TODO: add the actual sender report
-    fn on_sender_report(&self);
+    fn on_sender_report(&self, sender_report: UniquePtr<SenderReport>);
 }
 
 pub struct SenderReportSinkWrapper {
@@ -98,10 +102,10 @@ impl SenderReportSinkWrapper {
         Self { observer }
     }
 
-    fn on_sender_report(&self) {
+    fn on_sender_report(&self, sender_report: UniquePtr<SenderReport>) {
         println!("SenderReportSinkWrapper::on_sender_report");
         unsafe {
-            (*self.observer).on_sender_report();
+            (*self.observer).on_sender_report(sender_report);
         }
     }
 }

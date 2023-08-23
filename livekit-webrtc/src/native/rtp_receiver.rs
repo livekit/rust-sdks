@@ -17,7 +17,9 @@ use crate::media_stream_track::MediaStreamTrack;
 use crate::rtp_parameters::RtpParameters;
 use cxx::SharedPtr;
 use webrtc_sys::frame_transformer::EncodedFrameSinkWrapper;
+use webrtc_sys::frame_transformer::SenderReportSinkWrapper;
 use webrtc_sys::frame_transformer::ffi::AdaptedNativeFrameTransformer;
+use webrtc_sys::frame_transformer::ffi::AdaptedNativeSenderReportCallback;
 use webrtc_sys::rtp_receiver as sys_rr;
 use webrtc_sys::frame_transformer as sys_ft;
 
@@ -49,6 +51,14 @@ impl RtpReceiver {
 
     pub fn new_adapted_frame_transformer(&self, observer: Box<EncodedFrameSinkWrapper>, is_video: bool) -> SharedPtr<AdaptedNativeFrameTransformer> {
         sys_ft::ffi::new_adapted_frame_transformer(observer, is_video)
+    }
+
+    pub fn set_sender_report_callback(&self, callback:  SharedPtr<AdaptedNativeSenderReportCallback>) {
+        self.sys_handle.set_sender_report_callback(callback);
+    }
+
+    pub fn new_adapted_sender_report_callback(&self, observer: Box<SenderReportSinkWrapper>) -> SharedPtr<AdaptedNativeSenderReportCallback> {
+        sys_ft::ffi::new_adapted_sender_report_callback(observer)
     }
 
     pub fn request_key_frame(&self) {

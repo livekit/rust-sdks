@@ -68,6 +68,13 @@ void RtpReceiver::set_depacketizer_to_decoder_frame_transformer(std::shared_ptr<
 }
 
 
+void RtpReceiver::set_sender_report_callback(std::shared_ptr<AdaptedNativeSenderReportCallback> sr_callback) const {
+  fprintf(stderr, "RtpReceiver::set_sender_report_callback\n");
+  rtc::scoped_refptr<NativeSenderReportCallback> callback = sr_callback->get();
+  receiver_->SetSenderReportCallback(callback);
+}
+
+
 void RtpReceiver::set_jitter_buffer_minimum_delay(bool is_some,
                                                   double delay_seconds) const {
   receiver_->SetJitterBufferMinimumDelay(

@@ -42,14 +42,24 @@ std::shared_ptr<AdaptedNativeFrameTransformer> new_adapted_frame_transformer(
     );
 }
 
+// sender report 
+
 NativeSenderReportCallback::NativeSenderReportCallback(
     rust::Box<SenderReportSinkWrapper> observer) : observer_(std::move(observer)) {
 }
 
-void NativeSenderReportCallback::OnSenderReport(std::unique_ptr<webrtc::rtcp::SenderReport> sender_report) {
+void NativeSenderReportCallback::OnSenderReport(std::unique_ptr<webrtc::LTSenderReport> sender_report) {
     fprintf(stderr, "NativeSenderReportCallback::OnSenderReport\n");
-    //std::unique_ptr<webrtc::TransformableAudioFrameInterface> frame(static_cast<webrtc::TransformableAudioFrameInterface*>(transformable_frame.release()));
-    //observer_->on_encoded_audio_frame(std::make_unique<EncodedAudioFrame>(std::move(frame)));
+    observer_->on_sender_report(std::make_unique<SenderReport>(std::move(sender_report)));
+}
+
+AdaptedNativeSenderReportCallback::AdaptedNativeSenderReportCallback(
+    rtc::scoped_refptr<NativeSenderReportCallback> source)
+    : source_(source) {}
+
+rtc::scoped_refptr<NativeSenderReportCallback> AdaptedNativeSenderReportCallback::get()
+    const {
+  return source_;
 }
 
 std::shared_ptr<AdaptedNativeSenderReportCallback> new_adapted_sender_report_callback(

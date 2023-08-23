@@ -36,6 +36,7 @@ pub mod video_track;
 pub mod yuv_helper;
 pub mod encoded_video_frame_stream;
 pub mod encoded_audio_frame_stream;
+pub mod sender_report_stream;
 
 use crate::MediaType;
 use crate::{RtcError, RtcErrorType};
