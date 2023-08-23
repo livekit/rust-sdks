@@ -34,6 +34,7 @@ pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
 pub mod yuv_helper;
+pub mod frame_cryptor;
 
 use crate::MediaType;
 use crate::{RtcError, RtcErrorType};

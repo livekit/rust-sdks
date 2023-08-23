@@ -14,3 +14,5 @@
 
 pub mod manager;
 pub mod options;
+pub mod key_provider;
+pub mod events;

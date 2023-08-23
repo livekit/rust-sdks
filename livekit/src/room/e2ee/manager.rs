@@ -12,150 +12,171 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, thread::JoinHandle};
+use std::collections::HashMap;
 
-use tokio::sync::mpsc;
+use livekit_webrtc::{
+    frame_cryptor::{Algorithm, FrameCryptor},
+    rtp_receiver::RtpReceiver,
+    rtp_sender::RtpSender,
+};
 
-use crate::{RoomEvent, Room, prelude::{RemoteTrack, LocalTrack}};
+use crate::{E2EEOptions, RoomEvent};
 
-use super::options::{E2EEOptions, EncryptionType};
+use crate::prelude::TrackKind;
 
-
-#[derive(Debug)]
 pub struct E2EEManager {
-    options: E2EEOptions,
-    frame_cryptors: HashMap<String, SharedPtr<FrameCryptor>>,
-    room: Option<Room>,
-    room_events: mpsc::UnboundedReceiver<RoomEvent>,
-    event_loop: Option<JoinHandle<()>>,
+    options: Option<E2EEOptions>,
+    frame_cryptors: HashMap<String, FrameCryptor>,
     enabled: bool,
 }
 
 impl E2EEManager {
-    pub fn new(options: E2EEOptions) -> Self {
+    pub fn new(options: Option<E2EEOptions>) -> Self {
         Self {
-            options,
             frame_cryptors: HashMap::new(),
-            room: None,
             enabled: false,
-            room_events: todo!(),
-            event_loop: todo!(),
+            options,
         }
     }
 
-    pub fn setup(&self, room: &Room) {
-
-        if self.options.encryption_type == EncryptionType::None {
-            return;
-        }
-
-        if self.room.is_some() {
-            self.cleanup();
-            self.room = None;
-        }
-
-        self.room = room;
-        self.room_events = self.room.subscribe();
-        self.event_loop = thread::spawn(move || room_events_loop(room_events));
-    }
-
-    async fn room_events_loop(room_events: UnboundedReceiver<RoomEvent>) {
-        while let Some(event) = room_events.recv().await {
-            match msg {
+    pub async fn handle_track_events(&self, event: &RoomEvent) {
+            match event {
                 RoomEvent::TrackSubscribed {
                     track,
                     publication: _,
                     participant: _,
                 } => {
-                    self._add_rtp_receiver(
-                        participant.sid(),
-                        track.sid(),
-                        track.kind(),
-                        track.rtc_track().receiver(),
-                    );
-                },
+                    let transceiver = track.transceiver();
+                    if let Some(transceiver) = transceiver {
+                        self._add_rtp_receiver(
+                            track.sid().to_string(),
+                            track.rtc_track().id().to_string(),
+                            String::from(match track.kind() {
+                                TrackKind::Audio => "audio",
+                                TrackKind::Video => "video",
+                            }),
+                            transceiver.receiver(),
+                        );
+                    }
+                }
                 RoomEvent::LocalTrackPublished {
-                    publication,
+                    publication: _,
                     track,
                     participant: _,
                 } => {
-                    self._add_rtp_sender(
-                        participant.sid(),
-                        track.sid(),
-                        track.kind(),
-                        track.rtc_track().sender(),
-                    );
+                    let transceiver = track.transceiver();
+                    if let Some(transceiver) = transceiver {
+                        self._add_rtp_sender(
+                            track.sid().to_string(),
+                            track.rtc_track().id().to_string(),
+                            String::from(match track.kind() {
+                                TrackKind::Audio => "audio",
+                                TrackKind::Video => "video",
+                            }),
+                            transceiver.sender(),
+                        );
+                    }
                 }
                 _ => {}
             }
-        }
     }
 
-    pub fn set_enabled(&self, enabled: bool)  {
+    pub fn enabled(&self) -> bool {
+        self.enabled && self.options.is_some()
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
-        for( &participant_id, &cryptor) in self.frame_cryptors.iter() {
-            cryptor.set_enabled(enabled);
-            if(self.options.key_provider.shared_key) {
-                self.options.key_provider.set_key_index(
-                    participant_id,
-                    0,
-                    self.options.shared_key);
-                cryptor.set_key_index(0);
+
+        if let Some(options) = &self.options {
+            for (participant_id, cryptor) in self.frame_cryptors.iter() {
+                cryptor.set_enabled(enabled);
+                if options.key_provider.is_shared_key() {
+                    options.key_provider.set_key(
+                        participant_id.clone(),
+                        0,
+                        options.key_provider.shared_key().as_bytes().to_vec(),
+                    );
+                    cryptor.set_key_index(0);
+                }
             }
         }
     }
 
-    pub fn cleanup(&self) {
-        self.frame_cryptors.clear();
-        self.room = None;
-        if let Some(event_loop) = self.event_loop.take() {
-            event_loop.join().unwrap();
+    pub fn cleanup(&mut self) {
+        for cryptor in self.frame_cryptors.values() {
+            cryptor.set_enabled(false);
         }
-        self.room_events = None;
+        self.options = None;
     }
 
-    pub fn ratchet_key() {
-        if(self.options.key_provider.shared_key) {
-            let new_key = self.options.key_provider.ratchet_key(participant_id, 0);
+    pub fn ratchet_key(&mut self) {
+        if let Some(options) = &self.options {
+            for participant_id in self.frame_cryptors.keys() {
+                let new_key = options.key_provider.ratchet_key(participant_id.clone(), 0);
+                log::info!("ratcheting key for {}, new_key {}", participant_id, new_key.len());
+            }
         }
     }
 
-    fn _add_rtp_sender(sid: String, track_id: String, kind: String, sender: RtpSender) -> SharedPtr<FrameCryptor> {
+    fn _add_rtp_sender(
+        &self,
+        sid: String,
+        track_id: String,
+        kind: String,
+        sender: RtpSender,
+    ) {
         let participant_id = kind + "-sender-" + &sid + "-" + &track_id;
-        let frame_cryptor = new_frame_cryptor_for_rtp_sender(
-            participant_id,
-            self.options.key_provider.algorithm,
-            self.options.key_provider,
-            sender,
-        );
 
-        self.frame_cryptors[track_id] = frame_cryptor;
+        if let Some(options) = &self.options {
+            let frame_cryptor = FrameCryptor::new_for_rtp_sender(
+                participant_id.clone(),
+                Algorithm::AesGcm,
+                options.key_provider.handle.clone(),
+                sender,
+            );
 
-        frame_cryptor.set_enabled(self.enabled);
+            frame_cryptor.set_enabled(self.enabled);
 
-        if (self.options.key_provider.shared_key) {
-            self.options.key_provider.set_key(participant_id, 0, self.options.shared_key);
-            frame_cryptor.set_key_index(0);
+            if options.key_provider.is_shared_key() {
+                options.key_provider.set_key(
+                    participant_id.clone(),
+                    0,
+                    options.key_provider.shared_key().as_bytes().to_vec(),
+                );
+                frame_cryptor.set_key_index(0);
+            }
+
+            //self.frame_cryptors[participant_id.clone()] = frame_cryptor;
         }
-
-        return frame_cryptor;
     }
 
-    fn _add_rtp_receiver(sid: String, track_id: String, kind: String, receiver: RtpReceiver) -> SharedPtr<FrameCryptor> {
+    fn _add_rtp_receiver(
+        &self,
+        sid: String,
+        track_id: String,
+        kind: String,
+        receiver: RtpReceiver,
+    ) {
         let participant_id = kind + "-receiver-" + &sid + "-" + &track_id;
-        let frame_cryptor = new_frame_cryptor_for_rtp_receiver(
-            participant_id,
-            self.options.key_provider.algorithm,
-            self.options.key_provider,
-            receiver,
-        );
-        frame_cryptor.set_enabled(self.enabled);
-        if (self.options.key_provider.shared_key) {
-            self.options.key_provider.set_key(participant_id, 0, self.options.shared_key);
-            frame_cryptor.set_key_index(0);
-        }
-        self.frame_cryptors[track_id] = frame_cryptor;
+        if let Some(options) = &self.options {
+            let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
+                participant_id.clone(),
+                Algorithm::AesGcm,
+                options.key_provider.handle.clone(),
+                receiver,
+            );
+            frame_cryptor.set_enabled(self.enabled);
+            if options.key_provider.is_shared_key() {
+                options.key_provider.set_key(
+                    participant_id.clone(),
+                    0,
+                    options.key_provider.shared_key().as_bytes().to_vec(),
+                );
+                frame_cryptor.set_key_index(0);
+            }
 
-        return frame_cryptor;
+            //self.frame_cryptors[&participant_id.clone()] = frame_cryptor;
+        }
     }
 }

@@ -43,6 +43,7 @@ impl From<proto::RoomOptions> for RoomOptions {
             adaptive_stream: value.adaptive_stream,
             auto_subscribe: value.auto_subscribe,
             dynacast: value.dynacast,
+            e2ee_options: None, //TODO: convert
         }
     }
 }

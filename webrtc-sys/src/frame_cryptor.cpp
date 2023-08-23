@@ -99,7 +99,7 @@ FrameCryptor::FrameCryptor(
 FrameCryptor::~FrameCryptor() {}
 
 void FrameCryptor::register_observer(
-    rust::Box<RTCFrameCryptorObserver> observer) const {
+    rust::Box<RTCFrameCryptorObserverWrapper> observer) const {
   webrtc::MutexLock lock(&mutex_);
   observer_ =
       std::make_unique<NativeFrameCryptorObserver>(std::move(observer), this);
@@ -113,7 +113,7 @@ void FrameCryptor::unregister_observer() const {
 }
 
 NativeFrameCryptorObserver::NativeFrameCryptorObserver(
-    rust::Box<RTCFrameCryptorObserver> observer,
+    rust::Box<RTCFrameCryptorObserverWrapper> observer,
     const FrameCryptor* fc)
     : observer_(std::move(observer)), fc_(fc) {}
 

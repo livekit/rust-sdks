@@ -12,36 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use livekit_webrtc::frame_cryptor::KeyProviderOptions;
+
+use super::key_provider::BaseKeyProvider;
 
 const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
 const DEFAULT_MAGIC_BYTES: &str = "LK-ROCKS";
 const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EncryptionType {
     None,
     Gcm,
     Custom,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct E2EEOptions {
     pub encryption_type: EncryptionType,
-    pub shared_key: String,
-    pub key_provider: Option<SharedPtr<KeyProvider>>,
+    pub key_provider: BaseKeyProvider,
+}
+
+impl E2EEOptions {
+    pub fn new(encryption_type: EncryptionType, key_provider: BaseKeyProvider) -> Self {
+        Self {
+            encryption_type,
+            key_provider,
+        }
+    }
+
+    pub fn is_shared_key(&self) -> bool {
+        self.key_provider.is_shared_key()
+    }
 }
 
 impl Default for E2EEOptions {
     fn default() -> Self {
         Self {
             encryption_type: EncryptionType::Gcm,
-            shared_key: "".to_string(),
-            key_provider: new_key_provider(KeyProviderOptions {
-                shared_key: true,
-                ratchet_window_size: DEFAULT_RATCHET_WINDOW_SIZE,
-                ratchet_salt: DEFAULT_RATCHET_SALT.as_bytes().to_vec(),
-                uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.as_bytes().to_vec(),
-            }),
+            key_provider: BaseKeyProvider::new(
+                KeyProviderOptions {
+                    shared_key: true,
+                    ratchet_window_size: DEFAULT_RATCHET_WINDOW_SIZE,
+                    ratchet_salt: DEFAULT_RATCHET_SALT.as_bytes().to_vec(),
+                    uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.as_bytes().to_vec(),
+                },
+                true,
+                "".to_string(),
+            ),
         }
     }
 }

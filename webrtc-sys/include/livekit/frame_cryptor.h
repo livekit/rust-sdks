@@ -32,7 +32,7 @@ namespace livekit {
 
 struct KeyProviderOptions;
 enum class Algorithm : ::std::int32_t;
-class RTCFrameCryptorObserver;
+class RTCFrameCryptorObserverWrapper;
 class NativeFrameCryptorObserver;
 
 /// Shared secret key for frame encryption.
@@ -40,6 +40,7 @@ class KeyProvider {
  public:
   KeyProvider(KeyProviderOptions options);
   ~KeyProvider() {}
+  
   /// Set the key at the given index.
   bool set_key(const ::rust::String participant_id,
                int32_t index,
@@ -103,7 +104,7 @@ class FrameCryptor {
 
   rust::String participant_id() const { return participant_id_; }
 
-  void register_observer(rust::Box<RTCFrameCryptorObserver> observer) const;
+  void register_observer(rust::Box<RTCFrameCryptorObserverWrapper> observer) const;
 
   void unregister_observer() const;
 
@@ -121,14 +122,14 @@ class FrameCryptor {
 class NativeFrameCryptorObserver
     : public webrtc::FrameCryptorTransformerObserver {
  public:
-  NativeFrameCryptorObserver(rust::Box<RTCFrameCryptorObserver> observer,
+  NativeFrameCryptorObserver(rust::Box<RTCFrameCryptorObserverWrapper> observer,
                              const FrameCryptor* fc);
 
   void OnFrameCryptionStateChanged(const std::string participant_id,
                                    webrtc::FrameCryptionState error) override;
 
  private:
-  rust::Box<RTCFrameCryptorObserver> observer_;
+  rust::Box<RTCFrameCryptorObserverWrapper> observer_;
   const FrameCryptor* fc_;
 };
 
