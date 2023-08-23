@@ -11,17 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use crate::{
-    e2ee::{
-        frame_cryptor::{FrameCryptor, FrameCryptorOptions},
-        key_provider::{new_key_provider, KeyProvider, KeyProviderOptions},
-    },
-    error::Error,
-};
 
-const default_ratchet_salt: &str = "LKFrameEncryptionKey";
-const default_magic_bytes: &str = "LK-ROCKS";
-const default_ratchet_window_size: i32 = 16;
+
+const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
+const DEFAULT_MAGIC_BYTES: &str = "LK-ROCKS";
+const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
 
 #[derive(Debug, Clone)]
 pub enum EncryptionType {
@@ -40,13 +34,13 @@ pub struct E2EEOptions {
 impl Default for E2EEOptions {
     fn default() -> Self {
         Self {
-            encryption_type: Gcm,
+            encryption_type: EncryptionType::Gcm,
             shared_key: "".to_string(),
             key_provider: new_key_provider(KeyProviderOptions {
                 shared_key: true,
-                ratchet_window_size: default_ratchet_window_size,
-                ratchet_salt: default_ratchet_salt.as_bytes().to_vec(),
-                uncrypted_magic_bytes: default_magic_bytes.as_bytes().to_vec(),
+                ratchet_window_size: DEFAULT_RATCHET_WINDOW_SIZE,
+                ratchet_salt: DEFAULT_RATCHET_SALT.as_bytes().to_vec(),
+                uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.as_bytes().to_vec(),
             }),
         }
     }

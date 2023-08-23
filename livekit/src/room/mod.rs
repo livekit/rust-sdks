@@ -31,11 +31,15 @@ use tokio::task::JoinHandle;
 pub use crate::rtc_engine::SimulateScenario;
 pub use proto::DisconnectReason;
 
+pub use crate::e2ee::options::E2EEOptions;
+pub use crate::e2ee::manager::E2EEManager;
+
 pub mod id;
 pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod track;
+pub mod e2ee;
 
 pub type RoomResult<T> = Result<T, RoomError>;
 
@@ -140,6 +144,7 @@ pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub dynacast: bool,
+    pub e2ee_options: Option<E2EEOptions>,
 }
 
 impl Default for RoomOptions {
@@ -148,6 +153,7 @@ impl Default for RoomOptions {
             auto_subscribe: true,
             adaptive_stream: false,
             dynacast: false,
+            e2ee_options: None,
         }
     }
 }
@@ -220,6 +226,12 @@ impl Room {
                 });
             }
         });
+        
+        let e2ee_manager: Option<E2EEManager> = None;
+        if options.e2ee_options.is_some() {
+            e2ee_manager = Some(E2EEManager::new(options.e2ee_options.unwrap()));
+            e2ee_manager.setup(&self);
+        }
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
@@ -235,6 +247,7 @@ impl Room {
             rtc_engine,
             local_participant,
             dispatcher,
+            e2ee_manager: e2ee_manager,
         });
 
         for pi in join_response.other_participants {
@@ -340,6 +353,7 @@ pub(crate) struct RoomSession {
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
+    e2ee_manager: Option<E2EEManager>,
 }
 
 impl Debug for RoomSession {

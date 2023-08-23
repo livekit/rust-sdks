@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use crate::impl_thread_safety;
 
 #[cxx::bridge(namespace = "livekit")]
@@ -47,17 +49,17 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/frame_cryptor.h");
 
-        type KeyProvider;
+        pub type KeyProvider;
  
-        fn new_key_provider(
+        pub fn new_key_provider(
             options: KeyProviderOptions,
         ) -> SharedPtr<KeyProvider>;
 
-        fn set_key(self: &KeyProvider, participant_id: String, key_index: i32, key: Vec<u8>) -> bool;
+        pub fn set_key(self: &KeyProvider, participant_id: String, key_index: i32, key: Vec<u8>) -> bool;
 
-        fn ratchet_key(self: &KeyProvider, participant_id: String, key_index: i32) -> Vec<u8>;
+        pub fn ratchet_key(self: &KeyProvider, participant_id: String, key_index: i32) -> Vec<u8>;
 
-        fn export_key(self: &KeyProvider, participant_id: String, key_index: i32) -> Vec<u8>;
+        pub fn export_key(self: &KeyProvider, participant_id: String, key_index: i32) -> Vec<u8>;
     }
 
     unsafe extern "C++" {
@@ -68,44 +70,64 @@ pub mod ffi {
         type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
 
-        type FrameCryptor;
+        pub type FrameCryptor;
 
-        fn new_frame_cryptor_for_rtp_sender(
+        pub fn new_frame_cryptor_for_rtp_sender(
             participant_id: String,
             algorithm: Algorithm,
             key_provider: SharedPtr<KeyProvider>,
             sender: SharedPtr<RtpSender>,
         ) -> SharedPtr<FrameCryptor>;
 
-        fn new_frame_cryptor_for_rtp_receiver(
+        pub fn new_frame_cryptor_for_rtp_receiver(
             participant_id: String,
             algorithm: Algorithm,
             key_provider: SharedPtr<KeyProvider>,
             receiver: SharedPtr<RtpReceiver>,
         ) -> SharedPtr<FrameCryptor>;
 
-        fn set_enabled(self: &FrameCryptor, enabled: bool);
+        pub fn set_enabled(self: &FrameCryptor, enabled: bool);
 
-        fn enabled(self: &FrameCryptor) -> bool;
+        pub fn enabled(self: &FrameCryptor) -> bool;
 
-        fn set_key_index(self: &FrameCryptor, index: i32);
+        pub fn set_key_index(self: &FrameCryptor, index: i32);
 
-        fn key_index(self: &FrameCryptor) -> i32;
+        pub fn key_index(self: &FrameCryptor) -> i32;
 
-        fn participant_id(self: &FrameCryptor) -> String;
+        pub fn participant_id(self: &FrameCryptor) -> String;
         
-        fn register_observer(self: &FrameCryptor, observer: Box<RTCFrameCryptorObserver>);
+        pub fn register_observer(self: &FrameCryptor, observer: Box<RTCFrameCryptorObserverWrapper>);
 
-        fn unregister_observer(self: &FrameCryptor);
+        pub fn unregister_observer(self: &FrameCryptor);
     }
 
     extern "Rust" {
-        type RTCFrameCryptorObserver;
+        type RTCFrameCryptorObserverWrapper;
 
-        fn on_frame_cryption_state_change(self: &RTCFrameCryptorObserver, participant_id: String,  state: FrameCryptionState);
+        fn on_frame_cryption_state_change(self: &RTCFrameCryptorObserverWrapper, participant_id: String,  state: FrameCryptionState);
     }
 
 } // namespace livekit
 
 impl_thread_safety!(ffi::FrameCryptor, Send + Sync);
 impl_thread_safety!(ffi::KeyProvider, Send + Sync);
+
+use ffi::FrameCryptionState;
+
+pub trait RTCFrameCryptorObserver: Send + Sync {
+    fn on_frame_cryption_state_change(&self, participant_id: String,  state: FrameCryptionState);
+}
+
+pub struct RTCFrameCryptorObserverWrapper {
+    observer: Arc<dyn RTCFrameCryptorObserver>,
+}
+
+impl RTCFrameCryptorObserverWrapper {
+    pub fn new(observer: Arc<dyn RTCFrameCryptorObserver>) -> Self {
+        Self { observer }
+    }
+
+    fn on_frame_cryption_state_change(self: &RTCFrameCryptorObserverWrapper, participant_id: String,  state: FrameCryptionState) {
+        self.observer.on_frame_cryption_state_change(participant_id, state);
+    }
+}

@@ -12,16 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit::e2ee::{
-    frame_cryptor::{FrameCryptor, FrameCryptorOptions},
-    key_provider::{new_key_provider, KeyProvider, KeyProviderOptions},
-};
+use std::{collections::HashMap, thread::JoinHandle};
 
-#[derive(Clone)]
+use tokio::sync::mpsc;
+
+use crate::{RoomEvent, Room, prelude::{RemoteTrack, LocalTrack}};
+
+use super::options::{E2EEOptions, EncryptionType};
+
+
+#[derive(Debug)]
 pub struct E2EEManager {
     options: E2EEOptions,
-    frame_cryptors: HashMap<String, SharedPtr<FrameCryptor>>
-    room: Room,
+    frame_cryptors: HashMap<String, SharedPtr<FrameCryptor>>,
+    room: Option<Room>,
     room_events: mpsc::UnboundedReceiver<RoomEvent>,
     event_loop: Option<JoinHandle<()>>,
     enabled: bool,
@@ -34,68 +38,74 @@ impl E2EEManager {
             frame_cryptors: HashMap::new(),
             room: None,
             enabled: false,
+            room_events: todo!(),
+            event_loop: todo!(),
         }
     }
 
-    pub fn setup(room: &Room) {
+    pub fn setup(&self, room: &Room) {
 
-        if options.encryption_type == EncryptionType::None {
+        if self.options.encryption_type == EncryptionType::None {
             return;
         }
 
-        if(self.room.is_some()) {
-            cleanup();
+        if self.room.is_some() {
+            self.cleanup();
+            self.room = None;
         }
 
         self.room = room;
         self.room_events = self.room.subscribe();
-        self.event_loop = thread::spawn(move || self {
-            let rx = self.room_events.recv().unwrap();
-            while let Some(msg) = rx.recv().await {
-                match msg {
-                    RoomEvent::TrackSubscribed {
-                        track,
-                        publication: _,
-                        participant: _,
-                    } => {
-                        self.add_remote_track(track);
-                    },
-                    RoomEvent::LocalTrackPublished {
-                        publication,
-                        track,
-                        participant: _,
-                    } => {
-                        self.add_local_track(track);
-                    }
-                    _ => {}
-                }
-            }
-        });
+        self.event_loop = thread::spawn(move || room_events_loop(room_events));
     }
 
-    pub fn set_enabled(bool enabled)  {
+    async fn room_events_loop(room_events: UnboundedReceiver<RoomEvent>) {
+        while let Some(event) = room_events.recv().await {
+            match msg {
+                RoomEvent::TrackSubscribed {
+                    track,
+                    publication: _,
+                    participant: _,
+                } => {
+                    self._add_rtp_receiver(
+                        participant.sid(),
+                        track.sid(),
+                        track.kind(),
+                        track.rtc_track().receiver(),
+                    );
+                },
+                RoomEvent::LocalTrackPublished {
+                    publication,
+                    track,
+                    participant: _,
+                } => {
+                    self._add_rtp_sender(
+                        participant.sid(),
+                        track.sid(),
+                        track.kind(),
+                        track.rtc_track().sender(),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn set_enabled(&self, enabled: bool)  {
         self.enabled = enabled;
-        for((participant_id, cryptor) in self.frame_cryptors.into_iter()) {
+        for( &participant_id, &cryptor) in self.frame_cryptors.iter() {
             cryptor.set_enabled(enabled);
             if(self.options.key_provider.shared_key) {
                 self.options.key_provider.set_key_index(
                     participant_id,
-                    index: 0,
+                    0,
                     self.options.shared_key);
                 cryptor.set_key_index(0);
             }
         }
     }
 
-    fn add_local_track(track: LocalTrack) {
-
-    }
-
-    fn add_remote_track(track: RemoteTrack) {
-
-    }
-
-    pub fn cleanup() {
+    pub fn cleanup(&self) {
         self.frame_cryptors.clear();
         self.room = None;
         if let Some(event_loop) = self.event_loop.take() {
@@ -105,13 +115,13 @@ impl E2EEManager {
     }
 
     pub fn ratchet_key() {
-        for((participant_id, _) in self.frame_cryptors.into_iter()) {
+        if(self.options.key_provider.shared_key) {
             let new_key = self.options.key_provider.ratchet_key(participant_id, 0);
         }
     }
 
-    fn _add_rtp_sender(sid: String? track_id: String, kind: String, sender: RtpSender) -> SharedPtr<FrameCryptor> {
-        let participant_id = kind + "-sender-" + sid + "-" + track_id;
+    fn _add_rtp_sender(sid: String, track_id: String, kind: String, sender: RtpSender) -> SharedPtr<FrameCryptor> {
+        let participant_id = kind + "-sender-" + &sid + "-" + &track_id;
         let frame_cryptor = new_frame_cryptor_for_rtp_sender(
             participant_id,
             self.options.key_provider.algorithm,
@@ -131,8 +141,8 @@ impl E2EEManager {
         return frame_cryptor;
     }
 
-    fn _add_rtp_receiver(sid: String? track_id: String, kind: String, receiver: RtpReceiver) -> SharedPtr<FrameCryptor> {
-        let participant_id = kind + "-receiver-" + sid + "-" + track_id;
+    fn _add_rtp_receiver(sid: String, track_id: String, kind: String, receiver: RtpReceiver) -> SharedPtr<FrameCryptor> {
+        let participant_id = kind + "-receiver-" + &sid + "-" + &track_id;
         let frame_cryptor = new_frame_cryptor_for_rtp_receiver(
             participant_id,
             self.options.key_provider.algorithm,
