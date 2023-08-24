@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{borrow::Cow, slice};
+
 use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
-use livekit::webrtc::prelude::*;
+use livekit::webrtc::{audio_frame::CowAudioFrame, prelude::*};
 
 pub struct FfiAudioSource {
     pub handle_id: FfiHandleId,
@@ -28,7 +30,7 @@ impl FfiAudioSource {
     pub fn setup(
         server: &'static server::FfiServer,
         new_source: proto::NewAudioSourceRequest,
-    ) -> FfiResult<proto::AudioSourceInfo> {
+    ) -> FfiResult<proto::OwnedAudioSource> {
         let source_type = new_source.r#type();
         #[allow(unreachable_patterns)]
         let source_inner = match source_type {
@@ -46,20 +48,20 @@ impl FfiAudioSource {
             }
         };
 
+        let handle_id = server.next_id();
         let source = Self {
-            handle_id: server.next_id(),
+            handle_id,
             source_type,
             source: source_inner,
         };
 
-        let info = proto::AudioSourceInfo::from(
-            proto::FfiOwnedHandle {
-                id: source.handle_id,
-            },
-            &source,
-        );
+        let info = proto::AudioSourceInfo::from(&source);
         server.store_handle(source.handle_id, source);
-        Ok(info)
+
+        Ok(proto::OwnedAudioSource {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(info),
+        })
     }
 
     pub fn capture_frame(
@@ -67,11 +69,26 @@ impl FfiAudioSource {
         server: &'static server::FfiServer,
         capture: proto::CaptureAudioFrameRequest,
     ) -> FfiResult<()> {
+        let Some(buffer) = capture.buffer else {
+            return Err(FfiError::InvalidRequest("buffer is None".into()));
+        };
+
+        let data = unsafe {
+            let len = buffer.num_channels * buffer.samples_per_channel;
+            slice::from_raw_parts(buffer.data_ptr as *const i16, len as usize)
+        };
+
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Native(ref source) => {
-                let frame = server.retrieve_handle::<AudioFrame>(capture.buffer_handle)?;
-                source.capture_frame(frame.value());
+                let audio_frame = CowAudioFrame {
+                    data: Cow::Borrowed(data),
+                    sample_rate: buffer.sample_rate,
+                    num_channels: buffer.num_channels,
+                    samples_per_channel: buffer.samples_per_channel,
+                };
+
+                source.capture_frame(&audio_frame);
             }
             _ => {}
         }

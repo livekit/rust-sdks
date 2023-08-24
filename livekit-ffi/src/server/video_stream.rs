@@ -43,7 +43,7 @@ impl FfiVideoStream {
     pub fn setup(
         server: &'static server::FfiServer,
         new_stream: proto::NewVideoStreamRequest,
-    ) -> FfiResult<proto::VideoStreamInfo> {
+    ) -> FfiResult<proto::OwnedVideoStream> {
         let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?;
         let rtc_track = ffi_track.track.rtc_track();
 
@@ -77,14 +77,15 @@ impl FfiVideoStream {
         }?;
 
         // Store the new video stream and return the info
-        let info = proto::VideoStreamInfo::from(
-            proto::FfiOwnedHandle {
-                id: stream.handle_id,
-            },
-            &stream,
-        );
         server.store_handle(stream.handle_id, stream);
-        Ok(info)
+        let info = proto::VideoStreamInfo::from(&stream);
+
+        Ok(proto::OwnedVideoStream {
+            handle: Some(proto::FfiOwnedHandle {
+                id: stream.handle_id,
+            }),
+            info: Some(info),
+        })
     }
 
     async fn native_video_stream_task(
@@ -105,7 +106,7 @@ impl FfiVideoStream {
 
                     let handle_id = server.next_id();
                     let frame_info = proto::VideoFrameInfo::from(&frame);
-                    let buffer_info = proto::VideoFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &frame.buffer);
+                    let buffer_info = proto::VideoFrameBufferInfo::from(&frame.buffer);
                     server.store_handle(handle_id, frame.buffer);
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
@@ -114,7 +115,12 @@ impl FfiVideoStream {
                             message: Some(proto::video_stream_event::Message::FrameReceived(
                                 proto::VideoFrameReceived {
                                     frame: Some(frame_info),
-                                    buffer: Some(buffer_info),
+                                    buffer: Some(proto::OwnedVideoFrameBuffer {
+                                        handle: Some(proto::FfiOwnedHandle {
+                                            id: handle_id,
+                                        }),
+                                        info: Some(buffer_info),
+                                    }),
                                 }
                             )),
                         }

@@ -96,11 +96,10 @@ impl From<proto::AudioEncoding> for AudioEncoding {
     }
 }
 
-impl proto::RoomInfo {
-    pub fn from(handle: proto::FfiOwnedHandle, ffi_room: &FfiRoom) -> Self {
-        let room = &ffi_room.inner.room;
+impl From<&FfiRoom> for proto::RoomInfo {
+    fn from(value: &FfiRoom) -> Self {
+        let room = value.inner.room;
         Self {
-            handle: Some(handle),
             sid: room.sid().into(),
             name: room.name(),
             metadata: room.metadata(),

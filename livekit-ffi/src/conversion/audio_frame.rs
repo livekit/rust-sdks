@@ -28,31 +28,28 @@ impl From<proto::AudioSourceOptions> for AudioSourceOptions {
     }
 }
 
-impl proto::AudioFrameBufferInfo {
-    pub fn from(handle_id: proto::FfiOwnedHandle, buffer: &AudioFrame) -> Self {
+impl From<&AudioFrame> for proto::AudioFrameBufferInfo {
+    fn from(frame: &AudioFrame) -> Self {
         Self {
-            handle: Some(handle_id),
-            data_ptr: buffer.data.as_ptr() as u64,
-            samples_per_channel: buffer.samples_per_channel,
-            sample_rate: buffer.sample_rate,
-            num_channels: buffer.num_channels,
+            data_ptr: frame.data.as_ptr() as u64,
+            samples_per_channel: frame.samples_per_channel,
+            sample_rate: frame.sample_rate,
+            num_channels: frame.num_channels,
         }
     }
 }
 
-impl proto::AudioSourceInfo {
-    pub fn from(handle_id: proto::FfiOwnedHandle, source: &FfiAudioSource) -> Self {
+impl From<&FfiAudioSource> for proto::AudioSourceInfo {
+    fn from(source: &FfiAudioSource) -> Self {
         Self {
-            handle: Some(handle_id),
             r#type: source.source_type as i32,
         }
     }
 }
 
-impl proto::AudioStreamInfo {
-    pub fn from(handle_id: proto::FfiOwnedHandle, stream: &FfiAudioStream) -> Self {
+impl From<&FfiAudioStream> for proto::AudioStreamInfo {
+    fn from(stream: &FfiAudioStream) -> Self {
         Self {
-            handle: Some(handle_id),
             r#type: stream.stream_type as i32,
         }
     }

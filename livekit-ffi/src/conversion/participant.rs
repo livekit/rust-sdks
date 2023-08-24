@@ -15,11 +15,10 @@
 use crate::proto;
 use crate::server::room::FfiParticipant;
 
-impl proto::ParticipantInfo {
-    pub fn from(handle: proto::FfiOwnedHandle, ffi_participant: &FfiParticipant) -> Self {
-        let participant = &ffi_participant.participant;
+impl From<&FfiParticipant> for proto::ParticipantInfo {
+    fn from(value: &FfiParticipant) -> Self {
+        let participant = value.participant;
         Self {
-            handle: Some(handle),
             sid: participant.sid().into(),
             name: participant.name(),
             identity: participant.identity().into(),

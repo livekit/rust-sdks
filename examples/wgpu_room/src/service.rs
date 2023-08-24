@@ -1,4 +1,7 @@
-use crate::{logo_track::LogoTrack, sine_track::SineTrack};
+use crate::{
+    logo_track::LogoTrack,
+    sine_track::{SineParameters, SineTrack},
+};
 use livekit::{prelude::*, SimulateScenario};
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -120,7 +123,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     running_state = Some(RunningState {
                         room: new_room.clone(),
                         logo_track: LogoTrack::new(new_room.clone()),
-                        sine_track: SineTrack::new(new_room.clone()),
+                        sine_track: SineTrack::new(new_room.clone(), SineParameters::default()),
                     });
 
                     // Allow direct access to the room from the UI (Used for sync access)

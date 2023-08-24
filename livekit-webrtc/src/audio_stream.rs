@@ -53,7 +53,7 @@ pub mod native {
     }
 
     impl Stream for NativeAudioStream {
-        type Item = AudioFrame;
+        type Item = AudioFrame<'static>;
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
             Pin::new(&mut self.get_mut().handle).poll_next(cx)
