@@ -85,7 +85,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   enable_dsyms=$debug \
   target_os=\"mac\" \
   target_cpu=\"$arch\" \
-  mac_deployment_target=\"10.11\" \
+  mac_deployment_target=\"10.15\" \
   treat_warnings_as_errors=false \
   rtc_enable_protobuf=false \
   rtc_include_tests=false \
@@ -100,8 +100,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_custom_libcxx=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
-  use_lld=false \
-  use_cxx17=true"
+  use_lld=false"
 
 # build static library
 ninja -C "$OUTPUT_DIR" :default \

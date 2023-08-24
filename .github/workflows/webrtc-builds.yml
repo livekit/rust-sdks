@@ -42,12 +42,12 @@ jobs:
             arch: arm64
 
           - name: linux 
-            os: ubuntu-latest
+            os: ubuntu-20.04
             cmd: ./build_linux.sh
             arch: x64
 
           - name: linux
-            os: ubuntu-latest
+            os: ubuntu-20.04
             cmd: ./build_linux.sh
             arch: arm64 
           
@@ -105,7 +105,7 @@ jobs:
           submodules: true
 
       - name: Install linux dependencies
-        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        if: ${{ matrix.target.os == 'ubuntu-20.04' || matrix.target.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
