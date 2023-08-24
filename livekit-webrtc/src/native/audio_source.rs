@@ -103,9 +103,10 @@ impl NativeAudioSource {
                 &inner.buf
             } else {
                 // Read 10ms frame only from frame.data
+                let start = inner.read_offset;
+                let end = start + self.samples_10ms;
                 inner.read_offset += self.samples_10ms;
-
-                &frame.data[..]
+                &frame.data[start..end]
             })
         } else {
             // Save to buf and wait for the next capture_frame to give enough data to complete a 10ms frame
@@ -132,7 +133,21 @@ impl NativeAudioSource {
         let mut interval = interval(Duration::from_millis(10));
         interval.tick().await;
 
-        // Capture frame until None
+        loop {
+            let Some(data) = self.next_frame(&mut inner, frame) else {
+                break;
+            };
+
+            let samples_per_channel = data.len() / self.num_channels as usize;
+            self.sys_handle.on_captured_frame(
+                data,
+                self.sample_rate as i32,
+                self.num_channels as usize,
+                samples_per_channel,
+            );
+
+            interval.tick().await;
+        }
 
         Ok(())
     }
@@ -218,5 +233,39 @@ mod tests {
 
         let samples_7ms = source.sample_rate() as usize / 1000 * 7 * source.num_channels() as usize;
         assert_eq!(inner.len, samples_7ms); // Remains 7ms
+    }
+
+    #[tokio::test]
+    async fn verify_duration() {
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 2);
+        let samples_30ms =
+            source.sample_rate() as usize / 1000 * 35 * source.num_channels() as usize;
+
+        let audio_frame = AudioFrame {
+            data: vec![0; samples_30ms].into(),
+            sample_rate: source.sample_rate(),
+            num_channels: source.num_channels(),
+            samples_per_channel: samples_30ms as u32 / source.num_channels(),
+        };
+
+        let mut inner = source.inner.lock().await;
+
+        let samples_10ms = source.sample_rate() as usize / 100 * source.num_channels() as usize;
+        assert_eq!(
+            source.next_frame(&mut inner, &audio_frame).unwrap().len(),
+            samples_10ms
+        );
+        assert_eq!(
+            source.next_frame(&mut inner, &audio_frame).unwrap().len(),
+            samples_10ms
+        );
+        assert_eq!(
+            source.next_frame(&mut inner, &audio_frame).unwrap().len(),
+            samples_10ms
+        );
+        assert!(source.next_frame(&mut inner, &audio_frame).is_none());
+
+        let samples_5ms = source.sample_rate() as usize / 1000 * 5 * source.num_channels() as usize;
+        assert_eq!(inner.len, samples_5ms); // Remaining data
     }
 }
