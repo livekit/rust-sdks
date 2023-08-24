@@ -15,7 +15,10 @@
 use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
 use cxx::SharedPtr;
 use std::{sync::Arc, time::Duration};
-use tokio::{sync::Mutex as AsyncMutex, time::interval};
+use tokio::{
+    sync::{Mutex as AsyncMutex, MutexGuard},
+    time::interval,
+};
 use webrtc_sys::audio_track as sys_at;
 
 #[derive(Clone)]
@@ -30,7 +33,13 @@ pub struct NativeAudioSource {
 #[derive(Default)]
 struct AudioSourceInner {
     buf: Box<[i16]>,
-    len: usize, // Data available inside buf
+
+    // Amount of data from the previous frame that hasn't been sent to the libwebrtc source
+    // (because it requires 10ms of data)
+    len: usize,
+
+    // Amount of data that have been read inside the current AudioFrame
+    read_offset: usize,
 }
 
 impl NativeAudioSource {
@@ -46,6 +55,7 @@ impl NativeAudioSource {
             inner: Arc::new(AsyncMutex::new(AudioSourceInner {
                 buf: vec![0; samples_10ms].into_boxed_slice(),
                 len: 0,
+                read_offset: 0,
             })),
             sample_rate,
             num_channels,
@@ -66,6 +76,50 @@ impl NativeAudioSource {
         self.sys_handle.audio_options().into()
     }
 
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    pub fn num_channels(&self) -> u32 {
+        self.num_channels
+    }
+
+    // Implemented inside another functions to allow unit testing
+    fn next_frame<'a>(
+        &self,
+        inner: &'a mut MutexGuard<'_, AudioSourceInner>, // The lock musts be guarded by capture_frame
+        frame: &'a AudioFrame<'a>,
+    ) -> Option<&'a [i16]> {
+        let available_data = inner.len + frame.data.len() - inner.read_offset;
+        if available_data >= self.samples_10ms {
+            // Capture the frame to libwebrtc
+            Some(if inner.len != 0 {
+                // Read 10ms frame from inner.buf AND frame.data
+                let missing_len = self.samples_10ms - inner.len;
+                let start = inner.len;
+                inner.buf[start..].copy_from_slice(&frame.data[..missing_len]);
+                inner.read_offset += missing_len;
+                inner.len = 0;
+                &inner.buf
+            } else {
+                // Read 10ms frame only from frame.data
+                inner.read_offset += self.samples_10ms;
+
+                &frame.data[..]
+            })
+        } else {
+            // Save to buf and wait for the next capture_frame to give enough data to complete a 10ms frame
+            let remaining_data = frame.data.len() - inner.read_offset; // remaining data from frame.data
+            let start = inner.len;
+            let end = start + remaining_data;
+            let start2 = frame.data.len() - remaining_data;
+            inner.buf[start..end].copy_from_slice(&frame.data[start2..]);
+            inner.len += remaining_data;
+            inner.read_offset = 0;
+            None
+        }
+    }
+
     pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
         if self.sample_rate != frame.sample_rate || self.num_channels != frame.num_channels {
             return Err(RtcError {
@@ -78,46 +132,7 @@ impl NativeAudioSource {
         let mut interval = interval(Duration::from_millis(10));
         interval.tick().await;
 
-        let mut offset = 0;
-        loop {
-            let data_len = frame.data.len();
-            let buf_len = inner.len;
-            let remaining_len = buf_len + data_len - offset;
-
-            if remaining_len < self.samples_10ms {
-                if remaining_len != 0 {
-                    let remaining_data = &frame.data[(data_len - remaining_len)..];
-                    inner.len = remaining_len;
-                    inner.buf[..remaining_len].copy_from_slice(remaining_data);
-                }
-
-                break;
-            }
-
-            // if data is available inside inner.buf, use it
-            let data = if buf_len > 0 {
-                let missing = &mut inner.buf[buf_len..];
-                let data = &frame.data[..(self.samples_10ms - buf_len)];
-
-                missing.copy_from_slice(data); // Fill the missing with data coming from the frame
-
-                offset += buf_len;
-                inner.len = 0;
-                &inner.buf
-            } else {
-                offset += self.samples_10ms;
-                &frame.data[offset..(offset + self.samples_10ms)]
-            };
-
-            self.sys_handle.on_captured_frame(
-                data,
-                self.sample_rate as i32,
-                self.num_channels as usize,
-                self.samples_10ms / self.num_channels as usize,
-            );
-
-            interval.tick().await;
-        }
+        // Capture frame until None
 
         Ok(())
     }
@@ -140,5 +155,68 @@ impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn split_frames() {
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 2);
+        let samples_count =
+            source.sample_rate() as usize / 1000 * 20 * source.num_channels() as usize; // 20ms
+
+        let audio_frame = AudioFrame {
+            data: vec![0; samples_count].into(),
+            sample_rate: source.sample_rate(),
+            num_channels: source.num_channels(),
+            samples_per_channel: samples_count as u32 / source.num_channels(),
+        };
+
+        let mut inner = source.inner.lock().await;
+
+        assert!(source.next_frame(&mut inner, &audio_frame).is_some());
+        assert!(source.next_frame(&mut inner, &audio_frame).is_some());
+        assert!(source.next_frame(&mut inner, &audio_frame).is_none());
+    }
+
+    #[tokio::test]
+    async fn buffer_is_used() {
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 2);
+        let samples_15ms =
+            source.sample_rate() as usize / 1000 * 15 * source.num_channels() as usize;
+
+        let audio_frame = AudioFrame {
+            data: vec![0; samples_15ms].into(),
+            sample_rate: source.sample_rate(),
+            num_channels: source.num_channels(),
+            samples_per_channel: samples_15ms as u32 / source.num_channels(),
+        };
+
+        let mut inner = source.inner.lock().await;
+
+        assert!(source.next_frame(&mut inner, &audio_frame).is_some());
+        assert!(source.next_frame(&mut inner, &audio_frame).is_none());
+
+        let samples_5ms = source.sample_rate() as usize / 1000 * 5 * source.num_channels() as usize;
+        assert_eq!(inner.len, samples_5ms); // Remains 5ms
+
+        let samples_12ms =
+            source.sample_rate() as usize / 1000 * 12 * source.num_channels() as usize;
+
+        let audio_frame = AudioFrame {
+            data: vec![0; samples_12ms].into(),
+            sample_rate: source.sample_rate(),
+            num_channels: source.num_channels(),
+            samples_per_channel: samples_12ms as u32 / source.num_channels(),
+        };
+
+        assert!(source.next_frame(&mut inner, &audio_frame).is_some());
+        assert!(source.next_frame(&mut inner, &audio_frame).is_none());
+
+        let samples_7ms = source.sample_rate() as usize / 1000 * 7 * source.num_channels() as usize;
+        assert_eq!(inner.len, samples_7ms); // Remains 7ms
     }
 }
