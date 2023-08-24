@@ -62,6 +62,7 @@ pub enum SessionEvent {
         track: MediaStreamTrack,
         stream: MediaStream,
         receiver: RtpReceiver,
+        transceiver: RtpTransceiver,
     },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
@@ -528,7 +529,7 @@ impl SessionInner {
                 receiver,
                 mut streams,
                 track,
-                transceiver: _,
+                transceiver,
                 target: _,
             } => {
                 if !streams.is_empty() {
@@ -536,6 +537,7 @@ impl SessionInner {
                         stream: streams.remove(0),
                         track,
                         receiver,
+                        transceiver
                     });
                 } else {
                     log::warn!("Track event with no streams");

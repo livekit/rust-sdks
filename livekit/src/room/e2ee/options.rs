@@ -58,7 +58,7 @@ impl Default for E2EEOptions {
                     uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.as_bytes().to_vec(),
                 },
                 true,
-                "".to_string(),
+                "12345678".to_string(),
             ),
         }
     }

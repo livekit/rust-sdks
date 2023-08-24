@@ -20,6 +20,7 @@ use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use parking_lot::RwLock;
+use core::fmt;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -126,6 +127,84 @@ pub enum RoomEvent {
     Reconnected,
 }
 
+impl fmt::Display for RoomEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RoomEvent::ParticipantConnected(participant) => {
+                write!(f, "ParticipantConnected: {:?}", participant)
+            }
+            RoomEvent::ParticipantDisconnected(participant) => {
+                write!(f, "ParticipantDisconnected: {:?}", participant)
+            }
+            RoomEvent::LocalTrackPublished {
+                publication,
+                track,
+                participant,
+            } => write!(
+                f,
+                "LocalTrackPublished: {:?} {:?} {:?}",
+                publication, track, participant
+            ),
+            RoomEvent::LocalTrackUnpublished {
+                publication,
+                participant,
+            } => write!(f, "LocalTrackUnpublished: {:?} {:?}", publication, participant),
+            RoomEvent::TrackSubscribed {
+                track,
+                publication,
+                participant,
+            } => write!(
+                f,
+                "TrackSubscribed: {:?} {:?} {:?}",
+                track, publication, participant
+            ),
+            RoomEvent::TrackUnsubscribed {
+                track,
+                publication,
+                participant,
+            } => write!(
+                f,
+                "TrackUnsubscribed: {:?} {:?} {:?}",
+                track, publication, participant
+            ),
+            RoomEvent::TrackSubscriptionFailed {
+                participant,
+                error,
+                track_sid,
+            } => write!(
+                f,
+                "TrackSubscriptionFailed: {:?} {:?} {:?}",
+                participant, error, track_sid
+            ),
+            RoomEvent::TrackPublished {
+                publication,
+                participant,
+            } => write!(f, "TrackPublished: {:?} {:?}", publication, participant),
+            RoomEvent::TrackUnpublished {
+                publication,
+                participant,
+            } => write!(f, "TrackUnpublished: {:?} {:?}", publication, participant),
+            RoomEvent::TrackMuted {
+                participant,
+                publication,
+            } => write!(f, "TrackMuted: {:?} {:?}", participant, publication),
+            RoomEvent::TrackUnmuted {
+                participant,
+                publication,
+            } => write!(f, "TrackUnmuted: {:?} {:?}", participant, publication),
+            RoomEvent::ActiveSpeakersChanged { speakers } => {
+                write!(f, "ActiveSpeakersChanged: {:?}", speakers)
+            }
+            RoomEvent::ConnectionQualityChanged { quality, participant } => write!(
+                f,
+                "ConnectionQualityChanged: {:?} {:?}",
+                quality, participant
+            ),
+            _ => todo!()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionState {
     Disconnected,
@@ -166,7 +245,6 @@ struct RoomHandle {
 pub struct Room {
     inner: Arc<RoomSession>,
     handle: AsyncMutex<Option<RoomHandle>>,
-    e2ee: Arc<E2EEManager>,
 }
 
 impl Debug for Room {
@@ -191,7 +269,7 @@ impl Room {
             None => None,
         };
         
-        let _e2ee_manager: Arc<E2EEManager> = Arc::new(E2EEManager::new(e2ee_options));
+        let e2ee_manager = Arc::new(E2EEManager::new(e2ee_options));
 
         let (rtc_engine, engine_events) = RtcEngine::connect(
             url,
@@ -217,14 +295,15 @@ impl Room {
         let dispatcher = Dispatcher::<RoomEvent>::default();
         local_participant.on_local_track_published({
             let dispatcher = dispatcher.clone();
+            let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                let event = RoomEvent::LocalTrackPublished {
+                let event = &RoomEvent::LocalTrackPublished {
                     participant,
                     publication: publication.clone(),
                     track: publication.track().unwrap(),
                 };
-                //TODO: self.e2ee.handle_track_events(event);
-                dispatcher.dispatch(&event);
+                e2ee_manager.handle_track_events(event);
+                dispatcher.dispatch(event);
             }
         });
 
@@ -253,6 +332,7 @@ impl Room {
             rtc_engine,
             local_participant,
             dispatcher,
+            e2ee_manager,
         });
 
         for pi in join_response.other_participants {
@@ -294,7 +374,6 @@ impl Room {
                 session_task,
                 close_emitter,
             })),
-            e2ee: _e2ee_manager,
         };
         
         Ok((session, events))
@@ -360,6 +439,7 @@ pub(crate) struct RoomSession {
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
+    e2ee_manager: Arc<E2EEManager>,
 }
 
 impl Debug for RoomSession {
@@ -402,6 +482,7 @@ impl RoomSession {
                 track,
                 stream,
                 receiver: _,
+                transceiver,
             } => {
                 let stream_id = stream.id();
                 let lk_stream_id = unpack_stream_id(&stream_id);
@@ -420,7 +501,7 @@ impl RoomSession {
                 if let Some(remote_participant) = remote_participant {
                     tokio::spawn(async move {
                         remote_participant
-                            .add_subscribed_media_track(track_sid, track)
+                            .add_subscribed_media_track(track_sid, track, transceiver)
                             .await;
                     });
                 } else {
@@ -738,6 +819,7 @@ impl RoomSession {
         });
 
         let dispatcher = self.dispatcher.clone();
+        let e2ee_manager = self.e2ee_manager.clone();
         participant.on_track_subscribed(move |participant, publication, track| {
             let event = &RoomEvent::TrackSubscribed {
                 participant,
@@ -745,7 +827,7 @@ impl RoomSession {
                 publication,
             };
 
-            // self.e2ee.handle_track_events(event);
+            e2ee_manager.handle_track_events(event);
 
             dispatcher.dispatch(event);
         });

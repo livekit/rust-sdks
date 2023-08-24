@@ -147,6 +147,7 @@ impl LocalParticipant {
             source: proto::TrackSource::from(options.source) as i32,
             disable_dtx: !options.dtx,
             disable_red: !options.red,
+            encryption: 1,
             ..Default::default()
         };
 

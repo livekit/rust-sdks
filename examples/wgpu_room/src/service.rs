@@ -1,5 +1,5 @@
 use crate::{logo_track::LogoTrack, sine_track::SineTrack};
-use livekit::{prelude::*, SimulateScenario};
+use livekit::{prelude::*, E2EEOptions, SimulateScenario};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -101,13 +101,15 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                 auto_subscribe,
             } => {
                 log::info!("connecting to room: {}", url);
-
+                let e2ee_options = Some(E2EEOptions::default());
                 let res = Room::connect(
                     &url,
                     &token,
                     RoomOptions {
                         auto_subscribe,
-                        ..Default::default()
+                        dynacast: true,
+                        adaptive_stream: true,
+                        e2ee_options,
                     },
                 )
                 .await;

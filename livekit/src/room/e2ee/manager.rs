@@ -34,12 +34,16 @@ impl E2EEManager {
     pub fn new(options: Option<E2EEOptions>) -> Self {
         Self {
             frame_cryptors: HashMap::new(),
-            enabled: false,
+            enabled: options.is_some(),
             options,
         }
     }
 
-    pub async fn handle_track_events(&self, event: &RoomEvent) {
+    pub fn handle_track_events(&self, event: &RoomEvent) {
+            if self.options.is_none() {
+                return;
+            }
+            log::error!("handle_track_events {} !!!!", event);
             match event {
                 RoomEvent::TrackSubscribed {
                     track,
@@ -87,7 +91,6 @@ impl E2EEManager {
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
-
         if let Some(options) = &self.options {
             for (participant_id, cryptor) in self.frame_cryptors.iter() {
                 cryptor.set_enabled(enabled);
@@ -127,7 +130,7 @@ impl E2EEManager {
         sender: RtpSender,
     ) {
         let participant_id = kind + "-sender-" + &sid + "-" + &track_id;
-
+        log::error!("_add_rtp_sender {} !!!!", participant_id);
         if let Some(options) = &self.options {
             let frame_cryptor = FrameCryptor::new_for_rtp_sender(
                 participant_id.clone(),
@@ -159,6 +162,7 @@ impl E2EEManager {
         receiver: RtpReceiver,
     ) {
         let participant_id = kind + "-receiver-" + &sid + "-" + &track_id;
+        log::error!("_add_rtp_receiver {} !!!!", participant_id);
         if let Some(options) = &self.options {
             let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
                 participant_id.clone(),

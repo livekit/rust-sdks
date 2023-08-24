@@ -84,6 +84,7 @@ pub enum EngineEvent {
         track: MediaStreamTrack,
         stream: MediaStream,
         receiver: RtpReceiver,
+        transceiver: RtpTransceiver,
     },
     Data {
         participant_sid: ParticipantSid,
@@ -332,6 +333,7 @@ impl EngineInner {
                 track,
                 stream,
                 receiver,
+                transceiver,
             } => {
                 let _ = self
                     .engine_emitter
@@ -339,6 +341,7 @@ impl EngineInner {
                         track,
                         stream,
                         receiver,
+                        transceiver,
                     })
                     .await;
             }
