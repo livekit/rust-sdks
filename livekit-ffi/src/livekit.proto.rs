@@ -1277,6 +1277,10 @@ pub struct NewAudioSourceRequest {
     pub r#type: i32,
     #[prost(message, optional, tag="2")]
     pub options: ::core::option::Option<AudioSourceOptions>,
+    #[prost(uint32, tag="3")]
+    pub sample_rate: u32,
+    #[prost(uint32, tag="4")]
+    pub num_channels: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

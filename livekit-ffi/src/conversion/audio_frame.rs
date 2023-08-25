@@ -28,7 +28,7 @@ impl From<proto::AudioSourceOptions> for AudioSourceOptions {
     }
 }
 
-impl From<&AudioFrame> for proto::AudioFrameBufferInfo {
+impl From<&AudioFrame<'_>> for proto::AudioFrameBufferInfo {
     fn from(frame: &AudioFrame) -> Self {
         Self {
             data_ptr: frame.data.as_ptr() as u64,

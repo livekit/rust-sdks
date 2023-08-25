@@ -41,6 +41,8 @@ message NewAudioStreamResponse { OwnedAudioStream stream = 1; }
 message NewAudioSourceRequest {
   AudioSourceType type = 1;
   optional AudioSourceOptions options = 2;
+  uint32 sample_rate = 3;
+  uint32 num_channels = 4;
 }
 message NewAudioSourceResponse { OwnedAudioSource source = 1; }
 

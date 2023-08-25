@@ -16,7 +16,7 @@ use std::{borrow::Cow, slice};
 
 use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
-use livekit::webrtc::{audio_frame::CowAudioFrame, prelude::*};
+use livekit::webrtc::prelude::*;
 
 pub struct FfiAudioSource {
     pub handle_id: FfiHandleId,
@@ -37,8 +37,11 @@ impl FfiAudioSource {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioSourceType::AudioSourceNative => {
                 use livekit::webrtc::audio_source::native::NativeAudioSource;
-                let audio_source =
-                    NativeAudioSource::new(new_source.options.map(Into::into).unwrap_or_default());
+                let audio_source = NativeAudioSource::new(
+                    new_source.options.map(Into::into).unwrap_or_default(),
+                    new_source.sample_rate,
+                    new_source.num_channels,
+                );
                 RtcAudioSource::Native(audio_source)
             }
             _ => {
@@ -81,7 +84,7 @@ impl FfiAudioSource {
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Native(ref source) => {
-                let audio_frame = CowAudioFrame {
+                let audio_frame = AudioFrame {
                     data: Cow::Borrowed(data),
                     sample_rate: buffer.sample_rate,
                     num_channels: buffer.num_channels,
