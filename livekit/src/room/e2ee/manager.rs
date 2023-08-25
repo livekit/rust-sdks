@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use livekit_protocol::observer::Dispatcher;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 
 use livekit_webrtc::{
@@ -21,17 +22,19 @@ use livekit_webrtc::{
     rtp_sender::RtpSender,
 };
 
-use crate::e2ee::options::E2EEOptions;
 use crate::RoomEvent;
+use crate::{e2ee::options::E2EEOptions, participant::Participant};
 
 use crate::prelude::TrackKind;
 
 use super::options::EncryptionType;
 
+pub use crate::publication::TrackPublication;
+
 pub struct E2EEManager {
     dispatcher: Dispatcher<RoomEvent>,
     options: Option<E2EEOptions>,
-    frame_cryptors: HashMap<String, FrameCryptor>,
+    frame_cryptors: Mutex<HashMap<String, FrameCryptor>>,
     enabled: bool,
 }
 
@@ -39,7 +42,7 @@ impl E2EEManager {
     pub fn new(dispatcher: Dispatcher<RoomEvent>, options: Option<E2EEOptions>) -> Self {
         Self {
             dispatcher,
-            frame_cryptors: HashMap::new(),
+            frame_cryptors: HashMap::new().into(),
             enabled: options.is_some(),
             options,
         }
@@ -52,19 +55,19 @@ impl E2EEManager {
         EncryptionType::None
     }
 
-    pub fn handle_track_events(&self, event: &RoomEvent) {
+    pub fn handle_track_events(&self, event: RoomEvent) {
         if self.options.is_none() {
             return;
         }
         match event {
             RoomEvent::TrackSubscribed {
                 track,
-                publication: _,
-                participant: _,
+                publication,
+                participant,
             } => {
                 let transceiver = track.transceiver();
                 if let Some(transceiver) = transceiver {
-                    self._add_rtp_receiver(
+                    let fc = self._add_rtp_receiver(
                         track.sid().to_string(),
                         track.rtc_track().id().to_string(),
                         String::from(match track.kind() {
@@ -73,16 +76,34 @@ impl E2EEManager {
                         }),
                         transceiver.receiver(),
                     );
+
+                    if let Some(fc) = fc {
+                        let dispatcher = self.dispatcher.clone();
+                        fc.on_state_change(Some(Box::new(
+                            move |participant_id: String, state: FrameCryptionState| {
+                                log::error!(
+                                    "frame cryptor state changed for {}, state {:?}",
+                                    participant_id,
+                                    state
+                                );
+                                dispatcher.dispatch(&RoomEvent::E2EEStateEvent {
+                                    participant: Participant::Remote(participant.clone()),
+                                    publication: TrackPublication::Remote(publication.clone()),
+                                    state: state.into(),
+                                });
+                            },
+                        )));
+                    }
                 }
             }
             RoomEvent::LocalTrackPublished {
-                publication: _,
+                publication,
                 track,
-                participant: _,
+                participant,
             } => {
                 let transceiver = track.transceiver();
                 if let Some(transceiver) = transceiver {
-                    self._add_rtp_sender(
+                    let fc = self._add_rtp_sender(
                         track.sid().to_string(),
                         track.rtc_track().id().to_string(),
                         String::from(match track.kind() {
@@ -91,6 +112,24 @@ impl E2EEManager {
                         }),
                         transceiver.sender(),
                     );
+
+                    if let Some(fc) = fc {
+                        let dispatcher = self.dispatcher.clone();
+                        fc.on_state_change(Some(Box::new(
+                            move |participant_id: String, state: FrameCryptionState| {
+                                log::error!(
+                                    "frame cryptor state changed for {}, state {:?}",
+                                    participant_id,
+                                    state
+                                );
+                                dispatcher.dispatch(&RoomEvent::E2EEStateEvent {
+                                    participant: Participant::Local(participant.clone()),
+                                    publication: TrackPublication::Local(publication.clone()),
+                                    state: state.into(),
+                                });
+                            },
+                        )));
+                    }
                 }
             }
             _ => {}
@@ -104,7 +143,7 @@ impl E2EEManager {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if let Some(options) = &self.options {
-            for (participant_id, cryptor) in self.frame_cryptors.iter() {
+            for (participant_id, cryptor) in self.frame_cryptors.lock().iter() {
                 cryptor.set_enabled(enabled);
                 if options.key_provider.is_shared_key() {
                     options.key_provider.set_key(
@@ -119,7 +158,7 @@ impl E2EEManager {
     }
 
     pub fn cleanup(&mut self) {
-        for cryptor in self.frame_cryptors.values() {
+        for cryptor in self.frame_cryptors.lock().values() {
             cryptor.set_enabled(false);
         }
         self.options = None;
@@ -127,7 +166,7 @@ impl E2EEManager {
 
     pub fn ratchet_key(&mut self) {
         if let Some(options) = &self.options {
-            for participant_id in self.frame_cryptors.keys() {
+            for participant_id in self.frame_cryptors.lock().keys() {
                 let new_key = options.key_provider.ratchet_key(participant_id.clone(), 0);
                 log::info!(
                     "ratcheting key for {}, new_key {}",
@@ -138,7 +177,13 @@ impl E2EEManager {
         }
     }
 
-    fn _add_rtp_sender(&self, sid: String, track_id: String, kind: String, sender: RtpSender) {
+    fn _add_rtp_sender(
+        &self,
+        sid: String,
+        track_id: String,
+        kind: String,
+        sender: RtpSender,
+    ) -> Option<FrameCryptor> {
         let participant_id = kind + "-sender-" + &sid + "-" + &track_id;
         log::error!("_add_rtp_sender {} !!!!", participant_id);
         if let Some(options) = &self.options {
@@ -159,17 +204,12 @@ impl E2EEManager {
                 );
                 frame_cryptor.set_key_index(0);
             }
-            frame_cryptor.on_state_change(Some(Box::new(
-                move |participant_id: String, state: FrameCryptionState| {
-                    log::error!(
-                        "frame cryptor state changed for {}, state {:?}",
-                        participant_id,
-                        state
-                    );
-                },
-            )));
-            //self.frame_cryptors[participant_id.clone()] = frame_cryptor;
+
+            let mut frame_cryptors = self.frame_cryptors.lock();
+            frame_cryptors.insert(participant_id.clone(), frame_cryptor.clone());
+            return Some(frame_cryptor);
         }
+        return None;
     }
 
     fn _add_rtp_receiver(
@@ -178,7 +218,7 @@ impl E2EEManager {
         track_id: String,
         kind: String,
         receiver: RtpReceiver,
-    ) {
+    ) -> Option<FrameCryptor> {
         let participant_id = kind + "-receiver-" + &sid + "-" + &track_id;
         log::error!("_add_rtp_receiver {} !!!!", participant_id);
         if let Some(options) = &self.options {
@@ -197,16 +237,10 @@ impl E2EEManager {
                 );
                 frame_cryptor.set_key_index(0);
             }
-            frame_cryptor.on_state_change(Some(Box::new(
-                move |participant_id: String, state: FrameCryptionState| {
-                    log::error!(
-                        "frame cryptor state changed for {}, state {:?}",
-                        participant_id,
-                        state
-                    );
-                },
-            )));
-            //self.frame_cryptors[&participant_id.clone()] = frame_cryptor;
+            let mut frame_cryptors = self.frame_cryptors.lock();
+            frame_cryptors.insert(participant_id.clone(), frame_cryptor.clone());
+            return Some(frame_cryptor);
         }
+        return None;
     }
 }

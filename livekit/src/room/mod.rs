@@ -232,13 +232,13 @@ impl Room {
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                let event = &RoomEvent::LocalTrackPublished {
+                let event = RoomEvent::LocalTrackPublished {
                     participant,
                     publication: publication.clone(),
                     track: publication.track().unwrap(),
                 };
-                e2ee_manager.handle_track_events(event);
-                dispatcher.dispatch(event);
+                e2ee_manager.handle_track_events(event.clone());
+                dispatcher.dispatch(&event);
             }
         });
 
@@ -756,13 +756,13 @@ impl RoomSession {
         let dispatcher = self.dispatcher.clone();
         let e2ee_manager = self.e2ee_manager.clone();
         participant.on_track_subscribed(move |participant, publication, track| {
-            let event = &RoomEvent::TrackSubscribed {
+            let event = RoomEvent::TrackSubscribed {
                 participant,
                 track,
                 publication,
             };
-            e2ee_manager.handle_track_events(event);
-            dispatcher.dispatch(event);
+            e2ee_manager.handle_track_events(event.clone());
+            dispatcher.dispatch(&event);
         });
 
         let dispatcher = self.dispatcher.clone();
