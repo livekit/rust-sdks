@@ -65,7 +65,7 @@ rtc::scoped_refptr<NativeSenderReportCallback> AdaptedNativeSenderReportCallback
 std::shared_ptr<AdaptedNativeSenderReportCallback> new_adapted_sender_report_callback(
     rust::Box<SenderReportSinkWrapper> observer
     ) {
-    fprintf(stderr, "new_adapted_frame_transformer()\n");
+    fprintf(stderr, "new_adapted_sender_report_callback()\n");
     
     return std::make_shared<AdaptedNativeSenderReportCallback>(
         rtc::scoped_refptr<NativeSenderReportCallback>(new NativeSenderReportCallback(std::move(observer)))
