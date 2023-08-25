@@ -14,6 +14,7 @@
 
 use super::ConnectionQuality;
 use super::ParticipantInner;
+use crate::e2ee::options::EncryptionType;
 use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
@@ -39,6 +40,7 @@ struct LocalEvents {
 
 struct LocalInfo {
     events: LocalEvents,
+    encryption_type: EncryptionType,
 }
 
 #[derive(Clone)]
@@ -64,11 +66,13 @@ impl LocalParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        encryption_type: EncryptionType,
     ) -> Self {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
+                encryption_type,
             }),
         }
     }
@@ -139,6 +143,7 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
+
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
             name: track.name(),
@@ -147,7 +152,7 @@ impl LocalParticipant {
             source: proto::TrackSource::from(options.source) as i32,
             disable_dtx: !options.dtx,
             disable_red: !options.red,
-            encryption: 1,
+            encryption: self.local.encryption_type as i32,
             ..Default::default()
         };
 

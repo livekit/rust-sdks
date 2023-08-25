@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use core::fmt;
+
 use livekit_webrtc::frame_cryptor::KeyProviderOptions;
 
 use super::key_provider::BaseKeyProvider;
@@ -20,12 +22,54 @@ const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
 const DEFAULT_MAGIC_BYTES: &str = "LK-ROCKS";
 const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionType {
     None,
     Gcm,
     Custom,
 }
+
+impl fmt::Display for EncryptionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::Gcm => write!(f, "gcm"),
+            Self::Custom => write!(f, "custom"),
+        }
+    }
+}
+
+impl From<i32> for EncryptionType {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => Self::None,
+            1 => Self::Gcm,
+            2 => Self::Custom,
+            i32::MIN..=-1_i32 | 3_i32..=i32::MAX => todo!()
+        }
+    }
+}
+
+impl From<livekit_protocol::encryption::Type> for EncryptionType {
+    fn from(value: livekit_protocol::encryption::Type) -> Self {
+        match value {
+            livekit_protocol::encryption::Type::None => Self::None,
+            livekit_protocol::encryption::Type::Gcm => Self::Gcm,
+            livekit_protocol::encryption::Type::Custom => Self::Custom,
+        }
+    }
+}
+
+impl From<EncryptionType> for livekit_protocol::encryption::Type {
+    fn from(value: EncryptionType) -> Self {
+        match value {
+            EncryptionType::None => Self::None,
+            EncryptionType::Gcm => Self::Gcm,
+            EncryptionType::Custom => Self::Custom,
+        }
+    }
+}
+
 
 #[derive(Clone)]
 pub struct E2EEOptions {

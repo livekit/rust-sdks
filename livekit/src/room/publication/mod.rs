@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::track::TrackDimension;
-use crate::prelude::*;
+use crate::{prelude::*, e2ee::options::EncryptionType};
 use crate::track::Track;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
@@ -91,6 +91,7 @@ struct PublicationInfo {
     pub mime_type: String,
     pub muted: bool,
     pub proto_info: proto::TrackInfo,
+    pub encryption_type: EncryptionType,
 }
 
 pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
@@ -122,6 +123,7 @@ pub(super) fn new_inner(
         dimension: TrackDimension(info.width, info.height),
         mime_type: info.mime_type,
         muted: info.muted,
+        encryption_type: info.encryption.try_into().unwrap(),
     };
 
     Arc::new(TrackPublicationInner {
@@ -144,6 +146,7 @@ pub(super) fn update_info(
     info.dimension = TrackDimension(new_info.width, new_info.height);
     info.mime_type = new_info.mime_type;
     info.simulcasted = new_info.simulcast;
+    info.encryption_type = new_info.encryption.try_into().unwrap();
 }
 
 pub(super) fn set_track(

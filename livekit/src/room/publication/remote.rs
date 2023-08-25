@@ -14,6 +14,7 @@
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
 use crate::prelude::*;
+use crate::room::EncryptionType;
 use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
@@ -305,4 +306,9 @@ impl RemoteTrackPublication {
     pub fn is_remote(&self) -> bool {
         true
     }
+
+    pub fn encryption_type(&self) -> EncryptionType {
+        self.inner.info.read().encryption_type
+    }
+    
 }

@@ -24,6 +24,8 @@ use crate::{E2EEOptions, RoomEvent};
 
 use crate::prelude::TrackKind;
 
+use super::options::EncryptionType;
+
 pub struct E2EEManager {
     options: Option<E2EEOptions>,
     frame_cryptors: HashMap<String, FrameCryptor>,
@@ -39,11 +41,17 @@ impl E2EEManager {
         }
     }
 
+    pub fn encryption_type(&self) -> EncryptionType {
+        if let Some(options) = &self.options {
+            return options.encryption_type;
+        }
+        EncryptionType::None
+    }
+
     pub fn handle_track_events(&self, event: &RoomEvent) {
             if self.options.is_none() {
                 return;
             }
-            log::error!("handle_track_events {} !!!!", event);
             match event {
                 RoomEvent::TrackSubscribed {
                     track,
