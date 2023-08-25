@@ -3,6 +3,7 @@ members = [
     "basic_room",
     "mobile",
     "save_to_disk",
+    "play_from_disk",
     "wgpu_room",
     "webhooks",
 ]
