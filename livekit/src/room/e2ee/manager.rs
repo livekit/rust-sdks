@@ -12,29 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use livekit_protocol::observer::Dispatcher;
 use std::collections::HashMap;
 
 use livekit_webrtc::{
-    frame_cryptor::{Algorithm, FrameCryptor},
+    frame_cryptor::{Algorithm, FrameCryptionState, FrameCryptor},
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
 };
 
-use crate::{E2EEOptions, RoomEvent};
+use crate::e2ee::options::E2EEOptions;
+use crate::RoomEvent;
 
 use crate::prelude::TrackKind;
 
 use super::options::EncryptionType;
 
 pub struct E2EEManager {
+    dispatcher: Dispatcher<RoomEvent>,
     options: Option<E2EEOptions>,
     frame_cryptors: HashMap<String, FrameCryptor>,
     enabled: bool,
 }
 
 impl E2EEManager {
-    pub fn new(options: Option<E2EEOptions>) -> Self {
+    pub fn new(dispatcher: Dispatcher<RoomEvent>, options: Option<E2EEOptions>) -> Self {
         Self {
+            dispatcher,
             frame_cryptors: HashMap::new(),
             enabled: options.is_some(),
             options,
@@ -49,48 +53,48 @@ impl E2EEManager {
     }
 
     pub fn handle_track_events(&self, event: &RoomEvent) {
-            if self.options.is_none() {
-                return;
-            }
-            match event {
-                RoomEvent::TrackSubscribed {
-                    track,
-                    publication: _,
-                    participant: _,
-                } => {
-                    let transceiver = track.transceiver();
-                    if let Some(transceiver) = transceiver {
-                        self._add_rtp_receiver(
-                            track.sid().to_string(),
-                            track.rtc_track().id().to_string(),
-                            String::from(match track.kind() {
-                                TrackKind::Audio => "audio",
-                                TrackKind::Video => "video",
-                            }),
-                            transceiver.receiver(),
-                        );
-                    }
+        if self.options.is_none() {
+            return;
+        }
+        match event {
+            RoomEvent::TrackSubscribed {
+                track,
+                publication: _,
+                participant: _,
+            } => {
+                let transceiver = track.transceiver();
+                if let Some(transceiver) = transceiver {
+                    self._add_rtp_receiver(
+                        track.sid().to_string(),
+                        track.rtc_track().id().to_string(),
+                        String::from(match track.kind() {
+                            TrackKind::Audio => "audio",
+                            TrackKind::Video => "video",
+                        }),
+                        transceiver.receiver(),
+                    );
                 }
-                RoomEvent::LocalTrackPublished {
-                    publication: _,
-                    track,
-                    participant: _,
-                } => {
-                    let transceiver = track.transceiver();
-                    if let Some(transceiver) = transceiver {
-                        self._add_rtp_sender(
-                            track.sid().to_string(),
-                            track.rtc_track().id().to_string(),
-                            String::from(match track.kind() {
-                                TrackKind::Audio => "audio",
-                                TrackKind::Video => "video",
-                            }),
-                            transceiver.sender(),
-                        );
-                    }
-                }
-                _ => {}
             }
+            RoomEvent::LocalTrackPublished {
+                publication: _,
+                track,
+                participant: _,
+            } => {
+                let transceiver = track.transceiver();
+                if let Some(transceiver) = transceiver {
+                    self._add_rtp_sender(
+                        track.sid().to_string(),
+                        track.rtc_track().id().to_string(),
+                        String::from(match track.kind() {
+                            TrackKind::Audio => "audio",
+                            TrackKind::Video => "video",
+                        }),
+                        transceiver.sender(),
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn enabled(&self) -> bool {
@@ -125,18 +129,16 @@ impl E2EEManager {
         if let Some(options) = &self.options {
             for participant_id in self.frame_cryptors.keys() {
                 let new_key = options.key_provider.ratchet_key(participant_id.clone(), 0);
-                log::info!("ratcheting key for {}, new_key {}", participant_id, new_key.len());
+                log::info!(
+                    "ratcheting key for {}, new_key {}",
+                    participant_id,
+                    new_key.len()
+                );
             }
         }
     }
 
-    fn _add_rtp_sender(
-        &self,
-        sid: String,
-        track_id: String,
-        kind: String,
-        sender: RtpSender,
-    ) {
+    fn _add_rtp_sender(&self, sid: String, track_id: String, kind: String, sender: RtpSender) {
         let participant_id = kind + "-sender-" + &sid + "-" + &track_id;
         log::error!("_add_rtp_sender {} !!!!", participant_id);
         if let Some(options) = &self.options {
@@ -157,7 +159,15 @@ impl E2EEManager {
                 );
                 frame_cryptor.set_key_index(0);
             }
-
+            frame_cryptor.on_state_change(Some(Box::new(
+                move |participant_id: String, state: FrameCryptionState| {
+                    log::error!(
+                        "frame cryptor state changed for {}, state {:?}",
+                        participant_id,
+                        state
+                    );
+                },
+            )));
             //self.frame_cryptors[participant_id.clone()] = frame_cryptor;
         }
     }
@@ -187,7 +197,15 @@ impl E2EEManager {
                 );
                 frame_cryptor.set_key_index(0);
             }
-
+            frame_cryptor.on_state_change(Some(Box::new(
+                move |participant_id: String, state: FrameCryptionState| {
+                    log::error!(
+                        "frame cryptor state changed for {}, state {:?}",
+                        participant_id,
+                        state
+                    );
+                },
+            )));
             //self.frame_cryptors[&participant_id.clone()] = frame_cryptor;
         }
     }

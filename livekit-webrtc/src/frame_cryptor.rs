@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use webrtc_sys::frame_cryptor::RTCFrameCryptorObserverWrapper;
-
 use crate::{imp::frame_cryptor as fc_imp, rtp_sender::RtpSender, prelude::RtpReceiver};
 
 #[derive(Debug, Clone)]
@@ -74,6 +72,7 @@ pub struct FrameCryptor {
     pub(crate) handle: fc_imp::FrameCryptor,
 }
 
+pub type OnStateChange = Box<dyn FnMut(String, FrameCryptionState) + Send + Sync>;
 
 impl FrameCryptor {
     pub fn new_for_rtp_sender(
@@ -128,12 +127,8 @@ impl FrameCryptor {
         self.handle.participant_id()
     }
     
-    pub fn register_observer(self: &FrameCryptor, observer: Box<RTCFrameCryptorObserverWrapper>) {
-        self.handle.register_observer(observer)
-    }
-
-    pub fn unregister_observer(self: &FrameCryptor) {
-        self.handle.unregister_observer()
+    pub fn on_state_change(&self, callback: Option<OnStateChange>) {
+        self.handle.on_state_change(callback)
     }
     
 }

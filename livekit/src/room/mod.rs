@@ -31,9 +31,9 @@ use tokio::task::JoinHandle;
 pub use crate::rtc_engine::SimulateScenario;
 pub use proto::DisconnectReason;
 
-pub use crate::e2ee::options::E2EEOptions;
-pub use crate::e2ee::manager::E2EEManager;
-
+use self::e2ee::options::E2EEOptions;
+use self::e2ee::manager::E2EEManager;
+use self::e2ee::E2EEState;
 use self::e2ee::options::EncryptionType;
 
 pub mod id;
@@ -113,6 +113,11 @@ pub enum RoomEvent {
         payload: Arc<Vec<u8>>,
         kind: DataPacketKind,
         participant: RemoteParticipant,
+    },
+    E2EEStateEvent {
+        participant: Participant,
+        publication: TrackPublication,
+        state: E2EEState,
     },
     ConnectionStateChanged(ConnectionState),
     Connected {
@@ -197,7 +202,9 @@ impl Room {
             None => EncryptionType::None,
         };
 
-        let e2ee_manager = Arc::new(E2EEManager::new(e2ee_options));
+        let dispatcher = Dispatcher::<RoomEvent>::default();
+
+        let e2ee_manager = Arc::new(E2EEManager::new(dispatcher.clone(), e2ee_options));
 
         let (rtc_engine, engine_events) = RtcEngine::connect(
             url,
@@ -221,7 +228,6 @@ impl Room {
             encryption_type,
         );
 
-        let dispatcher = Dispatcher::<RoomEvent>::default();
         local_participant.on_local_track_published({
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();

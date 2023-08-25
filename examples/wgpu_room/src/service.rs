@@ -1,5 +1,5 @@
 use crate::{logo_track::LogoTrack, sine_track::SineTrack};
-use livekit::{prelude::*, E2EEOptions, SimulateScenario};
+use livekit::{prelude::*, e2ee::options::E2EEOptions, SimulateScenario};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, error::SendError};

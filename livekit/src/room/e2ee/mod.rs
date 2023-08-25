@@ -15,4 +15,31 @@
 pub mod manager;
 pub mod options;
 pub mod key_provider;
-pub mod events;
+
+use livekit_webrtc::frame_cryptor::FrameCryptionState;
+
+#[derive(Debug, Clone)]
+#[repr(i32)]
+pub enum E2EEState {
+    New = 0,
+    Ok,
+    EncryptionFailed,
+    DecryptionFailed,
+    MissingKey,
+    KeyRatcheted,
+    InternalError,
+}
+
+impl From< livekit_webrtc::frame_cryptor::FrameCryptionState> for E2EEState {
+    fn from(value: livekit_webrtc::frame_cryptor::FrameCryptionState) -> Self {
+        match value {
+            FrameCryptionState::New => Self::New,
+            FrameCryptionState::Ok => Self::Ok,
+            FrameCryptionState::EncryptionFailed => Self::EncryptionFailed,
+            FrameCryptionState::DecryptionFailed => Self::DecryptionFailed,
+            FrameCryptionState::MissingKey => Self::MissingKey,
+            FrameCryptionState::KeyRatcheted => Self::KeyRatcheted,
+            FrameCryptionState::InternalError => Self::InternalError,
+        }
+    }
+}

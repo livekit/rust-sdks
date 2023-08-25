@@ -1,11 +1,11 @@
-use crate::frame_cryptor::{
-    Algorithm, FrameCryptionState, KeyProviderOptions
-};
+use crate::frame_cryptor::{Algorithm, FrameCryptionState, KeyProviderOptions, OnStateChange};
 
 use cxx::SharedPtr;
-use webrtc_sys::frame_cryptor::{self as sys_fc, RTCFrameCryptorObserverWrapper};
+use parking_lot::Mutex;
+use std::sync::Arc;
+use webrtc_sys::frame_cryptor::{self as sys_fc};
 
-use super::{rtp_sender::RtpSender, rtp_receiver::RtpReceiver};
+use super::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
 
 impl From<sys_fc::ffi::Algorithm> for Algorithm {
     fn from(value: sys_fc::ffi::Algorithm) -> Self {
@@ -52,7 +52,6 @@ impl From<KeyProviderOptions> for sys_fc::ffi::KeyProviderOptions {
     }
 }
 
-
 #[derive(Clone)]
 pub struct KeyProvider {
     pub(crate) sys_handle: SharedPtr<sys_fc::ffi::KeyProvider>,
@@ -80,25 +79,33 @@ impl KeyProvider {
 
 #[derive(Clone)]
 pub struct FrameCryptor {
+    observer: Arc<RTCFrameCryptorObserver>,
     pub(crate) sys_handle: SharedPtr<sys_fc::ffi::FrameCryptor>,
 }
 
 impl FrameCryptor {
- 
     pub fn new_for_rtp_sender(
         participant_id: String,
         algorithm: Algorithm,
         key_provider: KeyProvider,
         sender: RtpSender,
     ) -> Self {
-        Self {
-            sys_handle: sys_fc::ffi::new_frame_cryptor_for_rtp_sender(
-                participant_id,
-                algorithm.into(),
-                key_provider.sys_handle,
-                sender.sys_handle,
-            ),
-        }
+        let observer = Arc::new(RTCFrameCryptorObserver::default());
+        let sys_handle = sys_fc::ffi::new_frame_cryptor_for_rtp_sender(
+            participant_id,
+            algorithm.into(),
+            key_provider.sys_handle,
+            sender.sys_handle,
+        );
+        let fc = Self {
+            observer: observer.clone(),
+            sys_handle: sys_handle.clone(),
+        };
+        fc.sys_handle
+            .register_observer(Box::new(sys_fc::RTCFrameCryptorObserverWrapper::new(
+                observer,
+            )));
+        fc
     }
 
     pub fn new_for_rtp_receiver(
@@ -107,14 +114,22 @@ impl FrameCryptor {
         key_provider: KeyProvider,
         receiver: RtpReceiver,
     ) -> Self {
-        Self {
-            sys_handle: sys_fc::ffi::new_frame_cryptor_for_rtp_receiver(
-                participant_id,
-                algorithm.into(),
-                key_provider.sys_handle,
-                receiver.sys_handle,
-            ),
-        }
+        let observer = Arc::new(RTCFrameCryptorObserver::default());
+        let sys_handle = sys_fc::ffi::new_frame_cryptor_for_rtp_receiver(
+            participant_id,
+            algorithm.into(),
+            key_provider.sys_handle,
+            receiver.sys_handle,
+        );
+        let fc = Self {
+            observer: observer.clone(),
+            sys_handle: sys_handle.clone(),
+        };
+        fc.sys_handle
+            .register_observer(Box::new(sys_fc::RTCFrameCryptorObserverWrapper::new(
+                observer,
+            )));
+        fc
     }
 
     pub fn set_enabled(self: &FrameCryptor, enabled: bool) {
@@ -136,13 +151,26 @@ impl FrameCryptor {
     pub fn participant_id(self: &FrameCryptor) -> String {
         self.sys_handle.participant_id()
     }
-    
-    pub fn register_observer(self: &FrameCryptor, observer: Box<RTCFrameCryptorObserverWrapper>) {
-        self.sys_handle.register_observer(observer);
-    }
 
-    pub fn unregister_observer(self: &FrameCryptor) {
-        self.sys_handle.unregister_observer();
+    pub fn on_state_change(&self, handler: Option<OnStateChange>) {
+        *self.observer.state_change_handler.lock() = handler;
     }
-    
+}
+
+#[derive(Default)]
+struct RTCFrameCryptorObserver {
+    state_change_handler: Mutex<Option<OnStateChange>>,
+}
+
+impl sys_fc::RTCFrameCryptorObserver for RTCFrameCryptorObserver {
+    fn on_frame_cryption_state_change(
+        &self,
+        participant_id: String,
+        state: sys_fc::ffi::FrameCryptionState,
+    ) {
+        let mut handler = self.state_change_handler.lock();
+        if let Some(f) = handler.as_mut() {
+            f(participant_id, state.into());
+        }
+    }
 }
