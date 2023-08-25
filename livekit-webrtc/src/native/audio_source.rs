@@ -131,12 +131,13 @@ impl NativeAudioSource {
 
         let mut inner = self.inner.lock().await;
         let mut interval = interval(Duration::from_millis(10));
-        interval.tick().await;
 
         loop {
             let Some(data) = self.next_frame(&mut inner, frame) else {
                 break;
             };
+
+            interval.tick().await;
 
             let samples_per_channel = data.len() / self.num_channels as usize;
             self.sys_handle.on_captured_frame(
@@ -145,8 +146,6 @@ impl NativeAudioSource {
                 self.num_channels as usize,
                 samples_per_channel,
             );
-
-            interval.tick().await;
         }
 
         Ok(())
