@@ -244,11 +244,14 @@ impl Room {
 
         local_participant.on_local_track_unpublished({
             let dispatcher = dispatcher.clone();
+            let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                dispatcher.dispatch(&RoomEvent::LocalTrackUnpublished {
-                    publication,
+                let event = RoomEvent::LocalTrackUnpublished {
                     participant,
-                });
+                    publication: publication.clone(),
+                };
+                e2ee_manager.handle_track_events(event.clone());
+                dispatcher.dispatch(&event);
             }
         });
 
@@ -766,12 +769,15 @@ impl RoomSession {
         });
 
         let dispatcher = self.dispatcher.clone();
+        let e2ee_manager = self.e2ee_manager.clone();
         participant.on_track_unsubscribed(move |participant, publication, track| {
-            dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
+            let event = RoomEvent::TrackUnsubscribed {
                 participant,
                 track,
                 publication,
-            });
+            };
+            e2ee_manager.handle_track_events(event.clone());
+            dispatcher.dispatch(&event);
         });
 
         let dispatcher = self.dispatcher.clone();

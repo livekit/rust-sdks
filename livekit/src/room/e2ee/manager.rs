@@ -112,7 +112,6 @@ impl E2EEManager {
                         }),
                         transceiver.sender(),
                     );
-
                     if let Some(fc) = fc {
                         let dispatcher = self.dispatcher.clone();
                         fc.on_state_change(Some(Box::new(
@@ -131,6 +130,12 @@ impl E2EEManager {
                         )));
                     }
                 }
+            }
+            RoomEvent::LocalTrackUnpublished { publication, .. } => {
+                self._remove_frame_cryptor(&publication.sid().to_string());
+            }
+            RoomEvent::TrackUnsubscribed { publication, .. } => {
+                self._remove_frame_cryptor(&publication.sid().to_string());
             }
             _ => {}
         }
@@ -161,6 +166,7 @@ impl E2EEManager {
         for cryptor in self.frame_cryptors.lock().values() {
             cryptor.set_enabled(false);
         }
+        self.frame_cryptors.lock().clear();
         self.options = None;
     }
 
@@ -242,5 +248,18 @@ impl E2EEManager {
             return Some(frame_cryptor);
         }
         return None;
+    }
+
+    fn _remove_frame_cryptor(&self, sid: &String) {
+        let mut frame_cryptors = self.frame_cryptors.lock();
+        let mut to_remove = Vec::new();
+        for (participant_id, _) in frame_cryptors.iter() {
+            if participant_id.contains(sid) {
+                to_remove.push(participant_id.clone());
+            }
+        }
+        for participant_id in to_remove {
+            frame_cryptors.remove(&participant_id);
+        }
     }
 }

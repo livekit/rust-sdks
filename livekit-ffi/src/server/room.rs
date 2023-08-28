@@ -386,7 +386,6 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             message: Some(event),
         }))
     };
-
     match event {
         RoomEvent::ParticipantConnected(participant) => {
             let handle_id = server.next_id();
