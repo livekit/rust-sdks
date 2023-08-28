@@ -7,6 +7,8 @@
 #include "rust/cxx.h"
 #include <memory>
 #include <vector>
+#include <thread>
+#include <mutex>
 
 namespace livekit {
 class EncodedVideoFrame;
@@ -27,9 +29,21 @@ class NativeFrameTransformer : public rtc::RefCountedObject<webrtc::FrameTransfo
 
   void Transform(std::unique_ptr<webrtc::TransformableFrameInterface> transformable_frame);
 
+  void RegisterTransformedFrameCallback(rtc::scoped_refptr<webrtc::TransformedFrameCallback> send_frame_to_sink_callback);
+  void UnregisterTransformedFrameCallback();
+
+  void RegisterTransformedFrameSinkCallback(rtc::scoped_refptr<webrtc::TransformedFrameCallback> send_frame_to_sink_callback, uint32_t ssrc);
+  void UnregisterTransformedFrameSinkCallback(uint32_t ssrc);
+
+  void FrameTransformed(std::unique_ptr<webrtc::TransformableFrameInterface> frame);
+
  private:
   bool is_video;
   rust::Box<EncodedFrameSinkWrapper> observer_;
+  
+  mutable std::mutex sink_mutex_;
+  rtc::scoped_refptr<webrtc::TransformedFrameCallback> sink_callback_;
+  std::map<uint32_t, rtc::scoped_refptr<webrtc::TransformedFrameCallback>> sink_callbacks_;
 };
 
 // from AdaptedVideoTrackSource
@@ -38,6 +52,9 @@ class AdaptedNativeFrameTransformer {
   AdaptedNativeFrameTransformer(rtc::scoped_refptr<NativeFrameTransformer> source);
 
   rtc::scoped_refptr<NativeFrameTransformer> get() const;
+
+  void AudioFrameTransformed(std::unique_ptr<EncodedAudioFrame> frame) const;
+  void VideoFrameTransformed(std::unique_ptr<EncodedVideoFrame> frame) const;
 
  private:
   rtc::scoped_refptr<NativeFrameTransformer> source_;

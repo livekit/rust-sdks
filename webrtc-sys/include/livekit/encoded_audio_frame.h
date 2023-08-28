@@ -24,6 +24,7 @@ class EncodedAudioFrame {
   size_t payload_size() const;
   std::shared_ptr<uint64_t> absolute_capture_timestamp() const;
   std::shared_ptr<int64_t> estimated_capture_clock_offset() const;
+  std::unique_ptr<webrtc::TransformableAudioFrameInterface> get_raw_frame();
 
  private:
   std::unique_ptr<webrtc::TransformableAudioFrameInterface> frame_;

@@ -38,6 +38,8 @@ class EncodedVideoFrame {
   std::shared_ptr<uint64_t> absolute_capture_timestamp() const;
   std::shared_ptr<int64_t> estimated_capture_clock_offset() const;
 
+  std::unique_ptr<webrtc::TransformableVideoFrameInterface> get_raw_frame();
+
  private:
   std::unique_ptr<webrtc::TransformableVideoFrameInterface> frame_;
   const uint8_t* data;

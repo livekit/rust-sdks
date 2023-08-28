@@ -40,7 +40,6 @@ impl RtpReceiver {
     }
 
     pub fn parameters(&self) -> RtpParameters {
-        println!("RtpReceiver::parameters()");
         self.sys_handle.get_parameters().into()
     }
 

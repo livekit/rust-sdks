@@ -69,4 +69,12 @@ std::shared_ptr<int64_t> EncodedAudioFrame::estimated_capture_clock_offset() con
     return nullptr;
 }
 
+std::unique_ptr<webrtc::TransformableAudioFrameInterface> EncodedAudioFrame::get_raw_frame() {
+    std::unique_ptr<webrtc::TransformableAudioFrameInterface> tmp = std::move(frame_);
+    
+    frame_ = nullptr;
+    
+    return tmp;
+}
+
 }

@@ -34,6 +34,10 @@ impl NativeEncodedAudioFrameStream {
         }
     }
 
+    pub fn frame_transformed(&mut self, frame: EncodedAudioFrame) {
+        self.native_transfomer.AudioFrameTransformed(frame.frame);
+    }
+
     pub fn close(&mut self) {
         self.frame_rx.close();
         // unsafe {

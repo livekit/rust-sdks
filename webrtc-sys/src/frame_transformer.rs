@@ -27,6 +27,9 @@ pub mod ffi {
         type AdaptedNativeFrameTransformer;
         type AdaptedNativeSenderReportCallback;
 
+        fn AudioFrameTransformed(self: &AdaptedNativeFrameTransformer, frame: UniquePtr<EncodedAudioFrame>);
+        fn VideoFrameTransformed(self: &AdaptedNativeFrameTransformer, frame: UniquePtr<EncodedVideoFrame>);
+
         fn new_adapted_frame_transformer(
             observer: Box<EncodedFrameSinkWrapper>,
             is_video: bool

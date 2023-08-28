@@ -34,6 +34,10 @@ pub mod native {
             }
         }
 
+        pub fn frame_transformed(&mut self, frame: EncodedAudioFrame) {
+            self.handle.frame_transformed(frame);
+        }
+
         pub fn close(&mut self) {
             self.handle.close();
         }

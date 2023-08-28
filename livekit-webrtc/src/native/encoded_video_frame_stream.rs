@@ -35,6 +35,10 @@ impl NativeEncodedVideoFrameStream {
         }
     }
 
+    pub fn frame_transformed(&mut self, frame: EncodedVideoFrame) {
+        self.native_transfomer.VideoFrameTransformed(frame.frame);
+    }
+
     pub fn close(&mut self) {
         self.frame_rx.close();
         // unsafe {
