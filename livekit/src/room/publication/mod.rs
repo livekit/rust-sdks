@@ -57,6 +57,7 @@ impl TrackPublication {
         pub fn mime_type(self: &Self) -> String;
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
+        pub fn encryption_type(self: &Self) -> EncryptionType;
 
         pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
         pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();

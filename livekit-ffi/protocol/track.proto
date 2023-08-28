@@ -76,6 +76,7 @@ message TrackPublicationInfo {
   string mime_type = 9;
   bool muted = 10;
   bool remote = 11;
+  EncryptionType encryption_type = 12;
 }
 
 message TrackInfo {
@@ -86,6 +87,5 @@ message TrackInfo {
   StreamState stream_state = 5;
   bool muted = 6;
   bool remote = 7;
-  EncryptionType encryption_type = 8;
 }
 

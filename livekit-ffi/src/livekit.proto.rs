@@ -240,6 +240,8 @@ pub struct TrackPublicationInfo {
     pub muted: bool,
     #[prost(bool, tag = "11")]
     pub remote: bool,
+    #[prost(enumeration = "EncryptionType", tag = "12")]
+    pub encryption_type: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -258,8 +260,6 @@ pub struct TrackInfo {
     pub muted: bool,
     #[prost(bool, tag = "7")]
     pub remote: bool,
-    #[prost(enumeration = "EncryptionType", tag = "8")]
-    pub encryption_type: i32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

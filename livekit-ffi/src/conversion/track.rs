@@ -45,6 +45,7 @@ impl proto::TrackPublicationInfo {
             simulcasted: publication.simulcasted(),
             muted: publication.is_muted(),
             remote: publication.is_remote(),
+            encryption_type: publication.encryption_type() as i32,
         }
     }
 }
