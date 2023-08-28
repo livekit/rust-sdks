@@ -18,10 +18,6 @@ use livekit_webrtc::frame_cryptor::KeyProviderOptions;
 
 use super::key_provider::BaseKeyProvider;
 
-const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
-const DEFAULT_MAGIC_BYTES: &str = "LK-ROCKS";
-const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionType {
     None,
@@ -95,14 +91,9 @@ impl Default for E2EEOptions {
         Self {
             encryption_type: EncryptionType::Gcm,
             key_provider: BaseKeyProvider::new(
-                KeyProviderOptions {
-                    shared_key: true,
-                    ratchet_window_size: DEFAULT_RATCHET_WINDOW_SIZE,
-                    ratchet_salt: DEFAULT_RATCHET_SALT.as_bytes().to_vec(),
-                    uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.as_bytes().to_vec(),
-                },
+                KeyProviderOptions::default(),
                 true,
-                "12345678".to_string(),
+                "".to_string(),
             ),
         }
     }

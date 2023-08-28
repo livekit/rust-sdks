@@ -13,7 +13,9 @@ use std::collections::HashMap;
 struct AppState {
     url: String,
     token: String,
+    key: String,
     auto_subscribe: bool,
+    enable_e2ee: bool,
 }
 
 pub struct LkApp {
@@ -32,6 +34,8 @@ impl Default for AppState {
             url: "ws://localhost:7880".to_string(),
             token: "".to_string(),
             auto_subscribe: true,
+            enable_e2ee: false,
+            key: "".to_string(),
         }
     }
 }
@@ -183,6 +187,17 @@ impl LkApp {
         });
 
         ui.horizontal(|ui| {
+            ui.label("Key: ");
+            ui.text_edit_singleline(&mut self.state.key);
+        });
+
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(true, |ui| {
+                ui.checkbox(&mut self.state.enable_e2ee, "Enable E2EE");
+            });
+        });
+
+        ui.horizontal(|ui| {
             ui.add_enabled_ui(!connected && !self.connecting, |ui| {
                 if ui.button("Connect").clicked() {
                     self.connecting = true;
@@ -191,6 +206,8 @@ impl LkApp {
                         url: self.state.url.clone(),
                         token: self.state.token.clone(),
                         auto_subscribe: self.state.auto_subscribe,
+                        enable_e2ee: self.state.enable_e2ee,
+                        key: self.state.key.clone(),
                     });
                 }
             });

@@ -1,8 +1,9 @@
 use crate::{logo_track::LogoTrack, sine_track::SineTrack};
-use livekit::{prelude::*, e2ee::options::E2EEOptions, SimulateScenario};
+use livekit::{prelude::*, e2ee::options::*, e2ee::key_provider::*, SimulateScenario};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, error::SendError};
+use livekit::webrtc::frame_cryptor::KeyProviderOptions;
 
 #[derive(Debug)]
 pub enum AsyncCmd {
@@ -10,6 +11,8 @@ pub enum AsyncCmd {
         url: String,
         token: String,
         auto_subscribe: bool,
+        enable_e2ee: bool,
+        key: String,
     },
     RoomDisconnect,
     SimulateScenario {
@@ -99,9 +102,23 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                 url,
                 token,
                 auto_subscribe,
+                enable_e2ee,
+                key,
             } => {
                 log::info!("connecting to room: {}", url);
-                let e2ee_options = Some(E2EEOptions::default());
+                let e2ee_options: Option<E2EEOptions> = if enable_e2ee {
+                    Some(E2EEOptions{
+                        encryption_type: EncryptionType::Gcm,
+                        key_provider: BaseKeyProvider::new(
+                            KeyProviderOptions::default(),
+                            true,
+                            key,
+                        )
+                    })
+                } else {
+                    None
+                };
+
                 let res = Room::connect(
                     &url,
                     &token,

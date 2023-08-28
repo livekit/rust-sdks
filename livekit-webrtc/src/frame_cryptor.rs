@@ -14,12 +14,29 @@
 
 use crate::{imp::frame_cryptor as fc_imp, rtp_sender::RtpSender, prelude::RtpReceiver};
 
+const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
+const DEFAULT_MAGIC_BYTES: &str = "LK-ROCKS";
+const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
+
+
 #[derive(Debug, Clone)]
 pub struct KeyProviderOptions {
     pub shared_key: bool,
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,
     pub uncrypted_magic_bytes: Vec<u8>,
+}
+
+
+impl Default for KeyProviderOptions {
+    fn default() -> Self {
+        Self {
+            shared_key: true,
+            ratchet_window_size: DEFAULT_RATCHET_WINDOW_SIZE,
+            ratchet_salt: DEFAULT_RATCHET_SALT.as_bytes().to_vec(),
+            uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.as_bytes().to_vec(),
+        }
+    }
 }
 
 #[derive(Debug)]
