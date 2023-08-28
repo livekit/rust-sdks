@@ -146,7 +146,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn({
         let room = room.clone();
         async move {
-            const FRAME_DURATION: Duration = Duration::from_millis(1000); // Write 1s of audio at a time
+            const FRAME_DURATION: Duration = Duration::from_millis(10); // Write 1s of audio at a time
 
             let max_samples = header.data_size as usize / size_of::<i16>();
             let ms = FRAME_DURATION.as_millis() as u32;

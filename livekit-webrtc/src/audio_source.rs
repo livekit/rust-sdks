@@ -76,5 +76,13 @@ pub mod native {
         pub fn audio_options(&self) -> AudioSourceOptions {
             self.handle.audio_options()
         }
+
+        pub fn sample_rate(&self) -> u32 {
+            self.handle.sample_rate()
+        }
+
+        pub fn num_channels(&self) -> u32 {
+            self.handle.num_channels()
+        }
     }
 }

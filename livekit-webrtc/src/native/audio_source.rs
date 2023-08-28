@@ -30,7 +30,6 @@ pub struct NativeAudioSource {
     samples_10ms: usize,
 }
 
-#[derive(Default)]
 struct AudioSourceInner {
     buf: Box<[i16]>,
 
@@ -40,6 +39,8 @@ struct AudioSourceInner {
 
     // Amount of data that have been read inside the current AudioFrame
     read_offset: usize,
+
+    interval: Option<tokio::time::Interval>,
 }
 
 impl NativeAudioSource {
@@ -56,6 +57,7 @@ impl NativeAudioSource {
                 buf: vec![0; samples_10ms].into_boxed_slice(),
                 len: 0,
                 read_offset: 0,
+                interval: Some(interval(Duration::from_millis(10))),
             })),
             sample_rate,
             num_channels,
@@ -92,7 +94,6 @@ impl NativeAudioSource {
     ) -> Option<&'a [i16]> {
         let available_data = inner.len + frame.data.len() - inner.read_offset;
         if available_data >= self.samples_10ms {
-            // Capture the frame to libwebrtc
             Some(if inner.len != 0 {
                 // Read 10ms frame from inner.buf AND frame.data
                 let missing_len = self.samples_10ms - inner.len;
@@ -130,10 +131,11 @@ impl NativeAudioSource {
         }
 
         let mut inner = self.inner.lock().await;
-        let mut interval = interval(Duration::from_millis(10));
+        let mut interval = inner.interval.take().unwrap(); // How can I avoid double mut borrow?
 
         loop {
             let Some(data) = self.next_frame(&mut inner, frame) else {
+                inner.interval = Some(interval);
                 break;
             };
 
