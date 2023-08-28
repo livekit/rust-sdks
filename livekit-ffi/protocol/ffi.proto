@@ -18,6 +18,7 @@ package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 // import "handle.proto";
+import "e2ee.proto";
 import "track.proto";
 import "room.proto";
 import "video_frame.proto";
