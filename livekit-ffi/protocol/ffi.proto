@@ -83,6 +83,7 @@ message FfiRequest {
     CaptureAudioFrameRequest capture_audio_frame = 20;
     NewAudioResamplerRequest new_audio_resampler = 21;
     RemixAndResampleRequest remix_and_resample = 22;
+    KeyProviderRequest key_provider = 23;
   }
 }
 
@@ -119,6 +120,7 @@ message FfiResponse {
     CaptureAudioFrameResponse capture_audio_frame = 20;
     NewAudioResamplerResponse new_audio_resampler = 21;
     RemixAndResampleResponse remix_and_resample = 22;
+    KeyProviderResponse key_provider = 23;
   }
 }
 

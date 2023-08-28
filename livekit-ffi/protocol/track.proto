@@ -17,6 +17,7 @@ syntax = "proto3";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
+import "e2ee.proto";
 import "handle.proto";
 
 // Create a new VideoTrack from a VideoSource
@@ -85,5 +86,6 @@ message TrackInfo {
   StreamState stream_state = 5;
   bool muted = 6;
   bool remote = 7;
+  EncryptionType encryption_type = 8;
 }
 
