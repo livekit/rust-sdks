@@ -110,7 +110,7 @@ impl SineTrack {
         params: SineParameters,
     ) {
         let num_channels = params.num_channels as usize;
-        let samples_count = (params.sample_rate / 150) as usize * num_channels;
+        let samples_count = (params.sample_rate / 100) as usize * num_channels;
         let mut samples_10ms = vec![0; samples_count];
         let mut phase = 0;
         loop {

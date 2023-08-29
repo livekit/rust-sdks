@@ -28,7 +28,7 @@ pub fn new_video_frame_buffer(
     mut sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
 ) -> Box<dyn vf::VideoFrameBuffer + Send + Sync> {
     unsafe {
-        match sys_handle.buffer_type().into() {
+        match sys_handle.buffer_type() {
             vfb_sys::ffi::VideoFrameBufferType::Native => Box::new(vf::native::NativeBuffer {
                 handle: NativeBuffer { sys_handle },
             }),

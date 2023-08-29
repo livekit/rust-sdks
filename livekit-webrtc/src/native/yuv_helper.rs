@@ -28,7 +28,7 @@ fn argb_assert_safety(
     _width: i32,
     height: i32,
 ) -> Result<(), ConvertError> {
-    let height_abs = height.abs() as u32;
+    let height_abs = height.unsigned_abs();
     let min = (src_stride * height_abs) as usize;
 
     if src.len() < min {
@@ -49,7 +49,7 @@ fn i420_assert_safety(
     _width: i32,
     height: i32,
 ) -> Result<(), ConvertError> {
-    let height_abs = height.abs() as u32;
+    let height_abs = height.unsigned_abs();
     let chroma_height = (height_abs + 1) / 2;
     let min_y = (src_stride_y * height_abs) as usize;
     let min_u = (src_stride_u * chroma_height) as usize;

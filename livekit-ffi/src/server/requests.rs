@@ -265,6 +265,7 @@ fn on_capture_video_frame(
 }
 
 /// Convert a frame to I420
+/// The destination can now be a new buffer or an existing buffer
 fn on_to_i420(
     server: &'static FfiServer,
     to_i420: proto::ToI420Request,
@@ -273,29 +274,61 @@ fn on_to_i420(
         .from
         .ok_or(FfiError::InvalidRequest("from is empty".into()))?;
 
-    let i420 = match from {
+    let (dst_i420, owned_info) = if let Some(handle) = to_i420.dst_handle {
+        let buffer = server.retrieve_handle::<BoxVideoFrameBuffer>(handle)?;
+        let buffer = buffer.as_i420().ok_or(FfiError::InvalidRequest(
+            "the buffer is not an I420 buffer".into(),
+        ))?;
+        (buffer, None)
+    } else {
+        // Create a new buffer
+        let (width, height) = match from {
+            proto::to_i420_request::From::Argb(argb) => (argb.width, argb.height),
+            proto::to_i420_request::From::YuvHandle(handle) => {
+                let buffer = server.retrieve_handle::<BoxVideoFrameBuffer>(handle)?;
+                (buffer.width(), buffer.height())
+            }
+        };
+        let handle_id = server.next_id();
+
+        let new_buffer: BoxVideoFrameBuffer = Box::new(I420Buffer::new(width, height));
+        let new_info = proto::VideoFrameBufferInfo::from(&new_buffer);
+        server.store_handle(handle_id, new_buffer);
+        let new_buffer = server
+            .retrieve_handle::<BoxVideoFrameBuffer>(handle_id)
+            .unwrap()
+            .as_i420()
+            .unwrap();
+
+        (
+            new_buffer,
+            Some(proto::OwnedVideoFrameBuffer {
+                handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                info: Some(new_info),
+            }),
+        )
+    };
+
+    match from {
         // Create a new I420 buffer from a raw argb buffer
         proto::to_i420_request::From::Argb(info) => {
-            let argb = unsafe {
+            let data = unsafe {
                 let len = (info.stride * info.height) as usize;
                 slice::from_raw_parts(info.ptr as *const u8, len)
             };
 
             let w = info.width as i32;
             let h = info.height as i32 * (if to_i420.flip_y { -1 } else { 1 });
-
-            // Create a new I420 buffer
-            let mut i420 = I420Buffer::new(info.width, info.height);
-            let (sy, su, sv) = i420.strides();
-            let (dy, du, dv) = i420.data_mut();
+            let (sy, su, sv) = dst_i420.strides();
+            let (dy, du, dv) = dst_i420.data_mut();
 
             match info.format() {
                 proto::VideoFormatType::FormatArgb => {
-                    yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
+                    yuv_helper::argb_to_i420(data, info.stride, dy, sy, du, su, dv, sv, w, h)
                         .unwrap();
                 }
                 proto::VideoFormatType::FormatAbgr => {
-                    yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
+                    yuv_helper::abgr_to_i420(data, info.stride, dy, sy, du, su, dv, sv, w, h)
                         .unwrap();
                 }
                 _ => {
@@ -304,27 +337,15 @@ fn on_to_i420(
                     ))
                 }
             }
-
-            i420
         }
         // Convert an arbitrary yuv buffer to I420
-        // Even if the buffer is already in I420, we're still copying it
-        proto::to_i420_request::From::BufferHandle(handle) => server
-            .retrieve_handle::<BoxVideoFrameBuffer>(handle)?
-            .to_i420(),
+        // Even if the buffer is already in I420, we're still copying it to the dst
+        proto::to_i420_request::From::YuvHandle(handle) => {
+            let buffer = server.retrieve_handle::<BoxVideoFrameBuffer>(handle)?;
+        }
     };
 
-    let i420: BoxVideoFrameBuffer = Box::new(i420);
-    let handle_id = server.next_id();
-    let buffer_info = proto::VideoFrameBufferInfo::from(&i420);
-    server.store_handle(handle_id, i420);
-
-    Ok(proto::ToI420Response {
-        buffer: Some(proto::OwnedVideoFrameBuffer {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(buffer_info),
-        }),
-    })
+    Ok(proto::ToI420Response { buffer: owned_info })
 }
 
 /// Convert a YUY buffer to argb
