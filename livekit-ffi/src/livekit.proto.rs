@@ -23,6 +23,15 @@ pub struct E2eeOptions {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetFrameCryptorRequest {
+    #[prost(bool, tag = "1")]
+    pub enabled: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetFrameCryptorResponse {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetSharedKeyRequest {
     #[prost(bool, tag = "1")]
     pub enable_shared_key: bool,
@@ -61,39 +70,43 @@ pub struct RachetKeyForParticipantResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct KeyProviderRequest {
-    #[prost(oneof = "key_provider_request::Message", tags = "1, 2, 3")]
-    pub message: ::core::option::Option<key_provider_request::Message>,
+pub struct FrameCryptorRequest {
+    #[prost(oneof = "frame_cryptor_request::Message", tags = "1, 2, 3, 4")]
+    pub message: ::core::option::Option<frame_cryptor_request::Message>,
 }
-/// Nested message and enum types in `KeyProviderRequest`.
-pub mod key_provider_request {
+/// Nested message and enum types in `FrameCryptorRequest`.
+pub mod frame_cryptor_request {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Message {
         #[prost(message, tag = "1")]
-        SetSharedKey(super::SetSharedKeyRequest),
+        SetFrameCryptor(super::SetFrameCryptorRequest),
         #[prost(message, tag = "2")]
-        SetKeyForParticipant(super::SetKeyForParticipantRequest),
+        SetSharedKey(super::SetSharedKeyRequest),
         #[prost(message, tag = "3")]
+        SetKeyForParticipant(super::SetKeyForParticipantRequest),
+        #[prost(message, tag = "4")]
         RachetKeyForParticipant(super::RachetKeyForParticipantRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct KeyProviderResponse {
-    #[prost(oneof = "key_provider_response::Message", tags = "1, 2, 3")]
-    pub message: ::core::option::Option<key_provider_response::Message>,
+pub struct FrameCryptorResponse {
+    #[prost(oneof = "frame_cryptor_response::Message", tags = "1, 2, 3, 4")]
+    pub message: ::core::option::Option<frame_cryptor_response::Message>,
 }
-/// Nested message and enum types in `KeyProviderResponse`.
-pub mod key_provider_response {
+/// Nested message and enum types in `FrameCryptorResponse`.
+pub mod frame_cryptor_response {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Message {
         #[prost(message, tag = "1")]
-        SetSharedKey(super::SetSharedKeyResponse),
+        SetFrameCryptor(super::SetFrameCryptorResponse),
         #[prost(message, tag = "2")]
-        SetKeyForParticipant(super::SetKeyForParticipantResponse),
+        SetSharedKey(super::SetSharedKeyResponse),
         #[prost(message, tag = "3")]
+        SetKeyForParticipant(super::SetKeyForParticipantResponse),
+        #[prost(message, tag = "4")]
         RachetKeyForParticipant(super::RachetKeyForParticipantResponse),
     }
 }
@@ -1609,7 +1622,7 @@ pub mod ffi_request {
         #[prost(message, tag = "22")]
         RemixAndResample(super::RemixAndResampleRequest),
         #[prost(message, tag = "23")]
-        KeyProvider(super::KeyProviderRequest),
+        FrameCryptor(super::FrameCryptorRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
@@ -1676,7 +1689,7 @@ pub mod ffi_response {
         #[prost(message, tag = "22")]
         RemixAndResample(super::RemixAndResampleResponse),
         #[prost(message, tag = "23")]
-        KeyProvider(super::KeyProviderResponse),
+        FrameCryptor(super::FrameCryptorResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.

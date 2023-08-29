@@ -46,6 +46,12 @@ enum E2EEState {
     INTERNAL_ERROR = 6;
 }
 
+message SetFrameCryptorRequest {
+    bool enabled = 1;
+}
+
+message SetFrameCryptorResponse {}
+
 message SetSharedKeyRequest {
     bool enable_shared_key = 1;
     bytes shared_key = 2;
@@ -70,18 +76,20 @@ message RachetKeyForParticipantResponse {
     bytes new_key = 1;
 }
 
-message KeyProviderRequest {
+message FrameCryptorRequest {
     oneof message {
-        SetSharedKeyRequest set_shared_key = 1;
-        SetKeyForParticipantRequest set_key_for_participant = 2;
-        RachetKeyForParticipantRequest rachet_key_for_participant = 3;
+        SetFrameCryptorRequest set_frame_cryptor = 1;
+        SetSharedKeyRequest set_shared_key = 2;
+        SetKeyForParticipantRequest set_key_for_participant = 3;
+        RachetKeyForParticipantRequest rachet_key_for_participant = 4;
     }
 }
 
-message KeyProviderResponse {
+message FrameCryptorResponse {
     oneof message {
-        SetSharedKeyResponse set_shared_key = 1;
-        SetKeyForParticipantResponse set_key_for_participant = 2;
-        RachetKeyForParticipantResponse rachet_key_for_participant = 3;
+        SetFrameCryptorResponse set_frame_cryptor = 1;
+        SetSharedKeyResponse set_shared_key = 2;
+        SetKeyForParticipantResponse set_key_for_participant = 3;
+        RachetKeyForParticipantResponse rachet_key_for_participant = 4;
     }
 }

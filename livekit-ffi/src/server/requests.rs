@@ -534,8 +534,8 @@ pub fn handle_request(
         proto::ffi_request::Message::RemixAndResample(remix) => {
             proto::ffi_response::Message::RemixAndResample(remix_and_resample(server, remix)?)
         }
-        proto::ffi_request::Message::KeyProvider(_) => {
-            proto::ffi_response::Message::KeyProvider(proto::KeyProviderResponse::default())
+        proto::ffi_request::Message::FrameCryptor(_) => {
+            proto::ffi_response::Message::FrameCryptor(proto::FrameCryptorResponse::default())
         }
     });
 
