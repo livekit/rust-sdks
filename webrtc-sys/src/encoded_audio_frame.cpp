@@ -37,6 +37,10 @@ size_t EncodedAudioFrame::payload_size() const {
     return size;
 }
 
+uint32_t EncodedAudioFrame::ssrc() const {
+    return frame_->GetHeader().ssrc;
+}
+
 uint32_t EncodedAudioFrame::timestamp() const {
     return frame_->GetTimestamp();
 }

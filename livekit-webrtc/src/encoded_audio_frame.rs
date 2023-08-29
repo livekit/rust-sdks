@@ -27,6 +27,10 @@ impl EncodedAudioFrame {
         self.frame.payload_type()
     }
 
+    pub fn ssrc(&self) -> u32 {
+        self.frame.ssrc()
+    }
+
     pub fn sequence_number(&self) -> u16 {
         self.frame.sequence_number()
     }

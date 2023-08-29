@@ -19,6 +19,8 @@ pub mod ffi {
         fn payload_data(self: &EncodedAudioFrame) -> *const u8;
         fn payload_size(self: &EncodedAudioFrame) -> usize;
 
+        fn ssrc(self: &EncodedAudioFrame) -> u32;
+
         fn absolute_capture_timestamp(self: &EncodedAudioFrame) -> SharedPtr<u64>;
         fn estimated_capture_clock_offset(self: &EncodedAudioFrame) -> SharedPtr<i64>;
     }
