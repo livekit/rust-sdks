@@ -14,6 +14,8 @@
 
 use crate::proto;
 use crate::server::room::FfiRoom;
+use livekit::e2ee::key_provider::BaseKeyProvider;
+use livekit::e2ee::options::E2EEOptions;
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
@@ -37,13 +39,29 @@ impl From<ConnectionState> for proto::ConnectionState {
     }
 }
 
+impl From<proto::E2eeOptions> for E2EEOptions {
+    fn from(value: proto::E2eeOptions) -> Self {
+        Self {
+            encryption_type: livekit::e2ee::options::EncryptionType::Gcm,
+            key_provider: BaseKeyProvider::new(
+                livekit::webrtc::frame_cryptor::KeyProviderOptions::default(),
+                value.is_shared_key,
+                value.shared_key,
+            ),
+        }
+    }
+}
+
 impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
         Self {
             adaptive_stream: value.adaptive_stream,
             auto_subscribe: value.auto_subscribe,
             dynacast: value.dynacast,
-            e2ee_options: None, //TODO: convert
+            e2ee_options: match value.e2ee_options {
+                Some(opts) => Some(opts.into()),
+                None => None,
+            },
         }
     }
 }
