@@ -465,7 +465,7 @@ fn frame_cryptor_request(server: &'static FfiServer, req: proto::E2eeRequest) ->
             .unwrap()
             .clone();
             ffi_room.inner.room.e2ee_manager().set_enabled(set.enabled);
-            res.message = Some(proto::e2ee_response::Message::SetFrameCryptor(proto::SetFrameCryptorResponse {}));
+            res.message = Some(proto::e2ee_response::Message::E2eeManagerEnable(proto::E2eeManagerEnableResponse {}));
         }
         Some(proto::e2ee_request::Message::GetFrameCryptors(set)) => {
             let ffi_room = server
