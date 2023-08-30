@@ -84,7 +84,7 @@ message FfiRequest {
     CaptureAudioFrameRequest capture_audio_frame = 20;
     NewAudioResamplerRequest new_audio_resampler = 21;
     RemixAndResampleRequest remix_and_resample = 22;
-    FrameCryptorRequest frame_cryptor = 23;
+    E2EERequest e2ee = 23;
   }
 }
 
@@ -121,7 +121,7 @@ message FfiResponse {
     CaptureAudioFrameResponse capture_audio_frame = 20;
     NewAudioResamplerResponse new_audio_resampler = 21;
     RemixAndResampleResponse remix_and_resample = 22;
-    FrameCryptorResponse frame_cryptor = 23;
+    E2EEResponse e2ee = 23;
   }
 }
 

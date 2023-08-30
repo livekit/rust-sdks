@@ -126,7 +126,7 @@ impl LkApp {
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
                     }
-                    RoomEvent::E2EEStateEvent { participant: _, publication: _, state: _ } => {
+                    RoomEvent::E2EEStateEvent { participant: _, publication: _, participant_id: _, state: _ } => {
                         
                     }
                     _ => {}

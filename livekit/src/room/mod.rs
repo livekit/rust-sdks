@@ -117,6 +117,7 @@ pub enum RoomEvent {
     E2EEStateEvent {
         participant: Participant,
         publication: TrackPublication,
+        participant_id: String,
         state: E2EEState,
     },
     ConnectionStateChanged(ConnectionState),
@@ -358,6 +359,10 @@ impl Room {
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.rtc_engine.simulate_scenario(scenario).await
+    }
+
+    pub fn e2ee_manager(&self) -> Arc<E2EEManager> {
+        self.inner.e2ee_manager.clone()
     }
 
 }

@@ -652,6 +652,17 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             ))
             .await;
         }
+        RoomEvent::E2EEStateEvent { participant, publication, participant_id, state } => {
+            let _ = send_event(proto::room_event::Message::E2eeStateChanged(
+                proto::E2eeStateChanged {
+                    participant_sid: participant.sid().to_string(),
+                    track_sid: publication.sid().into(),
+                    participant_id: participant_id,
+                    state: state as i32,
+                },
+            ))
+            .await;
+        }   
         _ => {}
     };
 }

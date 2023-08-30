@@ -17,7 +17,7 @@ use super::{
     audio_source, audio_stream, room, video_source, video_stream, FfiConfig, FfiError, FfiResult,
     FfiServer,
 };
-use crate::proto;
+use crate::proto::{self};
 use livekit::prelude::*;
 use livekit::webrtc::native::{audio_resampler, yuv_helper};
 use livekit::webrtc::prelude::*;
@@ -456,6 +456,86 @@ fn remix_and_resample(
     })
 }
 
+fn frame_cryptor_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiResult<proto::E2eeResponse> {
+    let mut res = proto::E2eeResponse::default();
+    match req.message {
+        Some(proto::e2ee_request::Message::E2eeManagerEnable(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+            ffi_room.inner.room.e2ee_manager().set_enabled(set.enabled);
+            res.message = Some(proto::e2ee_response::Message::SetFrameCryptor(proto::SetFrameCryptorResponse {}));
+        }
+        Some(proto::e2ee_request::Message::GetFrameCryptors(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+            let frame_cryptors = ffi_room.inner.room.e2ee_manager().frame_cryptors();
+            let proto_frame_cryptors: Vec<proto::FrameCryptor> = frame_cryptors.keys().into_iter().map(|k| {
+                let frame_cryptor = frame_cryptors.get(k).unwrap();
+                proto::FrameCryptor {
+                    participant_id: frame_cryptor.participant_id(),
+                    encryption_type: ffi_room.inner.room.e2ee_manager().encryption_type() as i32,
+                    enabled: frame_cryptor.enabled(),
+                    key_index: frame_cryptor.key_index(),
+                }
+            }).collect();
+            res.message = Some(proto::e2ee_response::Message::GetFrameCryptors(proto::GetFrameCryptorsResponse {frame_cryptors: proto_frame_cryptors}));
+        }
+        Some(proto::e2ee_request::Message::SetFrameCryptor(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+
+            let frame_cryptors = ffi_room.inner.room.e2ee_manager().frame_cryptors();
+            let frame_cryptor = frame_cryptors.get(set.participant_id.as_str()).unwrap();
+            frame_cryptor.set_enabled(set.enabled);
+            res.message = Some(proto::e2ee_response::Message::SetFrameCryptor(proto::SetFrameCryptorResponse {}));
+        }
+        Some(proto::e2ee_request::Message::SetSharedKey(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+            if let Some(mut key_provider) = ffi_room.inner.room.e2ee_manager().key_provider() {
+                key_provider.set_shared_key(set.shared_key.clone());
+            }
+            ffi_room.inner.room.e2ee_manager().set_shared_key(set.shared_key.clone());
+            res.message = Some(proto::e2ee_response::Message::SetSharedKey(proto::SetSharedKeyResponse {}));
+        }
+        Some(proto::e2ee_request::Message::SetKeyForParticipant(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+            if let Some(key_provider) = ffi_room.inner.room.e2ee_manager().key_provider() {
+                key_provider.set_key(set.participant_id, set.key_index, set.key.clone().as_bytes().to_vec());
+            }
+            res.message = Some(proto::e2ee_response::Message::SetKeyForParticipant(proto::SetKeyForParticipantResponse {}));
+        }
+        Some(proto::e2ee_request::Message::RachetKeyForParticipant(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+            let key_provider = ffi_room.inner.room.e2ee_manager().key_provider();
+            let new_key = match key_provider {
+                Some(key_provider) => {
+                    let key = key_provider.ratchet_key(set.participant_id, 0);
+                    key.to_vec()
+                }
+                None => "".as_bytes().to_vec(),
+            };
+            res.message = Some(proto::e2ee_response::Message::RachetKeyForParticipant(proto::RachetKeyForParticipantResponse{new_key}));
+        }
+        None => todo!(),
+    }
+    Ok(res)
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -534,8 +614,8 @@ pub fn handle_request(
         proto::ffi_request::Message::RemixAndResample(remix) => {
             proto::ffi_response::Message::RemixAndResample(remix_and_resample(server, remix)?)
         }
-        proto::ffi_request::Message::FrameCryptor(_) => {
-            proto::ffi_response::Message::FrameCryptor(proto::FrameCryptorResponse::default())
+        proto::ffi_request::Message::E2ee(e2ee) => {
+            proto::ffi_response::Message::E2ee(frame_cryptor_request(server, e2ee)?)
         }
     });
 

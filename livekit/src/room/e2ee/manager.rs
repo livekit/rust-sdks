@@ -27,7 +27,7 @@ use crate::{e2ee::options::E2EEOptions, participant::Participant};
 
 use crate::prelude::TrackKind;
 
-use super::options::EncryptionType;
+use super::{key_provider::BaseKeyProvider, options::EncryptionType};
 
 pub use crate::publication::TrackPublication;
 
@@ -35,7 +35,7 @@ pub struct E2EEManager {
     dispatcher: Dispatcher<RoomEvent>,
     options: Option<E2EEOptions>,
     frame_cryptors: Mutex<HashMap<String, FrameCryptor>>,
-    enabled: bool,
+    enabled: Mutex<bool>,
 }
 
 impl E2EEManager {
@@ -43,9 +43,16 @@ impl E2EEManager {
         Self {
             dispatcher,
             frame_cryptors: HashMap::new().into(),
-            enabled: options.is_some(),
+            enabled: options.is_some().into(),
             options,
         }
+    }
+
+    pub fn key_provider(&self) -> Option<BaseKeyProvider> {
+        if let Some(options) = &self.options {
+            return Some(options.key_provider.clone());
+        }
+        None
     }
 
     pub fn encryption_type(&self) -> EncryptionType {
@@ -89,6 +96,7 @@ impl E2EEManager {
                                 dispatcher.dispatch(&RoomEvent::E2EEStateEvent {
                                     participant: Participant::Remote(participant.clone()),
                                     publication: TrackPublication::Remote(publication.clone()),
+                                    participant_id: participant_id.clone(),
                                     state: state.into(),
                                 });
                             },
@@ -124,6 +132,7 @@ impl E2EEManager {
                                 dispatcher.dispatch(&RoomEvent::E2EEStateEvent {
                                     participant: Participant::Local(participant.clone()),
                                     publication: TrackPublication::Local(publication.clone()),
+                                    participant_id: participant_id.clone(),
                                     state: state.into(),
                                 });
                             },
@@ -141,12 +150,21 @@ impl E2EEManager {
         }
     }
 
-    pub fn enabled(&self) -> bool {
-        self.enabled && self.options.is_some()
+    pub fn frame_cryptors(&self) -> HashMap<String, FrameCryptor> {
+        self.frame_cryptors.lock().clone()
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
+    pub fn enabled(&self) -> bool {
+        self.enabled.lock().clone() && self.options.is_some()
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        let mut self_enabled = self.enabled.lock();
+        if *self_enabled == enabled {
+            return;
+        }
+        *self_enabled = enabled;
+
         if let Some(options) = &self.options {
             for (participant_id, cryptor) in self.frame_cryptors.lock().iter() {
                 cryptor.set_enabled(enabled);
@@ -162,15 +180,35 @@ impl E2EEManager {
         }
     }
 
-    pub fn cleanup(&mut self) {
-        for cryptor in self.frame_cryptors.lock().values() {
+    pub fn cleanup(&self) {
+        let mut frame_cryptors = self.frame_cryptors.lock();
+        for cryptor in frame_cryptors.values() {
             cryptor.set_enabled(false);
         }
-        self.frame_cryptors.lock().clear();
-        self.options = None;
+        frame_cryptors.clear();
     }
 
-    pub fn ratchet_key(&mut self) {
+    pub fn set_shared_key(&self, shared_key: String) {
+        if let Some(mut key_provider) = self.key_provider() {
+            key_provider.set_shared_key(shared_key.clone());
+        }
+        if let Some(options) = &self.options {
+            for participant_id in self.frame_cryptors.lock().keys() {
+                options.key_provider.set_key(
+                    participant_id.clone(),
+                    0,
+                    shared_key.clone().into_bytes().to_vec(),
+                );
+                log::info!(
+                    "set_shared_key key for {}, new_key {}",
+                    participant_id,
+                    shared_key.len()
+                );
+            }
+        }
+    }
+
+    pub fn ratchet_key(&self) {
         if let Some(options) = &self.options {
             for participant_id in self.frame_cryptors.lock().keys() {
                 let new_key = options.key_provider.ratchet_key(participant_id.clone(), 0);
@@ -200,7 +238,7 @@ impl E2EEManager {
                 sender,
             );
 
-            frame_cryptor.set_enabled(self.enabled);
+            frame_cryptor.set_enabled(self.enabled.lock().clone());
 
             if options.key_provider.is_shared_key() {
                 options.key_provider.set_key(
@@ -234,7 +272,7 @@ impl E2EEManager {
                 options.key_provider.handle.clone(),
                 receiver,
             );
-            frame_cryptor.set_enabled(self.enabled);
+            frame_cryptor.set_enabled(self.enabled.lock().clone());
             if options.key_provider.is_shared_key() {
                 options.key_provider.set_key(
                     participant_id.clone(),

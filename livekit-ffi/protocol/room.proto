@@ -255,7 +255,8 @@ message TrackUnmuted {
 message E2EEStateChanged {
   string participant_sid = 1;
   string track_sid = 2;
-  E2EEState state = 3;
+  string participant_id = 3;
+  E2EEState state = 4;
 }
 
 message ActiveSpeakersChanged { repeated string participant_sids = 1; }

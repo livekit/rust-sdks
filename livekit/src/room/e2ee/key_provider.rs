@@ -16,8 +16,8 @@ use livekit_webrtc::frame_cryptor::{KeyProvider, KeyProviderOptions};
 
 #[derive(Clone)]
 pub struct BaseKeyProvider {
-    is_shared_key: bool,
-    shared_key: String,
+    pub(crate) is_shared_key: bool,
+    pub(crate) shared_key: String,
     pub(crate) handle: KeyProvider,
 }
 
@@ -25,7 +25,7 @@ impl BaseKeyProvider {
     pub fn new(options: KeyProviderOptions, is_shared_key: bool, shared_key: String) -> Self {
         Self {
             is_shared_key,
-            shared_key,
+            shared_key: shared_key.into(),
             handle: KeyProvider::new(options),
         }
     }
