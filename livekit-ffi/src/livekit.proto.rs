@@ -23,27 +23,45 @@ pub struct E2eeOptions {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct E2eeManagerEnableRequest {
-    #[prost(uint64, tag = "1")]
-    pub room_handle: u64,
-    #[prost(bool, tag = "2")]
-    pub enabled: bool,
-    #[prost(uint64, tag = "3")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct E2eeManagerEnableResponse {
+pub struct E2eeManagerSetEnabledRequest {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetFrameCryptorsRequest {
-    #[prost(uint64, tag = "1")]
-    pub room_handle: u64,
     #[prost(uint64, tag = "2")]
+    pub room_handle: u64,
+    #[prost(bool, tag = "3")]
+    pub enabled: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeManagerSetEnabledResponse {
+    #[prost(uint64, tag = "1")]
     pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeManagerSetSharedKeyRequest {
+    #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub room_handle: u64,
+    #[prost(bool, tag = "3")]
+    pub enable_shared_key: bool,
+    #[prost(string, tag = "4")]
+    pub shared_key: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeManagerSetSharedKeyResponse {
+    #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeManagerGetFrameCryptorsRequest {
+    #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub room_handle: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -59,7 +77,7 @@ pub struct FrameCryptor {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetFrameCryptorsResponse {
+pub struct E2eeManagerGetFrameCryptorsResponse {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
     #[prost(message, repeated, tag = "2")]
@@ -67,84 +85,86 @@ pub struct GetFrameCryptorsResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetFrameCryptorRequest {
+pub struct FrameCryptorSetEnabledRequest {
     #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+    #[prost(uint64, tag = "2")]
     pub room_handle: u64,
-    #[prost(string, tag = "2")]
+    #[prost(string, tag = "3")]
     pub participant_id: ::prost::alloc::string::String,
-    #[prost(bool, tag = "3")]
+    #[prost(bool, tag = "4")]
     pub enabled: bool,
-    #[prost(uint64, tag = "4")]
-    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetFrameCryptorResponse {
+pub struct FrameCryptorSetEnabledResponse {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetSharedKeyRequest {
+pub struct FrameCryptorSetKeyRequest {
     #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+    #[prost(uint64, tag = "2")]
     pub room_handle: u64,
-    #[prost(bool, tag = "2")]
-    pub enable_shared_key: bool,
     #[prost(string, tag = "3")]
-    pub shared_key: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "4")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetSharedKeyResponse {
-    #[prost(uint64, tag = "1")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetKeyForParticipantRequest {
-    #[prost(uint64, tag = "1")]
-    pub room_handle: u64,
-    #[prost(string, tag = "2")]
     pub participant_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
+    #[prost(string, tag = "4")]
     pub key: ::prost::alloc::string::String,
+    #[prost(int32, tag = "5")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptorSetKeyResponse {
+    #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptorRachetKeyRequest {
+    #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub room_handle: u64,
+    #[prost(string, tag = "3")]
+    pub participant_id: ::prost::alloc::string::String,
     #[prost(int32, tag = "4")]
     pub key_index: i32,
-    #[prost(uint64, tag = "5")]
-    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetKeyForParticipantResponse {
+pub struct FrameCryptorRachetKeyResponse {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RachetKeyForParticipantRequest {
-    #[prost(uint64, tag = "1")]
-    pub room_handle: u64,
-    #[prost(string, tag = "2")]
-    pub participant_id: ::prost::alloc::string::String,
-    #[prost(int32, tag = "3")]
-    pub key_index: i32,
-    #[prost(uint64, tag = "4")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RachetKeyForParticipantResponse {
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes = "vec", tag = "2")]
     pub new_key: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "2")]
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptorExportKeyRequest {
+    #[prost(uint64, tag = "1")]
     pub async_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub room_handle: u64,
+    #[prost(string, tag = "3")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(int32, tag = "4")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptorExportKeyResponse {
+    #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+    #[prost(bytes = "vec", tag = "2")]
+    pub key: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct E2eeRequest {
-    #[prost(oneof = "e2ee_request::Message", tags = "1, 2, 3, 4, 5, 6")]
+    #[prost(oneof = "e2ee_request::Message", tags = "1, 2, 3, 4, 5, 6, 7")]
     pub message: ::core::option::Option<e2ee_request::Message>,
 }
 /// Nested message and enum types in `E2EERequest`.
@@ -153,23 +173,25 @@ pub mod e2ee_request {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Message {
         #[prost(message, tag = "1")]
-        E2eeManagerEnable(super::E2eeManagerEnableRequest),
+        E2eeManagerSetEnabled(super::E2eeManagerSetEnabledRequest),
         #[prost(message, tag = "2")]
-        GetFrameCryptors(super::GetFrameCryptorsRequest),
+        E2eeManagerSetSharedKey(super::E2eeManagerSetSharedKeyRequest),
         #[prost(message, tag = "3")]
-        SetFrameCryptor(super::SetFrameCryptorRequest),
+        E2eeManagerGetFrameCryptors(super::E2eeManagerGetFrameCryptorsRequest),
         #[prost(message, tag = "4")]
-        SetSharedKey(super::SetSharedKeyRequest),
+        FrameCryptorSetEnabled(super::FrameCryptorSetEnabledRequest),
         #[prost(message, tag = "5")]
-        SetKeyForParticipant(super::SetKeyForParticipantRequest),
+        FrameCryptorSetKey(super::FrameCryptorSetKeyRequest),
         #[prost(message, tag = "6")]
-        RachetKeyForParticipant(super::RachetKeyForParticipantRequest),
+        FrameCryptorRachetKey(super::FrameCryptorRachetKeyRequest),
+        #[prost(message, tag = "7")]
+        FrameCryptorExportKey(super::FrameCryptorExportKeyRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct E2eeResponse {
-    #[prost(oneof = "e2ee_response::Message", tags = "1, 2, 3, 4, 5, 6")]
+    #[prost(oneof = "e2ee_response::Message", tags = "1, 2, 3, 4, 5, 6, 7")]
     pub message: ::core::option::Option<e2ee_response::Message>,
 }
 /// Nested message and enum types in `E2EEResponse`.
@@ -178,17 +200,19 @@ pub mod e2ee_response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Message {
         #[prost(message, tag = "1")]
-        E2eeManagerEnable(super::E2eeManagerEnableResponse),
+        E2eeManagerSetEnabled(super::E2eeManagerSetEnabledResponse),
         #[prost(message, tag = "2")]
-        GetFrameCryptors(super::GetFrameCryptorsResponse),
+        E2eeManagerSetSharedKey(super::E2eeManagerSetSharedKeyResponse),
         #[prost(message, tag = "3")]
-        SetFrameCryptor(super::SetFrameCryptorResponse),
+        E2eeManagerGetFrameCryptors(super::E2eeManagerGetFrameCryptorsResponse),
         #[prost(message, tag = "4")]
-        SetSharedKey(super::SetSharedKeyResponse),
+        FrameCryptorSetEnabled(super::FrameCryptorSetEnabledResponse),
         #[prost(message, tag = "5")]
-        SetKeyForParticipant(super::SetKeyForParticipantResponse),
+        FrameCryptorSetKey(super::FrameCryptorSetKeyResponse),
         #[prost(message, tag = "6")]
-        RachetKeyForParticipant(super::RachetKeyForParticipantResponse),
+        FrameCryptorRachetKey(super::FrameCryptorRachetKeyResponse),
+        #[prost(message, tag = "7")]
+        FrameCryptorExportKey(super::FrameCryptorExportKeyResponse),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

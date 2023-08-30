@@ -27,4 +27,4 @@ protoc \
     $PROTOCOL/participant.proto \
     $PROTOCOL/video_frame.proto \
     $PROTOCOL/audio_frame.proto \
-    $PROTOCOL/e2ee.proto \
+    $PROTOCOL/e2ee.proto

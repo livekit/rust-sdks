@@ -46,19 +46,30 @@ enum E2EEState {
     INTERNAL_ERROR = 6;
 }
 
-message E2EEManagerEnableRequest {
-    uint64 room_handle = 1;
-    bool enabled = 2;
-    uint64 async_id = 3;
+message E2EEManagerSetEnabledRequest {
+    uint64 async_id = 1;
+    uint64 room_handle = 2;
+    bool enabled = 3;
 }
 
-message E2EEManagerEnableResponse {
+message E2EEManagerSetEnabledResponse {
     uint64 async_id = 1;
 }
 
-message GetFrameCryptorsRequest {
-    uint64 room_handle = 1;
-    uint64 async_id = 2;
+message E2EEManagerSetSharedKeyRequest {
+    uint64 async_id = 1;
+    uint64 room_handle = 2;
+    bool enable_shared_key = 3;
+    string shared_key = 4;
+}
+
+message E2EEManagerSetSharedKeyResponse {
+    uint64 async_id = 1;
+}
+
+message E2EEManagerGetFrameCryptorsRequest {
+    uint64 async_id = 1;
+    uint64 room_handle = 2;
 }
 
 message FrameCryptor {
@@ -68,75 +79,78 @@ message FrameCryptor {
     bool enabled = 4;
 }
 
-message GetFrameCryptorsResponse {
+message E2EEManagerGetFrameCryptorsResponse {
     uint64 async_id = 1;
     repeated FrameCryptor frame_cryptors = 2;
 }
 
-message SetFrameCryptorRequest {
-    uint64 room_handle = 1;
-    string participant_id = 2;
-    bool enabled = 3;
-    uint64 async_id = 4;
+message FrameCryptorSetEnabledRequest {
+    uint64 async_id = 1;
+    uint64 room_handle = 2;
+    string participant_id = 3;
+    bool enabled = 4;
 }
 
-message SetFrameCryptorResponse {
+message FrameCryptorSetEnabledResponse {
     uint64 async_id = 1;
 }
 
-message SetSharedKeyRequest {
-    uint64 room_handle = 1;
-    bool enable_shared_key = 2;
-    string shared_key = 3;
-    uint64 async_id = 4;
+message FrameCryptorSetKeyRequest {
+    uint64 async_id = 1;
+    uint64 room_handle = 2;
+    string participant_id = 3;
+    string key = 4;
+    int32 key_index = 5;
 }
 
-message SetSharedKeyResponse {
+message FrameCryptorSetKeyResponse {
     uint64 async_id = 1;
 }
 
-message SetKeyForParticipantRequest {
-    uint64 room_handle = 1;
-    string participant_id = 2;
-    string key = 3;
+message FrameCryptorRachetKeyRequest {
+    uint64 async_id = 1;
+    uint64 room_handle = 2;
+    string participant_id = 3;
+    int32 key_index = 4;   
+}
+
+message FrameCryptorRachetKeyResponse {
+    uint64 async_id = 1;
+    bytes new_key = 2;
+}
+
+message FrameCryptorExportKeyRequest {
+    uint64 async_id = 1;
+    uint64 room_handle = 2;
+    string participant_id = 3;
     int32 key_index = 4;
-    uint64 async_id = 5;
 }
 
-message SetKeyForParticipantResponse {
+message FrameCryptorExportKeyResponse {
     uint64 async_id = 1;
-}
-
-message RachetKeyForParticipantRequest {
-    uint64 room_handle = 1;
-    string participant_id = 2;
-    int32 key_index = 3;
-    uint64 async_id = 4;
-}
-
-message RachetKeyForParticipantResponse {
-    bytes new_key = 1;
-    uint64 async_id = 2;
+    bytes key = 2;
 }
 
 message E2EERequest {
     oneof message {
-        E2EEManagerEnableRequest e2ee_manager_enable = 1;
-        GetFrameCryptorsRequest get_frame_cryptors = 2;
-        SetFrameCryptorRequest set_frame_cryptor = 3;
-        SetSharedKeyRequest set_shared_key = 4;
-        SetKeyForParticipantRequest set_key_for_participant = 5;
-        RachetKeyForParticipantRequest rachet_key_for_participant = 6;
+        E2EEManagerSetEnabledRequest e2ee_manager_set_enabled = 1;
+        E2EEManagerSetSharedKeyRequest e2ee_manager_set_shared_key = 2;
+        E2EEManagerGetFrameCryptorsRequest e2ee_manager_get_frame_cryptors = 3;
+        FrameCryptorSetEnabledRequest frame_cryptor_set_enabled = 4;
+        FrameCryptorSetKeyRequest frame_cryptor_set_key = 5;
+        FrameCryptorRachetKeyRequest frame_cryptor_rachet_key = 6;
+        FrameCryptorExportKeyRequest frame_cryptor_export_key = 7;
     }
 }
 
 message E2EEResponse {
     oneof message {
-        E2EEManagerEnableResponse e2ee_manager_enable = 1;
-        GetFrameCryptorsResponse get_frame_cryptors = 2;
-        SetFrameCryptorResponse set_frame_cryptor = 3;
-        SetSharedKeyResponse set_shared_key = 4;
-        SetKeyForParticipantResponse set_key_for_participant = 5;
-        RachetKeyForParticipantResponse rachet_key_for_participant = 6;
+        E2EEManagerSetEnabledResponse e2ee_manager_set_enabled = 1;
+        E2EEManagerSetSharedKeyResponse e2ee_manager_set_shared_key = 2;
+        E2EEManagerGetFrameCryptorsResponse e2ee_manager_get_frame_cryptors = 3;
+        FrameCryptorSetEnabledResponse frame_cryptor_set_enabled = 4;
+        FrameCryptorSetKeyResponse frame_cryptor_set_key = 5;
+        FrameCryptorRachetKeyResponse frame_cryptor_rachet_key = 6;
+        FrameCryptorExportKeyResponse frame_cryptor_export_key = 7;
     }
 }
