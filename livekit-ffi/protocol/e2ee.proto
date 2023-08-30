@@ -49,12 +49,16 @@ enum E2EEState {
 message E2EEManagerEnableRequest {
     uint64 room_handle = 1;
     bool enabled = 2;
+    uint64 async_id = 3;
 }
 
-message E2EEManagerEnableResponse {}
+message E2EEManagerEnableResponse {
+    uint64 async_id = 1;
+}
 
 message GetFrameCryptorsRequest {
     uint64 room_handle = 1;
+    uint64 async_id = 2;
 }
 
 message FrameCryptor {
@@ -65,42 +69,54 @@ message FrameCryptor {
 }
 
 message GetFrameCryptorsResponse {
-    repeated FrameCryptor frame_cryptors = 1;
+    uint64 async_id = 1;
+    repeated FrameCryptor frame_cryptors = 2;
 }
 
 message SetFrameCryptorRequest {
     uint64 room_handle = 1;
     string participant_id = 2;
     bool enabled = 3;
+    uint64 async_id = 4;
 }
 
-message SetFrameCryptorResponse {}
+message SetFrameCryptorResponse {
+    uint64 async_id = 1;
+}
 
 message SetSharedKeyRequest {
     uint64 room_handle = 1;
     bool enable_shared_key = 2;
     string shared_key = 3;
+    uint64 async_id = 4;
 }
 
-message SetSharedKeyResponse {}
+message SetSharedKeyResponse {
+    uint64 async_id = 1;
+}
 
 message SetKeyForParticipantRequest {
     uint64 room_handle = 1;
     string participant_id = 2;
     string key = 3;
     int32 key_index = 4;
+    uint64 async_id = 5;
 }
 
-message SetKeyForParticipantResponse {}
+message SetKeyForParticipantResponse {
+    uint64 async_id = 1;
+}
 
 message RachetKeyForParticipantRequest {
     uint64 room_handle = 1;
     string participant_id = 2;
     int32 key_index = 3;
+    uint64 async_id = 4;
 }
 
 message RachetKeyForParticipantResponse {
     bytes new_key = 1;
+    uint64 async_id = 2;
 }
 
 message E2EERequest {
