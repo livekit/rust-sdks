@@ -491,8 +491,10 @@ fn frame_cryptor_request(server: &'static FfiServer, req: proto::E2eeRequest) ->
             .clone();
 
             let frame_cryptors = ffi_room.inner.room.e2ee_manager().frame_cryptors();
-            let frame_cryptor = frame_cryptors.get(set.participant_id.as_str()).unwrap();
-            frame_cryptor.set_enabled(set.enabled);
+            let frame_cryptor = frame_cryptors.get(set.participant_id.as_str());
+            if let Some(frame_cryptor) = frame_cryptor {
+                frame_cryptor.set_enabled(set.enabled);
+            }
             res.message = Some(proto::e2ee_response::Message::SetFrameCryptor(proto::SetFrameCryptorResponse {}));
         }
         Some(proto::e2ee_request::Message::SetSharedKey(set)) => {
