@@ -83,12 +83,11 @@ impl E2EEManager {
                         }),
                         transceiver.receiver(),
                     );
-
                     if let Some(fc) = fc {
                         let dispatcher = self.dispatcher.clone();
                         fc.on_state_change(Some(Box::new(
                             move |participant_id: String, state: FrameCryptionState| {
-                                log::error!(
+                                log::debug!(
                                     "frame cryptor state changed for {}, state {:?}",
                                     participant_id,
                                     state
@@ -124,7 +123,7 @@ impl E2EEManager {
                         let dispatcher = self.dispatcher.clone();
                         fc.on_state_change(Some(Box::new(
                             move |participant_id: String, state: FrameCryptionState| {
-                                log::error!(
+                                log::debug!(
                                     "frame cryptor state changed for {}, state {:?}",
                                     participant_id,
                                     state
@@ -229,7 +228,7 @@ impl E2EEManager {
         sender: RtpSender,
     ) -> Option<FrameCryptor> {
         let participant_id = kind + "-sender-" + &sid + "-" + &track_id;
-        log::error!("_add_rtp_sender {} !!!!", participant_id);
+        log::debug!("_add_rtp_sender {} !!!!", participant_id);
         if let Some(options) = &self.options {
             let frame_cryptor = FrameCryptor::new_for_rtp_sender(
                 participant_id.clone(),
@@ -264,7 +263,7 @@ impl E2EEManager {
         receiver: RtpReceiver,
     ) -> Option<FrameCryptor> {
         let participant_id = kind + "-receiver-" + &sid + "-" + &track_id;
-        log::error!("_add_rtp_receiver {} !!!!", participant_id);
+        log::debug!("_add_rtp_receiver {} !!!!", participant_id);
         if let Some(options) = &self.options {
             let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
                 participant_id.clone(),
