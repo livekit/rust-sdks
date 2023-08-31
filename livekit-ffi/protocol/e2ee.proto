@@ -95,7 +95,7 @@ message FrameCryptorSetEnabledResponse {
     uint64 async_id = 1;
 }
 
-message FrameCryptorSetKeyRequest {
+message KeyProviderSetKeyRequest {
     uint64 async_id = 1;
     uint64 room_handle = 2;
     string participant_id = 3;
@@ -103,30 +103,30 @@ message FrameCryptorSetKeyRequest {
     int32 key_index = 5;
 }
 
-message FrameCryptorSetKeyResponse {
+message KeyProviderSetKeyResponse {
     uint64 async_id = 1;
 }
 
-message FrameCryptorRachetKeyRequest {
+message KeyProviderRachetKeyRequest {
     uint64 async_id = 1;
     uint64 room_handle = 2;
     string participant_id = 3;
     int32 key_index = 4;   
 }
 
-message FrameCryptorRachetKeyResponse {
+message KeyProviderRachetKeyResponse {
     uint64 async_id = 1;
     bytes new_key = 2;
 }
 
-message FrameCryptorExportKeyRequest {
+message KeyProviderExportKeyRequest {
     uint64 async_id = 1;
     uint64 room_handle = 2;
     string participant_id = 3;
     int32 key_index = 4;
 }
 
-message FrameCryptorExportKeyResponse {
+message KeyProviderExportKeyResponse {
     uint64 async_id = 1;
     bytes key = 2;
 }
@@ -137,9 +137,9 @@ message E2EERequest {
         E2EEManagerSetSharedKeyRequest e2ee_manager_set_shared_key = 2;
         E2EEManagerGetFrameCryptorsRequest e2ee_manager_get_frame_cryptors = 3;
         FrameCryptorSetEnabledRequest frame_cryptor_set_enabled = 4;
-        FrameCryptorSetKeyRequest frame_cryptor_set_key = 5;
-        FrameCryptorRachetKeyRequest frame_cryptor_rachet_key = 6;
-        FrameCryptorExportKeyRequest frame_cryptor_export_key = 7;
+        KeyProviderSetKeyRequest key_provider_set_key = 5;
+        KeyProviderRachetKeyRequest key_provider_rachet_key = 6;
+        KeyProviderExportKeyRequest key_provider_export_key = 7;
     }
 }
 
@@ -149,8 +149,8 @@ message E2EEResponse {
         E2EEManagerSetSharedKeyResponse e2ee_manager_set_shared_key = 2;
         E2EEManagerGetFrameCryptorsResponse e2ee_manager_get_frame_cryptors = 3;
         FrameCryptorSetEnabledResponse frame_cryptor_set_enabled = 4;
-        FrameCryptorSetKeyResponse frame_cryptor_set_key = 5;
-        FrameCryptorRachetKeyResponse frame_cryptor_rachet_key = 6;
-        FrameCryptorExportKeyResponse frame_cryptor_export_key = 7;
+        KeyProviderSetKeyResponse key_provider_set_key = 5;
+        KeyProviderRachetKeyResponse key_provider_rachet_key = 6;
+        KeyProviderExportKeyResponse key_provider_export_key = 7;
     }
 }

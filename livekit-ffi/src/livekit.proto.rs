@@ -103,7 +103,7 @@ pub struct FrameCryptorSetEnabledResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FrameCryptorSetKeyRequest {
+pub struct KeyProviderSetKeyRequest {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
     #[prost(uint64, tag = "2")]
@@ -117,13 +117,13 @@ pub struct FrameCryptorSetKeyRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FrameCryptorSetKeyResponse {
+pub struct KeyProviderSetKeyResponse {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FrameCryptorRachetKeyRequest {
+pub struct KeyProviderRachetKeyRequest {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
     #[prost(uint64, tag = "2")]
@@ -135,7 +135,7 @@ pub struct FrameCryptorRachetKeyRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FrameCryptorRachetKeyResponse {
+pub struct KeyProviderRachetKeyResponse {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
     #[prost(bytes = "vec", tag = "2")]
@@ -143,7 +143,7 @@ pub struct FrameCryptorRachetKeyResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FrameCryptorExportKeyRequest {
+pub struct KeyProviderExportKeyRequest {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
     #[prost(uint64, tag = "2")]
@@ -155,7 +155,7 @@ pub struct FrameCryptorExportKeyRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FrameCryptorExportKeyResponse {
+pub struct KeyProviderExportKeyResponse {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
     #[prost(bytes = "vec", tag = "2")]
@@ -181,11 +181,11 @@ pub mod e2ee_request {
         #[prost(message, tag = "4")]
         FrameCryptorSetEnabled(super::FrameCryptorSetEnabledRequest),
         #[prost(message, tag = "5")]
-        FrameCryptorSetKey(super::FrameCryptorSetKeyRequest),
+        KeyProviderSetKey(super::KeyProviderSetKeyRequest),
         #[prost(message, tag = "6")]
-        FrameCryptorRachetKey(super::FrameCryptorRachetKeyRequest),
+        KeyProviderRachetKey(super::KeyProviderRachetKeyRequest),
         #[prost(message, tag = "7")]
-        FrameCryptorExportKey(super::FrameCryptorExportKeyRequest),
+        KeyProviderExportKey(super::KeyProviderExportKeyRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -208,11 +208,11 @@ pub mod e2ee_response {
         #[prost(message, tag = "4")]
         FrameCryptorSetEnabled(super::FrameCryptorSetEnabledResponse),
         #[prost(message, tag = "5")]
-        FrameCryptorSetKey(super::FrameCryptorSetKeyResponse),
+        KeyProviderSetKey(super::KeyProviderSetKeyResponse),
         #[prost(message, tag = "6")]
-        FrameCryptorRachetKey(super::FrameCryptorRachetKeyResponse),
+        KeyProviderRachetKey(super::KeyProviderRachetKeyResponse),
         #[prost(message, tag = "7")]
-        FrameCryptorExportKey(super::FrameCryptorExportKeyResponse),
+        KeyProviderExportKey(super::KeyProviderExportKeyResponse),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
