@@ -25,6 +25,7 @@ pub enum AsyncCmd {
     UnsubscribeTrack {
         publication: RemoteTrackPublication,
     },
+    E2EETest,
 }
 
 #[derive(Debug)]
@@ -186,6 +187,32 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
             }
             AsyncCmd::UnsubscribeTrack { publication } => {
                 publication.set_subscribed(false);
+            }
+            AsyncCmd::E2EETest => {
+                if let Some(state) = running_state.as_ref() {
+                    if let Some(key_provider) = state.room.e2ee_manager().key_provider() {
+                        key_provider.set_shared_key("12345678".as_bytes().to_vec(), Some(1));
+                        //let new_key = key_provider.ratchet_key("shared".to_string(), 0);
+                        //log::info!("ratchet_key: {}", String::from_utf8(new_key).expect("Our bytes should be valid utf8"));
+                        //let key  = key_provider.export_key(String::from("shared"), 1);
+                        //log::info!("export_key: {}", String::from_utf8(key).expect("Our bytes should be valid utf8"));
+                    }
+                    
+                    state.room.e2ee_manager().frame_cryptors().iter().for_each(|(participant_id, cryptor)| {
+                        log::info!("participant_id: {}", participant_id);
+                        log::info!("enabled: {}", cryptor.enabled());
+                        log::info!("key_index: {}", cryptor.key_index());
+                        log::info!("participant_id: {}", cryptor.participant_id());
+
+                        if let Some(key_provider) = state.room.e2ee_manager().key_provider() {
+                            if !cryptor.publication().is_remote() {
+                                key_provider.ratchet_key(cryptor.participant_id(), 0);
+                            }
+                        }
+                        //cryptor.set_key_index(1);
+                        //cryptor.set_enabled(!cryptor.enabled());
+                    });
+                }
             }
         }
     }

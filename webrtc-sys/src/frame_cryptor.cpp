@@ -62,7 +62,6 @@ FrameCryptor::FrameCryptor(
     rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
     rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
     : participant_id_(participant_id),
-      key_index_(0),
       key_provider_(key_provider),
       sender_(sender) {
   auto mediaType =
@@ -82,7 +81,6 @@ FrameCryptor::FrameCryptor(
     rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
     rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
     : participant_id_(participant_id),
-      key_index_(0),
       key_provider_(key_provider),
       receiver_(receiver) {
   auto mediaType =
@@ -136,7 +134,7 @@ bool FrameCryptor::enabled() const {
 
 void FrameCryptor::set_key_index(int32_t index) const {
   webrtc::MutexLock lock(&mutex_);
-  e2ee_transformer_->SetKeyIndex(key_index_);
+  e2ee_transformer_->SetKeyIndex(index);
 }
 
 int32_t FrameCryptor::key_index() const {

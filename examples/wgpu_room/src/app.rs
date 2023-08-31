@@ -225,6 +225,12 @@ impl LkApp {
             }
         });
 
+        if ui.button("E2EETest").clicked() {
+            let _ = self
+                .service
+                .send(AsyncCmd::E2EETest);
+        }
+
         ui.horizontal(|ui| {
             ui.add_enabled_ui(true, |ui| {
                 ui.checkbox(&mut self.state.auto_subscribe, "Auto Subscribe");

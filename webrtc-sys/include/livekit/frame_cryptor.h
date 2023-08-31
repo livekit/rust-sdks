@@ -39,7 +39,9 @@ class NativeFrameCryptorObserver;
 class KeyProvider {
  public:
   KeyProvider(KeyProviderOptions options);
-  ~KeyProvider() {}
+  ~KeyProvider() {
+    
+  }
 
   bool set_shared_key(int32_t index, rust::Vec<::std::uint8_t> key) const {
     std::vector<uint8_t> key_vec;
@@ -117,7 +119,6 @@ class FrameCryptor {
  private:
   const rust::String participant_id_;
   mutable webrtc::Mutex mutex_;
-  int32_t key_index_;
   rtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
   rtc::scoped_refptr<webrtc::KeyProvider> key_provider_;
   rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
