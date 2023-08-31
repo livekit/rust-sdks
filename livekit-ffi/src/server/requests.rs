@@ -456,7 +456,7 @@ fn remix_and_resample(
     })
 }
 
-fn frame_cryptor_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiResult<proto::E2eeResponse> {
+fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiResult<proto::E2eeResponse> {
     let mut res = proto::E2eeResponse::default();
     match req.message {
         Some(proto::e2ee_request::Message::E2eeManagerSetEnabled(set)) => {
@@ -632,7 +632,7 @@ pub fn handle_request(
             proto::ffi_response::Message::RemixAndResample(remix_and_resample(server, remix)?)
         }
         proto::ffi_request::Message::E2ee(e2ee) => {
-            proto::ffi_response::Message::E2ee(frame_cryptor_request(server, e2ee)?)
+            proto::ffi_response::Message::E2ee(on_e2ee_request(server, e2ee)?)
         }
     });
 
