@@ -465,7 +465,7 @@ fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiRe
             .unwrap()
             .clone();
             ffi_room.inner.room.e2ee_manager().set_enabled(set.enabled);
-            res.message = Some(proto::e2ee_response::Message::E2eeManagerSetEnabled(proto::E2eeManagerSetEnabledResponse {async_id: set.async_id}));
+            res.message = Some(proto::e2ee_response::Message::E2eeManagerSetEnabled(proto::E2eeManagerSetEnabledResponse {}));
         }
         Some(proto::e2ee_request::Message::E2eeManagerGetFrameCryptors(set)) => {
             let ffi_room = server
@@ -482,7 +482,7 @@ fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiRe
                     key_index: frame_cryptor.key_index(),
                 }
             }).collect();
-            res.message = Some(proto::e2ee_response::Message::E2eeManagerGetFrameCryptors(proto::E2eeManagerGetFrameCryptorsResponse {frame_cryptors: proto_frame_cryptors, async_id: set.async_id}));
+            res.message = Some(proto::e2ee_response::Message::E2eeManagerGetFrameCryptors(proto::E2eeManagerGetFrameCryptorsResponse {frame_cryptors: proto_frame_cryptors}));
         }
         Some(proto::e2ee_request::Message::FrameCryptorSetEnabled(set)) => {
             let ffi_room = server
@@ -495,7 +495,20 @@ fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiRe
             if let Some(frame_cryptor) = frame_cryptor {
                 frame_cryptor.set_enabled(set.enabled);
             }
-            res.message = Some(proto::e2ee_response::Message::FrameCryptorSetEnabled(proto::FrameCryptorSetEnabledResponse {async_id: set.async_id}));
+            res.message = Some(proto::e2ee_response::Message::FrameCryptorSetEnabled(proto::FrameCryptorSetEnabledResponse{ }));
+        }
+        Some(proto::e2ee_request::Message::FrameCryptorSetKeyIndex(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+
+            let frame_cryptors = ffi_room.inner.room.e2ee_manager().frame_cryptors();
+            let frame_cryptor = frame_cryptors.get(set.participant_id.as_str());
+            if let Some(frame_cryptor) = frame_cryptor {
+                frame_cryptor.set_key_index(set.key_index);
+            }
+            res.message = Some(proto::e2ee_response::Message::FrameCryptorSetKeyIndex(proto::FrameCryptorSetKeyIndexResponse{ }));
         }
         Some(proto::e2ee_request::Message::KeyProviderSetSharedKey(set)) => {
             let ffi_room = server
@@ -503,9 +516,9 @@ fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiRe
             .unwrap()
             .clone();
             if let Some(key_provider) = ffi_room.inner.room.e2ee_manager().key_provider() {
-                key_provider.set_shared_key(set.shared_key.clone().as_bytes().to_vec(), None);
+                key_provider.set_shared_key(set.shared_key.clone().as_bytes().to_vec(), Some(set.key_index));
             }
-            res.message = Some(proto::e2ee_response::Message::KeyProviderSetSharedKey(proto::KeyProviderSetSharedKeyResponse {async_id: set.async_id}));
+            res.message = Some(proto::e2ee_response::Message::KeyProviderSetSharedKey(proto::KeyProviderSetSharedKeyResponse {}));
         }
         Some(proto::e2ee_request::Message::KeyProviderSetKey(set)) => {
             let ffi_room = server
@@ -515,7 +528,7 @@ fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiRe
             if let Some(key_provider) = ffi_room.inner.room.e2ee_manager().key_provider() {
                 key_provider.set_key(set.participant_id, set.key_index, set.key.clone().as_bytes().to_vec());
             }
-            res.message = Some(proto::e2ee_response::Message::KeyProviderSetKey(proto::KeyProviderSetKeyResponse {async_id: set.async_id}));
+            res.message = Some(proto::e2ee_response::Message::KeyProviderSetKey(proto::KeyProviderSetKeyResponse {}));
         }
         Some(proto::e2ee_request::Message::KeyProviderRachetKey(set)) => {
             let ffi_room = server
@@ -530,7 +543,7 @@ fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiRe
                 }
                 None => "".as_bytes().to_vec(),
             };
-            res.message = Some(proto::e2ee_response::Message::KeyProviderRachetKey(proto::KeyProviderRachetKeyResponse{new_key, async_id: set.async_id}));
+            res.message = Some(proto::e2ee_response::Message::KeyProviderRachetKey(proto::KeyProviderRachetKeyResponse{new_key}));
         }
         Some(proto::e2ee_request::Message::KeyProviderExportKey(set)) => {
             let ffi_room = server
@@ -545,7 +558,7 @@ fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiRe
                 }
                 None => "".as_bytes().to_vec(),
             };
-            res.message = Some(proto::e2ee_response::Message::KeyProviderExportKey(proto::KeyProviderExportKeyResponse{key, async_id: set.async_id}));
+            res.message = Some(proto::e2ee_response::Message::KeyProviderExportKey(proto::KeyProviderExportKeyResponse{key}));
         }
         None => todo!(),
     }
