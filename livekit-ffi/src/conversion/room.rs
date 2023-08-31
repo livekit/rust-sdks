@@ -14,8 +14,8 @@
 
 use crate::proto;
 use crate::server::room::FfiRoom;
-use livekit::e2ee::key_provider::BaseKeyProvider;
-use livekit::e2ee::options::E2EEOptions;
+use livekit::e2ee::key_provider::{BaseKeyProvider, KeyProviderOptions};
+use livekit::e2ee::options::{E2EEOptions, EncryptionType};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
@@ -39,14 +39,33 @@ impl From<ConnectionState> for proto::ConnectionState {
     }
 }
 
+impl From<proto::EncryptionType>  for EncryptionType {
+    fn from(value: proto::EncryptionType) -> Self {
+        match value {
+            proto::EncryptionType::None => Self::None,
+            proto::EncryptionType::Gcm => Self::Gcm,
+            proto::EncryptionType::Custom => Self::Custom,
+        }
+    }
+}
+
+impl From<proto::KeyProviderOptions> for KeyProviderOptions {
+    fn from(value: proto::KeyProviderOptions) -> Self {
+        Self {
+            shared_key: value.shared_key,
+            ratchet_window_size: value.ratchet_window_size,
+            ratchet_salt: value.ratchet_salt,
+            uncrypted_magic_bytes: value.uncrypted_magic_bytes,
+        }
+    }
+}
+
 impl From<proto::E2eeOptions> for E2EEOptions {
     fn from(value: proto::E2eeOptions) -> Self {
         Self {
-            encryption_type: livekit::e2ee::options::EncryptionType::Gcm,
+            encryption_type: value.encryption_type().into(),
             key_provider: BaseKeyProvider::new(
-                livekit::webrtc::frame_cryptor::KeyProviderOptions::default(),
-                value.is_shared_key,
-                value.shared_key,
+                value.key_provider_options.unwrap().into(),
             ),
         }
     }

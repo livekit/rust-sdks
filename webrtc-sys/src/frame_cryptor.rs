@@ -55,6 +55,8 @@ pub mod ffi {
             options: KeyProviderOptions,
         ) -> SharedPtr<KeyProvider>;
 
+        pub fn set_shared_key(self: &KeyProvider, key_index: i32, key: Vec<u8>) -> bool;
+
         pub fn set_key(self: &KeyProvider, participant_id: String, key_index: i32, key: Vec<u8>) -> bool;
 
         pub fn ratchet_key(self: &KeyProvider, participant_id: String, key_index: i32) -> Vec<u8>;

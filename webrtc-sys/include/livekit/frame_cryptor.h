@@ -40,6 +40,12 @@ class KeyProvider {
  public:
   KeyProvider(KeyProviderOptions options);
   ~KeyProvider() {}
+
+  bool set_shared_key(int32_t index, rust::Vec<::std::uint8_t> key) const {
+    std::vector<uint8_t> key_vec;
+    std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
+    return impl_->SetSharedKey(index, key_vec);
+  }
   
   /// Set the key at the given index.
   bool set_key(const ::rust::String participant_id,

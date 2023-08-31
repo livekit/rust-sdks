@@ -2,23 +2,21 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct KeyProviderOptions {
-    #[prost(uint32, tag = "1")]
-    pub ratchet_window_size: u32,
-    #[prost(bytes = "vec", tag = "2")]
-    pub ratchet_salt: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bool, tag = "1")]
+    pub shared_key: bool,
+    #[prost(int32, tag = "2")]
+    pub ratchet_window_size: i32,
     #[prost(bytes = "vec", tag = "3")]
+    pub ratchet_salt: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "4")]
     pub uncrypted_magic_bytes: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct E2eeOptions {
-    #[prost(bool, tag = "1")]
-    pub enabled: bool,
-    #[prost(bool, tag = "2")]
-    pub is_shared_key: bool,
-    #[prost(string, tag = "3")]
-    pub shared_key: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "4")]
+    #[prost(enumeration = "EncryptionType", tag = "1")]
+    pub encryption_type: i32,
+    #[prost(message, optional, tag = "2")]
     pub key_provider_options: ::core::option::Option<KeyProviderOptions>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -34,24 +32,6 @@ pub struct E2eeManagerSetEnabledRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct E2eeManagerSetEnabledResponse {
-    #[prost(uint64, tag = "1")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct E2eeManagerSetSharedKeyRequest {
-    #[prost(uint64, tag = "1")]
-    pub async_id: u64,
-    #[prost(uint64, tag = "2")]
-    pub room_handle: u64,
-    #[prost(bool, tag = "3")]
-    pub enable_shared_key: bool,
-    #[prost(string, tag = "4")]
-    pub shared_key: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct E2eeManagerSetSharedKeyResponse {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
 }
@@ -98,6 +78,24 @@ pub struct FrameCryptorSetEnabledRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FrameCryptorSetEnabledResponse {
+    #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderSetSharedKeyRequest {
+    #[prost(uint64, tag = "1")]
+    pub async_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub room_handle: u64,
+    #[prost(string, tag = "3")]
+    pub shared_key: ::prost::alloc::string::String,
+    #[prost(int32, tag = "4")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderSetSharedKeyResponse {
     #[prost(uint64, tag = "1")]
     pub async_id: u64,
 }
@@ -175,11 +173,11 @@ pub mod e2ee_request {
         #[prost(message, tag = "1")]
         E2eeManagerSetEnabled(super::E2eeManagerSetEnabledRequest),
         #[prost(message, tag = "2")]
-        E2eeManagerSetSharedKey(super::E2eeManagerSetSharedKeyRequest),
-        #[prost(message, tag = "3")]
         E2eeManagerGetFrameCryptors(super::E2eeManagerGetFrameCryptorsRequest),
-        #[prost(message, tag = "4")]
+        #[prost(message, tag = "3")]
         FrameCryptorSetEnabled(super::FrameCryptorSetEnabledRequest),
+        #[prost(message, tag = "4")]
+        KeyProviderSetSharedKey(super::KeyProviderSetSharedKeyRequest),
         #[prost(message, tag = "5")]
         KeyProviderSetKey(super::KeyProviderSetKeyRequest),
         #[prost(message, tag = "6")]
@@ -202,11 +200,11 @@ pub mod e2ee_response {
         #[prost(message, tag = "1")]
         E2eeManagerSetEnabled(super::E2eeManagerSetEnabledResponse),
         #[prost(message, tag = "2")]
-        E2eeManagerSetSharedKey(super::E2eeManagerSetSharedKeyResponse),
-        #[prost(message, tag = "3")]
         E2eeManagerGetFrameCryptors(super::E2eeManagerGetFrameCryptorsResponse),
-        #[prost(message, tag = "4")]
+        #[prost(message, tag = "3")]
         FrameCryptorSetEnabled(super::FrameCryptorSetEnabledResponse),
+        #[prost(message, tag = "4")]
+        KeyProviderSetSharedKey(super::KeyProviderSetSharedKeyResponse),
         #[prost(message, tag = "5")]
         KeyProviderSetKey(super::KeyProviderSetKeyResponse),
         #[prost(message, tag = "6")]

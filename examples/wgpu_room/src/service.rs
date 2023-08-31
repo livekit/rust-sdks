@@ -3,7 +3,6 @@ use livekit::{prelude::*, e2ee::options::*, e2ee::key_provider::*, SimulateScena
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, error::SendError};
-use livekit::webrtc::frame_cryptor::KeyProviderOptions;
 
 #[derive(Debug)]
 pub enum AsyncCmd {
@@ -107,13 +106,11 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
             } => {
                 log::info!("connecting to room: {}", url);
                 let e2ee_options: Option<E2EEOptions> = if enable_e2ee {
+                    let key_provider = BaseKeyProvider::default();
+                    key_provider.set_shared_key(key.as_bytes().to_vec(), None);
                     Some(E2EEOptions{
                         encryption_type: EncryptionType::Gcm,
-                        key_provider: BaseKeyProvider::new(
-                            KeyProviderOptions::default(),
-                            true,
-                            key,
-                        )
+                        key_provider
                     })
                 } else {
                     None

@@ -4,6 +4,7 @@ use crate::{
     video_renderer::VideoRenderer,
 };
 use egui::{Rounding, Stroke};
+use livekit::e2ee::options::EncryptionType;
 use livekit::{prelude::*, SimulateScenario};
 use std::collections::HashMap;
 
@@ -126,9 +127,12 @@ impl LkApp {
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
                     }
-                    RoomEvent::E2EEStateEvent { participant: _, publication: _, participant_id: _, state: _ } => {
-                        
-                    }
+                    RoomEvent::E2EEStateEvent {
+                        participant: _,
+                        publication: _,
+                        participant_id: _,
+                        state: _,
+                    } => {}
                     _ => {}
                 }
             }
@@ -250,7 +254,9 @@ impl LkApp {
         ui.label("Participants");
         ui.separator();
 
-        let Some(room) = self.service.room() else { return; };
+        let Some(room) = self.service.room() else {
+            return;
+        };
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
@@ -270,6 +276,15 @@ impl LkApp {
                 ui.monospace(&participant.identity().0);
                 for tsid in sorted_tracks {
                     let publication = tracks.get(&tsid).unwrap().clone();
+
+                    ui.horizontal(|ui| {
+                        ui.label("Encrypted - ");
+                        if publication.encryption_type() == EncryptionType::None {
+                            ui.colored_label(egui::Color32::RED, format!("{:?}", publication.encryption_type(),));
+                        } else {
+                            ui.colored_label(egui::Color32::GREEN, format!("{:?}", publication.encryption_type(),));
+                        }
+                    });
 
                     ui.label(format!(
                         "{} - {:?}",

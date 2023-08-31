@@ -64,6 +64,10 @@ impl KeyProvider {
         }
     }
 
+    pub fn set_shared_key(&self, key_index: i32, key: Vec<u8>) -> bool {
+        return self.sys_handle.set_shared_key(key_index, key);
+    }
+
     pub fn set_key(&self, participant_id: String, key_index: i32, key: Vec<u8>) -> bool {
         return self.sys_handle.set_key(participant_id, key_index, key);
     }

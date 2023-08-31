@@ -24,16 +24,15 @@ enum EncryptionType {
 }
 
 message KeyProviderOptions {
-    uint32 ratchet_window_size = 1;
-    bytes ratchet_salt = 2;
-    bytes uncrypted_magic_bytes = 3;
+    bool shared_key = 1;
+    int32 ratchet_window_size = 2;
+    bytes ratchet_salt = 3;
+    bytes uncrypted_magic_bytes = 4;
 }
 
 message E2EEOptions {
-  bool enabled = 1;
-  bool is_shared_key = 2;
-  string shared_key = 3;
-  KeyProviderOptions key_provider_options = 4;
+  EncryptionType encryption_type = 1;
+  KeyProviderOptions key_provider_options = 2;
 }
 
 enum E2EEState {
@@ -53,17 +52,6 @@ message E2EEManagerSetEnabledRequest {
 }
 
 message E2EEManagerSetEnabledResponse {
-    uint64 async_id = 1;
-}
-
-message E2EEManagerSetSharedKeyRequest {
-    uint64 async_id = 1;
-    uint64 room_handle = 2;
-    bool enable_shared_key = 3;
-    string shared_key = 4;
-}
-
-message E2EEManagerSetSharedKeyResponse {
     uint64 async_id = 1;
 }
 
@@ -92,6 +80,17 @@ message FrameCryptorSetEnabledRequest {
 }
 
 message FrameCryptorSetEnabledResponse {
+    uint64 async_id = 1;
+}
+
+message KeyProviderSetSharedKeyRequest {
+    uint64 async_id = 1;
+    uint64 room_handle = 2;
+    string shared_key = 3;
+    int32 key_index = 4;
+}
+
+message KeyProviderSetSharedKeyResponse {
     uint64 async_id = 1;
 }
 
@@ -134,9 +133,9 @@ message KeyProviderExportKeyResponse {
 message E2EERequest {
     oneof message {
         E2EEManagerSetEnabledRequest e2ee_manager_set_enabled = 1;
-        E2EEManagerSetSharedKeyRequest e2ee_manager_set_shared_key = 2;
-        E2EEManagerGetFrameCryptorsRequest e2ee_manager_get_frame_cryptors = 3;
-        FrameCryptorSetEnabledRequest frame_cryptor_set_enabled = 4;
+        E2EEManagerGetFrameCryptorsRequest e2ee_manager_get_frame_cryptors = 2;
+        FrameCryptorSetEnabledRequest frame_cryptor_set_enabled = 3;
+        KeyProviderSetSharedKeyRequest key_provider_set_shared_key = 4;
         KeyProviderSetKeyRequest key_provider_set_key = 5;
         KeyProviderRachetKeyRequest key_provider_rachet_key = 6;
         KeyProviderExportKeyRequest key_provider_export_key = 7;
@@ -146,9 +145,9 @@ message E2EERequest {
 message E2EEResponse {
     oneof message {
         E2EEManagerSetEnabledResponse e2ee_manager_set_enabled = 1;
-        E2EEManagerSetSharedKeyResponse e2ee_manager_set_shared_key = 2;
-        E2EEManagerGetFrameCryptorsResponse e2ee_manager_get_frame_cryptors = 3;
-        FrameCryptorSetEnabledResponse frame_cryptor_set_enabled = 4;
+        E2EEManagerGetFrameCryptorsResponse e2ee_manager_get_frame_cryptors = 2;
+        FrameCryptorSetEnabledResponse frame_cryptor_set_enabled = 3;
+        KeyProviderSetSharedKeyResponse key_provider_set_shared_key = 4;
         KeyProviderSetKeyResponse key_provider_set_key = 5;
         KeyProviderRachetKeyResponse key_provider_rachet_key = 6;
         KeyProviderExportKeyResponse key_provider_export_key = 7;

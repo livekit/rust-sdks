@@ -14,9 +14,7 @@
 
 use core::fmt;
 
-use livekit_webrtc::frame_cryptor::KeyProviderOptions;
-
-use super::key_provider::BaseKeyProvider;
+use super::key_provider::{BaseKeyProvider, KeyProviderOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionType {
@@ -80,10 +78,6 @@ impl E2EEOptions {
             key_provider,
         }
     }
-
-    pub fn is_shared_key(&self) -> bool {
-        self.key_provider.is_shared_key()
-    }
 }
 
 impl Default for E2EEOptions {
@@ -91,9 +85,7 @@ impl Default for E2EEOptions {
         Self {
             encryption_type: EncryptionType::Gcm,
             key_provider: BaseKeyProvider::new(
-                KeyProviderOptions::default(),
-                true,
-                "".to_string(),
+                KeyProviderOptions::default()
             ),
         }
     }

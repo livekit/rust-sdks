@@ -25,8 +25,6 @@ use livekit_webrtc::{
 use crate::RoomEvent;
 use crate::{e2ee::options::E2EEOptions, participant::Participant};
 
-use crate::prelude::TrackKind;
-
 use super::{key_provider::BaseKeyProvider, options::EncryptionType};
 
 pub use crate::publication::TrackPublication;
@@ -74,13 +72,9 @@ impl E2EEManager {
             } => {
                 let transceiver = track.transceiver();
                 if let Some(transceiver) = transceiver {
+                    log::debug!("add_rtp_receiver for {}", publication.sid());
                     let fc = self._add_rtp_receiver(
-                        track.sid().to_string(),
-                        track.rtc_track().id().to_string(),
-                        String::from(match track.kind() {
-                            TrackKind::Audio => "audio",
-                            TrackKind::Video => "video",
-                        }),
+                        publication.sid().to_string(),
                         transceiver.receiver(),
                     );
                     if let Some(fc) = fc {
@@ -110,13 +104,9 @@ impl E2EEManager {
             } => {
                 let transceiver = track.transceiver();
                 if let Some(transceiver) = transceiver {
+                    log::debug!("add_rtp_receiver for {}", publication.sid());
                     let fc = self._add_rtp_sender(
-                        track.sid().to_string(),
-                        track.rtc_track().id().to_string(),
-                        String::from(match track.kind() {
-                            TrackKind::Audio => "audio",
-                            TrackKind::Video => "video",
-                        }),
+                        publication.sid().to_string(),
                         transceiver.sender(),
                     );
                     if let Some(fc) = fc {
@@ -164,17 +154,9 @@ impl E2EEManager {
         }
         *self_enabled = enabled;
 
-        if let Some(options) = &self.options {
-            for (participant_id, cryptor) in self.frame_cryptors.lock().iter() {
+        if let Some(_) = &self.options {
+            for (_, cryptor) in self.frame_cryptors.lock().iter() {
                 cryptor.set_enabled(enabled);
-                if options.key_provider.is_shared_key() {
-                    options.key_provider.set_key(
-                        participant_id.clone(),
-                        0,
-                        options.key_provider.shared_key().as_bytes().to_vec(),
-                    );
-                    cryptor.set_key_index(0);
-                }
             }
         }
     }
@@ -187,23 +169,9 @@ impl E2EEManager {
         frame_cryptors.clear();
     }
 
-    pub fn set_shared_key(&self, shared_key: String) {
-        if let Some(mut key_provider) = self.key_provider() {
-            key_provider.set_shared_key(shared_key.clone());
-        }
-        if let Some(options) = &self.options {
-            for participant_id in self.frame_cryptors.lock().keys() {
-                options.key_provider.set_key(
-                    participant_id.clone(),
-                    0,
-                    shared_key.clone().into_bytes().to_vec(),
-                );
-                log::info!(
-                    "set_shared_key key for {}, new_key {}",
-                    participant_id,
-                    shared_key.len()
-                );
-            }
+    pub fn set_shared_key(&self, shared_key: String, key_index: Option<i32>) {
+        if let Some(key_provider) = self.key_provider() {
+            key_provider.set_shared_key(shared_key.as_bytes().to_vec(), key_index);
         }
     }
 
@@ -222,13 +190,9 @@ impl E2EEManager {
 
     fn _add_rtp_sender(
         &self,
-        sid: String,
-        track_id: String,
-        kind: String,
+        participant_id: String,
         sender: RtpSender,
     ) -> Option<FrameCryptor> {
-        let participant_id = kind + "-sender-" + &sid + "-" + &track_id;
-        log::debug!("_add_rtp_sender {} !!!!", participant_id);
         if let Some(options) = &self.options {
             let frame_cryptor = FrameCryptor::new_for_rtp_sender(
                 participant_id.clone(),
@@ -238,16 +202,6 @@ impl E2EEManager {
             );
 
             frame_cryptor.set_enabled(self.enabled.lock().clone());
-
-            if options.key_provider.is_shared_key() {
-                options.key_provider.set_key(
-                    participant_id.clone(),
-                    0,
-                    options.key_provider.shared_key().as_bytes().to_vec(),
-                );
-                frame_cryptor.set_key_index(0);
-            }
-
             let mut frame_cryptors = self.frame_cryptors.lock();
             frame_cryptors.insert(participant_id.clone(), frame_cryptor.clone());
             return Some(frame_cryptor);
@@ -257,13 +211,9 @@ impl E2EEManager {
 
     fn _add_rtp_receiver(
         &self,
-        sid: String,
-        track_id: String,
-        kind: String,
+        participant_id: String,
         receiver: RtpReceiver,
     ) -> Option<FrameCryptor> {
-        let participant_id = kind + "-receiver-" + &sid + "-" + &track_id;
-        log::debug!("_add_rtp_receiver {} !!!!", participant_id);
         if let Some(options) = &self.options {
             let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
                 participant_id.clone(),
@@ -272,14 +222,6 @@ impl E2EEManager {
                 receiver,
             );
             frame_cryptor.set_enabled(self.enabled.lock().clone());
-            if options.key_provider.is_shared_key() {
-                options.key_provider.set_key(
-                    participant_id.clone(),
-                    0,
-                    options.key_provider.shared_key().as_bytes().to_vec(),
-                );
-                frame_cryptor.set_key_index(0);
-            }
             let mut frame_cryptors = self.frame_cryptors.lock();
             frame_cryptors.insert(participant_id.clone(), frame_cryptor.clone());
             return Some(frame_cryptor);
