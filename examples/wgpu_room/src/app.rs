@@ -191,7 +191,7 @@ impl LkApp {
         });
 
         ui.horizontal(|ui| {
-            ui.label("Key: ");
+            ui.label("E2EE Key: ");
             ui.text_edit_singleline(&mut self.state.key);
         });
 
@@ -225,7 +225,7 @@ impl LkApp {
             }
         });
 
-        if ui.button("E2EETest").clicked() {
+        if ui.button("E2eeKeyRatchet").clicked() {
             let _ = self
                 .service
                 .send(AsyncCmd::E2EETest);
