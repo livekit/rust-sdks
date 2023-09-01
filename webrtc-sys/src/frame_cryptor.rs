@@ -48,16 +48,23 @@ pub mod ffi {
 
     unsafe extern "C++" {
         include!("livekit/frame_cryptor.h");
-        
+
         pub type KeyProvider;
- 
-        pub fn new_key_provider(
-            options: KeyProviderOptions,
-        ) -> SharedPtr<KeyProvider>;
+
+        pub fn new_key_provider(options: KeyProviderOptions) -> SharedPtr<KeyProvider>;
 
         pub fn set_shared_key(self: &KeyProvider, key_index: i32, key: Vec<u8>) -> bool;
 
-        pub fn set_key(self: &KeyProvider, participant_id: String, key_index: i32, key: Vec<u8>) -> bool;
+        pub fn ratchet_shared_key(self: &KeyProvider, key_index: i32) -> Vec<u8>;
+
+        pub fn export_shared_key(self: &KeyProvider, key_index: i32) -> Vec<u8>;
+
+        pub fn set_key(
+            self: &KeyProvider,
+            participant_id: String,
+            key_index: i32,
+            key: Vec<u8>,
+        ) -> bool;
 
         pub fn ratchet_key(self: &KeyProvider, participant_id: String, key_index: i32) -> Vec<u8>;
 
@@ -97,8 +104,11 @@ pub mod ffi {
         pub fn key_index(self: &FrameCryptor) -> i32;
 
         pub fn participant_id(self: &FrameCryptor) -> String;
-        
-        pub fn register_observer(self: &FrameCryptor, observer: Box<RTCFrameCryptorObserverWrapper>);
+
+        pub fn register_observer(
+            self: &FrameCryptor,
+            observer: Box<RTCFrameCryptorObserverWrapper>,
+        );
 
         pub fn unregister_observer(self: &FrameCryptor);
     }
@@ -106,9 +116,12 @@ pub mod ffi {
     extern "Rust" {
         type RTCFrameCryptorObserverWrapper;
 
-        fn on_frame_cryption_state_change(self: &RTCFrameCryptorObserverWrapper, participant_id: String,  state: FrameCryptionState);
+        fn on_frame_cryption_state_change(
+            self: &RTCFrameCryptorObserverWrapper,
+            participant_id: String,
+            state: FrameCryptionState,
+        );
     }
-
 } // namespace livekit
 
 impl_thread_safety!(ffi::FrameCryptor, Send + Sync);
@@ -117,7 +130,7 @@ impl_thread_safety!(ffi::KeyProvider, Send + Sync);
 use ffi::FrameCryptionState;
 
 pub trait RTCFrameCryptorObserver: Send + Sync {
-    fn on_frame_cryption_state_change(&self, participant_id: String,  state: FrameCryptionState);
+    fn on_frame_cryption_state_change(&self, participant_id: String, state: FrameCryptionState);
 }
 
 pub struct RTCFrameCryptorObserverWrapper {
@@ -129,7 +142,12 @@ impl RTCFrameCryptorObserverWrapper {
         Self { observer }
     }
 
-    fn on_frame_cryption_state_change(self: &RTCFrameCryptorObserverWrapper, participant_id: String,  state: FrameCryptionState) {
-        self.observer.on_frame_cryption_state_change(participant_id, state);
+    fn on_frame_cryption_state_change(
+        self: &RTCFrameCryptorObserverWrapper,
+        participant_id: String,
+        state: FrameCryptionState,
+    ) {
+        self.observer
+            .on_frame_cryption_state_change(participant_id, state);
     }
 }

@@ -17,10 +17,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 
 use livekit_webrtc::frame_cryptor as fc;
-use livekit_webrtc::{
-    rtp_receiver::RtpReceiver,
-    rtp_sender::RtpSender,
-};
+use livekit_webrtc::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
 
 use crate::RoomEvent;
 use crate::{e2ee::options::E2EEOptions, participant::Participant};
@@ -115,19 +112,17 @@ impl E2EEManager {
                 let transceiver = track.transceiver();
                 if let Some(transceiver) = transceiver {
                     log::debug!("add_rtp_receiver for {}", publication.sid());
-                    let fc = self._add_rtp_receiver(
-                        publication.sid().to_string(),
-                        transceiver.receiver(),
-                    );
+                    let fc = self
+                        ._add_rtp_receiver(publication.sid().to_string(), transceiver.receiver());
                     if let Some(fc) = fc {
                         let frame_cryptor = FrameCryptor {
                             handle: fc.clone(),
                             participant: Participant::Remote(participant.clone()),
                             publication: TrackPublication::Remote(publication.clone()),
-                            participant_id:  publication.sid().to_string(),
+                            participant_id: publication.sid().to_string(),
                         };
                         let mut frame_cryptors = self.frame_cryptors.lock();
-                        frame_cryptors.insert( publication.sid().to_string(), frame_cryptor.clone());
+                        frame_cryptors.insert(publication.sid().to_string(), frame_cryptor.clone());
 
                         let dispatcher = self.dispatcher.clone();
                         fc.on_state_change(Some(Box::new(
@@ -156,19 +151,17 @@ impl E2EEManager {
                 let transceiver = track.transceiver();
                 if let Some(transceiver) = transceiver {
                     log::debug!("add_rtp_receiver for {}", publication.sid());
-                    let fc = self._add_rtp_sender(
-                        publication.sid().to_string(),
-                        transceiver.sender(),
-                    );
+                    let fc =
+                        self._add_rtp_sender(publication.sid().to_string(), transceiver.sender());
                     if let Some(fc) = fc {
                         let frame_cryptor = FrameCryptor {
                             handle: fc.clone(),
                             participant: Participant::Local(participant.clone()),
                             publication: TrackPublication::Local(publication.clone()),
-                            participant_id:  publication.sid().to_string(),
+                            participant_id: publication.sid().to_string(),
                         };
                         let mut frame_cryptors = self.frame_cryptors.lock();
-                        frame_cryptors.insert( publication.sid().to_string(), frame_cryptor.clone());
+                        frame_cryptors.insert(publication.sid().to_string(), frame_cryptor.clone());
                         let dispatcher = self.dispatcher.clone();
                         fc.on_state_change(Some(Box::new(
                             move |participant_id: String, state: fc::FrameCryptionState| {

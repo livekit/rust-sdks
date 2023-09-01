@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod key_provider;
 pub mod manager;
 pub mod options;
-pub mod key_provider;
 
 use livekit_webrtc::frame_cryptor::FrameCryptionState;
 
@@ -30,7 +30,7 @@ pub enum E2EEState {
     InternalError,
 }
 
-impl From< livekit_webrtc::frame_cryptor::FrameCryptionState> for E2EEState {
+impl From<livekit_webrtc::frame_cryptor::FrameCryptionState> for E2EEState {
     fn from(value: livekit_webrtc::frame_cryptor::FrameCryptionState) -> Self {
         match value {
             FrameCryptionState::New => Self::New,

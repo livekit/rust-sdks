@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{imp::frame_cryptor as fc_imp, rtp_sender::RtpSender, prelude::RtpReceiver};
-
+use crate::{imp::frame_cryptor as fc_imp, prelude::RtpReceiver, rtp_sender::RtpSender};
 
 #[derive(Debug, Clone)]
 pub struct KeyProviderOptions {
@@ -48,7 +47,6 @@ pub struct KeyProvider {
 }
 
 impl KeyProvider {
-
     pub fn new(options: KeyProviderOptions) -> Self {
         Self {
             handle: fc_imp::KeyProvider::new(options),
@@ -56,7 +54,15 @@ impl KeyProvider {
     }
 
     pub fn set_shared_key(&self, key_index: i32, key: Vec<u8>) -> bool {
-        return self.handle.set_shared_key(key_index, key)
+        return self.handle.set_shared_key(key_index, key);
+    }
+
+    pub fn ratchet_shared_key(&self, key_index: i32) -> Vec<u8> {
+        self.handle.ratchet_shared_key(key_index)
+    }
+
+    pub fn export_shared_key(&self, key_index: i32) -> Vec<u8> {
+        self.handle.export_shared_key(key_index)
     }
 
     pub fn set_key(&self, participant_id: String, key_index: i32, key: Vec<u8>) -> bool {
@@ -131,9 +137,8 @@ impl FrameCryptor {
     pub fn participant_id(self: &FrameCryptor) -> String {
         self.handle.participant_id()
     }
-    
+
     pub fn on_state_change(&self, callback: Option<OnStateChange>) {
         self.handle.on_state_change(callback)
     }
-    
 }

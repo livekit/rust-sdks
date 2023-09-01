@@ -95,6 +95,24 @@ message KeyProviderSetSharedKeyRequest {
 message KeyProviderSetSharedKeyResponse {
 }
 
+message KeyProviderRachetSharedKeyRequest {
+    uint64 room_handle = 1;
+    int32 key_index = 2;   
+}
+
+message KeyProviderRachetSharedKeyResponse {
+    bytes new_key = 2;
+}
+
+message KeyProviderExportSharedKeyRequest {
+    uint64 room_handle = 1;
+    int32 key_index = 2;
+}
+
+message KeyProviderExportSharedKeyResponse {
+    bytes key = 2;
+}
+
 message KeyProviderSetKeyRequest {
     uint64 room_handle = 1;
     string participant_id = 2;
@@ -132,9 +150,11 @@ message E2EERequest {
         FrameCryptorSetEnabledRequest frame_cryptor_set_enabled = 3;
         FrameCryptorSetKeyIndexRequest frame_cryptor_set_key_index = 4;
         KeyProviderSetSharedKeyRequest key_provider_set_shared_key = 5;
-        KeyProviderSetKeyRequest key_provider_set_key = 6;
-        KeyProviderRachetKeyRequest key_provider_rachet_key = 7;
-        KeyProviderExportKeyRequest key_provider_export_key = 8;
+        KeyProviderRachetSharedKeyRequest key_provider_rachet_shared_key = 6;
+        KeyProviderExportSharedKeyRequest key_provider_export_shared_key = 7;
+        KeyProviderSetKeyRequest key_provider_set_key = 8;
+        KeyProviderRachetKeyRequest key_provider_rachet_key = 9;
+        KeyProviderExportKeyRequest key_provider_export_key = 10;
     }
 }
 
@@ -145,8 +165,10 @@ message E2EEResponse {
         FrameCryptorSetEnabledResponse frame_cryptor_set_enabled = 3;
         FrameCryptorSetKeyIndexResponse frame_cryptor_set_key_index = 4;
         KeyProviderSetSharedKeyResponse key_provider_set_shared_key = 5;
-        KeyProviderSetKeyResponse key_provider_set_key = 6;
-        KeyProviderRachetKeyResponse key_provider_rachet_key = 7;
-        KeyProviderExportKeyResponse key_provider_export_key = 8;
+        KeyProviderRachetSharedKeyResponse key_provider_rachet_shared_key = 6;
+        KeyProviderExportSharedKeyResponse key_provider_export_shared_key = 7;
+        KeyProviderSetKeyResponse key_provider_set_key = 8;
+        KeyProviderRachetKeyResponse key_provider_rachet_key = 9;
+        KeyProviderExportKeyResponse key_provider_export_key = 10;
     }
 }

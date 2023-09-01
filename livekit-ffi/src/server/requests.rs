@@ -520,6 +520,36 @@ fn on_e2ee_request(server: &'static FfiServer, req: proto::E2eeRequest) -> FfiRe
             }
             res.message = Some(proto::e2ee_response::Message::KeyProviderSetSharedKey(proto::KeyProviderSetSharedKeyResponse {}));
         }
+        Some(proto::e2ee_request::Message::KeyProviderRachetSharedKey(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+            let key_provider = ffi_room.inner.room.e2ee_manager().key_provider();
+            let new_key = match key_provider {
+                Some(key_provider) => {
+                    let key = key_provider.ratchet_shared_key(set.key_index);
+                    key.to_vec()
+                }
+                None => "".as_bytes().to_vec(),
+            };
+            res.message = Some(proto::e2ee_response::Message::KeyProviderRachetSharedKey(proto::KeyProviderRachetSharedKeyResponse{new_key}));
+        }
+        Some(proto::e2ee_request::Message::KeyProviderExportSharedKey(set)) => {
+            let ffi_room = server
+            .retrieve_handle::<room::FfiRoom>(set.room_handle)
+            .unwrap()
+            .clone();
+            let key_provider = ffi_room.inner.room.e2ee_manager().key_provider();
+            let key = match key_provider {
+                Some(key_provider) => {
+                    let key = key_provider.export_shared_key(set.key_index);
+                    key.to_vec()
+                }
+                None => "".as_bytes().to_vec(),
+            };
+            res.message = Some(proto::e2ee_response::Message::KeyProviderExportSharedKey(proto::KeyProviderExportSharedKeyResponse{key}));
+        }
         Some(proto::e2ee_request::Message::KeyProviderSetKey(set)) => {
             let ffi_room = server
             .retrieve_handle::<room::FfiRoom>(set.room_handle)

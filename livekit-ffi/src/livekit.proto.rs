@@ -95,6 +95,34 @@ pub struct KeyProviderSetSharedKeyRequest {
 pub struct KeyProviderSetSharedKeyResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderRachetSharedKeyRequest {
+    #[prost(uint64, tag = "1")]
+    pub room_handle: u64,
+    #[prost(int32, tag = "2")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderRachetSharedKeyResponse {
+    #[prost(bytes = "vec", tag = "2")]
+    pub new_key: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderExportSharedKeyRequest {
+    #[prost(uint64, tag = "1")]
+    pub room_handle: u64,
+    #[prost(int32, tag = "2")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderExportSharedKeyResponse {
+    #[prost(bytes = "vec", tag = "2")]
+    pub key: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct KeyProviderSetKeyRequest {
     #[prost(uint64, tag = "1")]
     pub room_handle: u64,
@@ -143,7 +171,7 @@ pub struct KeyProviderExportKeyResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct E2eeRequest {
-    #[prost(oneof = "e2ee_request::Message", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
+    #[prost(oneof = "e2ee_request::Message", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub message: ::core::option::Option<e2ee_request::Message>,
 }
 /// Nested message and enum types in `E2EERequest`.
@@ -162,17 +190,21 @@ pub mod e2ee_request {
         #[prost(message, tag = "5")]
         KeyProviderSetSharedKey(super::KeyProviderSetSharedKeyRequest),
         #[prost(message, tag = "6")]
-        KeyProviderSetKey(super::KeyProviderSetKeyRequest),
+        KeyProviderRachetSharedKey(super::KeyProviderRachetSharedKeyRequest),
         #[prost(message, tag = "7")]
-        KeyProviderRachetKey(super::KeyProviderRachetKeyRequest),
+        KeyProviderExportSharedKey(super::KeyProviderExportSharedKeyRequest),
         #[prost(message, tag = "8")]
+        KeyProviderSetKey(super::KeyProviderSetKeyRequest),
+        #[prost(message, tag = "9")]
+        KeyProviderRachetKey(super::KeyProviderRachetKeyRequest),
+        #[prost(message, tag = "10")]
         KeyProviderExportKey(super::KeyProviderExportKeyRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct E2eeResponse {
-    #[prost(oneof = "e2ee_response::Message", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
+    #[prost(oneof = "e2ee_response::Message", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub message: ::core::option::Option<e2ee_response::Message>,
 }
 /// Nested message and enum types in `E2EEResponse`.
@@ -191,10 +223,14 @@ pub mod e2ee_response {
         #[prost(message, tag = "5")]
         KeyProviderSetSharedKey(super::KeyProviderSetSharedKeyResponse),
         #[prost(message, tag = "6")]
-        KeyProviderSetKey(super::KeyProviderSetKeyResponse),
+        KeyProviderRachetSharedKey(super::KeyProviderRachetSharedKeyResponse),
         #[prost(message, tag = "7")]
-        KeyProviderRachetKey(super::KeyProviderRachetKeyResponse),
+        KeyProviderExportSharedKey(super::KeyProviderExportSharedKeyResponse),
         #[prost(message, tag = "8")]
+        KeyProviderSetKey(super::KeyProviderSetKeyResponse),
+        #[prost(message, tag = "9")]
+        KeyProviderRachetKey(super::KeyProviderRachetKeyResponse),
+        #[prost(message, tag = "10")]
         KeyProviderExportKey(super::KeyProviderExportKeyResponse),
     }
 }

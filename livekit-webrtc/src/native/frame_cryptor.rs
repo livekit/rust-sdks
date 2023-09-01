@@ -68,6 +68,14 @@ impl KeyProvider {
         return self.sys_handle.set_shared_key(key_index, key);
     }
 
+    pub fn ratchet_shared_key(&self, key_index: i32) -> Vec<u8> {
+        return self.sys_handle.ratchet_shared_key(key_index);
+    }
+
+    pub fn export_shared_key(&self, key_index: i32) -> Vec<u8> {
+        return self.sys_handle.export_shared_key(key_index);
+    }
+
     pub fn set_key(&self, participant_id: String, key_index: i32, key: Vec<u8>) -> bool {
         return self.sys_handle.set_key(participant_id, key_index, key);
     }

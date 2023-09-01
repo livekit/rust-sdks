@@ -97,6 +97,16 @@ impl BaseKeyProvider {
             .set_shared_key(key_index.unwrap_or(0), shared_key);
     }
 
+    // ratchet shared key by key index.
+    pub fn ratchet_shared_key(&self, key_index: i32) -> Vec<u8> {
+        self.handle.ratchet_shared_key(key_index)
+    }
+
+    // export shared key by key index.
+    pub fn export_shared_key(&self, key_index: i32) -> Vec<u8> {
+        self.handle.export_shared_key(key_index)
+    }
+
     // set key for a participant, with a key index
     pub fn set_key(&self, participant_id: String, key_index: i32, key: Vec<u8>) -> bool {
         self.handle.set_key(participant_id, key_index, key)
@@ -111,5 +121,4 @@ impl BaseKeyProvider {
     pub fn export_key(&self, participant_id: String, key_index: i32) -> Vec<u8> {
         self.handle.export_key(participant_id, key_index)
     }
-
 }

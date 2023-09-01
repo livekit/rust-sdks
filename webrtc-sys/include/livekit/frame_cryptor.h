@@ -48,6 +48,21 @@ class KeyProvider {
     std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
     return impl_->SetSharedKey(index, key_vec);
   }
+
+
+  rust::Vec<::std::uint8_t> ratchet_shared_key(int32_t key_index) const {
+    rust::Vec<uint8_t> vec;
+    auto data = impl_->RatchetSharedKey(key_index);
+    std::move(data.begin(), data.end(), std::back_inserter(vec));
+    return vec;
+  }
+
+  rust::Vec<::std::uint8_t> export_shared_key(int32_t key_index) const {
+    rust::Vec<uint8_t> vec;
+    auto data = impl_->ExportSharedKey(key_index);
+    std::move(data.begin(), data.end(), std::back_inserter(vec));
+    return vec;
+  }
   
   /// Set the key at the given index.
   bool set_key(const ::rust::String participant_id,

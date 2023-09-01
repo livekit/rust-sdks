@@ -39,7 +39,7 @@ impl From<i32> for EncryptionType {
             0 => Self::None,
             1 => Self::Gcm,
             2 => Self::Custom,
-            i32::MIN..=-1_i32 | 3_i32..=i32::MAX => todo!()
+            i32::MIN..=-1_i32 | 3_i32..=i32::MAX => todo!(),
         }
     }
 }
@@ -64,7 +64,6 @@ impl From<EncryptionType> for livekit_protocol::encryption::Type {
     }
 }
 
-
 #[derive(Clone)]
 pub struct E2EEOptions {
     pub encryption_type: EncryptionType,
@@ -84,9 +83,7 @@ impl Default for E2EEOptions {
     fn default() -> Self {
         Self {
             encryption_type: EncryptionType::Gcm,
-            key_provider: BaseKeyProvider::new(
-                KeyProviderOptions::default()
-            ),
+            key_provider: BaseKeyProvider::new(KeyProviderOptions::default()),
         }
     }
 }
