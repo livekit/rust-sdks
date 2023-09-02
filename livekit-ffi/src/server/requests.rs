@@ -285,12 +285,19 @@ fn on_to_i420(
 
             match info.format() {
                 proto::VideoFormatType::FormatArgb => {
+<<<<<<< Updated upstream
                     yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
                         .unwrap();
                 }
                 proto::VideoFormatType::FormatAbgr => {
                     yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
                         .unwrap();
+=======
+                    yuv_helper::argb_to_i420(data, info.stride, dy, sy, du, su, dv, sv, w, h);
+                }
+                proto::VideoFormatType::FormatAbgr => {
+                    yuv_helper::abgr_to_i420(data, info.stride, dy, sy, du, su, dv, sv, w, h);
+>>>>>>> Stashed changes
                 }
                 _ => {
                     return Err(FfiError::InvalidRequest(
@@ -336,9 +343,7 @@ fn on_to_argb(
     let h = to_argb.dst_height as i32 * (if to_argb.flip_y { -1 } else { 1 });
 
     let video_format = to_argb.dst_format();
-    buffer
-        .to_argb(video_format.into(), argb, to_argb.dst_stride, w, h)
-        .unwrap();
+    buffer.to_argb(video_format.into(), argb, to_argb.dst_stride, w, h);
 
     Ok(proto::ToArgbResponse::default())
 }

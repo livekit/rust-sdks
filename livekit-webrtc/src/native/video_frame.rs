@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::yuv_helper::{self, ConvertError};
+use super::yuv_helper;
 use crate::video_frame::VideoRotation;
 use crate::video_frame::{self as vf, VideoFormatType};
 use cxx::UniquePtr;
@@ -184,7 +184,7 @@ impl NativeBuffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -275,7 +275,7 @@ impl I420Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         impl_to_argb!(
             I420Buffer
             [
@@ -376,7 +376,7 @@ impl I420ABuffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -470,7 +470,7 @@ impl I422Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -556,7 +556,7 @@ impl I444Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -644,7 +644,7 @@ impl I010Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -756,7 +756,7 @@ impl NV12Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }

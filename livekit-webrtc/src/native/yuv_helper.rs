@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+<<<<<<< Updated upstream
 use thiserror::Error;
 use webrtc_sys::yuv_helper as yuv_sys;
 
@@ -29,6 +30,14 @@ fn argb_assert_safety(
     height: i32,
 ) -> Result<(), ConvertError> {
     let height_abs = height.abs() as u32;
+=======
+#![allow(clippy::too_many_arguments)]
+
+use webrtc_sys::yuv_helper as yuv_sys;
+
+fn argb_assert_safety(src: &[u8], src_stride: u32, _width: i32, height: i32) {
+    let height_abs = height.unsigned_abs();
+>>>>>>> Stashed changes
     let min = (src_stride * height_abs) as usize;
 
     if src.len() < min {
@@ -171,9 +180,15 @@ pub fn argb_to_rgb24(
     dst_stride_rgb24: u32,
     width: i32,
     height: i32,
+<<<<<<< Updated upstream
 ) -> Result<(), ConvertError> {
     argb_assert_safety(src_argb, src_stride_argb, width, height)?;
     argb_assert_safety(dst_rgb24, dst_stride_rgb24, width, height)?;
+=======
+) {
+    argb_assert_safety(src_argb, src_stride_argb, width, height);
+    argb_assert_safety(dst_rgb24, dst_stride_rgb24, width, height);
+>>>>>>> Stashed changes
 
     unsafe {
         yuv_sys::ffi::argb_to_rgb24(
@@ -186,8 +201,6 @@ pub fn argb_to_rgb24(
         )
         .unwrap();
     }
-
-    Ok(())
 }
 
 x_to_i420!(argb_to_i420);
