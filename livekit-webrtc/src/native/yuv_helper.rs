@@ -14,14 +14,7 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use thiserror::Error;
 use webrtc_sys::yuv_helper as yuv_sys;
-
-#[derive(Error, Debug)]
-pub enum ConvertError {
-    #[error("conversion failed: {0}")]
-    Convert(&'static str),
-}
 
 fn argb_assert_safety(src: &[u8], src_stride: u32, _width: i32, height: i32) {
     let height_abs = height.unsigned_abs();
@@ -226,7 +219,7 @@ pub fn argb_to_rgb24(
     dst_stride_rgb24: u32,
     width: i32,
     height: i32,
-) -> Result<(), ConvertError> {
+) {
     argb_assert_safety(src_argb, src_stride_argb, width, height);
     argb_assert_safety(dst_rgb24, dst_stride_rgb24, width, height);
 
@@ -241,8 +234,6 @@ pub fn argb_to_rgb24(
         )
         .unwrap();
     }
-
-    Ok(())
 }
 
 // I420 <> RGB conversion

@@ -49,10 +49,6 @@ message NewVideoSourceResponse { OwnedVideoSource source = 1; }
 message CaptureVideoFrameRequest {
   uint64 source_handle = 1;
   VideoFrameInfo frame = 2;
-
-  // TODO(theomonnom): Maybe we could accept an info instead?
-  // So users could capture arbitrary pointers
-  // Check if the memory musts be aligned before?
   uint64 buffer_handle = 3; 
 }
 message CaptureVideoFrameResponse {}
@@ -65,10 +61,8 @@ message ToI420Request {
     ArgbBufferInfo argb = 2;
     uint64 yuv_handle = 3; // Another yuv buffer
   }
-  optional uint64 dst_handle = 4;
 }
 message ToI420Response { 
-  // Empty if dst_handle is provided
   OwnedVideoFrameBuffer buffer = 1; 
 }
 
@@ -123,7 +117,6 @@ enum VideoFrameBufferType {
   I444 = 4;
   I010 = 5;
   NV12 = 6;
-  WEBGL = 7;
 }
 
 message ArgbBufferInfo {
