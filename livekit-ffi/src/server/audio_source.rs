@@ -71,31 +71,46 @@ impl FfiAudioSource {
         &self,
         server: &'static server::FfiServer,
         capture: proto::CaptureAudioFrameRequest,
-    ) -> FfiResult<()> {
+    ) -> FfiResult<proto::CaptureAudioFrameResponse> {
         let Some(buffer) = capture.buffer else {
             return Err(FfiError::InvalidRequest("buffer is None".into()));
         };
 
-        let data = unsafe {
-            let len = buffer.num_channels * buffer.samples_per_channel;
-            slice::from_raw_parts(buffer.data_ptr as *const i16, len as usize)
-        };
+        let source = self.source.clone();
+        let async_id = server.next_id();
 
-        match self.source {
-            #[cfg(not(target_arch = "wasm32"))]
-            RtcAudioSource::Native(ref source) => {
-                let audio_frame = AudioFrame {
-                    data: Cow::Borrowed(data),
-                    sample_rate: buffer.sample_rate,
-                    num_channels: buffer.num_channels,
-                    samples_per_channel: buffer.samples_per_channel,
-                };
+        tokio::spawn(async move {
+            // The data must be available as long as the client receive the callback.
+            let data = unsafe {
+                let len = buffer.num_channels * buffer.samples_per_channel;
+                slice::from_raw_parts(buffer.data_ptr as *const i16, len as usize)
+            };
 
-                source.capture_frame(&audio_frame);
+            match source {
+                #[cfg(not(target_arch = "wasm32"))]
+                RtcAudioSource::Native(ref source) => {
+                    let audio_frame = AudioFrame {
+                        data: Cow::Borrowed(data),
+                        sample_rate: buffer.sample_rate,
+                        num_channels: buffer.num_channels,
+                        samples_per_channel: buffer.samples_per_channel,
+                    };
+
+                    let res = source.capture_frame(&audio_frame).await;
+
+                    let _ = server
+                        .send_event(proto::ffi_event::Message::CaptureAudioFrame(
+                            proto::CaptureAudioFrameCallback {
+                                async_id,
+                                error: res.err().map(|e| e.to_string()),
+                            },
+                        ))
+                        .await;
+                }
+                _ => {}
             }
-            _ => {}
-        }
+        });
 
-        Ok(())
+        Ok(proto::CaptureAudioFrameResponse { async_id })
     }
 }

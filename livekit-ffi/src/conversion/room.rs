@@ -98,7 +98,7 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 
 impl From<&FfiRoom> for proto::RoomInfo {
     fn from(value: &FfiRoom) -> Self {
-        let room = value.inner.room;
+        let room = &value.inner.room;
         Self {
             sid: room.sid().into(),
             name: room.name(),

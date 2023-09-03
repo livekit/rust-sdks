@@ -281,9 +281,6 @@ pub struct CaptureVideoFrameRequest {
     pub source_handle: u64,
     #[prost(message, optional, tag="2")]
     pub frame: ::core::option::Option<VideoFrameInfo>,
-    /// TODO(theomonnom): Maybe we could accept an info instead?
-    /// So users could capture arbitrary pointers
-    /// Check if the memory musts be aligned before?
     #[prost(uint64, tag="3")]
     pub buffer_handle: u64,
 }
@@ -298,8 +295,6 @@ pub struct CaptureVideoFrameResponse {
 pub struct ToI420Request {
     #[prost(bool, tag="1")]
     pub flip_y: bool,
-    #[prost(uint64, optional, tag="4")]
-    pub dst_handle: ::core::option::Option<u64>,
     #[prost(oneof="to_i420_request::From", tags="2, 3")]
     pub from: ::core::option::Option<to_i420_request::From>,
 }
@@ -318,7 +313,6 @@ pub mod to_i420_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ToI420Response {
-    /// Empty if dst_handle is provided
     #[prost(message, optional, tag="1")]
     pub buffer: ::core::option::Option<OwnedVideoFrameBuffer>,
 }
@@ -631,7 +625,6 @@ pub enum VideoFrameBufferType {
     I444 = 4,
     I010 = 5,
     Nv12 = 6,
-    Webgl = 7,
 }
 impl VideoFrameBufferType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -647,7 +640,6 @@ impl VideoFrameBufferType {
             VideoFrameBufferType::I444 => "I444",
             VideoFrameBufferType::I010 => "I010",
             VideoFrameBufferType::Nv12 => "NV12",
-            VideoFrameBufferType::Webgl => "WEBGL",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -660,7 +652,6 @@ impl VideoFrameBufferType {
             "I444" => Some(Self::I444),
             "I010" => Some(Self::I010),
             "NV12" => Some(Self::Nv12),
-            "WEBGL" => Some(Self::Webgl),
             _ => None,
         }
     }
@@ -1289,6 +1280,7 @@ pub struct NewAudioSourceResponse {
     pub source: ::core::option::Option<OwnedAudioSource>,
 }
 /// Push a frame to an AudioSource 
+/// The data provided must be available as long as the client receive the callback.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureAudioFrameRequest {
@@ -1300,6 +1292,16 @@ pub struct CaptureAudioFrameRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureAudioFrameResponse {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CaptureAudioFrameCallback {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Create a new AudioResampler
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1647,7 +1649,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -1675,6 +1677,8 @@ pub mod ffi_event {
         UnpublishTrack(super::UnpublishTrackCallback),
         #[prost(message, tag="10")]
         PublishData(super::PublishDataCallback),
+        #[prost(message, tag="11")]
+        CaptureAudioFrame(super::CaptureAudioFrameCallback),
     }
 }
 /// Setup the callback where the foreign language can receive events

@@ -430,11 +430,19 @@ fn remix_and_resample(
         .retrieve_handle::<Arc<Mutex<audio_resampler::AudioResampler>>>(remix.resampler_handle)?
         .clone();
 
-    let buffer = server.retrieve_handle::<AudioFrame>(remix.buffer_handle)?;
+    let buffer = remix
+        .buffer
+        .ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
+
+    let data = unsafe {
+        let len = (buffer.num_channels * buffer.samples_per_channel) as usize;
+        slice::from_raw_parts_mut(buffer.data_ptr as *mut i16, len)
+    };
+
     let data = resampler
         .lock()
         .remix_and_resample(
-            &buffer.data,
+            data,
             buffer.samples_per_channel,
             buffer.num_channels,
             buffer.sample_rate,
@@ -442,8 +450,6 @@ fn remix_and_resample(
             remix.sample_rate,
         )
         .to_owned();
-
-    drop(buffer);
 
     let data_len = (data.len() / remix.num_channels as usize) as u32;
     let audio_frame = AudioFrame {

@@ -53,17 +53,18 @@ impl FfiVideoStream {
 
         let (close_tx, close_rx) = oneshot::channel();
         let stream_type = new_stream.r#type();
+        let handle_id = server.next_id();
         let stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
                 let video_stream = Self {
-                    handle_id: server.next_id(),
+                    handle_id,
                     close_tx,
                     stream_type,
                 };
                 server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
-                    video_stream.handle_id,
+                    handle_id,
                     NativeVideoStream::new(rtc_track),
                     close_rx,
                 ));
@@ -77,13 +78,11 @@ impl FfiVideoStream {
         }?;
 
         // Store the new video stream and return the info
-        server.store_handle(stream.handle_id, stream);
         let info = proto::VideoStreamInfo::from(&stream);
+        server.store_handle(stream.handle_id, stream);
 
         Ok(proto::OwnedVideoStream {
-            handle: Some(proto::FfiOwnedHandle {
-                id: stream.handle_id,
-            }),
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
             info: Some(info),
         })
     }

@@ -37,6 +37,11 @@ impl AudioResampler {
         dst_num_channels: u32,
         dst_sample_rate: u32,
     ) -> &'a [i16] {
+        assert!(
+            src.len() >= (samples_per_channel * num_channels) as usize,
+            "src buffer too small"
+        );
+
         unsafe {
             let len = self.sys_handle.pin_mut().remix_and_resample(
                 src.as_ptr(),

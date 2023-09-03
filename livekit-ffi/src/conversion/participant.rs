@@ -17,7 +17,7 @@ use crate::server::room::FfiParticipant;
 
 impl From<&FfiParticipant> for proto::ParticipantInfo {
     fn from(value: &FfiParticipant) -> Self {
-        let participant = value.participant;
+        let participant = &value.participant;
         Self {
             sid: participant.sid().into(),
             name: participant.name(),

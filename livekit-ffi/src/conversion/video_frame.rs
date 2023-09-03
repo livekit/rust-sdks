@@ -100,7 +100,6 @@ impl From<VideoFrameBufferType> for proto::VideoFrameBufferType {
             VideoFrameBufferType::I444 => Self::I444,
             VideoFrameBufferType::I010 => Self::I010,
             VideoFrameBufferType::NV12 => Self::Nv12,
-            VideoFrameBufferType::WebGl => Self::Webgl,
             _ => panic!("unsupported buffer type on FFI server"),
         }
     }

@@ -47,11 +47,18 @@ message NewAudioSourceRequest {
 message NewAudioSourceResponse { OwnedAudioSource source = 1; }
 
 // Push a frame to an AudioSource 
+// The data provided must be available as long as the client receive the callback.
 message CaptureAudioFrameRequest { 
   uint64 source_handle = 1;
   AudioFrameBufferInfo buffer = 2;
 }
-message CaptureAudioFrameResponse {}
+message CaptureAudioFrameResponse {
+  uint64 async_id = 1;
+}
+message CaptureAudioFrameCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
+}
 
 // Create a new AudioResampler
 message NewAudioResamplerRequest {}
