@@ -24,6 +24,7 @@ pub struct WavReader<R: AsyncRead + Unpin> {
     reader: R,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct WavHeader {
     file_size: u32,

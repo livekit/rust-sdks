@@ -189,8 +189,7 @@ impl LogoTrack {
                         stride_v,
                         FB_WIDTH as i32,
                         FB_HEIGHT as i32,
-                    )
-                    .unwrap();
+                    );
 
                     source.capture_frame(&*video_frame);
                 }
