@@ -392,9 +392,7 @@ impl PeerConnection {
 
         match res {
             Ok(sys_handle) => Ok(RtpTransceiver {
-                handle: imp_rt::RtpTransceiver {
-                    sys_handle: sys_handle,
-                },
+                handle: imp_rt::RtpTransceiver { sys_handle },
             }),
             Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }

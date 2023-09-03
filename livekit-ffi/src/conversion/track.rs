@@ -18,23 +18,10 @@ use crate::{
 };
 use livekit::prelude::*;
 
-impl From<TrackSource> for proto::TrackSource {
-    fn from(source: TrackSource) -> proto::TrackSource {
-        match source {
-            TrackSource::Unknown => proto::TrackSource::SourceUnknown,
-            TrackSource::Camera => proto::TrackSource::SourceCamera,
-            TrackSource::Microphone => proto::TrackSource::SourceMicrophone,
-            TrackSource::Screenshare => proto::TrackSource::SourceScreenshare,
-            TrackSource::ScreenshareAudio => proto::TrackSource::SourceScreenshareAudio,
-        }
-    }
-}
-
-impl proto::TrackPublicationInfo {
-    pub fn from(handle_id: proto::FfiOwnedHandle, ffi_publication: &FfiPublication) -> Self {
-        let publication = &ffi_publication.publication;
+impl From<&FfiPublication> for proto::TrackPublicationInfo {
+    fn from(value: &FfiPublication) -> Self {
+        let publication = &value.publication;
         Self {
-            handle: Some(handle_id),
             name: publication.name(),
             sid: publication.sid().to_string(),
             kind: proto::TrackKind::from(publication.kind()).into(),
@@ -49,11 +36,10 @@ impl proto::TrackPublicationInfo {
     }
 }
 
-impl proto::TrackInfo {
-    pub fn from(handle_id: proto::FfiOwnedHandle, ffi_track: &FfiTrack) -> Self {
-        let track = &ffi_track.track;
+impl From<&FfiTrack> for proto::TrackInfo {
+    fn from(value: &FfiTrack) -> Self {
+        let track = &value.track;
         Self {
-            handle: Some(handle_id),
             name: track.name(),
             stream_state: proto::StreamState::from(track.stream_state()).into(),
             sid: track.sid().to_string(),
@@ -90,6 +76,18 @@ impl From<proto::TrackSource> for TrackSource {
             proto::TrackSource::SourceMicrophone => TrackSource::Microphone,
             proto::TrackSource::SourceScreenshare => TrackSource::Screenshare,
             proto::TrackSource::SourceScreenshareAudio => TrackSource::ScreenshareAudio,
+        }
+    }
+}
+
+impl From<TrackSource> for proto::TrackSource {
+    fn from(source: TrackSource) -> proto::TrackSource {
+        match source {
+            TrackSource::Unknown => proto::TrackSource::SourceUnknown,
+            TrackSource::Camera => proto::TrackSource::SourceCamera,
+            TrackSource::Microphone => proto::TrackSource::SourceMicrophone,
+            TrackSource::Screenshare => proto::TrackSource::SourceScreenshare,
+            TrackSource::ScreenshareAudio => proto::TrackSource::SourceScreenshareAudio,
         }
     }
 }

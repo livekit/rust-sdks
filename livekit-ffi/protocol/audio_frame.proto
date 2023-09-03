@@ -27,7 +27,7 @@ message AllocAudioBufferRequest {
   uint32 num_channels = 2;
   uint32 samples_per_channel = 3;
 }
-message AllocAudioBufferResponse { AudioFrameBufferInfo buffer = 1; }
+message AllocAudioBufferResponse { OwnedAudioFrameBuffer buffer = 1; }
 
 // Create a new AudioStream
 // AudioStream is used to receive audio frames from a track
@@ -35,38 +35,47 @@ message NewAudioStreamRequest {
   uint64 track_handle = 1;
   AudioStreamType type = 2;
 }
-message NewAudioStreamResponse { AudioStreamInfo stream = 1; }
+message NewAudioStreamResponse { OwnedAudioStream stream = 1; }
 
 // Create a new AudioSource
 message NewAudioSourceRequest {
   AudioSourceType type = 1;
   optional AudioSourceOptions options = 2;
+  uint32 sample_rate = 3;
+  uint32 num_channels = 4;
 }
-message NewAudioSourceResponse { AudioSourceInfo source = 1; }
+message NewAudioSourceResponse { OwnedAudioSource source = 1; }
 
 // Push a frame to an AudioSource 
+// The data provided must be available as long as the client receive the callback.
 message CaptureAudioFrameRequest { 
   uint64 source_handle = 1;
-  uint64 buffer_handle = 2; 
+  AudioFrameBufferInfo buffer = 2;
 }
-message CaptureAudioFrameResponse {}
+message CaptureAudioFrameResponse {
+  uint64 async_id = 1;
+}
+message CaptureAudioFrameCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
+}
 
 // Create a new AudioResampler
 message NewAudioResamplerRequest {}
 message NewAudioResamplerResponse {
-  AudioResamplerInfo resampler = 1;
+  OwnedAudioResampler resampler = 1;
 }
 
 // Remix and resample an audio frame
 message RemixAndResampleRequest {
   uint64 resampler_handle = 1;
-  uint64 buffer_handle = 2;
+  AudioFrameBufferInfo buffer = 2;
   uint32 num_channels = 3;
   uint32 sample_rate = 4;
 }
 
 message RemixAndResampleResponse {
-  AudioFrameBufferInfo buffer = 1;
+  OwnedAudioFrameBuffer buffer = 1;
 }
 
 //
@@ -74,11 +83,15 @@ message RemixAndResampleResponse {
 //
 
 message AudioFrameBufferInfo {
+  uint64 data_ptr = 1; // *const i16
+  uint32 num_channels = 2;
+  uint32 sample_rate = 3;
+  uint32 samples_per_channel = 4;
+}
+
+message OwnedAudioFrameBuffer {
   FfiOwnedHandle handle = 1;
-  uint64 data_ptr = 2;    // *const i16
-  uint32 num_channels = 3;
-  uint32 sample_rate = 4;
-  uint32 samples_per_channel = 5;
+  AudioFrameBufferInfo info = 2;
 }
 
 //
@@ -91,8 +104,12 @@ enum AudioStreamType {
 }
 
 message AudioStreamInfo {
+  AudioStreamType type = 1;
+}
+
+message OwnedAudioStream {
   FfiOwnedHandle handle = 1;
-  AudioStreamType type = 2;
+  AudioStreamInfo info = 2;
 }
 
 message AudioStreamEvent {
@@ -101,7 +118,7 @@ message AudioStreamEvent {
 }
 
 message AudioFrameReceived {
-  AudioFrameBufferInfo frame = 1;
+  OwnedAudioFrameBuffer frame = 1;
 }
 
 //
@@ -119,14 +136,21 @@ enum AudioSourceType {
 }
 
 message AudioSourceInfo {
-  FfiOwnedHandle handle = 1;
   AudioSourceType type = 2;
+}
+
+message OwnedAudioSource {
+  FfiOwnedHandle handle = 1;
+  AudioSourceInfo info = 2;
 }
 
 //
 // AudioResampler
 //
 
-message AudioResamplerInfo {
+message AudioResamplerInfo { }
+
+message OwnedAudioResampler {
   FfiOwnedHandle handle = 1;
+  AudioResamplerInfo info = 2;
 }

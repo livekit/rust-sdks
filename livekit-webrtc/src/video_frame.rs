@@ -48,7 +48,6 @@ pub enum VideoFrameBufferType {
     I444,
     I010,
     NV12,
-    WebGl,
 }
 
 #[derive(Debug)]
@@ -82,7 +81,7 @@ pub(crate) mod internal {
             dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
-        ) -> Result<(), super::native::ConvertError>;
+        );
     }
 }
 
@@ -148,7 +147,7 @@ macro_rules! new_buffer_type {
                 stride: u32,
                 width: i32,
                 height: i32,
-            ) -> Result<(), $crate::video_frame::native::ConvertError> {
+            ) {
                 self.handle.to_argb(format, dst, stride, width, height)
             }
         }
@@ -397,8 +396,6 @@ pub mod native {
     use super::{vf_imp, I420Buffer, VideoFormatType, VideoFrameBuffer, VideoFrameBufferType};
     use std::fmt::Debug;
 
-    pub use crate::imp::yuv_helper::ConvertError;
-
     new_buffer_type!(NativeBuffer, Native, as_native);
 
     pub trait I420BufferExt {
@@ -420,7 +417,7 @@ pub mod native {
             dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
-        ) -> Result<(), ConvertError>;
+        );
     }
 
     impl<T: VideoFrameBuffer> VideoFrameBufferExt for T {
@@ -435,7 +432,7 @@ pub mod native {
             dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
-        ) -> Result<(), ConvertError> {
+        ) {
             self.to_argb(format, dst, dst_stride, dst_width, dst_height)
         }
     }

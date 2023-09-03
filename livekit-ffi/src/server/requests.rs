@@ -167,12 +167,14 @@ fn on_create_video_track(
         track: Track::LocalVideo(video_track),
     };
 
-    let track_info = proto::TrackInfo::from(proto::FfiOwnedHandle { id: handle_id }, &ffi_track);
-
+    let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
 
     Ok(proto::CreateVideoTrackResponse {
-        track: Some(track_info),
+        track: Some(proto::OwnedTrack {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(track_info),
+        }),
     })
 }
 
@@ -192,12 +194,14 @@ fn on_create_audio_track(
         handle: handle_id,
         track: Track::LocalAudio(audio_track),
     };
-    let track_info = proto::TrackInfo::from(proto::FfiOwnedHandle { id: handle_id }, &ffi_track);
-
+    let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
 
     Ok(proto::CreateAudioTrackResponse {
-        track: Some(track_info),
+        track: Some(proto::OwnedTrack {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(track_info),
+        }),
     })
 }
 
@@ -216,12 +220,14 @@ fn on_alloc_video_buffer(
     };
 
     let handle_id = server.next_id();
-    let buffer_info =
-        proto::VideoFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &buffer);
-
+    let buffer_info = proto::VideoFrameBufferInfo::from(&buffer);
     server.store_handle(handle_id, buffer);
+
     Ok(proto::AllocVideoBufferResponse {
-        buffer: Some(buffer_info),
+        buffer: Some(proto::OwnedVideoFrameBuffer {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(buffer_info),
+        }),
     })
 }
 
@@ -259,6 +265,7 @@ fn on_capture_video_frame(
 }
 
 /// Convert a frame to I420
+/// The destination can now be a new buffer or an existing buffer
 fn on_to_i420(
     server: &'static FfiServer,
     to_i420: proto::ToI420Request,
@@ -285,12 +292,10 @@ fn on_to_i420(
 
             match info.format() {
                 proto::VideoFormatType::FormatArgb => {
-                    yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
-                        .unwrap();
+                    yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h);
                 }
                 proto::VideoFormatType::FormatAbgr => {
-                    yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
-                        .unwrap();
+                    yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h);
                 }
                 _ => {
                     return Err(FfiError::InvalidRequest(
@@ -303,18 +308,20 @@ fn on_to_i420(
         }
         // Convert an arbitrary yuv buffer to I420
         // Even if the buffer is already in I420, we're still copying it
-        proto::to_i420_request::From::BufferHandle(handle) => server
+        proto::to_i420_request::From::YuvHandle(handle) => server
             .retrieve_handle::<BoxVideoFrameBuffer>(handle)?
             .to_i420(),
     };
 
     let i420: BoxVideoFrameBuffer = Box::new(i420);
     let handle_id = server.next_id();
-    let buffer_info =
-        proto::VideoFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &i420);
+    let buffer_info = proto::VideoFrameBufferInfo::from(&i420);
     server.store_handle(handle_id, i420);
     Ok(proto::ToI420Response {
-        buffer: Some(buffer_info),
+        buffer: Some(proto::OwnedVideoFrameBuffer {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(buffer_info),
+        }),
     })
 }
 
@@ -336,10 +343,7 @@ fn on_to_argb(
     let h = to_argb.dst_height as i32 * (if to_argb.flip_y { -1 } else { 1 });
 
     let video_format = to_argb.dst_format();
-    buffer
-        .to_argb(video_format.into(), argb, to_argb.dst_stride, w, h)
-        .unwrap();
-
+    buffer.to_argb(video_format.into(), argb, to_argb.dst_stride, w, h);
     Ok(proto::ToArgbResponse::default())
 }
 
@@ -355,12 +359,14 @@ fn on_alloc_audio_buffer(
     );
 
     let handle_id = server.next_id();
-    let frame_info =
-        proto::AudioFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &frame);
+    let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
     server.store_handle(handle_id, frame);
 
     Ok(proto::AllocAudioBufferResponse {
-        buffer: Some(frame_info),
+        buffer: Some(proto::OwnedAudioFrameBuffer {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(buffer_info),
+        }),
     })
 }
 
@@ -408,8 +414,9 @@ fn new_audio_resampler(
     server.store_handle(handle_id, resampler);
 
     Ok(proto::NewAudioResamplerResponse {
-        resampler: Some(proto::AudioResamplerInfo {
+        resampler: Some(proto::OwnedAudioResampler {
             handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(proto::AudioResamplerInfo {}),
         }),
     })
 }
@@ -423,11 +430,19 @@ fn remix_and_resample(
         .retrieve_handle::<Arc<Mutex<audio_resampler::AudioResampler>>>(remix.resampler_handle)?
         .clone();
 
-    let buffer = server.retrieve_handle::<AudioFrame>(remix.buffer_handle)?;
+    let buffer = remix
+        .buffer
+        .ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
+
+    let data = unsafe {
+        let len = (buffer.num_channels * buffer.samples_per_channel) as usize;
+        slice::from_raw_parts_mut(buffer.data_ptr as *mut i16, len)
+    };
+
     let data = resampler
         .lock()
         .remix_and_resample(
-            &buffer.data,
+            data,
             buffer.samples_per_channel,
             buffer.num_channels,
             buffer.sample_rate,
@@ -436,23 +451,23 @@ fn remix_and_resample(
         )
         .to_owned();
 
-    drop(buffer);
-
     let data_len = (data.len() / remix.num_channels as usize) as u32;
     let audio_frame = AudioFrame {
-        data,
+        data: data.into(),
         num_channels: remix.num_channels,
         samples_per_channel: data_len,
         sample_rate: remix.sample_rate,
     };
 
     let handle_id = server.next_id();
-    let buffer_info =
-        proto::AudioFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &audio_frame);
+    let buffer_info = proto::AudioFrameBufferInfo::from(&audio_frame);
     server.store_handle(handle_id, audio_frame);
 
     Ok(proto::RemixAndResampleResponse {
-        buffer: Some(buffer_info),
+        buffer: Some(proto::OwnedAudioFrameBuffer {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(buffer_info),
+        }),
     })
 }
 
