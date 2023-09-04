@@ -58,7 +58,7 @@ impl Participant {
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
         pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
-        pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> ();
+        pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> Option<TrackPublication>;
     );
 
     pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {

@@ -343,11 +343,11 @@ impl RemoteParticipant {
         });
     }
 
-    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
         let publication =
             super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
 
-        if let Some(publication) = publication {
+        if let Some(publication) = publication.clone() {
             let TrackPublication::Remote(publication) = publication else {
                 panic!("expected remote publication");
             };
@@ -356,6 +356,8 @@ impl RemoteParticipant {
             publication.on_subscribed(|_, _| {});
             publication.on_unsubscribed(|_, _| {});
         }
+
+        publication
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
