@@ -134,7 +134,7 @@ message RoomOptions {
   bool auto_subscribe = 1;
   bool adaptive_stream = 2;
   bool dynacast = 3;
-  optional E2EEOptions e2ee_options = 4;
+  optional E2eeOptions e2ee = 4;
 }
 
 //
@@ -190,7 +190,7 @@ message RoomEvent {
     Disconnected disconnected = 18;
     Reconnecting reconnecting = 19;
     Reconnected reconnected = 20;
-    E2EEStateChanged e2ee_state_changed = 21;
+    E2eeStateChanged e2ee_state_changed = 21;
   }
 }
 
@@ -260,11 +260,9 @@ message TrackUnmuted {
   string track_sid = 2;
 }
 
-message E2EEStateChanged {
-  string participant_sid = 1;
-  string track_sid = 2;
-  string participant_id = 3;
-  E2EEState state = 4;
+message E2eeStateChanged {
+  string participant_sid = 1; // Using sid instead of identity for ffi communication
+  E2eeState state = 2;
 }
 
 message ActiveSpeakersChanged { repeated string participant_sids = 1; }

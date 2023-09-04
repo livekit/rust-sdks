@@ -39,7 +39,7 @@ impl From<ConnectionState> for proto::ConnectionState {
     }
 }
 
-impl From<proto::EncryptionType>  for EncryptionType {
+impl From<proto::EncryptionType> for EncryptionType {
     fn from(value: proto::EncryptionType) -> Self {
         match value {
             proto::EncryptionType::None => Self::None,
@@ -52,7 +52,6 @@ impl From<proto::EncryptionType>  for EncryptionType {
 impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     fn from(value: proto::KeyProviderOptions) -> Self {
         Self {
-            shared_key: value.shared_key,
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
             uncrypted_magic_bytes: value.uncrypted_magic_bytes,
@@ -64,9 +63,7 @@ impl From<proto::E2eeOptions> for E2EEOptions {
     fn from(value: proto::E2eeOptions) -> Self {
         Self {
             encryption_type: value.encryption_type().into(),
-            key_provider: BaseKeyProvider::new(
-                value.key_provider_options.unwrap().into(),
-            ),
+            key_provider: BaseKeyProvider::new(value.key_provider_options.unwrap().into()),
         }
     }
 }
@@ -77,10 +74,7 @@ impl From<proto::RoomOptions> for RoomOptions {
             adaptive_stream: value.adaptive_stream,
             auto_subscribe: value.auto_subscribe,
             dynacast: value.dynacast,
-            e2ee_options: match value.e2ee_options {
-                Some(opts) => Some(opts.into()),
-                None => None,
-            },
+            e2ee: value.e2ee.map(Into::into),
         }
     }
 }

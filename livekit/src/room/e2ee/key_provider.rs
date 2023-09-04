@@ -14,6 +14,8 @@
 
 use livekit_webrtc::native::frame_cryptor as fc;
 
+use crate::id::ParticipantIdentity;
+
 const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
 const DEFAULT_MAGIC_BYTES: &str = "LK-ROCKS";
 const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 0;
@@ -76,15 +78,15 @@ impl KeyProvider {
         self.handle.get_shared_key(key_index)
     }
 
-    pub fn set_key(&self, participant_id: String, key_index: i32, key: Vec<u8>) -> bool {
-        self.handle.set_key(participant_id, key_index, key)
+    pub fn set_key(&self, identity: &ParticipantIdentity, key_index: i32, key: Vec<u8>) -> bool {
+        self.handle.set_key(identity.to_string(), key_index, key)
     }
 
-    pub fn ratchet_key(&self, participant_id: String, key_index: i32) -> Option<Vec<u8>> {
-        self.handle.ratchet_key(participant_id, key_index)
+    pub fn ratchet_key(&self, identity: &ParticipantIdentity, key_index: i32) -> Option<Vec<u8>> {
+        self.handle.ratchet_key(identity.to_string(), key_index)
     }
 
-    pub fn get_key(&self, participant_id: String, key_index: i32) -> Option<Vec<u8>> {
-        self.handle.get_key(participant_id, key_index)
+    pub fn get_key(&self, identity: &ParticipantIdentity, key_index: i32) -> Option<Vec<u8>> {
+        self.handle.get_key(identity.to_string(), key_index)
     }
 }

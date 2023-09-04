@@ -17,10 +17,19 @@ syntax = "proto3";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
+// TODO(theomonnom): Should FrameCryptor be stateful on the client side and have their own handle?
+
 enum EncryptionType {
-    None = 0;
-    Gcm = 1;
-    Custom = 2;
+    NONE = 0;
+    GCM = 1;
+    CUSTOM = 2;
+}
+
+message FrameCryptor {
+    string participant_identity = 1;
+    string track_sid = 2;
+    int32 key_index = 3;
+    bool enabled = 4;
 }
 
 message KeyProviderOptions {
@@ -30,12 +39,12 @@ message KeyProviderOptions {
     bytes uncrypted_magic_bytes = 4;
 }
 
-message E2EEOptions {
+message E2eeOptions {
   EncryptionType encryption_type = 1;
   KeyProviderOptions key_provider_options = 2;
 }
 
-enum E2EEState {
+enum E2eeState {
     NEW = 0;
     OK = 1;
     ENCRYPTION_FAILED = 2;
@@ -45,130 +54,100 @@ enum E2EEState {
     INTERNAL_ERROR = 6;
 }
 
-message E2EEManagerSetEnabledRequest {
-    uint64 room_handle = 1;
-    bool enabled = 2;
+message E2eeManagerSetEnabledRequest {
+    bool enabled = 1;
 }
+message E2eeManagerSetEnabledResponse {}
 
-message E2EEManagerSetEnabledResponse {
-}
-
-message E2EEManagerGetFrameCryptorsRequest {
-    uint64 room_handle = 1;
-}
-
-message FrameCryptor {
-    string participant_id = 1;
-    EncryptionType encryption_type = 2;
-    int32 key_index = 3;
-    bool enabled = 4;
-}
-
-message E2EEManagerGetFrameCryptorsResponse {
+message E2eeManagerGetFrameCryptorsRequest {}
+message E2eeManagerGetFrameCryptorsResponse {
     repeated FrameCryptor frame_cryptors = 1;
 }
 
 message FrameCryptorSetEnabledRequest {
-    uint64 room_handle = 1;
-    string participant_id = 2;
+    string participant_identity = 1;
+    string track_sid = 2;
     bool enabled = 3;
 }
-
-message FrameCryptorSetEnabledResponse {
-}
+message FrameCryptorSetEnabledResponse { }
 
 message FrameCryptorSetKeyIndexRequest {
-    uint64 room_handle = 1;
-    string participant_id = 2;
+    string participant_identity = 1;
+    string track_sid = 2;
     int32 key_index = 3;
 }
+message FrameCryptorSetKeyIndexResponse { }
 
-message FrameCryptorSetKeyIndexResponse {
-}
-
-message KeyProviderSetSharedKeyRequest {
-    uint64 room_handle = 1;
-    string shared_key = 2;
-    int32 key_index = 3;
-}
-
-message KeyProviderSetSharedKeyResponse {
-}
-
-message KeyProviderRachetSharedKeyRequest {
-    uint64 room_handle = 1;
-    int32 key_index = 2;   
-}
-
-message KeyProviderRachetSharedKeyResponse {
-    bytes new_key = 2;
-}
-
-message KeyProviderExportSharedKeyRequest {
-    uint64 room_handle = 1;
+message SetSharedKeyRequest {
+    bytes shared_key = 1;
     int32 key_index = 2;
 }
+message SetSharedKeyResponse { }
 
-message KeyProviderExportSharedKeyResponse {
+message RachetSharedKeyRequest {
+    int32 key_index = 1;   
+}
+message RachetSharedKeyResponse {
+    optional bytes new_key = 1;
+}
+
+message GetSharedKeyRequest {
+    int32 key_index = 1;
+}
+message GetSharedKeyResponse {
+    optional bytes key = 1;
+}
+
+message SetKeyRequest {
+    string participant_identity = 1;
     bytes key = 2;
-}
-
-message KeyProviderSetKeyRequest {
-    uint64 room_handle = 1;
-    string participant_id = 2;
-    string key = 3;
-    int32 key_index = 4;
-}
-
-message KeyProviderSetKeyResponse {
-}
-
-message KeyProviderRachetKeyRequest {
-    uint64 room_handle = 1;
-    string participant_id = 2;
-    int32 key_index = 3;   
-}
-
-message KeyProviderRachetKeyResponse {
-    bytes new_key = 2;
-}
-
-message KeyProviderExportKeyRequest {
-    uint64 room_handle = 1;
-    string participant_id = 2;
     int32 key_index = 3;
 }
+message SetKeyResponse {}
 
-message KeyProviderExportKeyResponse {
-    bytes key = 2;
+message RachetKeyRequest {
+    string participant_identity = 1;
+    int32 key_index = 2;
+}
+message RachetKeyResponse {
+    optional bytes new_key = 1;
 }
 
-message E2EERequest {
+message GetKeyRequest {
+    string participant_identity = 1;
+    int32 key_index = 2;
+}
+message GetKeyResponse {
+    optional bytes key = 1;
+}
+
+message E2eeRequest {
+    uint64 room_handle = 1;
     oneof message {
-        E2EEManagerSetEnabledRequest e2ee_manager_set_enabled = 1;
-        E2EEManagerGetFrameCryptorsRequest e2ee_manager_get_frame_cryptors = 2;
-        FrameCryptorSetEnabledRequest frame_cryptor_set_enabled = 3;
-        FrameCryptorSetKeyIndexRequest frame_cryptor_set_key_index = 4;
-        KeyProviderSetSharedKeyRequest key_provider_set_shared_key = 5;
-        KeyProviderRachetSharedKeyRequest key_provider_rachet_shared_key = 6;
-        KeyProviderExportSharedKeyRequest key_provider_export_shared_key = 7;
-        KeyProviderSetKeyRequest key_provider_set_key = 8;
-        KeyProviderRachetKeyRequest key_provider_rachet_key = 9;
-        KeyProviderExportKeyRequest key_provider_export_key = 10;
+        E2eeManagerSetEnabledRequest manager_set_enabled = 2;
+        E2eeManagerGetFrameCryptorsRequest manager_get_frame_cryptors = 3;
+        FrameCryptorSetEnabledRequest cryptor_set_enabled = 4;
+        FrameCryptorSetKeyIndexRequest cryptor_set_key_index = 5;
+        SetSharedKeyRequest set_shared_key = 6;
+        RachetSharedKeyRequest rachet_shared_key = 7;
+        GetSharedKeyRequest get_shared_key = 8;
+        SetKeyRequest set_key = 9;
+        RachetKeyRequest rachet_key = 10;
+        GetKeyRequest get_key = 11;
     }
 }
 
-message E2EEResponse {
+message E2eeResponse {
     oneof message {
-        E2EEManagerSetEnabledResponse e2ee_manager_set_enabled = 1;
-        E2EEManagerGetFrameCryptorsResponse e2ee_manager_get_frame_cryptors = 2;
-        FrameCryptorSetEnabledResponse frame_cryptor_set_enabled = 3;
-        FrameCryptorSetKeyIndexResponse frame_cryptor_set_key_index = 4;
-        KeyProviderSetSharedKeyResponse key_provider_set_shared_key = 5;
-        KeyProviderRachetSharedKeyResponse key_provider_rachet_shared_key = 6;
-        KeyProviderExportSharedKeyResponse key_provider_export_shared_key = 7;
-        KeyProviderSetKeyResponse key_provider_set_key = 8;
-        KeyProviderRachetKeyResponse key_provider_rachet_key = 9;
-        KeyProviderExportKeyResponse key_provider_export_key = 10;
+        E2eeManagerSetEnabledResponse manager_set_enabled = 1;
+        E2eeManagerGetFrameCryptorsResponse manager_get_frame_cryptors = 2;
+        FrameCryptorSetEnabledResponse cryptor_set_enabled = 3;
+        FrameCryptorSetKeyIndexResponse cryptor_set_key_index = 4;
+        SetSharedKeyResponse set_shared_key = 5;
+        RachetSharedKeyResponse rachet_shared_key = 6;
+        GetSharedKeyResponse get_shared_key = 7;
+        SetKeyResponse set_key = 8;
+        RachetKeyResponse rachet_key = 9;
+        GetKeyResponse get_key = 10;
     }
 }

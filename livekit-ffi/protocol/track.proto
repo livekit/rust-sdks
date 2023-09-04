@@ -75,6 +75,7 @@ message TrackPublicationInfo {
   string mime_type = 8;
   bool muted = 9;
   bool remote = 10;
+  EncryptionType encryption_type = 11;
 }
 
 message OwnedTrackPublication {
