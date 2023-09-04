@@ -85,10 +85,10 @@ message SetSharedKeyRequest {
 }
 message SetSharedKeyResponse { }
 
-message RachetSharedKeyRequest {
+message RatchetSharedKeyRequest {
     int32 key_index = 1;   
 }
-message RachetSharedKeyResponse {
+message RatchetSharedKeyResponse {
     optional bytes new_key = 1;
 }
 
@@ -106,11 +106,11 @@ message SetKeyRequest {
 }
 message SetKeyResponse {}
 
-message RachetKeyRequest {
+message RatchetKeyRequest {
     string participant_identity = 1;
     int32 key_index = 2;
 }
-message RachetKeyResponse {
+message RatchetKeyResponse {
     optional bytes new_key = 1;
 }
 
@@ -130,10 +130,10 @@ message E2eeRequest {
         FrameCryptorSetEnabledRequest cryptor_set_enabled = 4;
         FrameCryptorSetKeyIndexRequest cryptor_set_key_index = 5;
         SetSharedKeyRequest set_shared_key = 6;
-        RachetSharedKeyRequest rachet_shared_key = 7;
+        RatchetSharedKeyRequest ratchet_shared_key = 7;
         GetSharedKeyRequest get_shared_key = 8;
         SetKeyRequest set_key = 9;
-        RachetKeyRequest rachet_key = 10;
+        RatchetKeyRequest ratchet_key = 10;
         GetKeyRequest get_key = 11;
     }
 }
@@ -145,10 +145,10 @@ message E2eeResponse {
         FrameCryptorSetEnabledResponse cryptor_set_enabled = 3;
         FrameCryptorSetKeyIndexResponse cryptor_set_key_index = 4;
         SetSharedKeyResponse set_shared_key = 5;
-        RachetSharedKeyResponse rachet_shared_key = 6;
+        RatchetSharedKeyResponse ratchet_shared_key = 6;
         GetSharedKeyResponse get_shared_key = 7;
         SetKeyResponse set_key = 8;
-        RachetKeyResponse rachet_key = 9;
+        RatchetKeyResponse ratchet_key = 9;
         GetKeyResponse get_key = 10;
     }
 }

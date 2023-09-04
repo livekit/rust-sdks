@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "LiveKit interface to easily use the Rust SDK on other languages"
@@ -23,8 +23,8 @@ livekit-protocol = { path = "../livekit-protocol", version = "0.2.0" }
 tokio = { version = "1", features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
-prost = "0.11"
-prost-types = "0.11"
+prost = "0.12"
+prost-types = "0.12"
 lazy_static = "1.4"
 thiserror = "1.0"
 log = "0.4"

@@ -94,13 +94,13 @@ pub struct SetSharedKeyResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RachetSharedKeyRequest {
+pub struct RatchetSharedKeyRequest {
     #[prost(int32, tag="1")]
     pub key_index: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RachetSharedKeyResponse {
+pub struct RatchetSharedKeyResponse {
     #[prost(bytes="vec", optional, tag="1")]
     pub new_key: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
@@ -132,7 +132,7 @@ pub struct SetKeyResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RachetKeyRequest {
+pub struct RatchetKeyRequest {
     #[prost(string, tag="1")]
     pub participant_identity: ::prost::alloc::string::String,
     #[prost(int32, tag="2")]
@@ -140,7 +140,7 @@ pub struct RachetKeyRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RachetKeyResponse {
+pub struct RatchetKeyResponse {
     #[prost(bytes="vec", optional, tag="1")]
     pub new_key: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
@@ -182,13 +182,13 @@ pub mod e2ee_request {
         #[prost(message, tag="6")]
         SetSharedKey(super::SetSharedKeyRequest),
         #[prost(message, tag="7")]
-        RachetSharedKey(super::RachetSharedKeyRequest),
+        RatchetSharedKey(super::RatchetSharedKeyRequest),
         #[prost(message, tag="8")]
         GetSharedKey(super::GetSharedKeyRequest),
         #[prost(message, tag="9")]
         SetKey(super::SetKeyRequest),
         #[prost(message, tag="10")]
-        RachetKey(super::RachetKeyRequest),
+        RatchetKey(super::RatchetKeyRequest),
         #[prost(message, tag="11")]
         GetKey(super::GetKeyRequest),
     }
@@ -215,13 +215,13 @@ pub mod e2ee_response {
         #[prost(message, tag="5")]
         SetSharedKey(super::SetSharedKeyResponse),
         #[prost(message, tag="6")]
-        RachetSharedKey(super::RachetSharedKeyResponse),
+        RatchetSharedKey(super::RatchetSharedKeyResponse),
         #[prost(message, tag="7")]
         GetSharedKey(super::GetSharedKeyResponse),
         #[prost(message, tag="8")]
         SetKey(super::SetKeyResponse),
         #[prost(message, tag="9")]
-        RachetKey(super::RachetKeyResponse),
+        RatchetKey(super::RatchetKeyResponse),
         #[prost(message, tag="10")]
         GetKey(super::GetKeyResponse),
     }
