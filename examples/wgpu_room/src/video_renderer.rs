@@ -72,8 +72,7 @@ impl VideoRenderer {
                         rgba_stride,
                         buffer.width() as i32,
                         buffer.height() as i32,
-                    )
-                    .unwrap();
+                    );
 
                     internal.render_state.queue.write_texture(
                         wgpu::ImageCopyTexture {

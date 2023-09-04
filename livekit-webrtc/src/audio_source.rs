@@ -40,7 +40,7 @@ impl RtcAudioSource {
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     use super::*;
-    use crate::audio_frame::AudioFrame;
+    use crate::{audio_frame::AudioFrame, RtcError};
     use std::fmt::{Debug, Formatter};
 
     #[derive(Clone)]
@@ -54,21 +54,19 @@ pub mod native {
         }
     }
 
-    impl Default for NativeAudioSource {
-        fn default() -> Self {
-            Self::new(AudioSourceOptions::default())
-        }
-    }
-
     impl NativeAudioSource {
-        pub fn new(options: AudioSourceOptions) -> NativeAudioSource {
+        pub fn new(
+            options: AudioSourceOptions,
+            sample_rate: u32,
+            num_channels: u32,
+        ) -> NativeAudioSource {
             Self {
-                handle: imp_as::NativeAudioSource::new(options),
+                handle: imp_as::NativeAudioSource::new(options, sample_rate, num_channels),
             }
         }
 
-        pub fn capture_frame(&self, frame: &AudioFrame) {
-            self.handle.capture_frame(frame)
+        pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
+            self.handle.capture_frame(frame).await
         }
 
         pub fn set_audio_options(&self, options: AudioSourceOptions) {
@@ -77,6 +75,14 @@ pub mod native {
 
         pub fn audio_options(&self) -> AudioSourceOptions {
             self.handle.audio_options()
+        }
+
+        pub fn sample_rate(&self) -> u32 {
+            self.handle.sample_rate()
+        }
+
+        pub fn num_channels(&self) -> u32 {
+            self.handle.num_channels()
         }
     }
 }

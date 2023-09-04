@@ -26,7 +26,7 @@ message CreateVideoTrackRequest {
   uint64 source_handle = 2;
 }
 message CreateVideoTrackResponse {
-  TrackInfo track = 1;
+  OwnedTrack track = 1;
 }
 
 // Create a new AudioTrack from a AudioSource
@@ -35,7 +35,7 @@ message CreateAudioTrackRequest {
   uint64 source_handle = 2;
 }
 message CreateAudioTrackResponse {
-  TrackInfo track = 1;
+  OwnedTrack track = 1;
 }
 
 //
@@ -65,27 +65,33 @@ enum StreamState {
 }
 
 message TrackPublicationInfo {
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+  TrackSource source = 4;
+  bool simulcasted = 5;
+  uint32 width = 6;
+  uint32 height = 7;
+  string mime_type = 8;
+  bool muted = 9;
+  bool remote = 10;
+}
+
+message OwnedTrackPublication {
   FfiOwnedHandle handle = 1;
-  string sid = 2;
-  string name = 3;
-  TrackKind kind = 4;
-  TrackSource source = 5;
-  bool simulcasted = 6;
-  uint32 width = 7;
-  uint32 height = 8;
-  string mime_type = 9;
-  bool muted = 10;
-  bool remote = 11;
-  EncryptionType encryption_type = 12;
+  TrackPublicationInfo info = 2;
 }
 
 message TrackInfo {
-  FfiOwnedHandle handle = 1;
-  string sid = 2;
-  string name = 3;
-  TrackKind kind = 4;
-  StreamState stream_state = 5;
-  bool muted = 6;
-  bool remote = 7;
+  string sid = 1;
+  string name = 2;
+  TrackKind kind = 3;
+  StreamState stream_state = 4;
+  bool muted = 5;
+  bool remote = 6;
 }
 
+message OwnedTrack {
+  FfiOwnedHandle handle = 1;
+  TrackInfo info = 2;
+}

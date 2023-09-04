@@ -30,7 +30,7 @@ impl FfiVideoSource {
     pub fn setup(
         server: &'static server::FfiServer,
         new_source: proto::NewVideoSourceRequest,
-    ) -> FfiResult<proto::VideoSourceInfo> {
+    ) -> FfiResult<proto::OwnedVideoSource> {
         let source_type = new_source.r#type();
         #[allow(unreachable_patterns)]
         let source_inner = match source_type {
@@ -49,20 +49,19 @@ impl FfiVideoSource {
             }
         };
 
+        let handle_id = server.next_id();
         let video_source = Self {
-            handle_id: server.next_id(),
+            handle_id,
             source_type,
             source: source_inner,
         };
-        let source_info = proto::VideoSourceInfo::from(
-            proto::FfiOwnedHandle {
-                id: video_source.handle_id,
-            },
-            &video_source,
-        );
+        let source_info = proto::VideoSourceInfo::from(&video_source);
+        server.store_handle(handle_id, video_source);
 
-        server.store_handle(video_source.handle_id, video_source);
-        Ok(source_info)
+        Ok(proto::OwnedVideoSource {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(source_info),
+        })
     }
 
     pub fn capture_frame(

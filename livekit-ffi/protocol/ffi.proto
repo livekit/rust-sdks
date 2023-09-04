@@ -140,6 +140,7 @@ message FfiEvent {
     PublishTrackCallback publish_track = 8;
     UnpublishTrackCallback unpublish_track = 9;
     PublishDataCallback publish_data = 10;
+    CaptureAudioFrameCallback capture_audio_frame = 11;
   }
 }
 

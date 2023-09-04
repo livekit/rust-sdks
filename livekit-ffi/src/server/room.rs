@@ -105,9 +105,10 @@ impl FfiRoom {
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
                     let (close_tx, close_rx) = broadcast::channel(1);
 
+                    let handle_id = server.next_id();
                     let inner = Arc::new(RoomInner {
                         room,
-                        handle_id: server.next_id(),
+                        handle_id,
                         data_tx,
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
@@ -117,10 +118,6 @@ impl FfiRoom {
                         build_initial_states(server, &inner, participants_with_tracks);
 
                     // Send callback
-                    let room_handle = proto::FfiOwnedHandle {
-                        id: inner.handle_id,
-                    };
-
                     let ffi_room = Self {
                         inner: inner.clone(),
                         handle: Default::default(),
@@ -130,6 +127,7 @@ impl FfiRoom {
                     // Keep the lock until the handle is "Some" (So it is OK for the client to request a disconnect quickly after connecting)
                     // (When requesting a disconnect, the handle will still be locked and the disconnect will wait for the lock to be released and gracefully close the room)
                     let mut handle = ffi_room.handle.lock().await;
+                    let room_info = proto::RoomInfo::from(&ffi_room);
 
                     // Send the async response to the FfiClient *before* starting the tasks.
                     // Ensure no events are sent before the callback
@@ -137,7 +135,10 @@ impl FfiRoom {
                         .send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
                             async_id,
                             error: None,
-                            room: Some(proto::RoomInfo::from(room_handle, &ffi_room)),
+                            room: Some(proto::OwnedRoom {
+                                handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                                info: Some(room_info),
+                            }),
                             local_participant: Some(local_info),
                             participants: remote_infos,
                         }))
@@ -245,25 +246,23 @@ impl RoomInner {
             match publish_res {
                 Ok(publication) => {
                     // Successfully published the track
+                    let handle_id = server.next_id();
                     let ffi_publication = FfiPublication {
-                        handle: server.next_id(),
+                        handle: handle_id,
                         publication: TrackPublication::Local(publication.clone()),
                     };
 
-                    let publication_info = proto::TrackPublicationInfo::from(
-                        proto::FfiOwnedHandle {
-                            id: ffi_publication.handle,
-                        },
-                        &ffi_publication,
-                    );
-
+                    let publication_info = proto::TrackPublicationInfo::from(&ffi_publication);
                     server.store_handle(ffi_publication.handle, ffi_publication);
 
                     let _ = server
                         .send_event(proto::ffi_event::Message::PublishTrack(
                             proto::PublishTrackCallback {
                                 async_id,
-                                publication: Some(publication_info),
+                                publication: Some(proto::OwnedTrackPublication {
+                                    handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                                    info: Some(publication_info),
+                                }),
                                 ..Default::default()
                             },
                         ))
@@ -398,10 +397,10 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
 
             let _ = send_event(proto::room_event::Message::ParticipantConnected(
                 proto::ParticipantConnected {
-                    info: Some(proto::ParticipantInfo::from(
-                        proto::FfiOwnedHandle { id: handle_id },
-                        &ffi_participant,
-                    )),
+                    info: Some(proto::OwnedParticipant {
+                        handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                        info: Some(proto::ParticipantInfo::from(&ffi_participant)),
+                    }),
                 },
             ))
             .await;
@@ -462,24 +461,22 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             publication,
             participant,
         } => {
+            let handle_id = server.next_id();
             let ffi_publication = FfiPublication {
-                handle: server.next_id(),
+                handle: handle_id,
                 publication: TrackPublication::Remote(publication),
             };
 
-            let publication_info = proto::TrackPublicationInfo::from(
-                proto::FfiOwnedHandle {
-                    id: ffi_publication.handle,
-                },
-                &ffi_publication,
-            );
-
+            let publication_info = proto::TrackPublicationInfo::from(&ffi_publication);
             server.store_handle(ffi_publication.handle, ffi_publication);
 
             let _ = send_event(proto::room_event::Message::TrackPublished(
                 proto::TrackPublished {
                     participant_sid: participant.sid().to_string(),
-                    publication: Some(publication_info),
+                    publication: Some(proto::OwnedTrackPublication {
+                        handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                        info: Some(publication_info),
+                    }),
                 },
             ))
             .await;
@@ -501,24 +498,22 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             publication: _,
             participant,
         } => {
+            let handle_id = server.next_id();
             let ffi_track = FfiTrack {
-                handle: server.next_id(),
+                handle: handle_id,
                 track: track.into(),
             };
 
-            let track_info = proto::TrackInfo::from(
-                proto::FfiOwnedHandle {
-                    id: ffi_track.handle,
-                },
-                &ffi_track,
-            );
-
+            let track_info = proto::TrackInfo::from(&ffi_track);
             server.store_handle(ffi_track.handle, ffi_track);
 
             let _ = send_event(proto::room_event::Message::TrackSubscribed(
                 proto::TrackSubscribed {
                     participant_sid: participant.sid().to_string(),
-                    track: Some(track_info),
+                    track: Some(proto::OwnedTrack {
+                        handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                        info: Some(track_info),
+                    }),
                 },
             ))
             .await;
@@ -600,23 +595,25 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             kind,
             participant,
         } => {
-            let next_id = server.next_id();
+            let handle_id = server.next_id();
             let buffer_info = proto::BufferInfo {
-                handle: Some(proto::FfiOwnedHandle { id: next_id }),
                 data_ptr: payload.as_ptr() as u64,
                 data_len: payload.len() as u64,
             };
 
             server.store_handle(
-                next_id,
+                handle_id,
                 FfiDataBuffer {
-                    handle: next_id,
+                    handle: handle_id,
                     data: payload,
                 },
             );
             let _ = send_event(proto::room_event::Message::DataReceived(
                 proto::DataReceived {
-                    data: Some(buffer_info),
+                    data: Some(proto::OwnedBuffer {
+                        handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                        data: Some(buffer_info),
+                    }),
                     participant_sid: Some(participant.sid().to_string()),
                     kind: proto::DataPacketKind::from(kind).into(),
                 },
@@ -672,63 +669,65 @@ fn build_initial_states(
     inner: &Arc<RoomInner>,
     participants_with_tracks: Vec<(RemoteParticipant, Vec<RemoteTrackPublication>)>,
 ) -> (
-    proto::ParticipantInfo,
+    proto::OwnedParticipant,
     Vec<proto::connect_callback::ParticipantWithTracks>,
 ) {
     let local_participant = inner.room.local_participant(); // Is it too late to get the local participant info here?
+    let handle_id = server.next_id();
     let local_participant = FfiParticipant {
-        handle: server.next_id(),
+        handle: handle_id,
         participant: Participant::Local(local_participant),
         room: inner.clone(),
     };
-    server.store_handle(local_participant.handle, local_participant.clone());
 
-    let local_info = proto::ParticipantInfo::from(
-        proto::FfiOwnedHandle {
-            id: local_participant.handle,
-        },
-        &local_participant,
-    );
+    let local_info = proto::ParticipantInfo::from(&local_participant);
+    server.store_handle(local_participant.handle, local_participant);
 
     let remote_infos = participants_with_tracks
         .into_iter()
         .map(|(participant, tracks)| {
+            let handle_id = server.next_id();
             let ffi_participant = FfiParticipant {
-                handle: server.next_id(),
+                handle: handle_id,
                 participant: Participant::Remote(participant),
                 room: inner.clone(),
             };
-            server.store_handle(ffi_participant.handle, ffi_participant.clone());
 
-            let remote_info = proto::ParticipantInfo::from(
-                proto::FfiOwnedHandle {
-                    id: ffi_participant.handle,
-                },
-                &ffi_participant,
-            );
+            let remote_info = proto::ParticipantInfo::from(&ffi_participant);
+            server.store_handle(ffi_participant.handle, ffi_participant);
 
             proto::connect_callback::ParticipantWithTracks {
-                participant: Some(remote_info),
+                participant: Some(proto::OwnedParticipant {
+                    handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                    info: Some(remote_info),
+                }),
                 publications: tracks
                     .into_iter()
                     .map(|track| {
+                        let handle_id = server.next_id();
                         let ffi_publication = FfiPublication {
-                            handle: server.next_id(),
+                            handle: handle_id,
                             publication: TrackPublication::Remote(track),
                         };
-                        server.store_handle(ffi_publication.handle, ffi_publication.clone());
 
-                        proto::TrackPublicationInfo::from(
-                            proto::FfiOwnedHandle {
-                                id: ffi_publication.handle,
-                            },
-                            &ffi_publication,
-                        )
+                        let track_info = proto::TrackPublicationInfo::from(&ffi_publication);
+                        server.store_handle(ffi_publication.handle, ffi_publication);
+
+                        proto::OwnedTrackPublication {
+                            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                            info: Some(track_info),
+                        }
                     })
                     .collect::<Vec<_>>(),
             }
         })
         .collect::<Vec<_>>();
 
-    (local_info, remote_infos)
+    (
+        proto::OwnedParticipant {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(local_info),
+        },
+        remote_infos,
+    )
 }

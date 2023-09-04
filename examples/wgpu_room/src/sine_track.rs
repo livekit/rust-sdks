@@ -1,27 +1,27 @@
 use livekit::options::TrackPublishOptions;
 use livekit::webrtc::audio_frame::AudioFrame;
 use livekit::webrtc::audio_source::RtcAudioSource;
+use livekit::webrtc::prelude::AudioSourceOptions;
 use livekit::{prelude::*, webrtc::audio_source::native::NativeAudioSource};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 #[derive(Clone)]
-struct FrameData {
+pub struct SineParameters {
     pub sample_rate: u32,
     pub freq: f64,
     pub amplitude: f64,
-    pub phase: u64,
+    pub num_channels: u32,
 }
 
-impl Default for FrameData {
+impl Default for SineParameters {
     fn default() -> Self {
         Self {
             sample_rate: 48000,
             freq: 440.0,
             amplitude: 1.0,
-            phase: 0,
+            num_channels: 2,
         }
     }
 }
@@ -34,14 +34,20 @@ struct TrackHandle {
 
 pub struct SineTrack {
     rtc_source: NativeAudioSource,
+    params: SineParameters,
     room: Arc<Room>,
     handle: Option<TrackHandle>,
 }
 
 impl SineTrack {
-    pub fn new(room: Arc<Room>) -> Self {
+    pub fn new(room: Arc<Room>, params: SineParameters) -> Self {
         Self {
-            rtc_source: NativeAudioSource::default(),
+            rtc_source: NativeAudioSource::new(
+                AudioSourceOptions::default(),
+                params.sample_rate,
+                params.num_channels,
+            ),
+            params,
             room,
             handle: None,
         }
@@ -58,7 +64,11 @@ impl SineTrack {
             RtcAudioSource::Native(self.rtc_source.clone()),
         );
 
-        let task = tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone()));
+        let task = tokio::spawn(Self::track_task(
+            close_rx,
+            self.rtc_source.clone(),
+            self.params.clone(),
+        ));
 
         self.room
             .local_participant()
@@ -94,50 +104,46 @@ impl SineTrack {
         Ok(())
     }
 
-    async fn track_task(mut close_rx: oneshot::Receiver<()>, rtc_source: NativeAudioSource) {
-        let mut data = FrameData::default();
-        let mut interval = tokio::time::interval(Duration::from_millis(10));
-        let mut samples_10ms = Vec::<i16>::new();
-
+    async fn track_task(
+        mut close_rx: oneshot::Receiver<()>,
+        rtc_source: NativeAudioSource,
+        params: SineParameters,
+    ) {
+        let num_channels = params.num_channels as usize;
+        let samples_count = (params.sample_rate / 100) as usize * num_channels;
+        let mut samples_10ms = vec![0; samples_count];
+        let mut phase = 0;
         loop {
-            tokio::select! {
-                _ = &mut close_rx => {
-                    break;
-                }
-                _ = interval.tick() => {}
+            if close_rx.try_recv().is_ok() {
+                break;
             }
 
-            const NUM_CHANNELS: usize = 2;
-
-            let samples_count_10ms = (data.sample_rate / 100) as usize * NUM_CHANNELS;
-
-            if samples_10ms.capacity() != samples_count_10ms {
-                samples_10ms.resize(samples_count_10ms, 0i16);
-            }
-
-            for i in (0..samples_count_10ms).step_by(NUM_CHANNELS) {
-                let val = data.amplitude
+            for i in (0..samples_count).step_by(num_channels) {
+                let val = params.amplitude
                     * f64::sin(
                         std::f64::consts::PI
                             * 2.0
-                            * data.freq
-                            * (data.phase as f64 / data.sample_rate as f64),
+                            * params.freq
+                            * (phase as f64 / params.sample_rate as f64),
                     );
 
-                data.phase += 1;
+                phase += 1;
 
-                for c in 0..NUM_CHANNELS {
+                for c in 0..num_channels {
                     // WebRTC uses 16-bit signed PCM
                     samples_10ms[i + c] = (val * 32768.0) as i16;
                 }
             }
 
-            rtc_source.capture_frame(&AudioFrame {
-                data: samples_10ms.clone(),
-                sample_rate: data.sample_rate as u32,
-                num_channels: NUM_CHANNELS as u32,
-                samples_per_channel: samples_count_10ms as u32,
-            });
+            rtc_source
+                .capture_frame(&AudioFrame {
+                    data: samples_10ms.as_slice().into(),
+                    sample_rate: params.sample_rate,
+                    num_channels: params.num_channels,
+                    samples_per_channel: samples_count as u32 / params.num_channels,
+                })
+                .await
+                .unwrap();
         }
     }
 }

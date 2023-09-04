@@ -34,17 +34,17 @@ message ConnectResponse {
 }
 message ConnectCallback {
   message ParticipantWithTracks {
-    ParticipantInfo participant = 1;
+    OwnedParticipant participant = 1;
 
     // TrackInfo are not needed here, if we're subscribed to a track, the FfiServer will send
     // a TrackSubscribed event
-    repeated TrackPublicationInfo publications = 2;
+    repeated OwnedTrackPublication publications = 2;
   }
 
   uint64 async_id = 1;
   optional string error = 2;
-  RoomInfo room = 3;
-  ParticipantInfo local_participant = 4;
+  OwnedRoom room = 3;
+  OwnedParticipant local_participant = 4;
   repeated ParticipantWithTracks participants = 5;
 }
 
@@ -65,7 +65,7 @@ message PublishTrackResponse {
 message PublishTrackCallback {
   uint64 async_id = 1;
   optional string error = 2;
-  TrackPublicationInfo publication = 3;
+  OwnedTrackPublication publication = 3;
 }
 
 // Unpublish a track from the room
@@ -159,9 +159,13 @@ enum DataPacketKind {
 }
 
 message BufferInfo {
+  uint64 data_ptr = 1;
+  uint64 data_len = 2;
+}
+
+message OwnedBuffer {
   FfiOwnedHandle handle = 1;
-  uint64 data_ptr = 2;
-  uint64 data_len = 3;
+  BufferInfo data = 2;
 }
 
 message RoomEvent {
@@ -182,7 +186,7 @@ message RoomEvent {
     ConnectionQualityChanged connection_quality_changed = 14;
     DataReceived data_received = 15;
     ConnectionStateChanged connection_state_changed = 16;
-    Connected connected = 17;
+    // Connected connected = 17;
     Disconnected disconnected = 18;
     Reconnecting reconnecting = 19;
     Reconnected reconnected = 20;
@@ -191,13 +195,17 @@ message RoomEvent {
 }
 
 message RoomInfo {
-  FfiOwnedHandle handle = 1;
-  string sid = 2;
-  string name = 3;
-  string metadata = 4;
+  string sid = 1;
+  string name = 2;
+  string metadata = 3;
 }
 
-message ParticipantConnected { ParticipantInfo info = 1; }
+message OwnedRoom {
+  FfiOwnedHandle handle = 1;
+  RoomInfo info = 2;
+}
+
+message ParticipantConnected { OwnedParticipant info = 1; }
 
 message ParticipantDisconnected { 
   string participant_sid = 1;
@@ -215,7 +223,7 @@ message LocalTrackUnpublished {
 
 message TrackPublished {
   string participant_sid = 1;
-  TrackPublicationInfo publication = 2;
+  OwnedTrackPublication publication = 2;
 }
 
 message TrackUnpublished {
@@ -227,7 +235,7 @@ message TrackUnpublished {
 // The FFI will retrieve the publication using the Track sid
 message TrackSubscribed {
   string participant_sid = 1;
-  TrackInfo track = 2;
+  OwnedTrack track = 2;
 }
 
 message TrackUnsubscribed {
@@ -267,7 +275,7 @@ message ConnectionQualityChanged {
 }
 
 message DataReceived {
-  BufferInfo data = 1;
+  OwnedBuffer data = 1;
   optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
   DataPacketKind kind = 3;
 }
