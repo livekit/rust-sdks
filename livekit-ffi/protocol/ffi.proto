@@ -18,6 +18,7 @@ package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 // import "handle.proto";
+import "e2ee.proto";
 import "track.proto";
 import "room.proto";
 import "video_frame.proto";
@@ -83,6 +84,7 @@ message FfiRequest {
     CaptureAudioFrameRequest capture_audio_frame = 20;
     NewAudioResamplerRequest new_audio_resampler = 21;
     RemixAndResampleRequest remix_and_resample = 22;
+    E2eeRequest e2ee = 23;
   }
 }
 
@@ -119,6 +121,7 @@ message FfiResponse {
     CaptureAudioFrameResponse capture_audio_frame = 20;
     NewAudioResamplerResponse new_audio_resampler = 21;
     RemixAndResampleResponse remix_and_resample = 22;
+    E2eeResponse e2ee = 23;
   }
 }
 

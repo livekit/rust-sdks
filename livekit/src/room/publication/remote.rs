@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
+use crate::e2ee::EncryptionType;
 use crate::prelude::*;
 use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
@@ -304,5 +305,9 @@ impl RemoteTrackPublication {
 
     pub fn is_remote(&self) -> bool {
         true
+    }
+
+    pub fn encryption_type(&self) -> EncryptionType {
+        self.inner.info.read().encryption_type
     }
 }

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use super::track::TrackDimension;
-use crate::prelude::*;
 use crate::track::Track;
+use crate::{e2ee::EncryptionType, prelude::*};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
@@ -57,6 +57,7 @@ impl TrackPublication {
         pub fn mime_type(self: &Self) -> String;
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
+        pub fn encryption_type(self: &Self) -> EncryptionType;
 
         pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
         pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
@@ -91,6 +92,7 @@ struct PublicationInfo {
     pub mime_type: String,
     pub muted: bool,
     pub proto_info: proto::TrackInfo,
+    pub encryption_type: EncryptionType,
 }
 
 pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
@@ -116,6 +118,7 @@ pub(super) fn new_inner(
         proto_info: info.clone(),
         source: info.source().try_into().unwrap(),
         kind: info.r#type().try_into().unwrap(),
+        encryption_type: info.encryption().into(),
         name: info.name,
         sid: info.sid.try_into().unwrap(),
         simulcasted: info.simulcast,
@@ -138,6 +141,7 @@ pub(super) fn update_info(
     let mut info = inner.info.write();
     info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
     info.source = TrackSource::from(new_info.source());
+    info.encryption_type = new_info.encryption().into();
     info.proto_info = new_info.clone();
     info.name = new_info.name;
     info.sid = new_info.sid.try_into().unwrap();

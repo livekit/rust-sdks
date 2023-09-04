@@ -13,8 +13,10 @@
 // limitations under the License.
 
 use super::TrackPublicationInner;
+use crate::e2ee::EncryptionType;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
+
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use std::fmt::Debug;
@@ -133,5 +135,9 @@ impl LocalTrackPublication {
 
     pub fn is_remote(&self) -> bool {
         false
+    }
+
+    pub fn encryption_type(&self) -> EncryptionType {
+        self.inner.info.read().encryption_type
     }
 }

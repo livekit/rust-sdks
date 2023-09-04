@@ -36,6 +36,7 @@ fn main() {
         "src/audio_track.rs",
         "src/video_track.rs",
         "src/data_channel.rs",
+        "src/frame_cryptor.rs",
         "src/jsep.rs",
         "src/candidate.rs",
         "src/rtp_parameters.rs",
@@ -85,6 +86,7 @@ fn main() {
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",
         "src/audio_resampler.cpp",
+        "src/frame_cryptor.cpp",
     ]);
 
     println!(

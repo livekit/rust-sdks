@@ -4,7 +4,7 @@ use crate::{
     video_renderer::VideoRenderer,
 };
 use egui::{Rounding, Stroke};
-use livekit::{prelude::*, SimulateScenario};
+use livekit::{e2ee::EncryptionType, prelude::*, SimulateScenario};
 use std::collections::HashMap;
 
 /// The state of the application are saved on app exit and restored on app start.
@@ -13,7 +13,9 @@ use std::collections::HashMap;
 struct AppState {
     url: String,
     token: String,
+    key: String,
     auto_subscribe: bool,
+    enable_e2ee: bool,
 }
 
 pub struct LkApp {
@@ -32,6 +34,8 @@ impl Default for AppState {
             url: "ws://localhost:7880".to_string(),
             token: "".to_string(),
             auto_subscribe: true,
+            enable_e2ee: false,
+            key: "".to_string(),
         }
     }
 }
@@ -122,6 +126,10 @@ impl LkApp {
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
                     }
+                    RoomEvent::E2eeStateChanged { participant, state } => {
+                        let identity = participant.identity();
+                        log::info!("e2ee state changed {} - {:?}", identity, state)
+                    }
                     _ => {}
                 }
             }
@@ -180,6 +188,17 @@ impl LkApp {
         });
 
         ui.horizontal(|ui| {
+            ui.label("E2EE Key: ");
+            ui.text_edit_singleline(&mut self.state.key);
+        });
+
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(true, |ui| {
+                ui.checkbox(&mut self.state.enable_e2ee, "Enable E2EE");
+            });
+        });
+
+        ui.horizontal(|ui| {
             ui.add_enabled_ui(!connected && !self.connecting, |ui| {
                 if ui.button("Connect").clicked() {
                     self.connecting = true;
@@ -188,18 +207,22 @@ impl LkApp {
                         url: self.state.url.clone(),
                         token: self.state.token.clone(),
                         auto_subscribe: self.state.auto_subscribe,
+                        enable_e2ee: self.state.enable_e2ee,
+                        key: self.state.key.clone(),
                     });
                 }
             });
 
             if self.connecting {
                 ui.spinner();
-            } else if connected {
-                if ui.button("Disconnect").clicked() {
-                    let _ = self.service.send(AsyncCmd::RoomDisconnect);
-                }
+            } else if connected && ui.button("Disconnect").clicked() {
+                let _ = self.service.send(AsyncCmd::RoomDisconnect);
             }
         });
+
+        if ui.button("E2eeKeyRatchet").clicked() {
+            let _ = self.service.send(AsyncCmd::E2eeKeyRatchet);
+        }
 
         ui.horizontal(|ui| {
             ui.add_enabled_ui(true, |ui| {
@@ -230,7 +253,9 @@ impl LkApp {
         ui.label("Participants");
         ui.separator();
 
-        let Some(room) = self.service.room() else { return; };
+        let Some(room) = self.service.room() else {
+            return;
+        };
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
@@ -239,17 +264,27 @@ impl LkApp {
                 .keys()
                 .cloned()
                 .collect::<Vec<ParticipantSid>>();
-            sorted_participants.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+            sorted_participants.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
             for psid in sorted_participants {
                 let participant = participants.get(&psid).unwrap();
                 let tracks = participant.tracks();
                 let mut sorted_tracks = tracks.keys().cloned().collect::<Vec<TrackSid>>();
-                sorted_tracks.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                sorted_tracks.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
                 ui.monospace(&participant.identity().0);
                 for tsid in sorted_tracks {
                     let publication = tracks.get(&tsid).unwrap().clone();
+
+                    ui.horizontal(|ui| {
+                        ui.label("Encrypted - ");
+                        let enc_type = publication.encryption_type();
+                        if enc_type == EncryptionType::None {
+                            ui.colored_label(egui::Color32::RED, format!("{:?}", enc_type));
+                        } else {
+                            ui.colored_label(egui::Color32::GREEN, format!("{:?}", enc_type));
+                        }
+                    });
 
                     ui.label(format!(
                         "{} - {:?}",
@@ -274,10 +309,8 @@ impl LkApp {
                                     .service
                                     .send(AsyncCmd::UnsubscribeTrack { publication });
                             }
-                        } else {
-                            if ui.button("Subscribe").clicked() {
-                                let _ = self.service.send(AsyncCmd::SubscribeTrack { publication });
-                            }
+                        } else if ui.button("Subscribe").clicked() {
+                            let _ = self.service.send(AsyncCmd::SubscribeTrack { publication });
                         }
                     });
                 }

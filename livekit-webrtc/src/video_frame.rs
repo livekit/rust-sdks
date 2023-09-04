@@ -399,7 +399,7 @@ pub mod native {
     new_buffer_type!(NativeBuffer, Native, as_native);
 
     pub trait I420BufferExt {
-        fn new(width: u32, height: u32) -> I420Buffer;
+        fn new(width: u32, height: u32) -> Self;
     }
 
     impl I420BufferExt for I420Buffer {

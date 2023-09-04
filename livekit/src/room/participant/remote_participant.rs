@@ -89,6 +89,7 @@ impl RemoteParticipant {
         &self,
         sid: TrackSid,
         media_track: MediaStreamTrack,
+        transceiver: RtpTransceiver,
     ) {
         let wait_publication = {
             let participant = self.clone();
@@ -132,6 +133,8 @@ impl RemoteParticipant {
                     }
                 }
             };
+
+            track.set_transceiver(Some(transceiver));
 
             log::debug!("starting track: {:?}", sid);
 

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use self::e2ee::manager::E2eeManager;
+use self::e2ee::E2eeOptions;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::rtc_engine::EngineError;
@@ -19,6 +21,7 @@ use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
+use livekit_webrtc::native::frame_cryptor::EncryptionState;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -31,6 +34,7 @@ use tokio::task::JoinHandle;
 pub use crate::rtc_engine::SimulateScenario;
 pub use proto::DisconnectReason;
 
+pub mod e2ee;
 pub mod id;
 pub mod options;
 pub mod participant;
@@ -108,6 +112,10 @@ pub enum RoomEvent {
         kind: DataPacketKind,
         participant: RemoteParticipant,
     },
+    E2eeStateChanged {
+        participant: Participant,
+        state: EncryptionState,
+    },
     ConnectionStateChanged(ConnectionState),
     Connected {
         /// Initial participants & their tracks prior to joining the room
@@ -135,11 +143,12 @@ pub enum DataPacketKind {
     Reliable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub dynacast: bool,
+    pub e2ee: Option<E2eeOptions>,
 }
 
 impl Default for RoomOptions {
@@ -148,6 +157,7 @@ impl Default for RoomOptions {
             auto_subscribe: true,
             adaptive_stream: false,
             dynacast: false,
+            e2ee: None,
         }
     }
 }
@@ -178,6 +188,9 @@ impl Room {
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
+        let e2ee_options = options.e2ee.clone();
+
+        let e2ee_manager = E2eeManager::new(e2ee_options);
         let (rtc_engine, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -197,27 +210,35 @@ impl Room {
             pi.identity.into(),
             pi.name,
             pi.metadata,
+            e2ee_manager.encryption_type(),
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
         local_participant.on_local_track_published({
             let dispatcher = dispatcher.clone();
+            let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                dispatcher.dispatch(&RoomEvent::LocalTrackPublished {
-                    participant,
+                let track = publication.track().unwrap();
+                let event = RoomEvent::LocalTrackPublished {
+                    participant: participant.clone(),
                     publication: publication.clone(),
-                    track: publication.track().unwrap(),
-                });
+                    track: track.clone(),
+                };
+                e2ee_manager.on_local_track_published(track, publication, participant);
+                dispatcher.dispatch(&event);
             }
         });
 
         local_participant.on_local_track_unpublished({
             let dispatcher = dispatcher.clone();
+            let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                dispatcher.dispatch(&RoomEvent::LocalTrackUnpublished {
-                    publication,
-                    participant,
-                });
+                let event = RoomEvent::LocalTrackUnpublished {
+                    participant: participant.clone(),
+                    publication: publication.clone(),
+                };
+                e2ee_manager.on_local_track_unpublished(publication, participant);
+                dispatcher.dispatch(&event);
             }
         });
 
@@ -234,7 +255,8 @@ impl Room {
             options,
             rtc_engine,
             local_participant,
-            dispatcher,
+            dispatcher: dispatcher.clone(),
+            e2ee_manager: e2ee_manager.clone(),
         });
 
         for pi in join_response.other_participants {
@@ -249,6 +271,35 @@ impl Room {
             };
             participant.update_info(pi.clone());
         }
+
+        e2ee_manager.on_state_changed({
+            let dispatcher = dispatcher.clone();
+            let inner = inner.clone();
+            move |participant_identity, state| {
+                // Forward e2ee events to the room
+                // (Ignore if the participant is not in the room anymore)
+
+                let participant = if participant_identity.as_str()
+                    == inner.local_participant.identity().as_str()
+                {
+                    Participant::Local(inner.local_participant.clone())
+                } else {
+                    let participants = inner.participants.read();
+                    let p = participants
+                        .iter()
+                        .find(|(_, p)| p.identity().as_str() == participant_identity.as_str());
+
+                    if let Some((_, participant)) = p {
+                        Participant::Remote(participant.clone())
+                    } else {
+                        // Ignore if the participant disconnected
+                        return;
+                    }
+                };
+
+                dispatcher.dispatch(&RoomEvent::E2eeStateChanged { participant, state });
+            }
+        });
 
         // Get the initial states (Can be useful on some usecases, like the FfiServer)
         // Getting them here ensure nothing happening before (Like a new participant joining) because the room task
@@ -323,6 +374,10 @@ impl Room {
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.rtc_engine.simulate_scenario(scenario).await
     }
+
+    pub fn e2ee_manager(&self) -> &E2eeManager {
+        &self.inner.e2ee_manager
+    }
 }
 
 struct RoomInfo {
@@ -340,6 +395,7 @@ pub(crate) struct RoomSession {
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
     participants: RwLock<HashMap<ParticipantSid, RemoteParticipant>>,
+    e2ee_manager: E2eeManager,
 }
 
 impl Debug for RoomSession {
@@ -382,6 +438,7 @@ impl RoomSession {
                 track,
                 stream,
                 receiver: _,
+                transceiver,
             } => {
                 let stream_id = stream.id();
                 let lk_stream_id = unpack_stream_id(&stream_id);
@@ -400,7 +457,7 @@ impl RoomSession {
                 if let Some(remote_participant) = remote_participant {
                     tokio::spawn(async move {
                         remote_participant
-                            .add_subscribed_media_track(track_sid, track)
+                            .add_subscribed_media_track(track_sid, track, transceiver)
                             .await;
                     });
                 } else {
@@ -444,6 +501,7 @@ impl RoomSession {
 
     async fn close(&self) {
         self.rtc_engine.close().await;
+        self.e2ee_manager.cleanup();
     }
 
     /// Change the connection state and emit an event
@@ -718,21 +776,27 @@ impl RoomSession {
         });
 
         let dispatcher = self.dispatcher.clone();
+        let e2ee_manager = self.e2ee_manager.clone();
         participant.on_track_subscribed(move |participant, publication, track| {
-            dispatcher.dispatch(&RoomEvent::TrackSubscribed {
-                participant,
-                track,
-                publication,
-            });
+            let event = RoomEvent::TrackSubscribed {
+                participant: participant.clone(),
+                track: track.clone(),
+                publication: publication.clone(),
+            };
+            e2ee_manager.on_track_subscribed(track, publication, participant);
+            dispatcher.dispatch(&event);
         });
 
         let dispatcher = self.dispatcher.clone();
+        let e2ee_manager = self.e2ee_manager.clone();
         participant.on_track_unsubscribed(move |participant, publication, track| {
-            dispatcher.dispatch(&RoomEvent::TrackUnsubscribed {
-                participant,
-                track,
-                publication,
-            });
+            let event = RoomEvent::TrackUnsubscribed {
+                participant: participant.clone(),
+                track: track.clone(),
+                publication: publication.clone(),
+            };
+            e2ee_manager.on_track_unsubscribed(track, publication, participant);
+            dispatcher.dispatch(&event);
         });
 
         let dispatcher = self.dispatcher.clone();

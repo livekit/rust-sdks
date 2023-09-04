@@ -26,4 +26,5 @@ protoc \
     $PROTOCOL/track.proto \
     $PROTOCOL/participant.proto \
     $PROTOCOL/video_frame.proto \
-    $PROTOCOL/audio_frame.proto 
+    $PROTOCOL/audio_frame.proto \
+    $PROTOCOL/e2ee.proto

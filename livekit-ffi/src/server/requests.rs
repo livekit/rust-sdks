@@ -17,7 +17,7 @@ use super::{
     audio_source, audio_stream, room, video_source, video_stream, FfiConfig, FfiError, FfiResult,
     FfiServer,
 };
-use crate::proto;
+use crate::proto::{self};
 use livekit::prelude::*;
 use livekit::webrtc::native::{audio_resampler, yuv_helper};
 use livekit::webrtc::prelude::*;
@@ -471,6 +471,121 @@ fn remix_and_resample(
     })
 }
 
+// Manage e2ee
+fn on_e2ee_request(
+    server: &'static FfiServer,
+    request: proto::E2eeRequest,
+) -> FfiResult<proto::E2eeResponse> {
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?;
+    let e2ee_manager = ffi_room.inner.room.e2ee_manager();
+
+    let request = request
+        .message
+        .ok_or(FfiError::InvalidRequest("message is empty".into()))?;
+
+    let msg = match request {
+        proto::e2ee_request::Message::ManagerSetEnabled(request) => {
+            e2ee_manager.set_enabled(request.enabled);
+            proto::e2ee_response::Message::ManagerSetEnabled(
+                proto::E2eeManagerSetEnabledResponse {},
+            )
+        }
+        proto::e2ee_request::Message::ManagerGetFrameCryptors(_) => {
+            // TODO(theomonnom): Mb we should create OwnedFrameCryptor?
+            let proto_frame_cryptors: Vec<proto::FrameCryptor> = e2ee_manager
+                .frame_cryptors()
+                .into_iter()
+                .map(|((identity, track_sid), fc)| proto::FrameCryptor {
+                    participant_identity: identity.to_string(),
+                    track_sid: track_sid.to_string(),
+                    enabled: fc.enabled(),
+                    key_index: fc.key_index(),
+                })
+                .collect();
+
+            proto::e2ee_response::Message::ManagerGetFrameCryptors(
+                proto::E2eeManagerGetFrameCryptorsResponse {
+                    frame_cryptors: proto_frame_cryptors,
+                },
+            )
+        }
+        proto::e2ee_request::Message::CryptorSetEnabled(request) => {
+            let identity = request.participant_identity.try_into().unwrap();
+            let track_sid = request.track_sid.try_into().unwrap();
+
+            if let Some(frame_cryptor) = e2ee_manager.frame_cryptors().get(&(identity, track_sid)) {
+                frame_cryptor.set_enabled(request.enabled);
+            }
+
+            proto::e2ee_response::Message::CryptorSetEnabled(
+                proto::FrameCryptorSetEnabledResponse {},
+            )
+        }
+        proto::e2ee_request::Message::CryptorSetKeyIndex(request) => {
+            let identity = request.participant_identity.try_into().unwrap();
+            let track_sid = request.track_sid.try_into().unwrap();
+
+            if let Some(frame_cryptor) = e2ee_manager.frame_cryptors().get(&(identity, track_sid)) {
+                frame_cryptor.set_key_index(request.key_index);
+            };
+
+            proto::e2ee_response::Message::CryptorSetKeyIndex(
+                proto::FrameCryptorSetKeyIndexResponse {},
+            )
+        }
+        proto::e2ee_request::Message::SetSharedKey(request) => {
+            let shared_key = request.shared_key;
+            let key_index = request.key_index;
+
+            if let Some(key_provider) = e2ee_manager.key_provider() {
+                key_provider.set_shared_key(shared_key, key_index);
+            }
+
+            proto::e2ee_response::Message::SetSharedKey(proto::SetSharedKeyResponse {})
+        }
+        proto::e2ee_request::Message::RachetSharedKey(request) => {
+            let new_key = e2ee_manager
+                .key_provider()
+                .and_then(|key_provider| key_provider.ratchet_shared_key(request.key_index));
+
+            proto::e2ee_response::Message::RachetSharedKey(proto::RachetSharedKeyResponse {
+                new_key,
+            })
+        }
+        proto::e2ee_request::Message::GetSharedKey(request) => {
+            let key = e2ee_manager
+                .key_provider()
+                .and_then(|key_provider| key_provider.get_shared_key(request.key_index));
+            proto::e2ee_response::Message::GetSharedKey(proto::GetSharedKeyResponse { key })
+        }
+        proto::e2ee_request::Message::SetKey(request) => {
+            let identity = request.participant_identity.try_into().unwrap();
+            if let Some(key_provider) = e2ee_manager.key_provider() {
+                key_provider.set_key(&identity, request.key_index, request.key);
+            }
+            proto::e2ee_response::Message::SetKey(proto::SetKeyResponse {})
+        }
+        proto::e2ee_request::Message::RachetKey(request) => {
+            let identity = request.participant_identity.try_into().unwrap();
+            let new_key = e2ee_manager
+                .key_provider()
+                .and_then(|key_provider| key_provider.ratchet_key(&identity, request.key_index));
+
+            proto::e2ee_response::Message::RachetKey(proto::RachetKeyResponse { new_key })
+        }
+        proto::e2ee_request::Message::GetKey(request) => {
+            let identity = request.participant_identity.try_into().unwrap();
+            let key = e2ee_manager
+                .key_provider()
+                .and_then(|key_provider| key_provider.get_key(&identity, request.key_index));
+
+            proto::e2ee_response::Message::GetKey(proto::GetKeyResponse { key })
+        }
+    };
+
+    Ok(proto::E2eeResponse { message: Some(msg) })
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -548,6 +663,9 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::RemixAndResample(remix) => {
             proto::ffi_response::Message::RemixAndResample(remix_and_resample(server, remix)?)
+        }
+        proto::ffi_request::Message::E2ee(e2ee) => {
+            proto::ffi_response::Message::E2ee(on_e2ee_request(server, e2ee)?)
         }
     });
 

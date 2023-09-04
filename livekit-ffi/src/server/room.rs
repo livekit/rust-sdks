@@ -385,7 +385,6 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             message: Some(event),
         }))
     };
-
     match event {
         RoomEvent::ParticipantConnected(participant) => {
             let handle_id = server.next_id();
@@ -647,6 +646,15 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
         RoomEvent::Reconnected => {
             let _ = send_event(proto::room_event::Message::Reconnected(
                 proto::Reconnected {},
+            ))
+            .await;
+        }
+        RoomEvent::E2eeStateChanged { participant, state } => {
+            let _ = send_event(proto::room_event::Message::E2eeStateChanged(
+                proto::E2eeStateChanged {
+                    participant_sid: participant.sid().to_string(),
+                    state: state as i32,
+                },
             ))
             .await;
         }
