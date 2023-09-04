@@ -14,6 +14,7 @@
 
 use super::key_provider::KeyProvider;
 use super::{E2eeState, EncryptionType};
+use crate::id::{ParticipantIdentity, TrackSid};
 use crate::participant::{LocalParticipant, RemoteParticipant};
 use crate::prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication};
 use crate::publication::TrackPublication;
@@ -29,7 +30,7 @@ type StateChangedHandler = Box<dyn Fn(Participant, TrackPublication, E2eeState) 
 struct ManagerInner {
     options: Option<E2eeOptions>, // If Some, it means the e2ee was initialized
     enabled: bool,                // Used to enable/disable e2ee
-    frame_cryptors: HashMap<String, FrameCryptor>,
+    frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
 }
 
 #[derive(Clone)]
@@ -83,13 +84,14 @@ impl E2eeManager {
             return;
         }
 
+        let identity = participant.identity();
         let receiver = track.transceiver().unwrap().receiver();
-        let frame_cryptor = self.setup_rtp_receiver(publication.sid().to_string(), receiver);
+        let frame_cryptor = self.setup_rtp_receiver(identity.to_string(), receiver);
 
         let mut inner = self.inner.lock();
         inner
             .frame_cryptors
-            .insert(publication.sid().to_string(), frame_cryptor.clone());
+            .insert((identity, publication.sid()), frame_cryptor.clone());
     }
 
     /// Called by the room
@@ -103,35 +105,36 @@ impl E2eeManager {
             return;
         }
 
+        let identity = participant.identity();
         let sender = track.transceiver().unwrap().sender();
-        let frame_cryptor = self.setup_rtp_sender(publication.sid().to_string(), sender);
+        let frame_cryptor = self.setup_rtp_sender(identity.to_string(), sender);
 
         let mut inner = self.inner.lock();
         inner
             .frame_cryptors
-            .insert(publication.sid().to_string(), frame_cryptor.clone());
+            .insert((identity, publication.sid()), frame_cryptor.clone());
     }
 
     /// Called by the room
     pub(crate) fn on_local_track_unpublished(
         &self,
-        publication: LocalTrackPublication,
-        _: LocalParticipant,
+        _: LocalTrackPublication,
+        participant: LocalParticipant,
     ) {
-        self.remove_frame_cryptor(publication.sid().as_str());
+        self.remove_frame_cryptor(&participant.identity());
     }
 
     /// Called by the room
     pub(crate) fn on_track_unsubscribed(
         &self,
         _: RemoteTrack,
-        publication: RemoteTrackPublication,
-        _: RemoteParticipant,
+        _: RemoteTrackPublication,
+        participant: RemoteParticipant,
     ) {
-        self.remove_frame_cryptor(publication.sid().as_str());
+        self.remove_frame_cryptor(&participant.identity());
     }
 
-    pub fn frame_cryptors(&self) -> HashMap<String, FrameCryptor> {
+    pub fn frame_cryptors(&self) -> HashMap<(ParticipantIdentity, TrackSid), FrameCryptor> {
         self.inner.lock().frame_cryptors.clone()
     }
 
@@ -192,11 +195,11 @@ impl E2eeManager {
         frame_cryptor
     }
 
-    fn remove_frame_cryptor(&self, sid: &str) {
+    fn remove_frame_cryptor(&self, participant_identity: &ParticipantIdentity) {
         let mut inner = self.inner.lock();
 
         inner
             .frame_cryptors
-            .retain(|participant_id, _| !participant_id.contains(sid));
+            .retain(|(pid, track_sid), _| pid != participant_identity);
     }
 }
