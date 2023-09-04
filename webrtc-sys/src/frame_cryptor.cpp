@@ -115,6 +115,10 @@ NativeFrameCryptorObserver::NativeFrameCryptorObserver(
     const FrameCryptor* fc)
     : observer_(std::move(observer)), fc_(fc) {}
 
+NativeFrameCryptorObserver::~NativeFrameCryptorObserver() {
+  fc_->unregister_observer();
+}
+
 void NativeFrameCryptorObserver::OnFrameCryptionStateChanged(
     const std::string participant_id,
     webrtc::FrameCryptionState state) {

@@ -146,6 +146,7 @@ class NativeFrameCryptorObserver
  public:
   NativeFrameCryptorObserver(rust::Box<RTCFrameCryptorObserverWrapper> observer,
                              const FrameCryptor* fc);
+  ~NativeFrameCryptorObserver();
 
   void OnFrameCryptionStateChanged(const std::string participant_id,
                                    webrtc::FrameCryptionState error) override;
