@@ -79,7 +79,7 @@ impl FfiAudioSource {
         let source = self.source.clone();
         let async_id = server.next_id();
 
-        tokio::spawn(async move {
+        server.async_runtime.spawn(async move {
             // The data must be available as long as the client receive the callback.
             let data = unsafe {
                 let len = buffer.num_channels * buffer.samples_per_channel;
