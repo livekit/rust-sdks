@@ -7,6 +7,13 @@ members = [
     "livekit-webrtc",
     "webrtc-sys",
     "webrtc-sys/build",
+
+    # examples
+    "examples/basic_room",
+    "examples/mobile",
+    "examples/save_to_disk",
+    "examples/wgpu_room",
+    "examples/webhooks",
 ]
 
 [patch.crates-io]

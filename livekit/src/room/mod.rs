@@ -215,7 +215,6 @@ impl Room {
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
-
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
             move |participant_identity, state| {
