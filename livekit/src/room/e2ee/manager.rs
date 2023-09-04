@@ -13,19 +13,18 @@
 // limitations under the License.
 
 use super::key_provider::KeyProvider;
-use super::{E2eeState, EncryptionType};
+use super::EncryptionType;
+use crate::e2ee::E2eeOptions;
 use crate::id::{ParticipantIdentity, TrackSid};
 use crate::participant::{LocalParticipant, RemoteParticipant};
 use crate::prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication};
-use crate::publication::TrackPublication;
-use crate::{e2ee::E2eeOptions, participant::Participant};
-use livekit_webrtc::frame_cryptor::{Algorithm, FrameCryptor};
+use livekit_webrtc::frame_cryptor::{Algorithm, EncryptionState, FrameCryptor};
 use livekit_webrtc::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-type StateChangedHandler = Box<dyn Fn(Participant, TrackPublication, E2eeState) + Send>;
+type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Send>;
 
 struct ManagerInner {
     options: Option<E2eeOptions>, // If Some, it means the e2ee was initialized
@@ -64,7 +63,7 @@ impl E2eeManager {
     /// Used by the room to dispatch the event to the room dispatcher
     pub(crate) fn on_state_changed(
         &self,
-        handler: impl Fn(Participant, TrackPublication, E2eeState) + Send + 'static,
+        handler: impl Fn(ParticipantIdentity, EncryptionState) + Send + 'static,
     ) {
         *self.state_changed.lock() = Some(Box::new(handler));
     }
@@ -86,7 +85,8 @@ impl E2eeManager {
 
         let identity = participant.identity();
         let receiver = track.transceiver().unwrap().receiver();
-        let frame_cryptor = self.setup_rtp_receiver(identity.to_string(), receiver);
+        let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
+        self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();
         inner
@@ -97,8 +97,8 @@ impl E2eeManager {
     /// Called by the room
     pub(crate) fn on_local_track_published(
         &self,
-        publication: LocalTrackPublication,
         track: LocalTrack,
+        publication: LocalTrackPublication,
         participant: LocalParticipant,
     ) {
         if !self.initialized() {
@@ -107,12 +107,22 @@ impl E2eeManager {
 
         let identity = participant.identity();
         let sender = track.transceiver().unwrap().sender();
-        let frame_cryptor = self.setup_rtp_sender(identity.to_string(), sender);
+        let frame_cryptor = self.setup_rtp_sender(&identity, sender);
+        self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();
         inner
             .frame_cryptors
             .insert((identity, publication.sid()), frame_cryptor.clone());
+    }
+
+    fn setup_cryptor(&self, frame_cryptor: &FrameCryptor) {
+        let state_changed = self.state_changed.clone();
+        frame_cryptor.on_state_change(Some(Box::new(move |participant_identity, state| {
+            if let Some(state_changed) = state_changed.lock().as_ref() {
+                state_changed(participant_identity.try_into().unwrap(), state);
+            }
+        })));
     }
 
     /// Called by the room
@@ -167,12 +177,16 @@ impl E2eeManager {
             .unwrap_or(EncryptionType::None)
     }
 
-    fn setup_rtp_sender(&self, participant_id: String, sender: RtpSender) -> FrameCryptor {
+    fn setup_rtp_sender(
+        &self,
+        participant_identity: &ParticipantIdentity,
+        sender: RtpSender,
+    ) -> FrameCryptor {
         let inner = self.inner.lock();
         let options = inner.options.as_ref().unwrap();
 
         let frame_cryptor = FrameCryptor::new_for_rtp_sender(
-            participant_id,
+            participant_identity.to_string(),
             Algorithm::AesGcm,
             options.key_provider.handle.clone(),
             sender,
@@ -181,12 +195,16 @@ impl E2eeManager {
         frame_cryptor
     }
 
-    fn setup_rtp_receiver(&self, participant_id: String, receiver: RtpReceiver) -> FrameCryptor {
+    fn setup_rtp_receiver(
+        &self,
+        participant_identity: &ParticipantIdentity,
+        receiver: RtpReceiver,
+    ) -> FrameCryptor {
         let inner = self.inner.lock();
         let options = inner.options.as_ref().unwrap();
 
         let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
-            participant_id,
+            participant_identity.to_string(),
             Algorithm::AesGcm,
             options.key_provider.handle.clone(),
             receiver,
@@ -196,10 +214,11 @@ impl E2eeManager {
     }
 
     fn remove_frame_cryptor(&self, participant_identity: &ParticipantIdentity) {
-        let mut inner = self.inner.lock();
+        log::debug!("removing frame cryptor for {}", participant_identity);
 
+        let mut inner = self.inner.lock();
         inner
             .frame_cryptors
-            .retain(|(pid, track_sid), _| pid != participant_identity);
+            .retain(|(pid, _), _| pid != participant_identity);
     }
 }

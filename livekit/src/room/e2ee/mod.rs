@@ -17,17 +17,6 @@ use self::key_provider::KeyProvider;
 pub mod key_provider;
 pub mod manager;
 
-#[derive(Debug, Clone)]
-pub enum E2eeState {
-    New,
-    Ok,
-    EncryptionFailed,
-    DecryptionFailed,
-    MissingKey,
-    KeyRatcheted,
-    InternalError,
-}
-
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionType {
     #[default]

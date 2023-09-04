@@ -126,12 +126,16 @@ impl LkApp {
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
                     }
-                    RoomEvent::E2eeStateEvent {
-                        participant: _,
-                        publication: _,
-                        participant_id: _,
-                        state: _,
-                    } => {}
+                    RoomEvent::E2eeStateChanged {
+                        participant_identity,
+                        state,
+                    } => {
+                        log::info!(
+                            "E2EE state changed for {}: {:?}",
+                            participant_identity,
+                            state
+                        )
+                    }
                     _ => {}
                 }
             }

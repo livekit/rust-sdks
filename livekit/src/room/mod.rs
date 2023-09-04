@@ -19,6 +19,7 @@ use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
+use livekit_webrtc::frame_cryptor::EncryptionState;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -32,7 +33,7 @@ pub use crate::rtc_engine::SimulateScenario;
 pub use proto::DisconnectReason;
 
 use self::e2ee::manager::E2eeManager;
-use self::e2ee::{E2eeOptions, E2eeState};
+use self::e2ee::E2eeOptions;
 
 pub mod e2ee;
 pub mod id;
@@ -112,11 +113,9 @@ pub enum RoomEvent {
         kind: DataPacketKind,
         participant: RemoteParticipant,
     },
-    E2eeStateEvent {
-        participant: Participant,
-        publication: TrackPublication,
-        participant_id: String,
-        state: E2eeState,
+    E2eeStateChanged {
+        participant_identity: ParticipantIdentity,
+        state: EncryptionState,
     },
     ConnectionStateChanged(ConnectionState),
     Connected {
@@ -216,6 +215,17 @@ impl Room {
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
+
+        e2ee_manager.on_state_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant_identity, state| {
+                dispatcher.dispatch(&RoomEvent::E2eeStateChanged {
+                    participant_identity,
+                    state,
+                });
+            }
+        });
+
         local_participant.on_local_track_published({
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
@@ -226,7 +236,7 @@ impl Room {
                     publication: publication.clone(),
                     track: track.clone(),
                 };
-                e2ee_manager.on_local_track_published(publication, track, participant);
+                e2ee_manager.on_local_track_published(track, publication, participant);
                 dispatcher.dispatch(&event);
             }
         });

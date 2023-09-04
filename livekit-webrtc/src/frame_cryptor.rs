@@ -22,13 +22,13 @@ pub struct KeyProviderOptions {
     pub uncrypted_magic_bytes: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Algorithm {
     AesGcm,
     AesCbc,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionState {
     New,
     Ok,
