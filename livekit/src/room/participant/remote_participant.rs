@@ -261,14 +261,14 @@ impl RemoteParticipant {
 
     pub(crate) fn on_track_muted(
         &self,
-        handler: impl Fn(Participant, TrackPublication, Track) + Send + 'static,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
     ) {
         super::on_track_muted(&self.inner, handler)
     }
 
     pub(crate) fn on_track_unmuted(
         &self,
-        handler: impl Fn(Participant, TrackPublication, Track) + Send + 'static,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
     ) {
         super::on_track_unmuted(&self.inner, handler)
     }

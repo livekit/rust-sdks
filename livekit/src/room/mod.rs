@@ -245,7 +245,7 @@ impl Room {
 
         local_participant.on_track_muted({
             let dispatcher = dispatcher.clone();
-            move |participant, publication, _| {
+            move |participant, publication| {
                 let event = RoomEvent::TrackMuted {
                     participant,
                     publication,
@@ -256,7 +256,7 @@ impl Room {
 
         local_participant.on_track_unmuted({
             let dispatcher = dispatcher.clone();
-            move |participant, publication, _| {
+            move |participant, publication| {
                 let event = RoomEvent::TrackUnmuted {
                     participant,
                     publication,
@@ -843,7 +843,7 @@ impl RoomSession {
 
         participant.on_track_muted({
             let dispatcher = self.dispatcher.clone();
-            move |participant, publication, _| {
+            move |participant, publication| {
                 let event = RoomEvent::TrackMuted {
                     participant,
                     publication,
@@ -854,7 +854,7 @@ impl RoomSession {
 
         participant.on_track_unmuted({
             let dispatcher = self.dispatcher.clone();
-            move |participant, publication, _| {
+            move |participant, publication| {
                 let event = RoomEvent::TrackUnmuted {
                     participant,
                     publication,

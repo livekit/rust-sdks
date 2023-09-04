@@ -140,24 +140,41 @@ impl RemoteTrackPublication {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn proto_info(&self) -> proto::TrackInfo {
         self.inner.info.read().proto_info.clone()
     }
 
-    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+    pub(crate) fn update_info(&self, new_info: proto::TrackInfo) {
         super::update_info(
             &self.inner,
             &TrackPublication::Remote(self.clone()),
-            info.clone(),
+            new_info.clone(),
         );
-        self.inner.info.write().muted = info.muted;
+
+        let mut info = self.inner.info.write();
+        let muted = info.muted;
+        info.muted = new_info.muted;
+        drop(info);
+
+        // For remote tracks, the publication need to manually fire the muted/unmuted events
+        // (they are not being fired for the tracks)
+        if muted != new_info.muted {
+            if new_info.muted {
+                if let Some(on_mute) = self.inner.events.muted.lock().as_ref() {
+                    on_mute(TrackPublication::Remote(self.clone()));
+                }
+            } else if let Some(on_unmute) = self.inner.events.unmuted.lock().as_ref() {
+                on_unmute(TrackPublication::Remote(self.clone()));
+            }
+        }
     }
 
-    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 

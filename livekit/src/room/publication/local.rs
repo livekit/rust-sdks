@@ -51,11 +51,11 @@ impl LocalTrackPublication {
         }
     }
 
-    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
@@ -130,6 +130,10 @@ impl LocalTrackPublication {
     }
 
     pub fn is_muted(&self) -> bool {
+        if let Some(track) = self.track() {
+            return track.is_muted();
+        }
+
         self.inner.info.read().muted
     }
 
