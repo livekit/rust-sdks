@@ -57,7 +57,7 @@ impl NativeAudioSource {
                 buf: vec![0; samples_10ms].into_boxed_slice(),
                 len: 0,
                 read_offset: 0,
-                interval: Some(interval(Duration::from_millis(10))),
+                interval: None, // interval must be created from a tokio runtime context
             })),
             sample_rate,
             num_channels,
@@ -131,11 +131,14 @@ impl NativeAudioSource {
         }
 
         let mut inner = self.inner.lock().await;
-        let mut interval = inner.interval.take().unwrap(); // How can I avoid double mut borrow?
+        let mut interval = inner
+            .interval
+            .take()
+            .unwrap_or(interval(Duration::from_millis(10)));
 
         loop {
             let Some(data) = self.next_frame(&mut inner, frame) else {
-                inner.interval = Some(interval);
+                inner.interval = Some(interval); // Is there a better way to avoid double mut reference than taking the Option?
                 break;
             };
 
