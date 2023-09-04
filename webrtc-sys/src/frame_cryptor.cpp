@@ -97,7 +97,7 @@ FrameCryptor::FrameCryptor(
 FrameCryptor::~FrameCryptor() {}
 
 void FrameCryptor::register_observer(
-    rust::Box<RTCFrameCryptorObserverWrapper> observer) const {
+    rust::Box<RtcFrameCryptorObserverWrapper> observer) const {
   webrtc::MutexLock lock(&mutex_);
   observer_ =
       std::make_unique<NativeFrameCryptorObserver>(std::move(observer), this);
@@ -111,7 +111,7 @@ void FrameCryptor::unregister_observer() const {
 }
 
 NativeFrameCryptorObserver::NativeFrameCryptorObserver(
-    rust::Box<RTCFrameCryptorObserverWrapper> observer,
+    rust::Box<RtcFrameCryptorObserverWrapper> observer,
     const FrameCryptor* fc)
     : observer_(std::move(observer)), fc_(fc) {}
 
@@ -156,9 +156,9 @@ std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_sender(
     std::shared_ptr<KeyProvider> key_provider,
     std::shared_ptr<RtpSender> sender) {
   return std::make_shared<FrameCryptor>(
-        std::string(participant_id.data(), participant_id.size()),
-        AlgorithmToFrameCryptorAlgorithm(algorithm),
-        key_provider->rtc_key_provider(), sender->rtc_sender());
+      std::string(participant_id.data(), participant_id.size()),
+      AlgorithmToFrameCryptorAlgorithm(algorithm),
+      key_provider->rtc_key_provider(), sender->rtc_sender());
 }
 
 std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_receiver(

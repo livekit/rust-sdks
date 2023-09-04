@@ -196,18 +196,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                 if let Some(state) = running_state.as_ref() {
                     let e2ee_manager = state.room.e2ee_manager();
                     if let Some(key_provider) = e2ee_manager.key_provider() {
-                        // Ratchet all local cryptors
-                        e2ee_manager.frame_cryptors().iter().for_each(
-                            |((participant_identity, _), cryptor)| {
-                                if participant_identity.as_str()
-                                    != state.room.local_participant().identity().as_str()
-                                {
-                                    return;
-                                }
-
-                                key_provider.ratchet_key(cryptor.participant_id(), 0);
-                            },
-                        );
+                        key_provider.ratchet_shared_key(0);
                     }
                 }
             }

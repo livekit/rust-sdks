@@ -32,16 +32,14 @@ namespace livekit {
 
 struct KeyProviderOptions;
 enum class Algorithm : ::std::int32_t;
-class RTCFrameCryptorObserverWrapper;
+class RtcFrameCryptorObserverWrapper;
 class NativeFrameCryptorObserver;
 
 /// Shared secret key for frame encryption.
 class KeyProvider {
  public:
   KeyProvider(KeyProviderOptions options);
-  ~KeyProvider() {
-    
-  }
+  ~KeyProvider() {}
 
   bool set_shared_key(int32_t index, rust::Vec<::std::uint8_t> key) const {
     std::vector<uint8_t> key_vec;
@@ -49,21 +47,28 @@ class KeyProvider {
     return impl_->SetSharedKey(index, key_vec);
   }
 
-
   rust::Vec<::std::uint8_t> ratchet_shared_key(int32_t key_index) const {
     rust::Vec<uint8_t> vec;
     auto data = impl_->RatchetSharedKey(key_index);
+    if (data.empty()) {
+      throw std::runtime_error("ratchet_shared_key failed");
+    }
+
     std::move(data.begin(), data.end(), std::back_inserter(vec));
     return vec;
   }
 
-  rust::Vec<::std::uint8_t> export_shared_key(int32_t key_index) const {
+  rust::Vec<::std::uint8_t> get_shared_key(int32_t key_index) const {
     rust::Vec<uint8_t> vec;
     auto data = impl_->ExportSharedKey(key_index);
+    if (data.empty()) {
+      throw std::runtime_error("get_shared_key failed");
+    }
+
     std::move(data.begin(), data.end(), std::back_inserter(vec));
     return vec;
   }
-  
+
   /// Set the key at the given index.
   bool set_key(const ::rust::String participant_id,
                int32_t index,
@@ -80,15 +85,23 @@ class KeyProvider {
     rust::Vec<uint8_t> vec;
     auto data = impl_->RatchetKey(
         std::string(participant_id.data(), participant_id.size()), key_index);
+    if (data.empty()) {
+      throw std::runtime_error("ratchet_key failed");
+    }
+
     std::move(data.begin(), data.end(), std::back_inserter(vec));
     return vec;
   }
 
-  rust::Vec<::std::uint8_t> export_key(const ::rust::String participant_id,
-                                       int32_t key_index) const {
+  rust::Vec<::std::uint8_t> get_key(const ::rust::String participant_id,
+                                    int32_t key_index) const {
     rust::Vec<uint8_t> vec;
     auto data = impl_->ExportKey(
         std::string(participant_id.data(), participant_id.size()), key_index);
+    if (data.empty()) {
+      throw std::runtime_error("get_key failed");
+    }
+
     std::move(data.begin(), data.end(), std::back_inserter(vec));
     return vec;
   }
@@ -127,7 +140,8 @@ class FrameCryptor {
 
   rust::String participant_id() const { return participant_id_; }
 
-  void register_observer(rust::Box<RTCFrameCryptorObserverWrapper> observer) const;
+  void register_observer(
+      rust::Box<RtcFrameCryptorObserverWrapper> observer) const;
 
   void unregister_observer() const;
 
@@ -144,7 +158,7 @@ class FrameCryptor {
 class NativeFrameCryptorObserver
     : public webrtc::FrameCryptorTransformerObserver {
  public:
-  NativeFrameCryptorObserver(rust::Box<RTCFrameCryptorObserverWrapper> observer,
+  NativeFrameCryptorObserver(rust::Box<RtcFrameCryptorObserverWrapper> observer,
                              const FrameCryptor* fc);
   ~NativeFrameCryptorObserver();
 
@@ -152,7 +166,7 @@ class NativeFrameCryptorObserver
                                    webrtc::FrameCryptionState error) override;
 
  private:
-  rust::Box<RTCFrameCryptorObserverWrapper> observer_;
+  rust::Box<RtcFrameCryptorObserverWrapper> observer_;
   const FrameCryptor* fc_;
 };
 

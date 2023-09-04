@@ -160,7 +160,7 @@ macro_rules! impl_to_argb {
 #[allow(unused_unsafe)]
 impl NativeBuffer {
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
-        &*self.sys_handle
+        &self.sys_handle
     }
 
     pub fn width(&self) -> u32 {

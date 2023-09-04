@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use self::e2ee::manager::E2eeManager;
+use self::e2ee::E2eeOptions;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
 use crate::rtc_engine::EngineError;
@@ -19,7 +21,7 @@ use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
-use livekit_webrtc::frame_cryptor::EncryptionState;
+use livekit_webrtc::native::frame_cryptor::EncryptionState;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -31,9 +33,6 @@ use tokio::task::JoinHandle;
 
 pub use crate::rtc_engine::SimulateScenario;
 pub use proto::DisconnectReason;
-
-use self::e2ee::manager::E2eeManager;
-use self::e2ee::E2eeOptions;
 
 pub mod e2ee;
 pub mod id;

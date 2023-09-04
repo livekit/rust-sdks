@@ -55,9 +55,9 @@ pub mod ffi {
 
         pub fn set_shared_key(self: &KeyProvider, key_index: i32, key: Vec<u8>) -> bool;
 
-        pub fn ratchet_shared_key(self: &KeyProvider, key_index: i32) -> Vec<u8>;
+        pub fn ratchet_shared_key(self: &KeyProvider, key_index: i32) -> Result<Vec<u8>>;
 
-        pub fn export_shared_key(self: &KeyProvider, key_index: i32) -> Vec<u8>;
+        pub fn get_shared_key(self: &KeyProvider, key_index: i32) -> Result<Vec<u8>>;
 
         pub fn set_key(
             self: &KeyProvider,
@@ -66,9 +66,17 @@ pub mod ffi {
             key: Vec<u8>,
         ) -> bool;
 
-        pub fn ratchet_key(self: &KeyProvider, participant_id: String, key_index: i32) -> Vec<u8>;
+        pub fn ratchet_key(
+            self: &KeyProvider,
+            participant_id: String,
+            key_index: i32,
+        ) -> Result<Vec<u8>>;
 
-        pub fn export_key(self: &KeyProvider, participant_id: String, key_index: i32) -> Vec<u8>;
+        pub fn get_key(
+            self: &KeyProvider,
+            participant_id: String,
+            key_index: i32,
+        ) -> Result<Vec<u8>>;
     }
 
     unsafe extern "C++" {
@@ -107,17 +115,17 @@ pub mod ffi {
 
         pub fn register_observer(
             self: &FrameCryptor,
-            observer: Box<RTCFrameCryptorObserverWrapper>,
+            observer: Box<RtcFrameCryptorObserverWrapper>,
         );
 
         pub fn unregister_observer(self: &FrameCryptor);
     }
 
     extern "Rust" {
-        type RTCFrameCryptorObserverWrapper;
+        type RtcFrameCryptorObserverWrapper;
 
         fn on_frame_cryption_state_change(
-            self: &RTCFrameCryptorObserverWrapper,
+            self: &RtcFrameCryptorObserverWrapper,
             participant_id: String,
             state: FrameCryptionState,
         );
@@ -129,21 +137,21 @@ impl_thread_safety!(ffi::KeyProvider, Send + Sync);
 
 use ffi::FrameCryptionState;
 
-pub trait RTCFrameCryptorObserver: Send + Sync {
+pub trait RtcFrameCryptorObserver: Send + Sync {
     fn on_frame_cryption_state_change(&self, participant_id: String, state: FrameCryptionState);
 }
 
-pub struct RTCFrameCryptorObserverWrapper {
-    observer: Arc<dyn RTCFrameCryptorObserver>,
+pub struct RtcFrameCryptorObserverWrapper {
+    observer: Arc<dyn RtcFrameCryptorObserver>,
 }
 
-impl RTCFrameCryptorObserverWrapper {
-    pub fn new(observer: Arc<dyn RTCFrameCryptorObserver>) -> Self {
+impl RtcFrameCryptorObserverWrapper {
+    pub fn new(observer: Arc<dyn RtcFrameCryptorObserver>) -> Self {
         Self { observer }
     }
 
     fn on_frame_cryption_state_change(
-        self: &RTCFrameCryptorObserverWrapper,
+        self: &RtcFrameCryptorObserverWrapper,
         participant_id: String,
         state: FrameCryptionState,
     ) {
