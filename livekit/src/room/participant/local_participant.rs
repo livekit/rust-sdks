@@ -192,7 +192,6 @@ impl LocalParticipant {
             .await?;
 
         track.set_transceiver(Some(transceiver));
-        track.enable();
 
         self.inner.rtc_engine.publisher_negotiation_needed();
 
@@ -203,6 +202,8 @@ impl LocalParticipant {
         {
             local_track_published(self.clone(), publication.clone());
         }
+
+        track.enable();
 
         Ok(publication)
     }

@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::key_provider::KeyProvider;
 use super::{E2eeState, EncryptionType};
 use crate::participant::{LocalParticipant, RemoteParticipant};
 use crate::prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication};
 use crate::publication::TrackPublication;
 use crate::{e2ee::E2eeOptions, participant::Participant};
-use livekit_webrtc::frame_cryptor::{Algorithm, FrameCryptor, KeyProvider};
+use livekit_webrtc::frame_cryptor::{Algorithm, FrameCryptor};
 use livekit_webrtc::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -42,8 +43,8 @@ impl E2eeManager {
     pub(crate) fn new(options: Option<E2eeOptions>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(ManagerInner {
+                enabled: options.is_some(), // Enabled by default if options is provided
                 options,
-                enabled: false, // Disabled by default
                 frame_cryptors: HashMap::new(),
             })),
             state_changed: Default::default(),
@@ -164,13 +165,13 @@ impl E2eeManager {
     }
 
     fn setup_rtp_sender(&self, participant_id: String, sender: RtpSender) -> FrameCryptor {
-        let mut inner = self.inner.lock();
+        let inner = self.inner.lock();
         let options = inner.options.as_ref().unwrap();
 
         let frame_cryptor = FrameCryptor::new_for_rtp_sender(
             participant_id,
             Algorithm::AesGcm,
-            options.key_provider.clone(),
+            options.key_provider.handle.clone(),
             sender,
         );
         frame_cryptor.set_enabled(inner.enabled);
@@ -178,13 +179,13 @@ impl E2eeManager {
     }
 
     fn setup_rtp_receiver(&self, participant_id: String, receiver: RtpReceiver) -> FrameCryptor {
-        let mut inner = self.inner.lock();
+        let inner = self.inner.lock();
         let options = inner.options.as_ref().unwrap();
 
         let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
             participant_id,
             Algorithm::AesGcm,
-            options.key_provider.clone(),
+            options.key_provider.handle.clone(),
             receiver,
         );
         frame_cryptor.set_enabled(inner.enabled);

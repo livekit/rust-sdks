@@ -1,5 +1,12 @@
 use crate::{logo_track::LogoTrack, sine_track::SineTrack};
-use livekit::{prelude::*, e2ee::options::*, e2ee::key_provider::*, SimulateScenario};
+use livekit::{
+    e2ee::{
+        key_provider::{self, *},
+        E2eeOptions, EncryptionType,
+    },
+    prelude::*,
+    SimulateScenario,
+};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -106,16 +113,14 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                 key,
             } => {
                 log::info!("connecting to room: {}", url);
-                let e2ee_options: Option<E2EEOptions> = if enable_e2ee {
-                    let key_provider = BaseKeyProvider::default();
-                    key_provider.set_shared_key(key.as_bytes().to_vec(), None);
-                    Some(E2EEOptions{
-                        encryption_type: EncryptionType::Gcm,
-                        key_provider
-                    })
-                } else {
-                    None
-                };
+
+                let key_provider = KeyProvider::default();
+                key_provider.set_shared_key(key.as_bytes().to_vec(), None);
+
+                let e2ee = enable_e2ee.then_some(E2eeOptions {
+                    encryption_type: EncryptionType::Gcm,
+                    key_provider,
+                });
 
                 let res = Room::connect(
                     &url,
@@ -124,7 +129,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                         auto_subscribe,
                         dynacast: true,
                         adaptive_stream: true,
-                        e2ee_options,
+                        e2ee,
                     },
                 )
                 .await;
@@ -200,18 +205,20 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                         // export shared key for key index
                         //let shared_key = key_provider.export_shared_key(0);
 
-                        state.room.e2ee_manager().frame_cryptors().iter().for_each(|(_participant_id, cryptor)| {
-                            // ratchet key for local publication
-                            if !cryptor.publication().is_remote() {
+                        state.room.e2ee_manager().frame_cryptors().iter().for_each(
+                            |(_participant_id, cryptor)| {
+                                // ratchet key for local publication
+                                //if !cryptor.publication().is_remote() {
                                 key_provider.ratchet_key(cryptor.participant_id(), 0);
-                            }
+                                // }
 
-                            // change key index
-                            //cryptor.set_key_index(1);
+                                // change key index
+                                //cryptor.set_key_index(1);
 
-                            // enable/disable cryptor
-                            //cryptor.set_enabled(!cryptor.enabled());
-                        });
+                                // enable/disable cryptor
+                                //cryptor.set_enabled(!cryptor.enabled());
+                            },
+                        );
                     }
                 }
             }

@@ -474,6 +474,7 @@ impl RoomSession {
 
     async fn close(&self) {
         self.rtc_engine.close().await;
+        self.e2ee_manager.cleanup();
     }
 
     /// Change the connection state and emit an event

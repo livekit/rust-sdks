@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use self::key_provider::KeyProvider;
+
 pub mod key_provider;
 pub mod manager;
-
-use livekit_webrtc::frame_cryptor::KeyProvider;
 
 #[derive(Debug, Clone)]
 pub enum E2eeState {

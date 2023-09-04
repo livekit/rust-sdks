@@ -4,8 +4,7 @@ use crate::{
     video_renderer::VideoRenderer,
 };
 use egui::{Rounding, Stroke};
-use livekit::e2ee::options::EncryptionType;
-use livekit::{prelude::*, SimulateScenario};
+use livekit::{e2ee::EncryptionType, prelude::*, SimulateScenario};
 use std::collections::HashMap;
 
 /// The state of the application are saved on app exit and restored on app start.
@@ -127,7 +126,7 @@ impl LkApp {
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
                     }
-                    RoomEvent::E2EEStateEvent {
+                    RoomEvent::E2eeStateEvent {
                         participant: _,
                         publication: _,
                         participant_id: _,
@@ -218,17 +217,13 @@ impl LkApp {
 
             if self.connecting {
                 ui.spinner();
-            } else if connected {
-                if ui.button("Disconnect").clicked() {
-                    let _ = self.service.send(AsyncCmd::RoomDisconnect);
-                }
+            } else if connected && ui.button("Disconnect").clicked() {
+                let _ = self.service.send(AsyncCmd::RoomDisconnect);
             }
         });
 
         if ui.button("E2eeKeyRatchet").clicked() {
-            let _ = self
-                .service
-                .send(AsyncCmd::E2EETest);
+            let _ = self.service.send(AsyncCmd::E2EETest);
         }
 
         ui.horizontal(|ui| {
@@ -286,9 +281,15 @@ impl LkApp {
                     ui.horizontal(|ui| {
                         ui.label("Encrypted - ");
                         if publication.encryption_type() == EncryptionType::None {
-                            ui.colored_label(egui::Color32::RED, format!("{:?}", publication.encryption_type(),));
+                            ui.colored_label(
+                                egui::Color32::RED,
+                                format!("{:?}", publication.encryption_type(),),
+                            );
                         } else {
-                            ui.colored_label(egui::Color32::GREEN, format!("{:?}", publication.encryption_type(),));
+                            ui.colored_label(
+                                egui::Color32::GREEN,
+                                format!("{:?}", publication.encryption_type(),),
+                            );
                         }
                     });
 
@@ -315,10 +316,8 @@ impl LkApp {
                                     .service
                                     .send(AsyncCmd::UnsubscribeTrack { publication });
                             }
-                        } else {
-                            if ui.button("Subscribe").clicked() {
-                                let _ = self.service.send(AsyncCmd::SubscribeTrack { publication });
-                            }
+                        } else if ui.button("Subscribe").clicked() {
+                            let _ = self.service.send(AsyncCmd::SubscribeTrack { publication });
                         }
                     });
                 }
