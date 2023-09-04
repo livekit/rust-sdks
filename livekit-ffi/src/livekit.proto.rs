@@ -1,4 +1,314 @@
 // @generated
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderOptions {
+    #[prost(bool, tag="1")]
+    pub shared_key: bool,
+    #[prost(int32, tag="2")]
+    pub ratchet_window_size: i32,
+    #[prost(bytes="vec", tag="3")]
+    pub ratchet_salt: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes="vec", tag="4")]
+    pub uncrypted_magic_bytes: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeOptions {
+    #[prost(enumeration="EncryptionType", tag="1")]
+    pub encryption_type: i32,
+    #[prost(message, optional, tag="2")]
+    pub key_provider_options: ::core::option::Option<KeyProviderOptions>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeManagerSetEnabledRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(bool, tag="2")]
+    pub enabled: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeManagerSetEnabledResponse {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeManagerGetFrameCryptorsRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptor {
+    #[prost(string, tag="1")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(enumeration="EncryptionType", tag="2")]
+    pub encryption_type: i32,
+    #[prost(int32, tag="3")]
+    pub key_index: i32,
+    #[prost(bool, tag="4")]
+    pub enabled: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeManagerGetFrameCryptorsResponse {
+    #[prost(message, repeated, tag="1")]
+    pub frame_cryptors: ::prost::alloc::vec::Vec<FrameCryptor>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptorSetEnabledRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(string, tag="2")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(bool, tag="3")]
+    pub enabled: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptorSetEnabledResponse {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptorSetKeyIndexRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(string, tag="2")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(int32, tag="3")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameCryptorSetKeyIndexResponse {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderSetSharedKeyRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(string, tag="2")]
+    pub shared_key: ::prost::alloc::string::String,
+    #[prost(int32, tag="3")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderSetSharedKeyResponse {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderRachetSharedKeyRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(int32, tag="2")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderRachetSharedKeyResponse {
+    #[prost(bytes="vec", tag="2")]
+    pub new_key: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderExportSharedKeyRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(int32, tag="2")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderExportSharedKeyResponse {
+    #[prost(bytes="vec", tag="2")]
+    pub key: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderSetKeyRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(string, tag="2")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub key: ::prost::alloc::string::String,
+    #[prost(int32, tag="4")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderSetKeyResponse {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderRachetKeyRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(string, tag="2")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(int32, tag="3")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderRachetKeyResponse {
+    #[prost(bytes="vec", tag="2")]
+    pub new_key: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderExportKeyRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+    #[prost(string, tag="2")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(int32, tag="3")]
+    pub key_index: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct KeyProviderExportKeyResponse {
+    #[prost(bytes="vec", tag="2")]
+    pub key: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeRequest {
+    #[prost(oneof="e2ee_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    pub message: ::core::option::Option<e2ee_request::Message>,
+}
+/// Nested message and enum types in `E2EERequest`.
+pub mod e2ee_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Message {
+        #[prost(message, tag="1")]
+        E2eeManagerSetEnabled(super::E2eeManagerSetEnabledRequest),
+        #[prost(message, tag="2")]
+        E2eeManagerGetFrameCryptors(super::E2eeManagerGetFrameCryptorsRequest),
+        #[prost(message, tag="3")]
+        FrameCryptorSetEnabled(super::FrameCryptorSetEnabledRequest),
+        #[prost(message, tag="4")]
+        FrameCryptorSetKeyIndex(super::FrameCryptorSetKeyIndexRequest),
+        #[prost(message, tag="5")]
+        KeyProviderSetSharedKey(super::KeyProviderSetSharedKeyRequest),
+        #[prost(message, tag="6")]
+        KeyProviderRachetSharedKey(super::KeyProviderRachetSharedKeyRequest),
+        #[prost(message, tag="7")]
+        KeyProviderExportSharedKey(super::KeyProviderExportSharedKeyRequest),
+        #[prost(message, tag="8")]
+        KeyProviderSetKey(super::KeyProviderSetKeyRequest),
+        #[prost(message, tag="9")]
+        KeyProviderRachetKey(super::KeyProviderRachetKeyRequest),
+        #[prost(message, tag="10")]
+        KeyProviderExportKey(super::KeyProviderExportKeyRequest),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeResponse {
+    #[prost(oneof="e2ee_response::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    pub message: ::core::option::Option<e2ee_response::Message>,
+}
+/// Nested message and enum types in `E2EEResponse`.
+pub mod e2ee_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Message {
+        #[prost(message, tag="1")]
+        E2eeManagerSetEnabled(super::E2eeManagerSetEnabledResponse),
+        #[prost(message, tag="2")]
+        E2eeManagerGetFrameCryptors(super::E2eeManagerGetFrameCryptorsResponse),
+        #[prost(message, tag="3")]
+        FrameCryptorSetEnabled(super::FrameCryptorSetEnabledResponse),
+        #[prost(message, tag="4")]
+        FrameCryptorSetKeyIndex(super::FrameCryptorSetKeyIndexResponse),
+        #[prost(message, tag="5")]
+        KeyProviderSetSharedKey(super::KeyProviderSetSharedKeyResponse),
+        #[prost(message, tag="6")]
+        KeyProviderRachetSharedKey(super::KeyProviderRachetSharedKeyResponse),
+        #[prost(message, tag="7")]
+        KeyProviderExportSharedKey(super::KeyProviderExportSharedKeyResponse),
+        #[prost(message, tag="8")]
+        KeyProviderSetKey(super::KeyProviderSetKeyResponse),
+        #[prost(message, tag="9")]
+        KeyProviderRachetKey(super::KeyProviderRachetKeyResponse),
+        #[prost(message, tag="10")]
+        KeyProviderExportKey(super::KeyProviderExportKeyResponse),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum EncryptionType {
+    None = 0,
+    Gcm = 1,
+    Custom = 2,
+}
+impl EncryptionType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            EncryptionType::None => "None",
+            EncryptionType::Gcm => "Gcm",
+            EncryptionType::Custom => "Custom",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "None" => Some(Self::None),
+            "Gcm" => Some(Self::Gcm),
+            "Custom" => Some(Self::Custom),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum E2eeState {
+    New = 0,
+    Ok = 1,
+    EncryptionFailed = 2,
+    DecryptionFailed = 3,
+    MissingKey = 4,
+    KeyRatcheted = 5,
+    InternalError = 6,
+}
+impl E2eeState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            E2eeState::New => "NEW",
+            E2eeState::Ok => "OK",
+            E2eeState::EncryptionFailed => "ENCRYPTION_FAILED",
+            E2eeState::DecryptionFailed => "DECRYPTION_FAILED",
+            E2eeState::MissingKey => "MISSING_KEY",
+            E2eeState::KeyRatcheted => "KEY_RATCHETED",
+            E2eeState::InternalError => "INTERNAL_ERROR",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "NEW" => Some(Self::New),
+            "OK" => Some(Self::Ok),
+            "ENCRYPTION_FAILED" => Some(Self::EncryptionFailed),
+            "DECRYPTION_FAILED" => Some(Self::DecryptionFailed),
+            "MISSING_KEY" => Some(Self::MissingKey),
+            "KEY_RATCHETED" => Some(Self::KeyRatcheted),
+            "INTERNAL_ERROR" => Some(Self::InternalError),
+            _ => None,
+        }
+    }
+}
 /// # Safety
 /// The foreign language is responsable for disposing handles
 /// Forgetting to dispose the handle may lead to memory leaks
@@ -916,6 +1226,8 @@ pub struct RoomOptions {
     pub adaptive_stream: bool,
     #[prost(bool, tag="3")]
     pub dynacast: bool,
+    #[prost(message, optional, tag="4")]
+    pub e2ee_options: ::core::option::Option<E2eeOptions>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -938,7 +1250,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -983,6 +1295,8 @@ pub mod room_event {
         Reconnecting(super::Reconnecting),
         #[prost(message, tag="20")]
         Reconnected(super::Reconnected),
+        #[prost(message, tag="21")]
+        E2eeStateChanged(super::E2eeStateChanged),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1089,6 +1403,18 @@ pub struct TrackUnmuted {
     pub participant_sid: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub track_sid: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct E2eeStateChanged {
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub track_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(enumeration="E2eeState", tag="4")]
+    pub state: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1523,7 +1849,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
+    #[prost(oneof="ffi_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -1579,13 +1905,15 @@ pub mod ffi_request {
         NewAudioResampler(super::NewAudioResamplerRequest),
         #[prost(message, tag="22")]
         RemixAndResample(super::RemixAndResampleRequest),
+        #[prost(message, tag="23")]
+        E2ee(super::E2eeRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
+    #[prost(oneof="ffi_response::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -1641,6 +1969,8 @@ pub mod ffi_response {
         NewAudioResampler(super::NewAudioResamplerResponse),
         #[prost(message, tag="22")]
         RemixAndResample(super::RemixAndResampleResponse),
+        #[prost(message, tag="23")]
+        E2ee(super::E2eeResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
