@@ -140,7 +140,6 @@ impl RemoteTrackPublication {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn proto_info(&self) -> proto::TrackInfo {
         self.inner.info.read().proto_info.clone()
     }

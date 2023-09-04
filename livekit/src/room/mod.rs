@@ -92,6 +92,7 @@ pub enum RoomEvent {
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     },
+    // TODO(theomonnom): Should we also add track for muted events?
     TrackMuted {
         participant: Participant,
         publication: TrackPublication,
@@ -238,6 +239,28 @@ impl Room {
                     publication: publication.clone(),
                 };
                 e2ee_manager.on_local_track_unpublished(publication, participant);
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        local_participant.on_track_muted({
+            let dispatcher = dispatcher.clone();
+            move |participant, publication, _| {
+                let event = RoomEvent::TrackMuted {
+                    participant,
+                    publication,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        local_participant.on_track_unmuted({
+            let dispatcher = dispatcher.clone();
+            move |participant, publication, _| {
+                let event = RoomEvent::TrackUnmuted {
+                    participant,
+                    publication,
+                };
                 dispatcher.dispatch(&event);
             }
         });
@@ -759,53 +782,85 @@ impl RoomSession {
             metadata,
         );
 
-        let dispatcher = self.dispatcher.clone();
-        participant.on_track_published(move |participant, publication| {
-            dispatcher.dispatch(&RoomEvent::TrackPublished {
-                participant,
-                publication,
-            });
+        participant.on_track_published({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, publication| {
+                dispatcher.dispatch(&RoomEvent::TrackPublished {
+                    participant,
+                    publication,
+                });
+            }
         });
 
-        let dispatcher = self.dispatcher.clone();
-        participant.on_track_unpublished(move |participant, publication| {
-            dispatcher.dispatch(&RoomEvent::TrackUnpublished {
-                participant,
-                publication,
-            });
+        participant.on_track_unpublished({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, publication| {
+                dispatcher.dispatch(&RoomEvent::TrackUnpublished {
+                    participant,
+                    publication,
+                });
+            }
         });
 
-        let dispatcher = self.dispatcher.clone();
-        let e2ee_manager = self.e2ee_manager.clone();
-        participant.on_track_subscribed(move |participant, publication, track| {
-            let event = RoomEvent::TrackSubscribed {
-                participant: participant.clone(),
-                track: track.clone(),
-                publication: publication.clone(),
-            };
-            e2ee_manager.on_track_subscribed(track, publication, participant);
-            dispatcher.dispatch(&event);
+        participant.on_track_subscribed({
+            let dispatcher = self.dispatcher.clone();
+            let e2ee_manager = self.e2ee_manager.clone();
+            move |participant, publication, track| {
+                let event = RoomEvent::TrackSubscribed {
+                    participant: participant.clone(),
+                    track: track.clone(),
+                    publication: publication.clone(),
+                };
+                e2ee_manager.on_track_subscribed(track, publication, participant);
+                dispatcher.dispatch(&event);
+            }
         });
 
-        let dispatcher = self.dispatcher.clone();
-        let e2ee_manager = self.e2ee_manager.clone();
-        participant.on_track_unsubscribed(move |participant, publication, track| {
-            let event = RoomEvent::TrackUnsubscribed {
-                participant: participant.clone(),
-                track: track.clone(),
-                publication: publication.clone(),
-            };
-            e2ee_manager.on_track_unsubscribed(track, publication, participant);
-            dispatcher.dispatch(&event);
+        participant.on_track_unsubscribed({
+            let dispatcher = self.dispatcher.clone();
+            let e2ee_manager = self.e2ee_manager.clone();
+            move |participant, publication, track| {
+                let event = RoomEvent::TrackUnsubscribed {
+                    participant: participant.clone(),
+                    track: track.clone(),
+                    publication: publication.clone(),
+                };
+                e2ee_manager.on_track_unsubscribed(track, publication, participant);
+                dispatcher.dispatch(&event);
+            }
         });
 
-        let dispatcher = self.dispatcher.clone();
-        participant.on_track_subscription_failed(move |participant, track_sid, error| {
-            dispatcher.dispatch(&RoomEvent::TrackSubscriptionFailed {
-                participant,
-                track_sid,
-                error,
-            });
+        participant.on_track_subscription_failed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, track_sid, error| {
+                dispatcher.dispatch(&RoomEvent::TrackSubscriptionFailed {
+                    participant,
+                    track_sid,
+                    error,
+                });
+            }
+        });
+
+        participant.on_track_muted({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, publication, _| {
+                let event = RoomEvent::TrackMuted {
+                    participant,
+                    publication,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_track_unmuted({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, publication, _| {
+                let event = RoomEvent::TrackUnmuted {
+                    participant,
+                    publication,
+                };
+                dispatcher.dispatch(&event);
+            }
         });
 
         self.participants.write().insert(sid, participant.clone());

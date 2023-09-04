@@ -154,6 +154,20 @@ pub(super) fn set_connection_quality(
     inner.info.write().connection_quality = quality;
 }
 
+pub(super) fn on_track_muted(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, TrackPublication, Track) + Send + 'static,
+) {
+    *inner.events.track_muted.lock() = Some(Box::new(handler));
+}
+
+pub(super) fn on_track_unmuted(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, TrackPublication, Track) + Send + 'static,
+) {
+    *inner.events.track_unmuted.lock() = Some(Box::new(handler));
+}
+
 pub(super) fn remove_publication(
     inner: &Arc<ParticipantInner>,
     _participant: &Participant,

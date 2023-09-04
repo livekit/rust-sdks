@@ -259,6 +259,20 @@ impl RemoteParticipant {
             Some(Box::new(track_subscription_failed));
     }
 
+    pub(crate) fn on_track_muted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication, Track) + Send + 'static,
+    ) {
+        super::on_track_muted(&self.inner, handler)
+    }
+
+    pub(crate) fn on_track_unmuted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication, Track) + Send + 'static,
+    ) {
+        super::on_track_unmuted(&self.inner, handler)
+    }
+
     pub(crate) fn set_speaking(&self, speaking: bool) {
         super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
     }
