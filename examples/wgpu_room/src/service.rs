@@ -1,6 +1,9 @@
 use crate::{logo_track::LogoTrack, sine_track::SineTrack};
 use livekit::{
-    e2ee::{key_provider::*, E2eeOptions, EncryptionType},
+    e2ee::{
+        key_provider::{self, *},
+        E2eeOptions, EncryptionType,
+    },
     prelude::*,
     SimulateScenario,
 };
@@ -124,8 +127,9 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     &token,
                     RoomOptions {
                         auto_subscribe,
+                        dynacast: true,
+                        adaptive_stream: true,
                         e2ee,
-                        ..Default::default()
                     },
                 )
                 .await;
