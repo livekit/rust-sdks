@@ -12,280 +12,190 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_protocol::observer::Dispatcher;
+use super::{E2eeState, EncryptionType};
+use crate::participant::{LocalParticipant, RemoteParticipant};
+use crate::prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication};
+use crate::publication::TrackPublication;
+use crate::{e2ee::E2eeOptions, participant::Participant};
+use livekit_webrtc::frame_cryptor::{Algorithm, FrameCryptor, KeyProvider};
+use livekit_webrtc::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use livekit_webrtc::frame_cryptor as fc;
-use livekit_webrtc::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
+type StateChangedHandler = Box<dyn Fn(Participant, TrackPublication, E2eeState) + Send>;
 
-use crate::RoomEvent;
-use crate::{e2ee::options::E2EEOptions, participant::Participant};
-
-use super::{key_provider::BaseKeyProvider, options::EncryptionType};
-
-pub use crate::publication::TrackPublication;
+struct ManagerInner {
+    options: Option<E2eeOptions>, // If Some, it means the e2ee was initialized
+    enabled: bool,                // Used to enable/disable e2ee
+    frame_cryptors: HashMap<String, FrameCryptor>,
+}
 
 #[derive(Clone)]
-pub struct FrameCryptor {
-    participant_id: String,
-    participant: Participant,
-    publication: TrackPublication,
-    handle: fc::FrameCryptor,
+pub struct E2eeManager {
+    inner: Arc<Mutex<ManagerInner>>,
+    state_changed: Arc<Mutex<Option<StateChangedHandler>>>,
 }
 
-impl FrameCryptor {
-    pub fn sid(&self) -> String {
-        self.participant_id.clone()
-    }
-
-    pub fn participant(&self) -> Participant {
-        self.participant.clone()
-    }
-
-    pub fn publication(&self) -> TrackPublication {
-        self.publication.clone()
-    }
-
-    pub fn set_enabled(self: &FrameCryptor, enabled: bool) {
-        self.handle.set_enabled(enabled)
-    }
-
-    pub fn enabled(self: &FrameCryptor) -> bool {
-        self.handle.enabled()
-    }
-
-    pub fn set_key_index(self: &FrameCryptor, index: i32) {
-        self.handle.set_key_index(index)
-    }
-
-    pub fn key_index(self: &FrameCryptor) -> i32 {
-        self.handle.key_index()
-    }
-
-    pub fn participant_id(self: &FrameCryptor) -> String {
-        self.handle.participant_id()
-    }
-}
-
-pub struct E2EEManager {
-    dispatcher: Dispatcher<RoomEvent>,
-    options: Option<E2EEOptions>,
-    frame_cryptors: Mutex<HashMap<String, FrameCryptor>>,
-    enabled: Mutex<bool>,
-}
-
-impl E2EEManager {
-    pub fn new(dispatcher: Dispatcher<RoomEvent>, options: Option<E2EEOptions>) -> Self {
+impl E2eeManager {
+    /// E2eeOptions is an optional parameter. We may support to reconfigure e2ee after connect in the future.
+    pub(crate) fn new(options: Option<E2eeOptions>) -> Self {
         Self {
-            dispatcher,
-            frame_cryptors: HashMap::new().into(),
-            enabled: options.is_some().into(),
-            options,
+            inner: Arc::new(Mutex::new(ManagerInner {
+                options,
+                enabled: false, // Disabled by default
+                frame_cryptors: HashMap::new(),
+            })),
+            state_changed: Default::default(),
         }
     }
 
-    pub fn key_provider(&self) -> Option<BaseKeyProvider> {
-        if let Some(options) = &self.options {
-            return Some(options.key_provider.clone());
+    pub(crate) fn cleanup(&self) {
+        let mut inner = self.inner.lock();
+        for cryptor in inner.frame_cryptors.values() {
+            cryptor.set_enabled(false);
         }
-        None
+        inner.frame_cryptors.clear();
     }
 
-    pub fn encryption_type(&self) -> EncryptionType {
-        if let Some(options) = &self.options {
-            return options.encryption_type;
-        }
-        EncryptionType::None
+    /// Register to e2ee state changes
+    /// Used by the room to dispatch the event to the room dispatcher
+    pub(crate) fn on_state_changed(
+        &self,
+        handler: impl Fn(Participant, TrackPublication, E2eeState) + Send + 'static,
+    ) {
+        *self.state_changed.lock() = Some(Box::new(handler));
     }
 
-    pub fn handle_track_events(&self, event: RoomEvent) {
-        if self.options.is_none() {
+    pub(crate) fn initialized(&self) -> bool {
+        self.inner.lock().options.is_some()
+    }
+
+    /// Called by the room
+    pub(crate) fn on_track_subscribed(
+        &self,
+        track: RemoteTrack,
+        publication: RemoteTrackPublication,
+        participant: RemoteParticipant,
+    ) {
+        if !self.initialized() {
             return;
         }
-        match event {
-            RoomEvent::TrackSubscribed {
-                track,
-                publication,
-                participant,
-            } => {
-                let transceiver = track.transceiver();
-                if let Some(transceiver) = transceiver {
-                    log::debug!("add_rtp_receiver for {}", publication.sid());
-                    let fc = self
-                        ._add_rtp_receiver(publication.sid().to_string(), transceiver.receiver());
-                    if let Some(fc) = fc {
-                        let frame_cryptor = FrameCryptor {
-                            handle: fc.clone(),
-                            participant: Participant::Remote(participant.clone()),
-                            publication: TrackPublication::Remote(publication.clone()),
-                            participant_id: publication.sid().to_string(),
-                        };
-                        let mut frame_cryptors = self.frame_cryptors.lock();
-                        frame_cryptors.insert(publication.sid().to_string(), frame_cryptor.clone());
 
-                        let dispatcher = self.dispatcher.clone();
-                        fc.on_state_change(Some(Box::new(
-                            move |participant_id: String, state: fc::FrameCryptionState| {
-                                log::debug!(
-                                    "frame cryptor state changed for {}, state {:?}",
-                                    participant_id,
-                                    state
-                                );
-                                dispatcher.dispatch(&RoomEvent::E2EEStateEvent {
-                                    participant: Participant::Remote(participant.clone()),
-                                    publication: TrackPublication::Remote(publication.clone()),
-                                    participant_id: participant_id.clone(),
-                                    state: state.into(),
-                                });
-                            },
-                        )));
-                    }
-                }
-            }
-            RoomEvent::LocalTrackPublished {
-                publication,
-                track,
-                participant,
-            } => {
-                let transceiver = track.transceiver();
-                if let Some(transceiver) = transceiver {
-                    log::debug!("add_rtp_receiver for {}", publication.sid());
-                    let fc =
-                        self._add_rtp_sender(publication.sid().to_string(), transceiver.sender());
-                    if let Some(fc) = fc {
-                        let frame_cryptor = FrameCryptor {
-                            handle: fc.clone(),
-                            participant: Participant::Local(participant.clone()),
-                            publication: TrackPublication::Local(publication.clone()),
-                            participant_id: publication.sid().to_string(),
-                        };
-                        let mut frame_cryptors = self.frame_cryptors.lock();
-                        frame_cryptors.insert(publication.sid().to_string(), frame_cryptor.clone());
-                        let dispatcher = self.dispatcher.clone();
-                        fc.on_state_change(Some(Box::new(
-                            move |participant_id: String, state: fc::FrameCryptionState| {
-                                log::debug!(
-                                    "frame cryptor state changed for {}, state {:?}",
-                                    participant_id,
-                                    state
-                                );
-                                dispatcher.dispatch(&RoomEvent::E2EEStateEvent {
-                                    participant: Participant::Local(participant.clone()),
-                                    publication: TrackPublication::Local(publication.clone()),
-                                    participant_id: participant_id.clone(),
-                                    state: state.into(),
-                                });
-                            },
-                        )));
-                    }
-                }
-            }
-            RoomEvent::LocalTrackUnpublished { publication, .. } => {
-                self._remove_frame_cryptor(&publication.sid().to_string());
-            }
-            RoomEvent::TrackUnsubscribed { publication, .. } => {
-                self._remove_frame_cryptor(&publication.sid().to_string());
-            }
-            _ => {}
+        let receiver = track.transceiver().unwrap().receiver();
+        let frame_cryptor = self.setup_rtp_receiver(publication.sid().to_string(), receiver);
+
+        let mut inner = self.inner.lock();
+        inner
+            .frame_cryptors
+            .insert(publication.sid().to_string(), frame_cryptor.clone());
+    }
+
+    /// Called by the room
+    pub(crate) fn on_local_track_published(
+        &self,
+        publication: LocalTrackPublication,
+        track: LocalTrack,
+        participant: LocalParticipant,
+    ) {
+        if !self.initialized() {
+            return;
         }
+
+        let sender = track.transceiver().unwrap().sender();
+        let frame_cryptor = self.setup_rtp_sender(publication.sid().to_string(), sender);
+
+        let mut inner = self.inner.lock();
+        inner
+            .frame_cryptors
+            .insert(publication.sid().to_string(), frame_cryptor.clone());
+    }
+
+    /// Called by the room
+    pub(crate) fn on_local_track_unpublished(
+        &self,
+        publication: LocalTrackPublication,
+        _: LocalParticipant,
+    ) {
+        self.remove_frame_cryptor(publication.sid().as_str());
+    }
+
+    /// Called by the room
+    pub(crate) fn on_track_unsubscribed(
+        &self,
+        _: RemoteTrack,
+        publication: RemoteTrackPublication,
+        _: RemoteParticipant,
+    ) {
+        self.remove_frame_cryptor(publication.sid().as_str());
     }
 
     pub fn frame_cryptors(&self) -> HashMap<String, FrameCryptor> {
-        self.frame_cryptors.lock().clone()
+        self.inner.lock().frame_cryptors.clone()
     }
 
     pub fn enabled(&self) -> bool {
-        self.enabled.lock().clone() && self.options.is_some()
+        self.inner.lock().enabled && self.initialized()
     }
 
     pub fn set_enabled(&self, enabled: bool) {
-        let mut self_enabled = self.enabled.lock();
-        if *self_enabled == enabled {
+        let inner = self.inner.lock();
+        if inner.enabled == enabled {
             return;
         }
-        *self_enabled = enabled;
 
-        if let Some(_) = &self.options {
-            for (_, cryptor) in self.frame_cryptors.lock().iter() {
-                cryptor.set_enabled(enabled);
-            }
+        for (_, cryptor) in inner.frame_cryptors.iter() {
+            cryptor.set_enabled(enabled);
         }
     }
 
-    pub fn cleanup(&self) {
-        let mut frame_cryptors = self.frame_cryptors.lock();
-        for cryptor in frame_cryptors.values() {
-            cryptor.set_enabled(false);
-        }
-        frame_cryptors.clear();
+    pub fn key_provider(&self) -> Option<KeyProvider> {
+        let inner = self.inner.lock();
+        inner.options.as_ref().map(|opts| opts.key_provider.clone())
     }
 
-    pub fn set_shared_key(&self, shared_key: String, key_index: Option<i32>) {
-        if let Some(key_provider) = self.key_provider() {
-            key_provider.set_shared_key(shared_key.as_bytes().to_vec(), key_index);
-        }
+    pub fn encryption_type(&self) -> EncryptionType {
+        let inner = self.inner.lock();
+        inner
+            .options
+            .as_ref()
+            .map(|opts| opts.encryption_type)
+            .unwrap_or(EncryptionType::None)
     }
 
-    pub fn ratchet_key(&self) {
-        if let Some(options) = &self.options {
-            for participant_id in self.frame_cryptors.lock().keys() {
-                let new_key = options.key_provider.ratchet_key(participant_id.clone(), 0);
-                log::info!(
-                    "ratcheting key for {}, new_key {}",
-                    participant_id,
-                    new_key.len()
-                );
-            }
-        }
+    fn setup_rtp_sender(&self, participant_id: String, sender: RtpSender) -> FrameCryptor {
+        let mut inner = self.inner.lock();
+        let options = inner.options.as_ref().unwrap();
+
+        let frame_cryptor = FrameCryptor::new_for_rtp_sender(
+            participant_id,
+            Algorithm::AesGcm,
+            options.key_provider.clone(),
+            sender,
+        );
+        frame_cryptor.set_enabled(inner.enabled);
+        frame_cryptor
     }
 
-    fn _add_rtp_sender(
-        &self,
-        participant_id: String,
-        sender: RtpSender,
-    ) -> Option<fc::FrameCryptor> {
-        if let Some(options) = &self.options {
-            let frame_cryptor = fc::FrameCryptor::new_for_rtp_sender(
-                participant_id.clone(),
-                fc::Algorithm::AesGcm,
-                options.key_provider.handle.clone(),
-                sender,
-            );
-            frame_cryptor.set_enabled(self.enabled.lock().clone());
-            return Some(frame_cryptor);
-        }
-        return None;
+    fn setup_rtp_receiver(&self, participant_id: String, receiver: RtpReceiver) -> FrameCryptor {
+        let mut inner = self.inner.lock();
+        let options = inner.options.as_ref().unwrap();
+
+        let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
+            participant_id,
+            Algorithm::AesGcm,
+            options.key_provider.clone(),
+            receiver,
+        );
+        frame_cryptor.set_enabled(inner.enabled);
+        frame_cryptor
     }
 
-    fn _add_rtp_receiver(
-        &self,
-        participant_id: String,
-        receiver: RtpReceiver,
-    ) -> Option<fc::FrameCryptor> {
-        if let Some(options) = &self.options {
-            let frame_cryptor = fc::FrameCryptor::new_for_rtp_receiver(
-                participant_id.clone(),
-                fc::Algorithm::AesGcm,
-                options.key_provider.handle.clone(),
-                receiver,
-            );
-            frame_cryptor.set_enabled(self.enabled.lock().clone());
-            return Some(frame_cryptor);
-        }
-        return None;
-    }
+    fn remove_frame_cryptor(&self, sid: &str) {
+        let mut inner = self.inner.lock();
 
-    fn _remove_frame_cryptor(&self, sid: &String) {
-        let mut frame_cryptors = self.frame_cryptors.lock();
-        let mut to_remove = Vec::new();
-        for (participant_id, _) in frame_cryptors.iter() {
-            if participant_id.contains(sid) {
-                to_remove.push(participant_id.clone());
-            }
-        }
-        for participant_id in to_remove {
-            frame_cryptors.remove(&participant_id);
-        }
+        inner
+            .frame_cryptors
+            .retain(|participant_id, _| !participant_id.contains(sid));
     }
 }

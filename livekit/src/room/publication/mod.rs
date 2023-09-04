@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use super::track::TrackDimension;
-use crate::{prelude::*, e2ee::options::EncryptionType};
 use crate::track::Track;
+use crate::{e2ee::EncryptionType, prelude::*};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
@@ -118,13 +118,13 @@ pub(super) fn new_inner(
         proto_info: info.clone(),
         source: info.source().try_into().unwrap(),
         kind: info.r#type().try_into().unwrap(),
+        encryption_type: info.encryption().into(),
         name: info.name,
         sid: info.sid.try_into().unwrap(),
         simulcasted: info.simulcast,
         dimension: TrackDimension(info.width, info.height),
         mime_type: info.mime_type,
         muted: info.muted,
-        encryption_type: info.encryption.try_into().unwrap(),
     };
 
     Arc::new(TrackPublicationInner {
@@ -141,13 +141,13 @@ pub(super) fn update_info(
     let mut info = inner.info.write();
     info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
     info.source = TrackSource::from(new_info.source());
+    info.encryption_type = new_info.encryption().into();
     info.proto_info = new_info.clone();
     info.name = new_info.name;
     info.sid = new_info.sid.try_into().unwrap();
     info.dimension = TrackDimension(new_info.width, new_info.height);
     info.mime_type = new_info.mime_type;
     info.simulcasted = new_info.simulcast;
-    info.encryption_type = new_info.encryption.try_into().unwrap();
 }
 
 pub(super) fn set_track(

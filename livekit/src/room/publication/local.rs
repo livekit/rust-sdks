@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::TrackPublicationInner;
+use crate::e2ee::EncryptionType;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
-use crate::room::EncryptionType;
 
 use livekit_protocol as proto;
 use parking_lot::Mutex;
@@ -140,5 +140,4 @@ impl LocalTrackPublication {
     pub fn encryption_type(&self) -> EncryptionType {
         self.inner.info.read().encryption_type
     }
-
 }

@@ -1,4 +1,4 @@
-use crate::frame_cryptor::{Algorithm, FrameCryptionState, KeyProviderOptions, OnStateChange};
+use crate::frame_cryptor::{Algorithm, EncryptionState, KeyProviderOptions, OnStateChange};
 
 use cxx::SharedPtr;
 use parking_lot::Mutex;
@@ -26,7 +26,7 @@ impl From<Algorithm> for sys_fc::ffi::Algorithm {
     }
 }
 
-impl From<sys_fc::ffi::FrameCryptionState> for FrameCryptionState {
+impl From<sys_fc::ffi::FrameCryptionState> for EncryptionState {
     fn from(value: sys_fc::ffi::FrameCryptionState) -> Self {
         match value {
             sys_fc::ffi::FrameCryptionState::New => Self::New,
@@ -65,27 +65,27 @@ impl KeyProvider {
     }
 
     pub fn set_shared_key(&self, key_index: i32, key: Vec<u8>) -> bool {
-        return self.sys_handle.set_shared_key(key_index, key);
+        self.sys_handle.set_shared_key(key_index, key)
     }
 
     pub fn ratchet_shared_key(&self, key_index: i32) -> Vec<u8> {
-        return self.sys_handle.ratchet_shared_key(key_index);
+        self.sys_handle.ratchet_shared_key(key_index)
     }
 
     pub fn export_shared_key(&self, key_index: i32) -> Vec<u8> {
-        return self.sys_handle.export_shared_key(key_index);
+        self.sys_handle.export_shared_key(key_index)
     }
 
     pub fn set_key(&self, participant_id: String, key_index: i32, key: Vec<u8>) -> bool {
-        return self.sys_handle.set_key(participant_id, key_index, key);
+        self.sys_handle.set_key(participant_id, key_index, key)
     }
 
     pub fn ratchet_key(&self, participant_id: String, key_index: i32) -> Vec<u8> {
-        return self.sys_handle.ratchet_key(participant_id, key_index);
+        self.sys_handle.ratchet_key(participant_id, key_index)
     }
 
     pub fn export_key(&self, participant_id: String, key_index: i32) -> Vec<u8> {
-        return self.sys_handle.export_key(participant_id, key_index);
+        self.sys_handle.export_key(participant_id, key_index)
     }
 }
 

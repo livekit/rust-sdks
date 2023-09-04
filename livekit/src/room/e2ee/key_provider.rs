@@ -65,11 +65,11 @@ impl From<KeyProviderOptions> for fc::KeyProviderOptions {
 }
 
 #[derive(Clone)]
-pub struct BaseKeyProvider {
+pub struct KeyProvider {
     pub(crate) handle: fc::KeyProvider,
 }
 
-impl Default for BaseKeyProvider {
+impl Default for KeyProvider {
     fn default() -> Self {
         Self {
             handle: fc::KeyProvider::new(KeyProviderOptions::default().into()),
@@ -77,7 +77,7 @@ impl Default for BaseKeyProvider {
     }
 }
 
-impl BaseKeyProvider {
+impl KeyProvider {
     pub fn new(options: KeyProviderOptions) -> Self {
         Self {
             handle: fc::KeyProvider::new(options.into()),

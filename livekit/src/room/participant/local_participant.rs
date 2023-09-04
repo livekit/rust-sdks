@@ -14,7 +14,7 @@
 
 use super::ConnectionQuality;
 use super::ParticipantInner;
-use crate::e2ee::options::EncryptionType;
+use crate::e2ee::EncryptionType;
 use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
@@ -143,7 +143,6 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
-
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
             name: track.name(),

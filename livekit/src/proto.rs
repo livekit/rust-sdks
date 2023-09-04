@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{participant, track, DataPacketKind};
+use crate::{e2ee::EncryptionType, participant, track, DataPacketKind};
 use livekit_protocol::*;
 
 // Conversions
@@ -85,6 +85,26 @@ impl From<data_packet::Kind> for DataPacketKind {
         match kind {
             data_packet::Kind::Lossy => Self::Lossy,
             data_packet::Kind::Reliable => Self::Reliable,
+        }
+    }
+}
+
+impl From<encryption::Type> for EncryptionType {
+    fn from(value: livekit_protocol::encryption::Type) -> Self {
+        match value {
+            livekit_protocol::encryption::Type::None => Self::None,
+            livekit_protocol::encryption::Type::Gcm => Self::Gcm,
+            livekit_protocol::encryption::Type::Custom => Self::Custom,
+        }
+    }
+}
+
+impl From<EncryptionType> for encryption::Type {
+    fn from(value: EncryptionType) -> Self {
+        match value {
+            EncryptionType::None => Self::None,
+            EncryptionType::Gcm => Self::Gcm,
+            EncryptionType::Custom => Self::Custom,
         }
     }
 }

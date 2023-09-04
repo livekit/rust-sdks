@@ -23,16 +23,14 @@ pub struct KeyProviderOptions {
 }
 
 #[derive(Debug)]
-#[repr(i32)]
 pub enum Algorithm {
-    AesGcm = 0,
+    AesGcm,
     AesCbc,
 }
 
 #[derive(Debug)]
-#[repr(i32)]
-pub enum FrameCryptionState {
-    New = 0,
+pub enum EncryptionState {
+    New,
     Ok,
     EncryptionFailed,
     DecryptionFailed,
@@ -54,7 +52,7 @@ impl KeyProvider {
     }
 
     pub fn set_shared_key(&self, key_index: i32, key: Vec<u8>) -> bool {
-        return self.handle.set_shared_key(key_index, key);
+        self.handle.set_shared_key(key_index, key)
     }
 
     pub fn ratchet_shared_key(&self, key_index: i32) -> Vec<u8> {
@@ -83,7 +81,7 @@ pub struct FrameCryptor {
     pub(crate) handle: fc_imp::FrameCryptor,
 }
 
-pub type OnStateChange = Box<dyn FnMut(String, FrameCryptionState) + Send + Sync>;
+pub type OnStateChange = Box<dyn FnMut(String, EncryptionState) + Send + Sync>;
 
 impl FrameCryptor {
     pub fn new_for_rtp_sender(

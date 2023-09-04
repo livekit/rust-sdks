@@ -14,14 +14,12 @@
 
 pub mod key_provider;
 pub mod manager;
-pub mod options;
 
-use livekit_webrtc::frame_cryptor::FrameCryptionState;
+use livekit_webrtc::frame_cryptor::KeyProvider;
 
 #[derive(Debug, Clone)]
-#[repr(i32)]
-pub enum E2EEState {
-    New = 0,
+pub enum E2eeState {
+    New,
     Ok,
     EncryptionFailed,
     DecryptionFailed,
@@ -30,16 +28,16 @@ pub enum E2EEState {
     InternalError,
 }
 
-impl From<livekit_webrtc::frame_cryptor::FrameCryptionState> for E2EEState {
-    fn from(value: livekit_webrtc::frame_cryptor::FrameCryptionState) -> Self {
-        match value {
-            FrameCryptionState::New => Self::New,
-            FrameCryptionState::Ok => Self::Ok,
-            FrameCryptionState::EncryptionFailed => Self::EncryptionFailed,
-            FrameCryptionState::DecryptionFailed => Self::DecryptionFailed,
-            FrameCryptionState::MissingKey => Self::MissingKey,
-            FrameCryptionState::KeyRatcheted => Self::KeyRatcheted,
-            FrameCryptionState::InternalError => Self::InternalError,
-        }
-    }
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionType {
+    #[default]
+    None,
+    Gcm,
+    Custom,
+}
+
+#[derive(Clone)]
+pub struct E2eeOptions {
+    pub encryption_type: EncryptionType,
+    pub key_provider: KeyProvider,
 }
