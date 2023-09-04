@@ -114,9 +114,8 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
             } => {
                 log::info!("connecting to room: {}", url);
 
-                let key_provider = KeyProvider::default();
-                key_provider.set_shared_key(key.as_bytes().to_vec(), None);
-
+                let key_provider =
+                    KeyProvider::with_shared_key(KeyProviderOptions::default(), key.into_bytes());
                 let e2ee = enable_e2ee.then_some(E2eeOptions {
                     encryption_type: EncryptionType::Gcm,
                     key_provider,
