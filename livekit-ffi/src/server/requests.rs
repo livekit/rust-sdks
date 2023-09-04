@@ -490,7 +490,7 @@ fn on_e2ee_request(
                 proto::E2eeManagerSetEnabledResponse {},
             )
         }
-        proto::e2ee_request::Message::ManagerGetFrameCryptors(request) => {
+        proto::e2ee_request::Message::ManagerGetFrameCryptors(_) => {
             // TODO(theomonnom): Mb we should create OwnedFrameCryptor?
             let proto_frame_cryptors: Vec<proto::FrameCryptor> = e2ee_manager
                 .frame_cryptors()

@@ -14,8 +14,9 @@ pub struct FrameCryptor {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct KeyProviderOptions {
-    #[prost(bool, tag="1")]
-    pub shared_key: bool,
+    /// Only specify if you want to use a shared_key
+    #[prost(bytes="vec", optional, tag="1")]
+    pub shared_key: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
     #[prost(int32, tag="2")]
     pub ratchet_window_size: i32,
     #[prost(bytes="vec", tag="3")]

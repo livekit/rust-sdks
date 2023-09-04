@@ -14,8 +14,8 @@
 
 use crate::proto;
 use crate::server::room::FfiRoom;
-use livekit::e2ee::key_provider::{BaseKeyProvider, KeyProviderOptions};
-use livekit::e2ee::options::{E2EEOptions, EncryptionType};
+use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
+use livekit::e2ee::{E2eeOptions, EncryptionType};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 
@@ -49,6 +49,16 @@ impl From<proto::EncryptionType> for EncryptionType {
     }
 }
 
+impl From<EncryptionType> for proto::EncryptionType {
+    fn from(value: EncryptionType) -> Self {
+        match value {
+            EncryptionType::None => Self::None,
+            EncryptionType::Gcm => Self::Gcm,
+            EncryptionType::Custom => Self::Custom,
+        }
+    }
+}
+
 impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     fn from(value: proto::KeyProviderOptions) -> Self {
         Self {
@@ -59,22 +69,30 @@ impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     }
 }
 
-impl From<proto::E2eeOptions> for E2EEOptions {
-    fn from(value: proto::E2eeOptions) -> Self {
-        Self {
-            encryption_type: value.encryption_type().into(),
-            key_provider: BaseKeyProvider::new(value.key_provider_options.unwrap().into()),
-        }
-    }
-}
-
 impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
+        let e2ee = value.e2ee.and_then(|opts| {
+            let encryption_type = opts.encryption_type();
+            let Some(provider_opts) = opts.key_provider_options else {
+                return None;
+            };
+
+            Some(E2eeOptions {
+                encryption_type: encryption_type.into(),
+                key_provider: if provider_opts.shared_key.is_some() {
+                    let shared_key = provider_opts.shared_key.clone().unwrap();
+                    KeyProvider::with_shared_key(provider_opts.into(), shared_key)
+                } else {
+                    KeyProvider::new(provider_opts.into())
+                },
+            })
+        });
+
         Self {
             adaptive_stream: value.adaptive_stream,
             auto_subscribe: value.auto_subscribe,
             dynacast: value.dynacast,
-            e2ee: value.e2ee.map(Into::into),
+            e2ee,
         }
     }
 }
