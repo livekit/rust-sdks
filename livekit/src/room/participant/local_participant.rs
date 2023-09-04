@@ -97,7 +97,6 @@ impl LocalParticipant {
         super::set_connection_quality(&self.inner, &Participant::Local(self.clone()), quality);
     }
 
-    #[allow(dead_code)]
     pub(crate) fn on_local_track_published(
         &self,
         handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
@@ -105,7 +104,6 @@ impl LocalParticipant {
         *self.local.events.local_track_published.lock() = Some(Box::new(handler));
     }
 
-    #[allow(dead_code)]
     pub(crate) fn on_local_track_unpublished(
         &self,
         handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
@@ -113,13 +111,26 @@ impl LocalParticipant {
         *self.local.events.local_track_unpublished.lock() = Some(Box::new(handler));
     }
 
+    pub(crate) fn on_track_muted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+    ) {
+        super::on_track_muted(&self.inner, handler)
+    }
+
+    pub(crate) fn on_track_unmuted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+    ) {
+        super::on_track_unmuted(&self.inner, handler)
+    }
+
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
         super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
-        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid);
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
+        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid)
     }
 
     pub(crate) fn published_tracks_info(&self) -> Vec<proto::TrackPublishedResponse> {
@@ -210,10 +221,10 @@ impl LocalParticipant {
 
     pub async fn unpublish_track(
         &self,
-        track: &TrackSid,
+        sid: &TrackSid,
         // _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
-        let publication = self.inner.tracks.write().remove(track);
+        let publication = self.remove_publication(sid);
         if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();

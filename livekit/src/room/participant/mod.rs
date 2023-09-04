@@ -58,7 +58,7 @@ impl Participant {
         pub(crate) fn set_audio_level(self: &Self, level: f32) -> ();
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
         pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
-        pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> ();
+        pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> Option<TrackPublication>;
     );
 
     pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
@@ -79,8 +79,8 @@ struct ParticipantInfo {
     pub connection_quality: ConnectionQuality,
 }
 
-type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication, Track) + Send>;
-type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication, Track) + Send>;
+type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
+type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 
 #[derive(Default)]
 struct ParticipantEvents {
@@ -154,6 +154,20 @@ pub(super) fn set_connection_quality(
     inner.info.write().connection_quality = quality;
 }
 
+pub(super) fn on_track_muted(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+) {
+    *inner.events.track_muted.lock() = Some(Box::new(handler));
+}
+
+pub(super) fn on_track_unmuted(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+) {
+    *inner.events.track_unmuted.lock() = Some(Box::new(handler));
+}
+
 pub(super) fn remove_publication(
     inner: &Arc<ParticipantInner>,
     _participant: &Participant,
@@ -163,8 +177,8 @@ pub(super) fn remove_publication(
     let publication = tracks.remove(sid);
     if let Some(publication) = publication.clone() {
         // remove events
-        publication.on_muted(|_, _| {});
-        publication.on_unmuted(|_, _| {});
+        publication.on_muted(|_| {});
+        publication.on_unmuted(|_| {});
     } else {
         // shouldn't happen (internal)
         log::warn!("could not find publication to remove: {:?}", sid);
@@ -181,19 +195,23 @@ pub(super) fn add_publication(
     let mut tracks = inner.tracks.write();
     tracks.insert(publication.sid(), publication.clone());
 
-    let events = inner.events.clone();
-    let particiant = participant.clone();
-    publication.on_muted(move |publication, track| {
-        if let Some(cb) = events.track_muted.lock().as_ref() {
-            cb(particiant.clone(), publication, track);
+    publication.on_muted({
+        let events = inner.events.clone();
+        let participant = participant.clone();
+        move |publication| {
+            if let Some(cb) = events.track_muted.lock().as_ref() {
+                cb(participant.clone(), publication);
+            }
         }
     });
 
-    let events = inner.events.clone();
-    let participant = participant.clone();
-    publication.on_unmuted(move |publication, track| {
-        if let Some(cb) = events.track_unmuted.lock().as_ref() {
-            cb(participant.clone(), publication, track);
+    publication.on_unmuted({
+        let events = inner.events.clone();
+        let participant = participant.clone();
+        move |publication| {
+            if let Some(cb) = events.track_unmuted.lock().as_ref() {
+                cb(participant.clone(), publication);
+            }
         }
     });
 }

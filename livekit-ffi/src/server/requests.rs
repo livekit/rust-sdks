@@ -110,6 +110,7 @@ fn on_publish_track(
     Ok(ffi_participant.room.publish_track(server, publish))
 }
 
+// Unpublish a local track
 fn on_unpublish_track(
     server: &'static FfiServer,
     unpublish: proto::UnpublishTrackRequest,
@@ -398,8 +399,7 @@ fn on_capture_audio_frame(
     push: proto::CaptureAudioFrameRequest,
 ) -> FfiResult<proto::CaptureAudioFrameResponse> {
     let source = server.retrieve_handle::<audio_source::FfiAudioSource>(push.source_handle)?;
-    source.capture_frame(server, push)?;
-    Ok(proto::CaptureAudioFrameResponse::default())
+    source.capture_frame(server, push)
 }
 
 /// Create a new audio resampler

@@ -59,8 +59,8 @@ impl TrackPublication {
         pub fn is_remote(self: &Self) -> bool;
         pub fn encryption_type(self: &Self) -> EncryptionType;
 
-        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
-        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication, Track) + Send + 'static) -> ();
+        pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication) + Send + 'static) -> ();
+        pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication) + Send + 'static) -> ();
         pub(crate) fn proto_info(self: &Self) -> proto::TrackInfo;
         pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
@@ -95,8 +95,8 @@ struct PublicationInfo {
     pub encryption_type: EncryptionType,
 }
 
-pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
-pub(crate) type UnmutedHandler = Box<dyn Fn(TrackPublication, Track) + Send>;
+pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication) + Send>;
+pub(crate) type UnmutedHandler = Box<dyn Fn(TrackPublication) + Send>;
 
 #[derive(Default)]
 struct PublicationEvents {
@@ -169,9 +169,9 @@ pub(super) fn set_track(
         track.on_muted({
             let events = inner.events.clone();
             let publication = publication.clone();
-            move |track| {
+            move |_| {
                 if let Some(on_muted) = events.muted.lock().as_ref() {
-                    on_muted(publication.clone(), track);
+                    on_muted(publication.clone());
                 }
             }
         });
@@ -179,9 +179,9 @@ pub(super) fn set_track(
         track.on_unmuted({
             let events = inner.events.clone();
             let publication = publication.clone();
-            move |track| {
+            move |_| {
                 if let Some(on_unmuted) = events.unmuted.lock().as_ref() {
-                    on_unmuted(publication.clone(), track);
+                    on_unmuted(publication.clone());
                 }
             }
         });

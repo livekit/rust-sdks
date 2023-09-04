@@ -120,6 +120,7 @@ type UnmutedHandler = Box<dyn Fn(Track) + Send>;
 
 #[derive(Default)]
 struct TrackEvents {
+    // These mute handlers are only called for local tracks
     pub muted: Mutex<Option<MutedHandler>>,
     pub unmuted: Mutex<Option<UnmutedHandler>>,
 }
@@ -162,6 +163,7 @@ pub(super) fn new_inner(
     }
 }
 
+/// This is only called for local tracks
 pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     let info = inner.info.read();
     log::debug!("set_muted: {:?} {:?}", info.sid, muted);

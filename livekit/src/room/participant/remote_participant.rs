@@ -259,6 +259,20 @@ impl RemoteParticipant {
             Some(Box::new(track_subscription_failed));
     }
 
+    pub(crate) fn on_track_muted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+    ) {
+        super::on_track_muted(&self.inner, handler)
+    }
+
+    pub(crate) fn on_track_unmuted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+    ) {
+        super::on_track_unmuted(&self.inner, handler)
+    }
+
     pub(crate) fn set_speaking(&self, speaking: bool) {
         super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
     }
@@ -329,11 +343,11 @@ impl RemoteParticipant {
         });
     }
 
-    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
         let publication =
             super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
 
-        if let Some(publication) = publication {
+        if let Some(publication) = publication.clone() {
             let TrackPublication::Remote(publication) = publication else {
                 panic!("expected remote publication");
             };
@@ -342,6 +356,8 @@ impl RemoteParticipant {
             publication.on_subscribed(|_, _| {});
             publication.on_unsubscribed(|_, _| {});
         }
+
+        publication
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
