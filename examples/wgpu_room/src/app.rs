@@ -126,15 +126,9 @@ impl LkApp {
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
                     }
-                    RoomEvent::E2eeStateChanged {
-                        participant_identity,
-                        state,
-                    } => {
-                        log::info!(
-                            "E2EE state changed for {}: {:?}",
-                            participant_identity,
-                            state
-                        )
+                    RoomEvent::E2eeStateChanged { participant, state } => {
+                        let identity = participant.identity();
+                        log::info!("e2ee state changed {} - {:?}", identity, state)
                     }
                     _ => {}
                 }
@@ -227,7 +221,7 @@ impl LkApp {
         });
 
         if ui.button("E2eeKeyRatchet").clicked() {
-            let _ = self.service.send(AsyncCmd::E2EETest);
+            let _ = self.service.send(AsyncCmd::E2eeKeyRatchet);
         }
 
         ui.horizontal(|ui| {
@@ -270,13 +264,13 @@ impl LkApp {
                 .keys()
                 .cloned()
                 .collect::<Vec<ParticipantSid>>();
-            sorted_participants.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+            sorted_participants.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
             for psid in sorted_participants {
                 let participant = participants.get(&psid).unwrap();
                 let tracks = participant.tracks();
                 let mut sorted_tracks = tracks.keys().cloned().collect::<Vec<TrackSid>>();
-                sorted_tracks.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                sorted_tracks.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
                 ui.monospace(&participant.identity().0);
                 for tsid in sorted_tracks {
@@ -284,16 +278,11 @@ impl LkApp {
 
                     ui.horizontal(|ui| {
                         ui.label("Encrypted - ");
-                        if publication.encryption_type() == EncryptionType::None {
-                            ui.colored_label(
-                                egui::Color32::RED,
-                                format!("{:?}", publication.encryption_type(),),
-                            );
+                        let enc_type = publication.encryption_type();
+                        if enc_type == EncryptionType::None {
+                            ui.colored_label(egui::Color32::RED, format!("{:?}", enc_type));
                         } else {
-                            ui.colored_label(
-                                egui::Color32::GREEN,
-                                format!("{:?}", publication.encryption_type(),),
-                            );
+                            ui.colored_label(egui::Color32::GREEN, format!("{:?}", enc_type));
                         }
                     });
 

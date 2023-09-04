@@ -114,7 +114,7 @@ pub enum RoomEvent {
         participant: RemoteParticipant,
     },
     E2eeStateChanged {
-        participant_identity: ParticipantIdentity,
+        participant: Participant,
         state: EncryptionState,
     },
     ConnectionStateChanged(ConnectionState),
@@ -215,17 +215,6 @@ impl Room {
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
-
-        e2ee_manager.on_state_changed({
-            let dispatcher = dispatcher.clone();
-            move |participant_identity, state| {
-                dispatcher.dispatch(&RoomEvent::E2eeStateChanged {
-                    participant_identity,
-                    state,
-                });
-            }
-        });
-
         local_participant.on_local_track_published({
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
@@ -267,8 +256,8 @@ impl Room {
             options,
             rtc_engine,
             local_participant,
-            dispatcher,
-            e2ee_manager,
+            dispatcher: dispatcher.clone(),
+            e2ee_manager: e2ee_manager.clone(),
         });
 
         for pi in join_response.other_participants {
@@ -283,6 +272,35 @@ impl Room {
             };
             participant.update_info(pi.clone());
         }
+
+        e2ee_manager.on_state_changed({
+            let dispatcher = dispatcher.clone();
+            let inner = inner.clone();
+            move |participant_identity, state| {
+                // Forward e2ee events to the room
+                // (Ignore if the participant is not in the room anymore)
+
+                let participant = if participant_identity.as_str()
+                    == inner.local_participant.identity().as_str()
+                {
+                    Participant::Local(inner.local_participant.clone())
+                } else {
+                    let participants = inner.participants.read();
+                    let p = participants
+                        .iter()
+                        .find(|(_, p)| p.identity().as_str() == participant_identity.as_str());
+
+                    if let Some((_, participant)) = p {
+                        Participant::Remote(participant.clone())
+                    } else {
+                        // Ignore if the participant disconnected
+                        return;
+                    }
+                };
+
+                dispatcher.dispatch(&RoomEvent::E2eeStateChanged { participant, state });
+            }
+        });
 
         // Get the initial states (Can be useful on some usecases, like the FfiServer)
         // Getting them here ensure nothing happening before (Like a new participant joining) because the room task

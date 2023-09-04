@@ -1,9 +1,9 @@
-use crate::{logo_track::LogoTrack, sine_track::SineTrack};
+use crate::{
+    logo_track::LogoTrack,
+    sine_track::{SineParameters, SineTrack},
+};
 use livekit::{
-    e2ee::{
-        key_provider::{self, *},
-        E2eeOptions, EncryptionType,
-    },
+    e2ee::{key_provider::*, E2eeOptions, EncryptionType},
     prelude::*,
     SimulateScenario,
 };
@@ -32,7 +32,7 @@ pub enum AsyncCmd {
     UnsubscribeTrack {
         publication: RemoteTrackPublication,
     },
-    E2EETest,
+    E2eeKeyRatchet,
 }
 
 #[derive(Debug)]
@@ -127,9 +127,8 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     &token,
                     RoomOptions {
                         auto_subscribe,
-                        dynacast: true,
-                        adaptive_stream: true,
                         e2ee,
+                        ..Default::default()
                     },
                 )
                 .await;
@@ -193,30 +192,20 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
             AsyncCmd::UnsubscribeTrack { publication } => {
                 publication.set_subscribed(false);
             }
-            AsyncCmd::E2EETest => {
+            AsyncCmd::E2eeKeyRatchet => {
                 if let Some(state) = running_state.as_ref() {
-                    if let Some(key_provider) = state.room.e2ee_manager().key_provider() {
-                        // change shared key for all participants
-                        //key_provider.set_shared_key("new-shared-key-string".as_bytes().to_vec(), Some(0));
+                    let e2ee_manager = state.room.e2ee_manager();
+                    if let Some(key_provider) = e2ee_manager.key_provider() {
+                        // Ratchet all local cryptors
+                        e2ee_manager.frame_cryptors().iter().for_each(
+                            |((participant_identity, _), cryptor)| {
+                                if participant_identity.as_str()
+                                    != state.room.local_participant().identity().as_str()
+                                {
+                                    return;
+                                }
 
-                        // ratchet key for all participants
-                        //let new_key = key_provider.ratchet_shared_key(0);
-
-                        // export shared key for key index
-                        //let shared_key = key_provider.export_shared_key(0);
-
-                        state.room.e2ee_manager().frame_cryptors().iter().for_each(
-                            |(_participant_id, cryptor)| {
-                                // ratchet key for local publication
-                                //if !cryptor.publication().is_remote() {
                                 key_provider.ratchet_key(cryptor.participant_id(), 0);
-                                // }
-
-                                // change key index
-                                //cryptor.set_key_index(1);
-
-                                // enable/disable cryptor
-                                //cryptor.set_enabled(!cryptor.enabled());
                             },
                         );
                     }
