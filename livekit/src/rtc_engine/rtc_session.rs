@@ -467,6 +467,7 @@ impl SessionInner {
                 ice_candidate,
                 target,
             } => {
+                log::debug!("ice candidate, {:?} {:?}", ice_candidate, target);
                 self.signal_client
                     .send(proto::signal_request::Message::Trickle(
                         proto::TrickleRequest {
@@ -509,8 +510,9 @@ impl SessionInner {
             }
             RtcEvent::DataChannel {
                 data_channel,
-                target: _,
+                target,
             } => {
+                log::debug!("received data channel: {:?} {:?}", data_channel, target);
                 self.subscriber_dc.lock().push(data_channel);
             }
             RtcEvent::Offer { offer, target: _ } => {
@@ -537,7 +539,7 @@ impl SessionInner {
                         stream: streams.remove(0),
                         track,
                         receiver,
-                        transceiver
+                        transceiver,
                     });
                 } else {
                     log::warn!("Track event with no streams");
