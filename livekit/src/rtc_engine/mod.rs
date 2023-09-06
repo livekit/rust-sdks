@@ -487,7 +487,7 @@ impl EngineInner {
                 inner.reconnecting.store(false, Ordering::Release);
 
                 if res.is_ok() {
-                    log::info!("RTCEngine successfully reconnected")
+                    log::info!("RtcEngine successfully reconnected")
                 } else {
                     log::error!("failed to reconnect after {} attempts", RECONNECT_ATTEMPTS);
                     inner.close(DisconnectReason::UnknownReason).await;
