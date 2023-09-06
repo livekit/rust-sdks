@@ -837,7 +837,7 @@ impl SessionInner {
 
     /// Start publisher negotiation
     fn publisher_negotiation_needed(self: &Arc<Self>) {
-        self.has_published.store(true, Ordering::Relaxed);
+        self.has_published.store(true, Ordering::Release);
 
         let mut debouncer = self.negotiation_debouncer.lock();
 
@@ -848,6 +848,7 @@ impl SessionInner {
             *debouncer = Some(debouncer::debounce(
                 PUBLISHER_NEGOTIATION_FREQUENCY,
                 async move {
+                    log::debug!("negotiating the publisher");
                     if let Err(err) = session
                         .publisher_pc
                         .create_and_send_offer(OfferOptions::default())

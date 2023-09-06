@@ -14,10 +14,10 @@
 
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
-use log::{debug, error};
 use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use std::thread::current;
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::EngineResult;
@@ -144,24 +144,24 @@ impl PeerTransport {
         let mut inner = self.inner.lock().await;
 
         if options.ice_restart {
-            debug!("restarting ICE");
-            inner.restarting_ice = false;
+            log::debug!("restarting ICE");
+            inner.restarting_ice = true;
         }
 
         if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
-            if options.ice_restart {
-                if let Some(remote_description) = self.peer_connection.current_remote_description()
-                {
-                    self.peer_connection
-                        .set_remote_description(remote_description)
-                        .await?;
-                } else {
-                    error!("trying to restart ICE when the pc doesn't have remote description");
-                }
+            let remote_sdp = self.peer_connection.current_remote_description();
+            if options.ice_restart && remote_sdp.is_some() {
+                let remote_sdp = remote_sdp.unwrap();
+                self.peer_connection
+                    .set_remote_description(remote_sdp)
+                    .await?;
             } else {
                 inner.renegotiate = true;
                 return Ok(());
             }
+        } else if self.peer_connection.signaling_state() == SignalingState::Closed {
+            log::warn!("peer connection is closed, cannot create offer");
+            return Ok(());
         }
 
         // TODO(theomonnom): Check that the target_os isn't wasm
