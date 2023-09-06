@@ -17,7 +17,6 @@ use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use std::thread::current;
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::EngineResult;
@@ -155,6 +154,12 @@ impl PeerTransport {
                 self.peer_connection
                     .set_remote_description(remote_sdp)
                     .await?;
+
+                // TODO(theomonnom): Check that the target_os isn't wasm
+                // Not sure if this is really needed
+                if options.ice_restart {
+                    self.peer_connection.restart_ice();
+                }
             } else {
                 inner.renegotiate = true;
                 return Ok(());
@@ -162,12 +167,6 @@ impl PeerTransport {
         } else if self.peer_connection.signaling_state() == SignalingState::Closed {
             log::warn!("peer connection is closed, cannot create offer");
             return Ok(());
-        }
-
-        // TODO(theomonnom): Check that the target_os isn't wasm
-        // Not sure if this is really needed
-        if options.ice_restart {
-            self.peer_connection.restart_ice();
         }
 
         let offer = self.peer_connection.create_offer(options).await?;
