@@ -416,7 +416,7 @@ impl SessionInner {
                     IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)?
                 };
 
-                log::debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
+                log::debug!("remote ice_candidate {:?} {:?}", ice_candidate, target);
 
                 if target == proto::SignalTarget::Publisher {
                     self.publisher_pc.add_ice_candidate(ice_candidate).await?;
@@ -467,7 +467,7 @@ impl SessionInner {
                 ice_candidate,
                 target,
             } => {
-                log::debug!("ice candidate, {:?} {:?}", ice_candidate, target);
+                log::debug!("local ice_candidate {:?} {:?}", ice_candidate, target);
                 self.signal_client
                     .send(proto::signal_request::Message::Trickle(
                         proto::TrickleRequest {
