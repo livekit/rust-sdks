@@ -259,7 +259,7 @@ impl EncryptionType {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum E2eeState {
+pub enum EncryptionState {
     New = 0,
     Ok = 1,
     EncryptionFailed = 2,
@@ -268,20 +268,20 @@ pub enum E2eeState {
     KeyRatcheted = 5,
     InternalError = 6,
 }
-impl E2eeState {
+impl EncryptionState {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            E2eeState::New => "NEW",
-            E2eeState::Ok => "OK",
-            E2eeState::EncryptionFailed => "ENCRYPTION_FAILED",
-            E2eeState::DecryptionFailed => "DECRYPTION_FAILED",
-            E2eeState::MissingKey => "MISSING_KEY",
-            E2eeState::KeyRatcheted => "KEY_RATCHETED",
-            E2eeState::InternalError => "INTERNAL_ERROR",
+            EncryptionState::New => "NEW",
+            EncryptionState::Ok => "OK",
+            EncryptionState::EncryptionFailed => "ENCRYPTION_FAILED",
+            EncryptionState::DecryptionFailed => "DECRYPTION_FAILED",
+            EncryptionState::MissingKey => "MISSING_KEY",
+            EncryptionState::KeyRatcheted => "KEY_RATCHETED",
+            EncryptionState::InternalError => "INTERNAL_ERROR",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1401,7 +1401,7 @@ pub struct E2eeStateChanged {
     /// Using sid instead of identity for ffi communication
     #[prost(string, tag="1")]
     pub participant_sid: ::prost::alloc::string::String,
-    #[prost(enumeration="E2eeState", tag="2")]
+    #[prost(enumeration="EncryptionState", tag="2")]
     pub state: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

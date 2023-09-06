@@ -18,6 +18,21 @@ use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::e2ee::{E2eeOptions, EncryptionType};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
+use livekit::webrtc::native::frame_cryptor::EncryptionState;
+
+impl From<EncryptionState> for proto::EncryptionState {
+    fn from(value: EncryptionState) -> Self {
+        match value {
+            EncryptionState::New => Self::New,
+            EncryptionState::Ok => Self::Ok,
+            EncryptionState::EncryptionFailed => Self::EncryptionFailed,
+            EncryptionState::DecryptionFailed => Self::DecryptionFailed,
+            EncryptionState::MissingKey => Self::MissingKey,
+            EncryptionState::KeyRatcheted => Self::KeyRatcheted,
+            EncryptionState::InternalError => Self::InternalError,
+        }
+    }
+}
 
 impl From<ConnectionQuality> for proto::ConnectionQuality {
     fn from(value: ConnectionQuality) -> Self {

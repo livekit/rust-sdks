@@ -45,7 +45,7 @@ message E2eeOptions {
   KeyProviderOptions key_provider_options = 2;
 }
 
-enum E2eeState {
+enum EncryptionState {
     NEW = 0;
     OK = 1;
     ENCRYPTION_FAILED = 2;

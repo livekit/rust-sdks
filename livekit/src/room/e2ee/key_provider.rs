@@ -18,7 +18,7 @@ use crate::id::ParticipantIdentity;
 
 const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
 const DEFAULT_MAGIC_BYTES: &str = "LK-ROCKS";
-const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 0;
+const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
 
 #[derive(Clone)]
 pub struct KeyProviderOptions {

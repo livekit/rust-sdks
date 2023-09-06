@@ -262,7 +262,7 @@ message TrackUnmuted {
 
 message E2eeStateChanged {
   string participant_sid = 1; // Using sid instead of identity for ffi communication
-  E2eeState state = 2;
+  EncryptionState state = 2;
 }
 
 message ActiveSpeakersChanged { repeated string participant_sids = 1; }
