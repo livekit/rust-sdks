@@ -148,18 +148,8 @@ impl PeerTransport {
         }
 
         if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
-            let remote_sdp = self.peer_connection.current_remote_description();
-            if options.ice_restart && remote_sdp.is_some() {
-                let remote_sdp = remote_sdp.unwrap();
-                self.peer_connection
-                    .set_remote_description(remote_sdp)
-                    .await?;
-
-                // TODO(theomonnom): Check that the target_os isn't wasm
-                // Not sure if this is really needed
-                if options.ice_restart {
-                    self.peer_connection.restart_ice();
-                }
+            if options.ice_restart {
+                self.peer_connection.restart_ice();
             } else {
                 inner.renegotiate = true;
                 return Ok(());
