@@ -83,6 +83,10 @@ impl E2eeManager {
             return;
         }
 
+        if publication.encryption_type() == EncryptionType::None {
+            return;
+        }
+
         let identity = participant.identity();
         let receiver = track.transceiver().unwrap().receiver();
         let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
@@ -102,6 +106,10 @@ impl E2eeManager {
         participant: LocalParticipant,
     ) {
         if !self.initialized() {
+            return;
+        }
+
+        if publication.encryption_type() == EncryptionType::None {
             return;
         }
 
@@ -128,20 +136,20 @@ impl E2eeManager {
     /// Called by the room
     pub(crate) fn on_local_track_unpublished(
         &self,
-        _: LocalTrackPublication,
+        publication: LocalTrackPublication,
         participant: LocalParticipant,
     ) {
-        self.remove_frame_cryptor(&participant.identity());
+        self.remove_frame_cryptor(participant.identity(), publication.sid());
     }
 
     /// Called by the room
     pub(crate) fn on_track_unsubscribed(
         &self,
         _: RemoteTrack,
-        _: RemoteTrackPublication,
+        publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     ) {
-        self.remove_frame_cryptor(&participant.identity());
+        self.remove_frame_cryptor(participant.identity(), publication.sid());
     }
 
     pub fn frame_cryptors(&self) -> HashMap<(ParticipantIdentity, TrackSid), FrameCryptor> {
@@ -213,12 +221,12 @@ impl E2eeManager {
         frame_cryptor
     }
 
-    fn remove_frame_cryptor(&self, participant_identity: &ParticipantIdentity) {
+    fn remove_frame_cryptor(&self, participant_identity: ParticipantIdentity, track_sid: TrackSid) {
         log::debug!("removing frame cryptor for {}", participant_identity);
 
         let mut inner = self.inner.lock();
         inner
             .frame_cryptors
-            .retain(|(pid, _), _| pid != participant_identity);
+            .remove(&(participant_identity, track_sid));
     }
 }

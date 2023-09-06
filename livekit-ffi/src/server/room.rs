@@ -653,7 +653,7 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             let _ = send_event(proto::room_event::Message::E2eeStateChanged(
                 proto::E2eeStateChanged {
                     participant_sid: participant.sid().to_string(),
-                    state: state as i32,
+                    state: proto::EncryptionState::from(state).into(),
                 },
             ))
             .await;
