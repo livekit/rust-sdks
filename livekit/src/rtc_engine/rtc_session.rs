@@ -794,8 +794,6 @@ impl SessionInner {
             .peer_connection()
             .set_configuration(rtc_config)?;
 
-        self.subscriber_pc.prepare_ice_restart().await;
-
         if self.has_published.load(Ordering::Acquire) {
             self.publisher_pc
                 .create_and_send_offer(OfferOptions {
