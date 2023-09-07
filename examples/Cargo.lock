@@ -1836,7 +1836,6 @@ name = "livekit-webrtc"
 version = "0.2.0"
 dependencies = [
  "cxx",
- "futures",
  "jni",
  "js-sys",
  "lazy_static",
@@ -1845,6 +1844,7 @@ dependencies = [
  "parking_lot",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

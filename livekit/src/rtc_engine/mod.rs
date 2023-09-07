@@ -212,8 +212,7 @@ impl RtcEngine {
         self.inner.wait_reconnection().await?;
         let handle = self.inner.running_handle.read().await;
         let session = &handle.as_ref().unwrap().session;
-        session.simulate_scenario(scenario).await;
-        Ok(())
+        session.simulate_scenario(scenario).await
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
