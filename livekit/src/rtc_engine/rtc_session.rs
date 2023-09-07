@@ -865,10 +865,9 @@ impl SessionInner {
         self: &Arc<Self>,
         kind: DataPacketKind,
     ) -> EngineResult<()> {
-        if !self.publisher_pc.is_connected()
-            && self.publisher_pc.peer_connection().ice_connection_state()
-                != IceConnectionState::Checking
-        {
+        if !self.has_published.load(Ordering::Acquire) {
+            // The publisher has never been connected, start the negotiation
+            // If the connection fails, the reconnection logic will be triggered
             self.publisher_negotiation_needed();
         }
 
