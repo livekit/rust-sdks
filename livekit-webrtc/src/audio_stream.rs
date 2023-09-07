@@ -19,10 +19,10 @@ pub mod native {
     use super::stream_imp;
     use crate::audio_frame::AudioFrame;
     use crate::audio_track::RtcAudioTrack;
-    use futures::stream::Stream;
     use std::fmt::{Debug, Formatter};
     use std::pin::Pin;
     use std::task::{Context, Poll};
+    use tokio_stream::Stream;
 
     pub struct NativeAudioStream {
         pub(crate) handle: stream_imp::NativeAudioStream,
