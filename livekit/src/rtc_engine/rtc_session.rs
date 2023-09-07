@@ -289,7 +289,7 @@ impl RtcSession {
         self.inner.wait_pc_connection().await
     }
 
-    pub async fn simulate_scenario(&self, scenario: SimulateScenario) {
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.simulate_scenario(scenario).await
     }
 
@@ -699,7 +699,16 @@ impl SessionInner {
         self.subscriber_pc.close();
     }
 
-    async fn simulate_scenario(&self, scenario: SimulateScenario) {
+    async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
+        let simulate_leave = || {
+            self.on_signal_event(proto::signal_response::Message::Leave(
+                proto::LeaveRequest {
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    can_reconnect: true,
+                },
+            ))
+        };
+
         match scenario {
             SimulateScenario::SignalReconnect => {
                 self.signal_client.close().await;
@@ -752,6 +761,8 @@ impl SessionInner {
                         },
                     ))
                     .await;
+
+                simulate_leave().await?
             }
             SimulateScenario::ForceTls => {
                 self.signal_client
@@ -765,8 +776,11 @@ impl SessionInner {
                         },
                     ))
                     .await;
+
+                simulate_leave().await?
             }
         }
+        Ok(())
     }
 
     async fn publish_data(
@@ -940,7 +954,7 @@ impl SessionInner {
 macro_rules! make_rtc_config {
     ($fncname:ident, $proto:ty) => {
         fn $fncname(value: $proto) -> RtcConfiguration {
-            RtcConfiguration {
+            let mut config = RtcConfiguration {
                 ice_servers: {
                     let mut servers = Vec::with_capacity(value.ice_servers.len());
                     for ice_server in value.ice_servers.clone() {
@@ -954,7 +968,15 @@ macro_rules! make_rtc_config {
                 },
                 continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
                 ice_transport_type: IceTransportsType::All,
+            };
+
+            if let Some(client_configuration) = value.client_configuration {
+                if client_configuration.force_relay() == proto::ClientConfigSetting::Enabled {
+                    config.ice_transport_type = IceTransportsType::Relay;
+                }
             }
+
+            config
         }
     };
 }
