@@ -16,11 +16,11 @@ use super::video_frame::new_video_frame_buffer;
 use crate::video_frame::{BoxVideoFrame, VideoFrame};
 use crate::video_track::RtcVideoTrack;
 use cxx::{SharedPtr, UniquePtr};
-use futures::stream::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
+use tokio_stream::Stream;
 use webrtc_sys::video_track as sys_vt;
 
 pub struct NativeVideoStream {

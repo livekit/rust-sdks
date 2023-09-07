@@ -15,11 +15,11 @@
 use crate::audio_frame::AudioFrame;
 use crate::audio_track::RtcAudioTrack;
 use cxx::SharedPtr;
-use futures::stream::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
+use tokio_stream::Stream;
 use webrtc_sys::audio_track as sys_at;
 
 pub struct NativeAudioStream {
