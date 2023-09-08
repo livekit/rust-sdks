@@ -198,13 +198,18 @@ message OwnedVideoStream {
 
 message VideoStreamEvent {
   uint64 stream_handle = 1;
-  oneof message { VideoFrameReceived frame_received = 2; }
+  oneof message { 
+    VideoFrameReceived frame_received = 2;
+    VideoStreamEOS eos = 3;
+  }
 }
 
 message VideoFrameReceived {
   VideoFrameInfo frame = 1;
   OwnedVideoFrameBuffer buffer = 2;
 }
+
+message VideoStreamEOS {}
 
 //
 // VideoSource
