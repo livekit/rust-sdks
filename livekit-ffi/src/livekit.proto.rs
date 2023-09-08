@@ -777,7 +777,7 @@ pub struct OwnedVideoStream {
 pub struct VideoStreamEvent {
     #[prost(uint64, tag="1")]
     pub stream_handle: u64,
-    #[prost(oneof="video_stream_event::Message", tags="2")]
+    #[prost(oneof="video_stream_event::Message", tags="2, 3")]
     pub message: ::core::option::Option<video_stream_event::Message>,
 }
 /// Nested message and enum types in `VideoStreamEvent`.
@@ -787,6 +787,8 @@ pub mod video_stream_event {
     pub enum Message {
         #[prost(message, tag="2")]
         FrameReceived(super::VideoFrameReceived),
+        #[prost(message, tag="3")]
+        Eos(super::VideoStreamEos),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -796,6 +798,10 @@ pub struct VideoFrameReceived {
     pub frame: ::core::option::Option<VideoFrameInfo>,
     #[prost(message, optional, tag="2")]
     pub buffer: ::core::option::Option<OwnedVideoFrameBuffer>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VideoStreamEos {
 }
 //
 // VideoSource
@@ -1690,8 +1696,8 @@ pub struct OwnedAudioStream {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AudioStreamEvent {
     #[prost(uint64, tag="1")]
-    pub source_handle: u64,
-    #[prost(oneof="audio_stream_event::Message", tags="2")]
+    pub stream_handle: u64,
+    #[prost(oneof="audio_stream_event::Message", tags="2, 3")]
     pub message: ::core::option::Option<audio_stream_event::Message>,
 }
 /// Nested message and enum types in `AudioStreamEvent`.
@@ -1701,6 +1707,8 @@ pub mod audio_stream_event {
     pub enum Message {
         #[prost(message, tag="2")]
         FrameReceived(super::AudioFrameReceived),
+        #[prost(message, tag="3")]
+        Eos(super::AudioStreamEos),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1708,6 +1716,10 @@ pub mod audio_stream_event {
 pub struct AudioFrameReceived {
     #[prost(message, optional, tag="1")]
     pub frame: ::core::option::Option<OwnedAudioFrameBuffer>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AudioStreamEos {
 }
 //
 // AudioSource

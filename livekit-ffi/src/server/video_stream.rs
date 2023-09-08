@@ -129,5 +129,19 @@ impl FfiVideoStream {
                 }
             }
         }
+
+        if let Err(err) = server
+            .send_event(proto::ffi_event::Message::VideoStreamEvent(
+                proto::VideoStreamEvent {
+                    stream_handle,
+                    message: Some(proto::video_stream_event::Message::Eos(
+                        proto::VideoStreamEos {},
+                    )),
+                },
+            ))
+            .await
+        {
+            warn!("failed to send video stream ended event: {}", err);
+        }
     }
 }

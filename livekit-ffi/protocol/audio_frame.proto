@@ -113,13 +113,18 @@ message OwnedAudioStream {
 }
 
 message AudioStreamEvent {
-  uint64 source_handle = 1;
-  oneof message { AudioFrameReceived frame_received = 2; }
+  uint64 stream_handle = 1;
+  oneof message { 
+    AudioFrameReceived frame_received = 2;
+    AudioStreamEOS eos = 3;
+  }
 }
 
 message AudioFrameReceived {
   OwnedAudioFrameBuffer frame = 1;
 }
+
+message AudioStreamEOS {}
 
 //
 // AudioSource
