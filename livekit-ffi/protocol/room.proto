@@ -173,8 +173,8 @@ message RoomEvent {
   oneof message {
     ParticipantConnected participant_connected = 2;
     ParticipantDisconnected participant_disconnected = 3;
-    LocalTrackPublished local_track_published = 4;
-    LocalTrackUnpublished local_track_unpublished = 5;
+    // LocalTrackPublished local_track_published = 4;
+    // LocalTrackUnpublished local_track_unpublished = 5;
     TrackPublished track_published = 6;
     TrackUnpublished track_unpublished = 7;
     TrackSubscribed track_subscribed = 8;

@@ -59,12 +59,6 @@ pub struct RoomInner {
     pub room: Room,
     handle_id: FfiHandleId,
     data_tx: mpsc::UnboundedSender<DataPacket>,
-
-    // local tracks just published, it is used to synchronize the publish events:
-    // - make sure LocalTrackPublised is sent *after* the PublishTrack callback)
-    pending_published_tracks: Mutex<HashSet<TrackSid>>,
-    // Used to wait for the LocalTrackUnpublished event
-    pending_unpublished_tracks: Mutex<HashSet<TrackSid>>,
 }
 
 struct Handle {
@@ -110,8 +104,6 @@ impl FfiRoom {
                         room,
                         handle_id,
                         data_tx,
-                        pending_published_tracks: Default::default(),
-                        pending_unpublished_tracks: Default::default(),
                     });
 
                     let (local_info, remote_infos) =
@@ -267,11 +259,6 @@ impl RoomInner {
                             },
                         ))
                         .await;
-
-                    inner
-                        .pending_published_tracks
-                        .lock()
-                        .insert(publication.sid());
                 }
                 Err(err) => {
                     // Failed to publish the track
@@ -304,16 +291,6 @@ impl RoomInner {
         server.async_runtime.spawn(async move {
             let sid = unpublish.track_sid.try_into().unwrap();
             let unpublish_res = inner.room.local_participant().unpublish_track(&sid).await;
-
-            if unpublish_res.is_ok() {
-                // Wait for the LocalTrackUnpublished event to be sent before sending our callback
-                loop {
-                    if inner.pending_unpublished_tracks.lock().remove(&sid) {
-                        break; // Event was sent
-                    }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-                }
-            }
 
             let _ = server
                 .send_event(proto::ffi_event::Message::UnpublishTrack(
@@ -412,50 +389,6 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
                 },
             ))
             .await;
-        }
-        RoomEvent::LocalTrackPublished {
-            publication,
-            track: _,
-            participant: _,
-        } => {
-            // Make sure to send the event *after* the async callback of the PublishTrackRequest
-            // Wait for the PublishTrack callback to be sent (waiting time is really short, so it is fine to not spawn a new task)
-            let sid = publication.sid();
-            loop {
-                if inner.pending_published_tracks.lock().remove(&sid) {
-                    break;
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-            }
-
-            let ffi_publication = FfiPublication {
-                handle: server.next_id(),
-                publication: TrackPublication::Local(publication),
-            };
-            server.store_handle(ffi_publication.handle, ffi_publication);
-
-            let _ = send_event(proto::room_event::Message::LocalTrackPublished(
-                proto::LocalTrackPublished {
-                    track_sid: sid.to_string(),
-                },
-            ))
-            .await;
-        }
-        RoomEvent::LocalTrackUnpublished {
-            publication,
-            participant: _,
-        } => {
-            let _ = send_event(proto::room_event::Message::LocalTrackUnpublished(
-                proto::LocalTrackUnpublished {
-                    publication_sid: publication.sid().into(),
-                },
-            ))
-            .await;
-
-            inner
-                .pending_unpublished_tracks
-                .lock()
-                .insert(publication.sid());
         }
         RoomEvent::TrackPublished {
             publication,

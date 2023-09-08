@@ -1247,7 +1247,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -1259,10 +1259,8 @@ pub mod room_event {
         ParticipantConnected(super::ParticipantConnected),
         #[prost(message, tag="3")]
         ParticipantDisconnected(super::ParticipantDisconnected),
-        #[prost(message, tag="4")]
-        LocalTrackPublished(super::LocalTrackPublished),
-        #[prost(message, tag="5")]
-        LocalTrackUnpublished(super::LocalTrackUnpublished),
+        /// LocalTrackPublished local_track_published = 4;
+        /// LocalTrackUnpublished local_track_unpublished = 5;
         #[prost(message, tag="6")]
         TrackPublished(super::TrackPublished),
         #[prost(message, tag="7")]
