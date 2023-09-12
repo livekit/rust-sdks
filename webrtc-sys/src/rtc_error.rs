@@ -118,7 +118,7 @@ mod tests {
 
         assert_eq!(error.error_type, RtcErrorType::InternalError);
         assert_eq!(error.error_detail, RtcErrorDetailType::DataChannelFailure);
-        assert_eq!(error.has_sctp_cause_code, true);
+        assert!(error.has_sctp_cause_code);
         assert_eq!(error.sctp_cause_code, 24);
         assert_eq!(
             error.message,
@@ -133,7 +133,7 @@ mod tests {
 
         assert_eq!(error.error_type, RtcErrorType::InvalidModification);
         assert_eq!(error.error_detail, RtcErrorDetailType::None);
-        assert_eq!(error.has_sctp_cause_code, false);
+        assert!(!error.has_sctp_cause_code);
         assert_eq!(error.sctp_cause_code, 0);
         assert_eq!(error.message, "exception is thrown!");
     }

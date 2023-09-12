@@ -132,6 +132,12 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
+            let vs_path = path::PathBuf::from("./rtc.map");
+            println!(
+                "cargo:rustc-link-arg=-Wl,--version-script={}",
+                vs_path.display()
+            );
+
             builder.flag("-std=c++2a");
         }
         "macos" => {
