@@ -797,6 +797,9 @@ impl SessionInner {
     /// Try to restart the session by doing an ICE Restart (The SignalClient is also restarted)
     /// This reconnection if more seemless compared to the full reconnection implemented in ['RTCEngine']
     async fn restart_session(&self) -> EngineResult<()> {
+        self.pc_state
+            .store(PeerState::Reconnecting as u8, Ordering::Release);
+
         let reconnect_response = self.signal_client.restart().await?;
         log::info!("received reconnect response: {:?}", reconnect_response);
 
@@ -808,17 +811,14 @@ impl SessionInner {
             .peer_connection()
             .set_configuration(rtc_config)?;
 
-        if self.has_published.load(Ordering::Acquire) {
+        /*if self.has_published.load(Ordering::Acquire) {
             self.publisher_pc
                 .create_and_send_offer(OfferOptions {
                     ice_restart: true,
                     ..Default::default()
                 })
                 .await?;
-        }
-
-        self.pc_state
-            .store(PeerState::Reconnecting as u8, Ordering::Release);
+        }*/
 
         Ok(())
     }
@@ -845,6 +845,10 @@ impl SessionInner {
                 Err(err)
             }
         }
+    }
+
+    fn requires_renegotiation(&self) {
+        // Putting the publusher renegotation in another function because we don't want to send an offer before the sync state
     }
 
     /// Start publisher negotiation

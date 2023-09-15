@@ -19,6 +19,9 @@ use crate::room::DisconnectReason;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents};
 use crate::DataPacketKind;
+use arc_swap::access::Access;
+use arc_swap::{ArcSwap, ArcSwapOption};
+use futures_util::future::BoxFuture;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
@@ -97,12 +100,6 @@ pub enum EngineEvent {
     ConnectionQuality {
         updates: Vec<proto::ConnectionQualityInfo>,
     },
-    Resuming,
-    Resumed,
-    SignalResumed,
-    Restarting,
-    Restarted,
-    SignalRestarted,
     Disconnected {
         reason: DisconnectReason,
     },
@@ -132,11 +129,29 @@ pub struct LastInfo {
     pub data_channels_info: Vec<proto::DataChannelInfo>,
 }
 
+// ArcSwap limitation requires to keep the callbacks in Box (requires Sized & avoid fat pointer).
+// Using ArcSwap because it is convenient in async code
+pub type OnResuming = Box<dyn FnMut() -> BoxFuture<'static, ()> + Send>;
+pub type OnResumed = Box<dyn FnMut() -> BoxFuture<'static, ()> + Send>;
+pub type OnSignalResumed = Box<dyn FnMut() -> BoxFuture<'static, ()> + Send>;
+pub type OnRestarting = Box<dyn FnMut() -> BoxFuture<'static, ()> + Send>;
+pub type OnRestarted = Box<dyn FnMut() -> BoxFuture<'static, ()> + Send>;
+pub type OnSignalRestarted = Box<dyn FnMut() -> BoxFuture<'static, ()> + Send>;
+
 struct EngineInner {
     // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection factory accross multiple Rtc sessions
     #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     engine_emitter: EngineEmitter,
+
+    // Async events (Used instead of passing message using the channel because we need async synchronization)
+    // We must not block in these events otherwise this will break the reconnection logic
+    resuming: ArcSwapOption<AsyncMutex<OnResuming>>,
+    resumed: ArcSwapOption<AsyncMutex<OnResumed>>,
+    signal_resumed: ArcSwapOption<AsyncMutex<OnSignalResumed>>,
+    restarting: ArcSwapOption<AsyncMutex<OnRestarting>>,
+    restarted: ArcSwapOption<AsyncMutex<OnRestarted>>,
+    signal_restarted: ArcSwapOption<AsyncMutex<OnSignalRestarted>>,
 
     // Last/current session states (needed by the room)
     last_info: Mutex<LastInfo>,
@@ -180,10 +195,19 @@ impl RtcEngine {
             lk_runtime: LkRuntime::instance(),
             running_handle: Default::default(),
             engine_emitter,
+
+            resuming: Default::default(),
+            resumed: Default::default(),
+            signal_resumed: Default::default(),
+            restarting: Default::default(),
+            restarted: Default::default(),
+            signal_restarted: Default::default(),
+
             last_info: Default::default(),
             closed: Default::default(),
             reconnecting: Default::default(),
             full_reconnect: Default::default(),
+
             reconnect_interval: AsyncMutex::new(reconnect_interval),
             reconnect_notifier: Arc::new(Notify::new()),
         });
@@ -265,6 +289,60 @@ impl RtcEngine {
 
     pub fn last_info(&self) -> LastInfo {
         self.inner.last_info.lock().clone()
+    }
+
+    pub(crate) fn on_resuming<F>(&self, f: F)
+    where
+        F: FnMut() -> BoxFuture<'static, ()> + Send + 'static,
+    {
+        self.inner
+            .resuming
+            .store(Some(Arc::new(AsyncMutex::new(Box::new(f)))));
+    }
+
+    pub(crate) fn on_resumed<F>(&self, f: F)
+    where
+        F: FnMut() -> BoxFuture<'static, ()> + Send + 'static,
+    {
+        self.inner
+            .resumed
+            .store(Some(Arc::new(AsyncMutex::new(Box::new(f)))));
+    }
+
+    pub(crate) fn on_signal_resumed<F>(&self, f: F)
+    where
+        F: FnMut() -> BoxFuture<'static, ()> + Send + 'static,
+    {
+        self.inner
+            .signal_resumed
+            .store(Some(Arc::new(AsyncMutex::new(Box::new(f)))));
+    }
+
+    pub(crate) fn on_restarting<F>(&self, f: F)
+    where
+        F: FnMut() -> BoxFuture<'static, ()> + Send + 'static,
+    {
+        self.inner
+            .restarting
+            .store(Some(Arc::new(AsyncMutex::new(Box::new(f)))));
+    }
+
+    pub(crate) fn on_restarted<F>(&self, f: F)
+    where
+        F: FnMut() -> BoxFuture<'static, ()> + Send + 'static,
+    {
+        self.inner
+            .restarted
+            .store(Some(Arc::new(AsyncMutex::new(Box::new(f)))));
+    }
+
+    pub(crate) fn on_signal_restarted<F>(&self, f: F)
+    where
+        F: FnMut() -> BoxFuture<'static, ()> + Send + 'static,
+    {
+        self.inner
+            .signal_restarted
+            .store(Some(Arc::new(AsyncMutex::new(Box::new(f)))));
     }
 }
 
@@ -375,7 +453,7 @@ impl EngineInner {
     ) -> EngineResult<()> {
         let mut running_handle = self.running_handle.write().await;
         if running_handle.is_some() {
-            unreachable!("engine is already connected");
+            panic!("engine is already connected");
         }
 
         let (session, session_events) = RtcSession::connect(url, token, options).await?;
@@ -522,7 +600,9 @@ impl EngineInner {
 
             if self.full_reconnect.load(Ordering::SeqCst) {
                 if i == 0 {
-                    let _ = self.engine_emitter.send(EngineEvent::Restarting).await;
+                    if let Some(restarting) = self.restarting.load().as_ref() {
+                        (*restarting.lock().await)().await;
+                    }
                 }
 
                 log::error!("restarting connection... attempt: {}", i);
@@ -532,12 +612,16 @@ impl EngineInner {
                 {
                     log::error!("restarting connection failed: {}", err);
                 } else {
-                    let _ = self.engine_emitter.send(EngineEvent::Restarted).await;
+                    if let Some(restarted) = self.restarted.load().as_ref() {
+                        (*restarted.lock().await)().await;
+                    }
                     return Ok(());
                 }
             } else {
                 if i == 0 {
-                    let _ = self.engine_emitter.send(EngineEvent::Resuming).await;
+                    if let Some(resuming) = self.resuming.load().as_ref() {
+                        (*resuming.lock().await)().await;
+                    }
                 }
 
                 log::error!("resuming connection... attempt: {}", i);
@@ -547,7 +631,9 @@ impl EngineInner {
                         self.full_reconnect.store(true, Ordering::SeqCst);
                     }
                 } else {
-                    let _ = self.engine_emitter.send(EngineEvent::Resumed).await;
+                    if let Some(resumed) = self.resumed.load().as_ref() {
+                        (*resumed.lock().await)().await;
+                    }
                     return Ok(());
                 }
             }
@@ -568,7 +654,10 @@ impl EngineInner {
     ) -> EngineResult<()> {
         self.terminate_session().await;
         self.connect(url, token, options).await?;
-        let _ = self.engine_emitter.send(EngineEvent::SignalRestarted).await;
+
+        if let Some(signal_restarted) = self.signal_restarted.load().as_ref() {
+            (*signal_restarted.lock().await)().await;
+        }
 
         let handle = self.running_handle.read().await;
         let session = &handle.as_ref().unwrap().session;
@@ -581,8 +670,14 @@ impl EngineInner {
         let session = &handle.as_ref().unwrap().session;
 
         session.restart().await?;
+
         // With SignalResumed, the room will send a SyncState message to the server
-        let _ = self.engine_emitter.send(EngineEvent::SignalResumed).await;
+        if let Some(signal_resumed) = self.signal_resumed.load().as_ref() {
+            (*signal_resumed.lock().await)().await;
+        }
+
+        // TODO Publisher IceRestart here
+
         session.wait_pc_connection().await
     }
 }

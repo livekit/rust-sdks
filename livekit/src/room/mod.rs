@@ -276,24 +276,71 @@ impl Room {
             participants: Default::default(),
             active_speakers: Default::default(),
             options,
-            rtc_engine,
+            rtc_engine: rtc_engine.clone(),
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
         });
 
-        for pi in join_response.other_participants {
-            let participant = {
-                let pi = pi.clone();
-                inner.create_participant(
-                    pi.sid.try_into().unwrap(),
-                    pi.identity.into(),
-                    pi.name,
-                    pi.metadata,
-                )
-            };
-            participant.update_info(pi.clone());
-        }
+        rtc_engine.on_resuming({
+            let inner = inner.clone();
+            move || {
+                let inner = inner.clone();
+                Box::pin(async move {
+                    inner.handle_resuming().await;
+                })
+            }
+        });
+
+        rtc_engine.on_resumed({
+            let inner = inner.clone();
+            move || {
+                let inner = inner.clone();
+                Box::pin(async move {
+                    inner.handle_resumed().await;
+                })
+            }
+        });
+
+        rtc_engine.on_signal_resumed({
+            let inner = inner.clone();
+            move || {
+                let inner = inner.clone();
+                Box::pin(async move {
+                    inner.handle_signal_resumed().await;
+                })
+            }
+        });
+
+        rtc_engine.on_restarted({
+            let inner = inner.clone();
+            move || {
+                let inner = inner.clone();
+                Box::pin(async move {
+                    inner.handle_restarted().await;
+                })
+            }
+        });
+
+        rtc_engine.on_restarted({
+            let inner = inner.clone();
+            move || {
+                let inner = inner.clone();
+                Box::pin(async move {
+                    inner.handle_signal_restarted().await;
+                })
+            }
+        });
+
+        rtc_engine.on_signal_restarted({
+            let inner = inner.clone();
+            move || {
+                let inner = inner.clone();
+                Box::pin(async move {
+                    inner.handle_signal_restarted().await;
+                })
+            }
+        });
 
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
@@ -323,6 +370,19 @@ impl Room {
                 dispatcher.dispatch(&RoomEvent::E2eeStateChanged { participant, state });
             }
         });
+
+        for pi in join_response.other_participants {
+            let participant = {
+                let pi = pi.clone();
+                inner.create_participant(
+                    pi.sid.try_into().unwrap(),
+                    pi.identity.into(),
+                    pi.name,
+                    pi.metadata,
+                )
+            };
+            participant.update_info(pi.clone());
+        }
 
         // Get the initial states (Can be useful on some usecases, like the FfiServer)
         // Getting them here ensure nothing happening before (Like a new participant joining) because the room task
@@ -492,12 +552,6 @@ impl RoomSession {
                     )))?;
                 }
             }
-            EngineEvent::Resuming => self.handle_resuming(),
-            EngineEvent::Resumed => self.handle_resumed(),
-            EngineEvent::SignalResumed => self.clone().handle_signal_resumed(),
-            EngineEvent::Restarting => self.handle_restarting(),
-            EngineEvent::Restarted => self.handle_restarted(),
-            EngineEvent::SignalRestarted => self.clone().handle_signal_restarted(),
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
@@ -696,24 +750,22 @@ impl RoomSession {
         }
     }
 
-    fn handle_resuming(self: &Arc<Self>) {
+    async fn handle_resuming(self: &Arc<Self>) {
         if self.update_connection_state(ConnectionState::Reconnecting) {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
     }
 
-    fn handle_resumed(self: &Arc<Self>) {
+    async fn handle_resumed(self: &Arc<Self>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
     }
 
-    fn handle_signal_resumed(self: Arc<Self>) {
-        tokio::spawn(async move {
-            self.send_sync_state().await;
-        });
+    async fn handle_signal_resumed(self: Arc<Self>) {
+        self.send_sync_state().await;
     }
 
-    fn handle_restarting(self: &Arc<Self>) {
+    async fn handle_restarting(self: &Arc<Self>) {
         // Remove existing participants/subscriptions on full reconnect
         let participants = self.participants.read().clone();
         for (_, participant) in participants.iter() {
@@ -726,12 +778,12 @@ impl RoomSession {
         }
     }
 
-    fn handle_restarted(self: &Arc<Self>) {
+    async fn handle_restarted(self: &Arc<Self>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
     }
 
-    fn handle_signal_restarted(self: Arc<Self>) {
+    async fn handle_signal_restarted(self: Arc<Self>) {
         let join_response = self.rtc_engine.last_info().join_response;
         self.local_participant
             .update_info(join_response.participant.unwrap()); // The sid may have changed
@@ -740,6 +792,8 @@ impl RoomSession {
 
         // unpublish & republish tracks
         let published_tracks = self.local_participant.tracks();
+
+        // Should I create a new task?
         tokio::spawn(async move {
             for (_, publication) in published_tracks {
                 let track = publication.track();

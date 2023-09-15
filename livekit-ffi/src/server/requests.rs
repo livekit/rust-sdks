@@ -510,7 +510,7 @@ fn on_e2ee_request(
             )
         }
         proto::e2ee_request::Message::CryptorSetEnabled(request) => {
-            let identity = request.participant_identity.try_into().unwrap();
+            let identity = request.participant_identity.into();
             let track_sid = request.track_sid.try_into().unwrap();
 
             if let Some(frame_cryptor) = e2ee_manager.frame_cryptors().get(&(identity, track_sid)) {
@@ -522,7 +522,7 @@ fn on_e2ee_request(
             )
         }
         proto::e2ee_request::Message::CryptorSetKeyIndex(request) => {
-            let identity = request.participant_identity.try_into().unwrap();
+            let identity = request.participant_identity.into();
             let track_sid = request.track_sid.try_into().unwrap();
 
             if let Some(frame_cryptor) = e2ee_manager.frame_cryptors().get(&(identity, track_sid)) {
@@ -559,14 +559,14 @@ fn on_e2ee_request(
             proto::e2ee_response::Message::GetSharedKey(proto::GetSharedKeyResponse { key })
         }
         proto::e2ee_request::Message::SetKey(request) => {
-            let identity = request.participant_identity.try_into().unwrap();
+            let identity = request.participant_identity.into();
             if let Some(key_provider) = e2ee_manager.key_provider() {
                 key_provider.set_key(&identity, request.key_index, request.key);
             }
             proto::e2ee_response::Message::SetKey(proto::SetKeyResponse {})
         }
         proto::e2ee_request::Message::RatchetKey(request) => {
-            let identity = request.participant_identity.try_into().unwrap();
+            let identity = request.participant_identity.into();
             let new_key = e2ee_manager
                 .key_provider()
                 .and_then(|key_provider| key_provider.ratchet_key(&identity, request.key_index));
@@ -574,7 +574,7 @@ fn on_e2ee_request(
             proto::e2ee_response::Message::RatchetKey(proto::RatchetKeyResponse { new_key })
         }
         proto::e2ee_request::Message::GetKey(request) => {
-            let identity = request.participant_identity.try_into().unwrap();
+            let identity = request.participant_identity.into();
             let key = e2ee_manager
                 .key_provider()
                 .and_then(|key_provider| key_provider.get_key(&identity, request.key_index));
