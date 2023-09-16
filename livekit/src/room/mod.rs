@@ -312,12 +312,12 @@ impl Room {
             }
         });
 
-        rtc_engine.on_restarted({
+        rtc_engine.on_restarting({
             let inner = inner.clone();
             move || {
                 let inner = inner.clone();
                 Box::pin(async move {
-                    inner.handle_restarted().await;
+                    inner.handle_restarting().await;
                 })
             }
         });
@@ -327,7 +327,7 @@ impl Room {
             move || {
                 let inner = inner.clone();
                 Box::pin(async move {
-                    inner.handle_signal_restarted().await;
+                    inner.handle_restarted().await;
                 })
             }
         });
@@ -404,15 +404,16 @@ impl Room {
         let (close_emitter, close_receiver) = oneshot::channel();
         let session_task = tokio::spawn(inner.clone().room_task(engine_events, close_receiver));
 
-        let session = Self {
-            inner,
-            handle: AsyncMutex::new(Some(RoomHandle {
-                session_task,
-                close_emitter,
-            })),
-        };
-
-        Ok((session, events))
+        Ok((
+            Self {
+                inner,
+                handle: AsyncMutex::new(Some(RoomHandle {
+                    session_task,
+                    close_emitter,
+                })),
+            },
+            events,
+        ))
     }
 
     pub async fn close(&self) -> RoomResult<()> {
@@ -558,10 +559,9 @@ impl RoomSession {
                 kind,
                 participant_sid,
             } => {
-                let payload = Arc::new(payload);
                 if let Some(participant) = self.get_participant(&participant_sid) {
                     self.dispatcher.dispatch(&RoomEvent::DataReceived {
-                        payload,
+                        payload: Arc::new(payload),
                         kind,
                         participant,
                     });

@@ -19,8 +19,7 @@ use crate::room::DisconnectReason;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents};
 use crate::DataPacketKind;
-use arc_swap::access::Access;
-use arc_swap::{ArcSwap, ArcSwapOption};
+use arc_swap::ArcSwapOption;
 use futures_util::future::BoxFuture;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
@@ -440,7 +439,6 @@ impl EngineInner {
                     .send(EngineEvent::ConnectionQuality { updates })
                     .await;
             }
-            SessionEvent::Connected => {}
         }
         Ok(())
     }
@@ -676,8 +674,8 @@ impl EngineInner {
             (*signal_resumed.lock().await)().await;
         }
 
-        // TODO Publisher IceRestart here
-
+        // The publisher offer must be sent AFTER the SyncState message
+        session.restart_publisher().await?;
         session.wait_pc_connection().await
     }
 }
