@@ -31,4 +31,3 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 thiserror = "1.0"
 lazy_static = "1.4"
 log = "0.4"
-arc-swap = "1.6.0"

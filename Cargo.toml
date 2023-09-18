@@ -8,6 +8,3 @@ members = [
     "webrtc-sys",
     "webrtc-sys/build",
 ]
-
-[patch.crates-io]
-ring = { git = "https://github.com/1Password/ring", branch = "1p/release-0.16" }

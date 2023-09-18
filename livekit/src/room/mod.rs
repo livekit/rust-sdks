@@ -189,9 +189,7 @@ impl Room {
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
-        let e2ee_options = options.e2ee.clone();
-
-        let e2ee_manager = E2eeManager::new(e2ee_options);
+        let e2ee_manager = E2eeManager::new(options.e2ee.clone());
         let (rtc_engine, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -280,66 +278,6 @@ impl Room {
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
-        });
-
-        rtc_engine.on_resuming({
-            let inner = inner.clone();
-            move || {
-                let inner = inner.clone();
-                Box::pin(async move {
-                    inner.handle_resuming().await;
-                })
-            }
-        });
-
-        rtc_engine.on_resumed({
-            let inner = inner.clone();
-            move || {
-                let inner = inner.clone();
-                Box::pin(async move {
-                    inner.handle_resumed().await;
-                })
-            }
-        });
-
-        rtc_engine.on_signal_resumed({
-            let inner = inner.clone();
-            move || {
-                let inner = inner.clone();
-                Box::pin(async move {
-                    inner.handle_signal_resumed().await;
-                })
-            }
-        });
-
-        rtc_engine.on_restarting({
-            let inner = inner.clone();
-            move || {
-                let inner = inner.clone();
-                Box::pin(async move {
-                    inner.handle_restarting().await;
-                })
-            }
-        });
-
-        rtc_engine.on_restarted({
-            let inner = inner.clone();
-            move || {
-                let inner = inner.clone();
-                Box::pin(async move {
-                    inner.handle_restarted().await;
-                })
-            }
-        });
-
-        rtc_engine.on_signal_restarted({
-            let inner = inner.clone();
-            move || {
-                let inner = inner.clone();
-                Box::pin(async move {
-                    inner.handle_signal_restarted().await;
-                })
-            }
         });
 
         e2ee_manager.on_state_changed({
@@ -553,6 +491,12 @@ impl RoomSession {
                     )))?;
                 }
             }
+            EngineEvent::Resuming(tx) => self.handle_resuming(tx).await,
+            EngineEvent::Resumed(tx) => self.handle_resumed(tx).await,
+            EngineEvent::SignalResumed(tx) => self.handle_signal_resumed(tx).await,
+            EngineEvent::Restarting(tx) => self.handle_restarting(tx).await,
+            EngineEvent::Restarted(tx) => self.handle_restarted(tx).await,
+            EngineEvent::SignalRestarted(tx) => self.handle_signal_restarted(tx).await,
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
@@ -750,22 +694,29 @@ impl RoomSession {
         }
     }
 
-    async fn handle_resuming(self: &Arc<Self>) {
+    async fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         if self.update_connection_state(ConnectionState::Reconnecting) {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
+
+        let _ = tx.send(());
     }
 
-    async fn handle_resumed(self: &Arc<Self>) {
+    async fn handle_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
+
+        let _ = tx.send(());
     }
 
-    async fn handle_signal_resumed(self: Arc<Self>) {
+    async fn handle_signal_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         self.send_sync_state().await;
+
+        // Always send the sync state before continuing the reconnection (e.g: publisher offer)
+        let _ = tx.send(());
     }
 
-    async fn handle_restarting(self: &Arc<Self>) {
+    async fn handle_restarting(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         // Remove existing participants/subscriptions on full reconnect
         let participants = self.participants.read().clone();
         for (_, participant) in participants.iter() {
@@ -776,14 +727,18 @@ impl RoomSession {
         if self.update_connection_state(ConnectionState::Reconnecting) {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
+
+        let _ = tx.send(());
     }
 
-    async fn handle_restarted(self: &Arc<Self>) {
+    async fn handle_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
+
+        let _ = tx.send(());
     }
 
-    async fn handle_signal_restarted(self: Arc<Self>) {
+    async fn handle_signal_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         let join_response = self.rtc_engine.last_info().join_response;
         self.local_participant
             .update_info(join_response.participant.unwrap()); // The sid may have changed
@@ -794,21 +749,26 @@ impl RoomSession {
         let published_tracks = self.local_participant.tracks();
 
         // Should I create a new task?
-        tokio::spawn(async move {
-            for (_, publication) in published_tracks {
-                let track = publication.track();
+        tokio::spawn({
+            let session = self.clone();
+            async move {
+                for (_, publication) in published_tracks {
+                    let track = publication.track();
 
-                let _ = self
-                    .local_participant
-                    .unpublish_track(&publication.sid())
-                    .await;
+                    let _ = session
+                        .local_participant
+                        .unpublish_track(&publication.sid())
+                        .await;
 
-                let _ = self
-                    .local_participant
-                    .publish_track(track.unwrap(), publication.publish_options())
-                    .await;
+                    let _ = session
+                        .local_participant
+                        .publish_track(track.unwrap(), publication.publish_options())
+                        .await;
+                }
             }
         });
+
+        let _ = tx.send(());
     }
 
     fn handle_disconnected(&self, reason: DisconnectReason) {
