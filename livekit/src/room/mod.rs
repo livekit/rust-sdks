@@ -22,6 +22,7 @@ use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_webrtc::native::frame_cryptor::EncryptionState;
+use livekit_webrtc::prelude::RtcConfiguration;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -150,6 +151,7 @@ pub struct RoomOptions {
     pub adaptive_stream: bool,
     pub dynacast: bool,
     pub e2ee: Option<E2eeOptions>,
+    pub rtc_config: Option<RtcConfiguration>,
 }
 
 impl Default for RoomOptions {
@@ -159,6 +161,7 @@ impl Default for RoomOptions {
             adaptive_stream: false,
             dynacast: false,
             e2ee: None,
+            rtc_config: None,
         }
     }
 }

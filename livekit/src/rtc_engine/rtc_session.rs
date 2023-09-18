@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
+use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::id::ParticipantSid;
 use crate::options::TrackPublishOptions;
 use crate::prelude::TrackKind;
@@ -22,7 +22,7 @@ use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
 use crate::track::LocalTrack;
 use crate::DataPacketKind;
-use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
+use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_protocol as proto;
 use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
@@ -165,12 +165,12 @@ impl RtcSession {
     pub async fn connect(
         url: &str,
         token: &str,
-        options: SignalOptions,
+        options: EngineOptions,
     ) -> EngineResult<(Self, SessionEvents)> {
         let (session_emitter, session_events) = mpsc::unbounded_channel();
 
         let (signal_client, join_response, signal_events) =
-            SignalClient::connect(url, token, options).await?;
+            SignalClient::connect(url, token, options.signal_options).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
 

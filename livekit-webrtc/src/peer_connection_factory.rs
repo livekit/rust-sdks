@@ -51,7 +51,7 @@ impl Default for RtcConfiguration {
     fn default() -> Self {
         Self {
             ice_servers: vec![],
-            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
             ice_transport_type: IceTransportsType::All,
         }
     }

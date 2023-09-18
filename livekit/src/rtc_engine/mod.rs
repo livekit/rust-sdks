@@ -121,6 +121,12 @@ struct EngineHandle {
 }
 
 #[derive(Default, Debug, Clone)]
+pub struct EngineOptions {
+    pub rtc_config: RtcConfiguration,
+    pub signal_options: SignalOptions,
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct LastInfo {
     // The join response is updated each time a full reconnect is done
     pub join_response: proto::JoinResponse,
