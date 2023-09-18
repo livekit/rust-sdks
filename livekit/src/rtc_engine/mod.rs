@@ -97,12 +97,17 @@ pub enum EngineEvent {
     ConnectionQuality {
         updates: Vec<proto::ConnectionQualityInfo>,
     },
-    Resuming,
-    Resumed,
-    SignalResumed,
-    Restarting,
-    Restarted,
-    SignalRestarted,
+
+    /// The following events are used to notify the room about the reconnection state
+    /// Since the room needs to also sync state in a good timing with the server.
+    /// We synchronize the state with a one-shot channel.
+    Resuming(oneshot::Sender<()>),
+    Resumed(oneshot::Sender<()>),
+    SignalResumed(oneshot::Sender<()>),
+    Restarting(oneshot::Sender<()>),
+    Restarted(oneshot::Sender<()>),
+    SignalRestarted(oneshot::Sender<()>),
+
     Disconnected {
         reason: DisconnectReason,
     },
@@ -180,10 +185,12 @@ impl RtcEngine {
             lk_runtime: LkRuntime::instance(),
             running_handle: Default::default(),
             engine_emitter,
+
             last_info: Default::default(),
             closed: Default::default(),
             reconnecting: Default::default(),
             full_reconnect: Default::default(),
+
             reconnect_interval: AsyncMutex::new(reconnect_interval),
             reconnect_notifier: Arc::new(Notify::new()),
         });
@@ -362,7 +369,6 @@ impl EngineInner {
                     .send(EngineEvent::ConnectionQuality { updates })
                     .await;
             }
-            SessionEvent::Connected => {}
         }
         Ok(())
     }
@@ -375,7 +381,7 @@ impl EngineInner {
     ) -> EngineResult<()> {
         let mut running_handle = self.running_handle.write().await;
         if running_handle.is_some() {
-            unreachable!("engine is already connected");
+            panic!("engine is already connected");
         }
 
         let (session, session_events) = RtcSession::connect(url, token, options).await?;
@@ -522,7 +528,9 @@ impl EngineInner {
 
             if self.full_reconnect.load(Ordering::SeqCst) {
                 if i == 0 {
-                    let _ = self.engine_emitter.send(EngineEvent::Restarting).await;
+                    let (tx, rx) = oneshot::channel();
+                    let _ = self.engine_emitter.send(EngineEvent::Restarting(tx)).await;
+                    let _ = rx.await;
                 }
 
                 log::error!("restarting connection... attempt: {}", i);
@@ -532,12 +540,16 @@ impl EngineInner {
                 {
                     log::error!("restarting connection failed: {}", err);
                 } else {
-                    let _ = self.engine_emitter.send(EngineEvent::Restarted).await;
+                    let (tx, rx) = oneshot::channel();
+                    let _ = self.engine_emitter.send(EngineEvent::Restarted(tx)).await;
+                    let _ = rx.await;
                     return Ok(());
                 }
             } else {
                 if i == 0 {
-                    let _ = self.engine_emitter.send(EngineEvent::Resuming).await;
+                    let (tx, rx) = oneshot::channel();
+                    let _ = self.engine_emitter.send(EngineEvent::Resuming(tx)).await;
+                    let _ = rx.await;
                 }
 
                 log::error!("resuming connection... attempt: {}", i);
@@ -547,7 +559,9 @@ impl EngineInner {
                         self.full_reconnect.store(true, Ordering::SeqCst);
                     }
                 } else {
-                    let _ = self.engine_emitter.send(EngineEvent::Resumed).await;
+                    let (tx, rx) = oneshot::channel();
+                    let _ = self.engine_emitter.send(EngineEvent::Resumed(tx)).await;
+                    let _ = rx.await;
                     return Ok(());
                 }
             }
@@ -568,7 +582,13 @@ impl EngineInner {
     ) -> EngineResult<()> {
         self.terminate_session().await;
         self.connect(url, token, options).await?;
-        let _ = self.engine_emitter.send(EngineEvent::SignalRestarted).await;
+
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .engine_emitter
+            .send(EngineEvent::SignalRestarted(tx))
+            .await;
+        let _ = rx.await;
 
         let handle = self.running_handle.read().await;
         let session = &handle.as_ref().unwrap().session;
@@ -581,8 +601,18 @@ impl EngineInner {
         let session = &handle.as_ref().unwrap().session;
 
         session.restart().await?;
+
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .engine_emitter
+            .send(EngineEvent::SignalResumed(tx))
+            .await;
+
         // With SignalResumed, the room will send a SyncState message to the server
-        let _ = self.engine_emitter.send(EngineEvent::SignalResumed).await;
+        let _ = rx.await;
+
+        // The publisher offer must be sent AFTER the SyncState message
+        session.restart_publisher().await?;
         session.wait_pc_connection().await
     }
 }

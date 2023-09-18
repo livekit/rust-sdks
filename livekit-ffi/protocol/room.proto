@@ -130,11 +130,30 @@ message TrackPublishOptions {
   TrackSource source = 7;
 }
 
+enum IceTransportPolicy {
+  TRANSPORT_NONE = 0;
+  TRANSPORT_RELAY = 1;
+  TRANSPORT_NOHOST = 2;
+  TRANSPORT_ALL = 3;
+}
+
+message IceServer {
+  repeated string urls = 1;
+  string username = 2;
+  string credential = 3;
+}
+
+message RtcConfig {
+  IceTransportPolicy ice_transport_policy = 1;
+  repeated IceServer ice_servers = 2;
+}
+
 message RoomOptions {
   bool auto_subscribe = 1;
   bool adaptive_stream = 2;
   bool dynacast = 3;
   optional E2eeOptions e2ee = 4;
+  optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
 }
 
 //

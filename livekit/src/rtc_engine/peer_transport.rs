@@ -59,10 +59,7 @@ impl PeerTransport {
     }
 
     pub fn is_connected(&self) -> bool {
-        matches!(
-            self.peer_connection.ice_connection_state(),
-            IceConnectionState::Connected | IceConnectionState::Completed
-        )
+        self.peer_connection.connection_state() == PeerConnectionState::Connected
     }
 
     pub fn peer_connection(&self) -> PeerConnection {
