@@ -192,9 +192,7 @@ impl Room {
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
-        let e2ee_options = options.e2ee.clone();
-
-        let e2ee_manager = E2eeManager::new(e2ee_options);
+        let e2ee_manager = E2eeManager::new(options.e2ee.clone());
         let (rtc_engine, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -279,24 +277,11 @@ impl Room {
             participants: Default::default(),
             active_speakers: Default::default(),
             options,
-            rtc_engine,
+            rtc_engine: rtc_engine.clone(),
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
         });
-
-        for pi in join_response.other_participants {
-            let participant = {
-                let pi = pi.clone();
-                inner.create_participant(
-                    pi.sid.try_into().unwrap(),
-                    pi.identity.into(),
-                    pi.name,
-                    pi.metadata,
-                )
-            };
-            participant.update_info(pi.clone());
-        }
 
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
@@ -327,6 +312,19 @@ impl Room {
             }
         });
 
+        for pi in join_response.other_participants {
+            let participant = {
+                let pi = pi.clone();
+                inner.create_participant(
+                    pi.sid.try_into().unwrap(),
+                    pi.identity.into(),
+                    pi.name,
+                    pi.metadata,
+                )
+            };
+            participant.update_info(pi.clone());
+        }
+
         // Get the initial states (Can be useful on some usecases, like the FfiServer)
         // Getting them here ensure nothing happening before (Like a new participant joining) because the room task
         // is not started yet
@@ -347,15 +345,16 @@ impl Room {
         let (close_emitter, close_receiver) = oneshot::channel();
         let session_task = tokio::spawn(inner.clone().room_task(engine_events, close_receiver));
 
-        let session = Self {
-            inner,
-            handle: AsyncMutex::new(Some(RoomHandle {
-                session_task,
-                close_emitter,
-            })),
-        };
-
-        Ok((session, events))
+        Ok((
+            Self {
+                inner,
+                handle: AsyncMutex::new(Some(RoomHandle {
+                    session_task,
+                    close_emitter,
+                })),
+            },
+            events,
+        ))
     }
 
     pub async fn close(&self) -> RoomResult<()> {
@@ -495,22 +494,21 @@ impl RoomSession {
                     )))?;
                 }
             }
-            EngineEvent::Resuming => self.handle_resuming(),
-            EngineEvent::Resumed => self.handle_resumed(),
-            EngineEvent::SignalResumed => self.clone().handle_signal_resumed(),
-            EngineEvent::Restarting => self.handle_restarting(),
-            EngineEvent::Restarted => self.handle_restarted(),
-            EngineEvent::SignalRestarted => self.clone().handle_signal_restarted(),
+            EngineEvent::Resuming(tx) => self.handle_resuming(tx),
+            EngineEvent::Resumed(tx) => self.handle_resumed(tx),
+            EngineEvent::SignalResumed(tx) => self.handle_signal_resumed(tx),
+            EngineEvent::Restarting(tx) => self.handle_restarting(tx),
+            EngineEvent::Restarted(tx) => self.handle_restarted(tx),
+            EngineEvent::SignalRestarted(tx) => self.handle_signal_restarted(tx),
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
                 kind,
                 participant_sid,
             } => {
-                let payload = Arc::new(payload);
                 if let Some(participant) = self.get_participant(&participant_sid) {
                     self.dispatcher.dispatch(&RoomEvent::DataReceived {
-                        payload,
+                        payload: Arc::new(payload),
                         kind,
                         participant,
                     });
@@ -699,24 +697,34 @@ impl RoomSession {
         }
     }
 
-    fn handle_resuming(self: &Arc<Self>) {
+    fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         if self.update_connection_state(ConnectionState::Reconnecting) {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
+
+        let _ = tx.send(());
     }
 
-    fn handle_resumed(self: &Arc<Self>) {
+    fn handle_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
+
+        let _ = tx.send(());
     }
 
-    fn handle_signal_resumed(self: Arc<Self>) {
-        tokio::spawn(async move {
-            self.send_sync_state().await;
+    fn handle_signal_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+        tokio::spawn({
+            let session = self.clone();
+            async move {
+                session.send_sync_state().await;
+
+                // Always send the sync state before continuing the reconnection (e.g: publisher offer)
+                let _ = tx.send(());
+            }
         });
     }
 
-    fn handle_restarting(self: &Arc<Self>) {
+    fn handle_restarting(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         // Remove existing participants/subscriptions on full reconnect
         let participants = self.participants.read().clone();
         for (_, participant) in participants.iter() {
@@ -727,14 +735,18 @@ impl RoomSession {
         if self.update_connection_state(ConnectionState::Reconnecting) {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
+
+        let _ = tx.send(());
     }
 
-    fn handle_restarted(self: &Arc<Self>) {
+    fn handle_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
+
+        let _ = tx.send(());
     }
 
-    fn handle_signal_restarted(self: Arc<Self>) {
+    fn handle_signal_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         let join_response = self.rtc_engine.last_info().join_response;
         self.local_participant
             .update_info(join_response.participant.unwrap()); // The sid may have changed
@@ -743,21 +755,28 @@ impl RoomSession {
 
         // unpublish & republish tracks
         let published_tracks = self.local_participant.tracks();
-        tokio::spawn(async move {
-            for (_, publication) in published_tracks {
-                let track = publication.track();
 
-                let _ = self
-                    .local_participant
-                    .unpublish_track(&publication.sid())
-                    .await;
+        // Should I create a new task?
+        tokio::spawn({
+            let session = self.clone();
+            async move {
+                for (_, publication) in published_tracks {
+                    let track = publication.track();
 
-                let _ = self
-                    .local_participant
-                    .publish_track(track.unwrap(), publication.publish_options())
-                    .await;
+                    let _ = session
+                        .local_participant
+                        .unpublish_track(&publication.sid())
+                        .await;
+
+                    let _ = session
+                        .local_participant
+                        .publish_track(track.unwrap(), publication.publish_options())
+                        .await;
+                }
             }
         });
+
+        let _ = tx.send(());
     }
 
     fn handle_disconnected(&self, reason: DisconnectReason) {
