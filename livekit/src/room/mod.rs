@@ -491,12 +491,12 @@ impl RoomSession {
                     )))?;
                 }
             }
-            EngineEvent::Resuming(tx) => self.handle_resuming(tx).await,
-            EngineEvent::Resumed(tx) => self.handle_resumed(tx).await,
-            EngineEvent::SignalResumed(tx) => self.handle_signal_resumed(tx).await,
-            EngineEvent::Restarting(tx) => self.handle_restarting(tx).await,
-            EngineEvent::Restarted(tx) => self.handle_restarted(tx).await,
-            EngineEvent::SignalRestarted(tx) => self.handle_signal_restarted(tx).await,
+            EngineEvent::Resuming(tx) => self.handle_resuming(tx),
+            EngineEvent::Resumed(tx) => self.handle_resumed(tx),
+            EngineEvent::SignalResumed(tx) => self.handle_signal_resumed(tx),
+            EngineEvent::Restarting(tx) => self.handle_restarting(tx),
+            EngineEvent::Restarted(tx) => self.handle_restarted(tx),
+            EngineEvent::SignalRestarted(tx) => self.handle_signal_restarted(tx),
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
@@ -694,7 +694,7 @@ impl RoomSession {
         }
     }
 
-    async fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+    fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         if self.update_connection_state(ConnectionState::Reconnecting) {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
@@ -702,21 +702,26 @@ impl RoomSession {
         let _ = tx.send(());
     }
 
-    async fn handle_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+    fn handle_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
         let _ = tx.send(());
     }
 
-    async fn handle_signal_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        self.send_sync_state().await;
+    fn handle_signal_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+        tokio::spawn({
+            let session = self.clone();
+            async move {
+                session.send_sync_state().await;
 
-        // Always send the sync state before continuing the reconnection (e.g: publisher offer)
-        let _ = tx.send(());
+                // Always send the sync state before continuing the reconnection (e.g: publisher offer)
+                let _ = tx.send(());
+            }
+        });
     }
 
-    async fn handle_restarting(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+    fn handle_restarting(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         // Remove existing participants/subscriptions on full reconnect
         let participants = self.participants.read().clone();
         for (_, participant) in participants.iter() {
@@ -731,14 +736,14 @@ impl RoomSession {
         let _ = tx.send(());
     }
 
-    async fn handle_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+    fn handle_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         self.update_connection_state(ConnectionState::Connected);
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
         let _ = tx.send(());
     }
 
-    async fn handle_signal_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+    fn handle_signal_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         let join_response = self.rtc_engine.last_info().join_response;
         self.local_participant
             .update_info(join_response.participant.unwrap()); // The sid may have changed
