@@ -3,6 +3,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use webrtc_sys::frame_cryptor::{self as sys_fc};
 
+use crate::peer_connection_factory::PeerConnectionFactory;
 use crate::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
 
 pub type OnStateChange = Box<dyn FnMut(String, EncryptionState) + Send + Sync>;
@@ -77,6 +78,7 @@ pub struct FrameCryptor {
 
 impl FrameCryptor {
     pub fn new_for_rtp_sender(
+        peer_factory: &PeerConnectionFactory,
         participant_id: String,
         algorithm: EncryptionAlgorithm,
         key_provider: KeyProvider,
@@ -84,6 +86,7 @@ impl FrameCryptor {
     ) -> Self {
         let observer = Arc::new(RtcFrameCryptorObserver::default());
         let sys_handle = sys_fc::ffi::new_frame_cryptor_for_rtp_sender(
+            peer_factory.handle.sys_handle.clone(),
             participant_id,
             algorithm.into(),
             key_provider.sys_handle,
@@ -101,6 +104,7 @@ impl FrameCryptor {
     }
 
     pub fn new_for_rtp_receiver(
+        peer_factory: &PeerConnectionFactory,
         participant_id: String,
         algorithm: EncryptionAlgorithm,
         key_provider: KeyProvider,
@@ -108,6 +112,7 @@ impl FrameCryptor {
     ) -> Self {
         let observer = Arc::new(RtcFrameCryptorObserver::default());
         let sys_handle = sys_fc::ffi::new_frame_cryptor_for_rtp_receiver(
+            peer_factory.handle.sys_handle.clone(),
             participant_id,
             algorithm.into(),
             key_provider.sys_handle,

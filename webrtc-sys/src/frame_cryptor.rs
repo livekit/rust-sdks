@@ -83,13 +83,16 @@ pub mod ffi {
         include!("livekit/frame_cryptor.h");
         include!("livekit/rtp_sender.h");
         include!("livekit/rtp_receiver.h");
+        include!("livekit/peer_connection_factory.h");
 
         type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
+        type PeerConnectionFactory = crate::peer_connection_factory::ffi::PeerConnectionFactory;
 
         pub type FrameCryptor;
 
         pub fn new_frame_cryptor_for_rtp_sender(
+            peer_factory: SharedPtr<PeerConnectionFactory>,
             participant_id: String,
             algorithm: Algorithm,
             key_provider: SharedPtr<KeyProvider>,
@@ -97,6 +100,7 @@ pub mod ffi {
         ) -> SharedPtr<FrameCryptor>;
 
         pub fn new_frame_cryptor_for_rtp_receiver(
+            peer_factory: SharedPtr<PeerConnectionFactory>,
             participant_id: String,
             algorithm: Algorithm,
             key_provider: SharedPtr<KeyProvider>,

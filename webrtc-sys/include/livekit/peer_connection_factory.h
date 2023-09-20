@@ -56,6 +56,8 @@ class PeerConnectionFactory {
 
   RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
 
+  std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
+
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<AudioDevice> audio_device_;
