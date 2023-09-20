@@ -7,6 +7,7 @@ members = [
     "livekit-webrtc",
     "webrtc-sys",
     "webrtc-sys/build",
+    "webrtc-sys/libwebrtc/openssl",
 ]
 
 [patch.crates-io]
