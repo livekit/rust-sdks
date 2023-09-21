@@ -30,7 +30,7 @@ pub struct KeyProviderOptions {
 impl Default for KeyProviderOptions {
     fn default() -> Self {
         Self {
-            ratchet_window_size: 0,
+            ratchet_window_size: DEFAULT_RATCHET_WINDOW_SIZE,
             ratchet_salt: DEFAULT_RATCHET_SALT.to_owned().into_bytes(),
             uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.to_owned().into_bytes(),
         }
