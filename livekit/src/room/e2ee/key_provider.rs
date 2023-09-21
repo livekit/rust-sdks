@@ -17,14 +17,14 @@ use livekit_webrtc::native::frame_cryptor as fc;
 use crate::id::ParticipantIdentity;
 
 const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
-const DEFAULT_MAGIC_BYTES: &str = "LK-ROCKS";
 const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
+const DEFAULT_FAILURE_TOLERANCE: i32 = -1; // no tolerance by default
 
 #[derive(Clone)]
 pub struct KeyProviderOptions {
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,
-    pub uncrypted_magic_bytes: Vec<u8>,
+    pub failure_tolerance: i32,
 }
 
 impl Default for KeyProviderOptions {
@@ -32,7 +32,7 @@ impl Default for KeyProviderOptions {
         Self {
             ratchet_window_size: DEFAULT_RATCHET_WINDOW_SIZE,
             ratchet_salt: DEFAULT_RATCHET_SALT.to_owned().into_bytes(),
-            uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.to_owned().into_bytes(),
+            failure_tolerance: DEFAULT_FAILURE_TOLERANCE,
         }
     }
 }
@@ -50,7 +50,7 @@ impl KeyProvider {
                 shared_key: false,
                 ratchet_window_size: options.ratchet_window_size,
                 ratchet_salt: options.ratchet_salt,
-                uncrypted_magic_bytes: options.uncrypted_magic_bytes,
+                failure_tolerance: options.failure_tolerance,
             }),
         }
     }
@@ -60,7 +60,7 @@ impl KeyProvider {
             shared_key: true,
             ratchet_window_size: options.ratchet_window_size,
             ratchet_salt: options.ratchet_salt,
-            uncrypted_magic_bytes: options.uncrypted_magic_bytes,
+            failure_tolerance: options.failure_tolerance,
         });
         handle.set_shared_key(0, shared_key);
         Self { handle }

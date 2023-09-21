@@ -49,14 +49,9 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
             std::back_inserter(ratchet_salt));
 
   rtc_options.ratchet_salt = ratchet_salt;
-
-  std::vector<uint8_t> uncrypted_magic_bytes;
-  std::copy(options.uncrypted_magic_bytes.begin(),
-            options.uncrypted_magic_bytes.end(),
-            std::back_inserter(uncrypted_magic_bytes));
-
-  rtc_options.uncrypted_magic_bytes = uncrypted_magic_bytes;
   rtc_options.ratchet_window_size = options.ratchet_window_size;
+  rtc_options.failure_tolerance = options.failure_tolerance;
+
   impl_ =
       new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
 }
@@ -106,7 +101,7 @@ FrameCryptor::FrameCryptor(
 }
 
 FrameCryptor::~FrameCryptor() {
-  if(observer_) {
+  if (observer_) {
     unregister_observer();
   }
 }

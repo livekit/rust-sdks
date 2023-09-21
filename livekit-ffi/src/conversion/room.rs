@@ -79,7 +79,7 @@ impl From<proto::KeyProviderOptions> for KeyProviderOptions {
         Self {
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
-            uncrypted_magic_bytes: value.uncrypted_magic_bytes,
+            failure_tolerance: value.failure_tolerance,
         }
     }
 }

@@ -13,7 +13,7 @@ pub struct KeyProviderOptions {
     pub shared_key: bool,
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,
-    pub uncrypted_magic_bytes: Vec<u8>,
+    pub failure_tolerance: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,7 +216,7 @@ impl From<KeyProviderOptions> for sys_fc::ffi::KeyProviderOptions {
             shared_key: value.shared_key,
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
-            uncrypted_magic_bytes: value.uncrypted_magic_bytes,
+            failure_tolerance: value.failure_tolerance,
         }
     }
 }

@@ -24,7 +24,7 @@ pub mod ffi {
         pub shared_key: bool,
         pub ratchet_window_size: i32,
         pub ratchet_salt: Vec<u8>,
-        pub uncrypted_magic_bytes: Vec<u8>,
+        pub failure_tolerance: i32,
     }
 
     #[derive(Debug)]

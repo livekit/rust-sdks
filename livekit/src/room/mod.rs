@@ -202,8 +202,8 @@ impl Room {
         let rtc_engine = Arc::new(rtc_engine);
 
         let join_response = rtc_engine.last_info().join_response;
-        if !join_response.sif_trailer.is_empty() {
-            e2ee_manager.key_provider().and_then(|key_provider| Some(key_provider.set_sif_trailer(join_response.sif_trailer.to_vec())));
+        if let Some(key_provider) = e2ee_manager.key_provider() {
+            key_provider.set_sif_trailer(join_response.sif_trailer);
         }
 
         let pi = join_response.participant.unwrap();
