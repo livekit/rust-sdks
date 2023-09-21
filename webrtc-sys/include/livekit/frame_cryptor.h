@@ -23,8 +23,11 @@
 #include <vector>
 
 #include "api/crypto/frame_crypto_transformer.h"
+#include "api/scoped_refptr.h"
+#include "livekit/peer_connection.h"
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
+#include "livekit/webrtc.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
 
@@ -106,6 +109,12 @@ class KeyProvider {
     return vec;
   }
 
+  void set_sif_trailer(rust::Vec<::std::uint8_t> trailer) const {
+    std::vector<uint8_t> trailer_vec;
+    std::copy(trailer.begin(), trailer.end(), std::back_inserter(trailer_vec));
+    impl_->SetSifTrailer(trailer_vec);
+  }
+
   rtc::scoped_refptr<webrtc::KeyProvider> rtc_key_provider() { return impl_; }
 
  private:
@@ -114,12 +123,14 @@ class KeyProvider {
 
 class FrameCryptor {
  public:
-  FrameCryptor(const std::string participant_id,
+  FrameCryptor(std::shared_ptr<RtcRuntime> rtc_runtime,
+               const std::string participant_id,
                webrtc::FrameCryptorTransformer::Algorithm algorithm,
                rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
                rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
-  FrameCryptor(const std::string participant_id,
+  FrameCryptor(std::shared_ptr<RtcRuntime> rtc_runtime,
+               const std::string participant_id,
                webrtc::FrameCryptorTransformer::Algorithm algorithm,
                rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
                rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
@@ -146,13 +157,14 @@ class FrameCryptor {
   void unregister_observer() const;
 
  private:
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
   const rust::String participant_id_;
   mutable webrtc::Mutex mutex_;
   rtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
   rtc::scoped_refptr<webrtc::KeyProvider> key_provider_;
   rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
-  mutable std::unique_ptr<NativeFrameCryptorObserver> observer_;
+  mutable rtc::scoped_refptr<NativeFrameCryptorObserver> observer_;
 };
 
 class NativeFrameCryptorObserver
@@ -171,12 +183,14 @@ class NativeFrameCryptorObserver
 };
 
 std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_sender(
+    std::shared_ptr<PeerConnectionFactory> peer_factory,
     const ::rust::String participant_id,
     Algorithm algorithm,
     std::shared_ptr<KeyProvider> key_provider,
     std::shared_ptr<RtpSender> sender);
 
 std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_receiver(
+    std::shared_ptr<PeerConnectionFactory> peer_factory,
     const ::rust::String participant_id,
     Algorithm algorithm,
     std::shared_ptr<KeyProvider> key_provider,

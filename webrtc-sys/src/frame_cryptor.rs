@@ -24,7 +24,7 @@ pub mod ffi {
         pub shared_key: bool,
         pub ratchet_window_size: i32,
         pub ratchet_salt: Vec<u8>,
-        pub uncrypted_magic_bytes: Vec<u8>,
+        pub failure_tolerance: i32,
     }
 
     #[derive(Debug)]
@@ -59,6 +59,8 @@ pub mod ffi {
 
         pub fn get_shared_key(self: &KeyProvider, key_index: i32) -> Result<Vec<u8>>;
 
+        pub fn set_sif_trailer(&self, trailer: Vec<u8>);
+
         pub fn set_key(
             self: &KeyProvider,
             participant_id: String,
@@ -83,13 +85,16 @@ pub mod ffi {
         include!("livekit/frame_cryptor.h");
         include!("livekit/rtp_sender.h");
         include!("livekit/rtp_receiver.h");
+        include!("livekit/peer_connection_factory.h");
 
         type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
+        type PeerConnectionFactory = crate::peer_connection_factory::ffi::PeerConnectionFactory;
 
         pub type FrameCryptor;
 
         pub fn new_frame_cryptor_for_rtp_sender(
+            peer_factory: SharedPtr<PeerConnectionFactory>,
             participant_id: String,
             algorithm: Algorithm,
             key_provider: SharedPtr<KeyProvider>,
@@ -97,6 +102,7 @@ pub mod ffi {
         ) -> SharedPtr<FrameCryptor>;
 
         pub fn new_frame_cryptor_for_rtp_receiver(
+            peer_factory: SharedPtr<PeerConnectionFactory>,
             participant_id: String,
             algorithm: Algorithm,
             key_provider: SharedPtr<KeyProvider>,

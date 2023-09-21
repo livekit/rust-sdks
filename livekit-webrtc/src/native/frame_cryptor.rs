@@ -3,6 +3,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use webrtc_sys::frame_cryptor::{self as sys_fc};
 
+use crate::peer_connection_factory::PeerConnectionFactory;
 use crate::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
 
 pub type OnStateChange = Box<dyn FnMut(String, EncryptionState) + Send + Sync>;
@@ -12,7 +13,7 @@ pub struct KeyProviderOptions {
     pub shared_key: bool,
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,
-    pub uncrypted_magic_bytes: Vec<u8>,
+    pub failure_tolerance: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +68,10 @@ impl KeyProvider {
     pub fn get_key(&self, participant_id: String, key_index: i32) -> Option<Vec<u8>> {
         self.sys_handle.get_key(participant_id, key_index).ok()
     }
+
+    pub fn set_sif_trailer(&self, trailer: Vec<u8>) {
+        self.sys_handle.set_sif_trailer(trailer);
+    }
 }
 
 #[derive(Clone)]
@@ -77,6 +82,7 @@ pub struct FrameCryptor {
 
 impl FrameCryptor {
     pub fn new_for_rtp_sender(
+        peer_factory: &PeerConnectionFactory,
         participant_id: String,
         algorithm: EncryptionAlgorithm,
         key_provider: KeyProvider,
@@ -84,6 +90,7 @@ impl FrameCryptor {
     ) -> Self {
         let observer = Arc::new(RtcFrameCryptorObserver::default());
         let sys_handle = sys_fc::ffi::new_frame_cryptor_for_rtp_sender(
+            peer_factory.handle.sys_handle.clone(),
             participant_id,
             algorithm.into(),
             key_provider.sys_handle,
@@ -101,6 +108,7 @@ impl FrameCryptor {
     }
 
     pub fn new_for_rtp_receiver(
+        peer_factory: &PeerConnectionFactory,
         participant_id: String,
         algorithm: EncryptionAlgorithm,
         key_provider: KeyProvider,
@@ -108,6 +116,7 @@ impl FrameCryptor {
     ) -> Self {
         let observer = Arc::new(RtcFrameCryptorObserver::default());
         let sys_handle = sys_fc::ffi::new_frame_cryptor_for_rtp_receiver(
+            peer_factory.handle.sys_handle.clone(),
             participant_id,
             algorithm.into(),
             key_provider.sys_handle,
@@ -207,7 +216,7 @@ impl From<KeyProviderOptions> for sys_fc::ffi::KeyProviderOptions {
             shared_key: value.shared_key,
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
-            uncrypted_magic_bytes: value.uncrypted_magic_bytes,
+            failure_tolerance: value.failure_tolerance,
         }
     }
 }

@@ -202,6 +202,10 @@ impl Room {
         let rtc_engine = Arc::new(rtc_engine);
 
         let join_response = rtc_engine.last_info().join_response;
+        if let Some(key_provider) = e2ee_manager.key_provider() {
+            key_provider.set_sif_trailer(join_response.sif_trailer);
+        }
+
         let pi = join_response.participant.unwrap();
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),

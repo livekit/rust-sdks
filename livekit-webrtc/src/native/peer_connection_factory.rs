@@ -40,7 +40,7 @@ lazy_static! {
 
 #[derive(Clone)]
 pub struct PeerConnectionFactory {
-    sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
+    pub(crate) sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
 }
 
 impl Default for PeerConnectionFactory {
