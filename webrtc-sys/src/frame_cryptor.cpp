@@ -105,7 +105,11 @@ FrameCryptor::FrameCryptor(
   e2ee_transformer_->SetEnabled(false);
 }
 
-FrameCryptor::~FrameCryptor() {}
+FrameCryptor::~FrameCryptor() {
+  if(observer_) {
+    unregister_observer();
+  }
+}
 
 void FrameCryptor::register_observer(
     rust::Box<RtcFrameCryptorObserverWrapper> observer) const {
@@ -126,9 +130,7 @@ NativeFrameCryptorObserver::NativeFrameCryptorObserver(
     const FrameCryptor* fc)
     : observer_(std::move(observer)), fc_(fc) {}
 
-NativeFrameCryptorObserver::~NativeFrameCryptorObserver() {
-  fc_->unregister_observer();
-}
+NativeFrameCryptorObserver::~NativeFrameCryptorObserver() {}
 
 void NativeFrameCryptorObserver::OnFrameCryptionStateChanged(
     const std::string participant_id,
