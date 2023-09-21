@@ -59,6 +59,8 @@ pub mod ffi {
 
         pub fn get_shared_key(self: &KeyProvider, key_index: i32) -> Result<Vec<u8>>;
 
+        pub fn set_sif_trailer(&self, trailer: Vec<u8>);
+
         pub fn set_key(
             self: &KeyProvider,
             participant_id: String,

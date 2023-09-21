@@ -109,6 +109,12 @@ class KeyProvider {
     return vec;
   }
 
+  void set_sif_trailer(rust::Vec<::std::uint8_t> trailer) const {
+    std::vector<uint8_t> trailer_vec;
+    std::copy(trailer.begin(), trailer.end(), std::back_inserter(trailer_vec));
+    impl_->SetSifTrailer(trailer_vec);
+  }
+
   rtc::scoped_refptr<webrtc::KeyProvider> rtc_key_provider() { return impl_; }
 
  private:

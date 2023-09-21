@@ -68,6 +68,10 @@ impl KeyProvider {
     pub fn get_key(&self, participant_id: String, key_index: i32) -> Option<Vec<u8>> {
         self.sys_handle.get_key(participant_id, key_index).ok()
     }
+
+    pub fn set_sif_trailer(&self, trailer: Vec<u8>) {
+        self.sys_handle.set_sif_trailer(trailer);
+    }
 }
 
 #[derive(Clone)]

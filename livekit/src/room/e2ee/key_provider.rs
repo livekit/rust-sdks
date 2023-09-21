@@ -30,7 +30,7 @@ pub struct KeyProviderOptions {
 impl Default for KeyProviderOptions {
     fn default() -> Self {
         Self {
-            ratchet_window_size: DEFAULT_RATCHET_WINDOW_SIZE,
+            ratchet_window_size: 0,
             ratchet_salt: DEFAULT_RATCHET_SALT.to_owned().into_bytes(),
             uncrypted_magic_bytes: DEFAULT_MAGIC_BYTES.to_owned().into_bytes(),
         }
@@ -88,5 +88,9 @@ impl KeyProvider {
 
     pub fn get_key(&self, identity: &ParticipantIdentity, key_index: i32) -> Option<Vec<u8>> {
         self.handle.get_key(identity.to_string(), key_index)
+    }
+
+    pub fn set_sif_trailer(&self, trailer: Vec<u8>) {
+        self.handle.set_sif_trailer(trailer);
     }
 }
