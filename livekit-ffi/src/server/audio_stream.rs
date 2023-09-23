@@ -18,7 +18,6 @@ use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::prelude::*;
-use log::warn;
 use tokio::sync::oneshot;
 
 pub struct FfiAudioStream {
@@ -122,7 +121,7 @@ impl FfiAudioStream {
                             )),
                         },
                     )).await {
-                        warn!("failed to send audio frame: {}", err);
+                        log::warn!("failed to send audio frame: {}", err);
                     }
                 }
             }
@@ -139,7 +138,7 @@ impl FfiAudioStream {
             ))
             .await
         {
-            warn!("failed to send EOS: {}", err);
+            log::warn!("failed to send audio EOS: {}", err);
         }
     }
 }

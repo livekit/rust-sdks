@@ -311,7 +311,7 @@ impl RoomInner {
                     if inner.pending_unpublished_tracks.lock().remove(&sid) {
                         break; // Event was sent
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                 }
             }
 
@@ -425,7 +425,7 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
                 if inner.pending_published_tracks.lock().remove(&sid) {
                     break;
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             }
 
             let ffi_publication = FfiPublication {
