@@ -18,7 +18,6 @@ use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
-use log::warn;
 use tokio::sync::oneshot;
 
 pub struct FfiVideoStream {
@@ -124,7 +123,7 @@ impl FfiVideoStream {
                             )),
                         }
                     )).await{
-                        warn!("failed to send video frame: {}", err);
+                        log::warn!("failed to send video frame: {}", err);
                     }
                 }
             }
@@ -141,7 +140,7 @@ impl FfiVideoStream {
             ))
             .await
         {
-            warn!("failed to send video stream ended event: {}", err);
+            log::warn!("failed to send video EOS: {}", err);
         }
     }
 }

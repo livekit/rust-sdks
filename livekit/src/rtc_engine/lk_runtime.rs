@@ -38,7 +38,7 @@ impl LkRuntime {
         if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
             lk_runtime
         } else {
-            log::trace!("LkRuntime::new()");
+            log::debug!("LkRuntime::new()");
             let new_runtime = Arc::new(Self {
                 pc_factory: PeerConnectionFactory::default(),
             });
@@ -54,6 +54,6 @@ impl LkRuntime {
 
 impl Drop for LkRuntime {
     fn drop(&mut self) {
-        log::trace!("LkRuntime::drop()");
+        log::debug!("LkRuntime::drop()");
     }
 }

@@ -26,6 +26,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot};
@@ -221,6 +222,7 @@ impl Room {
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
+                log::info!("local track published: {}", publication.sid());
                 let track = publication.track().unwrap();
                 let event = RoomEvent::LocalTrackPublished {
                     participant: participant.clone(),
@@ -236,6 +238,7 @@ impl Room {
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
+                log::info!("local track unpublished: {}", publication.sid());
                 let event = RoomEvent::LocalTrackUnpublished {
                     participant: participant.clone(),
                     publication: publication.clone(),
@@ -442,19 +445,34 @@ impl RoomSession {
     ) {
         loop {
             tokio::select! {
-                res = engine_events.recv() => {
-                    if let Some(event) = res {
-                        if let Err(err) = self.on_engine_event(event).await {
+                Some(event) = engine_events.recv() => {
+                    let debug = format!("{:?}", event);
+                    let inner = self.clone();
+                    let (tx, rx) = oneshot::channel();
+                    let task = tokio::spawn(async move {
+                        if let Err(err) = inner.on_engine_event(event).await {
                             log::error!("failed to handle engine event: {:?}", err);
                         }
+                        let _ = tx.send(());
+                    });
+
+                    // Monitor sync/async blockings
+                    tokio::select! {
+                        _ = rx => {},
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                            log::error!("engine_event is taking too much time: {}", debug);
+                        }
                     }
+
+                    task.await.unwrap();
                 },
                  _ = &mut close_receiver => {
-                    log::trace!("closing room_task");
                     break;
                 }
             }
         }
+
+        log::debug!("room_task closed");
     }
 
     async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
@@ -564,7 +582,6 @@ impl RoomSession {
             if let Some(remote_participant) = remote_participant {
                 if pi.state == proto::participant_info::State::Disconnected as i32 {
                     // Participant disconnected
-                    log::info!("Participant disconnected: {:?}", participant_sid);
                     self.clone()
                         .handle_participant_disconnect(remote_participant)
                 } else {
@@ -573,7 +590,7 @@ impl RoomSession {
                 }
             } else {
                 // Create a new participant
-                log::info!("Participant connected: {:?}", participant_sid);
+                log::info!("new participant: {}", pi.sid);
                 let remote_participant = {
                     let pi = pi.clone();
                     self.create_participant(
@@ -781,7 +798,7 @@ impl RoomSession {
     }
 
     fn handle_disconnected(&self, reason: DisconnectReason) {
-        log::info!("disconnected from room,: {:?}", reason);
+        log::info!("disconnected from room: {:?}", reason);
         if self.update_connection_state(ConnectionState::Disconnected) {
             self.dispatcher
                 .dispatch(&RoomEvent::Disconnected { reason });
@@ -830,6 +847,7 @@ impl RoomSession {
             let dispatcher = self.dispatcher.clone();
             let e2ee_manager = self.e2ee_manager.clone();
             move |participant, publication, track| {
+                log::info!("track subscribed: {}", track.sid());
                 let event = RoomEvent::TrackSubscribed {
                     participant: participant.clone(),
                     track: track.clone(),
@@ -844,6 +862,7 @@ impl RoomSession {
             let dispatcher = self.dispatcher.clone();
             let e2ee_manager = self.e2ee_manager.clone();
             move |participant, publication, track| {
+                log::info!("track unsubscribed: {}", track.sid());
                 let event = RoomEvent::TrackUnsubscribed {
                     participant: participant.clone(),
                     track: track.clone(),
@@ -888,13 +907,16 @@ impl RoomSession {
         });
 
         self.participants.write().insert(sid, participant.clone());
-
         participant
     }
 
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     fn handle_participant_disconnect(self: Arc<Self>, remote_participant: RemoteParticipant) {
+        log::info!(
+            "handle_participant_disconnect: {}",
+            remote_participant.sid()
+        );
         for (sid, _) in remote_participant.tracks() {
             remote_participant.unpublish_track(&sid);
         }

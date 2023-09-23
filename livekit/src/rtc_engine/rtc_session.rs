@@ -145,7 +145,7 @@ impl RtcSession {
         let (signal_client, join_response, signal_events) =
             SignalClient::connect(url, token, options).await?;
         let signal_client = Arc::new(signal_client);
-        log::debug!("received JoinResponse: {:?}", join_response);
+        log::info!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
         let rtc_config = make_rtc_config_join(join_response);
@@ -303,18 +303,34 @@ impl SessionInner {
     ) {
         loop {
             tokio::select! {
-                res = rtc_events.recv() => {
-                    if let Some(event) = res {
-                        if let Err(err) = self.on_rtc_event(event).await {
+                Some(event) = rtc_events.recv() => {
+                    let debug = format!("{:?}", event);
+                    let inner = self.clone();
+                    let (tx, rx) = oneshot::channel();
+                    let task = tokio::spawn(async move {
+                        if let Err(err) = inner.on_rtc_event(event).await {
                             log::error!("failed to handle rtc event: {:?}", err);
                         }
-                    }                },
-                 _ = close_rx.changed() => {
-                    log::trace!("closing rtc_session_task");
+                        let _ = tx.send(());
+                    });
+
+                    // Monitor sync/async blockings
+                    tokio::select! {
+                        _ = rx => {},
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                            log::error!("rtc_event is taking too much time: {}", debug);
+                        }
+                    }
+
+                    task.await.unwrap();
+                },
+                _ = close_rx.changed() => {
                     break;
                 }
             }
         }
+
+        log::debug!("rtc_session_task closed");
     }
 
     async fn signal_task(
@@ -324,34 +340,48 @@ impl SessionInner {
     ) {
         loop {
             tokio::select! {
-                res = signal_events.recv() => {
-                    if let Some(signal) = res {
-                        match signal {
-                            SignalEvent::Message(signal) => {
-                                // Received a signal
-                                if let Err(err) = self.on_signal_event(*signal).await {
+                Some(signal) = signal_events.recv() => {
+                    match signal {
+                        SignalEvent::Message(signal) => {
+                            let debug = format!("{:?}", signal);
+                            let inner = self.clone();
+                            let (tx, rx) = oneshot::channel();
+                            let task = tokio::spawn(async move {
+                                if let Err(err) = inner.on_signal_event(*signal).await {
                                     log::error!("failed to handle signal: {:?}", err);
                                 }
+                                let _ = tx.send(());
+                            });
+
+                            // Monitor sync/async blockings
+                            tokio::select! {
+                                _ = rx => {},
+                                _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                                    log::error!("signal_event taking too much time: {}", debug);
+                                }
                             }
-                            SignalEvent::Close => {
-                                // SignalClient has been closed
-                                self.on_session_disconnected(
-                                    "SignalClient closed",
-                                    DisconnectReason::UnknownReason,
-                                    true,
-                                    false,
-                                    false
-                                );
-                            }
+
+                            task.await.unwrap();
+                        }
+                        SignalEvent::Close => {
+                            // SignalClient has been closed
+                            self.on_session_disconnected(
+                                "SignalClient closed",
+                                DisconnectReason::UnknownReason,
+                                true,
+                                false,
+                                false
+                            );
                         }
                     }
                 },
                 _ = close_rx.changed() => {
-                    log::trace!("closing signal_task");
                     break;
                 }
             }
         }
+
+        log::debug!("closing signal_task");
     }
 
     async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
