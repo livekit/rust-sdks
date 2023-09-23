@@ -225,7 +225,7 @@ impl E2eeManager {
     }
 
     fn remove_frame_cryptor(&self, participant_identity: ParticipantIdentity, track_sid: TrackSid) {
-        log::debug!("removing frame cryptor for {}", participant_identity);
+        log::error!("removing frame cryptor for {}", participant_identity);
 
         let mut inner = self.inner.lock();
         inner
