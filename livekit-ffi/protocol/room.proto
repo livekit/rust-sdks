@@ -210,7 +210,7 @@ message RoomEvent {
     Reconnecting reconnecting = 19;
     Reconnected reconnected = 20;
     E2eeStateChanged e2ee_state_changed = 21;
-    RoomEOS eos = 22;
+    RoomEOS eos = 22; // The stream of room events has ended
   }
 }
 
