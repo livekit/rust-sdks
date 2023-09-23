@@ -376,6 +376,13 @@ async fn room_task(
             }
         };
     }
+
+    let _ = server
+        .send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
+            room_handle: inner.handle_id,
+            message: Some(proto::room_event::Message::Eos(proto::RoomEos {})),
+        }))
+        .await;
 }
 
 async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event: RoomEvent) {

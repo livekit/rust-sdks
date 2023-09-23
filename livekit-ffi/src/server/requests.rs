@@ -17,7 +17,7 @@ use super::{
     audio_source, audio_stream, room, video_source, video_stream, FfiConfig, FfiError, FfiResult,
     FfiServer,
 };
-use crate::proto::{self};
+use crate::proto;
 use livekit::prelude::*;
 use livekit::webrtc::native::{audio_resampler, yuv_helper};
 use livekit::webrtc::prelude::*;
