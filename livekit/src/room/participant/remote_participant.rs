@@ -47,6 +47,7 @@ struct RemoteEvents {
 
 struct RemoteInfo {
     events: Arc<RemoteEvents>,
+    auto_subscribe: bool, // better way to access this from room?
 }
 
 #[derive(Clone)]
@@ -72,11 +73,13 @@ impl RemoteParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        auto_subscribe: bool,
     ) -> Self {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
             remote: Arc::new(RemoteInfo {
                 events: Default::default(),
+                auto_subscribe,
             }),
         }
     }
@@ -195,7 +198,8 @@ impl RemoteParticipant {
             if let Some(publication) = self.get_track_publication(&track_sid) {
                 publication.update_info(track.clone());
             } else {
-                let publication = RemoteTrackPublication::new(track.clone(), None);
+                let publication =
+                    RemoteTrackPublication::new(track.clone(), None, self.remote.auto_subscribe);
 
                 self.add_publication(TrackPublication::Remote(publication.clone()));
 

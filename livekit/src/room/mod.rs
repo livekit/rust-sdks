@@ -803,6 +803,7 @@ impl RoomSession {
             identity,
             name,
             metadata,
+            self.options.auto_subscribe,
         );
 
         participant.on_track_published({

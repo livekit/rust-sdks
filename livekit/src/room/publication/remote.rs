@@ -64,12 +64,16 @@ impl Debug for RemoteTrackPublication {
 }
 
 impl RemoteTrackPublication {
-    pub(crate) fn new(info: proto::TrackInfo, track: Option<RemoteTrack>) -> Self {
+    pub(crate) fn new(
+        info: proto::TrackInfo,
+        track: Option<RemoteTrack>,
+        auto_subscribe: bool,
+    ) -> Self {
         Self {
             inner: super::new_inner(info, track.map(Into::into)),
             remote: Arc::new(RemoteInner {
                 info: RwLock::new(RemoteInfo {
-                    subscribed: false,
+                    subscribed: auto_subscribe,
                     allowed: true,
                 }),
                 events: Default::default(),
