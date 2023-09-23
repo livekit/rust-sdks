@@ -283,19 +283,18 @@ impl EngineInner {
     ) {
         loop {
             tokio::select! {
-                res = session_events.recv() => {
-                    if let Some(event) = res {
-                        if let Err(err) = self.on_session_event(event).await {
-                            log::error!("failed to handle session event: {:?}", err);
-                        }
+                Some(event) = session_events.recv() => {
+                    if let Err(err) = self.on_session_event(event).await {
+                        log::error!("failed to handle session event: {:?}", err);
                     }
                 },
                  _ = &mut close_receiver => {
-                    log::trace!("closing engine task");
                     break;
                 }
             }
         }
+
+        log::debug!("engine task closed");
     }
 
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
@@ -492,7 +491,7 @@ impl EngineInner {
                 inner.reconnecting.store(false, Ordering::Release);
 
                 if res.is_ok() {
-                    log::info!("RtcEngine successfully reconnected")
+                    log::info!("RtcEngine successfully recovered")
                 } else {
                     log::error!("failed to reconnect after {} attempts", RECONNECT_ATTEMPTS);
                     inner.close(DisconnectReason::UnknownReason).await;

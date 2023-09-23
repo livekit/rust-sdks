@@ -195,7 +195,6 @@ impl LocalParticipant {
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
 
-        log::debug!("publishing track with cid {:?}", track.rtc_track().id());
         let transceiver = self
             .inner
             .rtc_engine

@@ -139,8 +139,6 @@ impl RemoteParticipant {
 
             track.set_transceiver(Some(transceiver));
 
-            log::debug!("starting track: {:?}", sid);
-
             //track.set_muted(remote_publication.is_muted());
             track.update_info(proto::TrackInfo {
                 sid: remote_publication.sid().to_string(),

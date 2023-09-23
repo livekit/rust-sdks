@@ -136,7 +136,6 @@ impl PeerTransport {
         let mut inner = self.inner.lock().await;
 
         if options.ice_restart {
-            log::debug!("restarting ICE");
             inner.restarting_ice = true;
         }
 

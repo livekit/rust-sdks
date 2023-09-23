@@ -166,7 +166,6 @@ pub(super) fn new_inner(
 /// This is only called for local tracks
 pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     let info = inner.info.read();
-    log::debug!("set_muted: {:?} {:?}", info.sid, muted);
     if info.muted == muted {
         return;
     }
