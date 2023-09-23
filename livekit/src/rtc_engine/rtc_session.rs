@@ -304,8 +304,7 @@ impl SessionInner {
         loop {
             tokio::select! {
                 Some(event) = rtc_events.recv() => {
-                    let event_debug = format!("{:?}", event);
-
+                    let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
                     let task = tokio::spawn(async move {
@@ -315,10 +314,11 @@ impl SessionInner {
                         let _ = tx.send(());
                     });
 
+                    // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
                         _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                            log::error!("session_event is taking too much time: {:?}", event_debug);
+                            log::error!("rtc_event is taking too much time: {:?}", debug);
                         }
                     }
 
@@ -343,10 +343,25 @@ impl SessionInner {
                 Some(signal) = signal_events.recv() => {
                     match signal {
                         SignalEvent::Message(signal) => {
-                            // Received a signal
-                            if let Err(err) = self.on_signal_event(*signal).await {
-                                log::error!("failed to handle signal: {:?}", err);
+                            let debug = format!("{:?}", signal);
+                            let inner = self.clone();
+                            let (tx, rx) = oneshot::channel();
+                            let task = tokio::spawn(async move {
+                                if let Err(err) = inner.on_signal_event(*signal).await {
+                                    log::error!("failed to handle signal: {:?}", err);
+                                }
+                                let _ = tx.send(());
+                            });
+
+                            // Monitor sync/async blockings
+                            tokio::select! {
+                                _ = rx => {},
+                                _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                                    log::error!("signal_event taking too much time: {:?}", debug);
+                                }
                             }
+
+                            task.await.unwrap();
                         }
                         SignalEvent::Close => {
                             // SignalClient has been closed

@@ -284,9 +284,25 @@ impl EngineInner {
         loop {
             tokio::select! {
                 Some(event) = session_events.recv() => {
-                    if let Err(err) = self.on_session_event(event).await {
-                        log::error!("failed to handle session event: {:?}", err);
+                    let debug = format!("{:?}", event);
+                    let inner = self.clone();
+                    let (tx, rx) = oneshot::channel();
+                    let task = tokio::spawn(async move {
+                        if let Err(err) = inner.on_session_event(event).await {
+                            log::error!("failed to handle session event: {:?}", err);
+                        }
+                        let _ = tx.send(());
+                    });
+
+                    // Monitor sync/async blockings
+                    tokio::select! {
+                        _ = rx => {},
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                            log::error!("session_event is taking too much time: {:?}", debug);
+                        }
                     }
+
+                    task.await.unwrap();
                 },
                  _ = &mut close_receiver => {
                     break;
