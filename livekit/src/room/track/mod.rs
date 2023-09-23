@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use crate::prelude::*;
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use livekit_webrtc::prelude::*;
 use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
 use std::sync::Arc;

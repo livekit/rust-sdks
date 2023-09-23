@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use lazy_static::lazy_static;
-use livekit_webrtc::prelude::*;
+use libwebrtc::prelude::*;
 use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Weak};

@@ -12,8 +12,6 @@
 
 [![crates.io](https://img.shields.io/crates/v/livekit.svg)](https://crates.io/crates/livekit)
 [![livekit docs.rs](https://img.shields.io/docsrs/livekit)](https://docs.rs/livekit/latest/)
-[![livekit-api docs.rs](https://img.shields.io/docsrs/livekit-api)](https://docs.rs/livekit-api/latest/)
-[![livekit-webrtc docs.rs](https://img.shields.io/docsrs/livekit-webrtc)](https://docs.rs/livekit-webrtc/latest/)
 [![Builds](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml)
 [![Tests](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml)
 
@@ -41,7 +39,7 @@
 - `livekit-core`: LiveKit protocol implementation
 - `livekit-utils`: Shared utilities between our crates
 - `livekit-ffi`: Bindings for other languages. Uses `livekit-core`.
-- `livekit-webrtc`: Safe Rust bindings to libwebrtc
+- `libwebrtc`: Safe Rust bindings to libwebrtc
 - `webrtc-sys`: Unsafe bindings to libwebrtc
 
 ## Motivation and Design Goals

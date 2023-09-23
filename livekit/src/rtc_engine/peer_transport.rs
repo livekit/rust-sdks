@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
-use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
