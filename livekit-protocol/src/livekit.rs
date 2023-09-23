@@ -319,12 +319,17 @@ pub struct UserPacket {
     /// participant ID of user that sent the message
     #[prost(string, tag="1")]
     pub participant_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub participant_identity: ::prost::alloc::string::String,
     /// user defined payload
     #[prost(bytes="vec", tag="2")]
     pub payload: ::prost::alloc::vec::Vec<u8>,
-    /// the ID of the participants who will receive the message (the message will be sent to all the people in the room if this variable is empty)
+    /// the ID of the participants who will receive the message (sent to all by default)
     #[prost(string, repeated, tag="3")]
     pub destination_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// identities of participants who will receive the message (sent to all by default)
+    #[prost(string, repeated, tag="6")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// topic under which the message was published
     #[prost(string, optional, tag="4")]
     pub topic: ::core::option::Option<::prost::alloc::string::String>,
@@ -425,6 +430,8 @@ pub mod client_info {
         Unity = 6,
         ReactNative = 7,
         Rust = 8,
+        Python = 9,
+        Cpp = 10,
     }
     impl Sdk {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -442,6 +449,8 @@ pub mod client_info {
                 Sdk::Unity => "UNITY",
                 Sdk::ReactNative => "REACT_NATIVE",
                 Sdk::Rust => "RUST",
+                Sdk::Python => "PYTHON",
+                Sdk::Cpp => "CPP",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -456,6 +465,8 @@ pub mod client_info {
                 "UNITY" => Some(Self::Unity),
                 "REACT_NATIVE" => Some(Self::ReactNative),
                 "RUST" => Some(Self::Rust),
+                "PYTHON" => Some(Self::Python),
+                "CPP" => Some(Self::Cpp),
                 _ => None,
             }
         }
@@ -491,6 +502,28 @@ pub struct DisabledCodecs {
     /// only disable for publish
     #[prost(message, repeated, tag="2")]
     pub publish: ::prost::alloc::vec::Vec<Codec>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RtpDrift {
+    #[prost(message, optional, tag="1")]
+    pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="2")]
+    pub end_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(double, tag="3")]
+    pub duration: f64,
+    #[prost(uint64, tag="4")]
+    pub start_timestamp: u64,
+    #[prost(uint64, tag="5")]
+    pub end_timestamp: u64,
+    #[prost(uint64, tag="6")]
+    pub rtp_clock_ticks: u64,
+    #[prost(int64, tag="7")]
+    pub drift_samples: i64,
+    #[prost(double, tag="8")]
+    pub drift_ms: f64,
+    #[prost(double, tag="9")]
+    pub clock_rate: f64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -577,11 +610,11 @@ pub struct RtpStats {
     pub layer_lock_plis: u32,
     #[prost(message, optional, tag="36")]
     pub last_layer_lock_pli: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(double, tag="42")]
-    pub sample_rate: f64,
-    /// NEXT_ID: 44
-    #[prost(double, tag="43")]
-    pub drift_ms: f64,
+    #[prost(message, optional, tag="44")]
+    pub packet_drift: ::core::option::Option<RtpDrift>,
+    /// NEXT_ID: 46
+    #[prost(message, optional, tag="45")]
+    pub report_drift: ::core::option::Option<RtpDrift>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1018,6 +1051,41 @@ pub mod web_egress_request {
         Advanced(super::EncodingOptions),
     }
 }
+/// record audio and video from a single participant
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantEgressRequest {
+    /// required
+    #[prost(string, tag="1")]
+    pub room_name: ::prost::alloc::string::String,
+    /// required
+    #[prost(string, tag="2")]
+    pub identity: ::prost::alloc::string::String,
+    /// (default false)
+    #[prost(bool, tag="3")]
+    pub screen_share: bool,
+    #[prost(message, repeated, tag="6")]
+    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
+    #[prost(message, repeated, tag="7")]
+    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
+    #[prost(message, repeated, tag="8")]
+    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(oneof="participant_egress_request::Options", tags="4, 5")]
+    pub options: ::core::option::Option<participant_egress_request::Options>,
+}
+/// Nested message and enum types in `ParticipantEgressRequest`.
+pub mod participant_egress_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Options {
+        /// (default H264_720P_30)
+        #[prost(enumeration="super::EncodingOptionsPreset", tag="4")]
+        Preset(i32),
+        /// (optional)
+        #[prost(message, tag="5")]
+        Advanced(super::EncodingOptions),
+    }
+}
 /// containerize up to one audio and one video track
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1136,6 +1204,9 @@ pub struct SegmentedFileOutput {
     /// (optional)
     #[prost(string, tag="3")]
     pub playlist_name: ::prost::alloc::string::String,
+    /// (optional, disabled if not provided). Path of a live playlist
+    #[prost(string, tag="11")]
+    pub live_playlist_name: ::prost::alloc::string::String,
     /// in seconds (optional)
     #[prost(uint32, tag="4")]
     pub segment_duration: u32,
@@ -1356,7 +1427,7 @@ pub struct EgressInfo {
     pub file_results: ::prost::alloc::vec::Vec<FileInfo>,
     #[prost(message, repeated, tag="17")]
     pub segment_results: ::prost::alloc::vec::Vec<SegmentsInfo>,
-    #[prost(oneof="egress_info::Request", tags="4, 5, 6, 14")]
+    #[prost(oneof="egress_info::Request", tags="4, 14, 19, 5, 6")]
     pub request: ::core::option::Option<egress_info::Request>,
     /// deprecated (use _result fields)
     #[prost(oneof="egress_info::Result", tags="7, 8, 12")]
@@ -1369,12 +1440,14 @@ pub mod egress_info {
     pub enum Request {
         #[prost(message, tag="4")]
         RoomComposite(super::RoomCompositeEgressRequest),
+        #[prost(message, tag="14")]
+        Web(super::WebEgressRequest),
+        #[prost(message, tag="19")]
+        Participant(super::ParticipantEgressRequest),
         #[prost(message, tag="5")]
         TrackComposite(super::TrackCompositeEgressRequest),
         #[prost(message, tag="6")]
         Track(super::TrackEgressRequest),
-        #[prost(message, tag="14")]
-        Web(super::WebEgressRequest),
     }
     /// deprecated (use _result fields)
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1463,18 +1536,45 @@ pub struct FileInfo {
 pub struct SegmentsInfo {
     #[prost(string, tag="1")]
     pub playlist_name: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub live_playlist_name: ::prost::alloc::string::String,
     #[prost(int64, tag="2")]
     pub duration: i64,
     #[prost(int64, tag="3")]
     pub size: i64,
     #[prost(string, tag="4")]
     pub playlist_location: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub live_playlist_location: ::prost::alloc::string::String,
     #[prost(int64, tag="5")]
     pub segment_count: i64,
     #[prost(int64, tag="6")]
     pub started_at: i64,
     #[prost(int64, tag="7")]
     pub ended_at: i64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AutoParticipantEgress {
+    #[prost(message, repeated, tag="3")]
+    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
+    #[prost(message, repeated, tag="4")]
+    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(oneof="auto_participant_egress::Options", tags="1, 2")]
+    pub options: ::core::option::Option<auto_participant_egress::Options>,
+}
+/// Nested message and enum types in `AutoParticipantEgress`.
+pub mod auto_participant_egress {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Options {
+        /// (default H264_720P_30)
+        #[prost(enumeration="super::EncodingOptionsPreset", tag="1")]
+        Preset(i32),
+        /// (optional)
+        #[prost(message, tag="2")]
+        Advanced(super::EncodingOptions),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1843,8 +1943,6 @@ pub struct SimulcastCodec {
     pub codec: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub cid: ::prost::alloc::string::String,
-    #[prost(bool, tag="3")]
-    pub enable_simulcast_layers: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2356,12 +2454,19 @@ pub struct CreateRoomRequest {
     /// egress
     #[prost(message, optional, tag="6")]
     pub egress: ::core::option::Option<RoomEgress>,
+    /// playout delay of subscriber
+    #[prost(uint32, tag="7")]
+    pub min_playout_delay: u32,
+    #[prost(uint32, tag="8")]
+    pub max_playout_delay: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomEgress {
     #[prost(message, optional, tag="1")]
     pub room: ::core::option::Option<RoomCompositeEgressRequest>,
+    #[prost(message, optional, tag="3")]
+    pub participant: ::core::option::Option<AutoParticipantEgress>,
     #[prost(message, optional, tag="2")]
     pub tracks: ::core::option::Option<AutoTrackEgress>,
 }
@@ -2485,8 +2590,13 @@ pub struct SendDataRequest {
     pub data: ::prost::alloc::vec::Vec<u8>,
     #[prost(enumeration="data_packet::Kind", tag="3")]
     pub kind: i32,
+    /// mark deprecated
+    #[deprecated]
     #[prost(string, repeated, tag="4")]
     pub destination_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// when set, only forward to these identities
+    #[prost(string, repeated, tag="6")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, optional, tag="5")]
     pub topic: ::core::option::Option<::prost::alloc::string::String>,
 }
@@ -2509,6 +2619,9 @@ pub struct UpdateRoomMetadataRequest {
 pub struct CreateIngressRequest {
     #[prost(enumeration="IngressInput", tag="1")]
     pub input_type: i32,
+    /// Where to pull media from, only for URL input type
+    #[prost(string, tag="9")]
+    pub url: ::prost::alloc::string::String,
     /// User provided identifier for the ingress
     #[prost(string, tag="2")]
     pub name: ::prost::alloc::string::String,
@@ -2605,6 +2718,7 @@ pub struct IngressInfo {
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub stream_key: ::prost::alloc::string::String,
+    /// URL to point the encoder to for push (RTMP, WHIP), or location to pull media from for pull (URL)
     #[prost(string, tag="4")]
     pub url: ::prost::alloc::string::String,
     /// for RTMP input, it'll be a rtmp:// URL
@@ -2663,6 +2777,7 @@ pub mod ingress_state {
         EndpointBuffering = 1,
         EndpointPublishing = 2,
         EndpointError = 3,
+        EndpointComplete = 4,
     }
     impl Status {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -2675,6 +2790,7 @@ pub mod ingress_state {
                 Status::EndpointBuffering => "ENDPOINT_BUFFERING",
                 Status::EndpointPublishing => "ENDPOINT_PUBLISHING",
                 Status::EndpointError => "ENDPOINT_ERROR",
+                Status::EndpointComplete => "ENDPOINT_COMPLETE",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2684,6 +2800,7 @@ pub mod ingress_state {
                 "ENDPOINT_BUFFERING" => Some(Self::EndpointBuffering),
                 "ENDPOINT_PUBLISHING" => Some(Self::EndpointPublishing),
                 "ENDPOINT_ERROR" => Some(Self::EndpointError),
+                "ENDPOINT_COMPLETE" => Some(Self::EndpointComplete),
                 _ => None,
             }
         }
@@ -2763,10 +2880,9 @@ pub struct DeleteIngressRequest {
 #[repr(i32)]
 pub enum IngressInput {
     RtmpInput = 0,
-    ///   FILE_INPUT = 2;
-    ///   SRT_INPUT = 3;
-    ///   URL_INPUT = 4;
     WhipInput = 1,
+    /// Pull from the provided URL. Only HTTP url are supported, serving either a single media file or a HLS stream
+    UrlInput = 2,
 }
 impl IngressInput {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2777,6 +2893,7 @@ impl IngressInput {
         match self {
             IngressInput::RtmpInput => "RTMP_INPUT",
             IngressInput::WhipInput => "WHIP_INPUT",
+            IngressInput::UrlInput => "URL_INPUT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2784,6 +2901,7 @@ impl IngressInput {
         match value {
             "RTMP_INPUT" => Some(Self::RtmpInput),
             "WHIP_INPUT" => Some(Self::WhipInput),
+            "URL_INPUT" => Some(Self::UrlInput),
             _ => None,
         }
     }
@@ -2819,16 +2937,26 @@ impl IngressAudioEncodingPreset {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum IngressVideoEncodingPreset {
-    /// 1280x720,  30fps, 1700kbps main layer, 3 layers total
+    /// 1280x720,  30fps, 1900kbps main layer, 3 layers total
     H264720p30fps3Layers = 0,
-    /// 1980x1080, 30fps, 3000kbps main layer, 3 layers total
+    /// 1980x1080, 30fps, 3500kbps main layer, 3 layers total
     H2641080p30fps3Layers = 1,
-    ///   960x540,  25fps, 600kbps  main layer, 2 layers total
+    ///   960x540,  25fps, 1000kbps  main layer, 2 layers total
     H264540p25fps2Layers = 2,
-    /// 1280x720,  30fps, 1700kbps, no simulcast
+    /// 1280x720,  30fps, 1900kbps, no simulcast
     H264720p30fps1Layer = 3,
-    /// 1980x1080, 30fps, 3000kbps, no simulcast
+    /// 1980x1080, 30fps, 3500kbps, no simulcast
     H2641080p30fps1Layer = 4,
+    /// 1280x720,  30fps, 2500kbps main layer, 3 layers total, higher bitrate for high motion, harder to encode content
+    H264720p30fps3LayersHighMotion = 5,
+    /// 1980x1080, 30fps, 4500kbps main layer, 3 layers total, higher bitrate for high motion, harder to encode content
+    H2641080p30fps3LayersHighMotion = 6,
+    ///   960x540,  25fps, 1300kbps  main layer, 2 layers total, higher bitrate for high motion, harder to encode content
+    H264540p25fps2LayersHighMotion = 7,
+    /// 1280x720,  30fps, 2500kbps, no simulcast, higher bitrate for high motion, harder to encode content
+    H264720p30fps1LayerHighMotion = 8,
+    /// 1980x1080, 30fps, 4500kbps, no simulcast, higher bitrate for high motion, harder to encode content
+    H2641080p30fps1LayerHighMotion = 9,
 }
 impl IngressVideoEncodingPreset {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2842,6 +2970,11 @@ impl IngressVideoEncodingPreset {
             IngressVideoEncodingPreset::H264540p25fps2Layers => "H264_540P_25FPS_2_LAYERS",
             IngressVideoEncodingPreset::H264720p30fps1Layer => "H264_720P_30FPS_1_LAYER",
             IngressVideoEncodingPreset::H2641080p30fps1Layer => "H264_1080P_30FPS_1_LAYER",
+            IngressVideoEncodingPreset::H264720p30fps3LayersHighMotion => "H264_720P_30FPS_3_LAYERS_HIGH_MOTION",
+            IngressVideoEncodingPreset::H2641080p30fps3LayersHighMotion => "H264_1080P_30FPS_3_LAYERS_HIGH_MOTION",
+            IngressVideoEncodingPreset::H264540p25fps2LayersHighMotion => "H264_540P_25FPS_2_LAYERS_HIGH_MOTION",
+            IngressVideoEncodingPreset::H264720p30fps1LayerHighMotion => "H264_720P_30FPS_1_LAYER_HIGH_MOTION",
+            IngressVideoEncodingPreset::H2641080p30fps1LayerHighMotion => "H264_1080P_30FPS_1_LAYER_HIGH_MOTION",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2852,6 +2985,11 @@ impl IngressVideoEncodingPreset {
             "H264_540P_25FPS_2_LAYERS" => Some(Self::H264540p25fps2Layers),
             "H264_720P_30FPS_1_LAYER" => Some(Self::H264720p30fps1Layer),
             "H264_1080P_30FPS_1_LAYER" => Some(Self::H2641080p30fps1Layer),
+            "H264_720P_30FPS_3_LAYERS_HIGH_MOTION" => Some(Self::H264720p30fps3LayersHighMotion),
+            "H264_1080P_30FPS_3_LAYERS_HIGH_MOTION" => Some(Self::H2641080p30fps3LayersHighMotion),
+            "H264_540P_25FPS_2_LAYERS_HIGH_MOTION" => Some(Self::H264540p25fps2LayersHighMotion),
+            "H264_720P_30FPS_1_LAYER_HIGH_MOTION" => Some(Self::H264720p30fps1LayerHighMotion),
+            "H264_1080P_30FPS_1_LAYER_HIGH_MOTION" => Some(Self::H2641080p30fps1LayerHighMotion),
             _ => None,
         }
     }

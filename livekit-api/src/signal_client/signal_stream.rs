@@ -16,7 +16,7 @@ use super::{SignalError, SignalResult};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use livekit_protocol as proto;
-use prost::Message as ProstMessage;
+use prost::Message as ProtoMessage;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;

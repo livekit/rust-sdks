@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_webrtc::native::frame_cryptor as fc;
+use libwebrtc::native::frame_cryptor as fc;
 
 use crate::id::ParticipantIdentity;
 

@@ -15,9 +15,9 @@
 use super::track_dispatch;
 use super::TrackInner;
 use crate::prelude::*;
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use livekit_webrtc::prelude::*;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]

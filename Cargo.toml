@@ -4,7 +4,7 @@ members = [
     "livekit-api",
     "livekit-protocol",
     "livekit-ffi",
-    "livekit-webrtc",
+    "libwebrtc",
     "webrtc-sys",
     "webrtc-sys/build",
 ]
