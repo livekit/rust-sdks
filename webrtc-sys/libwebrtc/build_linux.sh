@@ -94,7 +94,7 @@ args="is_debug=$debug  \
   is_component_build=false \
   enable_stripping=true \
   use_goma=false \
-  rtc_use_h264=false \
+  rtc_use_h264=true \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
