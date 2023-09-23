@@ -222,7 +222,7 @@ impl Room {
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                log::info!("local track published: {:?}", publication);
+                log::info!("local track published: {}", publication.sid());
                 let track = publication.track().unwrap();
                 let event = RoomEvent::LocalTrackPublished {
                     participant: participant.clone(),
@@ -238,7 +238,7 @@ impl Room {
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                log::info!("local track unpublished: {:?}", publication);
+                log::info!("local track unpublished: {}", publication.sid());
                 let event = RoomEvent::LocalTrackUnpublished {
                     participant: participant.clone(),
                     publication: publication.clone(),
@@ -590,7 +590,7 @@ impl RoomSession {
                 }
             } else {
                 // Create a new participant
-                log::info!("new participant: {:?}", pi);
+                log::info!("new participant: {}", pi.sid);
                 let remote_participant = {
                     let pi = pi.clone();
                     self.create_participant(
@@ -847,7 +847,7 @@ impl RoomSession {
             let dispatcher = self.dispatcher.clone();
             let e2ee_manager = self.e2ee_manager.clone();
             move |participant, publication, track| {
-                log::info!("track subscribed: {:?}", track);
+                log::info!("track subscribed: {}", track.sid());
                 let event = RoomEvent::TrackSubscribed {
                     participant: participant.clone(),
                     track: track.clone(),
@@ -862,7 +862,7 @@ impl RoomSession {
             let dispatcher = self.dispatcher.clone();
             let e2ee_manager = self.e2ee_manager.clone();
             move |participant, publication, track| {
-                log::info!("track unsubscribed: {:?}", track);
+                log::info!("track unsubscribed: {}", track.sid());
                 let event = RoomEvent::TrackUnsubscribed {
                     participant: participant.clone(),
                     track: track.clone(),
@@ -913,7 +913,10 @@ impl RoomSession {
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     fn handle_participant_disconnect(self: Arc<Self>, remote_participant: RemoteParticipant) {
-        log::info!("handle_participant_disconnect: {:?}", remote_participant);
+        log::info!(
+            "handle_participant_disconnect: {}",
+            remote_participant.sid()
+        );
         for (sid, _) in remote_participant.tracks() {
             remote_participant.unpublish_track(&sid);
         }
