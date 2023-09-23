@@ -661,8 +661,6 @@ impl RoomSession {
         let mut track_sids = Vec::new();
         for (_, participant) in self.participants.read().clone() {
             for (track_sid, track) in participant.tracks() {
-                // Log desired state
-                log::error!("track {} is_desired: {}", track_sid, track.is_desired());
                 if track.is_desired() != auto_subscribe {
                     track_sids.push(track_sid.to_string());
                 }
