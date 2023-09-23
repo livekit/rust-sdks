@@ -460,7 +460,7 @@ impl RoomSession {
                     tokio::select! {
                         _ = rx => {},
                         _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                            log::error!("engine_event is taking too much time: {:?}", debug);
+                            log::error!("engine_event is taking too much time: {}", debug);
                         }
                     }
 

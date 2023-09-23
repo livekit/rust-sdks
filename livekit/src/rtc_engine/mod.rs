@@ -298,7 +298,7 @@ impl EngineInner {
                     tokio::select! {
                         _ = rx => {},
                         _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                            log::error!("session_event is taking too much time: {:?}", debug);
+                            log::error!("session_event is taking too much time: {}", debug);
                         }
                     }
 
