@@ -16,6 +16,8 @@ name: FFI
 on:
   push:
     branches: ["main"]
+    tags:
+      - "ffi-v*"
   workflow_dispatch:
 
 env:
