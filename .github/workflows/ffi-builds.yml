@@ -157,5 +157,25 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.name }}.zip
+          name: ffi-builds
           path: ${{ matrix.name }}.zip
+
+
+  release:
+    name: Release to GH (Draft)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/ffi-v')
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: ffi-builds
+          path: ${{ github.workspace }}/ffi-builds
+
+      - name: Create draft release
+        run: |
+          export VERSION="${REF_NAME#ffi-}"
+          gh release create ${{ github.ref_name }} --draft --title "ffi v$VERSION"
+          gh release upload ${{ github.ref_name }} ${{ github.workspace }}/ffi-builds/*
