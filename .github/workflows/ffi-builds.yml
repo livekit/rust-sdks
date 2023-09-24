@@ -132,6 +132,8 @@ jobs:
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
             cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
+          sudo chown -R $USER:$USER target/${{ matrix.target }}/release/
+
       # on android use cargo ndk
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
@@ -140,12 +142,17 @@ jobs:
           cargo install cargo-ndk
           cargo ndk --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
 
+      - name: Copy/Build licenses
+        run: |
+          cat livekit/WEBRTC_LICENSE.md >> LICENSE
+          cp LICENSE target/${{ matrix.target }}/release/
+        shell: bash
+
       # zip the files
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
-        # using sudo because the above container (manylinux) runs as root
         run: |
-          sudo cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
           cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h
 
