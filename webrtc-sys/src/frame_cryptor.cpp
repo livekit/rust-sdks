@@ -19,6 +19,11 @@
 #include <memory>
 
 #include "absl/types/optional.h"
+#include "api/make_ref_counted.h"
+#include "livekit/peer_connection.h"
+#include "livekit/peer_connection_factory.h"
+#include "livekit/webrtc.h"
+#include "rtc_base/thread.h"
 #include "webrtc-sys/src/frame_cryptor.rs.h"
 
 namespace livekit {
@@ -44,24 +49,21 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
             std::back_inserter(ratchet_salt));
 
   rtc_options.ratchet_salt = ratchet_salt;
-
-  std::vector<uint8_t> uncrypted_magic_bytes;
-  std::copy(options.uncrypted_magic_bytes.begin(),
-            options.uncrypted_magic_bytes.end(),
-            std::back_inserter(uncrypted_magic_bytes));
-
-  rtc_options.uncrypted_magic_bytes = uncrypted_magic_bytes;
   rtc_options.ratchet_window_size = options.ratchet_window_size;
+  rtc_options.failure_tolerance = options.failure_tolerance;
+
   impl_ =
       new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
 }
 
 FrameCryptor::FrameCryptor(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
     const std::string participant_id,
     webrtc::FrameCryptorTransformer::Algorithm algorithm,
     rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
     rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
-    : participant_id_(participant_id),
+    : rtc_runtime_(rtc_runtime),
+      participant_id_(participant_id),
       key_provider_(key_provider),
       sender_(sender) {
   auto mediaType =
@@ -69,18 +71,21 @@ FrameCryptor::FrameCryptor(
           ? webrtc::FrameCryptorTransformer::MediaType::kAudioFrame
           : webrtc::FrameCryptorTransformer::MediaType::kVideoFrame;
   e2ee_transformer_ = rtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
-      new webrtc::FrameCryptorTransformer(participant_id, mediaType, algorithm,
+      new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
+                                          participant_id, mediaType, algorithm,
                                           key_provider_));
   sender->SetEncoderToPacketizerFrameTransformer(e2ee_transformer_);
   e2ee_transformer_->SetEnabled(false);
 }
 
 FrameCryptor::FrameCryptor(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
     const std::string participant_id,
     webrtc::FrameCryptorTransformer::Algorithm algorithm,
     rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
     rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
-    : participant_id_(participant_id),
+    : rtc_runtime_(rtc_runtime),
+      participant_id_(participant_id),
       key_provider_(key_provider),
       receiver_(receiver) {
   auto mediaType =
@@ -88,26 +93,31 @@ FrameCryptor::FrameCryptor(
           ? webrtc::FrameCryptorTransformer::MediaType::kAudioFrame
           : webrtc::FrameCryptorTransformer::MediaType::kVideoFrame;
   e2ee_transformer_ = rtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
-      new webrtc::FrameCryptorTransformer(participant_id, mediaType, algorithm,
+      new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
+                                          participant_id, mediaType, algorithm,
                                           key_provider_));
   receiver->SetDepacketizerToDecoderFrameTransformer(e2ee_transformer_);
   e2ee_transformer_->SetEnabled(false);
 }
 
-FrameCryptor::~FrameCryptor() {}
+FrameCryptor::~FrameCryptor() {
+  if (observer_) {
+    unregister_observer();
+  }
+}
 
 void FrameCryptor::register_observer(
     rust::Box<RtcFrameCryptorObserverWrapper> observer) const {
   webrtc::MutexLock lock(&mutex_);
-  observer_ =
-      std::make_unique<NativeFrameCryptorObserver>(std::move(observer), this);
-  e2ee_transformer_->SetFrameCryptorTransformerObserver(observer_.get());
+  observer_ = rtc::make_ref_counted<NativeFrameCryptorObserver>(
+      std::move(observer), this);
+  e2ee_transformer_->RegisterFrameCryptorTransformerObserver(observer_);
 }
 
 void FrameCryptor::unregister_observer() const {
   webrtc::MutexLock lock(&mutex_);
   observer_ = nullptr;
-  e2ee_transformer_->SetFrameCryptorTransformerObserver(nullptr);
+  e2ee_transformer_->UnRegisterFrameCryptorTransformerObserver();
 }
 
 NativeFrameCryptorObserver::NativeFrameCryptorObserver(
@@ -115,9 +125,7 @@ NativeFrameCryptorObserver::NativeFrameCryptorObserver(
     const FrameCryptor* fc)
     : observer_(std::move(observer)), fc_(fc) {}
 
-NativeFrameCryptorObserver::~NativeFrameCryptorObserver() {
-  fc_->unregister_observer();
-}
+NativeFrameCryptorObserver::~NativeFrameCryptorObserver() {}
 
 void NativeFrameCryptorObserver::OnFrameCryptionStateChanged(
     const std::string participant_id,
@@ -151,22 +159,26 @@ std::shared_ptr<KeyProvider> new_key_provider(KeyProviderOptions options) {
 }
 
 std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_sender(
+    std::shared_ptr<PeerConnectionFactory> peer_factory,
     const ::rust::String participant_id,
     Algorithm algorithm,
     std::shared_ptr<KeyProvider> key_provider,
     std::shared_ptr<RtpSender> sender) {
   return std::make_shared<FrameCryptor>(
+      peer_factory->rtc_runtime(),
       std::string(participant_id.data(), participant_id.size()),
       AlgorithmToFrameCryptorAlgorithm(algorithm),
       key_provider->rtc_key_provider(), sender->rtc_sender());
 }
 
 std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_receiver(
+    std::shared_ptr<PeerConnectionFactory> peer_factory,
     const ::rust::String participant_id,
     Algorithm algorithm,
     std::shared_ptr<KeyProvider> key_provider,
     std::shared_ptr<RtpReceiver> receiver) {
   return std::make_shared<FrameCryptor>(
+      peer_factory->rtc_runtime(),
       std::string(participant_id.data(), participant_id.size()),
       AlgorithmToFrameCryptorAlgorithm(algorithm),
       key_provider->rtc_key_provider(), receiver->rtc_receiver());

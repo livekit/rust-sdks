@@ -18,8 +18,9 @@ use crate::e2ee::E2eeOptions;
 use crate::id::{ParticipantIdentity, TrackSid};
 use crate::participant::{LocalParticipant, RemoteParticipant};
 use crate::prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication};
-use livekit_webrtc::native::frame_cryptor::{EncryptionAlgorithm, EncryptionState, FrameCryptor};
-use livekit_webrtc::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
+use crate::rtc_engine::lk_runtime::LkRuntime;
+use libwebrtc::native::frame_cryptor::{EncryptionAlgorithm, EncryptionState, FrameCryptor};
+use libwebrtc::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -194,6 +195,7 @@ impl E2eeManager {
         let options = inner.options.as_ref().unwrap();
 
         let frame_cryptor = FrameCryptor::new_for_rtp_sender(
+            LkRuntime::instance().pc_factory(),
             participant_identity.to_string(),
             EncryptionAlgorithm::AesGcm,
             options.key_provider.handle.clone(),
@@ -212,6 +214,7 @@ impl E2eeManager {
         let options = inner.options.as_ref().unwrap();
 
         let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
+            LkRuntime::instance().pc_factory(),
             participant_identity.to_string(),
             EncryptionAlgorithm::AesGcm,
             options.key_provider.handle.clone(),

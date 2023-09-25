@@ -73,6 +73,7 @@ impl IngressClient {
                     audio: Some(options.audio),
                     video: Some(options.video),
                     bypass_transcoding: false, // TODO Expose
+                    ..Default::default()
                 },
                 self.base.auth_header(VideoGrants {
                     ingress_admin: true,

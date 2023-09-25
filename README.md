@@ -11,6 +11,7 @@
 <!--BEGIN_DESCRIPTION-->Use this SDK to add real-time video, audio and data features to your Rust app. By connecting to a self- or cloud-hosted <a href="https://livekit.io/">LiveKit</a> server, you can quickly build applications like interactive live streaming or video calls with just a few lines of code.<!--END_DESCRIPTION-->
 
 [![crates.io](https://img.shields.io/crates/v/livekit.svg)](https://crates.io/crates/livekit)
+[![livekit docs.rs](https://img.shields.io/docsrs/livekit)](https://docs.rs/livekit/latest/)
 [![Builds](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml)
 [![Tests](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml)
 
@@ -38,7 +39,7 @@
 - `livekit-core`: LiveKit protocol implementation
 - `livekit-utils`: Shared utilities between our crates
 - `livekit-ffi`: Bindings for other languages. Uses `livekit-core`.
-- `livekit-webrtc`: Safe Rust bindings to libwebrtc
+- `libwebrtc`: Safe Rust bindings to libwebrtc
 - `webrtc-sys`: Unsafe bindings to libwebrtc
 
 ## Motivation and Design Goals

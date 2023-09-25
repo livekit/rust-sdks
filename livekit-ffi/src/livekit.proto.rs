@@ -21,8 +21,9 @@ pub struct KeyProviderOptions {
     pub ratchet_window_size: i32,
     #[prost(bytes="vec", tag="3")]
     pub ratchet_salt: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes="vec", tag="4")]
-    pub uncrypted_magic_bytes: ::prost::alloc::vec::Vec<u8>,
+    /// -1 = no tolerence
+    #[prost(int32, tag="4")]
+    pub failure_tolerance: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1216,6 +1217,24 @@ pub struct TrackPublishOptions {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct IceServer {
+    #[prost(string, repeated, tag="1")]
+    pub urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag="2")]
+    pub username: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub credential: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RtcConfig {
+    #[prost(enumeration="IceTransportPolicy", tag="1")]
+    pub ice_transport_policy: i32,
+    #[prost(message, repeated, tag="2")]
+    pub ice_servers: ::prost::alloc::vec::Vec<IceServer>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomOptions {
     #[prost(bool, tag="1")]
     pub auto_subscribe: bool,
@@ -1225,6 +1244,9 @@ pub struct RoomOptions {
     pub dynacast: bool,
     #[prost(message, optional, tag="4")]
     pub e2ee: ::core::option::Option<E2eeOptions>,
+    /// allow to setup a custom RtcConfiguration
+    #[prost(message, optional, tag="5")]
+    pub rtc_config: ::core::option::Option<RtcConfig>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1247,7 +1269,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -1294,6 +1316,8 @@ pub mod room_event {
         Reconnected(super::Reconnected),
         #[prost(message, tag="21")]
         E2eeStateChanged(super::E2eeStateChanged),
+        #[prost(message, tag="22")]
+        Eos(super::RoomEos),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1456,6 +1480,42 @@ pub struct Reconnecting {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Reconnected {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RoomEos {
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IceTransportPolicy {
+    TransportNone = 0,
+    TransportRelay = 1,
+    TransportNohost = 2,
+    TransportAll = 3,
+}
+impl IceTransportPolicy {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            IceTransportPolicy::TransportNone => "TRANSPORT_NONE",
+            IceTransportPolicy::TransportRelay => "TRANSPORT_RELAY",
+            IceTransportPolicy::TransportNohost => "TRANSPORT_NOHOST",
+            IceTransportPolicy::TransportAll => "TRANSPORT_ALL",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TRANSPORT_NONE" => Some(Self::TransportNone),
+            "TRANSPORT_RELAY" => Some(Self::TransportRelay),
+            "TRANSPORT_NOHOST" => Some(Self::TransportNohost),
+            "TRANSPORT_ALL" => Some(Self::TransportAll),
+            _ => None,
+        }
+    }
 }
 //
 // Room

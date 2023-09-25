@@ -33,7 +33,9 @@ jobs:
       - name: Publish crates
         run: |
           cd livekit-protocol && cargo publish
-          cd ../webrtc-sys && cargo publish
-          cd ../livekit-webrtc && cargo publish
+          cd ../webrtc-sys/build && cargo publish
+          cd ../../webrtc-sys && cargo publish
+          cd ../libwebrtc && cargo publish
+          cd ../livekit-api && cargo publish
           cd ../livekit && cp ../README.md README.md && cargo publish --allow-dirty
           cd ../livekit-ffi && cargo publish

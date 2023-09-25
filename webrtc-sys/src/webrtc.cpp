@@ -161,7 +161,7 @@ LogSink::~LogSink() {
 
 void LogSink::OnLogMessage(const std::string& message,
                            rtc::LoggingSeverity severity) {
-  fnc_(rust::String(message), static_cast<LoggingSeverity>(severity));
+  fnc_(rust::String::lossy(message), static_cast<LoggingSeverity>(severity));
 }
 
 std::unique_ptr<LogSink> new_log_sink(

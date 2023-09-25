@@ -10,10 +10,10 @@ repository = "https://github.com/livekit/client-sdk-rust"
 tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", features = ["sink"] }
 parking_lot = "0.12"
-prost = "0.11"
-prost-types = "0.11"
+prost = "0.12"
+prost-types = "0.12"
 
 serde = "1.0"
-pbjson = "0.5"
-pbjson-types = "0.5"
+pbjson = "0.6"
+pbjson-types = "0.6"
 thiserror = "1.0"

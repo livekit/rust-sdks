@@ -22,8 +22,8 @@ use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
 use crate::DataPacketKind;
+use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
-use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -195,7 +195,6 @@ impl LocalParticipant {
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
 
-        log::debug!("publishing track with cid {:?}", track.rtc_track().id());
         let transceiver = self
             .inner
             .rtc_engine

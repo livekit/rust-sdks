@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use crate::prelude::*;
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use livekit_webrtc::prelude::*;
 use parking_lot::{Mutex, RwLock};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -166,7 +166,6 @@ pub(super) fn new_inner(
 /// This is only called for local tracks
 pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     let info = inner.info.read();
-    log::debug!("set_muted: {:?} {:?}", info.sid, muted);
     if info.muted == muted {
         return;
     }
