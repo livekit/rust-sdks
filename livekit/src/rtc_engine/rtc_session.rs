@@ -23,7 +23,7 @@ use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
 use crate::track::LocalTrack;
 use crate::DataPacketKind;
 use libwebrtc::prelude::*;
-use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
+use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use prost::Message;
