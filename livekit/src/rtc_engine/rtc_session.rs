@@ -245,10 +245,13 @@ impl RtcSession {
     /// Close the PeerConnections and the SignalClient
     pub async fn close(self) {
         // Close the tasks
-        self.inner.close().await;
         let _ = self.close_tx.send(true);
         let _ = self.rtc_task.await;
         let _ = self.signal_task.await;
+
+        // Close the PeerConnections after the task
+        // So if a sensitive operation is running, we can wait for it
+        self.inner.close().await;
     }
 
     pub async fn publish_data(
