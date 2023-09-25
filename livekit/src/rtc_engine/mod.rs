@@ -126,6 +126,12 @@ struct EngineHandle {
 }
 
 #[derive(Default, Debug, Clone)]
+pub struct EngineOptions {
+    pub rtc_config: RtcConfiguration,
+    pub signal_options: SignalOptions,
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct LastInfo {
     // The join response is updated each time a full reconnect is done
     pub join_response: proto::JoinResponse,
@@ -142,6 +148,8 @@ struct EngineInner {
     #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     engine_emitter: EngineEmitter,
+
+    options: EngineOptions,
 
     // Last/current session states (needed by the room)
     last_info: Mutex<LastInfo>,
@@ -174,7 +182,7 @@ impl RtcEngine {
     pub async fn connect(
         url: &str,
         token: &str,
-        options: SignalOptions,
+        options: EngineOptions,
     ) -> EngineResult<(Self, EngineEvents)> {
         let (engine_emitter, engine_events) = mpsc::channel(8);
 
@@ -185,6 +193,8 @@ impl RtcEngine {
             lk_runtime: LkRuntime::instance(),
             running_handle: Default::default(),
             engine_emitter,
+
+            options: options.clone(),
 
             last_info: Default::default(),
             closed: Default::default(),
@@ -392,7 +402,7 @@ impl EngineInner {
         self: &Arc<Self>,
         url: &str,
         token: &str,
-        options: SignalOptions,
+        options: EngineOptions,
     ) -> EngineResult<()> {
         let mut running_handle = self.running_handle.write().await;
         if running_handle.is_some() {
@@ -522,13 +532,12 @@ impl EngineInner {
     /// We first try to resume the connection, if it fails, we start a full reconnect.
     async fn reconnect_task(self: &Arc<Self>) -> EngineResult<()> {
         // Get the latest connection info from the signal_client (including the refreshed token because the initial join token may have expired)
-        let (url, token, options) = {
+        let (url, token) = {
             let running_handle = self.running_handle.read().await;
             let signal_client = running_handle.as_ref().unwrap().session.signal_client();
             (
                 signal_client.url(),
                 signal_client.token(), // Refreshed token
-                signal_client.options(),
             )
         };
 
@@ -550,7 +559,7 @@ impl EngineInner {
 
                 log::error!("restarting connection... attempt: {}", i);
                 if let Err(err) = self
-                    .try_restart_connection(&url, &token, options.clone())
+                    .try_restart_connection(&url, &token, self.options.clone())
                     .await
                 {
                     log::error!("restarting connection failed: {}", err);
@@ -593,7 +602,7 @@ impl EngineInner {
         self: &Arc<Self>,
         url: &str,
         token: &str,
-        options: SignalOptions,
+        options: EngineOptions,
     ) -> EngineResult<()> {
         self.terminate_session().await;
         self.connect(url, token, options).await?;

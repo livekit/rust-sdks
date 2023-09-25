@@ -16,9 +16,10 @@ use self::e2ee::manager::E2eeManager;
 use self::e2ee::E2eeOptions;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
-use crate::rtc_engine::EngineError;
+use crate::rtc_engine::{EngineError, EngineOptions};
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use libwebrtc::native::frame_cryptor::EncryptionState;
+use libwebrtc::prelude::{ContinualGatheringPolicy, IceTransportsType, RtcConfiguration};
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
@@ -151,6 +152,7 @@ pub struct RoomOptions {
     pub adaptive_stream: bool,
     pub dynacast: bool,
     pub e2ee: Option<E2eeOptions>,
+    pub rtc_config: RtcConfiguration,
 }
 
 impl Default for RoomOptions {
@@ -160,6 +162,13 @@ impl Default for RoomOptions {
             adaptive_stream: false,
             dynacast: false,
             e2ee: None,
+
+            // Explicitly set the default values
+            rtc_config: RtcConfiguration {
+                ice_servers: vec![], // When empty, this will automatically be filled by the JoinResponse
+                continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
+                ice_transport_type: IceTransportsType::All,
+            },
         }
     }
 }
@@ -194,9 +203,12 @@ impl Room {
         let (rtc_engine, engine_events) = RtcEngine::connect(
             url,
             token,
-            SignalOptions {
-                auto_subscribe: options.auto_subscribe,
-                adaptive_stream: options.adaptive_stream,
+            EngineOptions {
+                rtc_config: options.rtc_config.clone(),
+                signal_options: SignalOptions {
+                    auto_subscribe: options.auto_subscribe,
+                    adaptive_stream: options.adaptive_stream,
+                },
             },
         )
         .await?;
