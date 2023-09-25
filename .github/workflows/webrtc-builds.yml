@@ -13,7 +13,11 @@
 # limitations under the License.
 
 name: WebRTC builds
-on: workflow_dispatch
+on:
+  push:
+    tags:
+      - "webrtc-*"
+  workflow_dispatch:
 
 jobs:
   build:
