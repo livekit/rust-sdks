@@ -33,7 +33,6 @@ fn main() {
         let target_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
 
         let out_file = Path::new(&target_dir).join("WEBRTC_LICENSE.md");
-        println!("cargo:warning=Copying license to {}", out_file.display());
 
         std::fs::copy(license, out_file).unwrap();
     }
