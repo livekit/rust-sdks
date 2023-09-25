@@ -162,6 +162,8 @@ impl Default for RoomOptions {
             adaptive_stream: false,
             dynacast: false,
             e2ee: None,
+
+            // Explicitly set the default values
             rtc_config: RtcConfiguration {
                 ice_servers: vec![], // When empty, this will automatically be filled by the JoinResponse
                 continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
