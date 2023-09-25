@@ -144,7 +144,7 @@ jobs:
 
       - name: Copy/Build licenses
         run: |
-          cat livekit/WEBRTC_LICENSE.md >> LICENSE
+          cat livekit-ffi/WEBRTC_LICENSE.md >> LICENSE
           cp LICENSE target/${{ matrix.target }}/release/
         shell: bash
 
