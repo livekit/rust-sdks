@@ -34,7 +34,6 @@ pub enum ContinualGatheringPolicy {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum IceTransportsType {
-    None,
     Relay,
     NoHost,
     All,

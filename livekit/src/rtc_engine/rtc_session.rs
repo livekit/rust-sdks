@@ -110,6 +110,8 @@ struct SessionInner {
     closed: AtomicBool,
     emitter: SessionEmitter,
 
+    options: EngineOptions,
+
     negotiation_debouncer: Mutex<Option<Debouncer>>,
 }
 
@@ -143,12 +145,12 @@ impl RtcSession {
         let (session_emitter, session_events) = mpsc::unbounded_channel();
 
         let (signal_client, join_response, signal_events) =
-            SignalClient::connect(url, token, options.signal_options).await?;
+            SignalClient::connect(url, token, options.signal_options.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::info!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = make_rtc_config_join(join_response);
+        let rtc_config = make_rtc_config_join(join_response, options.rtc_config.clone());
 
         let lk_runtime = LkRuntime::instance();
         let mut publisher_pc = PeerTransport::new(
@@ -198,6 +200,7 @@ impl RtcSession {
             subscriber_dc: Default::default(),
             closed: Default::default(),
             emitter: session_emitter,
+            options,
             negotiation_debouncer: Default::default(),
         });
 
@@ -786,7 +789,8 @@ impl SessionInner {
         let reconnect_response = self.signal_client.restart().await?;
         log::info!("received reconnect response: {:?}", reconnect_response);
 
-        let rtc_config = make_rtc_config_reconnect(reconnect_response);
+        let rtc_config =
+            make_rtc_config_reconnect(reconnect_response, self.options.rtc_config.clone());
         self.publisher_pc
             .peer_connection()
             .set_configuration(rtc_config.clone())?;
@@ -940,22 +944,16 @@ impl SessionInner {
 
 macro_rules! make_rtc_config {
     ($fncname:ident, $proto:ty) => {
-        fn $fncname(value: $proto) -> RtcConfiguration {
-            let mut config = RtcConfiguration {
-                ice_servers: {
-                    let mut servers = Vec::with_capacity(value.ice_servers.len());
-                    for ice_server in value.ice_servers.clone() {
-                        servers.push(IceServer {
-                            urls: ice_server.urls,
-                            username: ice_server.username,
-                            password: ice_server.credential,
-                        })
-                    }
-                    servers
-                },
-                continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
-                ice_transport_type: IceTransportsType::All,
-            };
+        fn $fncname(value: $proto, mut config: RtcConfiguration) -> RtcConfiguration {
+            if config.ice_servers.is_empty() {
+                for ice_server in value.ice_servers.clone() {
+                    config.ice_servers.push(IceServer {
+                        urls: ice_server.urls,
+                        username: ice_server.username,
+                        password: ice_server.credential,
+                    })
+                }
+            }
 
             if let Some(client_configuration) = value.client_configuration {
                 if client_configuration.force_relay() == proto::ClientConfigSetting::Enabled {

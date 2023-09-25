@@ -19,6 +19,9 @@ use livekit::e2ee::{E2eeOptions, EncryptionType};
 use livekit::options::{AudioEncoding, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::native::frame_cryptor::EncryptionState;
+use livekit::webrtc::prelude::{
+    ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration,
+};
 
 impl From<EncryptionState> for proto::EncryptionState {
     fn from(value: EncryptionState) -> Self {
@@ -84,6 +87,55 @@ impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     }
 }
 
+impl From<proto::IceTransportType> for IceTransportsType {
+    fn from(value: proto::IceTransportType) -> Self {
+        match value {
+            proto::IceTransportType::TransportRelay => Self::Relay,
+            proto::IceTransportType::TransportNohost => Self::NoHost,
+            proto::IceTransportType::TransportAll => Self::All,
+        }
+    }
+}
+
+impl From<proto::ContinualGatheringPolicy> for ContinualGatheringPolicy {
+    fn from(value: proto::ContinualGatheringPolicy) -> Self {
+        match value {
+            proto::ContinualGatheringPolicy::GatherOnce => Self::GatherOnce,
+            proto::ContinualGatheringPolicy::GatherContinually => Self::GatherContinually,
+        }
+    }
+}
+
+impl From<proto::IceServer> for IceServer {
+    fn from(value: proto::IceServer) -> Self {
+        Self {
+            urls: value.urls,
+            username: value.username,
+            password: value.password,
+        }
+    }
+}
+
+impl From<proto::RtcConfig> for RtcConfiguration {
+    fn from(value: proto::RtcConfig) -> Self {
+        let default = RoomOptions::default().rtc_config; // Always use RoomOptions as the default reference
+
+        Self {
+            ice_transport_type: value
+                .ice_transport_type
+                .map_or(default.ice_transport_type, |x| {
+                    proto::IceTransportType::try_from(x).unwrap().into()
+                }),
+            continual_gathering_policy: value
+                .continual_gathering_policy
+                .map_or(default.continual_gathering_policy, |x| {
+                    proto::ContinualGatheringPolicy::try_from(x).unwrap().into()
+                }),
+            ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
         let e2ee = value.e2ee.and_then(|opts| {
@@ -103,11 +155,17 @@ impl From<proto::RoomOptions> for RoomOptions {
             })
         });
 
+        let rtc_config = value
+            .rtc_config
+            .map(Into::into)
+            .unwrap_or(RoomOptions::default().rtc_config);
+
         Self {
             adaptive_stream: value.adaptive_stream,
             auto_subscribe: value.auto_subscribe,
             dynacast: value.dynacast,
             e2ee,
+            rtc_config,
         }
     }
 }

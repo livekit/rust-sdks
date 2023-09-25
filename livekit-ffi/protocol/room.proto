@@ -130,22 +130,27 @@ message TrackPublishOptions {
   TrackSource source = 7;
 }
 
-enum IceTransportPolicy {
-  TRANSPORT_NONE = 0;
-  TRANSPORT_RELAY = 1;
-  TRANSPORT_NOHOST = 2;
-  TRANSPORT_ALL = 3;
+enum IceTransportType {
+  TRANSPORT_RELAY = 0;
+  TRANSPORT_NOHOST = 1;
+  TRANSPORT_ALL = 2;
+}
+
+enum ContinualGatheringPolicy {
+  GATHER_ONCE = 0;
+  GATHER_CONTINUALLY = 1;
 }
 
 message IceServer {
   repeated string urls = 1;
   string username = 2;
-  string credential = 3;
+  string password = 3;
 }
 
 message RtcConfig {
-  IceTransportPolicy ice_transport_policy = 1;
-  repeated IceServer ice_servers = 2;
+  optional IceTransportType ice_transport_type = 1;
+  optional ContinualGatheringPolicy continual_gathering_policy = 2;
+  repeated IceServer ice_servers = 3; // empty fallback to default
 }
 
 message RoomOptions {

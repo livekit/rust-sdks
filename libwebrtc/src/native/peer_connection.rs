@@ -155,7 +155,6 @@ impl From<ContinualGatheringPolicy> for sys_pc::ffi::ContinualGatheringPolicy {
 impl From<IceTransportsType> for sys_pc::ffi::IceTransportsType {
     fn from(value: IceTransportsType) -> Self {
         match value {
-            IceTransportsType::None => sys_pc::ffi::IceTransportsType::None,
             IceTransportsType::Relay => sys_pc::ffi::IceTransportsType::Relay,
             IceTransportsType::NoHost => sys_pc::ffi::IceTransportsType::NoHost,
             IceTransportsType::All => sys_pc::ffi::IceTransportsType::All,

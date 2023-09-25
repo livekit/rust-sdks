@@ -1223,14 +1223,17 @@ pub struct IceServer {
     #[prost(string, tag="2")]
     pub username: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
-    pub credential: ::prost::alloc::string::String,
+    pub password: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RtcConfig {
-    #[prost(enumeration="IceTransportPolicy", tag="1")]
-    pub ice_transport_policy: i32,
-    #[prost(message, repeated, tag="2")]
+    #[prost(enumeration="IceTransportType", optional, tag="1")]
+    pub ice_transport_type: ::core::option::Option<i32>,
+    #[prost(enumeration="ContinualGatheringPolicy", optional, tag="2")]
+    pub continual_gathering_policy: ::core::option::Option<i32>,
+    /// empty fallback to default
+    #[prost(message, repeated, tag="3")]
     pub ice_servers: ::prost::alloc::vec::Vec<IceServer>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1316,6 +1319,7 @@ pub mod room_event {
         Reconnected(super::Reconnected),
         #[prost(message, tag="21")]
         E2eeStateChanged(super::E2eeStateChanged),
+        /// The stream of room events has ended
         #[prost(message, tag="22")]
         Eos(super::RoomEos),
     }
@@ -1487,32 +1491,55 @@ pub struct RoomEos {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum IceTransportPolicy {
-    TransportNone = 0,
-    TransportRelay = 1,
-    TransportNohost = 2,
-    TransportAll = 3,
+pub enum IceTransportType {
+    TransportRelay = 0,
+    TransportNohost = 1,
+    TransportAll = 2,
 }
-impl IceTransportPolicy {
+impl IceTransportType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            IceTransportPolicy::TransportNone => "TRANSPORT_NONE",
-            IceTransportPolicy::TransportRelay => "TRANSPORT_RELAY",
-            IceTransportPolicy::TransportNohost => "TRANSPORT_NOHOST",
-            IceTransportPolicy::TransportAll => "TRANSPORT_ALL",
+            IceTransportType::TransportRelay => "TRANSPORT_RELAY",
+            IceTransportType::TransportNohost => "TRANSPORT_NOHOST",
+            IceTransportType::TransportAll => "TRANSPORT_ALL",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "TRANSPORT_NONE" => Some(Self::TransportNone),
             "TRANSPORT_RELAY" => Some(Self::TransportRelay),
             "TRANSPORT_NOHOST" => Some(Self::TransportNohost),
             "TRANSPORT_ALL" => Some(Self::TransportAll),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ContinualGatheringPolicy {
+    GatherOnce = 0,
+    GatherContinually = 1,
+}
+impl ContinualGatheringPolicy {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ContinualGatheringPolicy::GatherOnce => "GATHER_ONCE",
+            ContinualGatheringPolicy::GatherContinually => "GATHER_CONTINUALLY",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "GATHER_ONCE" => Some(Self::GatherOnce),
+            "GATHER_CONTINUALLY" => Some(Self::GatherContinually),
             _ => None,
         }
     }
