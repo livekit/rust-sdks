@@ -21,6 +21,7 @@
 #include "media/base/media_constants.h"
 #include "modules/video_coding/codecs/h264/include/h264.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
+#include "modules/video_coding/codecs/vp9/include/vp9.h"
 #include "rtc_base/logging.h"
 
 #ifdef WEBRTC_ANDROID
@@ -52,6 +53,7 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
   }
 
   formats.push_back(webrtc::SdpVideoFormat(cricket::kVp8CodecName));
+  formats.push_back(webrtc::SdpVideoFormat(cricket::kVp9CodecName));
   for (const webrtc::SdpVideoFormat& h264_format :
        webrtc::SupportedH264DecoderCodecs())
     formats.push_back(h264_format);
@@ -86,6 +88,8 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::CreateVideoDecoder(
 
   if (absl::EqualsIgnoreCase(format.name, cricket::kVp8CodecName))
     return webrtc::VP8Decoder::Create();
+  if (absl::EqualsIgnoreCase(format.name, cricket::kVp9CodecName))
+    return webrtc::VP9Decoder::Create();
   if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName))
     return webrtc::H264Decoder::Create();
 
