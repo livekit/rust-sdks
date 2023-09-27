@@ -19,19 +19,20 @@ use crate::room::DisconnectReason;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents};
 use crate::DataPacketKind;
+use futures_util::lock::MutexGuard;
 use libwebrtc::prelude::*;
 use libwebrtc::session_description::SdpParseError;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::RwLock as AsyncRwLock;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::sync::{Mutex as AsyncMutex, Notify};
+use tokio::sync::{RwLock as AsyncRwLock, RwLockReadGuard};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Interval, MissedTickBehavior};
 
@@ -40,8 +41,8 @@ mod peer_transport;
 mod rtc_events;
 mod rtc_session;
 
-pub(crate) type EngineEmitter = mpsc::Sender<EngineEvent>;
-pub(crate) type EngineEvents = mpsc::Receiver<EngineEvent>;
+pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
+pub(crate) type EngineEvents = mpsc::UnboundedReceiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -83,7 +84,6 @@ pub enum EngineEvent {
     MediaTrack {
         track: MediaStreamTrack,
         stream: MediaStream,
-        receiver: RtpReceiver,
         transceiver: RtpTransceiver,
     },
     Data {
@@ -113,16 +113,29 @@ pub enum EngineEvent {
     },
 }
 
+#[derive(Clone, Debug)]
+enum ReconnectionEvent {
+    Resuming,   // Starting a new resume attempt
+    Restarting, // Starting a new full reconnect attempt
+    Reconnected,
+    Closed,
+}
+
 pub const RECONNECT_ATTEMPTS: u32 = 10;
 pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Represents a running RTCSession with the ability to close the session
+/// Represents a running RtcSession with the ability to close the session
 /// and the engine_task
 #[derive(Debug)]
 struct EngineHandle {
     session: RtcSession,
-    engine_task: JoinHandle<()>,
-    close_sender: oneshot::Sender<()>,
+    closed: bool,
+    reconnecting: bool,
+
+    // If full_reconnect is true, the next attempt will not try to resume
+    // and will instead do a full reconnect
+    full_reconnect: bool,
+    engine_task: Option<(JoinHandle<()>, oneshot::Sender<()>)>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -145,22 +158,20 @@ pub struct LastInfo {
 
 struct EngineInner {
     // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection factory accross multiple Rtc sessions
-    #[allow(dead_code)]
-    lk_runtime: Arc<LkRuntime>,
-    engine_emitter: EngineEmitter,
-
+    _lk_runtime: Arc<LkRuntime>,
+    engine_tx: EngineEmitter,
     options: EngineOptions,
 
     // Last/current session states (needed by the room)
-    last_info: Mutex<LastInfo>,
-    running_handle: AsyncRwLock<Option<EngineHandle>>,
+    // last_info: Mutex<LastInfo>,
 
-    // Reconnecting fields
-    closed: AtomicBool, // True if closed or the reconnection failed (Note that this is false when reconnecting or resuming)
-    reconnecting: AtomicBool,
-    full_reconnect: AtomicBool, // If true, the next reconnect attempt will skip resume and directly try a full reconnect
+    // Write lock to the running_handle should be fast
+    // since it's only used when the engine is closed
+    running_handle: AsyncRwLock<EngineHandle>,
+
+    waiting_reconnection: AtomicU32,
     reconnect_interval: AsyncMutex<Interval>,
-    reconnect_notifier: Arc<Notify>, // Called when the reconnection task finisehd, successful or not
+    reconnect_watcher: watch::Sender<ReconnectionEvent>,
 }
 
 impl Debug for EngineInner {
@@ -189,10 +200,19 @@ impl RtcEngine {
         let mut reconnect_interval = interval(RECONNECT_INTERVAL);
         reconnect_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+        // Connect to the initial session
+        let (session, session_events) = RtcSession::connect(url, token, options).await?;
+
         let inner = Arc::new(EngineInner {
-            lk_runtime: LkRuntime::instance(),
+            _lk_runtime: LkRuntime::instance(),
             running_handle: Default::default(),
+
             engine_emitter,
+
+            engine_handle: RwLock::new(EngineHandle {
+                session,
+                engine_task: None,
+            }),
 
             options: options.clone(),
 
@@ -205,7 +225,10 @@ impl RtcEngine {
             reconnect_notifier: Arc::new(Notify::new()),
         });
 
-        inner.connect(url, token, options).await?;
+        // Start initial tasks
+        let (close_tx, close_rx) = oneshot::channel();
+        let session_task = tokio::spawn(session_task(inner.clone(), session_events, close_rx));
+
         Ok((Self { inner }, engine_events))
     }
 
@@ -286,6 +309,83 @@ impl RtcEngine {
 }
 
 impl EngineInner {
+    async fn connect(
+        self,
+        url: &str,
+        token: &str,
+        options: EngineOptions,
+    ) -> EngineResult<Arc<Self>> {
+        let (session, session_events) = RtcSession::connect(url, token, options.clone()).await?;
+        let (engine_tx, engine_rx) = mpsc::unbounded_channel();
+
+        let mut inner = Arc::new(Self {
+            _lk_runtime: LkRuntime::instance(),
+            engine_tx,
+
+            running_handle: AsyncRwLock::new(EngineHandle {
+                session,
+                engine_task: None,
+            }),
+
+            options,
+
+            // TODO, remove this
+            last_info: Default::default(),
+            closed: Default::default(),
+            reconnecting: Default::default(),
+            full_reconnect: Default::default(),
+
+            reconnect_interval: AsyncMutex::new(interval(RECONNECT_INTERVAL)),
+            reconnect_notifier: Arc::new(Notify::new()),
+        });
+
+        // Start initial tasks
+        let (close_tx, close_rx) = oneshot::channel();
+        let session_task = tokio::spawn(Self::engine_task(inner.clone(), session_events, close_rx));
+
+        inner.running_handle.write().await.engine_task = Some((session_task, close_tx));
+
+        Ok(inner)
+    }
+
+    async fn wait_reconnection(&self) -> EngineResult<RwLockReadGuard<EngineHandle>> {
+        let running_handle = self.running_handle.read().await;
+        if !running_handle.reconnecting {
+            return Ok(running_handle);
+        }
+
+        // What prevents a new reconnection?
+        // 1. Holding a running_handle lock
+        //    - This is the reason why we return a RwLockReadGuard<RtcSession> so the reconnection
+        //    logic can't acquire the lock between the end of this function and the next
+        //    caller/user code
+        // 2. wait_reconnection to be equals to 0
+
+        // The reason why we can't just keep the lock for the whole function, is that some operations
+        // like removing a RtpSender doesn't necessary need to wait for the reconnection
+        // and we want to use the current RtcSession/PeerConnections
+
+        self.waiting_reconnection.fetch_add(1, Ordering::Release); // Prevent a new
+                                                                   // reconnection to happen even if we don't hold the running_handle lock
+
+        let rx = self.reconnect_watcher.subscribe();
+        // Drop the lock so some operations can still be executed while we reconnect
+        // Also we subscribe before dropping the lock so the reconnection logic can't send
+        // a notification before we subscribe and miss it.
+        drop(running_handle);
+
+        // Wait for the reconnection to finish
+        loop {
+            let _ = rx.changed().await;
+            let reconnection_state = rx.borrow()?;
+        }
+
+        // Reconnection finished, reacquire the lock
+        let running_handle = self.running_handle.read().await;
+        self.waiting_reconnection.fetch_sub(1, Ordering::Acquire);
+        Ok(running_handle)
+    }
+
     async fn engine_task(
         self: Arc<Self>,
         mut session_events: SessionEvents,
@@ -363,7 +463,6 @@ impl EngineInner {
             SessionEvent::MediaTrack {
                 track,
                 stream,
-                receiver,
                 transceiver,
             } => {
                 let _ = self
@@ -371,7 +470,6 @@ impl EngineInner {
                     .send(EngineEvent::MediaTrack {
                         track,
                         stream,
-                        receiver,
                         transceiver,
                     })
                     .await;
@@ -398,7 +496,7 @@ impl EngineInner {
         Ok(())
     }
 
-    async fn connect(
+    /* async fn connect(
         self: &Arc<Self>,
         url: &str,
         token: &str,
@@ -427,7 +525,7 @@ impl EngineInner {
         self.update_last_info().await;
 
         Ok(())
-    }
+    }*/
 
     async fn update_last_info(&self) {
         if let Some(handle) = self.running_handle.read().await.as_ref() {
@@ -456,28 +554,6 @@ impl EngineInner {
             .engine_emitter
             .send(EngineEvent::Disconnected { reason })
             .await;
-    }
-
-    // Wait for the reconnection task to finish
-    // Return directly if no open RTCSession
-    async fn wait_reconnection(&self) -> EngineResult<()> {
-        if self.closed.load(Ordering::SeqCst) {
-            Err(EngineError::Connection("engine is closed".to_owned()))?
-        }
-
-        if self.reconnecting.load(Ordering::Acquire) {
-            // If currently reconnecting, wait for the reconnect task to finish
-            self.reconnect_notifier.notified().await;
-        }
-
-        // reconnect_task is finished here, so it is fine to try to read the RwLock here (should be a short lock)
-        // (the reconnection logic can lock the running_handle for a long time, e.g when resuming)
-
-        if self.running_handle.read().await.is_none() {
-            Err(EngineError::Connection("reconnection failed".to_owned()))?
-        }
-
-        Ok(())
     }
 
     /// Start the reconnect task if not already started
@@ -604,7 +680,8 @@ impl EngineInner {
         token: &str,
         options: EngineOptions,
     ) -> EngineResult<()> {
-        self.terminate_session().await;
+        self.terminate_session().await; // Invalid because we want the current RtcSession to still
+                                        // be available even if the full reconnect failed (next line)
         self.connect(url, token, options).await?;
 
         let (tx, rx) = oneshot::channel();

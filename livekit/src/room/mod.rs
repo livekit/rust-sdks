@@ -19,7 +19,10 @@ use crate::prelude::*;
 use crate::rtc_engine::{EngineError, EngineOptions};
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use libwebrtc::native::frame_cryptor::EncryptionState;
-use libwebrtc::prelude::{ContinualGatheringPolicy, IceTransportsType, RtcConfiguration};
+use libwebrtc::prelude::{
+    ContinualGatheringPolicy, IceTransportsType, MediaStream, MediaStreamTrack, RtcConfiguration,
+};
+use libwebrtc::rtp_transceiver::RtpTransceiver;
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
@@ -123,7 +126,6 @@ pub enum RoomEvent {
     Connected {
         /// Initial participants & their tracks prior to joining the room
         /// We're not returning this directly inside Room::connect because it is unlikely to be used
-        /// and will break the current API.
         participants_with_tracks: Vec<(RemoteParticipant, Vec<RemoteTrackPublication>)>,
     },
     Disconnected {
@@ -496,38 +498,8 @@ impl RoomSession {
             EngineEvent::MediaTrack {
                 track,
                 stream,
-                receiver: _,
                 transceiver,
-            } => {
-                let stream_id = stream.id();
-                let lk_stream_id = unpack_stream_id(&stream_id);
-                if lk_stream_id.is_none() {
-                    Err(RoomError::Internal(format!(
-                        "MediaTrack event with invalid track_id: {:?}",
-                        &stream_id
-                    )))?;
-                }
-
-                let (participant_sid, track_sid) = lk_stream_id.unwrap();
-                let participant_sid = participant_sid.to_owned().try_into().unwrap();
-                let track_sid = track_sid.to_owned().try_into().unwrap();
-                let remote_participant = self.get_participant_by_sid(&participant_sid);
-
-                if let Some(remote_participant) = remote_participant {
-                    tokio::spawn(async move {
-                        remote_participant
-                            .add_subscribed_media_track(track_sid, track, transceiver)
-                            .await;
-                    });
-                } else {
-                    // The server should send participant updates before sending a new offer
-                    // So this should never happen.
-                    Err(RoomError::Internal(format!(
-                        "AddTrack event with invalid participant_sid: {:?}",
-                        participant_sid
-                    )))?;
-                }
-            }
+            } => self.handle_media_track(track, stream, transceiver),
             EngineEvent::Resuming(tx) => self.handle_resuming(tx),
             EngineEvent::Resumed(tx) => self.handle_resumed(tx),
             EngineEvent::SignalResumed(tx) => self.handle_signal_resumed(tx),
@@ -632,6 +604,39 @@ impl RoomSession {
                 self.dispatcher
                     .dispatch(&RoomEvent::ParticipantConnected(remote_participant.clone()));
             }
+        }
+    }
+
+    fn handle_media_track(
+        &self,
+        track: MediaStreamTrack,
+        stream: MediaStream,
+        transceiver: RtpTransceiver,
+    ) {
+        let stream_id = stream.id();
+        let lk_stream_id = unpack_stream_id(&stream_id);
+        if lk_stream_id.is_none() {
+            log::error!("received track with an invalid track_id: {:?}", &stream_id);
+            return;
+        }
+
+        let (participant_sid, track_sid) = lk_stream_id.unwrap();
+        let participant_sid = participant_sid.to_owned().try_into().unwrap();
+        let track_sid = track_sid.to_owned().try_into().unwrap();
+        let remote_participant = self.get_participant_by_sid(&participant_sid);
+
+        if let Some(remote_participant) = remote_participant {
+            tokio::spawn(async move {
+                remote_participant
+                    .add_subscribed_media_track(track_sid, track, transceiver)
+                    .await;
+            });
+        } else {
+            // The server should send participant updates before sending a new offer, this should happen
+            log::error!(
+                "received track from an unknown participant: {:?}",
+                participant_sid
+            );
         }
     }
 

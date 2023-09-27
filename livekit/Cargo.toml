@@ -18,6 +18,9 @@ rustls-tls-native-roots = ["livekit-api/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit-api/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit-api/__rustls-tls"]
 
+# internal features (used by livekit-ffi)
+__lk-internal = []
+
 [dependencies]
 livekit-api = { path = "../livekit-api", version = "0.2.0", default-features = false, features = ["signal-client"] }
 libwebrtc = { path = "../libwebrtc", version = "0.2.0" }

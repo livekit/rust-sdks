@@ -61,7 +61,6 @@ pub enum SessionEvent {
     MediaTrack {
         track: MediaStreamTrack,
         stream: MediaStream,
-        receiver: RtpReceiver,
         transceiver: RtpTransceiver,
     },
     SpeakersChanged {
@@ -521,7 +520,6 @@ impl SessionInner {
                     .await;
             }
             RtcEvent::Track {
-                receiver,
                 mut streams,
                 track,
                 transceiver,
@@ -531,7 +529,6 @@ impl SessionInner {
                     let _ = self.emitter.send(SessionEvent::MediaTrack {
                         stream: streams.remove(0),
                         track,
-                        receiver,
                         transceiver,
                     });
                 } else {
