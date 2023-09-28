@@ -395,8 +395,8 @@ impl EngineInner {
 
         if let Some((engine_task, close_tx)) = engine_task {
             session.close().await;
-            close_tx.send(());
-            engine_task.await;
+            let _ = close_tx.send(());
+            let _ = engine_task.await;
         }
         let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
     }
@@ -449,7 +449,7 @@ impl EngineInner {
                 // The close function can send a signal to cancel the reconnection
 
                 let close_notifier = inner.close_notifier.clone();
-                let mut close_receiver = close_notifier.notified();
+                let close_receiver = close_notifier.notified();
                 tokio::pin!(close_receiver);
 
                 tokio::select! {
@@ -568,8 +568,8 @@ impl EngineInner {
 
         if let Some((engine_task, close_tx)) = engine_task {
             session.close().await;
-            close_tx.send(());
-            engine_task.await;
+            let _ = close_tx.send(());
+            let _ = engine_task.await;
         }
 
         let (new_session, join_response, session_events) =
