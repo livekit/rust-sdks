@@ -109,6 +109,7 @@ impl DataChannel {
 impl Debug for DataChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DataChannel")
+            .field("id", &self.id())
             .field("label", &self.label())
             .field("state", &self.state())
             .finish()

@@ -27,6 +27,7 @@ use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use parking_lot::RwLock;
+use proto::SignalTarget;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -202,7 +203,7 @@ impl Room {
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
-        let (rtc_engine, engine_events) = RtcEngine::connect(
+        let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
             EngineOptions {
@@ -216,7 +217,6 @@ impl Room {
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
 
-        let join_response = rtc_engine.last_info().join_response;
         if let Some(key_provider) = e2ee_manager.key_provider() {
             key_provider.set_sif_trailer(join_response.sif_trailer);
         }
@@ -502,10 +502,15 @@ impl RoomSession {
             } => self.handle_media_track(track, stream, transceiver),
             EngineEvent::Resuming(tx) => self.handle_resuming(tx),
             EngineEvent::Resumed(tx) => self.handle_resumed(tx),
-            EngineEvent::SignalResumed(tx) => self.handle_signal_resumed(tx),
+            EngineEvent::SignalResumed {
+                reconnect_response,
+                tx,
+            } => self.handle_signal_resumed(reconnect_response, tx),
             EngineEvent::Restarting(tx) => self.handle_restarting(tx),
             EngineEvent::Restarted(tx) => self.handle_restarted(tx),
-            EngineEvent::SignalRestarted(tx) => self.handle_signal_restarted(tx),
+            EngineEvent::SignalRestarted { join_response, tx } => {
+                self.handle_signal_restarted(join_response, tx)
+            }
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
@@ -698,10 +703,15 @@ impl RoomSession {
     }
 
     async fn send_sync_state(self: &Arc<Self>) {
-        let last_info = self.rtc_engine.last_info();
         let auto_subscribe = self.options.auto_subscribe;
+        let session = self.rtc_engine.session();
 
-        if last_info.subscriber_answer.is_none() {
+        if session
+            .subscriber()
+            .peer_connection()
+            .current_local_description()
+            .is_none()
+        {
             log::warn!("skipping sendSyncState, no subscriber answer");
             return;
         }
@@ -715,8 +725,59 @@ impl RoomSession {
             }
         }
 
-        let answer = last_info.subscriber_answer.unwrap();
-        let offer = last_info.subscriber_offer.unwrap();
+        let answer = session
+            .subscriber()
+            .peer_connection()
+            .current_local_description()
+            .unwrap();
+
+        let offer = session
+            .subscriber()
+            .peer_connection()
+            .current_remote_description()
+            .unwrap();
+
+        let mut dcs = Vec::with_capacity(4);
+        if session.has_published() {
+            let lossy_dc = session
+                .data_channel(SignalTarget::Publisher, DataPacketKind::Lossy)
+                .unwrap();
+            let reliable_dc = session
+                .data_channel(SignalTarget::Publisher, DataPacketKind::Reliable)
+                .unwrap();
+
+            dcs.push(proto::DataChannelInfo {
+                label: lossy_dc.label(),
+                id: lossy_dc.id() as u32,
+                target: proto::SignalTarget::Publisher as i32,
+            });
+
+            dcs.push(proto::DataChannelInfo {
+                label: reliable_dc.label(),
+                id: reliable_dc.id() as u32,
+                target: proto::SignalTarget::Publisher as i32,
+            });
+        }
+
+        if let Some(lossy_dc) =
+            session.data_channel(SignalTarget::Subscriber, DataPacketKind::Lossy)
+        {
+            dcs.push(proto::DataChannelInfo {
+                label: lossy_dc.label(),
+                id: lossy_dc.id() as u32,
+                target: proto::SignalTarget::Subscriber as i32,
+            });
+        }
+
+        if let Some(reliable_dc) =
+            session.data_channel(SignalTarget::Subscriber, DataPacketKind::Reliable)
+        {
+            dcs.push(proto::DataChannelInfo {
+                label: reliable_dc.label(),
+                id: reliable_dc.id() as u32,
+                target: proto::SignalTarget::Subscriber as i32,
+            });
+        }
 
         let sync_state = proto::SyncState {
             answer: Some(proto::SessionDescription {
@@ -733,17 +794,13 @@ impl RoomSession {
                 participant_tracks: Vec::new(),
             }),
             publish_tracks: self.local_participant.published_tracks_info(),
-            data_channels: last_info.data_channels_info,
+            data_channels: dcs,
         };
 
         log::info!("sending sync state {:?}", sync_state);
-        if let Err(err) = self
-            .rtc_engine
+        self.rtc_engine
             .send_request(proto::signal_request::Message::SyncState(sync_state))
-            .await
-        {
-            log::error!("failed to send sync state: {:?}", err);
-        }
+            .await;
     }
 
     fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
@@ -761,7 +818,11 @@ impl RoomSession {
         let _ = tx.send(());
     }
 
-    fn handle_signal_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+    fn handle_signal_resumed(
+        self: &Arc<Self>,
+        _reconnect_repsonse: proto::ReconnectResponse,
+        tx: oneshot::Sender<()>,
+    ) {
         tokio::spawn({
             let session = self.clone();
             async move {
@@ -795,8 +856,11 @@ impl RoomSession {
         let _ = tx.send(());
     }
 
-    fn handle_signal_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        let join_response = self.rtc_engine.last_info().join_response;
+    fn handle_signal_restarted(
+        self: &Arc<Self>,
+        join_response: proto::JoinResponse,
+        tx: oneshot::Sender<()>,
+    ) {
         self.local_participant
             .update_info(join_response.participant.unwrap()); // The sid may have changed
 
