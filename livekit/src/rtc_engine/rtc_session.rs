@@ -196,7 +196,7 @@ impl RtcSession {
             pending_tracks: Default::default(),
             lossy_dc,
             reliable_dc,
-            subscriber_dc: Default::default(),
+            subscriber_dc: Mutex::new(Vec::default()),
             closed: Default::default(),
             emitter: session_emitter,
             options,
@@ -207,7 +207,9 @@ impl RtcSession {
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx));
 
-        inner.wait_pc_connection().await?;
+        // TODO(theomonnom): Don't forget to wait for the connection to be established inside
+        // the RtcEngine.
+        // inner.wait_pc_connection().await?;
 
         Ok((
             Self {
@@ -242,7 +244,7 @@ impl RtcSession {
     }
 
     /// Close the PeerConnections and the SignalClient
-    pub async fn close(self) {
+    pub async fn close(&self) {
         // Close the tasks
         let _ = self.close_tx.send(true);
         let _ = self.rtc_task.await;
@@ -277,7 +279,6 @@ impl RtcSession {
         self.inner.simulate_scenario(scenario).await
     }
 
-    #[allow(dead_code)]
     pub fn publisher(&self) -> &PeerTransport {
         &self.inner.publisher_pc
     }
@@ -290,7 +291,6 @@ impl RtcSession {
         &self.inner.signal_client
     }
 
-    #[allow(dead_code)]
     pub fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
         self.inner.data_channel(kind)
     }
