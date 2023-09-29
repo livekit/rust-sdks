@@ -377,18 +377,19 @@ async fn room_task(
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
-    let mut present_state = ActualState {
+    let present_state = Arc::new(Mutex::new(ActualState {
         reconnecting: false,
-    };
+    }));
 
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
                 let debug = format!("{:?}", event);
                 let inner = inner.clone();
+                let present_state = present_state.clone();
                 let (tx, rx) = oneshot::channel();
                 let task = tokio::spawn(async move {
-                    forward_event(server, &inner, event, &mut present_state).await;
+                    forward_event(server, &inner, event, present_state).await;
                     let _ = tx.send(());
                 });
 
@@ -420,7 +421,7 @@ async fn forward_event(
     server: &'static FfiServer,
     inner: &Arc<RoomInner>,
     event: RoomEvent,
-    present_state: &mut ActualState,
+    present_state: Arc<Mutex<ActualState>>,
 ) {
     let send_event = |event: proto::room_event::Message| {
         server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
@@ -464,8 +465,8 @@ async fn forward_event(
             let sid = publication.sid();
             // If we're currently reconnecting, users can't publish tracks, if we receive this
             // event it means the RoomEngine is republishing tracks to finish the reconnection
-            // process. (So we're not waiting for any PublishCallback).
-            if !present_state.reconnecting {
+            // process. (So we're not waiting for any PublishCallback)
+            if !present_state.lock().reconnecting {
                 // Make sure to send the event *after* the async callback of the PublishTrackRequest
                 // Wait for the PublishTrack callback to be sent (waiting time is really short, so it is fine to not spawn a new task)
                 loop {
@@ -687,14 +688,14 @@ async fn forward_event(
             .await;
         }
         RoomEvent::Reconnecting => {
-            present_state.reconnecting = true;
+            present_state.lock().reconnecting = true;
             let _ = send_event(proto::room_event::Message::Reconnecting(
                 proto::Reconnecting {},
             ))
             .await;
         }
         RoomEvent::Reconnected => {
-            present_state.reconnecting = false;
+            present_state.lock().reconnecting = false;
             let _ = send_event(proto::room_event::Message::Reconnected(
                 proto::Reconnected {},
             ))
