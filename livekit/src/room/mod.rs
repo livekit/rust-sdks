@@ -863,7 +863,7 @@ impl RoomSession {
             async move {
                 let mut set = tokio::task::JoinSet::new();
 
-                for publication in published_tracks.values() {
+                for (_, publication) in published_tracks {
                     let track = publication.track().unwrap();
 
                     let lp = session.local_participant.clone();

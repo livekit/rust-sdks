@@ -362,6 +362,14 @@ async fn data_task(
     }
 }
 
+// The utility of this struct is to know the state we're currently processing
+// (The room could have successfully reconnected while we're still processing the previous event,
+// but we still didn't receive the reconnected event). The listening task is always late from
+// the room tasks
+struct ActualState {
+    reconnecting: bool,
+}
+
 /// Forward events to the ffi client
 async fn room_task(
     server: &'static FfiServer,
@@ -369,6 +377,10 @@ async fn room_task(
     mut events: mpsc::UnboundedReceiver<livekit::RoomEvent>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
+    let mut present_state = ActualState {
+        reconnecting: false,
+    };
+
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
@@ -376,7 +388,7 @@ async fn room_task(
                 let inner = inner.clone();
                 let (tx, rx) = oneshot::channel();
                 let task = tokio::spawn(async move {
-                    forward_event(server, &inner, event).await;
+                    forward_event(server, &inner, event, &mut present_state).await;
                     let _ = tx.send(());
                 });
 
@@ -404,7 +416,12 @@ async fn room_task(
         .await;
 }
 
-async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event: RoomEvent) {
+async fn forward_event(
+    server: &'static FfiServer,
+    inner: &Arc<RoomInner>,
+    event: RoomEvent,
+    present_state: &mut ActualState,
+) {
     let send_event = |event: proto::room_event::Message| {
         server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
             room_handle: inner.handle_id,
@@ -444,15 +461,20 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             track: _,
             participant: _,
         } => {
-            // Make sure to send the event *after* the async callback of the PublishTrackRequest
-            // Wait for the PublishTrack callback to be sent (waiting time is really short, so it is fine to not spawn a new task)
             let sid = publication.sid();
-            loop {
-                if inner.pending_published_tracks.lock().remove(&sid) {
-                    break;
+            // If we're currently reconnecting, users can't publish tracks, if we receive this
+            // event it means the RoomEngine is republishing tracks to finish the reconnection
+            // process. (So we're not waiting for any PublishCallback).
+            if !present_state.reconnecting {
+                // Make sure to send the event *after* the async callback of the PublishTrackRequest
+                // Wait for the PublishTrack callback to be sent (waiting time is really short, so it is fine to not spawn a new task)
+                loop {
+                    if inner.pending_published_tracks.lock().remove(&sid) {
+                        break;
+                    }
+                    log::info!("waiting for the PublishTrack callback to be sent");
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                 }
-                log::info!("waiting for the PublishTrack callback to be sent");
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             }
 
             let ffi_publication = FfiPublication {
@@ -665,12 +687,14 @@ async fn forward_event(server: &'static FfiServer, inner: &Arc<RoomInner>, event
             .await;
         }
         RoomEvent::Reconnecting => {
+            present_state.reconnecting = true;
             let _ = send_event(proto::room_event::Message::Reconnecting(
                 proto::Reconnecting {},
             ))
             .await;
         }
         RoomEvent::Reconnected => {
+            present_state.reconnecting = false;
             let _ = send_event(proto::room_event::Message::Reconnected(
                 proto::Reconnected {},
             ))
