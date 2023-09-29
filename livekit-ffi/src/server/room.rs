@@ -617,6 +617,46 @@ async fn forward_event(
             ))
             .await;
         }
+        RoomEvent::RoomMetadataChanged {
+            old_metadata,
+            metadata,
+        } => {
+            let _ = send_event(proto::room_event::Message::RoomMetadataChanged(
+                proto::RoomMetadataChanged {
+                    old_metadata,
+                    metadata,
+                },
+            ))
+            .await;
+        }
+        RoomEvent::ParticipantMetadataChanged {
+            participant,
+            old_metadata,
+            metadata,
+        } => {
+            let _ = send_event(proto::room_event::Message::ParticipantMetadataChanged(
+                proto::ParticipantMetadataChanged {
+                    participant_sid: participant.sid().to_string(),
+                    old_metadata,
+                    metadata,
+                },
+            ))
+            .await;
+        }
+        RoomEvent::ParticipantNameChanged {
+            participant,
+            old_name,
+            name,
+        } => {
+            let _ = send_event(proto::room_event::Message::ParticipantNameChanged(
+                proto::ParticipantNameChanged {
+                    participant_sid: participant.sid().to_string(),
+                    old_name,
+                    name,
+                },
+            ))
+            .await;
+        }
         RoomEvent::ActiveSpeakersChanged { speakers } => {
             let participant_sids = speakers
                 .iter()
@@ -710,7 +750,9 @@ async fn forward_event(
             ))
             .await;
         }
-        _ => {}
+        _ => {
+            log::warn!("unhandled room event: {:?}", event);
+        }
     };
 }
 

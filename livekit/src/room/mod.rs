@@ -98,7 +98,6 @@ pub enum RoomEvent {
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     },
-    // TODO(theomonnom): Should we also add track for muted events?
     TrackMuted {
         participant: Participant,
         publication: TrackPublication,
@@ -106,6 +105,20 @@ pub enum RoomEvent {
     TrackUnmuted {
         participant: Participant,
         publication: TrackPublication,
+    },
+    RoomMetadataChanged {
+        old_metadata: String,
+        metadata: String,
+    },
+    ParticipantMetadataChanged {
+        participant: Participant,
+        old_metadata: String,
+        metadata: String,
+    },
+    ParticipantNameChanged {
+        participant: Participant,
+        old_name: String,
+        name: String,
     },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
@@ -279,6 +292,30 @@ impl Room {
                 let event = RoomEvent::TrackUnmuted {
                     participant,
                     publication,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        local_participant.on_metadata_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, old_metadata, metadata| {
+                let event = RoomEvent::ParticipantMetadataChanged {
+                    participant,
+                    old_metadata,
+                    metadata,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        local_participant.on_name_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, old_name, name| {
+                let event = RoomEvent::ParticipantNameChanged {
+                    participant,
+                    old_name,
+                    name,
                 };
                 dispatcher.dispatch(&event);
             }
@@ -500,6 +537,7 @@ impl RoomSession {
                 stream,
                 transceiver,
             } => self.handle_media_track(track, stream, transceiver),
+            EngineEvent::RoomUpdate { room } => self.handle_room_update(room),
             EngineEvent::Resuming(tx) => self.handle_resuming(tx),
             EngineEvent::Resumed(tx) => self.handle_resumed(tx),
             EngineEvent::SignalResumed {
@@ -803,6 +841,17 @@ impl RoomSession {
             .await;
     }
 
+    fn handle_room_update(self: &Arc<Self>, room: proto::Room) {
+        let mut info = self.info.write();
+        let old_metadata = std::mem::replace(&mut info.metadata, room.metadata.clone());
+        if old_metadata != room.metadata {
+            self.dispatcher.dispatch(&RoomEvent::RoomMetadataChanged {
+                old_metadata,
+                metadata: info.metadata.clone(),
+            });
+        }
+    }
+
     fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         if self.update_connection_state(ConnectionState::Reconnecting) {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
@@ -906,6 +955,8 @@ impl RoomSession {
             .update_info(join_response.participant.unwrap()); // The sid may have changed
 
         self.handle_participant_update(join_response.other_participants);
+        self.handle_room_update(join_response.room.unwrap());
+
         let _ = tx.send(());
     }
 
@@ -1013,6 +1064,30 @@ impl RoomSession {
                 let event = RoomEvent::TrackUnmuted {
                     participant,
                     publication,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_metadata_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, old_metadata, metadata| {
+                let event = RoomEvent::ParticipantMetadataChanged {
+                    participant,
+                    old_metadata,
+                    metadata,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_name_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, old_name, name| {
+                let event = RoomEvent::ParticipantNameChanged {
+                    participant,
+                    old_name,
+                    name,
                 };
                 dispatcher.dispatch(&event);
             }

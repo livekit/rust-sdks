@@ -125,6 +125,20 @@ impl LocalParticipant {
         super::on_track_unmuted(&self.inner, handler)
     }
 
+    pub(crate) fn on_metadata_changed(
+        &self,
+        handler: impl Fn(Participant, String, String) + Send + 'static,
+    ) {
+        super::on_metadata_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_name_changed(
+        &self,
+        handler: impl Fn(Participant, String, String) + Send + 'static,
+    ) {
+        super::on_name_changed(&self.inner, handler)
+    }
+
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
         super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
     }
@@ -216,6 +230,32 @@ impl LocalParticipant {
         track.enable();
 
         Ok(publication)
+    }
+
+    pub async fn update_metadata(&self, metadata: String) -> RoomResult<()> {
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::UpdateMetadata(
+                proto::UpdateParticipantMetadata {
+                    metadata,
+                    name: self.name(),
+                },
+            ))
+            .await;
+        Ok(())
+    }
+
+    pub async fn update_name(&self, name: String) -> RoomResult<()> {
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::UpdateMetadata(
+                proto::UpdateParticipantMetadata {
+                    metadata: self.metadata(),
+                    name,
+                },
+            ))
+            .await;
+        Ok(())
     }
 
     pub async fn unpublish_track(

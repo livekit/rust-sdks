@@ -81,11 +81,15 @@ struct ParticipantInfo {
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
+type MetadataChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
+type NameChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
 
 #[derive(Default)]
 struct ParticipantEvents {
     track_muted: Mutex<Option<TrackMutedHandler>>,
     track_unmuted: Mutex<Option<TrackUnmutedHandler>>,
+    metadata_changed: Mutex<Option<MetadataChangedHandler>>,
+    name_changed: Mutex<Option<NameChangedHandler>>,
 }
 
 pub(super) struct ParticipantInner {
@@ -120,14 +124,26 @@ pub(super) fn new_inner(
 
 pub(super) fn update_info(
     inner: &Arc<ParticipantInner>,
-    _participant: &Participant,
+    participant: &Participant,
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
     info.sid = new_info.sid.try_into().unwrap();
-    info.name = new_info.name;
     info.identity = new_info.identity.into();
-    info.metadata = new_info.metadata; // TODO(theomonnom): callback MetadataChanged
+
+    let old_name = std::mem::replace(&mut info.name, new_info.name.clone());
+    if old_name != new_info.name {
+        if let Some(cb) = inner.events.name_changed.lock().as_ref() {
+            cb(participant.clone(), old_name, new_info.name);
+        }
+    }
+
+    let old_metadata = std::mem::replace(&mut info.metadata, new_info.metadata.clone());
+    if old_metadata != new_info.metadata {
+        if let Some(cb) = inner.events.metadata_changed.lock().as_ref() {
+            cb(participant.clone(), old_metadata, new_info.metadata);
+        }
+    }
 }
 
 pub(super) fn set_speaking(
@@ -166,6 +182,20 @@ pub(super) fn on_track_unmuted(
     handler: impl Fn(Participant, TrackPublication) + Send + 'static,
 ) {
     *inner.events.track_unmuted.lock() = Some(Box::new(handler));
+}
+
+pub(super) fn on_metadata_changed(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, String, String) + Send + 'static,
+) {
+    *inner.events.metadata_changed.lock() = Some(Box::new(handler));
+}
+
+pub(super) fn on_name_changed(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, String, String) + Send + 'static,
+) {
+    *inner.events.name_changed.lock() = Some(Box::new(handler));
 }
 
 pub(super) fn remove_publication(

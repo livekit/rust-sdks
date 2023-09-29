@@ -275,6 +275,20 @@ impl RemoteParticipant {
         super::on_track_unmuted(&self.inner, handler)
     }
 
+    pub(crate) fn on_metadata_changed(
+        &self,
+        handler: impl Fn(Participant, String, String) + Send + 'static,
+    ) {
+        super::on_metadata_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_name_changed(
+        &self,
+        handler: impl Fn(Participant, String, String) + Send + 'static,
+    ) {
+        super::on_name_changed(&self.inner, handler)
+    }
+
     pub(crate) fn set_speaking(&self, speaking: bool) {
         super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
     }
