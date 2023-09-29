@@ -17,7 +17,7 @@ use cxx::SharedPtr;
 use std::{sync::Arc, time::Duration};
 use tokio::{
     sync::{Mutex as AsyncMutex, MutexGuard},
-    time::interval,
+    time::{interval, MissedTickBehavior},
 };
 use webrtc_sys::audio_track as sys_at;
 
@@ -90,7 +90,7 @@ impl NativeAudioSource {
     fn next_frame<'a>(
         &self,
         inner: &'a mut MutexGuard<'_, AudioSourceInner>, // The lock musts be guarded by capture_frame
-        frame: &'a AudioFrame<'a>,
+        frame: &'a AudioFrame<'_>,
     ) -> Option<&'a [i16]> {
         let available_data = inner.len + frame.data.len() - inner.read_offset;
         if available_data >= self.samples_10ms {
@@ -131,10 +131,11 @@ impl NativeAudioSource {
         }
 
         let mut inner = self.inner.lock().await;
-        let mut interval = inner
-            .interval
-            .take()
-            .unwrap_or(interval(Duration::from_millis(10)));
+        let mut interval = inner.interval.take().unwrap_or_else(|| {
+            let mut interval = interval(Duration::from_millis(10));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            interval
+        });
 
         loop {
             let Some(data) = self.next_frame(&mut inner, frame) else {
