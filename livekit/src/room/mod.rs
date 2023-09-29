@@ -19,11 +19,15 @@ use crate::prelude::*;
 use crate::rtc_engine::{EngineError, EngineOptions};
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use libwebrtc::native::frame_cryptor::EncryptionState;
-use libwebrtc::prelude::{ContinualGatheringPolicy, IceTransportsType, RtcConfiguration};
+use libwebrtc::prelude::{
+    ContinualGatheringPolicy, IceTransportsType, MediaStream, MediaStreamTrack, RtcConfiguration,
+};
+use libwebrtc::rtp_transceiver::RtpTransceiver;
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use parking_lot::RwLock;
+use proto::SignalTarget;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -123,7 +127,6 @@ pub enum RoomEvent {
     Connected {
         /// Initial participants & their tracks prior to joining the room
         /// We're not returning this directly inside Room::connect because it is unlikely to be used
-        /// and will break the current API.
         participants_with_tracks: Vec<(RemoteParticipant, Vec<RemoteTrackPublication>)>,
     },
     Disconnected {
@@ -200,7 +203,7 @@ impl Room {
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
-        let (rtc_engine, engine_events) = RtcEngine::connect(
+        let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
             EngineOptions {
@@ -214,7 +217,6 @@ impl Room {
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
 
-        let join_response = rtc_engine.last_info().join_response;
         if let Some(key_provider) = e2ee_manager.key_provider() {
             key_provider.set_sif_trailer(join_response.sif_trailer);
         }
@@ -496,44 +498,19 @@ impl RoomSession {
             EngineEvent::MediaTrack {
                 track,
                 stream,
-                receiver: _,
                 transceiver,
-            } => {
-                let stream_id = stream.id();
-                let lk_stream_id = unpack_stream_id(&stream_id);
-                if lk_stream_id.is_none() {
-                    Err(RoomError::Internal(format!(
-                        "MediaTrack event with invalid track_id: {:?}",
-                        &stream_id
-                    )))?;
-                }
-
-                let (participant_sid, track_sid) = lk_stream_id.unwrap();
-                let participant_sid = participant_sid.to_owned().try_into().unwrap();
-                let track_sid = track_sid.to_owned().try_into().unwrap();
-                let remote_participant = self.get_participant_by_sid(&participant_sid);
-
-                if let Some(remote_participant) = remote_participant {
-                    tokio::spawn(async move {
-                        remote_participant
-                            .add_subscribed_media_track(track_sid, track, transceiver)
-                            .await;
-                    });
-                } else {
-                    // The server should send participant updates before sending a new offer
-                    // So this should never happen.
-                    Err(RoomError::Internal(format!(
-                        "AddTrack event with invalid participant_sid: {:?}",
-                        participant_sid
-                    )))?;
-                }
-            }
+            } => self.handle_media_track(track, stream, transceiver),
             EngineEvent::Resuming(tx) => self.handle_resuming(tx),
             EngineEvent::Resumed(tx) => self.handle_resumed(tx),
-            EngineEvent::SignalResumed(tx) => self.handle_signal_resumed(tx),
+            EngineEvent::SignalResumed {
+                reconnect_response,
+                tx,
+            } => self.handle_signal_resumed(reconnect_response, tx),
             EngineEvent::Restarting(tx) => self.handle_restarting(tx),
             EngineEvent::Restarted(tx) => self.handle_restarted(tx),
-            EngineEvent::SignalRestarted(tx) => self.handle_signal_restarted(tx),
+            EngineEvent::SignalRestarted { join_response, tx } => {
+                self.handle_signal_restarted(join_response, tx)
+            }
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
@@ -635,6 +612,39 @@ impl RoomSession {
         }
     }
 
+    fn handle_media_track(
+        &self,
+        track: MediaStreamTrack,
+        stream: MediaStream,
+        transceiver: RtpTransceiver,
+    ) {
+        let stream_id = stream.id();
+        let lk_stream_id = unpack_stream_id(&stream_id);
+        if lk_stream_id.is_none() {
+            log::error!("received track with an invalid track_id: {:?}", &stream_id);
+            return;
+        }
+
+        let (participant_sid, track_sid) = lk_stream_id.unwrap();
+        let participant_sid = participant_sid.to_owned().try_into().unwrap();
+        let track_sid = track_sid.to_owned().try_into().unwrap();
+        let remote_participant = self.get_participant_by_sid(&participant_sid);
+
+        if let Some(remote_participant) = remote_participant {
+            tokio::spawn(async move {
+                remote_participant
+                    .add_subscribed_media_track(track_sid, track, transceiver)
+                    .await;
+            });
+        } else {
+            // The server should send participant updates before sending a new offer, this should happen
+            log::error!(
+                "received track from an unknown participant: {:?}",
+                participant_sid
+            );
+        }
+    }
+
     /// Active speakers changed
     /// Update the participants & sort the active_speakers by audio_level
     fn handle_speakers_changed(&self, speakers_info: Vec<proto::SpeakerInfo>) {
@@ -693,10 +703,15 @@ impl RoomSession {
     }
 
     async fn send_sync_state(self: &Arc<Self>) {
-        let last_info = self.rtc_engine.last_info();
         let auto_subscribe = self.options.auto_subscribe;
+        let session = self.rtc_engine.session();
 
-        if last_info.subscriber_answer.is_none() {
+        if session
+            .subscriber()
+            .peer_connection()
+            .current_local_description()
+            .is_none()
+        {
             log::warn!("skipping sendSyncState, no subscriber answer");
             return;
         }
@@ -710,8 +725,59 @@ impl RoomSession {
             }
         }
 
-        let answer = last_info.subscriber_answer.unwrap();
-        let offer = last_info.subscriber_offer.unwrap();
+        let answer = session
+            .subscriber()
+            .peer_connection()
+            .current_local_description()
+            .unwrap();
+
+        let offer = session
+            .subscriber()
+            .peer_connection()
+            .current_remote_description()
+            .unwrap();
+
+        let mut dcs = Vec::with_capacity(4);
+        if session.has_published() {
+            let lossy_dc = session
+                .data_channel(SignalTarget::Publisher, DataPacketKind::Lossy)
+                .unwrap();
+            let reliable_dc = session
+                .data_channel(SignalTarget::Publisher, DataPacketKind::Reliable)
+                .unwrap();
+
+            dcs.push(proto::DataChannelInfo {
+                label: lossy_dc.label(),
+                id: lossy_dc.id() as u32,
+                target: proto::SignalTarget::Publisher as i32,
+            });
+
+            dcs.push(proto::DataChannelInfo {
+                label: reliable_dc.label(),
+                id: reliable_dc.id() as u32,
+                target: proto::SignalTarget::Publisher as i32,
+            });
+        }
+
+        if let Some(lossy_dc) =
+            session.data_channel(SignalTarget::Subscriber, DataPacketKind::Lossy)
+        {
+            dcs.push(proto::DataChannelInfo {
+                label: lossy_dc.label(),
+                id: lossy_dc.id() as u32,
+                target: proto::SignalTarget::Subscriber as i32,
+            });
+        }
+
+        if let Some(reliable_dc) =
+            session.data_channel(SignalTarget::Subscriber, DataPacketKind::Reliable)
+        {
+            dcs.push(proto::DataChannelInfo {
+                label: reliable_dc.label(),
+                id: reliable_dc.id() as u32,
+                target: proto::SignalTarget::Subscriber as i32,
+            });
+        }
 
         let sync_state = proto::SyncState {
             answer: Some(proto::SessionDescription {
@@ -728,17 +794,13 @@ impl RoomSession {
                 participant_tracks: Vec::new(),
             }),
             publish_tracks: self.local_participant.published_tracks_info(),
-            data_channels: last_info.data_channels_info,
+            data_channels: dcs,
         };
 
         log::info!("sending sync state {:?}", sync_state);
-        if let Err(err) = self
-            .rtc_engine
+        self.rtc_engine
             .send_request(proto::signal_request::Message::SyncState(sync_state))
-            .await
-        {
-            log::error!("failed to send sync state: {:?}", err);
-        }
+            .await;
     }
 
     fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
@@ -756,7 +818,11 @@ impl RoomSession {
         let _ = tx.send(());
     }
 
-    fn handle_signal_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+    fn handle_signal_resumed(
+        self: &Arc<Self>,
+        _reconnect_repsonse: proto::ReconnectResponse,
+        tx: oneshot::Sender<()>,
+    ) {
         tokio::spawn({
             let session = self.clone();
             async move {
@@ -784,42 +850,62 @@ impl RoomSession {
     }
 
     fn handle_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        self.update_connection_state(ConnectionState::Connected);
-        self.dispatcher.dispatch(&RoomEvent::Reconnected);
-
         let _ = tx.send(());
+
+        // Unpublish and republish every track
+        // At this time we know that the RtcSession is successfully restarted
+        let published_tracks = self.local_participant.tracks();
+
+        // Spawining a new task because we need to wait for the RtcEngine to close the reconnection
+        // lock.
+        tokio::spawn({
+            let session = self.clone();
+            async move {
+                let mut set = tokio::task::JoinSet::new();
+
+                for (_, publication) in published_tracks {
+                    let track = publication.track().unwrap();
+
+                    let lp = session.local_participant.clone();
+                    let republish = async move {
+                        // Only "really" used to send LocalTrackUnpublished event (Since we don't really need
+                        // to remove the RtpSender since we know we are using a new RtcSession,
+                        // so new PeerConnetions)
+
+                        let _ = lp.unpublish_track(&publication.sid()).await;
+                        if let Err(err) = lp
+                            .publish_track(track.clone(), publication.publish_options())
+                            .await
+                        {
+                            log::error!(
+                                "failed to republish track {} after rtc_engine restarted: {}",
+                                track.name(),
+                                err
+                            )
+                        }
+                    };
+
+                    set.spawn(republish);
+                }
+
+                // Wait for the tracks to be republished before sending the Connect event
+                while set.join_next().await.is_some() {}
+
+                session.update_connection_state(ConnectionState::Connected);
+                session.dispatcher.dispatch(&RoomEvent::Reconnected);
+            }
+        });
     }
 
-    fn handle_signal_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        let join_response = self.rtc_engine.last_info().join_response;
+    fn handle_signal_restarted(
+        self: &Arc<Self>,
+        join_response: proto::JoinResponse,
+        tx: oneshot::Sender<()>,
+    ) {
         self.local_participant
             .update_info(join_response.participant.unwrap()); // The sid may have changed
 
         self.handle_participant_update(join_response.other_participants);
-
-        // unpublish & republish tracks
-        let published_tracks = self.local_participant.tracks();
-
-        // Should I create a new task?
-        tokio::spawn({
-            let session = self.clone();
-            async move {
-                for (_, publication) in published_tracks {
-                    let track = publication.track();
-
-                    let _ = session
-                        .local_participant
-                        .unpublish_track(&publication.sid())
-                        .await;
-
-                    let _ = session
-                        .local_participant
-                        .publish_track(track.unwrap(), publication.publish_options())
-                        .await;
-                }
-            }
-        });
-
         let _ = tx.send(());
     }
 
