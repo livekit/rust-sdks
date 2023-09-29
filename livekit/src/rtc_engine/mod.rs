@@ -133,7 +133,6 @@ struct EngineHandle {
 
 struct EngineInner {
     // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection factory accross multiple Rtc sessions
-    #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     engine_tx: EngineEmitter,
     options: EngineOptions,
@@ -254,6 +253,8 @@ impl EngineInner {
         token: &str,
         options: EngineOptions,
     ) -> EngineResult<(Arc<Self>, proto::JoinResponse, EngineEvents)> {
+        let lk_runtime = LkRuntime::instance();
+
         let (session, join_response, session_events) =
             RtcSession::connect(url, token, options.clone()).await?;
         let (engine_tx, engine_rx) = mpsc::unbounded_channel();
@@ -261,7 +262,7 @@ impl EngineInner {
         session.wait_pc_connection().await?;
 
         let inner = Arc::new(Self {
-            lk_runtime: LkRuntime::instance(),
+            lk_runtime,
             engine_tx,
             close_notifier: Arc::new(Notify::new()),
             running_handle: RwLock::new(EngineHandle {
