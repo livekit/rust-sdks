@@ -133,7 +133,7 @@ impl NativeAudioSource {
         let mut inner = self.inner.lock().await;
         let mut interval = inner.interval.take().unwrap_or_else(|| {
             let mut interval = interval(Duration::from_millis(10));
-            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
             interval
         });
 
