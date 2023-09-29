@@ -19,8 +19,9 @@ use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::slice;
 use std::sync::Arc;
-use tokio::sync::Mutex as AsyncMutex;
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
@@ -371,7 +372,23 @@ async fn room_task(
     loop {
         tokio::select! {
             Some(event) = events.recv() => {
-                forward_event(server, &inner, event).await;
+                let debug = format!("{:?}", event);
+                let inner = inner.clone();
+                let (tx, rx) = oneshot::channel();
+                let task = tokio::spawn(async move {
+                    forward_event(server, &inner, event).await;
+                    let _ = tx.send(());
+                });
+
+                // Monitor sync/async blockings
+                tokio::select! {
+                    _ = rx => {},
+                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                        log::error!("signal_event taking too much time: {}", debug);
+                    }
+                }
+
+                task.await.unwrap();
             },
             _ = close_rx.recv() => {
                 break;
