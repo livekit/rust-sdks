@@ -1165,6 +1165,48 @@ pub struct PublishDataCallback {
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
+/// Change the local participant's metadata
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalMetadataRequest {
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(string, tag="2")]
+    pub metadata: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalMetadataResponse {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalMetadataCallback {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
+/// Change the local participant's name
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalNameRequest {
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalNameResponse {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalNameCallback {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
 /// Change the "desire" to subs2ribe to a track
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1454,8 +1496,6 @@ pub struct ActiveSpeakersChanged {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomMetadataChanged {
     #[prost(string, tag="1")]
-    pub old_metadata: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
     pub metadata: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1464,8 +1504,6 @@ pub struct ParticipantMetadataChanged {
     #[prost(string, tag="1")]
     pub participant_sid: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
-    pub old_metadata: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
     pub metadata: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1474,8 +1512,6 @@ pub struct ParticipantNameChanged {
     #[prost(string, tag="1")]
     pub participant_sid: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
-    pub old_name: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
     pub name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1970,7 +2006,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof="ffi_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -1995,38 +2031,42 @@ pub mod ffi_request {
         PublishData(super::PublishDataRequest),
         #[prost(message, tag="8")]
         SetSubscribed(super::SetSubscribedRequest),
-        /// Track
         #[prost(message, tag="9")]
-        CreateVideoTrack(super::CreateVideoTrackRequest),
+        UpdateLocalMetadata(super::UpdateLocalMetadataRequest),
         #[prost(message, tag="10")]
+        UpdateLocalName(super::UpdateLocalNameRequest),
+        /// Track
+        #[prost(message, tag="11")]
+        CreateVideoTrack(super::CreateVideoTrackRequest),
+        #[prost(message, tag="12")]
         CreateAudioTrack(super::CreateAudioTrackRequest),
         /// Video
-        #[prost(message, tag="11")]
-        AllocVideoBuffer(super::AllocVideoBufferRequest),
-        #[prost(message, tag="12")]
-        NewVideoStream(super::NewVideoStreamRequest),
         #[prost(message, tag="13")]
-        NewVideoSource(super::NewVideoSourceRequest),
+        AllocVideoBuffer(super::AllocVideoBufferRequest),
         #[prost(message, tag="14")]
-        CaptureVideoFrame(super::CaptureVideoFrameRequest),
+        NewVideoStream(super::NewVideoStreamRequest),
         #[prost(message, tag="15")]
-        ToI420(super::ToI420Request),
+        NewVideoSource(super::NewVideoSourceRequest),
         #[prost(message, tag="16")]
+        CaptureVideoFrame(super::CaptureVideoFrameRequest),
+        #[prost(message, tag="17")]
+        ToI420(super::ToI420Request),
+        #[prost(message, tag="18")]
         ToArgb(super::ToArgbRequest),
         /// Audio
-        #[prost(message, tag="17")]
-        AllocAudioBuffer(super::AllocAudioBufferRequest),
-        #[prost(message, tag="18")]
-        NewAudioStream(super::NewAudioStreamRequest),
         #[prost(message, tag="19")]
-        NewAudioSource(super::NewAudioSourceRequest),
+        AllocAudioBuffer(super::AllocAudioBufferRequest),
         #[prost(message, tag="20")]
-        CaptureAudioFrame(super::CaptureAudioFrameRequest),
+        NewAudioStream(super::NewAudioStreamRequest),
         #[prost(message, tag="21")]
-        NewAudioResampler(super::NewAudioResamplerRequest),
+        NewAudioSource(super::NewAudioSourceRequest),
         #[prost(message, tag="22")]
-        RemixAndResample(super::RemixAndResampleRequest),
+        CaptureAudioFrame(super::CaptureAudioFrameRequest),
         #[prost(message, tag="23")]
+        NewAudioResampler(super::NewAudioResamplerRequest),
+        #[prost(message, tag="24")]
+        RemixAndResample(super::RemixAndResampleRequest),
+        #[prost(message, tag="25")]
         E2ee(super::E2eeRequest),
     }
 }
@@ -2034,7 +2074,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof="ffi_response::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -2059,38 +2099,42 @@ pub mod ffi_response {
         PublishData(super::PublishDataResponse),
         #[prost(message, tag="8")]
         SetSubscribed(super::SetSubscribedResponse),
-        /// Track
         #[prost(message, tag="9")]
-        CreateVideoTrack(super::CreateVideoTrackResponse),
+        UpdateLocalMetadata(super::UpdateLocalMetadataResponse),
         #[prost(message, tag="10")]
+        UpdateLocalName(super::UpdateLocalNameResponse),
+        /// Track
+        #[prost(message, tag="11")]
+        CreateVideoTrack(super::CreateVideoTrackResponse),
+        #[prost(message, tag="12")]
         CreateAudioTrack(super::CreateAudioTrackResponse),
         /// Video
-        #[prost(message, tag="11")]
-        AllocVideoBuffer(super::AllocVideoBufferResponse),
-        #[prost(message, tag="12")]
-        NewVideoStream(super::NewVideoStreamResponse),
         #[prost(message, tag="13")]
-        NewVideoSource(super::NewVideoSourceResponse),
+        AllocVideoBuffer(super::AllocVideoBufferResponse),
         #[prost(message, tag="14")]
-        CaptureVideoFrame(super::CaptureVideoFrameResponse),
+        NewVideoStream(super::NewVideoStreamResponse),
         #[prost(message, tag="15")]
-        ToI420(super::ToI420Response),
+        NewVideoSource(super::NewVideoSourceResponse),
         #[prost(message, tag="16")]
+        CaptureVideoFrame(super::CaptureVideoFrameResponse),
+        #[prost(message, tag="17")]
+        ToI420(super::ToI420Response),
+        #[prost(message, tag="18")]
         ToArgb(super::ToArgbResponse),
         /// Audio
-        #[prost(message, tag="17")]
-        AllocAudioBuffer(super::AllocAudioBufferResponse),
-        #[prost(message, tag="18")]
-        NewAudioStream(super::NewAudioStreamResponse),
         #[prost(message, tag="19")]
-        NewAudioSource(super::NewAudioSourceResponse),
+        AllocAudioBuffer(super::AllocAudioBufferResponse),
         #[prost(message, tag="20")]
-        CaptureAudioFrame(super::CaptureAudioFrameResponse),
+        NewAudioStream(super::NewAudioStreamResponse),
         #[prost(message, tag="21")]
-        NewAudioResampler(super::NewAudioResamplerResponse),
+        NewAudioSource(super::NewAudioSourceResponse),
         #[prost(message, tag="22")]
-        RemixAndResample(super::RemixAndResampleResponse),
+        CaptureAudioFrame(super::CaptureAudioFrameResponse),
         #[prost(message, tag="23")]
+        NewAudioResampler(super::NewAudioResamplerResponse),
+        #[prost(message, tag="24")]
+        RemixAndResample(super::RemixAndResampleResponse),
+        #[prost(message, tag="25")]
         E2ee(super::E2eeResponse),
     }
 }
@@ -2100,7 +2144,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -2130,6 +2174,10 @@ pub mod ffi_event {
         PublishData(super::PublishDataCallback),
         #[prost(message, tag="11")]
         CaptureAudioFrame(super::CaptureAudioFrameCallback),
+        #[prost(message, tag="12")]
+        UpdateLocalMetadata(super::UpdateLocalMetadataCallback),
+        #[prost(message, tag="13")]
+        UpdateLocalName(super::UpdateLocalNameCallback),
     }
 }
 /// Setup the callback where the foreign language can receive events

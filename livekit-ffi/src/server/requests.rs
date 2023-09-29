@@ -151,6 +151,32 @@ fn on_set_subscribed(
     Ok(proto::SetSubscribedResponse {})
 }
 
+fn on_update_local_metadata(
+    server: &'static FfiServer,
+    update_local_metadata: proto::UpdateLocalMetadataRequest,
+) -> FfiResult<proto::UpdateLocalMetadataResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant
+        .room
+        .update_local_metadata(server, update_local_metadata))
+}
+
+fn on_update_local_name(
+    server: &'static FfiServer,
+    update_local_name: proto::UpdateLocalNameRequest,
+) -> FfiResult<proto::UpdateLocalNameResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(update_local_name.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant
+        .room
+        .update_local_name(server, update_local_name))
+}
+
 /// Create a new video track from a source
 fn on_create_video_track(
     server: &'static FfiServer,
@@ -621,6 +647,12 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
+        }
+        proto::ffi_request::Message::UpdateLocalMetadata(u) => {
+            proto::ffi_response::Message::UpdateLocalMetadata(on_update_local_metadata(server, u)?)
+        }
+        proto::ffi_request::Message::UpdateLocalName(update) => {
+            proto::ffi_response::Message::UpdateLocalName(on_update_local_name(server, update)?)
         }
         proto::ffi_request::Message::CreateVideoTrack(create) => {
             proto::ffi_response::Message::CreateVideoTrack(on_create_video_track(server, create)?)
