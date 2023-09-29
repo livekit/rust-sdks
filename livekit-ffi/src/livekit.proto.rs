@@ -1272,7 +1272,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -1305,22 +1305,28 @@ pub mod room_event {
         #[prost(message, tag="13")]
         ActiveSpeakersChanged(super::ActiveSpeakersChanged),
         #[prost(message, tag="14")]
-        ConnectionQualityChanged(super::ConnectionQualityChanged),
+        RoomMetadataChanged(super::RoomMetadataChanged),
         #[prost(message, tag="15")]
-        DataReceived(super::DataReceived),
+        ParticipantMetadataChanged(super::ParticipantMetadataChanged),
         #[prost(message, tag="16")]
-        ConnectionStateChanged(super::ConnectionStateChanged),
-        /// Connected connected = 17;
+        ParticipantNameChanged(super::ParticipantNameChanged),
+        #[prost(message, tag="17")]
+        ConnectionQualityChanged(super::ConnectionQualityChanged),
         #[prost(message, tag="18")]
-        Disconnected(super::Disconnected),
+        DataReceived(super::DataReceived),
         #[prost(message, tag="19")]
-        Reconnecting(super::Reconnecting),
-        #[prost(message, tag="20")]
-        Reconnected(super::Reconnected),
+        ConnectionStateChanged(super::ConnectionStateChanged),
+        /// Connected connected = 20;
         #[prost(message, tag="21")]
+        Disconnected(super::Disconnected),
+        #[prost(message, tag="22")]
+        Reconnecting(super::Reconnecting),
+        #[prost(message, tag="23")]
+        Reconnected(super::Reconnected),
+        #[prost(message, tag="24")]
         E2eeStateChanged(super::E2eeStateChanged),
         /// The stream of room events has ended
-        #[prost(message, tag="22")]
+        #[prost(message, tag="25")]
         Eos(super::RoomEos),
     }
 }
@@ -1443,6 +1449,34 @@ pub struct E2eeStateChanged {
 pub struct ActiveSpeakersChanged {
     #[prost(string, repeated, tag="1")]
     pub participant_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RoomMetadataChanged {
+    #[prost(string, tag="1")]
+    pub old_metadata: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub metadata: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantMetadataChanged {
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub old_metadata: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub metadata: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantNameChanged {
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub old_name: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

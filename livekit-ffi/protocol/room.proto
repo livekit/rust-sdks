@@ -207,15 +207,18 @@ message RoomEvent {
     TrackMuted track_muted = 11;
     TrackUnmuted track_unmuted = 12;
     ActiveSpeakersChanged active_speakers_changed = 13;
-    ConnectionQualityChanged connection_quality_changed = 14;
-    DataReceived data_received = 15;
-    ConnectionStateChanged connection_state_changed = 16;
-    // Connected connected = 17;
-    Disconnected disconnected = 18;
-    Reconnecting reconnecting = 19;
-    Reconnected reconnected = 20;
-    E2eeStateChanged e2ee_state_changed = 21;
-    RoomEOS eos = 22; // The stream of room events has ended
+    RoomMetadataChanged room_metadata_changed = 14;
+    ParticipantMetadataChanged participant_metadata_changed = 15;
+    ParticipantNameChanged participant_name_changed = 16;
+    ConnectionQualityChanged connection_quality_changed = 17;
+    DataReceived data_received = 18;
+    ConnectionStateChanged connection_state_changed = 19;
+    // Connected connected = 20;
+    Disconnected disconnected = 21;
+    Reconnecting reconnecting = 22;
+    Reconnected reconnected = 23;
+    E2eeStateChanged e2ee_state_changed = 24;
+    RoomEOS eos = 25; // The stream of room events has ended
   }
 }
 
@@ -291,6 +294,23 @@ message E2eeStateChanged {
 }
 
 message ActiveSpeakersChanged { repeated string participant_sids = 1; }
+
+message RoomMetadataChanged { 
+  string old_metadata = 1;
+  string metadata = 2;
+}
+
+message ParticipantMetadataChanged { 
+  string participant_sid = 1;
+  string old_metadata = 2;
+  string metadata = 3;
+}
+
+message ParticipantNameChanged { 
+  string participant_sid = 1;
+  string old_name = 2;
+  string name = 3;
+}
 
 message ConnectionQualityChanged {
   string participant_sid = 1;
