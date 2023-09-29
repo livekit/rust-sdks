@@ -330,6 +330,54 @@ impl RoomInner {
 
         proto::UnpublishTrackResponse { async_id }
     }
+
+    pub fn update_local_metadata(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        update_local_metadata: proto::UpdateLocalMetadataRequest,
+    ) -> proto::UpdateLocalMetadataResponse {
+        let async_id = server.next_id();
+        let inner = self.clone();
+        server.async_runtime.spawn(async move {
+            let _ = inner
+                .room
+                .local_participant()
+                .update_metadata(update_local_metadata.metadata)
+                .await;
+
+            let _ = server
+                .send_event(proto::ffi_event::Message::UpdateLocalMetadata(
+                    proto::UpdateLocalMetadataCallback { async_id },
+                ))
+                .await;
+        });
+
+        proto::UpdateLocalMetadataResponse { async_id }
+    }
+
+    pub fn update_local_name(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        update_local_name: proto::UpdateLocalNameRequest,
+    ) -> proto::UpdateLocalNameResponse {
+        let async_id = server.next_id();
+        let inner = self.clone();
+        server.async_runtime.spawn(async move {
+            let _ = inner
+                .room
+                .local_participant()
+                .update_name(update_local_name.name)
+                .await;
+
+            let _ = server
+                .send_event(proto::ffi_event::Message::UpdateLocalName(
+                    proto::UpdateLocalNameCallback { async_id },
+                ))
+                .await;
+        });
+
+        proto::UpdateLocalNameResponse { async_id }
+    }
 }
 
 // Task used to publish data without blocking the client thread
@@ -618,26 +666,22 @@ async fn forward_event(
             .await;
         }
         RoomEvent::RoomMetadataChanged {
-            old_metadata,
+            old_metadata: _,
             metadata,
         } => {
             let _ = send_event(proto::room_event::Message::RoomMetadataChanged(
-                proto::RoomMetadataChanged {
-                    old_metadata,
-                    metadata,
-                },
+                proto::RoomMetadataChanged { metadata },
             ))
             .await;
         }
         RoomEvent::ParticipantMetadataChanged {
             participant,
-            old_metadata,
+            old_metadata: _,
             metadata,
         } => {
             let _ = send_event(proto::room_event::Message::ParticipantMetadataChanged(
                 proto::ParticipantMetadataChanged {
                     participant_sid: participant.sid().to_string(),
-                    old_metadata,
                     metadata,
                 },
             ))
@@ -645,13 +689,12 @@ async fn forward_event(
         }
         RoomEvent::ParticipantNameChanged {
             participant,
-            old_name,
+            old_name: _,
             name,
         } => {
             let _ = send_event(proto::room_event::Message::ParticipantNameChanged(
                 proto::ParticipantNameChanged {
                     participant_sid: participant.sid().to_string(),
-                    old_name,
                     name,
                 },
             ))

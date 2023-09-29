@@ -98,6 +98,30 @@ message PublishDataCallback {
   optional string error = 2;
 }
 
+// Change the local participant's metadata
+message UpdateLocalMetadataRequest {
+  uint64 local_participant_handle = 1;
+  string metadata = 2;
+}
+message UpdateLocalMetadataResponse {
+  uint64 async_id = 1;
+}
+message UpdateLocalMetadataCallback {
+  uint64 async_id = 1;
+}
+
+// Change the local participant's name
+message UpdateLocalNameRequest {
+  uint64 local_participant_handle = 1;
+  string name = 2;
+}
+message UpdateLocalNameResponse {
+  uint64 async_id = 1;
+}
+message UpdateLocalNameCallback {
+  uint64 async_id = 1;
+}
+
 // Change the "desire" to subs2ribe to a track
 message SetSubscribedRequest {
   bool subscribe = 1;
@@ -296,20 +320,17 @@ message E2eeStateChanged {
 message ActiveSpeakersChanged { repeated string participant_sids = 1; }
 
 message RoomMetadataChanged { 
-  string old_metadata = 1;
-  string metadata = 2;
+  string metadata = 1;
 }
 
 message ParticipantMetadataChanged { 
   string participant_sid = 1;
-  string old_metadata = 2;
-  string metadata = 3;
+  string metadata = 2;
 }
 
 message ParticipantNameChanged { 
   string participant_sid = 1;
-  string old_name = 2;
-  string name = 3;
+  string name = 2;
 }
 
 message ConnectionQualityChanged {
