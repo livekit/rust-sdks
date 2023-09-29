@@ -850,10 +850,51 @@ impl RoomSession {
     }
 
     fn handle_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        self.update_connection_state(ConnectionState::Connected);
-        self.dispatcher.dispatch(&RoomEvent::Reconnected);
-
         let _ = tx.send(());
+
+        // Unpublish and republish every track
+        // At this time we know that the RtcSession is successfully restarted
+        let published_tracks = self.local_participant.tracks();
+
+        // Spawining a new task because we need to wait for the RtcEngine to close the reconnection
+        // lock.
+        tokio::spawn({
+            let session = self.clone();
+            async move {
+                let mut set = tokio::task::JoinSet::new();
+
+                for publication in published_tracks.values() {
+                    let track = publication.track().unwrap();
+
+                    let lp = session.local_participant.clone();
+                    let republish = async move {
+                        // Only "really" used to send LocalTrackUnpublished event (Since we don't really need
+                        // to remove the RtpSender since we know we are using a new RtcSession,
+                        // so new PeerConnetions)
+
+                        let _ = lp.unpublish_track(&publication.sid()).await;
+                        if let Err(err) = lp
+                            .publish_track(track.clone(), publication.publish_options())
+                            .await
+                        {
+                            log::error!(
+                                "failed to republish track {} after rtc_engine restarted: {}",
+                                track.name(),
+                                err
+                            )
+                        }
+                    };
+
+                    set.spawn(republish);
+                }
+
+                // Wait for the tracks to be republished before sending the Connect event
+                while set.join_next().await.is_some() {}
+
+                session.update_connection_state(ConnectionState::Connected);
+                session.dispatcher.dispatch(&RoomEvent::Reconnected);
+            }
+        });
     }
 
     fn handle_signal_restarted(
@@ -865,30 +906,6 @@ impl RoomSession {
             .update_info(join_response.participant.unwrap()); // The sid may have changed
 
         self.handle_participant_update(join_response.other_participants);
-
-        // unpublish & republish tracks
-        let published_tracks = self.local_participant.tracks();
-
-        // Should I create a new task?
-        tokio::spawn({
-            let session = self.clone();
-            async move {
-                for (_, publication) in published_tracks {
-                    let track = publication.track();
-
-                    let _ = session
-                        .local_participant
-                        .unpublish_track(&publication.sid())
-                        .await;
-
-                    let _ = session
-                        .local_participant
-                        .publish_track(track.unwrap(), publication.publish_options())
-                        .await;
-                }
-            }
-        });
-
         let _ = tx.send(());
     }
 

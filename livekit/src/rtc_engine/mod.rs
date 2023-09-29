@@ -133,7 +133,8 @@ struct EngineHandle {
 
 struct EngineInner {
     // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection factory accross multiple Rtc sessions
-    _lk_runtime: Arc<LkRuntime>,
+    #[allow(dead_code)]
+    lk_runtime: Arc<LkRuntime>,
     engine_tx: EngineEmitter,
     options: EngineOptions,
 
@@ -239,6 +240,7 @@ impl RtcEngine {
         // Also on full_reconnect, every message is OK to ignore (Since this is another RtcSession)
         let session = self.inner.running_handle.read().session.clone();
         session.signal_client().send(msg).await // Returns () and automatically queues the message
+                                                // on fail
     }
 
     pub fn session(&self) -> Arc<RtcSession> {
@@ -256,8 +258,10 @@ impl EngineInner {
             RtcSession::connect(url, token, options.clone()).await?;
         let (engine_tx, engine_rx) = mpsc::unbounded_channel();
 
+        session.wait_pc_connection().await?;
+
         let inner = Arc::new(Self {
-            _lk_runtime: LkRuntime::instance(),
+            lk_runtime: LkRuntime::instance(),
             engine_tx,
             close_notifier: Arc::new(Notify::new()),
             running_handle: RwLock::new(EngineHandle {

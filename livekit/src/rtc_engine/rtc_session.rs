@@ -209,10 +209,6 @@ impl RtcSession {
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx));
 
-        // TODO(theomonnom): Don't forget to wait for the connection to be established inside
-        // the RtcEngine.
-        // inner.wait_pc_connection().await?;
-
         let handle = Mutex::new(Some(SessionHandle {
             close_tx,
             signal_task,
