@@ -107,7 +107,18 @@ pub enum RoomEvent {
         publication: TrackPublication,
     },
     RoomMetadataChanged {
+        old_metadata: String,
         metadata: String,
+    },
+    ParticipantMetadataChanged {
+        participant: Participant,
+        old_metadata: String,
+        metadata: String,
+    },
+    ParticipantNameChanged {
+        participant: Participant,
+        old_name: String,
+        name: String,
     },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
@@ -281,6 +292,30 @@ impl Room {
                 let event = RoomEvent::TrackUnmuted {
                     participant,
                     publication,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        local_participant.on_metadata_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, old_metadata, metadata| {
+                let event = RoomEvent::ParticipantMetadataChanged {
+                    participant,
+                    old_metadata,
+                    metadata,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        local_participant.on_name_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, old_name, name| {
+                let event = RoomEvent::ParticipantNameChanged {
+                    participant,
+                    old_name,
+                    name,
                 };
                 dispatcher.dispatch(&event);
             }
@@ -808,9 +843,10 @@ impl RoomSession {
 
     fn handle_room_update(self: &Arc<Self>, room: proto::Room) {
         let mut info = self.info.write();
-        if info.metadata != room.metadata {
-            info.metadata = room.metadata;
+        let old_metadata = std::mem::replace(&mut info.metadata, room.metadata.clone());
+        if old_metadata != room.metadata {
             self.dispatcher.dispatch(&RoomEvent::RoomMetadataChanged {
+                old_metadata,
                 metadata: info.metadata.clone(),
             });
         }
@@ -1028,6 +1064,30 @@ impl RoomSession {
                 let event = RoomEvent::TrackUnmuted {
                     participant,
                     publication,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_metadata_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, old_metadata, metadata| {
+                let event = RoomEvent::ParticipantMetadataChanged {
+                    participant,
+                    old_metadata,
+                    metadata,
+                };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_name_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, old_name, name| {
+                let event = RoomEvent::ParticipantNameChanged {
+                    participant,
+                    old_name,
+                    name,
                 };
                 dispatcher.dispatch(&event);
             }
