@@ -70,7 +70,9 @@ pub enum SessionEvent {
     ConnectionQuality {
         updates: Vec<proto::ConnectionQualityInfo>,
     },
-    // TODO(theomonnom): Move entirely the reconnection logic on mod.rs
+    RoomUpdate {
+        room: proto::Room,
+    },
     Close {
         source: String,
         reason: DisconnectReason,
@@ -461,6 +463,11 @@ impl SessionInner {
                 if let Some(tx) = pending_tracks.remove(&publish_res.cid) {
                     let _ = tx.send(publish_res.track.unwrap());
                 }
+            }
+            proto::signal_response::Message::RoomUpdate(room_update) => {
+                let _ = self.emitter.send(SessionEvent::RoomUpdate {
+                    room: room_update.room.unwrap(),
+                });
             }
             _ => {}
         }

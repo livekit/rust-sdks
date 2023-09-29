@@ -97,6 +97,9 @@ pub enum EngineEvent {
     ConnectionQuality {
         updates: Vec<proto::ConnectionQualityInfo>,
     },
+    RoomUpdate {
+        room: proto::Room,
+    },
     /// The following events are used to notify the room about the reconnection state
     /// Since the room needs to also sync state in a good timing with the server.
     /// We synchronize the state with a one-shot channel.
@@ -381,6 +384,9 @@ impl EngineInner {
                 let _ = self
                     .engine_tx
                     .send(EngineEvent::ConnectionQuality { updates });
+            }
+            SessionEvent::RoomUpdate { room } => {
+                let _ = self.engine_tx.send(EngineEvent::RoomUpdate { room });
             }
         }
         Ok(())

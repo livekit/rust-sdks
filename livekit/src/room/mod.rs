@@ -98,7 +98,6 @@ pub enum RoomEvent {
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     },
-    // TODO(theomonnom): Should we also add track for muted events?
     TrackMuted {
         participant: Participant,
         publication: TrackPublication,
@@ -106,6 +105,9 @@ pub enum RoomEvent {
     TrackUnmuted {
         participant: Participant,
         publication: TrackPublication,
+    },
+    RoomMetadataChanged {
+        metadata: String,
     },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
@@ -500,6 +502,7 @@ impl RoomSession {
                 stream,
                 transceiver,
             } => self.handle_media_track(track, stream, transceiver),
+            EngineEvent::RoomUpdate { room } => self.handle_room_update(room),
             EngineEvent::Resuming(tx) => self.handle_resuming(tx),
             EngineEvent::Resumed(tx) => self.handle_resumed(tx),
             EngineEvent::SignalResumed {
@@ -803,6 +806,16 @@ impl RoomSession {
             .await;
     }
 
+    fn handle_room_update(self: &Arc<Self>, room: proto::Room) {
+        let mut info = self.info.write();
+        if info.metadata != room.metadata {
+            info.metadata = room.metadata;
+            self.dispatcher.dispatch(&RoomEvent::RoomMetadataChanged {
+                metadata: info.metadata.clone(),
+            });
+        }
+    }
+
     fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         if self.update_connection_state(ConnectionState::Reconnecting) {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
@@ -906,6 +919,8 @@ impl RoomSession {
             .update_info(join_response.participant.unwrap()); // The sid may have changed
 
         self.handle_participant_update(join_response.other_participants);
+        self.handle_room_update(join_response.room.unwrap());
+
         let _ = tx.send(());
     }
 
