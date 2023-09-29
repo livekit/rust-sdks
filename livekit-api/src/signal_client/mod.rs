@@ -286,7 +286,7 @@ async fn signal_task(
 /// Check if the signal is queuable
 /// Not every signal should be sent after signal reconnection
 fn is_queuable(signal: &proto::signal_request::Message) -> bool {
-    matches!(
+    !matches!(
         signal,
         proto::signal_request::Message::SyncState(_)
             | proto::signal_request::Message::Trickle(_)
