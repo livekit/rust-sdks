@@ -70,7 +70,7 @@ jobs:
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
             name: ffi-linux-x86_64
-          - os: buildjet-4vcpu-ubuntu-2204-arm
+          - os: buildjet-8vcpu-ubuntu-2204 # now using qemu because arm runners are often unavailable
             platform: linux
             build_image: quay.io/pypa/manylinux_2_28_aarch64
             dylib: liblivekit_ffi.so
@@ -103,6 +103,10 @@ jobs:
         with:
           toolchain: stable
           target: ${{ matrix.target }}
+
+      - name: Set up QEMU
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        uses: docker/setup-qemu-action@v1
 
       - name: Build (macOS)
         if: ${{ matrix.platform == 'macos' }}
