@@ -106,7 +106,7 @@ jobs:
 
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v3
 
       - name: Build (macOS)
         if: ${{ matrix.platform == 'macos' }}
