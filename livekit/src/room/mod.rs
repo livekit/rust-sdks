@@ -641,10 +641,10 @@ impl RoomSession {
                     )
                 };
 
-                remote_participant.update_info(pi.clone());
-
                 self.dispatcher
                     .dispatch(&RoomEvent::ParticipantConnected(remote_participant.clone()));
+
+                remote_participant.update_info(pi.clone()); // Add tracks
             }
         }
     }
