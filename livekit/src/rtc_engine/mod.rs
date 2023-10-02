@@ -87,7 +87,7 @@ pub enum EngineEvent {
         transceiver: RtpTransceiver,
     },
     Data {
-        participant_sid: ParticipantSid,
+        participant_sid: Option<ParticipantSid>,
         payload: Vec<u8>,
         kind: DataPacketKind,
     },

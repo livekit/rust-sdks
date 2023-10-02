@@ -130,7 +130,7 @@ pub enum RoomEvent {
     DataReceived {
         payload: Arc<Vec<u8>>,
         kind: DataPacketKind,
-        participant: RemoteParticipant,
+        participant: Option<RemoteParticipant>,
     },
     E2eeStateChanged {
         participant: Participant,
@@ -555,13 +555,12 @@ impl RoomSession {
                 kind,
                 participant_sid,
             } => {
-                if let Some(participant) = self.get_participant_by_sid(&participant_sid) {
-                    self.dispatcher.dispatch(&RoomEvent::DataReceived {
-                        payload: Arc::new(payload),
-                        kind,
-                        participant,
-                    });
-                }
+                let participant = participant_sid.map(|sid| self.get_participant_by_sid(&sid));
+                self.dispatcher.dispatch(&RoomEvent::DataReceived {
+                    payload: Arc::new(payload),
+                    kind,
+                    participant: participant.unwrap_or(None),
+                });
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {

@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt::Debug;
+use std::ops::Not;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -55,7 +56,8 @@ pub enum SessionEvent {
         updates: Vec<proto::ParticipantInfo>,
     },
     Data {
-        participant_sid: ParticipantSid,
+        // None when the data comes from the ServerSDK (So no real participant)
+        participant_sid: Option<ParticipantSid>,
         payload: Vec<u8>,
         kind: DataPacketKind,
     },
@@ -561,9 +563,15 @@ impl SessionInner {
                 let data = proto::DataPacket::decode(&*data).unwrap();
                 match data.value.as_ref().unwrap() {
                     proto::data_packet::Value::User(user) => {
+                        let participant_sid = user
+                            .participant_sid
+                            .is_empty()
+                            .not()
+                            .then_some(user.participant_sid.clone());
+
                         let _ = self.emitter.send(SessionEvent::Data {
                             kind: data.kind().into(),
-                            participant_sid: user.participant_sid.clone().try_into().unwrap(),
+                            participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
                             payload: user.payload.clone(),
                         });
                     }

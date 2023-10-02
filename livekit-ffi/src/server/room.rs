@@ -747,7 +747,7 @@ async fn forward_event(
                         handle: Some(proto::FfiOwnedHandle { id: handle_id }),
                         data: Some(buffer_info),
                     }),
-                    participant_sid: Some(participant.sid().to_string()),
+                    participant_sid: participant.map(|p| p.sid().to_string()),
                     kind: proto::DataPacketKind::from(kind).into(),
                 },
             ))
