@@ -70,7 +70,7 @@ jobs:
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
             name: ffi-linux-x86_64
-          - os: buildjet-8vcpu-ubuntu-2204 # now using qemu because arm runners are often unavailable
+          - os: ubuntu-latest-m # now using qemu because arm runners are often unavailable
             platform: linux
             build_image: quay.io/pypa/manylinux_2_28_aarch64
             dylib: liblivekit_ffi.so
