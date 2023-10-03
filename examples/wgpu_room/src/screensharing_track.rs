@@ -1,4 +1,7 @@
-use image::RgbaImage;
+use image::{
+    imageops::{resize, FilterType},
+    RgbaImage,
+};
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::webrtc::video_source::RtcVideoSource;
@@ -98,6 +101,9 @@ impl ScreensharingTrack {
             timestamp_us: 0,
         }));
 
+        let screens = screenshots::Screen::all().expect("Could not get access to the screens");
+        let primary_screen = screens.first().expect("No screens found");
+
         let mut interval = tokio::time::interval(Duration::from_millis(1000 / FPS as u64));
         loop {
             tokio::select! {
@@ -108,8 +114,8 @@ impl ScreensharingTrack {
             }
 
             tokio::task::spawn_blocking({
-                // TODO: Use `spawn_blocking()` here to actually capture the native frame.
-                let image: RgbaImage = RgbaImage::new(WIDTH as u32, HEIGHT as u32);
+                let captured = primary_screen.capture().expect("Could not capture screen");
+                let image = resize(&captured, WIDTH as u32, HEIGHT as u32, FilterType::Lanczos3);
 
                 let (source, frame) = (rtc_source.clone(), video_frame.clone());
                 move || {
