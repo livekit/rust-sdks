@@ -1,5 +1,5 @@
 use crate::{
-    logo_track::LogoTrack,
+    screensharing_track::ScreensharingTrack,
     sine_track::{SineParameters, SineTrack},
 };
 use livekit::{
@@ -24,7 +24,7 @@ pub enum AsyncCmd {
     SimulateScenario {
         scenario: SimulateScenario,
     },
-    ToggleLogo,
+    ToggleScreensharing,
     ToggleSine,
     SubscribeTrack {
         publication: RemoteTrackPublication,
@@ -97,7 +97,7 @@ impl LkService {
 async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedReceiver<AsyncCmd>) {
     struct RunningState {
         room: Arc<Room>,
-        logo_track: LogoTrack,
+        screensharing_track: ScreensharingTrack,
         sine_track: SineTrack,
     }
 
@@ -139,7 +139,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     let new_room = Arc::new(new_room);
                     running_state = Some(RunningState {
                         room: new_room.clone(),
-                        logo_track: LogoTrack::new(new_room.clone()),
+                        screensharing_track: ScreensharingTrack::new(new_room.clone()),
                         sine_track: SineTrack::new(new_room.clone(), SineParameters::default()),
                     });
 
@@ -167,12 +167,12 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     }
                 }
             }
-            AsyncCmd::ToggleLogo => {
+            AsyncCmd::ToggleScreensharing => {
                 if let Some(state) = running_state.as_mut() {
-                    if state.logo_track.is_published() {
-                        state.logo_track.unpublish().await.unwrap();
+                    if state.screensharing_track.is_published() {
+                        state.screensharing_track.unpublish().await.unwrap();
                     } else {
-                        state.logo_track.publish().await.unwrap();
+                        state.screensharing_track.publish().await.unwrap();
                     }
                 }
             }
