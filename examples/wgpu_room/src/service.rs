@@ -33,7 +33,6 @@ pub enum AsyncCmd {
         publication: RemoteTrackPublication,
     },
     E2eeKeyRatchet,
-    RefreshStats,
 }
 
 #[derive(Debug)]
@@ -198,11 +197,6 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     if let Some(key_provider) = e2ee_manager.key_provider() {
                         key_provider.ratchet_shared_key(0);
                     }
-                }
-            }
-            AsyncCmd::RefreshStats => {
-                if let Some(state) = running_state.as_ref() {
-                    state.room.get_stats();
                 }
             }
         }
