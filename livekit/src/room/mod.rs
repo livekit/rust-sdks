@@ -597,20 +597,23 @@ impl RoomSession {
     pub fn get_stats(self: &Arc<Self>) {
         let inner = self.clone();
         tokio::spawn(async move {
-            let _ = inner
+            let publisher_stats = inner
                 .rtc_engine
                 .session()
                 .publisher()
                 .peer_connection()
                 .get_stats()
                 .await;
-            let _ = inner
+            let subscriber_stats = inner
                 .rtc_engine
                 .session()
                 .subscriber()
                 .peer_connection()
                 .get_stats()
                 .await;
+
+            log::info!("publisher stats: {:?}", publisher_stats);
+            log::info!("subscriber stats: {:?}", subscriber_stats);
         });
     }
 

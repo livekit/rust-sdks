@@ -2,7 +2,8 @@ use crate::data_channel::DataChannelState;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// Values from https://www.w3.org/TR/webrtc-stats/
+/// Values from https://www.w3.org/TR/webrtc-stats/ (NOTE: Some of the structs are not in the SPEC
+/// but inside libwebrtc)
 /// serde will handle the magic of correctly deserializing the json into our structs.
 /// The enums values are inside encapsulated inside option because we're not sure about their default values (So we
 /// default to None instead of an arbitrary value)
@@ -138,6 +139,10 @@ pub enum RtcStats {
 
         #[serde(flatten)]
         certificate: CertificateStats,
+    },
+    Track {
+        // Deprecated inside libwebrtc (Should not be needed)
+        // Here to avoid Deserialize errors
     },
 }
 
@@ -379,8 +384,9 @@ pub struct RemoteInboundRtpStreamStats {
     pub round_trip_time_measurements: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct RemoteOutboundRtpStreamStats {
     pub local_id: String,
     pub remote_timestamp: f64,
@@ -423,8 +429,9 @@ pub struct VideoSourceStats {
     pub frames_per_second: f64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct AudioPlayoutStats {
     pub kind: String,
     pub synthesized_samples_duration: f64,
