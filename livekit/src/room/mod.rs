@@ -449,10 +449,6 @@ impl Room {
         self.inner.participants.read().0.clone()
     }
 
-    pub fn get_stats(&self) {
-        self.inner.get_stats()
-    }
-
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.rtc_engine.simulate_scenario(scenario).await
     }
@@ -592,29 +588,6 @@ impl RoomSession {
         self.dispatcher
             .dispatch(&RoomEvent::ConnectionStateChanged(state));
         true
-    }
-
-    pub fn get_stats(self: &Arc<Self>) {
-        let inner = self.clone();
-        tokio::spawn(async move {
-            let publisher_stats = inner
-                .rtc_engine
-                .session()
-                .publisher()
-                .peer_connection()
-                .get_stats()
-                .await;
-            let subscriber_stats = inner
-                .rtc_engine
-                .session()
-                .subscriber()
-                .peer_connection()
-                .get_stats()
-                .await;
-
-            log::info!("publisher stats: {:?}", publisher_stats);
-            log::info!("subscriber stats: {:?}", subscriber_stats);
-        });
     }
 
     /// Update the participants inside a Room.
