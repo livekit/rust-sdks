@@ -1,13 +1,13 @@
-// Structs from https://www.w3.org/TR/webrtc-stats/
-// serde will handle the magic of correctly deserializing the json into these structs
-// the enums values are inside an option because we're not sure about their default values (So we
-// default to None instead of an arbitrary value)
-
 use crate::data_channel::DataChannelState;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Debug, Deserialize)]
+/// Values from https://www.w3.org/TR/webrtc-stats/
+/// serde will handle the magic of correctly deserializing the json into our structs.
+/// The enums values are inside encapsulated inside option because we're not sure about their default values (So we
+/// default to None instead of an arbitrary value)
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "kebab-case")]
 pub enum RtcStats {
