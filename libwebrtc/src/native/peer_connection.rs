@@ -38,13 +38,13 @@ use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::RtpTransceiver;
 use crate::rtp_transceiver::RtpTransceiverInit;
+use crate::stats::QualityLimitationReason;
 use crate::stats::RtcStats;
 use crate::MediaType;
 use crate::RtcErrorType;
 use crate::{session_description::SessionDescription, RtcError};
 use cxx::SharedPtr;
 use parking_lot::Mutex;
-use std::default;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -447,10 +447,20 @@ impl PeerConnection {
         let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
 
         self.sys_handle.get_stats(ctx, |ctx, stats| {
+            let tx = ctx
+                .0
+                .downcast::<oneshot::Sender<Result<Vec<RtcStats>, RtcError>>>()
+                .unwrap();
+
             log::info!("Received stats {}", stats);
+            let vec = serde_json::from_str(&stats).unwrap();
+            let _ = tx.send(Ok(vec));
         });
 
-        Ok(Default::default())
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "get_stats cancelled".to_owned(),
+        })?
     }
 
     pub fn senders(&self) -> Vec<RtpSender> {

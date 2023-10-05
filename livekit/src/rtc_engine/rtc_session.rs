@@ -902,13 +902,13 @@ impl SessionInner {
         }
 
         let dc = self.data_channel(SignalTarget::Publisher, kind).unwrap();
-        if dc.state() == DataState::Open {
+        if dc.state() == DataChannelState::Open {
             return Ok(());
         }
 
         // Wait until the PeerConnection is connected
         let wait_connected = async {
-            while !self.publisher_pc.is_connected() || dc.state() != DataState::Open {
+            while !self.publisher_pc.is_connected() || dc.state() != DataChannelState::Open {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".into()));
                 }

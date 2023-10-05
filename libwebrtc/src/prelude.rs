@@ -16,7 +16,7 @@ pub use crate::audio_frame::AudioFrame;
 pub use crate::audio_source::{AudioSourceOptions, RtcAudioSource};
 pub use crate::audio_track::RtcAudioTrack;
 pub use crate::data_channel::{
-    DataBuffer, DataChannel, DataChannelError, DataChannelInit, DataState,
+    DataBuffer, DataChannel, DataChannelError, DataChannelInit, DataChannelState,
 };
 pub use crate::ice_candidate::IceCandidate;
 pub use crate::media_stream::MediaStream;

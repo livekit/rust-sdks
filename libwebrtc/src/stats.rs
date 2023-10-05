@@ -1,13 +1,15 @@
 // Structs from https://www.w3.org/TR/webrtc-stats/
 // serde will handle the magic of correctly deserializing the json into these structs
+// the enums values are inside an option because we're not sure about their default values (So we
+// default to None instead of an arbitrary value)
 
 use crate::data_channel::DataChannelState;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-// RtcStats enum (the json is flattened + tagged)
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
+#[serde(rename_all = "kebab-case")]
 pub enum RtcStats {
     Codec {
         #[serde(flatten)]
@@ -139,18 +141,20 @@ pub enum RtcStats {
     },
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum QualityLimitationReason {
+    #[default]
     None,
     CPU,
     Bandwidth,
     Other,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum IceRole {
+    #[default]
     Unknown,
     Controlling,
     Controlled,
@@ -178,11 +182,12 @@ pub enum IceTransportState {
     Closed,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DtlsRole {
     Client,
     Server,
+    #[default]
     Unknown,
 }
 
@@ -221,16 +226,17 @@ pub enum IceTcpCandidateType {
     So,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct RtcStatsData {
     pub id: String,
-    pub r#type: String,
     pub timestamp: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct CodecStats {
     pub payload_type: u32,
     pub transport_id: String,
@@ -240,8 +246,9 @@ pub struct CodecStats {
     pub sdp_fmtp_line: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct RtpStreamStats {
     pub ssrc: u32,
     pub kind: String,
@@ -249,16 +256,18 @@ pub struct RtpStreamStats {
     pub codec_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct ReceivedRtpStreamStats {
     pub packets_received: u64,
     pub packets_lost: i64,
     pub jitter: f64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct InboundRtpStreamStats {
     pub track_identifier: String,
     pub mid: String,
@@ -315,15 +324,17 @@ pub struct InboundRtpStreamStats {
     pub fec_ssrc: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct SentRtpStreamStats {
     pub packets_sent: u64,
     pub bytes_sent: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct OutboundRtpStreamStats {
     pub mid: String,
     pub media_source_id: String,
@@ -357,8 +368,9 @@ pub struct OutboundRtpStreamStats {
     pub scalibility_mode: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct RemoteInboundRtpStreamStats {
     pub local_id: String,
     pub round_trip_time: f64,
@@ -378,15 +390,17 @@ pub struct RemoteOutboundRtpStreamStats {
     pub round_trip_time_measurements: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct MediaSourceStats {
     pub track_identifier: String,
     pub kind: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct AudioSourceStats {
     pub audio_level: f64,
     pub total_audio_energy: f64,
@@ -399,8 +413,9 @@ pub struct AudioSourceStats {
     pub total_samples_captured: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct VideoSourceStats {
     pub width: u32,
     pub height: u32,
@@ -419,28 +434,31 @@ pub struct AudioPlayoutStats {
     pub total_samples_count: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct PeerConnectionStats {
     pub data_channels_opened: u32,
     pub data_channels_closed: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct DataChannelStats {
     pub label: String,
     pub protocol: String,
-    pub data_channel_identifier: u16,
-    pub state: DataChannelState,
+    pub data_channel_identifier: i32,
+    pub state: Option<DataChannelState>,
     pub messages_sent: u32,
     pub bytes_sent: u64,
     pub messages_received: u32,
     pub bytes_received: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct TransportStats {
     pub packets_sent: u64,
     pub packets_received: u64,
@@ -448,8 +466,8 @@ pub struct TransportStats {
     pub bytes_received: u64,
     pub ice_role: IceRole,
     pub ice_local_username_fragment: String,
-    pub dtls_state: DtlsTransportState,
-    pub ice_state: IceTransportState,
+    pub dtls_state: Option<DtlsTransportState>,
+    pub ice_state: Option<IceTransportState>,
     pub selected_candidate_pair_id: String,
     pub local_certificate_id: String,
     pub remote_certificate_id: String,
@@ -460,13 +478,14 @@ pub struct TransportStats {
     pub selected_candidate_pair_changes: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct CandidatePairStats {
     pub transport_id: String,
     pub local_candidate_id: String,
     pub remote_candidate_id: String,
-    pub state: IceCandidatePairState,
+    pub state: Option<IceCandidatePairState>,
     pub nominated: bool,
     pub packets_sent: u64,
     pub packets_received: u64,
@@ -487,26 +506,28 @@ pub struct CandidatePairStats {
     pub bytes_discarded_on_send: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct IceCandidateStats {
     pub transport_id: String,
     pub address: String,
     pub port: i32,
     pub protocol: String,
-    pub candidate_type: IceCandidateType,
+    pub candidate_type: Option<IceCandidateType>,
     pub priority: i32,
     pub url: String,
-    pub relay_protocol: IceServerTransportProtocol,
+    pub relay_protocol: Option<IceServerTransportProtocol>,
     pub foundation: String,
     pub related_address: String,
     pub related_port: i32,
     pub username_fragment: String,
-    pub tcp_type: IceTcpCandidateType,
+    pub tcp_type: Option<IceTcpCandidateType>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct CertificateStats {
     pub fingerprint: String,
     pub fingerprint_algorithm: String,
