@@ -190,6 +190,32 @@ void PeerConnection::remove_track(std::shared_ptr<RtpSender> sender) const {
     throw std::runtime_error(serialize_error(to_error(error)));
 }
 
+void PeerConnection::get_stats(
+    rust::Box<AsyncContext> ctx,
+    rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const {
+  rtc::scoped_refptr<NativeRtcStatsCollector> observer =
+      rtc::make_ref_counted<NativeRtcStatsCollector>(std::move(ctx), on_stats);
+  peer_connection_->GetStats(observer.get());
+}
+
+void PeerConnection::get_sender_stats(
+    rust::Box<AsyncContext> ctx,
+    std::shared_ptr<RtpSender> sender,
+    rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const {
+  rtc::scoped_refptr<NativeRtcStatsCollector> observer =
+      rtc::make_ref_counted<NativeRtcStatsCollector>(std::move(ctx), on_stats);
+  peer_connection_->GetStats(sender->rtc_sender(), observer);
+}
+
+void PeerConnection::get_receiver_stats(
+    rust::Box<AsyncContext> ctx,
+    std::shared_ptr<RtpReceiver> receiver,
+    rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const {
+  rtc::scoped_refptr<NativeRtcStatsCollector> observer =
+      rtc::make_ref_counted<NativeRtcStatsCollector>(std::move(ctx), on_stats);
+  peer_connection_->GetStats(receiver->rtc_receiver(), observer);
+}
+
 std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver(
     std::shared_ptr<MediaStreamTrack> track,
     RtpTransceiverInit init) const {

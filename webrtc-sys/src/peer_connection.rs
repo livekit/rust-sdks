@@ -76,6 +76,20 @@ pub mod ffi {
         IceGatheringComplete,
     }
 
+    #[repr(i32)]
+    pub enum ContinualGatheringPolicy {
+        GatherOnce,
+        GatherContinually,
+    }
+
+    #[repr(i32)]
+    pub enum IceTransportsType {
+        None,
+        Relay,
+        NoHost,
+        All,
+    }
+
     pub struct RtcOfferAnswerOptions {
         offer_to_receive_video: i32,
         offer_to_receive_audio: i32,
@@ -91,20 +105,6 @@ pub mod ffi {
         pub urls: Vec<String>,
         pub username: String,
         pub password: String,
-    }
-
-    #[repr(i32)]
-    pub enum ContinualGatheringPolicy {
-        GatherOnce,
-        GatherContinually,
-    }
-
-    #[repr(i32)]
-    pub enum IceTransportsType {
-        None,
-        Relay,
-        NoHost,
-        All,
     }
 
     pub struct RtcConfiguration {
@@ -148,13 +148,13 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/peer_connection.h");
 
-        type PeerConnection;
-
         // The reason we still expose NativePeerConnectionObserver is because cxx doeesn't support Rust type alias
         // So we can't share NativePeerConnectionWrapper in peer_connection_factory.rs
         // (It is technically possible to get the Opaque C++ Type, but in this case, we can't use Box<T>)
         // We can delete create_native_peer_connection_observer once cxx supports Rust type alias
         type NativePeerConnectionObserver;
+        type PeerConnection;
+
         fn create_native_peer_connection_observer(
             observer: Box<PeerConnectionObserverWrapper>,
         ) -> UniquePtr<NativePeerConnectionObserver>;
@@ -193,6 +193,23 @@ pub mod ffi {
             stream_ids: &Vec<String>,
         ) -> Result<SharedPtr<RtpSender>>;
         fn remove_track(self: &PeerConnection, sender: SharedPtr<RtpSender>) -> Result<()>;
+        fn get_stats(
+            self: &PeerConnection,
+            ctx: Box<AsyncContext>,
+            on_stats: fn(ctx: Box<AsyncContext>, json: String),
+        );
+        fn get_sender_stats(
+            self: &PeerConnection,
+            ctx: Box<AsyncContext>,
+            sender: SharedPtr<RtpSender>,
+            on_stats: fn(ctx: Box<AsyncContext>, json: String),
+        );
+        fn get_receiver_stats(
+            self: &PeerConnection,
+            ctx: Box<AsyncContext>,
+            receiver: SharedPtr<RtpReceiver>,
+            on_stats: fn(ctx: Box<AsyncContext>, json: String),
+        );
         fn add_transceiver(
             self: &PeerConnection,
             track: SharedPtr<MediaStreamTrack>,

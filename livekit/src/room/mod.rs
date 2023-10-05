@@ -449,6 +449,10 @@ impl Room {
         self.inner.participants.read().0.clone()
     }
 
+    pub fn get_stats(&self) {
+        self.inner.get_stats()
+    }
+
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.rtc_engine.simulate_scenario(scenario).await
     }
@@ -474,7 +478,6 @@ pub(crate) struct RoomSession {
     local_participant: LocalParticipant,
     participants: RwLock<(
         // Keep track of participants by sid and identity
-        // Ideally we would just need identity
         HashMap<ParticipantSid, RemoteParticipant>,
         HashMap<ParticipantIdentity, RemoteParticipant>,
     )>,
@@ -589,6 +592,26 @@ impl RoomSession {
         self.dispatcher
             .dispatch(&RoomEvent::ConnectionStateChanged(state));
         true
+    }
+
+    pub fn get_stats(self: &Arc<Self>) {
+        let inner = self.clone();
+        tokio::spawn(async move {
+            let _ = inner
+                .rtc_engine
+                .session()
+                .publisher()
+                .peer_connection()
+                .get_stats()
+                .await;
+            let _ = inner
+                .rtc_engine
+                .session()
+                .subscriber()
+                .peer_connection()
+                .get_stats()
+                .await;
+        });
     }
 
     /// Update the participants inside a Room.

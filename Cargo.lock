@@ -1010,6 +1010,8 @@ dependencies = [
  "livekit-protocol",
  "log",
  "parking_lot",
+ "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -1076,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "console-subscriber",
  "dashmap",

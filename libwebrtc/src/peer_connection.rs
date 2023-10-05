@@ -22,6 +22,7 @@ use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverInit};
 use crate::session_description::SessionDescription;
+use crate::stats::RtcStats;
 use crate::{MediaType, RtcError};
 use std::fmt::Debug;
 
@@ -157,6 +158,10 @@ impl PeerConnection {
         self.handle.remove_track(sender)
     }
 
+    pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
+        self.handle.get_stats().await
+    }
+
     pub fn add_transceiver(
         &self,
         track: MediaStreamTrack,
@@ -172,6 +177,7 @@ impl PeerConnection {
     ) -> Result<RtpTransceiver, RtcError> {
         self.handle.add_transceiver_for_media(media_type, init)
     }
+
     pub fn close(&self) {
         self.handle.close()
     }

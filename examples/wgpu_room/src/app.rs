@@ -160,6 +160,12 @@ impl LkApp {
                     let _ = self.service.send(AsyncCmd::ToggleSine);
                 }
             });
+
+            ui.menu_button("Debug", |ui| {
+                if ui.button("Refresh stats").clicked() {
+                    let _ = self.service.send(AsyncCmd::RefreshStats);
+                }
+            });
         });
     }
 

@@ -92,6 +92,20 @@ class PeerConnection {
 
   void remove_track(std::shared_ptr<RtpSender> sender) const;
 
+  void get_stats(
+      rust::Box<AsyncContext> ctx,
+      rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const;
+
+  void get_sender_stats(
+      rust::Box<AsyncContext> ctx,
+      std::shared_ptr<RtpSender> sender,
+      rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const;
+
+  void get_receiver_stats(
+      rust::Box<AsyncContext> ctx,
+      std::shared_ptr<RtpReceiver> sender,
+      rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const;
+
   void restart_ice() const;
 
   std::shared_ptr<RtpTransceiver> add_transceiver(

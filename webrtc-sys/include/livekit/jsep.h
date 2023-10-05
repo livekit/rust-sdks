@@ -22,7 +22,9 @@
 #include "api/ref_counted_base.h"
 #include "api/set_local_description_observer_interface.h"
 #include "api/set_remote_description_observer_interface.h"
+#include "api/stats/rtc_stats_collector_callback.h"
 #include "livekit/rtc_error.h"
+#include "rtc_base/ref_count.h"
 #include "rust/cxx.h"
 
 namespace livekit {
@@ -127,6 +129,19 @@ class NativeSetRemoteSdpObserver
  private:
   rust::Box<AsyncContext> ctx_;
   rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete_;
+};
+
+class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
+ public:
+  NativeRtcStatsCollector(rust::Box<AsyncContext> ctx,
+			    rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats);
+
+  void OnStatsDelivered(
+		const rtc::scoped_refptr<const webrtc::RTCStatsReport> &report) override;
+
+ private:
+  rust::Box<AsyncContext> ctx_;
+  rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats_;
 };
 
 }  // namespace livekit

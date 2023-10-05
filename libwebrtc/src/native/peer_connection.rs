@@ -38,11 +38,13 @@ use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::RtpTransceiver;
 use crate::rtp_transceiver::RtpTransceiverInit;
+use crate::stats::RtcStats;
 use crate::MediaType;
 use crate::RtcErrorType;
 use crate::{session_description::SessionDescription, RtcError};
 use cxx::SharedPtr;
 use parking_lot::Mutex;
+use std::default;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -438,6 +440,17 @@ impl PeerConnection {
         self.sys_handle
             .remove_track(sender.handle.sys_handle)
             .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
+    }
+
+    pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
+        let (tx, rx) = oneshot::channel::<Result<Vec<RtcStats>, RtcError>>();
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+
+        self.sys_handle.get_stats(ctx, |ctx, stats| {
+            log::info!("Received stats {}", stats);
+        });
+
+        Ok(Default::default())
     }
 
     pub fn senders(&self) -> Vec<RtpSender> {
