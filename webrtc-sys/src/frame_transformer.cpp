@@ -1,5 +1,6 @@
 #include "livekit/frame_transformer.h"
 #include "livekit/encoded_video_frame.h"
+#include <inttypes.h>
 
 namespace livekit {
 
@@ -34,7 +35,7 @@ void NativeFrameTransformer::UnregisterTransformedFrameCallback() {
 void NativeFrameTransformer::RegisterTransformedFrameSinkCallback(
       rtc::scoped_refptr<webrtc::TransformedFrameCallback> send_frame_to_sink_callback,
       uint32_t ssrc) {
-    fprintf(stderr, "NativeFrameTransformer::RegisterTransformedFrameSinkCallback\n");
+    fprintf(stderr, "NativeFrameTransformer::RegisterTransformedFrameSinkCallback for ssrc %" PRIu32 "\n", ssrc);
 
     if (send_frame_to_sink_callback == nullptr) {
         fprintf(stderr, "callback is nullptr\n");
@@ -42,6 +43,10 @@ void NativeFrameTransformer::RegisterTransformedFrameSinkCallback(
     
     std::lock_guard<std::mutex> guard(sink_mutex_);
     sink_callbacks_[ssrc] = send_frame_to_sink_callback;
+
+    // TODO: for some reason, getting the callback from the map is causing a crash
+    // so for now we are falling back to writing to the property
+    sink_callback_ = send_frame_to_sink_callback;
 }
 
 void NativeFrameTransformer::UnregisterTransformedFrameSinkCallback(uint32_t ssrc) {
@@ -55,12 +60,25 @@ void NativeFrameTransformer::UnregisterTransformedFrameSinkCallback(uint32_t ssr
 }
 
 void NativeFrameTransformer::FrameTransformed(std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
-    // fprintf(stderr, "NativeFrameTransformer::FrameTransformed\n");
+    //fprintf(stderr, "NativeFrameTransformer::FrameTransformed\n");
 
     rtc::scoped_refptr<webrtc::TransformedFrameCallback> sink_callback = nullptr;
     {
         std::lock_guard<std::mutex> guard(sink_mutex_);
-        sink_callback = sink_callbacks_[frame->GetSsrc()];
+
+        // TODO: for some reason, getting the callback from the map is causing a crash
+
+        // uint32_t ssrc = frame->GetSsrc();
+
+        // fprintf(stderr, "getting sink callback for ssrc %" PRIu32 "\n", ssrc);
+
+        // auto it = sink_callbacks_.find(ssrc);
+        // if (it != sink_callbacks_.end()) {
+        //     sink_callback = sink_callbacks_[ssrc];
+        // }
+        // else {
+        //     fprintf(stderr, "not found, defaulting\n");
+        // }
         
         if (sink_callback == nullptr) {
             sink_callback = sink_callback_;
