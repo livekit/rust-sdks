@@ -555,12 +555,7 @@ impl RoomSession {
                 kind,
                 participant_sid,
             } => {
-                let participant = participant_sid.map(|sid| self.get_participant_by_sid(&sid));
-                self.dispatcher.dispatch(&RoomEvent::DataReceived {
-                    payload: Arc::new(payload),
-                    kind,
-                    participant: participant.unwrap_or(None),
-                });
+                self.handle_data(payload, kind, participant_sid);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
@@ -965,6 +960,29 @@ impl RoomSession {
             self.dispatcher
                 .dispatch(&RoomEvent::Disconnected { reason });
         }
+    }
+
+    fn handle_data(
+        &self,
+        payload: Vec<u8>,
+        kind: DataPacketKind,
+        participant_sid: Option<ParticipantSid>,
+    ) {
+        let participant = participant_sid
+            .as_ref()
+            .map(|sid| self.get_participant_by_sid(sid))
+            .unwrap_or(None);
+
+        if participant.is_none() && participant_sid.is_some() {
+            // We received a data packet from a participant that is not in the participants list
+            return;
+        }
+
+        self.dispatcher.dispatch(&RoomEvent::DataReceived {
+            payload: Arc::new(payload),
+            kind,
+            participant,
+        });
     }
 
     /// Create a new participant
