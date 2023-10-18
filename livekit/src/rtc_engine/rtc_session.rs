@@ -371,10 +371,10 @@ impl SessionInner {
 
                             task.await.unwrap();
                         }
-                        SignalEvent::Close => {
+                        SignalEvent::Close(reason) => {
                             // SignalClient has been closed
                             self.on_session_disconnected(
-                                "SignalClient closed",
+                                format!("signal client closed: {:?}", reason).as_str(),
                                 DisconnectReason::UnknownReason,
                                 true,
                                 false,
