@@ -59,8 +59,6 @@ impl SignalStream {
         Self,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        log::info!("connecting to SignalClient: {}", url);
-
         // Automatically switch to websocket scheme when using http
         if url.scheme() == "https" {
             url.set_scheme("wss").unwrap();
