@@ -49,7 +49,7 @@ pub enum SignalError {
     ProtoParse(#[from] prost::DecodeError),
     #[error("{0}")]
     Timeout(String),
-    #[error("failed to send message to server")]
+    #[error("failed to send message to the server")]
     SendError,
 }
 
@@ -219,7 +219,7 @@ impl SignalClient {
         self.flush_queue().await; // The queue must be flusehd before sending any new signal
 
         if let Some(stream) = self.inner.stream.read().await.as_ref() {
-            if stream.send(signal.clone()).await.is_err() {
+            if let Err(SignalError::SendError) = stream.send(signal.clone()).await {
                 self.queue_message(signal).await;
             }
         }
