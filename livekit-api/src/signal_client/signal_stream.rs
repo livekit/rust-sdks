@@ -22,6 +22,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use url::form_urlencoded;
 
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -59,7 +60,27 @@ impl SignalStream {
         Self,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        log::info!("connecting to SignalClient: {}", url);
+        {
+            // Don't log sensitive info
+            let mut url = url.clone();
+            let filtered_pairs: Vec<_> = url
+                .query_pairs()
+                .filter(|(key, _)| key != "access_token")
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect();
+
+            {
+                let mut query_pairs = url.query_pairs_mut();
+                query_pairs.clear();
+                for (key, value) in filtered_pairs {
+                    query_pairs.append_pair(&key, &value);
+                }
+
+                query_pairs.append_pair("access_token", "...");
+            }
+
+            log::info!("connecting to {}", url);
+        }
 
         // Automatically switch to websocket scheme when using http
         if url.scheme() == "https" {

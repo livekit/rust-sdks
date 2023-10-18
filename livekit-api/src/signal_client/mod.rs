@@ -150,7 +150,10 @@ impl SignalClient {
                 "http"
             })
             .unwrap();
-        ws_url.set_path("/rtc/validate");
+
+        if let Ok(mut segs) = ws_url.path_segments_mut() {
+            segs.extend(&["rtc", "validate"]);
+        }
 
         if let Ok(res) = reqwest::get(ws_url.as_str()).await {
             let status = res.status();
@@ -299,7 +302,11 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
 
 fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url)?;
-    lk_url.set_path("/rtc");
+
+    if let Ok(mut segs) = lk_url.path_segments_mut() {
+        segs.push("rtc");
+    }
+
     lk_url
         .query_pairs_mut()
         .append_pair("sdk", "rust")
