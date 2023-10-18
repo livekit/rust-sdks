@@ -59,6 +59,13 @@ impl SignalStream {
         Self,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
+        {
+            // Don't log the access token
+            let mut durl = url.clone();
+            durl.query_pairs_mut().clear();
+            log::info!("connecting to {}", durl);
+        }
+
         // Automatically switch to websocket scheme when using http
         if url.scheme() == "https" {
             url.set_scheme("wss").unwrap();
