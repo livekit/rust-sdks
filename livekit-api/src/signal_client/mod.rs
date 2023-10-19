@@ -405,9 +405,9 @@ async fn signal_task(
                 break;
             }
         }
-
-        inner.close().await; // Make sure to always close the ws connection when the loop is terminated
     }
+
+    inner.close().await; // Make sure to always close the ws connection when the loop is terminated
 }
 
 /// Check if the signal is queuable
