@@ -25,7 +25,7 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::RwLock as AsyncRwLock;
-use tokio::time::{interval, timeout, Interval};
+use tokio::time::{interval, sleep, timeout, Instant, Interval};
 use tokio_tungstenite::tungstenite::Error as WsError;
 
 mod signal_stream;
@@ -300,45 +300,67 @@ impl SignalInner {
 }
 
 /// Middleware task to receive SignalStream events and handle SignalClient specific logic
-/// TODO(theomonnom): should we use tokio_stream?
 async fn signal_task(
     inner: Arc<SignalInner>,
     emitter: SignalEmitter, // Public emitter
     mut internal_events: mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
 ) {
-    let ping_interval = Duration::from_secs(inner.join_response.ping_interval as u64);
-    let ping_timeout = Duration::from_secs(inner.join_response.ping_timeout as u64);
+    let mut ping_interval = interval(Duration::from_secs(
+        inner.join_response.ping_interval as u64,
+    ));
+    let timeout_duration = Duration::from_secs(inner.join_response.ping_timeout as u64);
+    let ping_timeout = sleep(timeout_duration);
+    tokio::pin!(ping_timeout);
 
-    log::debug!("ping_interval: {:?}", ping_interval);
-    log::debug!("ping_timeout: {:?}", ping_timeout);
+    let mut rtt = 0; // TODO(theomonnom): Should we expose SignalClient rtt?
 
-    let handle_message = |signal: Box<proto::signal_response::Message>| {
-        match signal.as_ref() {
-            proto::signal_response::Message::RefreshToken(ref token) => {
-                *inner.token.lock() = token.clone(); // Refresh the token so the client can still reconnect if the initial join token expired
-            }
-            proto::signal_response::Message::PongResp(ref pong) => {
+    loop {
+        tokio::select! {
+            _ = ping_interval.tick() => {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_millis() as i64;
 
-                let latency = now - pong.timestamp;
+                let ping = proto::signal_request::Message::PingReq(proto::Ping{
+                    timestamp: now,
+                    rtt,
+                });
+
+                inner.send(ping).await;
             }
-            _ => {}
+            _ = &mut ping_timeout => {
+                let _ = emitter.send(SignalEvent::Close("ping timeout".into()));
+                break;
+            }
+            signal = internal_events.recv() => {
+                if let Some(signal) = signal {
+                    // Received a message from the server
+                    match signal.as_ref() {
+                        proto::signal_response::Message::RefreshToken(ref token) => {
+                            // Refresh the token so the client can still reconnect if the initial join token expired
+                            *inner.token.lock() = token.clone();
+                        }
+                        proto::signal_response::Message::PongResp(ref pong) => {
+                            let now = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as i64;
+
+                            rtt = now - pong.last_ping_timestamp;
+                            ping_timeout.as_mut().reset(Instant::now() + timeout_duration);
+                        }
+                        _ => {}
+                    }
+
+                    let _ = emitter.send(SignalEvent::Message(signal));
+                } else {
+                    let _ = emitter.send(SignalEvent::Close("stream closed".into()));
+                    break; // Stream closed
+                }
+            }
         }
-
-        let _ = emitter.send(SignalEvent::Message(signal));
-    };
-
-    let send_interval = interval(ping_interval);
-
-    while let Some(signal) = internal_events.recv().await {
-        handle_message(signal);
     }
-
-    // internal_events is closed, send an event to notify the close
-    let _ = emitter.send(SignalEvent::Close("stream closed".into()));
 }
 
 /// Check if the signal is queuable
