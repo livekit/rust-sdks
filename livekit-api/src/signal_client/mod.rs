@@ -22,10 +22,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::RwLock as AsyncRwLock;
-use tokio::time::{interval, sleep, timeout, Instant, Interval};
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
+use tokio::time::{interval, sleep, Instant};
 use tokio_tungstenite::tungstenite::Error as WsError;
 
 mod signal_stream;
@@ -80,7 +81,6 @@ pub enum SignalEvent {
 
 struct SignalInner {
     stream: AsyncRwLock<Option<SignalStream>>,
-    emitter: SignalEmitter,
     token: Mutex<String>, // Token can be refreshed
     reconnecting: AtomicBool,
     queue: AsyncMutex<Vec<proto::signal_request::Message>>,
@@ -91,6 +91,8 @@ struct SignalInner {
 
 pub struct SignalClient {
     inner: Arc<SignalInner>,
+    emitter: SignalEmitter,
+    handle: Mutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
 impl Debug for SignalClient {
@@ -109,8 +111,46 @@ impl SignalClient {
         token: &str,
         options: SignalOptions,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
-        let (inner, join_response, events) = SignalInner::connect(url, token, options).await?;
-        Ok((Self { inner }, join_response, events))
+        let (inner, join_response, stream_events) =
+            SignalInner::connect(url, token, options).await?;
+
+        let (emitter, events) = mpsc::unbounded_channel();
+        let (close_tx, close_rx) = oneshot::channel();
+
+        let signal_task = tokio::spawn(signal_task(
+            inner.clone(),
+            emitter.clone(),
+            stream_events,
+            close_rx,
+        ));
+
+        Ok((
+            Self {
+                inner,
+                emitter,
+                handle: Mutex::new(Some((signal_task, close_tx))),
+            },
+            join_response,
+            events,
+        ))
+    }
+
+    /// Restart the connection to the server
+    /// This will automatically flush the queue
+    pub async fn restart(&self) -> SignalResult<proto::ReconnectResponse> {
+        self.close().await;
+
+        let (reconnect_response, stream_events) = self.inner.restart().await?;
+        let (close_tx, close_rx) = oneshot::channel();
+        let signal_task = tokio::spawn(signal_task(
+            self.inner.clone(),
+            self.emitter.clone(),
+            stream_events,
+            close_rx,
+        ));
+
+        *self.handle.lock() = Some((signal_task, close_tx));
+        Ok(reconnect_response)
     }
 
     /// Send a signal to the server (e.g. publish, subscribe, etc.)
@@ -120,15 +160,14 @@ impl SignalClient {
         self.inner.send(signal).await
     }
 
-    /// Restart the connection to the server
-    /// This will automatically flush the queue
-    pub async fn restart(&self) -> SignalResult<proto::ReconnectResponse> {
-        self.inner.restart().await
-    }
-
     /// Close the connection to the server
     pub async fn close(&self) {
         self.inner.close().await;
+
+        if let Some((signal_task, close_tx)) = self.handle.lock().take() {
+            let _ = close_tx.send(());
+            let _ = signal_task.await;
+        }
     }
 
     /// Returns Initial JoinResponse
@@ -157,11 +196,15 @@ impl SignalInner {
         url: &str,
         token: &str,
         options: SignalOptions,
-    ) -> SignalResult<(Arc<Self>, proto::JoinResponse, SignalEvents)> {
+    ) -> SignalResult<(
+        Arc<Self>,
+        proto::JoinResponse,
+        mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+    )> {
         let lk_url = get_livekit_url(url, token, &options)?;
 
         // Try to connect to the SignalClient
-        let (stream, mut stream_events) = match SignalStream::connect(lk_url.clone()).await {
+        let (stream, mut events) = match SignalStream::connect(lk_url.clone()).await {
             Ok(stream) => stream,
             Err(err) => {
                 // Connection failed, try to retrieve more informations
@@ -170,14 +213,12 @@ impl SignalInner {
             }
         };
 
-        let join_response = get_join_response(&mut stream_events).await?;
-        let (emitter, events) = mpsc::unbounded_channel();
+        let join_response = get_join_response(&mut events).await?;
 
         // Successfully connected to the SignalClient
         let inner = Arc::new(SignalInner {
             stream: AsyncRwLock::new(Some(stream)),
             token: Mutex::new(token.to_owned()),
-            emitter: emitter.clone(),
             reconnecting: AtomicBool::new(false),
             queue: Default::default(),
             options,
@@ -185,7 +226,6 @@ impl SignalInner {
             join_response: join_response.clone(),
         });
 
-        tokio::spawn(signal_task(inner.clone(), emitter, stream_events));
         Ok((inner, join_response, events))
     }
 
@@ -218,38 +258,36 @@ impl SignalInner {
     }
 
     /// Restart is called when trying to resume the room (RtcSession resume)
-    pub async fn restart(self: &Arc<Self>) -> SignalResult<proto::ReconnectResponse> {
+    pub async fn restart(
+        self: &Arc<Self>,
+    ) -> SignalResult<(
+        proto::ReconnectResponse,
+        mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+    )> {
         self.close().await;
 
-        let reconnect_response = {
-            // Lock while we are reconnecting
-            let mut stream = self.stream.write().await;
+        // Lock while we are reconnecting
+        let mut stream = self.stream.write().await;
 
-            self.reconnecting.store(true, Ordering::Release);
-            scopeguard::defer!(self.reconnecting.store(false, Ordering::Release));
+        self.reconnecting.store(true, Ordering::Release);
+        scopeguard::defer!(self.reconnecting.store(false, Ordering::Release));
 
-            let sid = &self.join_response.participant.as_ref().unwrap().sid;
-            let token = self.token.lock().clone();
+        let sid = &self.join_response.participant.as_ref().unwrap().sid;
+        let token = self.token.lock().clone();
 
-            let mut lk_url = get_livekit_url(&self.url, &token, &self.options).unwrap();
-            lk_url
-                .query_pairs_mut()
-                .append_pair("reconnect", "1")
-                .append_pair("sid", sid);
+        let mut lk_url = get_livekit_url(&self.url, &token, &self.options).unwrap();
+        lk_url
+            .query_pairs_mut()
+            .append_pair("reconnect", "1")
+            .append_pair("sid", sid);
 
-            let (new_stream, mut signal_events) = SignalStream::connect(lk_url).await?;
-            let reconnect_response = get_reconnect_response(&mut signal_events).await?;
-            tokio::spawn(signal_task(
-                self.clone(),
-                self.emitter.clone(),
-                signal_events,
-            ));
+        let (new_stream, mut events) = SignalStream::connect(lk_url).await?;
+        let reconnect_response = get_reconnect_response(&mut events).await?;
+        *stream = Some(new_stream);
 
-            *stream = Some(new_stream);
-            reconnect_response
-        };
+        drop(stream);
         self.flush_queue().await;
-        Ok(reconnect_response)
+        Ok((reconnect_response, events))
     }
 
     /// Close the connection
@@ -304,6 +342,7 @@ async fn signal_task(
     inner: Arc<SignalInner>,
     emitter: SignalEmitter, // Public emitter
     mut internal_events: mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+    mut close_rx: oneshot::Receiver<()>,
 ) {
     let mut ping_interval = interval(Duration::from_secs(
         inner.join_response.ping_interval as u64,
@@ -316,23 +355,6 @@ async fn signal_task(
 
     loop {
         tokio::select! {
-            _ = ping_interval.tick() => {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as i64;
-
-                let ping = proto::signal_request::Message::PingReq(proto::Ping{
-                    timestamp: now,
-                    rtt,
-                });
-
-                inner.send(ping).await;
-            }
-            _ = &mut ping_timeout => {
-                let _ = emitter.send(SignalEvent::Close("ping timeout".into()));
-                break;
-            }
             signal = internal_events.recv() => {
                 if let Some(signal) = signal {
                     // Received a message from the server
@@ -342,6 +364,7 @@ async fn signal_task(
                             *inner.token.lock() = token.clone();
                         }
                         proto::signal_response::Message::PongResp(ref pong) => {
+                            // Reset the ping_timeout if we received a pong
                             let now = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap()
@@ -359,7 +382,30 @@ async fn signal_task(
                     break; // Stream closed
                 }
             }
+            _ = ping_interval.tick() => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64;
+
+                let ping = proto::signal_request::Message::PingReq(proto::Ping{
+                    timestamp: now,
+                    rtt,
+                });
+
+                inner.send(ping).await;
+            }
+            _ = &mut ping_timeout => {
+                let _ = emitter.send(SignalEvent::Close("ping timeout".into()));
+                break;
+            }
+            _ = &mut close_rx => {
+                let _ = emitter.send(SignalEvent::Close("client closed".into()));
+                break;
+            }
         }
+
+        inner.close().await; // Make sure to always close the ws connection when the loop is terminated
     }
 }
 
