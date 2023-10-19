@@ -164,7 +164,8 @@ impl SignalClient {
     pub async fn close(&self) {
         self.inner.close().await;
 
-        if let Some((signal_task, close_tx)) = self.handle.lock().take() {
+        let handle = self.handle.lock().take();
+        if let Some((signal_task, close_tx)) = handle {
             let _ = close_tx.send(());
             let _ = signal_task.await;
         }

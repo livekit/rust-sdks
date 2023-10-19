@@ -38,7 +38,7 @@ serde_json = { version = "1.0", optional = true }
 base64 = { version = "0.21", optional = true }
 
 # access_token & services
-jsonwebtoken = { version = "8", default-features = false, optional = true }
+jsonwebtoken = { version = "9", default-features = false, optional = true }
 
 # signal_client
 tokio-tungstenite = { version = "0.20", optional = true }
