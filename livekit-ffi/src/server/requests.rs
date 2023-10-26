@@ -777,9 +777,9 @@ pub fn handle_request(
         proto::ffi_request::Message::ToI420(to_i420) => unsafe {
             proto::ffi_response::Message::ToI420(on_to_i420(server, to_i420)?)
         },
-        proto::ffi_request::Message::ToArgb(to_argb) => {
+        proto::ffi_request::Message::ToArgb(to_argb) => unsafe {
             proto::ffi_response::Message::ToArgb(on_to_argb(server, to_argb)?)
-        }
+        },
         proto::ffi_request::Message::AllocAudioBuffer(alloc) => {
             proto::ffi_response::Message::AllocAudioBuffer(on_alloc_audio_buffer(server, alloc)?)
         }
