@@ -428,7 +428,6 @@ fn on_to_argb(
         }
     }
 
-    //uffer.to_argb(video_format.into(), argb, to_argb.dst_stride, w, h);
     Ok(proto::ToArgbResponse::default())
 }
 
