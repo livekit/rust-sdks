@@ -357,7 +357,9 @@ fn on_to_argb(
     server: &'static FfiServer,
     to_argb: proto::ToArgbRequest,
 ) -> FfiResult<proto::ToArgbResponse> {
-    let buffer = server.retrieve_handle::<BoxVideoFrameBuffer>(to_argb.buffer_handle)?;
+    let buffer = to_argb
+        .buffer
+        .ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
 
     let argb = unsafe {
         slice::from_raw_parts_mut(
@@ -368,9 +370,65 @@ fn on_to_argb(
 
     let w = to_argb.dst_width as i32;
     let h = to_argb.dst_height as i32 * (if to_argb.flip_y { -1 } else { 1 });
+    let stride = to_argb.dst_stride;
+    let rgba_format = to_argb.dst_format();
 
-    let video_format = to_argb.dst_format();
-    buffer.to_argb(video_format.into(), argb, to_argb.dst_stride, w, h);
+    match buffer.buffer_type() {
+        proto::VideoFrameBufferType::I420 => {
+            let Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) = buffer.buffer else {
+                return Err(FfiError::InvalidRequest(
+                    "invalid i420 buffer description".into(),
+                ))
+            };
+
+            let src_y = unsafe {
+                slice::from_raw_parts(
+                    yuv.data_y_ptr as *const u8,
+                    (yuv.stride_y * buffer.height) as usize,
+                )
+            };
+
+            let src_u = unsafe {
+                slice::from_raw_parts(
+                    yuv.data_u_ptr as *const u8,
+                    (yuv.stride_u * yuv.chroma_height) as usize,
+                )
+            };
+
+            let src_v = unsafe {
+                slice::from_raw_parts(
+                    yuv.data_v_ptr as *const u8,
+                    (yuv.stride_v * yuv.chroma_height) as usize,
+                )
+            };
+
+            match rgba_format {
+                proto::VideoFormatType::FormatArgb => {
+                    #[rustfmt::skip]
+                    yuv_helper::i420_to_argb(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                }
+                proto::VideoFormatType::FormatBgra => {
+                    #[rustfmt::skip]
+                    yuv_helper::i420_to_bgra(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                }
+                proto::VideoFormatType::FormatRgba => {
+                    #[rustfmt::skip]
+                    yuv_helper::i420_to_rgba(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                }
+                proto::VideoFormatType::FormatAbgr => {
+                    #[rustfmt::skip]
+                    yuv_helper::i420_to_abgr(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                }
+            }
+        }
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                "to_argb buffer type is not supported".into(),
+            ))
+        }
+    }
+
+    //uffer.to_argb(video_format.into(), argb, to_argb.dst_stride, w, h);
     Ok(proto::ToArgbResponse::default())
 }
 

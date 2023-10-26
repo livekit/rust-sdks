@@ -583,8 +583,8 @@ pub struct CaptureVideoFrameRequest {
     pub source_handle: u64,
     #[prost(message, optional, tag="2")]
     pub frame: ::core::option::Option<VideoFrameInfo>,
-    #[prost(uint64, tag="3")]
-    pub buffer_handle: u64,
+    #[prost(message, optional, tag="3")]
+    pub info: ::core::option::Option<VideoFrameBufferInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -607,9 +607,8 @@ pub mod to_i420_request {
     pub enum From {
         #[prost(message, tag="2")]
         Argb(super::ArgbBufferInfo),
-        /// Another yuv buffer
-        #[prost(uint64, tag="3")]
-        YuvHandle(u64),
+        #[prost(message, tag="3")]
+        Buffer(super::VideoFrameBufferInfo),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -623,8 +622,8 @@ pub struct ToI420Response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ToArgbRequest {
-    #[prost(uint64, tag="1")]
-    pub buffer_handle: u64,
+    #[prost(message, optional, tag="1")]
+    pub buffer: ::core::option::Option<VideoFrameBufferInfo>,
     #[prost(uint64, tag="2")]
     pub dst_ptr: u64,
     #[prost(enumeration="VideoFormatType", tag="3")]
