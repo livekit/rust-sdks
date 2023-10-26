@@ -583,8 +583,19 @@ pub struct CaptureVideoFrameRequest {
     pub source_handle: u64,
     #[prost(message, optional, tag="2")]
     pub frame: ::core::option::Option<VideoFrameInfo>,
-    #[prost(message, optional, tag="3")]
-    pub info: ::core::option::Option<VideoFrameBufferInfo>,
+    #[prost(oneof="capture_video_frame_request::From", tags="3, 4")]
+    pub from: ::core::option::Option<capture_video_frame_request::From>,
+}
+/// Nested message and enum types in `CaptureVideoFrameRequest`.
+pub mod capture_video_frame_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum From {
+        #[prost(message, tag="3")]
+        Info(super::VideoFrameBufferInfo),
+        #[prost(uint64, tag="4")]
+        Handle(u64),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -597,7 +608,7 @@ pub struct CaptureVideoFrameResponse {
 pub struct ToI420Request {
     #[prost(bool, tag="1")]
     pub flip_y: bool,
-    #[prost(oneof="to_i420_request::From", tags="2, 3")]
+    #[prost(oneof="to_i420_request::From", tags="2, 3, 4")]
     pub from: ::core::option::Option<to_i420_request::From>,
 }
 /// Nested message and enum types in `ToI420Request`.
@@ -609,6 +620,8 @@ pub mod to_i420_request {
         Argb(super::ArgbBufferInfo),
         #[prost(message, tag="3")]
         Buffer(super::VideoFrameBufferInfo),
+        #[prost(uint64, tag="4")]
+        Handle(u64),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

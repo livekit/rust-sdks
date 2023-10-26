@@ -335,9 +335,109 @@ fn on_to_i420(
         }
         // Convert an arbitrary yuv buffer to I420
         // Even if the buffer is already in I420, we're still copying it
-        proto::to_i420_request::From::YuvHandle(handle) => server
+        proto::to_i420_request::From::Handle(handle) => server
             .retrieve_handle::<BoxVideoFrameBuffer>(handle)?
             .to_i420(),
+        proto::to_i420_request::From::Buffer(info) => {
+            let mut i420 = I420Buffer::new(info.width, info.height);
+            let (sy, su, sv) = i420.strides();
+            let (dy, du, dv) = i420.data_mut();
+            let (w, h) = (info.width as i32, info.height as i32);
+
+            match info.buffer {
+                Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) => {
+                    #[rustfmt::skip]
+                    let y = unsafe {
+                        slice::from_raw_parts(yuv.data_y_ptr as *const u8, (yuv.stride_y * info.height) as usize)
+                    };
+
+                    #[rustfmt::skip]
+                    let u = unsafe {
+                        slice::from_raw_parts(yuv.data_u_ptr as *const u8, (yuv.stride_u * yuv.chroma_height) as usize)
+                    };
+
+                    #[rustfmt::skip]
+                    let v = unsafe {
+                        slice::from_raw_parts(yuv.data_v_ptr as *const u8, (yuv.stride_v * yuv.chroma_height) as usize)
+                    };
+
+                    match info.buffer_type() {
+                        proto::VideoFrameBufferType::I420 => {
+                            &dy[..sy as usize].copy_from_slice(y);
+                            &du[..su as usize].copy_from_slice(u);
+                            &dv[..sv as usize].copy_from_slice(v);
+                        }
+                        proto::VideoFrameBufferType::I420a => {
+                            #[rustfmt::skip]
+                            let a = unsafe {
+                                slice::from_raw_parts(yuv.data_a_ptr as *const u8, (yuv.stride_a * info.height) as usize)
+                            };
+
+                            &dy[..sy as usize].copy_from_slice(y);
+                            &du[..su as usize].copy_from_slice(u);
+                            &dv[..sv as usize].copy_from_slice(v);
+                        }
+                        proto::VideoFrameBufferType::I422 => {
+                            #[rustfmt::skip]
+                            yuv_helper::i422_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
+                        }
+                        proto::VideoFrameBufferType::I444 => {
+                            #[rustfmt::skip]
+                            yuv_helper::i444_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
+                        }
+                        proto::VideoFrameBufferType::I010 => {
+                            #[rustfmt::skip]
+                            let y = unsafe {
+                                slice::from_raw_parts(yuv.data_y_ptr as *const u16, (yuv.stride_y * info.height) as usize / std::mem::size_of::<u16>())
+                            };
+
+                            #[rustfmt::skip]
+                            let u = unsafe {
+                                slice::from_raw_parts(yuv.data_u_ptr as *const u16, (yuv.stride_u * yuv.chroma_height) as usize / std::mem::size_of::<u16>())
+                            };
+
+                            #[rustfmt::skip]
+                            let v = unsafe {
+                                slice::from_raw_parts(yuv.data_v_ptr as *const u16, (yuv.stride_v * yuv.chroma_height) as usize / std::mem::size_of::<u16>())
+                            };
+
+                            #[rustfmt::skip]
+                            yuv_helper::i010_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
+                        }
+                        _ => {
+                            return Err(FfiError::InvalidRequest("invalid yuv description".into()))
+                        }
+                    }
+                }
+                Some(proto::video_frame_buffer_info::Buffer::BiYuv(biyuv)) => {
+                    #[rustfmt::skip]
+                    let y = unsafe {
+                        slice::from_raw_parts(biyuv.data_y_ptr as *const u8, (biyuv.stride_y * info.height) as usize)
+                    };
+
+                    #[rustfmt::skip]
+                    let uv = unsafe {
+                        slice::from_raw_parts(biyuv.data_uv_ptr as *const u8, (biyuv.stride_uv * biyuv.chroma_height) as usize)
+                    };
+
+                    match info.buffer_type() {
+                        proto::VideoFrameBufferType::Nv12 => {
+                            #[rustfmt::skip]
+                            yuv_helper::nv12_to_i420(y, biyuv.stride_y, uv, biyuv.stride_uv, dy, sy, du, su, dv, sv, w, h);
+                        }
+                        _ => {
+                            return Err(FfiError::InvalidRequest(
+                                "invalid biyuv description".into(),
+                            ))
+                        }
+                    }
+                }
+                _ => {
+                    return Err(FfiError::InvalidRequest("conversion not supported".into()));
+                }
+            }
+            i420
+        }
     };
 
     let i420: BoxVideoFrameBuffer = Box::new(i420);
@@ -381,25 +481,20 @@ fn on_to_argb(
                 ))
             };
 
+            #[rustfmt::skip]
             let src_y = unsafe {
-                slice::from_raw_parts(
-                    yuv.data_y_ptr as *const u8,
-                    (yuv.stride_y * buffer.height) as usize,
-                )
+                slice::from_raw_parts(yuv.data_y_ptr as *const u8, (yuv.stride_y * buffer.height) as usize)
             };
 
+            #[rustfmt::skip]
             let src_u = unsafe {
-                slice::from_raw_parts(
-                    yuv.data_u_ptr as *const u8,
-                    (yuv.stride_u * yuv.chroma_height) as usize,
+                slice::from_raw_parts(yuv.data_u_ptr as *const u8, (yuv.stride_u * yuv.chroma_height) as usize,
                 )
             };
 
+            #[rustfmt::skip]
             let src_v = unsafe {
-                slice::from_raw_parts(
-                    yuv.data_v_ptr as *const u8,
-                    (yuv.stride_v * yuv.chroma_height) as usize,
-                )
+                slice::from_raw_parts(yuv.data_v_ptr as *const u8, (yuv.stride_v * yuv.chroma_height) as usize)
             };
 
             match rgba_format {

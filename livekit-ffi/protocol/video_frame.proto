@@ -49,7 +49,10 @@ message NewVideoSourceResponse { OwnedVideoSource source = 1; }
 message CaptureVideoFrameRequest {
   uint64 source_handle = 1;
   VideoFrameInfo frame = 2;
-  VideoFrameBufferInfo info = 3;
+  oneof from {
+    VideoFrameBufferInfo info = 3;
+    uint64 handle = 4;
+  }
 }
 message CaptureVideoFrameResponse {}
 
@@ -60,6 +63,7 @@ message ToI420Request {
   oneof from {
     ArgbBufferInfo argb = 2;
     VideoFrameBufferInfo buffer = 3;
+    uint64 handle = 4;
   }
 }
 message ToI420Response { 
