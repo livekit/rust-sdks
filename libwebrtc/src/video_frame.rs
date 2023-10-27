@@ -195,6 +195,10 @@ new_buffer_type!(I010Buffer, I010, as_i010);
 new_buffer_type!(NV12Buffer, NV12, as_nv12);
 
 impl I420Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> I420Buffer {
+        vf_imp::I420Buffer::new(width, height, stride_y, stride_u, stride_v)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -267,6 +271,10 @@ impl I420ABuffer {
 }
 
 impl I422Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> I422Buffer {
+        vf_imp::I422Buffer::new(width, height, stride_y, stride_u, stride_v)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -300,6 +308,10 @@ impl I422Buffer {
 }
 
 impl I444Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> I444Buffer {
+        vf_imp::I444Buffer::new(width, height, stride_y, stride_u, stride_v)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -333,6 +345,10 @@ impl I444Buffer {
 }
 
 impl I010Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> I010Buffer {
+        vf_imp::I010Buffer::new(width, height, stride_y, stride_u, stride_v)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -366,6 +382,10 @@ impl I010Buffer {
 }
 
 impl NV12Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_uv: u32) -> NV12Buffer {
+        vf_imp::NV12Buffer::new(width, height, stride_y, stride_uv)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -399,16 +419,6 @@ pub mod native {
     use std::fmt::Debug;
 
     new_buffer_type!(NativeBuffer, Native, as_native);
-
-    pub trait I420BufferExt {
-        fn new(width: u32, height: u32) -> Self;
-    }
-
-    impl I420BufferExt for I420Buffer {
-        fn new(width: u32, height: u32) -> I420Buffer {
-            vf_imp::I420Buffer::new(width, height)
-        }
-    }
 
     pub trait VideoFrameBufferExt: VideoFrameBuffer {
         fn to_i420(&self) -> I420Buffer;

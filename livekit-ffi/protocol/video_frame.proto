@@ -49,7 +49,10 @@ message NewVideoSourceResponse { OwnedVideoSource source = 1; }
 message CaptureVideoFrameRequest {
   uint64 source_handle = 1;
   VideoFrameInfo frame = 2;
-  uint64 buffer_handle = 3; 
+  oneof from {
+    VideoFrameBufferInfo info = 3;
+    uint64 handle = 4;
+  }
 }
 message CaptureVideoFrameResponse {}
 
@@ -59,7 +62,8 @@ message ToI420Request {
   bool flip_y = 1;
   oneof from {
     ArgbBufferInfo argb = 2;
-    uint64 yuv_handle = 3; // Another yuv buffer
+    VideoFrameBufferInfo buffer = 3;
+    uint64 handle = 4;
   }
 }
 message ToI420Response { 
@@ -69,7 +73,7 @@ message ToI420Response {
 // Convert a YUV frame to a RGBA frame
 // Only I420 is supported atm
 message ToArgbRequest {
-  uint64 buffer_handle = 1;
+  VideoFrameBufferInfo buffer = 1;
   uint64 dst_ptr = 2;
   VideoFormatType dst_format = 3;
   uint32 dst_stride = 4;

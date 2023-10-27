@@ -86,8 +86,45 @@ pub mod ffi {
         fn stride_a(self: &I420ABuffer) -> u32;
         fn data_a(self: &I420ABuffer) -> *const u8;
 
-        fn new_i420_buffer(width: i32, height: i32) -> UniquePtr<I420Buffer>;
         fn copy_i420_buffer(i420: &UniquePtr<I420Buffer>) -> UniquePtr<I420Buffer>;
+        fn new_i420_buffer(
+            width: i32,
+            height: i32,
+            stride_y: i32,
+            stride_u: i32,
+            stride_v: i32,
+        ) -> UniquePtr<I420Buffer>;
+
+        fn new_i422_buffer(
+            width: i32,
+            height: i32,
+            stride_y: i32,
+            stride_u: i32,
+            stride_v: i32,
+        ) -> UniquePtr<I422Buffer>;
+
+        fn new_i444_buffer(
+            width: i32,
+            height: i32,
+            stride_y: i32,
+            stride_u: i32,
+            stride_v: i32,
+        ) -> UniquePtr<I444Buffer>;
+
+        fn new_i010_buffer(
+            width: i32,
+            height: i32,
+            stride_y: i32,
+            stride_u: i32,
+            stride_v: i32,
+        ) -> UniquePtr<I010Buffer>;
+
+        fn new_nv12_buffer(
+            width: i32,
+            height: i32,
+            stride_y: i32,
+            stride_uv: i32,
+        ) -> UniquePtr<NV12Buffer>;
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;

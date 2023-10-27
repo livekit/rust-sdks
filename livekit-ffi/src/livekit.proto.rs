@@ -583,8 +583,19 @@ pub struct CaptureVideoFrameRequest {
     pub source_handle: u64,
     #[prost(message, optional, tag="2")]
     pub frame: ::core::option::Option<VideoFrameInfo>,
-    #[prost(uint64, tag="3")]
-    pub buffer_handle: u64,
+    #[prost(oneof="capture_video_frame_request::From", tags="3, 4")]
+    pub from: ::core::option::Option<capture_video_frame_request::From>,
+}
+/// Nested message and enum types in `CaptureVideoFrameRequest`.
+pub mod capture_video_frame_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum From {
+        #[prost(message, tag="3")]
+        Info(super::VideoFrameBufferInfo),
+        #[prost(uint64, tag="4")]
+        Handle(u64),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -597,7 +608,7 @@ pub struct CaptureVideoFrameResponse {
 pub struct ToI420Request {
     #[prost(bool, tag="1")]
     pub flip_y: bool,
-    #[prost(oneof="to_i420_request::From", tags="2, 3")]
+    #[prost(oneof="to_i420_request::From", tags="2, 3, 4")]
     pub from: ::core::option::Option<to_i420_request::From>,
 }
 /// Nested message and enum types in `ToI420Request`.
@@ -607,9 +618,10 @@ pub mod to_i420_request {
     pub enum From {
         #[prost(message, tag="2")]
         Argb(super::ArgbBufferInfo),
-        /// Another yuv buffer
-        #[prost(uint64, tag="3")]
-        YuvHandle(u64),
+        #[prost(message, tag="3")]
+        Buffer(super::VideoFrameBufferInfo),
+        #[prost(uint64, tag="4")]
+        Handle(u64),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -623,8 +635,8 @@ pub struct ToI420Response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ToArgbRequest {
-    #[prost(uint64, tag="1")]
-    pub buffer_handle: u64,
+    #[prost(message, optional, tag="1")]
+    pub buffer: ::core::option::Option<VideoFrameBufferInfo>,
     #[prost(uint64, tag="2")]
     pub dst_ptr: u64,
     #[prost(enumeration="VideoFormatType", tag="3")]
