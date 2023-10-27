@@ -21,7 +21,7 @@ use crate::proto;
 use livekit::prelude::*;
 use livekit::webrtc::native::{audio_resampler, yuv_helper};
 use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame::{native::I420BufferExt, BoxVideoFrameBuffer, I420Buffer};
+use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, I420Buffer};
 use parking_lot::Mutex;
 use std::slice;
 use std::sync::Arc;
@@ -238,7 +238,13 @@ fn on_alloc_video_buffer(
     alloc: proto::AllocVideoBufferRequest,
 ) -> FfiResult<proto::AllocVideoBufferResponse> {
     let buffer: BoxVideoFrameBuffer = match alloc.r#type() {
-        proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(alloc.width, alloc.height)),
+        proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(
+            alloc.width,
+            alloc.height,
+            alloc.width,
+            (alloc.width + 1) / 2,
+            (alloc.width + 1) / 2,
+        )),
         _ => {
             return Err(FfiError::InvalidRequest(
                 "frame type is not supported".into(),
@@ -282,7 +288,7 @@ fn on_new_video_source(
 
 /// Push a frame to a source, libwebrtc will then decide if the frame should be dropped or not
 /// The frame can also be adapted (resolution, cropped, ...)
-fn on_capture_video_frame(
+unsafe fn on_capture_video_frame(
     server: &'static FfiServer,
     push: proto::CaptureVideoFrameRequest,
 ) -> FfiResult<proto::CaptureVideoFrameResponse> {
@@ -310,7 +316,7 @@ unsafe fn on_to_i420(
             .retrieve_handle::<BoxVideoFrameBuffer>(handle)?
             .to_i420(),
         proto::to_i420_request::From::Argb(info) => {
-            let mut i420 = I420Buffer::new(info.width, info.height);
+            let mut i420 = I420Buffer::new(info.width, info.height, info.width, (info.width + 1) / 2, (info.width + 1) / 2);
             let (w, h) = (
                 info.width as i32,
                 info.height as i32 * if to_i420.flip_y { -1 } else { 1 },
@@ -337,12 +343,12 @@ unsafe fn on_to_i420(
             i420
         }
         proto::to_i420_request::From::Buffer(info) => {
-            let mut i420 = I420Buffer::new(info.width, info.height);
+            let mut i420 = I420Buffer::new(info.width, info.height, info.width, (info.width + 1) / 2, (info.width + 1) / 2);
             let (w, h) = (info.width as i32, info.height as i32);
             let (sy, su, sv) = i420.strides();
             let (dy, du, dv) = i420.data_mut();
 
-            match info.buffer {
+            match &info.buffer {
                 Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) => {
                      match info.buffer_type() {
                         proto::VideoFrameBufferType::I420 
@@ -358,9 +364,9 @@ unsafe fn on_to_i420(
 
                             match info.buffer_type() {
                                 proto::VideoFrameBufferType::I420 | proto::VideoFrameBufferType::I420a => {
-                                    &dy[..sy as usize].copy_from_slice(y);
-                                    &du[..su as usize].copy_from_slice(u);
-                                    &dv[..sv as usize].copy_from_slice(v);
+                                    dy[..sy as usize].copy_from_slice(y);
+                                    du[..su as usize].copy_from_slice(u);
+                                    dv[..sv as usize].copy_from_slice(v);
                                 },
                                 proto::VideoFrameBufferType::I422 => {
                                     yuv_helper::i422_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
@@ -414,11 +420,12 @@ unsafe fn on_to_i420(
 /// Convert a YUY buffer to argb
 /// # Safety: the caller must ensure that the buffer is valid
 unsafe fn on_to_argb(
-    server: &'static FfiServer,
+    _server: &'static FfiServer,
     to_argb: proto::ToArgbRequest,
 ) -> FfiResult<proto::ToArgbResponse> {
     let buffer = to_argb
         .buffer
+        .as_ref()
         .ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
 
     let argb = slice::from_raw_parts_mut(
@@ -433,7 +440,7 @@ unsafe fn on_to_argb(
 
     match buffer.buffer_type() {
         proto::VideoFrameBufferType::I420 => {
-            let Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) = buffer.buffer else {
+            let Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) = &buffer.buffer else {
                 return Err(FfiError::InvalidRequest(
                     "invalid i420 buffer description".into(),
                 ))
@@ -770,9 +777,9 @@ pub fn handle_request(
         proto::ffi_request::Message::NewVideoSource(new_source) => {
             proto::ffi_response::Message::NewVideoSource(on_new_video_source(server, new_source)?)
         }
-        proto::ffi_request::Message::CaptureVideoFrame(push) => {
+        proto::ffi_request::Message::CaptureVideoFrame(push) => unsafe {
             proto::ffi_response::Message::CaptureVideoFrame(on_capture_video_frame(server, push)?)
-        }
+        },
         proto::ffi_request::Message::ToI420(to_i420) => unsafe {
             proto::ffi_response::Message::ToI420(on_to_i420(server, to_i420)?)
         },
