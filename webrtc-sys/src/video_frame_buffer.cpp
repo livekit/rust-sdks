@@ -16,6 +16,8 @@
 
 #include "livekit/video_frame_buffer.h"
 
+#include "api/make_ref_counted.h"
+
 namespace livekit {
 
 VideoFrameBuffer::VideoFrameBuffer(
@@ -187,16 +189,6 @@ webrtc::BiplanarYuv8Buffer* BiplanarYuv8Buffer::buffer() const {
   return static_cast<webrtc::BiplanarYuv8Buffer*>(buffer_.get());
 }
 
-std::unique_ptr<I420Buffer> new_i420_buffer(int width, int height) {
-  return std::make_unique<I420Buffer>(
-      webrtc::I420Buffer::Create(width, height));
-}
-
-std::unique_ptr<I420Buffer> copy_i420_buffer(
-    const std::unique_ptr<I420Buffer>& i420) {
-  return std::make_unique<I420Buffer>(webrtc::I420Buffer::Copy(*i420->get()));
-}
-
 I420Buffer::I420Buffer(rtc::scoped_refptr<webrtc::I420BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}
 
@@ -227,5 +219,54 @@ I010Buffer::I010Buffer(rtc::scoped_refptr<webrtc::I010BufferInterface> buffer)
 
 NV12Buffer::NV12Buffer(rtc::scoped_refptr<webrtc::NV12BufferInterface> buffer)
     : BiplanarYuv8Buffer(buffer) {}
+
+std::unique_ptr<I420Buffer> copy_i420_buffer(
+    const std::unique_ptr<I420Buffer>& i420) {
+  return std::make_unique<I420Buffer>(webrtc::I420Buffer::Copy(*i420->get()));
+}
+
+std::unique_ptr<I420Buffer> new_i420_buffer(int width,
+                                            int height,
+                                            int stride_y,
+                                            int stride_u,
+                                            int stride_v) {
+  return std::make_unique<I420Buffer>(
+      webrtc::I420Buffer::Create(width, height, stride_y, stride_u, stride_v));
+}
+
+std::unique_ptr<I422Buffer> new_i422_buffer(int width,
+                                            int height,
+                                            int stride_y,
+                                            int stride_u,
+                                            int stride_v) {
+  return std::make_unique<I422Buffer>(
+      webrtc::I422Buffer::Create(width, height, stride_y, stride_u, stride_v));
+}
+
+std::unique_ptr<I444Buffer> new_i444_buffer(int width,
+                                            int height,
+                                            int stride_y,
+                                            int stride_u,
+                                            int stride_v) {
+  return std::make_unique<I444Buffer>(
+      webrtc::I444Buffer::Create(width, height, stride_y, stride_u, stride_v));
+}
+
+std::unique_ptr<I010Buffer> new_i010_buffer(int width,
+                                            int height,
+                                            int stride_y,
+                                            int stride_u,
+                                            int stride_v) {
+  return std::make_unique<I010Buffer>(rtc::make_ref_counted<webrtc::I010Buffer>(
+      width, height, stride_y, stride_u, stride_v));
+}
+
+std::unique_ptr<NV12Buffer> new_nv12_buffer(int width,
+                                            int height,
+                                            int stride_y,
+                                            int stride_uv) {
+  return std::make_unique<NV12Buffer>(
+      webrtc::NV12Buffer::Create(width, height, stride_y, stride_uv));
+}
 
 }  // namespace livekit

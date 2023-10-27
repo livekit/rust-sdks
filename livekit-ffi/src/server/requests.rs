@@ -318,8 +318,7 @@ unsafe fn on_to_i420(
             let (sy, su, sv) = i420.strides();
             let (dy, du, dv) = i420.data_mut();
 
-            let argb =
-                slice::from_raw_parts(info.ptr as *const u8, (info.stride * info.height) as usize);
+            let argb = slice::from_raw_parts(info.ptr as *const u8, (info.stride * info.height) as usize);
 
             match info.format() {
                 proto::VideoFormatType::FormatArgb => {

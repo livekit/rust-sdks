@@ -76,14 +76,26 @@ impl FfiVideoSource {
                     .frame
                     .ok_or(FfiError::InvalidRequest("frame is empty".into()))?;
 
-                let buffer = server
-                    .ffi_handles
-                    .get(&capture.buffer_handle)
-                    .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
+                let from = capture
+                    .from
+                    .ok_or(FfiError::InvalidRequest("capture from is empty".into()))?;
 
-                let buffer = buffer
-                    .downcast_ref::<BoxVideoFrameBuffer>()
-                    .ok_or(FfiError::InvalidRequest("handle is not video frame".into()))?;
+                // copy the provided buffer
+                let buffer: &BoxVideoFrameBuffer = match from {
+                    proto::capture_video_frame_request::From::Info(info) => {
+                        unreachable!()
+                    }
+                    proto::capture_video_frame_request::From::Handle(handle) => {
+                        let buffer = server
+                            .ffi_handles
+                            .get(&handle)
+                            .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
+
+                        buffer
+                            .downcast_ref::<BoxVideoFrameBuffer>()
+                            .ok_or(FfiError::InvalidRequest("handle is not video frame".into()))?
+                    }
+                };
 
                 let frame = VideoFrame {
                     rotation: frame_info.rotation().into(),
