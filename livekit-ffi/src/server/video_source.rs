@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::slice;
+
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use livekit::webrtc::prelude::*;
 use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, VideoFrame};
@@ -64,11 +66,12 @@ impl FfiVideoSource {
         })
     }
 
-    pub fn capture_frame(
+    pub unsafe fn capture_frame(
         &self,
         server: &'static server::FfiServer,
         capture: proto::CaptureVideoFrameRequest,
     ) -> FfiResult<()> {
+
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Native(ref source) => {
@@ -81,9 +84,91 @@ impl FfiVideoSource {
                     .ok_or(FfiError::InvalidRequest("capture from is empty".into()))?;
 
                 // copy the provided buffer
+                #[rustfmt::skip]
                 let buffer: &BoxVideoFrameBuffer = match from {
                     proto::capture_video_frame_request::From::Info(info) => {
-                        unreachable!()
+                        match info.buffer {
+                            Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) => {
+                                 match info.buffer_type() {
+                                    proto::VideoFrameBufferType::I420 
+                                        | proto::VideoFrameBufferType::I420a
+                                        | proto::VideoFrameBufferType::I422
+                                        | proto::VideoFrameBufferType::I444 => {
+
+                                        let (y, u, v) = (
+                                            slice::from_raw_parts(yuv.data_y_ptr as *const u8, (yuv.stride_y * info.height) as usize),
+                                            slice::from_raw_parts(yuv.data_u_ptr as *const u8, (yuv.stride_u * yuv.chroma_height) as usize),
+                                            slice::from_raw_parts(yuv.data_v_ptr as *const u8, (yuv.stride_v * yuv.chroma_height) as usize)
+                                        );
+
+                                        match info.buffer_type() {
+                                            proto::VideoFrameBufferType::I420 | proto::VideoFrameBufferType::I420a => {
+                                                let mut i420 = I420Buffer::new(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
+                                                let (dy, du, dv) = i420.data_mut();
+                                                
+                                                dy.copy_from_slice(y);
+                                                du.copy_from_slice(u);
+                                                dv.copy_from_slice(v);
+                                                &(Box::new(i420) as BoxVideoFrameBuffer)
+                                            },
+                                            proto::VideoFrameBufferType::I422 => {
+                                                let mut i422 = I422Buffer::new(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
+                                                let (dy, du, dv) = i422.data_mut();
+
+                                                dy.copy_from_slice(y);
+                                                du.copy_from_slice(u);
+                                                dv.copy_from_slice(v);
+                                                &(Box::new(i422) as BoxVideoFrameBuffer)
+                                            },
+                                            proto::VideoFrameBufferType::I444 => {
+                                                let mut i444 = I444Buffer::new(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
+                                                let (dy, du, dv) = i444.data_mut();
+
+                                                dy.copy_from_slice(y);
+                                                du.copy_from_slice(u);
+                                                dv.copy_from_slice(v);
+                                                &(Box::new(i444) as BoxVideoFrameBuffer)
+                                            }
+                                            _ => unreachable!()
+                                        }
+                                   }
+                                   proto::VideoFrameBufferType::I010 => {
+                                        let (y, u, v) = (
+                                            slice::from_raw_parts(yuv.data_y_ptr as *const u16, (yuv.stride_y * info.height) as usize / std::mem::size_of::<u16>()),
+                                            slice::from_raw_parts(yuv.data_u_ptr as *const u16, (yuv.stride_u * yuv.chroma_height) as usize / std::mem::size_of::<u16>()),
+                                            slice::from_raw_parts(yuv.data_v_ptr as *const u16, (yuv.stride_v * yuv.chroma_height) as usize / std::mem::size_of::<u16>())
+                                        );
+
+                                        let mut i010 = I010Buffer::new(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
+                                        let (dy, du, dv) = i010.data_mut();
+
+                                        dy.copy_from_slice(y);
+                                        du.copy_from_slice(u);
+                                        dv.copy_from_slice(v);
+                                        &(Box::new(i010) as BoxVideoFrameBuffer)
+                                    }
+                                    _ => return Err(FfiError::InvalidRequest("invalid yuv description".into()))
+                                }
+                            }
+                            Some(proto::video_frame_buffer_info::Buffer::BiYuv(biyuv)) => {
+                                let (y, uv) = (
+                                    slice::from_raw_parts(biyuv.data_y_ptr as *const u8, (biyuv.stride_y * info.height) as usize),
+                                    slice::from_raw_parts(biyuv.data_uv_ptr as *const u8, (biyuv.stride_uv * biyuv.chroma_height) as usize)
+                                );
+
+                                if info.buffer_type() == proto::VideoFrameBufferType::Nv12 {
+                                    let mut nv12 = NV12Buffer::new(info.width, info.height, biyuv.stride_y, biyuv.stride_uv);
+                                    let (dy, duv) = nv12.data_mut();
+
+                                    dy.copy_from_slice(y);
+                                    duv.copy_from_slice(uv);
+                                    &(Box::new(nv12) as BoxVideoFrameBuffer)
+                                } else {
+                                    return Err(FfiError::InvalidRequest("invalid biyuv description".into()))
+                                }
+                           }
+                            _ => return Err(FfiError::InvalidRequest("conversion not supported".into()))
+                        }
                     }
                     proto::capture_video_frame_request::From::Handle(handle) => {
                         let buffer = server
