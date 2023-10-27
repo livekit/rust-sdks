@@ -86,6 +86,7 @@ pub mod ffi {
         fn stride_a(self: &I420ABuffer) -> u32;
         fn data_a(self: &I420ABuffer) -> *const u8;
 
+        fn copy_i420_buffer(i420: &UniquePtr<I420Buffer>) -> UniquePtr<I420Buffer>;
         fn new_i420_buffer(
             width: i32,
             height: i32,

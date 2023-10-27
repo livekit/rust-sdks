@@ -191,12 +191,21 @@ impl NativeBuffer {
 }
 
 impl I420Buffer {
-    pub fn new(width: u32, height: u32) -> vf::I420Buffer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I420Buffer {
         vf::I420Buffer {
             handle: I420Buffer {
                 sys_handle: vfb_sys::ffi::new_i420_buffer(
                     width.try_into().unwrap(),
                     height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
                 ),
             },
         }
@@ -401,6 +410,26 @@ impl I420ABuffer {
 }
 
 impl I422Buffer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I422Buffer {
+        vf::I422Buffer {
+            handle: I422Buffer {
+                sys_handle: vfb_sys::ffi::new_i422_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
@@ -487,6 +516,26 @@ impl I422Buffer {
     }
 }
 impl I444Buffer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I444Buffer {
+        vf::I444Buffer {
+            handle: I444Buffer {
+                sys_handle: vfb_sys::ffi::new_i444_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
@@ -574,6 +623,26 @@ impl I444Buffer {
 }
 
 impl I010Buffer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I010Buffer {
+        vf::I010Buffer {
+            handle: I010Buffer {
+                sys_handle: vfb_sys::ffi::new_i010_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb) }
     }
@@ -672,6 +741,19 @@ impl I010Buffer {
 }
 
 impl NV12Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_uv: u32) -> vf::NV12Buffer {
+        vf::NV12Buffer {
+            handle: NV12Buffer {
+                sys_handle: vfb_sys::ffi::new_nv12_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_uv.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe {
             &*recursive_cast!(
