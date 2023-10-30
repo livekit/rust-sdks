@@ -56,7 +56,7 @@ impl FfiHandle for FfiDataBuffer {}
 
 // TODO(theomonnom) Wrap these types
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
-impl FfiHandle for AudioFrame {}
+impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoFrameBuffer {}
 
 pub struct FfiServer {

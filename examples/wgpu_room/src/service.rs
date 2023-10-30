@@ -1,5 +1,12 @@
-use crate::{logo_track::LogoTrack, sine_track::SineTrack};
-use livekit::{prelude::*, SimulateScenario};
+use crate::{
+    logo_track::LogoTrack,
+    sine_track::{SineParameters, SineTrack},
+};
+use livekit::{
+    e2ee::{key_provider::*, E2eeOptions, EncryptionType},
+    prelude::*,
+    SimulateScenario,
+};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -10,6 +17,8 @@ pub enum AsyncCmd {
         url: String,
         token: String,
         auto_subscribe: bool,
+        enable_e2ee: bool,
+        key: String,
     },
     RoomDisconnect,
     SimulateScenario {
@@ -23,6 +32,7 @@ pub enum AsyncCmd {
     UnsubscribeTrack {
         publication: RemoteTrackPublication,
     },
+    E2eeKeyRatchet,
 }
 
 #[derive(Debug)]
@@ -99,14 +109,24 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                 url,
                 token,
                 auto_subscribe,
+                enable_e2ee,
+                key,
             } => {
                 log::info!("connecting to room: {}", url);
+
+                let key_provider =
+                    KeyProvider::with_shared_key(KeyProviderOptions::default(), key.into_bytes());
+                let e2ee = enable_e2ee.then_some(E2eeOptions {
+                    encryption_type: EncryptionType::Gcm,
+                    key_provider,
+                });
 
                 let res = Room::connect(
                     &url,
                     &token,
                     RoomOptions {
                         auto_subscribe,
+                        e2ee,
                         ..Default::default()
                     },
                 )
@@ -120,7 +140,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     running_state = Some(RunningState {
                         room: new_room.clone(),
                         logo_track: LogoTrack::new(new_room.clone()),
-                        sine_track: SineTrack::new(new_room.clone()),
+                        sine_track: SineTrack::new(new_room.clone(), SineParameters::default()),
                     });
 
                     // Allow direct access to the room from the UI (Used for sync access)
@@ -170,6 +190,14 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
             }
             AsyncCmd::UnsubscribeTrack { publication } => {
                 publication.set_subscribed(false);
+            }
+            AsyncCmd::E2eeKeyRatchet => {
+                if let Some(state) = running_state.as_ref() {
+                    let e2ee_manager = state.room.e2ee_manager();
+                    if let Some(key_provider) = e2ee_manager.key_provider() {
+                        key_provider.ratchet_shared_key(0);
+                    }
+                }
             }
         }
     }

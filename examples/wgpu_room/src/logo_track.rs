@@ -28,7 +28,7 @@ struct FrameData {
     image: Arc<RgbaImage>,
     framebuffer: Arc<Mutex<Vec<u8>>>,
     video_frame: Arc<Mutex<VideoFrame<I420Buffer>>>,
-    pos: (u32, u32),
+    pos: (i32, i32),
     direction: (i32, i32),
 }
 
@@ -119,7 +119,7 @@ impl LogoTrack {
 
         let mut data = FrameData {
             image: Arc::new(image),
-            framebuffer: Arc::new(Mutex::new(vec![0u8; (FB_WIDTH * FB_HEIGHT * 4) as usize])),
+            framebuffer: Arc::new(Mutex::new(vec![0u8; FB_WIDTH * FB_HEIGHT * 4])),
             video_frame: Arc::new(Mutex::new(VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
                 buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
@@ -137,16 +137,16 @@ impl LogoTrack {
                 _ = interval.tick() => {}
             }
 
-            data.pos.0 = (data.pos.0 as i32 + data.direction.0 * MOVE_SPEED) as u32;
-            data.pos.1 = (data.pos.1 as i32 + data.direction.1 * MOVE_SPEED) as u32;
+            data.pos.0 += data.direction.0 * MOVE_SPEED;
+            data.pos.1 += data.direction.1 * MOVE_SPEED;
 
-            if data.pos.0 >= (FB_WIDTH - data.image.width() as usize) as u32 {
+            if data.pos.0 >= (FB_WIDTH - data.image.width() as usize) as i32 {
                 data.direction.0 = -1;
             } else if data.pos.0 <= 0 {
                 data.direction.0 = 1;
             }
 
-            if data.pos.1 >= (FB_HEIGHT - data.image.height() as usize) as u32 {
+            if data.pos.1 >= (FB_HEIGHT - data.image.height() as usize) as i32 {
                 data.direction.1 = -1;
             } else if data.pos.1 <= 0 {
                 data.direction.1 = 1;
@@ -189,8 +189,7 @@ impl LogoTrack {
                         stride_v,
                         FB_WIDTH as i32,
                         FB_HEIGHT as i32,
-                    )
-                    .unwrap();
+                    );
 
                     source.capture_frame(&*video_frame);
                 }

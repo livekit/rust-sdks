@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{borrow::Cow, slice};
+
 use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use livekit::webrtc::prelude::*;
@@ -28,15 +30,18 @@ impl FfiAudioSource {
     pub fn setup(
         server: &'static server::FfiServer,
         new_source: proto::NewAudioSourceRequest,
-    ) -> FfiResult<proto::AudioSourceInfo> {
+    ) -> FfiResult<proto::OwnedAudioSource> {
         let source_type = new_source.r#type();
         #[allow(unreachable_patterns)]
         let source_inner = match source_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioSourceType::AudioSourceNative => {
                 use livekit::webrtc::audio_source::native::NativeAudioSource;
-                let audio_source =
-                    NativeAudioSource::new(new_source.options.map(Into::into).unwrap_or_default());
+                let audio_source = NativeAudioSource::new(
+                    new_source.options.map(Into::into).unwrap_or_default(),
+                    new_source.sample_rate,
+                    new_source.num_channels,
+                );
                 RtcAudioSource::Native(audio_source)
             }
             _ => {
@@ -46,36 +51,65 @@ impl FfiAudioSource {
             }
         };
 
+        let handle_id = server.next_id();
         let source = Self {
-            handle_id: server.next_id(),
+            handle_id,
             source_type,
             source: source_inner,
         };
 
-        let info = proto::AudioSourceInfo::from(
-            proto::FfiOwnedHandle {
-                id: source.handle_id,
-            },
-            &source,
-        );
+        let info = proto::AudioSourceInfo::from(&source);
         server.store_handle(source.handle_id, source);
-        Ok(info)
+
+        Ok(proto::OwnedAudioSource {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(info),
+        })
     }
 
     pub fn capture_frame(
         &self,
         server: &'static server::FfiServer,
         capture: proto::CaptureAudioFrameRequest,
-    ) -> FfiResult<()> {
-        match self.source {
-            #[cfg(not(target_arch = "wasm32"))]
-            RtcAudioSource::Native(ref source) => {
-                let frame = server.retrieve_handle::<AudioFrame>(capture.buffer_handle)?;
-                source.capture_frame(frame.value());
-            }
-            _ => {}
-        }
+    ) -> FfiResult<proto::CaptureAudioFrameResponse> {
+        let Some(buffer) = capture.buffer else {
+            return Err(FfiError::InvalidRequest("buffer is None".into()));
+        };
 
-        Ok(())
+        let source = self.source.clone();
+        let async_id = server.next_id();
+
+        server.async_runtime.spawn(async move {
+            // The data must be available as long as the client receive the callback.
+            let data = unsafe {
+                let len = buffer.num_channels * buffer.samples_per_channel;
+                slice::from_raw_parts(buffer.data_ptr as *const i16, len as usize)
+            };
+
+            match source {
+                #[cfg(not(target_arch = "wasm32"))]
+                RtcAudioSource::Native(ref source) => {
+                    let audio_frame = AudioFrame {
+                        data: Cow::Borrowed(data),
+                        sample_rate: buffer.sample_rate,
+                        num_channels: buffer.num_channels,
+                        samples_per_channel: buffer.samples_per_channel,
+                    };
+
+                    let res = source.capture_frame(&audio_frame).await;
+                    let _ = server
+                        .send_event(proto::ffi_event::Message::CaptureAudioFrame(
+                            proto::CaptureAudioFrameCallback {
+                                async_id,
+                                error: res.err().map(|e| e.to_string()),
+                            },
+                        ))
+                        .await;
+                }
+                _ => {}
+            }
+        });
+
+        Ok(proto::CaptureAudioFrameResponse { async_id })
     }
 }

@@ -14,8 +14,8 @@
 
 use super::{remote_track, TrackInner};
 use crate::prelude::*;
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
-use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
 

@@ -13,8 +13,10 @@
 // limitations under the License.
 
 use super::TrackPublicationInner;
+use crate::e2ee::EncryptionType;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
+
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use std::fmt::Debug;
@@ -49,11 +51,11 @@ impl LocalTrackPublication {
         }
     }
 
-    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
@@ -128,10 +130,18 @@ impl LocalTrackPublication {
     }
 
     pub fn is_muted(&self) -> bool {
+        if let Some(track) = self.track() {
+            return track.is_muted();
+        }
+
         self.inner.info.read().muted
     }
 
     pub fn is_remote(&self) -> bool {
         false
+    }
+
+    pub fn encryption_type(&self) -> EncryptionType {
+        self.inner.info.read().encryption_type
     }
 }

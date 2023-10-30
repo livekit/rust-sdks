@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[derive(Debug, Clone)]
-pub struct AudioFrame {
-    pub data: Vec<i16>,
-    pub sample_rate: u32,
-    pub num_channels: u32,
-    pub samples_per_channel: u32,
+use self::key_provider::KeyProvider;
+
+pub mod key_provider;
+pub mod manager;
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionType {
+    #[default]
+    None,
+    Gcm,
+    Custom,
 }
 
-impl AudioFrame {
-    pub fn new(sample_rate: u32, num_channels: u32, samples_per_channel: u32) -> Self {
-        Self {
-            data: vec![0; (num_channels * samples_per_channel) as usize],
-            sample_rate,
-            num_channels,
-            samples_per_channel,
-        }
-    }
+#[derive(Clone)]
+pub struct E2eeOptions {
+    pub encryption_type: EncryptionType,
+    pub key_provider: KeyProvider,
 }

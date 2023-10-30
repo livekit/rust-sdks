@@ -19,6 +19,10 @@
 #include <memory>
 
 #include "api/video/i420_buffer.h"
+#include "api/video/i422_buffer.h"
+#include "api/video/i444_buffer.h"
+#include "api/video/i010_buffer.h"
+#include "api/video/nv12_buffer.h"
 #include "api/video/video_frame_buffer.h"
 
 namespace livekit {
@@ -132,10 +136,6 @@ class BiplanarYuv8Buffer : public BiplanarYuvBuffer {
   webrtc::BiplanarYuv8Buffer* buffer() const;
 };
 
-std::unique_ptr<I420Buffer> new_i420_buffer(int width, int height);
-std::unique_ptr<I420Buffer> copy_i420_buffer(
-    const std::unique_ptr<I420Buffer>& i420);
-
 class I420Buffer : public PlanarYuv8Buffer {
  public:
   explicit I420Buffer(rtc::scoped_refptr<webrtc::I420BufferInterface> buffer);
@@ -171,6 +171,14 @@ class NV12Buffer : public BiplanarYuv8Buffer {
  public:
   explicit NV12Buffer(rtc::scoped_refptr<webrtc::NV12BufferInterface> buffer);
 };
+
+std::unique_ptr<I420Buffer> copy_i420_buffer(
+    const std::unique_ptr<I420Buffer>& i420);
+std::unique_ptr<I420Buffer> new_i420_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
+std::unique_ptr<I422Buffer> new_i422_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
+std::unique_ptr<I444Buffer> new_i444_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
+std::unique_ptr<I010Buffer> new_i010_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
+std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y, int stride_uv);
 
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;

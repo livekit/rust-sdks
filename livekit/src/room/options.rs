@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::prelude::*;
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
-use livekit_webrtc::prelude::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum VideoCodec {

@@ -21,7 +21,7 @@ use crate::proto;
 use livekit::prelude::*;
 use livekit::webrtc::native::{audio_resampler, yuv_helper};
 use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame::{native::I420BufferExt, BoxVideoFrameBuffer, I420Buffer};
+use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, I420Buffer};
 use parking_lot::Mutex;
 use std::slice;
 use std::sync::Arc;
@@ -110,6 +110,7 @@ fn on_publish_track(
     Ok(ffi_participant.room.publish_track(server, publish))
 }
 
+// Unpublish a local track
 fn on_unpublish_track(
     server: &'static FfiServer,
     unpublish: proto::UnpublishTrackRequest,
@@ -150,6 +151,32 @@ fn on_set_subscribed(
     Ok(proto::SetSubscribedResponse {})
 }
 
+fn on_update_local_metadata(
+    server: &'static FfiServer,
+    update_local_metadata: proto::UpdateLocalMetadataRequest,
+) -> FfiResult<proto::UpdateLocalMetadataResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant
+        .room
+        .update_local_metadata(server, update_local_metadata))
+}
+
+fn on_update_local_name(
+    server: &'static FfiServer,
+    update_local_name: proto::UpdateLocalNameRequest,
+) -> FfiResult<proto::UpdateLocalNameResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(update_local_name.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant
+        .room
+        .update_local_name(server, update_local_name))
+}
+
 /// Create a new video track from a source
 fn on_create_video_track(
     server: &'static FfiServer,
@@ -167,12 +194,14 @@ fn on_create_video_track(
         track: Track::LocalVideo(video_track),
     };
 
-    let track_info = proto::TrackInfo::from(proto::FfiOwnedHandle { id: handle_id }, &ffi_track);
-
+    let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
 
     Ok(proto::CreateVideoTrackResponse {
-        track: Some(track_info),
+        track: Some(proto::OwnedTrack {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(track_info),
+        }),
     })
 }
 
@@ -192,12 +221,14 @@ fn on_create_audio_track(
         handle: handle_id,
         track: Track::LocalAudio(audio_track),
     };
-    let track_info = proto::TrackInfo::from(proto::FfiOwnedHandle { id: handle_id }, &ffi_track);
-
+    let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
 
     Ok(proto::CreateAudioTrackResponse {
-        track: Some(track_info),
+        track: Some(proto::OwnedTrack {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(track_info),
+        }),
     })
 }
 
@@ -207,7 +238,13 @@ fn on_alloc_video_buffer(
     alloc: proto::AllocVideoBufferRequest,
 ) -> FfiResult<proto::AllocVideoBufferResponse> {
     let buffer: BoxVideoFrameBuffer = match alloc.r#type() {
-        proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(alloc.width, alloc.height)),
+        proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(
+            alloc.width,
+            alloc.height,
+            alloc.width,
+            (alloc.width + 1) / 2,
+            (alloc.width + 1) / 2,
+        )),
         _ => {
             return Err(FfiError::InvalidRequest(
                 "frame type is not supported".into(),
@@ -216,12 +253,14 @@ fn on_alloc_video_buffer(
     };
 
     let handle_id = server.next_id();
-    let buffer_info =
-        proto::VideoFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &buffer);
-
+    let buffer_info = proto::VideoFrameBufferInfo::from(&buffer);
     server.store_handle(handle_id, buffer);
+
     Ok(proto::AllocVideoBufferResponse {
-        buffer: Some(buffer_info),
+        buffer: Some(proto::OwnedVideoFrameBuffer {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(buffer_info),
+        }),
     })
 }
 
@@ -249,7 +288,7 @@ fn on_new_video_source(
 
 /// Push a frame to a source, libwebrtc will then decide if the frame should be dropped or not
 /// The frame can also be adapted (resolution, cropped, ...)
-fn on_capture_video_frame(
+unsafe fn on_capture_video_frame(
     server: &'static FfiServer,
     push: proto::CaptureVideoFrameRequest,
 ) -> FfiResult<proto::CaptureVideoFrameResponse> {
@@ -259,7 +298,11 @@ fn on_capture_video_frame(
 }
 
 /// Convert a frame to I420
-fn on_to_i420(
+/// The destination can now be a new buffer or an existing buffer
+///
+/// # Safety: The user must ensure that the pointers/len provided are valid
+/// There is no way for us to verify the inputs
+unsafe fn on_to_i420(
     server: &'static FfiServer,
     to_i420: proto::ToI420Request,
 ) -> FfiResult<proto::ToI420Response> {
@@ -267,30 +310,28 @@ fn on_to_i420(
         .from
         .ok_or(FfiError::InvalidRequest("from is empty".into()))?;
 
+    #[rustfmt::skip]
     let i420 = match from {
-        // Create a new I420 buffer from a raw argb buffer
+        proto::to_i420_request::From::Handle(handle) => server
+            .retrieve_handle::<BoxVideoFrameBuffer>(handle)?
+            .to_i420(),
         proto::to_i420_request::From::Argb(info) => {
-            let argb = unsafe {
-                let len = (info.stride * info.height) as usize;
-                slice::from_raw_parts(info.ptr as *const u8, len)
-            };
-
-            let w = info.width as i32;
-            let h = info.height as i32 * (if to_i420.flip_y { -1 } else { 1 });
-
-            // Create a new I420 buffer
-            let mut i420 = I420Buffer::new(info.width, info.height);
+            let mut i420 = I420Buffer::new(info.width, info.height, info.width, (info.width + 1) / 2, (info.width + 1) / 2);
+            let (w, h) = (
+                info.width as i32,
+                info.height as i32 * if to_i420.flip_y { -1 } else { 1 },
+            );
             let (sy, su, sv) = i420.strides();
             let (dy, du, dv) = i420.data_mut();
 
+            let argb = slice::from_raw_parts(info.ptr as *const u8, (info.stride * info.height) as usize);
+
             match info.format() {
                 proto::VideoFormatType::FormatArgb => {
-                    yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
-                        .unwrap();
+                    yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h);
                 }
                 proto::VideoFormatType::FormatAbgr => {
-                    yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h)
-                        .unwrap();
+                    yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h);
                 }
                 _ => {
                     return Err(FfiError::InvalidRequest(
@@ -301,44 +342,142 @@ fn on_to_i420(
 
             i420
         }
-        // Convert an arbitrary yuv buffer to I420
-        // Even if the buffer is already in I420, we're still copying it
-        proto::to_i420_request::From::BufferHandle(handle) => server
-            .retrieve_handle::<BoxVideoFrameBuffer>(handle)?
-            .to_i420(),
+        proto::to_i420_request::From::Buffer(info) => {
+            let mut i420 = I420Buffer::new(info.width, info.height, info.width, (info.width + 1) / 2, (info.width + 1) / 2);
+            let (w, h) = (info.width as i32, info.height as i32);
+            let (sy, su, sv) = i420.strides();
+            let (dy, du, dv) = i420.data_mut();
+
+            match &info.buffer {
+                Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) => {
+                     match info.buffer_type() {
+                        proto::VideoFrameBufferType::I420 
+                            | proto::VideoFrameBufferType::I420a
+                            | proto::VideoFrameBufferType::I422
+                            | proto::VideoFrameBufferType::I444 => {
+
+                            let (y, u, v) = (
+                                slice::from_raw_parts(yuv.data_y_ptr as *const u8, (yuv.stride_y * info.height) as usize),
+                                slice::from_raw_parts(yuv.data_u_ptr as *const u8, (yuv.stride_u * yuv.chroma_height) as usize),
+                                slice::from_raw_parts(yuv.data_v_ptr as *const u8, (yuv.stride_v * yuv.chroma_height) as usize)
+                            );
+
+                            match info.buffer_type() {
+                                proto::VideoFrameBufferType::I420 | proto::VideoFrameBufferType::I420a => {
+                                    dy[..sy as usize].copy_from_slice(y);
+                                    du[..su as usize].copy_from_slice(u);
+                                    dv[..sv as usize].copy_from_slice(v);
+                                },
+                                proto::VideoFrameBufferType::I422 => {
+                                    yuv_helper::i422_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
+                                },
+                                proto::VideoFrameBufferType::I444 => {
+                                    yuv_helper::i444_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
+                                }
+                                _ => unreachable!()
+                            }
+                       }
+                       proto::VideoFrameBufferType::I010 => {
+                            let (y, u, v) = (
+                                slice::from_raw_parts(yuv.data_y_ptr as *const u16, (yuv.stride_y * info.height) as usize / std::mem::size_of::<u16>()),
+                                slice::from_raw_parts(yuv.data_u_ptr as *const u16, (yuv.stride_u * yuv.chroma_height) as usize / std::mem::size_of::<u16>()),
+                                slice::from_raw_parts(yuv.data_v_ptr as *const u16, (yuv.stride_v * yuv.chroma_height) as usize / std::mem::size_of::<u16>())
+                            );
+
+                            yuv_helper::i010_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
+                        }
+                        _ => return Err(FfiError::InvalidRequest("invalid yuv description".into()))
+                    };
+                }
+                Some(proto::video_frame_buffer_info::Buffer::BiYuv(biyuv)) => {
+                    let (y, uv) = (
+                        slice::from_raw_parts(biyuv.data_y_ptr as *const u8, (biyuv.stride_y * info.height) as usize),
+                        slice::from_raw_parts(biyuv.data_uv_ptr as *const u8, (biyuv.stride_uv * biyuv.chroma_height) as usize)
+                    );
+
+                    if info.buffer_type() == proto::VideoFrameBufferType::Nv12 {
+                        yuv_helper::nv12_to_i420(y, biyuv.stride_y, uv, biyuv.stride_uv, dy, sy, du, su, dv, sv, w, h);
+                    }
+               }
+                _ => return Err(FfiError::InvalidRequest("conversion not supported".into()))
+            }
+            i420
+        }
     };
 
     let i420: BoxVideoFrameBuffer = Box::new(i420);
     let handle_id = server.next_id();
-    let buffer_info =
-        proto::VideoFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &i420);
+    let buffer_info = proto::VideoFrameBufferInfo::from(&i420);
     server.store_handle(handle_id, i420);
     Ok(proto::ToI420Response {
-        buffer: Some(buffer_info),
+        buffer: Some(proto::OwnedVideoFrameBuffer {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(buffer_info),
+        }),
     })
 }
 
 /// Convert a YUY buffer to argb
-fn on_to_argb(
-    server: &'static FfiServer,
+/// # Safety: the caller must ensure that the buffer is valid
+unsafe fn on_to_argb(
+    _server: &'static FfiServer,
     to_argb: proto::ToArgbRequest,
 ) -> FfiResult<proto::ToArgbResponse> {
-    let buffer = server.retrieve_handle::<BoxVideoFrameBuffer>(to_argb.buffer_handle)?;
+    let buffer = to_argb
+        .buffer
+        .as_ref()
+        .ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
 
-    let argb = unsafe {
-        slice::from_raw_parts_mut(
-            to_argb.dst_ptr as *mut u8,
-            (to_argb.dst_stride * to_argb.dst_height) as usize,
-        )
-    };
+    let argb = slice::from_raw_parts_mut(
+        to_argb.dst_ptr as *mut u8,
+        (to_argb.dst_stride * to_argb.dst_height) as usize,
+    );
 
     let w = to_argb.dst_width as i32;
     let h = to_argb.dst_height as i32 * (if to_argb.flip_y { -1 } else { 1 });
+    let stride = to_argb.dst_stride;
+    let rgba_format = to_argb.dst_format();
 
-    let video_format = to_argb.dst_format();
-    buffer
-        .to_argb(video_format.into(), argb, to_argb.dst_stride, w, h)
-        .unwrap();
+    match buffer.buffer_type() {
+        proto::VideoFrameBufferType::I420 => {
+            let Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) = &buffer.buffer else {
+                return Err(FfiError::InvalidRequest(
+                    "invalid i420 buffer description".into(),
+                ))
+            };
+
+            #[rustfmt::skip]
+            let (src_y, src_u, src_v) = (
+                slice::from_raw_parts(yuv.data_y_ptr as *const u8, (yuv.stride_y * buffer.height) as usize),
+                slice::from_raw_parts(yuv.data_u_ptr as *const u8, (yuv.stride_u * yuv.chroma_height) as usize),
+                slice::from_raw_parts(yuv.data_v_ptr as *const u8, (yuv.stride_v * yuv.chroma_height) as usize)
+            );
+
+            match rgba_format {
+                proto::VideoFormatType::FormatArgb => {
+                    #[rustfmt::skip]
+                    yuv_helper::i420_to_argb(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                }
+                proto::VideoFormatType::FormatBgra => {
+                    #[rustfmt::skip]
+                    yuv_helper::i420_to_bgra(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                }
+                proto::VideoFormatType::FormatRgba => {
+                    #[rustfmt::skip]
+                    yuv_helper::i420_to_rgba(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                }
+                proto::VideoFormatType::FormatAbgr => {
+                    #[rustfmt::skip]
+                    yuv_helper::i420_to_abgr(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                }
+            }
+        }
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                "to_argb buffer type is not supported".into(),
+            ))
+        }
+    }
 
     Ok(proto::ToArgbResponse::default())
 }
@@ -355,12 +494,14 @@ fn on_alloc_audio_buffer(
     );
 
     let handle_id = server.next_id();
-    let frame_info =
-        proto::AudioFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &frame);
+    let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
     server.store_handle(handle_id, frame);
 
     Ok(proto::AllocAudioBufferResponse {
-        buffer: Some(frame_info),
+        buffer: Some(proto::OwnedAudioFrameBuffer {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(buffer_info),
+        }),
     })
 }
 
@@ -392,8 +533,7 @@ fn on_capture_audio_frame(
     push: proto::CaptureAudioFrameRequest,
 ) -> FfiResult<proto::CaptureAudioFrameResponse> {
     let source = server.retrieve_handle::<audio_source::FfiAudioSource>(push.source_handle)?;
-    source.capture_frame(server, push)?;
-    Ok(proto::CaptureAudioFrameResponse::default())
+    source.capture_frame(server, push)
 }
 
 /// Create a new audio resampler
@@ -408,8 +548,9 @@ fn new_audio_resampler(
     server.store_handle(handle_id, resampler);
 
     Ok(proto::NewAudioResamplerResponse {
-        resampler: Some(proto::AudioResamplerInfo {
+        resampler: Some(proto::OwnedAudioResampler {
             handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(proto::AudioResamplerInfo {}),
         }),
     })
 }
@@ -423,11 +564,19 @@ fn remix_and_resample(
         .retrieve_handle::<Arc<Mutex<audio_resampler::AudioResampler>>>(remix.resampler_handle)?
         .clone();
 
-    let buffer = server.retrieve_handle::<AudioFrame>(remix.buffer_handle)?;
+    let buffer = remix
+        .buffer
+        .ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
+
+    let data = unsafe {
+        let len = (buffer.num_channels * buffer.samples_per_channel) as usize;
+        slice::from_raw_parts_mut(buffer.data_ptr as *mut i16, len)
+    };
+
     let data = resampler
         .lock()
         .remix_and_resample(
-            &buffer.data,
+            data,
             buffer.samples_per_channel,
             buffer.num_channels,
             buffer.sample_rate,
@@ -436,24 +585,139 @@ fn remix_and_resample(
         )
         .to_owned();
 
-    drop(buffer);
-
     let data_len = (data.len() / remix.num_channels as usize) as u32;
     let audio_frame = AudioFrame {
-        data,
+        data: data.into(),
         num_channels: remix.num_channels,
         samples_per_channel: data_len,
         sample_rate: remix.sample_rate,
     };
 
     let handle_id = server.next_id();
-    let buffer_info =
-        proto::AudioFrameBufferInfo::from(proto::FfiOwnedHandle { id: handle_id }, &audio_frame);
+    let buffer_info = proto::AudioFrameBufferInfo::from(&audio_frame);
     server.store_handle(handle_id, audio_frame);
 
     Ok(proto::RemixAndResampleResponse {
-        buffer: Some(buffer_info),
+        buffer: Some(proto::OwnedAudioFrameBuffer {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(buffer_info),
+        }),
     })
+}
+
+// Manage e2ee
+fn on_e2ee_request(
+    server: &'static FfiServer,
+    request: proto::E2eeRequest,
+) -> FfiResult<proto::E2eeResponse> {
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?;
+    let e2ee_manager = ffi_room.inner.room.e2ee_manager();
+
+    let request = request
+        .message
+        .ok_or(FfiError::InvalidRequest("message is empty".into()))?;
+
+    let msg = match request {
+        proto::e2ee_request::Message::ManagerSetEnabled(request) => {
+            e2ee_manager.set_enabled(request.enabled);
+            proto::e2ee_response::Message::ManagerSetEnabled(
+                proto::E2eeManagerSetEnabledResponse {},
+            )
+        }
+        proto::e2ee_request::Message::ManagerGetFrameCryptors(_) => {
+            // TODO(theomonnom): Mb we should create OwnedFrameCryptor?
+            let proto_frame_cryptors: Vec<proto::FrameCryptor> = e2ee_manager
+                .frame_cryptors()
+                .into_iter()
+                .map(|((identity, track_sid), fc)| proto::FrameCryptor {
+                    participant_identity: identity.to_string(),
+                    track_sid: track_sid.to_string(),
+                    enabled: fc.enabled(),
+                    key_index: fc.key_index(),
+                })
+                .collect();
+
+            proto::e2ee_response::Message::ManagerGetFrameCryptors(
+                proto::E2eeManagerGetFrameCryptorsResponse {
+                    frame_cryptors: proto_frame_cryptors,
+                },
+            )
+        }
+        proto::e2ee_request::Message::CryptorSetEnabled(request) => {
+            let identity = request.participant_identity.into();
+            let track_sid = request.track_sid.try_into().unwrap();
+
+            if let Some(frame_cryptor) = e2ee_manager.frame_cryptors().get(&(identity, track_sid)) {
+                frame_cryptor.set_enabled(request.enabled);
+            }
+
+            proto::e2ee_response::Message::CryptorSetEnabled(
+                proto::FrameCryptorSetEnabledResponse {},
+            )
+        }
+        proto::e2ee_request::Message::CryptorSetKeyIndex(request) => {
+            let identity = request.participant_identity.into();
+            let track_sid = request.track_sid.try_into().unwrap();
+
+            if let Some(frame_cryptor) = e2ee_manager.frame_cryptors().get(&(identity, track_sid)) {
+                frame_cryptor.set_key_index(request.key_index);
+            };
+
+            proto::e2ee_response::Message::CryptorSetKeyIndex(
+                proto::FrameCryptorSetKeyIndexResponse {},
+            )
+        }
+        proto::e2ee_request::Message::SetSharedKey(request) => {
+            let shared_key = request.shared_key;
+            let key_index = request.key_index;
+
+            if let Some(key_provider) = e2ee_manager.key_provider() {
+                key_provider.set_shared_key(shared_key, key_index);
+            }
+
+            proto::e2ee_response::Message::SetSharedKey(proto::SetSharedKeyResponse {})
+        }
+        proto::e2ee_request::Message::RatchetSharedKey(request) => {
+            let new_key = e2ee_manager
+                .key_provider()
+                .and_then(|key_provider| key_provider.ratchet_shared_key(request.key_index));
+
+            proto::e2ee_response::Message::RatchetSharedKey(proto::RatchetSharedKeyResponse {
+                new_key,
+            })
+        }
+        proto::e2ee_request::Message::GetSharedKey(request) => {
+            let key = e2ee_manager
+                .key_provider()
+                .and_then(|key_provider| key_provider.get_shared_key(request.key_index));
+            proto::e2ee_response::Message::GetSharedKey(proto::GetSharedKeyResponse { key })
+        }
+        proto::e2ee_request::Message::SetKey(request) => {
+            let identity = request.participant_identity.into();
+            if let Some(key_provider) = e2ee_manager.key_provider() {
+                key_provider.set_key(&identity, request.key_index, request.key);
+            }
+            proto::e2ee_response::Message::SetKey(proto::SetKeyResponse {})
+        }
+        proto::e2ee_request::Message::RatchetKey(request) => {
+            let identity = request.participant_identity.into();
+            let new_key = e2ee_manager
+                .key_provider()
+                .and_then(|key_provider| key_provider.ratchet_key(&identity, request.key_index));
+
+            proto::e2ee_response::Message::RatchetKey(proto::RatchetKeyResponse { new_key })
+        }
+        proto::e2ee_request::Message::GetKey(request) => {
+            let identity = request.participant_identity.into();
+            let key = e2ee_manager
+                .key_provider()
+                .and_then(|key_provider| key_provider.get_key(&identity, request.key_index));
+
+            proto::e2ee_response::Message::GetKey(proto::GetKeyResponse { key })
+        }
+    };
+
+    Ok(proto::E2eeResponse { message: Some(msg) })
 }
 
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
@@ -492,6 +756,12 @@ pub fn handle_request(
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
         }
+        proto::ffi_request::Message::UpdateLocalMetadata(u) => {
+            proto::ffi_response::Message::UpdateLocalMetadata(on_update_local_metadata(server, u)?)
+        }
+        proto::ffi_request::Message::UpdateLocalName(update) => {
+            proto::ffi_response::Message::UpdateLocalName(on_update_local_name(server, update)?)
+        }
         proto::ffi_request::Message::CreateVideoTrack(create) => {
             proto::ffi_response::Message::CreateVideoTrack(on_create_video_track(server, create)?)
         }
@@ -507,15 +777,15 @@ pub fn handle_request(
         proto::ffi_request::Message::NewVideoSource(new_source) => {
             proto::ffi_response::Message::NewVideoSource(on_new_video_source(server, new_source)?)
         }
-        proto::ffi_request::Message::CaptureVideoFrame(push) => {
+        proto::ffi_request::Message::CaptureVideoFrame(push) => unsafe {
             proto::ffi_response::Message::CaptureVideoFrame(on_capture_video_frame(server, push)?)
-        }
-        proto::ffi_request::Message::ToI420(to_i420) => {
+        },
+        proto::ffi_request::Message::ToI420(to_i420) => unsafe {
             proto::ffi_response::Message::ToI420(on_to_i420(server, to_i420)?)
-        }
-        proto::ffi_request::Message::ToArgb(to_argb) => {
+        },
+        proto::ffi_request::Message::ToArgb(to_argb) => unsafe {
             proto::ffi_response::Message::ToArgb(on_to_argb(server, to_argb)?)
-        }
+        },
         proto::ffi_request::Message::AllocAudioBuffer(alloc) => {
             proto::ffi_response::Message::AllocAudioBuffer(on_alloc_audio_buffer(server, alloc)?)
         }
@@ -533,6 +803,9 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::RemixAndResample(remix) => {
             proto::ffi_response::Message::RemixAndResample(remix_and_resample(server, remix)?)
+        }
+        proto::ffi_request::Message::E2ee(e2ee) => {
+            proto::ffi_response::Message::E2ee(on_e2ee_request(server, e2ee)?)
         }
     });
 

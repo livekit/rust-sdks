@@ -18,7 +18,6 @@ use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::prelude::*;
-use log::warn;
 use tokio::sync::oneshot;
 
 pub struct FfiAudioStream {
@@ -43,7 +42,7 @@ impl FfiAudioStream {
     pub fn setup(
         server: &'static server::FfiServer,
         new_stream: proto::NewAudioStreamRequest,
-    ) -> FfiResult<proto::AudioStreamInfo> {
+    ) -> FfiResult<proto::OwnedAudioStream> {
         let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?;
         let rtc_track = ffi_track.track.rtc_track();
 
@@ -53,11 +52,12 @@ impl FfiAudioStream {
 
         let (close_tx, close_rx) = oneshot::channel();
         let stream_type = new_stream.r#type();
+        let handle_id = server.next_id();
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
                 let audio_stream = Self {
-                    handle_id: server.next_id(),
+                    handle_id,
                     stream_type,
                     close_tx,
                 };
@@ -65,7 +65,7 @@ impl FfiAudioStream {
                 let native_stream = NativeAudioStream::new(rtc_track);
                 server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
-                    audio_stream.handle_id,
+                    handle_id,
                     native_stream,
                     close_rx,
                 ));
@@ -78,15 +78,14 @@ impl FfiAudioStream {
             }
         }?;
 
-        // Store the new audio stream and return the info
-        let info = proto::AudioStreamInfo::from(
-            proto::FfiOwnedHandle {
-                id: audio_stream.handle_id,
-            },
-            &audio_stream,
-        );
-        server.store_handle(audio_stream.handle_id, audio_stream);
-        Ok(info)
+        // Store AudioStreamInfothe new audio stream and return the info
+        let info = proto::AudioStreamInfo::from(&audio_stream);
+        server.store_handle(handle_id, audio_stream);
+
+        Ok(proto::OwnedAudioStream {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(info),
+        })
     }
 
     async fn native_audio_stream_task(
@@ -106,23 +105,40 @@ impl FfiAudioStream {
                     };
 
                     let handle_id = server.next_id();
-                    let buffer_info = proto::AudioFrameBufferInfo::from(proto::FfiOwnedHandle{ id: handle_id }, &frame);
+                    let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
                     server.store_handle(handle_id, frame);
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
                         proto::AudioStreamEvent {
-                            source_handle: stream_handle_id,
+                            stream_handle: stream_handle_id,
                             message: Some(proto::audio_stream_event::Message::FrameReceived(
                                 proto::AudioFrameReceived {
-                                    frame: Some(buffer_info),
+                                    frame: Some(proto::OwnedAudioFrameBuffer {
+                                        handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                                        info: Some(buffer_info),
+                                    }),
                                 },
                             )),
                         },
                     )).await {
-                        warn!("failed to send audio frame: {}", err);
+                        log::warn!("failed to send audio frame: {}", err);
                     }
                 }
             }
+        }
+
+        if let Err(err) = server
+            .send_event(proto::ffi_event::Message::AudioStreamEvent(
+                proto::AudioStreamEvent {
+                    stream_handle: stream_handle_id,
+                    message: Some(proto::audio_stream_event::Message::Eos(
+                        proto::AudioStreamEos {},
+                    )),
+                },
+            ))
+            .await
+        {
+            log::warn!("failed to send audio EOS: {}", err);
         }
     }
 }

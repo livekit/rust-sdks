@@ -16,8 +16,8 @@ use super::TrackInner;
 use crate::prelude::*;
 use crate::rtc_engine::lk_runtime::LkRuntime;
 use core::panic;
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
-use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -65,11 +65,10 @@ impl LocalAudioTrack {
         let rtc_track = match source.clone() {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Native(native_source) => {
-                use livekit_webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
-                LkRuntime::instance().pc_factory().create_audio_track(
-                    &livekit_webrtc::native::create_random_uuid(),
-                    native_source,
-                )
+                use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+                LkRuntime::instance()
+                    .pc_factory()
+                    .create_audio_track(&libwebrtc::native::create_random_uuid(), native_source)
             }
             _ => panic!("unsupported audio source"),
         };

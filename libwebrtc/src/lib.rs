@@ -12,9 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(target_os = "android")]
-pub mod android;
-pub mod audio_resampler;
+use thiserror::Error;
+
+#[cfg_attr(target_arch = "wasm32", path = "web/mod.rs")]
+#[cfg_attr(not(target_arch = "wasm32"), path = "native/mod.rs")]
+mod imp;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum MediaType {
+    Audio,
+    Video,
+    Data,
+    Unsupported,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RtcErrorType {
+    Internal,
+    InvalidSdp,
+    InvalidState,
+}
+
+#[derive(Error, Debug)]
+#[error("an RtcError occured: {error_type:?} - {message}")]
+pub struct RtcError {
+    pub error_type: RtcErrorType,
+    pub message: String,
+}
+
+pub mod audio_frame;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
@@ -24,6 +50,7 @@ pub mod media_stream;
 pub mod media_stream_track;
 pub mod peer_connection;
 pub mod peer_connection_factory;
+pub mod prelude;
 pub mod rtp_parameters;
 pub mod rtp_receiver;
 pub mod rtp_sender;
@@ -32,42 +59,23 @@ pub mod session_description;
 pub mod video_frame;
 pub mod video_source;
 pub mod video_stream;
-pub mod video_track;
-pub mod yuv_helper;
 pub mod encoded_video_frame_stream;
+pub mod encoded_video_frame;
 pub mod encoded_audio_frame_stream;
+pub mod encoded_audio_frame;
+pub mod video_track;
 pub mod sender_report_stream;
+pub mod sender_report;
 
-use crate::MediaType;
-use crate::{RtcError, RtcErrorType};
-use webrtc_sys::rtc_error as sys_err;
-use webrtc_sys::webrtc as sys_rtc;
-
-impl From<sys_err::ffi::RtcErrorType> for RtcErrorType {
-    fn from(value: sys_err::ffi::RtcErrorType) -> Self {
-        match value {
-            sys_err::ffi::RtcErrorType::InvalidState => Self::InvalidState,
-            _ => Self::Internal,
-        }
-    }
+#[cfg(not(target_arch = "wasm32"))]
+pub mod native {
+    pub use crate::imp::audio_resampler;
+    pub use crate::imp::frame_cryptor;
+    pub use crate::imp::yuv_helper;
+    pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 }
 
-impl From<sys_err::ffi::RtcError> for RtcError {
-    fn from(value: sys_err::ffi::RtcError) -> Self {
-        Self {
-            error_type: value.error_type.into(),
-            message: value.message,
-        }
-    }
-}
-
-impl From<MediaType> for sys_rtc::ffi::MediaType {
-    fn from(value: MediaType) -> Self {
-        match value {
-            MediaType::Audio => Self::Audio,
-            MediaType::Video => Self::Video,
-            MediaType::Data => Self::Data,
-            MediaType::Unsupported => Self::Unsupported,
-        }
-    }
+#[cfg(target_os = "android")]
+pub mod android {
+    pub use crate::imp::android::*;
 }

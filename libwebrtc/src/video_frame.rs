@@ -48,7 +48,6 @@ pub enum VideoFrameBufferType {
     I444,
     I010,
     NV12,
-    WebGl,
 }
 
 #[derive(Debug)]
@@ -82,7 +81,7 @@ pub(crate) mod internal {
             dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
-        ) -> Result<(), super::native::ConvertError>;
+        );
     }
 }
 
@@ -148,7 +147,7 @@ macro_rules! new_buffer_type {
                 stride: u32,
                 width: i32,
                 height: i32,
-            ) -> Result<(), $crate::video_frame::native::ConvertError> {
+            ) {
                 self.handle.to_argb(format, dst, stride, width, height)
             }
         }
@@ -196,6 +195,10 @@ new_buffer_type!(I010Buffer, I010, as_i010);
 new_buffer_type!(NV12Buffer, NV12, as_nv12);
 
 impl I420Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> I420Buffer {
+        vf_imp::I420Buffer::new(width, height, stride_y, stride_u, stride_v)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -246,10 +249,12 @@ impl I420ABuffer {
         )
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn data(&self) -> (&[u8], &[u8], &[u8], Option<&[u8]>) {
         self.handle.data()
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn data_mut(&self) -> (&mut [u8], &mut [u8], &mut [u8], Option<&mut [u8]>) {
         let (data_y, data_u, data_v, data_a) = self.handle.data();
         unsafe {
@@ -266,6 +271,10 @@ impl I420ABuffer {
 }
 
 impl I422Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> I422Buffer {
+        vf_imp::I422Buffer::new(width, height, stride_y, stride_u, stride_v)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -299,6 +308,10 @@ impl I422Buffer {
 }
 
 impl I444Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> I444Buffer {
+        vf_imp::I444Buffer::new(width, height, stride_y, stride_u, stride_v)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -332,6 +345,10 @@ impl I444Buffer {
 }
 
 impl I010Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> I010Buffer {
+        vf_imp::I010Buffer::new(width, height, stride_y, stride_u, stride_v)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -365,6 +382,10 @@ impl I010Buffer {
 }
 
 impl NV12Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_uv: u32) -> NV12Buffer {
+        vf_imp::NV12Buffer::new(width, height, stride_y, stride_uv)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -397,19 +418,7 @@ pub mod native {
     use super::{vf_imp, I420Buffer, VideoFormatType, VideoFrameBuffer, VideoFrameBufferType};
     use std::fmt::Debug;
 
-    pub use crate::imp::yuv_helper::ConvertError;
-
     new_buffer_type!(NativeBuffer, Native, as_native);
-
-    pub trait I420BufferExt {
-        fn new(width: u32, height: u32) -> I420Buffer;
-    }
-
-    impl I420BufferExt for I420Buffer {
-        fn new(width: u32, height: u32) -> I420Buffer {
-            vf_imp::I420Buffer::new(width, height)
-        }
-    }
 
     pub trait VideoFrameBufferExt: VideoFrameBuffer {
         fn to_i420(&self) -> I420Buffer;
@@ -420,7 +429,7 @@ pub mod native {
             dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
-        ) -> Result<(), ConvertError>;
+        );
     }
 
     impl<T: VideoFrameBuffer> VideoFrameBufferExt for T {
@@ -435,7 +444,7 @@ pub mod native {
             dst_stride: u32,
             dst_width: i32,
             dst_height: i32,
-        ) -> Result<(), ConvertError> {
+        ) {
             self.to_argb(format, dst, dst_stride, dst_width, dst_height)
         }
     }

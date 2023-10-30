@@ -28,15 +28,20 @@ impl Default for AudioResampler {
 }
 
 impl AudioResampler {
-    pub fn remix_and_resample(
-        &mut self,
+    pub fn remix_and_resample<'a>(
+        &'a mut self,
         src: &[i16],
         samples_per_channel: u32,
         num_channels: u32,
         sample_rate: u32,
         dst_num_channels: u32,
         dst_sample_rate: u32,
-    ) -> &[i16] {
+    ) -> &'a [i16] {
+        assert!(
+            src.len() >= (samples_per_channel * num_channels) as usize,
+            "src buffer too small"
+        );
+
         unsafe {
             let len = self.sys_handle.pin_mut().remix_and_resample(
                 src.as_ptr(),

@@ -22,10 +22,10 @@ pub mod native {
     use super::stream_imp;
     use crate::video_frame::BoxVideoFrame;
     use crate::video_track::RtcVideoTrack;
-    use futures::stream::Stream;
     use std::fmt::Debug;
     use std::pin::Pin;
     use std::task::{Context, Poll};
+    use tokio_stream::Stream;
 
     pub struct NativeVideoStream {
         pub(crate) handle: stream_imp::NativeVideoStream,

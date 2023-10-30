@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{rtc_events, EngineError, EngineResult, SimulateScenario};
+use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::id::ParticipantSid;
 use crate::options::TrackPublishOptions;
 use crate::prelude::TrackKind;
@@ -22,17 +22,19 @@ use crate::rtc_engine::peer_transport::PeerTransport;
 use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
 use crate::track::LocalTrack;
 use crate::DataPacketKind;
-use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents, SignalOptions};
+use libwebrtc::prelude::*;
+use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_protocol as proto;
-use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
 use proto::debouncer::{self, Debouncer};
+use proto::SignalTarget;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::ops::Not;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -54,14 +56,15 @@ pub enum SessionEvent {
         updates: Vec<proto::ParticipantInfo>,
     },
     Data {
-        participant_sid: ParticipantSid,
+        // None when the data comes from the ServerSDK (So no real participant)
+        participant_sid: Option<ParticipantSid>,
         payload: Vec<u8>,
         kind: DataPacketKind,
     },
     MediaTrack {
         track: MediaStreamTrack,
         stream: MediaStream,
-        receiver: RtpReceiver,
+        transceiver: RtpTransceiver,
     },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
@@ -69,7 +72,9 @@ pub enum SessionEvent {
     ConnectionQuality {
         updates: Vec<proto::ConnectionQualityInfo>,
     },
-    // TODO(theomonnom): Move entirely the reconnection logic on mod.rs
+    RoomUpdate {
+        room: proto::Room,
+    },
     Close {
         source: String,
         reason: DisconnectReason,
@@ -77,31 +82,6 @@ pub enum SessionEvent {
         full_reconnect: bool,
         retry_now: bool,
     },
-    Connected,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PeerState {
-    New,
-    Connected,
-    Disconnected,
-    Reconnecting,
-    Closed,
-}
-
-impl TryFrom<u8> for PeerState {
-    type Error = &'static str;
-
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            0 => Ok(Self::New),
-            1 => Ok(Self::Connected),
-            2 => Ok(Self::Disconnected),
-            3 => Ok(Self::Reconnecting),
-            4 => Ok(Self::Closed),
-            _ => Err("invalid PeerState"),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -115,7 +95,6 @@ struct IceCandidateJson {
 /// Fields shared with rtc_task and signal_task
 struct SessionInner {
     signal_client: Arc<SignalClient>,
-    pc_state: AtomicU8, // PcState
     has_published: AtomicBool,
 
     publisher_pc: PeerTransport,
@@ -130,31 +109,32 @@ struct SessionInner {
 
     // Keep a strong reference to the subscriber datachannels,
     // so we can receive data from other participants
-    subscriber_dc: Mutex<Vec<DataChannel>>,
+    sub_lossy_dc: Mutex<Option<DataChannel>>,
+    sub_reliable_dc: Mutex<Option<DataChannel>>,
 
     closed: AtomicBool,
     emitter: SessionEmitter,
 
+    options: EngineOptions,
     negotiation_debouncer: Mutex<Option<Debouncer>>,
-}
-
-impl Debug for SessionInner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SessionInner")
-            .field("pc_state", &self.pc_state)
-            .field("has_published", &self.has_published)
-            .field("closed", &self.closed)
-            .finish()
-    }
 }
 
 /// This struct holds a WebRTC session
 /// The session changes at every reconnection
 ///
 /// RTCSession is also responsable for the signaling and the negotation
-#[derive(Debug)]
 pub struct RtcSession {
     inner: Arc<SessionInner>,
+    handle: Mutex<Option<SessionHandle>>,
+}
+
+impl Debug for RtcSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RtcSession").finish()
+    }
+}
+
+struct SessionHandle {
     close_tx: watch::Sender<bool>, // false = is_running
     signal_task: JoinHandle<()>,
     rtc_task: JoinHandle<()>,
@@ -164,17 +144,17 @@ impl RtcSession {
     pub async fn connect(
         url: &str,
         token: &str,
-        options: SignalOptions,
-    ) -> EngineResult<(Self, SessionEvents)> {
-        let (session_emitter, session_events) = mpsc::unbounded_channel();
+        options: EngineOptions,
+    ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        let (emitter, session_events) = mpsc::unbounded_channel();
 
         let (signal_client, join_response, signal_events) =
-            SignalClient::connect(url, token, options).await?;
+            SignalClient::connect(url, token, options.signal_options.clone()).await?;
         let signal_client = Arc::new(signal_client);
-        log::debug!("received JoinResponse: {:?}", join_response);
+        log::info!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = make_rtc_config_join(join_response);
+        let rtc_config = make_rtc_config_join(join_response.clone(), options.rtc_config.clone());
 
         let lk_runtime = LkRuntime::instance();
         let mut publisher_pc = PeerTransport::new(
@@ -214,7 +194,6 @@ impl RtcSession {
 
         let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
-            pc_state: AtomicU8::new(PeerState::New as u8),
             has_published: Default::default(),
             signal_client,
             publisher_pc,
@@ -222,9 +201,11 @@ impl RtcSession {
             pending_tracks: Default::default(),
             lossy_dc,
             reliable_dc,
-            subscriber_dc: Default::default(),
+            sub_lossy_dc: Mutex::new(None),
+            sub_reliable_dc: Mutex::new(None),
             closed: Default::default(),
-            emitter: session_emitter,
+            emitter,
+            options,
             negotiation_debouncer: Default::default(),
         });
 
@@ -232,14 +213,17 @@ impl RtcSession {
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx));
 
-        let session = Self {
-            inner,
+        let handle = Mutex::new(Some(SessionHandle {
             close_tx,
             signal_task,
             rtc_task,
-        };
+        }));
 
-        Ok((session, session_events))
+        Ok((Self { inner, handle }, join_response, session_events))
+    }
+
+    pub fn has_published(&self) -> bool {
+        self.inner.has_published.load(Ordering::Acquire)
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -264,12 +248,18 @@ impl RtcSession {
     }
 
     /// Close the PeerConnections and the SignalClient
-    pub async fn close(self) {
+    pub async fn close(&self) {
         // Close the tasks
+        let handle = self.handle.lock().take();
+        if let Some(handle) = handle {
+            let _ = handle.close_tx.send(true);
+            let _ = handle.rtc_task.await;
+            let _ = handle.signal_task.await;
+        }
+
+        // Close the PeerConnections after the task
+        // So if a sensitive operation is running, we can wait for it
         self.inner.close().await;
-        let _ = self.close_tx.send(true);
-        let _ = self.rtc_task.await;
-        let _ = self.signal_task.await;
     }
 
     pub async fn publish_data(
@@ -280,28 +270,22 @@ impl RtcSession {
         self.inner.publish_data(data, kind).await
     }
 
-    pub async fn restart(&self) -> EngineResult<()> {
-        self.inner.restart_session().await
+    pub async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
+        self.inner.restart().await
+    }
+
+    pub async fn restart_publisher(&self) -> EngineResult<()> {
+        self.inner.restart_publisher().await
     }
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
     }
 
-    pub async fn simulate_scenario(&self, scenario: SimulateScenario) {
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.simulate_scenario(scenario).await
     }
 
-    #[allow(dead_code)]
-    pub fn state(&self) -> PeerState {
-        self.inner
-            .pc_state
-            .load(Ordering::SeqCst)
-            .try_into()
-            .unwrap()
-    }
-
-    #[allow(dead_code)]
     pub fn publisher(&self) -> &PeerTransport {
         &self.inner.publisher_pc
     }
@@ -314,13 +298,8 @@ impl RtcSession {
         &self.inner.signal_client
     }
 
-    #[allow(dead_code)]
-    pub fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
-        self.inner.data_channel(kind)
-    }
-
-    pub fn data_channels_info(&self) -> Vec<proto::DataChannelInfo> {
-        self.inner.data_channels_info()
+    pub fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
+        self.inner.data_channel(target, kind)
     }
 }
 
@@ -332,18 +311,34 @@ impl SessionInner {
     ) {
         loop {
             tokio::select! {
-                res = rtc_events.recv() => {
-                    if let Some(event) = res {
-                        if let Err(err) = self.on_rtc_event(event).await {
+                Some(event) = rtc_events.recv() => {
+                    let debug = format!("{:?}", event);
+                    let inner = self.clone();
+                    let (tx, rx) = oneshot::channel();
+                    let task = tokio::spawn(async move {
+                        if let Err(err) = inner.on_rtc_event(event).await {
                             log::error!("failed to handle rtc event: {:?}", err);
                         }
-                    }                },
-                 _ = close_rx.changed() => {
-                    log::trace!("closing rtc_session_task");
+                        let _ = tx.send(());
+                    });
+
+                    // Monitor sync/async blockings
+                    tokio::select! {
+                        _ = rx => {},
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                            log::error!("rtc_event is taking too much time: {}", debug);
+                        }
+                    }
+
+                    task.await.unwrap();
+                },
+                _ = close_rx.changed() => {
                     break;
                 }
             }
         }
+
+        log::debug!("rtc_session_task closed");
     }
 
     async fn signal_task(
@@ -353,34 +348,48 @@ impl SessionInner {
     ) {
         loop {
             tokio::select! {
-                res = signal_events.recv() => {
-                    if let Some(signal) = res {
-                        match signal {
-                            SignalEvent::Message(signal) => {
-                                // Received a signal
-                                if let Err(err) = self.on_signal_event(*signal).await {
+                Some(signal) = signal_events.recv() => {
+                    match signal {
+                        SignalEvent::Message(signal) => {
+                            let debug = format!("{:?}", signal);
+                            let inner = self.clone();
+                            let (tx, rx) = oneshot::channel();
+                            let task = tokio::spawn(async move {
+                                if let Err(err) = inner.on_signal_event(*signal).await {
                                     log::error!("failed to handle signal: {:?}", err);
                                 }
+                                let _ = tx.send(());
+                            });
+
+                            // Monitor sync/async blockings
+                            tokio::select! {
+                                _ = rx => {},
+                                _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                                    log::error!("signal_event taking too much time: {}", debug);
+                                }
                             }
-                            SignalEvent::Close => {
-                                // SignalClient has been closed
-                                self.on_session_disconnected(
-                                    "SignalClient closed",
-                                    DisconnectReason::UnknownReason,
-                                    true,
-                                    false,
-                                    false
-                                );
-                            }
+
+                            task.await.unwrap();
+                        }
+                        SignalEvent::Close(reason) => {
+                            // SignalClient has been closed
+                            self.on_session_disconnected(
+                                format!("signal client closed: {:?}", reason).as_str(),
+                                DisconnectReason::UnknownReason,
+                                true,
+                                false,
+                                false
+                            );
                         }
                     }
                 },
                 _ = close_rx.changed() => {
-                    log::trace!("closing signal_task");
                     break;
                 }
             }
         }
+
+        log::debug!("closing signal_task");
     }
 
     async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
@@ -388,12 +397,13 @@ impl SessionInner {
             proto::signal_response::Message::Answer(answer) => {
                 log::debug!("received publisher answer: {:?}", answer);
                 let answer =
-                    SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap())?;
+                    SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
                 self.publisher_pc.set_remote_description(answer).await?;
             }
             proto::signal_response::Message::Offer(offer) => {
                 log::debug!("received subscriber offer: {:?}", offer);
-                let offer = SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap())?;
+                let offer =
+                    SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap()).unwrap();
                 let answer = self
                     .subscriber_pc
                     .create_anwser(offer, AnswerOptions::default())
@@ -411,11 +421,13 @@ impl SessionInner {
             proto::signal_response::Message::Trickle(trickle) => {
                 let target = trickle.target();
                 let ice_candidate = {
-                    let json = serde_json::from_str::<IceCandidateJson>(&trickle.candidate_init)?;
-                    IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)?
+                    let json =
+                        serde_json::from_str::<IceCandidateJson>(&trickle.candidate_init).unwrap();
+                    IceCandidate::parse(&json.sdp_mid, json.sdp_m_line_index, &json.candidate)
+                        .unwrap()
                 };
 
-                log::debug!("received ice_candidate {:?} {:?}", target, ice_candidate);
+                log::debug!("remote ice_candidate {:?} {:?}", ice_candidate, target);
 
                 if target == proto::SignalTarget::Publisher {
                     self.publisher_pc.add_ice_candidate(ice_candidate).await?;
@@ -454,6 +466,11 @@ impl SessionInner {
                     let _ = tx.send(publish_res.track.unwrap());
                 }
             }
+            proto::signal_response::Message::RoomUpdate(room_update) => {
+                let _ = self.emitter.send(SessionEvent::RoomUpdate {
+                    room: room_update.room.unwrap(),
+                });
+            }
             _ => {}
         }
 
@@ -466,6 +483,7 @@ impl SessionInner {
                 ice_candidate,
                 target,
             } => {
+                log::debug!("local ice_candidate {:?} {:?}", ice_candidate, target);
                 self.signal_client
                     .send(proto::signal_request::Message::Trickle(
                         proto::TrickleRequest {
@@ -473,7 +491,8 @@ impl SessionInner {
                                 sdp_mid: ice_candidate.sdp_mid(),
                                 sdp_m_line_index: ice_candidate.sdp_mline_index(),
                                 candidate: ice_candidate.candidate(),
-                            })?,
+                            })
+                            .unwrap(),
                             target: target as i32,
                         },
                     ))
@@ -482,21 +501,8 @@ impl SessionInner {
             RtcEvent::ConnectionChange { state, target } => {
                 log::debug!("connection change, {:?} {:?}", state, target);
 
-                // The subscriber is always the primary peer connection
-                if target == proto::SignalTarget::Subscriber
-                    && state == PeerConnectionState::Connected
-                {
-                    let old_state = self
-                        .pc_state
-                        .swap(PeerState::Connected as u8, Ordering::SeqCst);
-                    if old_state == PeerState::New as u8 {
-                        let _ = self.emitter.send(SessionEvent::Connected);
-                    }
-                } else if state == PeerConnectionState::Failed {
+                if state == PeerConnectionState::Failed {
                     log::error!("{:?} pc state failed", target);
-                    self.pc_state
-                        .store(PeerState::Disconnected as u8, Ordering::SeqCst);
-
                     self.on_session_disconnected(
                         "pc_state failed",
                         DisconnectReason::UnknownReason,
@@ -508,9 +514,16 @@ impl SessionInner {
             }
             RtcEvent::DataChannel {
                 data_channel,
-                target: _,
+                target,
             } => {
-                self.subscriber_dc.lock().push(data_channel);
+                log::debug!("received data channel: {:?} {:?}", data_channel, target);
+                if target == SignalTarget::Subscriber {
+                    if data_channel.label() == LOSSY_DC_LABEL {
+                        self.sub_lossy_dc.lock().replace(data_channel);
+                    } else if data_channel.label() == RELIABLE_DC_LABEL {
+                        self.sub_reliable_dc.lock().replace(data_channel);
+                    }
+                }
             }
             RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
@@ -525,17 +538,16 @@ impl SessionInner {
                     .await;
             }
             RtcEvent::Track {
-                receiver,
                 mut streams,
                 track,
-                transceiver: _,
+                transceiver,
                 target: _,
             } => {
                 if !streams.is_empty() {
                     let _ = self.emitter.send(SessionEvent::MediaTrack {
                         stream: streams.remove(0),
                         track,
-                        receiver,
+                        transceiver,
                     });
                 } else {
                     log::warn!("Track event with no streams");
@@ -544,16 +556,22 @@ impl SessionInner {
             RtcEvent::Data { data, binary } => {
                 if !binary {
                     Err(EngineError::Internal(
-                        "text messages aren't supported".to_string(),
+                        "text messages aren't supported".into(),
                     ))?;
                 }
 
-                let data = proto::DataPacket::decode(&*data)?;
+                let data = proto::DataPacket::decode(&*data).unwrap();
                 match data.value.as_ref().unwrap() {
                     proto::data_packet::Value::User(user) => {
+                        let participant_sid = user
+                            .participant_sid
+                            .is_empty()
+                            .not()
+                            .then_some(user.participant_sid.clone());
+
                         let _ = self.emitter.send(SessionEvent::Data {
                             kind: data.kind().into(),
-                            participant_sid: user.participant_sid.clone().try_into().unwrap(),
+                            participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
                             payload: user.payload.clone(),
                         });
                     }
@@ -571,7 +589,7 @@ impl SessionInner {
         {
             let mut pendings_tracks = self.pending_tracks.lock();
             if pendings_tracks.contains_key(&req.cid) {
-                Err(EngineError::Internal("track already published".to_string()))?;
+                Err(EngineError::Internal("track already published".into()))?;
             }
 
             pendings_tracks.insert(cid.clone(), tx);
@@ -586,12 +604,10 @@ impl SessionInner {
             Ok(info) = rx => Ok(info),
             _ = sleep(TRACK_PUBLISH_TIMEOUT) => {
                 self.pending_tracks.lock().remove(&cid);
-                Err(EngineError::Internal("track publication timed out, no response received from the server".to_string()))
+                Err(EngineError::Internal("track publication timed out, no response received from the server".into()))
             },
             else => {
-                Err(EngineError::Internal(
-                    "track publication cancelled".to_string(),
-                ))
+                Err(EngineError::Internal("track publication cancelled".into()))
             }
         }
     }
@@ -695,7 +711,16 @@ impl SessionInner {
         self.subscriber_pc.close();
     }
 
-    async fn simulate_scenario(&self, scenario: SimulateScenario) {
+    async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
+        let simulate_leave = || {
+            self.on_signal_event(proto::signal_response::Message::Leave(
+                proto::LeaveRequest {
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    can_reconnect: true,
+                },
+            ))
+        };
+
         match scenario {
             SimulateScenario::SignalReconnect => {
                 self.signal_client.close().await;
@@ -748,6 +773,8 @@ impl SessionInner {
                         },
                     ))
                     .await;
+
+                simulate_leave().await?
             }
             SimulateScenario::ForceTls => {
                 self.signal_client
@@ -761,8 +788,11 @@ impl SessionInner {
                         },
                     ))
                     .await;
+
+                simulate_leave().await?
             }
         }
+        Ok(())
     }
 
     async fn publish_data(
@@ -771,18 +801,21 @@ impl SessionInner {
         kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
-        self.data_channel(kind)
+        self.data_channel(SignalTarget::Publisher, kind)
+            .unwrap()
             .send(&data.encode_to_vec(), true)
-            .map_err(Into::into)
+            .map_err(|err| {
+                EngineError::Internal(format!("failed to send data packet {:?}", err).into())
+            })
     }
 
-    /// Try to restart the session by doing an ICE Restart (The SignalClient is also restarted)
     /// This reconnection if more seemless compared to the full reconnection implemented in ['RTCEngine']
-    async fn restart_session(&self) -> EngineResult<()> {
+    async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
         let reconnect_response = self.signal_client.restart().await?;
         log::info!("received reconnect response: {:?}", reconnect_response);
 
-        let rtc_config = make_rtc_config_reconnect(reconnect_response);
+        let rtc_config =
+            make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());
         self.publisher_pc
             .peer_connection()
             .set_configuration(rtc_config.clone())?;
@@ -790,8 +823,10 @@ impl SessionInner {
             .peer_connection()
             .set_configuration(rtc_config)?;
 
-        self.subscriber_pc.prepare_ice_restart().await;
+        Ok(reconnect_response)
+    }
 
+    async fn restart_publisher(&self) -> EngineResult<()> {
         if self.has_published.load(Ordering::Acquire) {
             self.publisher_pc
                 .create_and_send_offer(OfferOptions {
@@ -800,20 +835,17 @@ impl SessionInner {
                 })
                 .await?;
         }
-
-        self.pc_state
-            .store(PeerState::Reconnecting as u8, Ordering::Release);
-
         Ok(())
     }
 
-    /// Wait for PeerState to become PeerState::Connected
     /// Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
-            while self.pc_state.load(Ordering::Acquire) != PeerState::Connected as u8 {
+            while !self.subscriber_pc.is_connected()
+                || (self.has_published.load(Ordering::Acquire) && !self.publisher_pc.is_connected())
+            {
                 if self.closed.load(Ordering::Acquire) {
-                    return Err(EngineError::Connection("closed".to_string()));
+                    return Err(EngineError::Connection("closed".into()));
                 }
 
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -825,7 +857,7 @@ impl SessionInner {
         tokio::select! {
             res = wait_connected => res,
             _ = sleep(ICE_CONNECT_TIMEOUT) => {
-                let err = EngineError::Connection("wait_pc_connection timed out".to_string());
+                let err = EngineError::Connection("wait_pc_connection timed out".into());
                 Err(err)
             }
         }
@@ -833,7 +865,7 @@ impl SessionInner {
 
     /// Start publisher negotiation
     fn publisher_negotiation_needed(self: &Arc<Self>) {
-        self.has_published.store(true, Ordering::Relaxed);
+        self.has_published.store(true, Ordering::Release);
 
         let mut debouncer = self.negotiation_debouncer.lock();
 
@@ -844,6 +876,7 @@ impl SessionInner {
             *debouncer = Some(debouncer::debounce(
                 PUBLISHER_NEGOTIATION_FREQUENCY,
                 async move {
+                    log::debug!("negotiating the publisher");
                     if let Err(err) = session
                         .publisher_pc
                         .create_and_send_offer(OfferOptions::default())
@@ -862,14 +895,13 @@ impl SessionInner {
         self: &Arc<Self>,
         kind: DataPacketKind,
     ) -> EngineResult<()> {
-        if !self.publisher_pc.is_connected()
-            && self.publisher_pc.peer_connection().ice_connection_state()
-                != IceConnectionState::Checking
-        {
+        if !self.has_published.load(Ordering::Acquire) {
+            // The publisher has never been connected, start the negotiation
+            // If the connection fails, the reconnection logic will be triggered
             self.publisher_negotiation_needed();
         }
 
-        let dc = self.data_channel(kind);
+        let dc = self.data_channel(SignalTarget::Publisher, kind).unwrap();
         if dc.state() == DataState::Open {
             return Ok(());
         }
@@ -878,7 +910,7 @@ impl SessionInner {
         let wait_connected = async {
             while !self.publisher_pc.is_connected() || dc.state() != DataState::Open {
                 if self.closed.load(Ordering::Acquire) {
-                    return Err(EngineError::Connection("closed".to_string()));
+                    return Err(EngineError::Connection("closed".into()));
                 }
 
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -890,69 +922,52 @@ impl SessionInner {
         tokio::select! {
             res = wait_connected => res,
             _ = sleep(ICE_CONNECT_TIMEOUT) => {
-                let err = EngineError::Connection("could not establish publisher connection: timeout".to_string());
+                let err = EngineError::Connection("could not establish publisher connection: timeout".into());
                 log::error!("{}", err);
                 Err(err)
             }
         }
     }
 
-    fn data_channel(&self, kind: DataPacketKind) -> &DataChannel {
-        if kind == DataPacketKind::Reliable {
-            &self.reliable_dc
+    fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
+        if target == SignalTarget::Publisher {
+            if kind == DataPacketKind::Reliable {
+                Some(self.reliable_dc.clone())
+            } else {
+                Some(self.lossy_dc.clone())
+            }
+        } else if target == SignalTarget::Subscriber {
+            if kind == DataPacketKind::Reliable {
+                self.sub_reliable_dc.lock().clone()
+            } else {
+                self.sub_lossy_dc.lock().clone()
+            }
         } else {
-            &self.lossy_dc
+            unreachable!()
         }
-    }
-
-    /// Used to send client states to the server on migration
-    fn data_channels_info(&self) -> Vec<proto::DataChannelInfo> {
-        let mut vec = Vec::with_capacity(4);
-
-        if self.has_published.load(Ordering::Acquire) {
-            vec.push(proto::DataChannelInfo {
-                label: self.lossy_dc.label(),
-                id: self.lossy_dc.id() as u32,
-                target: proto::SignalTarget::Publisher as i32,
-            });
-
-            vec.push(proto::DataChannelInfo {
-                label: self.reliable_dc.label(),
-                id: self.reliable_dc.id() as u32,
-                target: proto::SignalTarget::Publisher as i32,
-            });
-        }
-
-        for dc in self.subscriber_dc.lock().iter() {
-            vec.push(proto::DataChannelInfo {
-                label: dc.label(),
-                id: dc.id() as u32,
-                target: proto::SignalTarget::Subscriber as i32,
-            });
-        }
-
-        vec
     }
 }
 
 macro_rules! make_rtc_config {
     ($fncname:ident, $proto:ty) => {
-        fn $fncname(value: $proto) -> RtcConfiguration {
-            RtcConfiguration {
-                ice_servers: {
-                    let mut servers = Vec::with_capacity(value.ice_servers.len());
-                    for ice_server in value.ice_servers.clone() {
-                        servers.push(IceServer {
-                            urls: ice_server.urls,
-                            username: ice_server.username,
-                            password: ice_server.credential,
-                        })
-                    }
-                    servers
-                },
-                continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
-                ice_transport_type: IceTransportsType::All,
+        fn $fncname(value: $proto, mut config: RtcConfiguration) -> RtcConfiguration {
+            if config.ice_servers.is_empty() {
+                for ice_server in value.ice_servers.clone() {
+                    config.ice_servers.push(IceServer {
+                        urls: ice_server.urls,
+                        username: ice_server.username,
+                        password: ice_server.credential,
+                    })
+                }
             }
+
+            if let Some(client_configuration) = value.client_configuration {
+                if client_configuration.force_relay() == proto::ClientConfigSetting::Enabled {
+                    config.ice_transport_type = IceTransportsType::Relay;
+                }
+            }
+
+            config
         }
     };
 }

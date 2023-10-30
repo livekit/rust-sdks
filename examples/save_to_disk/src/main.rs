@@ -95,6 +95,7 @@ async fn main() {
     println!("Connected to room: {} - {}", room.name(), room.sid());
 
     while let Some(msg) = rx.recv().await {
+        #[allow(clippy::single_match)]
         match msg {
             RoomEvent::TrackSubscribed {
                 track,
@@ -127,7 +128,7 @@ async fn record_track(audio_track: RemoteAudioTrack) -> Result<(), std::io::Erro
     let mut wav_writer = WavWriter::create(FILE_PATH, header).await?;
     let mut audio_stream = NativeAudioStream::new(rtc_track);
 
-    let max_record = 5 * header.sample_rate * header.num_channels as u32;
+    let max_record = 5 * header.sample_rate * header.num_channels;
     let mut sample_count = 0;
     'recv_loop: while let Some(frame) = audio_stream.next().await {
         let data = resampler.remix_and_resample(

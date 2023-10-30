@@ -42,9 +42,10 @@ use crate::MediaType;
 use crate::RtcErrorType;
 use crate::{session_description::SessionDescription, RtcError};
 use cxx::SharedPtr;
-use futures::channel::oneshot;
 use parking_lot::Mutex;
 use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use webrtc_sys::data_channel as sys_dc;
 use webrtc_sys::jsep as sys_jsep;
 use webrtc_sys::peer_connection as sys_pc;
@@ -154,7 +155,6 @@ impl From<ContinualGatheringPolicy> for sys_pc::ffi::ContinualGatheringPolicy {
 impl From<IceTransportsType> for sys_pc::ffi::IceTransportsType {
     fn from(value: IceTransportsType) -> Self {
         match value {
-            IceTransportsType::None => sys_pc::ffi::IceTransportsType::None,
             IceTransportsType::Relay => sys_pc::ffi::IceTransportsType::Relay,
             IceTransportsType::NoHost => sys_pc::ffi::IceTransportsType::NoHost,
             IceTransportsType::All => sys_pc::ffi::IceTransportsType::All,
@@ -202,78 +202,52 @@ impl PeerConnection {
         &self,
         options: OfferOptions,
     ) -> Result<SessionDescription, RtcError> {
-        let (sdp_tx, mut sdp_rx) = oneshot::channel();
-        let (err_tx, mut err_rx) = oneshot::channel();
-
-        let ctx = Box::new(sys_pc::AsyncContext(Box::new((sdp_tx, err_tx))));
-        type CtxType = (
-            oneshot::Sender<SessionDescription>,
-            oneshot::Sender<RtcError>,
-        );
+        let (tx, mut rx) = mpsc::channel::<Result<SessionDescription, RtcError>>(1);
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+        type CtxType = mpsc::Sender<Result<SessionDescription, RtcError>>;
 
         self.sys_handle.create_offer(
             options.into(),
             ctx,
             |ctx, sdp| {
-                let (sdp_tx, _) = *ctx.0.downcast::<CtxType>().unwrap();
-                let _ = sdp_tx.send(SessionDescription {
+                let tx = *ctx.0.downcast::<CtxType>().unwrap();
+                let _ = tx.blocking_send(Ok(SessionDescription {
                     handle: imp_sdp::SessionDescription { sys_handle: sdp },
-                });
+                }));
             },
             |ctx, error| {
-                let (_, err_tx) = *ctx.0.downcast::<CtxType>().unwrap();
-                let _ = err_tx.send(error.into());
+                let tx = *ctx.0.downcast::<CtxType>().unwrap();
+                let _ = tx.blocking_send(Err(error.into()));
             },
         );
 
-        let map_err = |_| RtcError {
-            error_type: RtcErrorType::Internal,
-            message: "create_offer cancelled".to_owned(),
-        };
-
-        futures::select! {
-            sdp = sdp_rx => Ok(sdp.map_err(map_err)?),
-            err = err_rx => Err(err.map_err(map_err)?),
-        }
+        rx.recv().await.unwrap()
     }
 
     pub async fn create_answer(
         &self,
         options: AnswerOptions,
     ) -> Result<SessionDescription, RtcError> {
-        let (sdp_tx, mut sdp_rx) = oneshot::channel();
-        let (err_tx, mut err_rx) = oneshot::channel();
-
-        let ctx = Box::new(sys_pc::AsyncContext(Box::new((sdp_tx, err_tx))));
-        type CtxType = (
-            oneshot::Sender<SessionDescription>,
-            oneshot::Sender<RtcError>,
-        );
+        let (tx, mut rx) = mpsc::channel::<Result<SessionDescription, RtcError>>(1);
+        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+        type CtxType = mpsc::Sender<Result<SessionDescription, RtcError>>;
 
         self.sys_handle.create_answer(
             options.into(),
             ctx,
             |ctx, sdp| {
-                let (sdp_tx, _) = *ctx.0.downcast::<CtxType>().unwrap();
-                let _ = sdp_tx.send(SessionDescription {
+                let tx = *ctx.0.downcast::<CtxType>().unwrap();
+                let _ = tx.blocking_send(Ok(SessionDescription {
                     handle: imp_sdp::SessionDescription { sys_handle: sdp },
-                });
+                }));
             },
             |ctx, error| {
-                let (_, err_tx) = *ctx.0.downcast::<CtxType>().unwrap();
-                let _ = err_tx.send(error.into());
+                let tx = *ctx.0.downcast::<CtxType>().unwrap();
+                let _ = tx.blocking_send(Err(error.into()));
             },
         );
 
-        let map_err = |_| RtcError {
-            error_type: RtcErrorType::Internal,
-            message: "create_answer cancelled".to_owned(),
-        };
-
-        futures::select! {
-            sdp = sdp_rx => Ok(sdp.map_err(map_err)?),
-            err = err_rx => Err(err.map_err(map_err)?),
-        }
+        rx.recv().await.unwrap()
     }
 
     pub async fn set_local_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
@@ -294,10 +268,7 @@ impl PeerConnection {
                 }
             });
 
-        rx.await.map_err(|_| RtcError {
-            error_type: RtcErrorType::Internal,
-            message: "set_local_description cancelled".to_owned(),
-        })?
+        rx.await.unwrap()
     }
 
     pub async fn set_remote_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
@@ -392,9 +363,7 @@ impl PeerConnection {
 
         match res {
             Ok(sys_handle) => Ok(RtpTransceiver {
-                handle: imp_rt::RtpTransceiver {
-                    sys_handle: sys_handle,
-                },
+                handle: imp_rt::RtpTransceiver { sys_handle },
             }),
             Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }

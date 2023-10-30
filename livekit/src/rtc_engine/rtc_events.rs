@@ -14,8 +14,8 @@
 
 use super::peer_transport::PeerTransport;
 use crate::rtc_engine::peer_transport::OnOfferCreated;
+use libwebrtc::{self as rtc, prelude::*};
 use livekit_protocol as proto;
-use livekit_webrtc::{self as rtc, prelude::*};
 use log::error;
 use tokio::sync::mpsc;
 
@@ -42,7 +42,6 @@ pub enum RtcEvent {
         target: proto::SignalTarget,
     },
     Track {
-        receiver: RtpReceiver,
         streams: Vec<MediaStream>,
         track: MediaStreamTrack,
         transceiver: RtpTransceiver,
@@ -101,7 +100,6 @@ fn on_data_channel(
 fn on_track(target: proto::SignalTarget, emitter: RtcEmitter) -> rtc::peer_connection::OnTrack {
     Box::new(move |event| {
         let _ = emitter.send(RtcEvent::Track {
-            receiver: event.receiver,
             streams: event.streams,
             track: event.track,
             transceiver: event.transceiver,

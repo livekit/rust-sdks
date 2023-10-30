@@ -40,7 +40,7 @@ lazy_static! {
 
 #[derive(Clone)]
 pub struct PeerConnectionFactory {
-    sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
+    pub(crate) sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
 }
 
 impl Default for PeerConnectionFactory {
@@ -50,7 +50,7 @@ impl Default for PeerConnectionFactory {
             *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, severity| {
                 let msg = msg
                     .strip_suffix("\r\n")
-                    .or(msg.strip_suffix("\n"))
+                    .or(msg.strip_suffix('\n'))
                     .unwrap_or(&msg);
 
                 let lvl = match severity {

@@ -50,8 +50,8 @@ impl VideoRenderer {
                     let mut internal = internal.lock();
                     let buffer = frame.buffer.to_i420();
 
-                    let width: u32 = buffer.width().try_into().unwrap();
-                    let height: u32 = buffer.height().try_into().unwrap();
+                    let width: u32 = buffer.width();
+                    let height: u32 = buffer.height();
 
                     internal.ensure_texture_size(width, height);
 
@@ -72,8 +72,7 @@ impl VideoRenderer {
                         rgba_stride,
                         buffer.width() as i32,
                         buffer.height() as i32,
-                    )
-                    .unwrap();
+                    );
 
                     internal.render_state.queue.write_texture(
                         wgpu::ImageCopyTexture {
@@ -111,7 +110,7 @@ impl VideoRenderer {
 
     // Returns the texture id, can be used to draw the texture on the UI
     pub fn texture_id(&self) -> Option<egui::TextureId> {
-        self.internal.lock().egui_texture.clone()
+        self.internal.lock().egui_texture
     }
 }
 
@@ -161,14 +160,14 @@ impl RendererInternal {
                 .renderer
                 .write()
                 .update_egui_texture_from_wgpu_texture(
-                    &*self.render_state.device,
+                    &self.render_state.device,
                     self.texture_view.as_ref().unwrap(),
                     wgpu::FilterMode::Linear,
                     texture_id,
                 );
         } else {
             self.egui_texture = Some(self.render_state.renderer.write().register_native_texture(
-                &*self.render_state.device,
+                &self.render_state.device,
                 self.texture_view.as_ref().unwrap(),
                 wgpu::FilterMode::Linear,
             ));

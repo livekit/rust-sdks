@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
+use crate::e2ee::EncryptionType;
 use crate::prelude::*;
 use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
@@ -63,12 +64,16 @@ impl Debug for RemoteTrackPublication {
 }
 
 impl RemoteTrackPublication {
-    pub(crate) fn new(info: proto::TrackInfo, track: Option<RemoteTrack>) -> Self {
+    pub(crate) fn new(
+        info: proto::TrackInfo,
+        track: Option<RemoteTrack>,
+        auto_subscribe: bool,
+    ) -> Self {
         Self {
             inner: super::new_inner(info, track.map(Into::into)),
             remote: Arc::new(RemoteInner {
                 info: RwLock::new(RemoteInfo {
-                    subscribed: false,
+                    subscribed: auto_subscribe,
                     allowed: true,
                 }),
                 events: Default::default(),
@@ -144,20 +149,36 @@ impl RemoteTrackPublication {
         self.inner.info.read().proto_info.clone()
     }
 
-    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
+    pub(crate) fn update_info(&self, new_info: proto::TrackInfo) {
         super::update_info(
             &self.inner,
             &TrackPublication::Remote(self.clone()),
-            info.clone(),
+            new_info.clone(),
         );
-        self.inner.info.write().muted = info.muted;
+
+        let mut info = self.inner.info.write();
+        let muted = info.muted;
+        info.muted = new_info.muted;
+        drop(info);
+
+        // For remote tracks, the publication need to manually fire the muted/unmuted events
+        // (they are not being fired for the tracks)
+        if muted != new_info.muted {
+            if new_info.muted {
+                if let Some(on_mute) = self.inner.events.muted.lock().as_ref() {
+                    on_mute(TrackPublication::Remote(self.clone()));
+                }
+            } else if let Some(on_unmute) = self.inner.events.unmuted.lock().as_ref() {
+                on_unmute(TrackPublication::Remote(self.clone()));
+            }
+        }
     }
 
-    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+    pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication, Track) + Send + 'static) {
+    pub(crate) fn on_unmuted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 
@@ -175,7 +196,6 @@ impl RemoteTrackPublication {
         *self.remote.events.unsubscribed.lock() = Some(Box::new(f));
     }
 
-    #[allow(dead_code)]
     pub(crate) fn on_subscription_status_changed(
         &self,
         f: impl Fn(RemoteTrackPublication, SubscriptionStatus, SubscriptionStatus) + Send + 'static,
@@ -183,7 +203,6 @@ impl RemoteTrackPublication {
         *self.remote.events.subscription_status_changed.lock() = Some(Box::new(f));
     }
 
-    #[allow(dead_code)]
     pub(crate) fn on_permission_status_changed(
         &self,
         f: impl Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send + 'static,
@@ -304,5 +323,9 @@ impl RemoteTrackPublication {
 
     pub fn is_remote(&self) -> bool {
         true
+    }
+
+    pub fn encryption_type(&self) -> EncryptionType {
+        self.inner.info.read().encryption_type
     }
 }

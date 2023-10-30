@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
-use livekit_webrtc::prelude::*;
-use log::{debug, error};
 use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -60,10 +59,7 @@ impl PeerTransport {
     }
 
     pub fn is_connected(&self) -> bool {
-        matches!(
-            self.peer_connection.ice_connection_state(),
-            IceConnectionState::Connected | IceConnectionState::Completed
-        )
+        self.peer_connection.connection_state() == PeerConnectionState::Connected
     }
 
     pub fn peer_connection(&self) -> PeerConnection {
@@ -80,10 +76,6 @@ impl PeerTransport {
 
     pub fn close(&self) {
         self.peer_connection.close();
-    }
-
-    pub async fn prepare_ice_restart(&self) {
-        self.inner.lock().await.restarting_ice = true;
     }
 
     pub async fn add_ice_candidate(&self, ice_candidate: IceCandidate) -> EngineResult<()> {
@@ -144,30 +136,26 @@ impl PeerTransport {
         let mut inner = self.inner.lock().await;
 
         if options.ice_restart {
-            debug!("restarting ICE");
-            inner.restarting_ice = false;
+            inner.restarting_ice = true;
         }
 
         if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
-            if options.ice_restart {
-                if let Some(remote_description) = self.peer_connection.current_remote_description()
-                {
-                    self.peer_connection
-                        .set_remote_description(remote_description)
-                        .await?;
-                } else {
-                    error!("trying to restart ICE when the pc doesn't have remote description");
-                }
+            let remote_sdp = self.peer_connection.current_remote_description();
+            if options.ice_restart && remote_sdp.is_some() {
+                let remote_sdp = remote_sdp.unwrap();
+
+                // Cancel the old renegotiation (Basically say the server rejected the previous offer)
+                // So we can resend a new offer just after this
+                self.peer_connection
+                    .set_remote_description(remote_sdp)
+                    .await?;
             } else {
                 inner.renegotiate = true;
                 return Ok(());
             }
-        }
-
-        // TODO(theomonnom): Check that the target_os isn't wasm
-        // Not sure if this is really needed
-        if options.ice_restart {
-            self.peer_connection.restart_ice();
+        } else if self.peer_connection.signaling_state() == SignalingState::Closed {
+            log::warn!("peer connection is closed, cannot create offer");
+            return Ok(());
         }
 
         let offer = self.peer_connection.create_offer(options).await?;

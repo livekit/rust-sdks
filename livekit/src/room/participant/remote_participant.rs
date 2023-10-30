@@ -17,8 +17,8 @@ use super::{ConnectionQuality, ParticipantInner};
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
 use crate::track::TrackError;
+use libwebrtc::prelude::*;
 use livekit_protocol as proto;
-use livekit_webrtc::prelude::*;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -47,6 +47,7 @@ struct RemoteEvents {
 
 struct RemoteInfo {
     events: Arc<RemoteEvents>,
+    auto_subscribe: bool, // better way to access this from room?
 }
 
 #[derive(Clone)]
@@ -72,11 +73,13 @@ impl RemoteParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        auto_subscribe: bool,
     ) -> Self {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
             remote: Arc::new(RemoteInfo {
                 events: Default::default(),
+                auto_subscribe,
             }),
         }
     }
@@ -89,7 +92,7 @@ impl RemoteParticipant {
         &self,
         sid: TrackSid,
         media_track: MediaStreamTrack,
-        receiver: RtpReceiver
+        transceiver: RtpTransceiver
     ) {
         let wait_publication = {
             let participant = self.clone();
@@ -114,7 +117,7 @@ impl RemoteParticipant {
                             remote_publication.sid(),
                             remote_publication.name(),
                             rtc_track,
-                            receiver
+                            transceiver
                         );
                         RemoteTrack::Audio(audio_track)
                     } else {
@@ -127,7 +130,7 @@ impl RemoteParticipant {
                             remote_publication.sid(),
                             remote_publication.name(),
                             rtc_track,
-                            receiver
+                            transceiver
                         );
                         RemoteTrack::Video(video_track)
                     } else {
@@ -136,7 +139,7 @@ impl RemoteParticipant {
                 }
             };
 
-            log::debug!("starting track: {:?}", sid);
+            track.set_transceiver(Some(transceiver));
 
             //track.set_muted(remote_publication.is_muted());
             track.update_info(proto::TrackInfo {
@@ -195,7 +198,8 @@ impl RemoteParticipant {
             if let Some(publication) = self.get_track_publication(&track_sid) {
                 publication.update_info(track.clone());
             } else {
-                let publication = RemoteTrackPublication::new(track.clone(), None);
+                let publication =
+                    RemoteTrackPublication::new(track.clone(), None, self.remote.auto_subscribe);
 
                 self.add_publication(TrackPublication::Remote(publication.clone()));
 
@@ -257,6 +261,34 @@ impl RemoteParticipant {
     ) {
         *self.remote.events.track_subscription_failed.lock() =
             Some(Box::new(track_subscription_failed));
+    }
+
+    pub(crate) fn on_track_muted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+    ) {
+        super::on_track_muted(&self.inner, handler)
+    }
+
+    pub(crate) fn on_track_unmuted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+    ) {
+        super::on_track_unmuted(&self.inner, handler)
+    }
+
+    pub(crate) fn on_metadata_changed(
+        &self,
+        handler: impl Fn(Participant, String, String) + Send + 'static,
+    ) {
+        super::on_metadata_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_name_changed(
+        &self,
+        handler: impl Fn(Participant, String, String) + Send + 'static,
+    ) {
+        super::on_name_changed(&self.inner, handler)
     }
 
     pub(crate) fn set_speaking(&self, speaking: bool) {
@@ -329,11 +361,11 @@ impl RemoteParticipant {
         });
     }
 
-    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
         let publication =
             super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
 
-        if let Some(publication) = publication {
+        if let Some(publication) = publication.clone() {
             let TrackPublication::Remote(publication) = publication else {
                 panic!("expected remote publication");
             };
@@ -342,6 +374,8 @@ impl RemoteParticipant {
             publication.on_subscribed(|_, _| {});
             publication.on_unsubscribed(|_, _| {});
         }
+
+        publication
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {

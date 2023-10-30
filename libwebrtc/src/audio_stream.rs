@@ -19,10 +19,10 @@ pub mod native {
     use super::stream_imp;
     use crate::audio_frame::AudioFrame;
     use crate::audio_track::RtcAudioTrack;
-    use futures::stream::Stream;
     use std::fmt::{Debug, Formatter};
     use std::pin::Pin;
     use std::task::{Context, Poll};
+    use tokio_stream::Stream;
 
     pub struct NativeAudioStream {
         pub(crate) handle: stream_imp::NativeAudioStream,
@@ -53,7 +53,7 @@ pub mod native {
     }
 
     impl Stream for NativeAudioStream {
-        type Item = AudioFrame;
+        type Item = AudioFrame<'static>;
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
             Pin::new(&mut self.get_mut().handle).poll_next(cx)

@@ -65,11 +65,11 @@ async fn main() {
                         },
                     }
                     
-                    // let rtc_track = video_track.rtc_track();
-                    // let mut video_stream = NativeVideoStream::new(rtc_track);
-                    // while let Some(frame) = video_stream.next().await {
+                    let rtc_track = video_track.rtc_track();
+                    let mut video_stream = NativeVideoStream::new(rtc_track);
+                    while let Some(frame) = video_stream.next().await {
 
-                    // }
+                    }
                     // break;
                 }
                 else if let RemoteTrack::Audio(audio_track) = &track {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::yuv_helper::{self, ConvertError};
+use super::yuv_helper;
 use crate::video_frame::VideoRotation;
 use crate::video_frame::{self as vf, VideoFormatType};
 use cxx::UniquePtr;
@@ -28,7 +28,7 @@ pub fn new_video_frame_buffer(
     mut sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
 ) -> Box<dyn vf::VideoFrameBuffer + Send + Sync> {
     unsafe {
-        match sys_handle.buffer_type().into() {
+        match sys_handle.buffer_type() {
             vfb_sys::ffi::VideoFrameBufferType::Native => Box::new(vf::native::NativeBuffer {
                 handle: NativeBuffer { sys_handle },
             }),
@@ -160,7 +160,7 @@ macro_rules! impl_to_argb {
 #[allow(unused_unsafe)]
 impl NativeBuffer {
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
-        &*self.sys_handle
+        &self.sys_handle
     }
 
     pub fn width(&self) -> u32 {
@@ -184,19 +184,28 @@ impl NativeBuffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 }
 
 impl I420Buffer {
-    pub fn new(width: u32, height: u32) -> vf::I420Buffer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I420Buffer {
         vf::I420Buffer {
             handle: I420Buffer {
                 sys_handle: vfb_sys::ffi::new_i420_buffer(
                     width.try_into().unwrap(),
                     height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
                 ),
             },
         }
@@ -275,7 +284,7 @@ impl I420Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         impl_to_argb!(
             I420Buffer
             [
@@ -376,7 +385,7 @@ impl I420ABuffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -401,6 +410,26 @@ impl I420ABuffer {
 }
 
 impl I422Buffer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I422Buffer {
+        vf::I422Buffer {
+            handle: I422Buffer {
+                sys_handle: vfb_sys::ffi::new_i422_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i422_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
@@ -470,7 +499,7 @@ impl I422Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -487,6 +516,26 @@ impl I422Buffer {
     }
 }
 impl I444Buffer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I444Buffer {
+        vf::I444Buffer {
+            handle: I444Buffer {
+                sys_handle: vfb_sys::ffi::new_i444_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i444_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
@@ -556,7 +605,7 @@ impl I444Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -574,6 +623,26 @@ impl I444Buffer {
 }
 
 impl I010Buffer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I010Buffer {
+        vf::I010Buffer {
+            handle: I010Buffer {
+                sys_handle: vfb_sys::ffi::new_i010_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i010_to_yuv16b, yuv16b_to_yuv, yuv_to_vfb) }
     }
@@ -644,7 +713,7 @@ impl I010Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
@@ -672,6 +741,19 @@ impl I010Buffer {
 }
 
 impl NV12Buffer {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_uv: u32) -> vf::NV12Buffer {
+        vf::NV12Buffer {
+            handle: NV12Buffer {
+                sys_handle: vfb_sys::ffi::new_nv12_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_uv.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe {
             &*recursive_cast!(
@@ -756,7 +838,7 @@ impl NV12Buffer {
         dst_stride: u32,
         dst_width: i32,
         dst_height: i32,
-    ) -> Result<(), ConvertError> {
+    ) {
         self.to_i420()
             .to_argb(format, dst, dst_stride, dst_width, dst_height)
     }

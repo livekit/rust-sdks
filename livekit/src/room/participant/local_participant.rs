@@ -14,6 +14,7 @@
 
 use super::ConnectionQuality;
 use super::ParticipantInner;
+use crate::e2ee::EncryptionType;
 use crate::options;
 use crate::options::compute_video_encodings;
 use crate::options::video_layers_from_encodings;
@@ -21,8 +22,8 @@ use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
 use crate::DataPacketKind;
+use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
-use livekit_webrtc::rtp_parameters::RtpEncodingParameters;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -39,6 +40,7 @@ struct LocalEvents {
 
 struct LocalInfo {
     events: LocalEvents,
+    encryption_type: EncryptionType,
 }
 
 #[derive(Clone)]
@@ -64,11 +66,13 @@ impl LocalParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        encryption_type: EncryptionType,
     ) -> Self {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
+                encryption_type,
             }),
         }
     }
@@ -93,7 +97,6 @@ impl LocalParticipant {
         super::set_connection_quality(&self.inner, &Participant::Local(self.clone()), quality);
     }
 
-    #[allow(dead_code)]
     pub(crate) fn on_local_track_published(
         &self,
         handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
@@ -101,7 +104,6 @@ impl LocalParticipant {
         *self.local.events.local_track_published.lock() = Some(Box::new(handler));
     }
 
-    #[allow(dead_code)]
     pub(crate) fn on_local_track_unpublished(
         &self,
         handler: impl Fn(LocalParticipant, LocalTrackPublication) + Send + 'static,
@@ -109,13 +111,40 @@ impl LocalParticipant {
         *self.local.events.local_track_unpublished.lock() = Some(Box::new(handler));
     }
 
+    pub(crate) fn on_track_muted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+    ) {
+        super::on_track_muted(&self.inner, handler)
+    }
+
+    pub(crate) fn on_track_unmuted(
+        &self,
+        handler: impl Fn(Participant, TrackPublication) + Send + 'static,
+    ) {
+        super::on_track_unmuted(&self.inner, handler)
+    }
+
+    pub(crate) fn on_metadata_changed(
+        &self,
+        handler: impl Fn(Participant, String, String) + Send + 'static,
+    ) {
+        super::on_metadata_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_name_changed(
+        &self,
+        handler: impl Fn(Participant, String, String) + Send + 'static,
+    ) {
+        super::on_name_changed(&self.inner, handler)
+    }
+
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
         super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn remove_publication(&self, sid: &TrackSid) {
-        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid);
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
+        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid)
     }
 
     pub(crate) fn published_tracks_info(&self) -> Vec<proto::TrackPublishedResponse> {
@@ -147,6 +176,7 @@ impl LocalParticipant {
             source: proto::TrackSource::from(options.source) as i32,
             disable_dtx: !options.dtx,
             disable_red: !options.red,
+            encryption: proto::encryption::Type::from(self.local.encryption_type) as i32,
             ..Default::default()
         };
 
@@ -179,7 +209,6 @@ impl LocalParticipant {
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
 
-        log::debug!("publishing track with cid {:?}", track.rtc_track().id());
         let transceiver = self
             .inner
             .rtc_engine
@@ -187,7 +216,6 @@ impl LocalParticipant {
             .await?;
 
         track.set_transceiver(Some(transceiver));
-        track.enable();
 
         self.inner.rtc_engine.publisher_negotiation_needed();
 
@@ -199,15 +227,43 @@ impl LocalParticipant {
             local_track_published(self.clone(), publication.clone());
         }
 
+        track.enable();
+
         Ok(publication)
+    }
+
+    pub async fn update_metadata(&self, metadata: String) -> RoomResult<()> {
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::UpdateMetadata(
+                proto::UpdateParticipantMetadata {
+                    metadata,
+                    name: self.name(),
+                },
+            ))
+            .await;
+        Ok(())
+    }
+
+    pub async fn update_name(&self, name: String) -> RoomResult<()> {
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::UpdateMetadata(
+                proto::UpdateParticipantMetadata {
+                    metadata: self.metadata(),
+                    name,
+                },
+            ))
+            .await;
+        Ok(())
     }
 
     pub async fn unpublish_track(
         &self,
-        track: &TrackSid,
+        sid: &TrackSid,
         // _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
-        let publication = self.inner.tracks.write().remove(track);
+        let publication = self.remove_publication(sid);
         if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();

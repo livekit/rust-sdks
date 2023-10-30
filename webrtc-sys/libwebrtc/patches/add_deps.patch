@@ -2,13 +2,14 @@ diff --git a/BUILD.gn b/BUILD.gn
 index d5289b8..12685d1 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -517,6 +517,9 @@ if (!build_with_chromium) {
+@@ -517,6 +517,10 @@ if (!build_with_chromium) {
        "pc:rtc_pc",
        "sdk",
        "video",
 +      "//third_party/zlib",
 +      "rtc_base:log_sinks",
 +      "media:rtc_simulcast_encoder_adapter",
++      "api/crypto:frame_crypto_transformer",
      ]
  
      if (rtc_include_builtin_audio_codecs) {

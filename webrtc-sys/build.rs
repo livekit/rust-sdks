@@ -17,16 +17,12 @@ use std::path;
 use std::process::Command;
 
 fn main() {
+    if env::var("DOCS_RS").is_ok() {
+        return;
+    }
+
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
-
-    let webrtc_dir = webrtc_sys_build::webrtc_dir();
-    let webrtc_include = webrtc_dir.join("include");
-    let webrtc_lib = webrtc_dir.join("lib");
-
-    if !webrtc_dir.exists() {
-        webrtc_sys_build::download_webrtc().unwrap();
-    }
 
     let mut builder = cxx_build::bridges([
         "src/peer_connection.rs",
@@ -36,6 +32,7 @@ fn main() {
         "src/audio_track.rs",
         "src/video_track.rs",
         "src/data_channel.rs",
+        "src/frame_cryptor.rs",
         "src/jsep.rs",
         "src/candidate.rs",
         "src/rtp_parameters.rs",
@@ -54,17 +51,6 @@ fn main() {
         "src/encoded_audio_frame.rs",
         "src/sender_report.rs",
         "src/android.rs",
-    ]);
-
-    builder.includes(&[
-        path::PathBuf::from("./include"),
-        webrtc_include.clone(),
-        webrtc_include.join("third_party/abseil-cpp/"),
-        webrtc_include.join("third_party/libyuv/include/"),
-        webrtc_include.join("third_party/libc++/"),
-        // For mac & ios
-        webrtc_include.join("sdk/objc"),
-        webrtc_include.join("sdk/objc/base"),
     ]);
 
     builder.files(&[
@@ -93,6 +79,26 @@ fn main() {
         "src/encoded_video_frame.cpp",
         "src/encoded_audio_frame.cpp",
         "src/sender_report.cpp",
+        "src/frame_cryptor.cpp",
+    ]);
+
+    let webrtc_dir = webrtc_sys_build::webrtc_dir();
+    let webrtc_include = webrtc_dir.join("include");
+    let webrtc_lib = webrtc_dir.join("lib");
+
+    if !webrtc_dir.exists() {
+        webrtc_sys_build::download_webrtc().unwrap();
+    }
+
+    builder.includes(&[
+        path::PathBuf::from("./include"),
+        webrtc_include.clone(),
+        webrtc_include.join("third_party/abseil-cpp/"),
+        webrtc_include.join("third_party/libyuv/include/"),
+        webrtc_include.join("third_party/libc++/"),
+        // For mac & ios
+        webrtc_include.join("sdk/objc"),
+        webrtc_include.join("sdk/objc/base"),
     ]);
 
     println!(

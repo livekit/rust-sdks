@@ -38,7 +38,9 @@ pub struct UpdateParticipantOptions {
 #[derive(Debug, Clone, Default)]
 pub struct SendDataOptions {
     pub kind: proto::data_packet::Kind,
+    #[deprecated(note = "Use destination_identities instead")]
     pub destination_sids: Vec<String>,
+    pub destination_identities: Vec<String>,
     pub topic: Option<String>,
 }
 
@@ -77,6 +79,7 @@ impl RoomClient {
                     node_id: options.node_id,
                     metadata: options.metadata,
                     egress: options.egress,
+                    ..Default::default()
                 },
                 self.base.auth_header(VideoGrants {
                     room_create: true,
@@ -299,6 +302,7 @@ impl RoomClient {
         data: Vec<u8>,
         options: SendDataOptions,
     ) -> ServiceResult<()> {
+        #[allow(deprecated)]
         self.client
             .request(
                 SVC,
@@ -309,6 +313,7 @@ impl RoomClient {
                     destination_sids: options.destination_sids,
                     topic: options.topic,
                     kind: options.kind as i32,
+                    destination_identities: options.destination_identities,
                 },
                 self.base.auth_header(VideoGrants {
                     room_admin: true,

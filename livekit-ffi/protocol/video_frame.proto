@@ -25,7 +25,7 @@ message AllocVideoBufferRequest {
   uint32 width = 2;
   uint32 height = 3;
 }
-message AllocVideoBufferResponse { VideoFrameBufferInfo buffer = 1; }
+message AllocVideoBufferResponse { OwnedVideoFrameBuffer buffer = 1; }
 
 // Create a new VideoStream
 // VideoStream is used to receive video frames from a track
@@ -33,7 +33,7 @@ message NewVideoStreamRequest {
   uint64 track_handle = 1;
   VideoStreamType type = 2;
 }
-message NewVideoStreamResponse { VideoStreamInfo stream = 1; }
+message NewVideoStreamResponse { OwnedVideoStream stream = 1; }
 
 // Create a new VideoSource
 // VideoSource is used to send video frame to a track
@@ -41,15 +41,18 @@ message NewVideoSourceRequest {
   VideoSourceType type = 1; 
   // Used to determine which encodings to use + simulcast layers
   // Most of the time it corresponds to the source resolution 
-  optional VideoSourceResolution resolution = 2;
+  VideoSourceResolution resolution = 2;
 }
-message NewVideoSourceResponse { VideoSourceInfo source = 1; }
+message NewVideoSourceResponse { OwnedVideoSource source = 1; }
 
 // Push a frame to a VideoSource
 message CaptureVideoFrameRequest {
   uint64 source_handle = 1;
   VideoFrameInfo frame = 2;
-  uint64 buffer_handle = 3;
+  oneof from {
+    VideoFrameBufferInfo info = 3;
+    uint64 handle = 4;
+  }
 }
 message CaptureVideoFrameResponse {}
 
@@ -58,16 +61,19 @@ message CaptureVideoFrameResponse {}
 message ToI420Request {
   bool flip_y = 1;
   oneof from {
-    ARGBBufferInfo argb = 2;
-    uint64 buffer_handle = 3;
+    ArgbBufferInfo argb = 2;
+    VideoFrameBufferInfo buffer = 3;
+    uint64 handle = 4;
   }
 }
-message ToI420Response { VideoFrameBufferInfo buffer = 1; }
+message ToI420Response { 
+  OwnedVideoFrameBuffer buffer = 1; 
+}
 
 // Convert a YUV frame to a RGBA frame
 // Only I420 is supported atm
 message ToArgbRequest {
-  uint64 buffer_handle = 1;
+  VideoFrameBufferInfo buffer = 1;
   uint64 dst_ptr = 2;
   VideoFormatType dst_format = 3;
   uint32 dst_stride = 4;
@@ -115,10 +121,9 @@ enum VideoFrameBufferType {
   I444 = 4;
   I010 = 5;
   NV12 = 6;
-  WEBGL = 7;
 }
 
-message ARGBBufferInfo {
+message ArgbBufferInfo {
   uint64 ptr = 1;
   VideoFormatType format = 2;
   uint32 stride = 3;
@@ -132,15 +137,19 @@ message VideoFrameInfo {
 }
 
 message VideoFrameBufferInfo {
-  FfiOwnedHandle handle = 1;
-  VideoFrameBufferType buffer_type = 2;
-  uint32 width = 3;
-  uint32 height = 4;
+  VideoFrameBufferType buffer_type = 1;
+  uint32 width = 2;
+  uint32 height = 3;
   oneof buffer {
-    PlanarYuvBufferInfo yuv = 5;
-    BiplanarYuvBufferInfo bi_yuv = 6;
-    NativeBufferInfo native = 7;
+    PlanarYuvBufferInfo yuv = 4;
+    BiplanarYuvBufferInfo bi_yuv = 5;
+    NativeBufferInfo native = 6;
   }
+}
+
+message OwnedVideoFrameBuffer {
+  FfiOwnedHandle handle = 1;
+  VideoFrameBufferInfo info = 2;
 }
 
 message PlanarYuvBufferInfo {
@@ -183,19 +192,28 @@ enum VideoStreamType {
 }
 
 message VideoStreamInfo {
+  VideoStreamType type = 1;
+}
+
+message OwnedVideoStream {
   FfiOwnedHandle handle = 1;
-  VideoStreamType type = 2;
+  VideoStreamInfo info = 2;
 }
 
 message VideoStreamEvent {
   uint64 stream_handle = 1;
-  oneof message { VideoFrameReceived frame_received = 2; }
+  oneof message { 
+    VideoFrameReceived frame_received = 2;
+    VideoStreamEOS eos = 3;
+  }
 }
 
 message VideoFrameReceived {
   VideoFrameInfo frame = 1;
-  VideoFrameBufferInfo buffer = 2;
+  OwnedVideoFrameBuffer buffer = 2;
 }
+
+message VideoStreamEOS {}
 
 //
 // VideoSource
@@ -207,10 +225,14 @@ message VideoSourceResolution {
 }
 
 enum VideoSourceType {
-    VIDEO_SOURCE_NATIVE = 0;
+  VIDEO_SOURCE_NATIVE = 0;
 }
 
 message VideoSourceInfo {
+  VideoSourceType type = 1;
+}
+
+message OwnedVideoSource {
   FfiOwnedHandle handle = 1;
-  VideoSourceType type = 2;
+  VideoSourceInfo info = 2;
 }

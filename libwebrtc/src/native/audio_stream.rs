@@ -15,17 +15,17 @@
 use crate::audio_frame::AudioFrame;
 use crate::audio_track::RtcAudioTrack;
 use cxx::SharedPtr;
-use futures::stream::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
+use tokio_stream::Stream;
 use webrtc_sys::audio_track as sys_at;
 
 pub struct NativeAudioStream {
     native_sink: SharedPtr<sys_at::ffi::NativeAudioSink>,
     audio_track: RtcAudioTrack,
-    frame_rx: mpsc::UnboundedReceiver<AudioFrame>,
+    frame_rx: mpsc::UnboundedReceiver<AudioFrame<'static>>,
 }
 
 impl NativeAudioStream {
@@ -65,7 +65,7 @@ impl Drop for NativeAudioStream {
 }
 
 impl Stream for NativeAudioStream {
-    type Item = AudioFrame;
+    type Item = AudioFrame<'static>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         self.frame_rx.poll_recv(cx)
@@ -73,14 +73,13 @@ impl Stream for NativeAudioStream {
 }
 
 pub struct AudioTrackObserver {
-    frame_tx: mpsc::UnboundedSender<AudioFrame>,
+    frame_tx: mpsc::UnboundedSender<AudioFrame<'static>>,
 }
 
 impl sys_at::AudioSink for AudioTrackObserver {
     fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
-        // TODO(theomonnom): Should we avoid copy here?
         let _ = self.frame_tx.send(AudioFrame {
-            data: data.to_owned(),
+            data: data.to_owned().into(),
             sample_rate: sample_rate as u32,
             num_channels: nb_channels as u32,
             samples_per_channel: nb_frames as u32,
