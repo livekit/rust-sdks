@@ -117,7 +117,7 @@ impl RemoteParticipant {
                             remote_publication.sid(),
                             remote_publication.name(),
                             rtc_track,
-                            transceiver
+                            transceiver.receiver()
                         );
                         RemoteTrack::Audio(audio_track)
                     } else {
@@ -130,7 +130,7 @@ impl RemoteParticipant {
                             remote_publication.sid(),
                             remote_publication.name(),
                             rtc_track,
-                            transceiver
+                            transceiver.receiver()
                         );
                         RemoteTrack::Video(video_track)
                     } else {

@@ -535,7 +535,6 @@ impl RoomSession {
             EngineEvent::MediaTrack {
                 track,
                 stream,
-                receiver,
                 transceiver,
             } => self.handle_media_track(track, stream, transceiver),
             EngineEvent::RoomUpdate { room } => self.handle_room_update(room),

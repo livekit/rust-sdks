@@ -11,6 +11,9 @@ repository = "https://github.com/livekit/client-sdk-rust"
 livekit-protocol = { path = "../livekit-protocol", version = "0.2.0" }
 log = "0.4"
 thiserror = "1.0"
+futures = "0.3.28"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+futures-channel = "0.3"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"

@@ -34,13 +34,10 @@ pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
 pub mod yuv_helper;
-<<<<<<< HEAD:livekit-webrtc/src/native/mod.rs
 pub mod encoded_video_frame_stream;
 pub mod encoded_audio_frame_stream;
 pub mod sender_report_stream;
-=======
 pub mod frame_cryptor;
->>>>>>> fdb83a72adc1c9ca8b6df6591893b4c853eab227:libwebrtc/src/native/mod.rs
 
 use crate::MediaType;
 use crate::{RtcError, RtcErrorType};

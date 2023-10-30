@@ -19,7 +19,6 @@ use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 // use livekit_webrtc as rtc;
 // use rtc::rtp_receiver::RtpReceiver;
-use livekit_webrtc::prelude::*;
 use std::fmt::Debug;
 use std::sync::Arc;
 
