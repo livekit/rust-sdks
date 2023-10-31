@@ -33,6 +33,7 @@ class PeerConnectionObserverWrapper;
 namespace livekit {
 
 class PeerConnection;
+struct RtcConfiguration;
 
 webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
     RtcConfiguration config);

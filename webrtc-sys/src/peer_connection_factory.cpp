@@ -99,9 +99,9 @@ PeerConnectionFactory::~PeerConnectionFactory() {
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     RtcConfiguration config,
-    rust::Box<PeerConnectionObserver> observer) const {
-  std::shared_ptr<PeerConnection> pc =
-      std::make_shared<PeerConnection>(rtc_runtime_, peer_factory_, observer);
+    rust::Box<PeerConnectionObserverWrapper> observer) const {
+  std::shared_ptr<PeerConnection> pc = std::make_shared<PeerConnection>(
+      rtc_runtime_, peer_factory_, std::move(observer));
 
   if (!pc->Initialize(to_native_rtc_configuration(config))) {
     throw std::runtime_error(serialize_error(to_error(webrtc::RTCError(

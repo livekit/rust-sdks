@@ -12,31 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::candidate::ffi::Candidate;
-use crate::data_channel::ffi::DataChannel;
 use crate::helper::AsyncContext;
 use crate::impl_thread_safety;
-use crate::jsep::ffi::IceCandidate;
-use crate::media_stream::ffi::MediaStream;
-use crate::rtp_receiver::ffi::RtpReceiver;
-use crate::rtp_transceiver::ffi::RtpTransceiver;
-use cxx::SharedPtr;
-use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-    pub struct CandidatePair {
-        local: SharedPtr<Candidate>,
-        remote: SharedPtr<Candidate>,
-    }
-
-    pub struct CandidatePairChangeEvent {
-        selected_candidate_pair: CandidatePair,
-        last_data_received_ms: i64,
-        reason: String,
-        estimated_disconnected_time_ms: i64,
-    }
-
     #[repr(i32)]
     pub enum PeerConnectionState {
         New,
@@ -125,8 +105,6 @@ pub mod ffi {
         include!("livekit/jsep.h");
         include!("livekit/webrtc.h");
 
-        type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
-        type CandidatePtr = crate::helper::ffi::CandidatePtr;
         type RtpSenderPtr = crate::helper::ffi::RtpSenderPtr;
         type RtpReceiverPtr = crate::helper::ffi::RtpReceiverPtr;
         type RtpTransceiverPtr = crate::helper::ffi::RtpTransceiverPtr;

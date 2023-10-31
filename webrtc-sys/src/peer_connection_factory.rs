@@ -14,9 +14,6 @@
 
 use crate::candidate::ffi::Candidate;
 use crate::data_channel::ffi::DataChannel;
-use crate::helper::AsyncContext;
-use crate::helper::AsyncContext;
-use crate::impl_thread_safety;
 use crate::impl_thread_safety;
 use crate::jsep::ffi::IceCandidate;
 use crate::media_stream::ffi::MediaStream;
@@ -27,6 +24,18 @@ use std::sync::Arc;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
+    pub struct CandidatePair {
+        local: SharedPtr<Candidate>,
+        remote: SharedPtr<Candidate>,
+    }
+
+    pub struct CandidatePairChangeEvent {
+        selected_candidate_pair: CandidatePair,
+        last_data_received_ms: i64,
+        reason: String,
+        estimated_disconnected_time_ms: i64,
+    }
+
     extern "C++" {
         include!("livekit/peer_connection_factory.h");
         include!("livekit/rtp_parameters.h");
@@ -40,14 +49,13 @@ pub mod ffi {
         include!("livekit/data_channel.h");
         include!("livekit/jsep.h");
         include!("livekit/webrtc.h");
+        include!("livekit/peer_connection.h");
 
         type RtcConfiguration = crate::peer_connection::ffi::RtcConfiguration;
-        type CandidatePairChangeEvent = crate::peer_connection::ffi::CandidatePairChangeEvent;
         type PeerConnectionState = crate::peer_connection::ffi::PeerConnectionState;
         type SignalingState = crate::peer_connection::ffi::SignalingState;
         type IceConnectionState = crate::peer_connection::ffi::IceConnectionState;
         type IceGatheringState = crate::peer_connection::ffi::IceGatheringState;
-
         type AudioTrackSource = crate::audio_track::ffi::AudioTrackSource;
         type VideoTrackSource = crate::video_track::ffi::VideoTrackSource;
         type RtpCapabilities = crate::rtp_parameters::ffi::RtpCapabilities;
@@ -111,7 +119,6 @@ pub mod ffi {
     }
 
     extern "Rust" {
-        type AsyncContext;
         type PeerConnectionObserverWrapper;
 
         fn on_signaling_change(self: &PeerConnectionObserverWrapper, new_state: SignalingState);
