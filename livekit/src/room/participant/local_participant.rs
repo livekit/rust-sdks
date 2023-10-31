@@ -268,7 +268,7 @@ impl LocalParticipant {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();
 
-            self.inner.rtc_engine.remove_track(sender).await?;
+            self.inner.rtc_engine.remove_track(sender)?;
             track.set_transceiver(None);
 
             if let Some(local_track_unpublished) =

@@ -12,26 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
+syntax = "proto3";
 
-#[derive(Debug, Clone)]
-pub struct AudioFrame<'a> {
-    pub data: Cow<'a, [i16]>,
-    pub sample_rate: u32,
-    pub num_channels: u32,
-    pub samples_per_channel: u32,
-    pub timestamp_us: i64,
+package livekit.proto;
+option csharp_namespace = "LiveKit.Proto";
+
+
+enum DtlsRole {
+    DTLS_CLIENT = 0,
+    DTLS_SERVER = 1,
+    DTLS_UNKNOWN = 2,
 }
 
-impl AudioFrame<'_> {
-    // Owned
-    pub fn new(sample_rate: u32, num_channels: u32, samples_per_channel: u32) -> Self {
-        Self {
-            data: vec![0; (num_channels * samples_per_channel) as usize].into(),
-            sample_rate,
-            num_channels,
-            samples_per_channel,
-            timestamp_us: 0,
-        }
-    }
+enum IceCandidatePairState {
+    PAIR_FROZEN,
+    PAIR_WAITING,
+    PAIR_IN_PROGRESS,
+    PAIR_FAILED,
+    PAIR_SUCCEEDED,
 }
+
+enum IceCandidateType {
+    HOST,
+    SRFLX,
+    PRFLX,
+    RELAY,
+}
+

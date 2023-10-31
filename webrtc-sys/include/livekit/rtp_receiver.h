@@ -18,7 +18,9 @@
 
 #include <memory>
 
+#include "api/peer_connection_interface.h"
 #include "api/rtp_receiver_interface.h"
+#include "api/scoped_refptr.h"
 #include "livekit/helper.h"
 #include "livekit/media_stream.h"
 #include "livekit/rtp_parameters.h"
@@ -36,10 +38,16 @@ namespace livekit {
 // TODO(theomonnom): FrameTransformer & FrameDecryptor interface
 class RtpReceiver {
  public:
-  RtpReceiver(std::shared_ptr<RtcRuntime> rtc_runtime,
-              rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
+  RtpReceiver(
+      std::shared_ptr<RtcRuntime> rtc_runtime,
+      rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
+      rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   std::shared_ptr<MediaStreamTrack> track() const;
+
+  void get_stats(
+      rust::Box<ReceiverContext> ctx,
+      rust::Fn<void(rust::Box<ReceiverContext>, rust::String)> on_stats) const;
 
   rust::Vec<rust::String> stream_ids() const;
   rust::Vec<MediaStreamPtr> streams() const;
@@ -61,6 +69,7 @@ class RtpReceiver {
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
+  rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
 static std::shared_ptr<RtpReceiver> _shared_rtp_receiver() {

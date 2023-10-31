@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::helper::AsyncContext;
 use crate::impl_thread_safety;
+use std::any::Any;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -133,28 +133,28 @@ pub mod ffi {
         fn create_offer(
             self: &PeerConnection,
             options: RtcOfferAnswerOptions,
-            ctx: Box<AsyncContext>,
-            on_success: fn(ctx: Box<AsyncContext>, sdp: UniquePtr<SessionDescription>),
-            on_error: fn(ctx: Box<AsyncContext>, error: RtcError),
+            ctx: Box<PeerContext>,
+            on_success: fn(ctx: Box<PeerContext>, sdp: UniquePtr<SessionDescription>),
+            on_error: fn(ctx: Box<PeerContext>, error: RtcError),
         );
         fn create_answer(
             self: &PeerConnection,
             options: RtcOfferAnswerOptions,
-            ctx: Box<AsyncContext>,
-            on_success: fn(ctx: Box<AsyncContext>, sdp: UniquePtr<SessionDescription>),
-            on_error: fn(ctx: Box<AsyncContext>, error: RtcError),
+            ctx: Box<PeerContext>,
+            on_success: fn(ctx: Box<PeerContext>, sdp: UniquePtr<SessionDescription>),
+            on_error: fn(ctx: Box<PeerContext>, error: RtcError),
         );
         fn set_local_description(
             self: &PeerConnection,
             desc: UniquePtr<SessionDescription>,
-            ctx: Box<AsyncContext>,
-            on_complete: fn(ctx: Box<AsyncContext>, error: RtcError),
+            ctx: Box<PeerContext>,
+            on_complete: fn(ctx: Box<PeerContext>, error: RtcError),
         );
         fn set_remote_description(
             self: &PeerConnection,
             desc: UniquePtr<SessionDescription>,
-            ctx: Box<AsyncContext>,
-            on_complete: fn(ctx: Box<AsyncContext>, error: RtcError),
+            ctx: Box<PeerContext>,
+            on_complete: fn(ctx: Box<PeerContext>, error: RtcError),
         );
         fn add_track(
             self: &PeerConnection,
@@ -164,20 +164,8 @@ pub mod ffi {
         fn remove_track(self: &PeerConnection, sender: SharedPtr<RtpSender>) -> Result<()>;
         fn get_stats(
             self: &PeerConnection,
-            ctx: Box<AsyncContext>,
-            on_stats: fn(ctx: Box<AsyncContext>, json: String),
-        );
-        fn get_sender_stats(
-            self: &PeerConnection,
-            ctx: Box<AsyncContext>,
-            sender: SharedPtr<RtpSender>,
-            on_stats: fn(ctx: Box<AsyncContext>, json: String),
-        );
-        fn get_receiver_stats(
-            self: &PeerConnection,
-            ctx: Box<AsyncContext>,
-            receiver: SharedPtr<RtpReceiver>,
-            on_stats: fn(ctx: Box<AsyncContext>, json: String),
+            ctx: Box<PeerContext>,
+            on_stats: fn(ctx: Box<PeerContext>, json: String),
         );
         fn add_transceiver(
             self: &PeerConnection,
@@ -200,8 +188,8 @@ pub mod ffi {
         fn add_ice_candidate(
             self: &PeerConnection,
             candidate: SharedPtr<IceCandidate>,
-            ctx: Box<AsyncContext>,
-            on_complete: fn(ctx: Box<AsyncContext>, error: RtcError),
+            ctx: Box<PeerContext>,
+            on_complete: fn(ctx: Box<PeerContext>, error: RtcError),
         );
         fn restart_ice(self: &PeerConnection);
         fn current_local_description(self: &PeerConnection) -> UniquePtr<SessionDescription>;
@@ -216,9 +204,12 @@ pub mod ffi {
     }
 
     extern "Rust" {
-        type AsyncContext;
+        type PeerContext;
     }
 }
+
+#[repr(transparent)]
+pub struct PeerContext(pub Box<dyn Any + Send>);
 
 // https://webrtc.github.io/webrtc-org/native-code/native-apis/
 impl_thread_safety!(ffi::PeerConnection, Send + Sync);

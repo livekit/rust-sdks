@@ -18,9 +18,11 @@
 
 #include <memory>
 
+#include "api/peer_connection_interface.h"
 #include "api/rtp_parameters.h"
 #include "api/rtp_transceiver_direction.h"
 #include "api/rtp_transceiver_interface.h"
+#include "api/scoped_refptr.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_parameters.h"
 #include "livekit/rtp_receiver.h"
@@ -41,7 +43,8 @@ class RtpTransceiver {
  public:
   RtpTransceiver(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver);
+      rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
+      rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   MediaType media_type() const;
 
@@ -80,6 +83,7 @@ class RtpTransceiver {
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver_;
+  rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
 static std::shared_ptr<RtpTransceiver> _shared_rtp_transceiver() {

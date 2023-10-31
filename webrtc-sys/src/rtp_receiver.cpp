@@ -15,17 +15,23 @@
  */
 
 #include "livekit/rtp_receiver.h"
+#include "livekit/jsep.h"
 
 #include <memory>
 
 #include "absl/types/optional.h"
+#include "api/peer_connection_interface.h"
+#include "api/scoped_refptr.h"
 
 namespace livekit {
 
 RtpReceiver::RtpReceiver(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
-    : rtc_runtime_(rtc_runtime), receiver_(std::move(receiver)) {}
+    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
+    rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
+    : rtc_runtime_(rtc_runtime),
+      receiver_(std::move(receiver)),
+      peer_connection_(std::move(peer_connection)) {}
 
 std::shared_ptr<MediaStreamTrack> RtpReceiver::track() const {
   return rtc_runtime_->get_or_create_media_stream_track(receiver_->track());
@@ -36,6 +42,14 @@ rust::Vec<rust::String> RtpReceiver::stream_ids() const {
   for (auto id : receiver_->stream_ids())
     rust.push_back(id);
   return rust;
+}
+
+void RtpReceiver::get_stats(
+    rust::Box<ReceiverContext> ctx,
+    rust::Fn<void(rust::Box<ReceiverContext>, rust::String)> on_stats) const {
+	auto observer = 
+      rtc::make_ref_counted<NativeRtcStatsCollector<ReceiverContext>>(std::move(ctx), on_stats);
+  peer_connection_->GetStats(receiver_, observer);
 }
 
 rust::Vec<MediaStreamPtr> RtpReceiver::streams() const {

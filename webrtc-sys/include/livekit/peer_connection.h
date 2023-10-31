@@ -61,35 +61,35 @@ class PeerConnection : webrtc::PeerConnectionObserver {
 
   void create_offer(
       RtcOfferAnswerOptions options,
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext>,
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>,
                     std::unique_ptr<SessionDescription>)> on_success,
-      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error) const;
+      rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_error) const;
 
   void create_answer(
       RtcOfferAnswerOptions options,
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext>,
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>,
                     std::unique_ptr<SessionDescription>)> on_success,
-      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error) const;
+      rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_error) const;
 
   void set_local_description(
       std::unique_ptr<SessionDescription> desc,
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const;
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const;
 
   void set_remote_description(
       std::unique_ptr<SessionDescription> desc,
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const;
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const;
 
   std::shared_ptr<DataChannel> create_data_channel(rust::String label,
                                                    DataChannelInit init) const;
 
   void add_ice_candidate(
       std::shared_ptr<IceCandidate> candidate,
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete) const;
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const;
 
   std::shared_ptr<RtpSender> add_track(
       std::shared_ptr<MediaStreamTrack> track,
@@ -98,18 +98,8 @@ class PeerConnection : webrtc::PeerConnectionObserver {
   void remove_track(std::shared_ptr<RtpSender> sender) const;
 
   void get_stats(
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const;
-
-  void get_sender_stats(
-      rust::Box<AsyncContext> ctx,
-      std::shared_ptr<RtpSender> sender,
-      rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const;
-
-  void get_receiver_stats(
-      rust::Box<AsyncContext> ctx,
-      std::shared_ptr<RtpReceiver> sender,
-      rust::Fn<void(rust::Box<AsyncContext>, rust::String)> on_stats) const;
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>, rust::String)> on_stats) const;
 
   void restart_ice() const;
 

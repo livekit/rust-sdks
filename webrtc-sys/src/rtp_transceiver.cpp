@@ -16,6 +16,9 @@
 
 #include "livekit/rtp_transceiver.h"
 
+#include "api/peer_connection_interface.h"
+#include "api/scoped_refptr.h"
+
 namespace livekit {
 
 webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
@@ -35,8 +38,11 @@ webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
 
 RtpTransceiver::RtpTransceiver(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver)
-    : rtc_runtime_(rtc_runtime), transceiver_(std::move(transceiver)) {}
+    rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
+    rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
+    : rtc_runtime_(rtc_runtime),
+      transceiver_(std::move(transceiver)),
+      peer_connection_(std::move(peer_connection)) {}
 
 MediaType RtpTransceiver::media_type() const {
   return static_cast<MediaType>(transceiver_->media_type());
@@ -49,11 +55,13 @@ rust::String RtpTransceiver::mid() const {
 }
 
 std::shared_ptr<RtpSender> RtpTransceiver::sender() const {
-  return std::make_shared<RtpSender>(rtc_runtime_, transceiver_->sender());
+  return std::make_shared<RtpSender>(rtc_runtime_, transceiver_->sender(),
+                                     peer_connection_);
 }
 
 std::shared_ptr<RtpReceiver> RtpTransceiver::receiver() const {
-  return std::make_shared<RtpReceiver>(rtc_runtime_, transceiver_->receiver());
+  return std::make_shared<RtpReceiver>(rtc_runtime_, transceiver_->receiver(),
+                                       peer_connection_);
 }
 
 bool RtpTransceiver::stopped() const {

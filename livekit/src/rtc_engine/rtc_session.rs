@@ -230,8 +230,8 @@ impl RtcSession {
         self.inner.add_track(req).await
     }
 
-    pub async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
-        self.inner.remove_track(sender).await
+    pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+        self.inner.remove_track(sender)
     }
 
     pub async fn create_sender(
@@ -612,7 +612,7 @@ impl SessionInner {
         }
     }
 
-    async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+    fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
         if let Some(track) = sender.track() {
             let mut pending_tracks = self.pending_tracks.lock();
             pending_tracks.remove(&track.id());

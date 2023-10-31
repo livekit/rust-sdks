@@ -11,11 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use std::any::Any;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-
     // Wrapper to opaque C++ objects
     // https://github.com/dtolnay/cxx/issues/741
     // Used to allow SharedPtr/UniquePtr type inside a rust::Vec
@@ -67,6 +65,3 @@ pub mod ffi {
         fn _vec_rtp_transceiver_ptr() -> Vec<RtpTransceiverPtr>;
     }
 }
-
-#[repr(transparent)]
-pub struct AsyncContext(pub Box<dyn Any + Send>);
