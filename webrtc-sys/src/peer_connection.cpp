@@ -19,6 +19,7 @@
 #include <memory>
 
 #include "api/data_channel_interface.h"
+#include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 #include "livekit/data_channel.h"
 #include "livekit/jsep.h"
@@ -72,17 +73,32 @@ to_native_offer_answer_options(const RtcOfferAnswerOptions& options) {
 }
 
 PeerConnection::PeerConnection(
-    std::shared_ptr<RtcRuntime> rtc_runtime,
-    std::unique_ptr<NativePeerConnectionObserver> observer,
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
-    : rtc_runtime_(rtc_runtime),
-      observer_(std::move(observer)),
-      peer_connection_(std::move(peer_connection)) {
+    std::shared_ptr<RtcRuntime> rtc_runtime_,
+    rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
+    rust::Box<PeerConnectionObserverWrapper> observer)
+    : rtc_runtime_(std::move(rtc_runtime_)),
+      pc_factory_(std::move(pc_factory)),
+      observer_(std::move(observer)) {
   RTC_LOG(LS_VERBOSE) << "PeerConnection::PeerConnection()";
 }
 
 PeerConnection::~PeerConnection() {
   RTC_LOG(LS_VERBOSE) << "PeerConnection::~PeerConnection()";
+}
+
+bool PeerConnection::Initialize(
+    webrtc::PeerConnectionInterface::RTCConfiguration config) {
+  webrtc::PeerConnectionDependencies deps{this};
+  auto result =
+      pc_factory_->CreatePeerConnectionOrError(config, std::move(deps));
+
+  if (!result.ok()) {
+    RTC_LOG(LS_ERROR) << "Failed to create peer connection: "
+                      << result.error().message();
+    return false;
+  }
+  peer_connection_ = std::move(result.value());
+  return true;
 }
 
 void PeerConnection::set_configuration(RtcConfiguration config) const {
@@ -344,70 +360,60 @@ void PeerConnection::close() const {
 
 // PeerConnectionObserver
 
-NativePeerConnectionObserver::NativePeerConnectionObserver(
-    rust::Box<PeerConnectionObserverWrapper> observer)
-    : observer_(std::move(observer)) {
-  RTC_LOG(LS_INFO) << "NativePeerConnectionObserver()";
-}
-
-NativePeerConnectionObserver::~NativePeerConnectionObserver() {
-  RTC_LOG(LS_INFO) << "~NativePeerConnectionObserver()";
-}
-
-void NativePeerConnectionObserver::OnSignalingChange(
+void PeerConnection::OnSignalingChange(
     webrtc::PeerConnectionInterface::SignalingState new_state) {
   observer_->on_signaling_change(static_cast<SignalingState>(new_state));
 }
 
-void NativePeerConnectionObserver::OnAddStream(
+void PeerConnection::OnAddStream(
     rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
   observer_->on_add_stream(std::make_unique<MediaStream>(rtc_runtime_, stream));
 }
 
-void NativePeerConnectionObserver::OnRemoveStream(
+void PeerConnection::OnRemoveStream(
     rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
   // Find current MediaStream
   // observer_->on_remove_stream(std::make_unique<MediaStream>(rtc_runtime_,
   // stream));
 }
 
-void NativePeerConnectionObserver::OnDataChannel(
+void PeerConnection::OnDataChannel(
     rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) {
   observer_->on_data_channel(
       std::make_shared<DataChannel>(rtc_runtime_, data_channel));
 }
 
-void NativePeerConnectionObserver::OnRenegotiationNeeded() {
+void PeerConnection::OnRenegotiationNeeded() {
   observer_->on_renegotiation_needed();
 }
 
-void NativePeerConnectionObserver::OnNegotiationNeededEvent(uint32_t event_id) {
+void PeerConnection::OnNegotiationNeededEvent(uint32_t event_id) {
   observer_->on_negotiation_needed_event(event_id);
 }
 
-void NativePeerConnectionObserver::OnIceConnectionChange(
+void PeerConnection::OnIceConnectionChange(
     webrtc::PeerConnectionInterface::IceConnectionState new_state) {
   observer_->on_ice_connection_change(
       static_cast<IceConnectionState>(new_state));
 }
 
-void NativePeerConnectionObserver::OnStandardizedIceConnectionChange(
+void PeerConnection::OnStandardizedIceConnectionChange(
     webrtc::PeerConnectionInterface::IceConnectionState new_state) {
   observer_->on_standardized_ice_connection_change(
       static_cast<IceConnectionState>(new_state));
 }
 
-void NativePeerConnectionObserver::OnConnectionChange(
+void PeerConnection::OnConnectionChange(
     webrtc::PeerConnectionInterface::PeerConnectionState new_state) {
   observer_->on_connection_change(static_cast<PeerConnectionState>(new_state));
 }
 
-void NativePeerConnectionObserver::OnIceGatheringChange(
+void PeerConnection::OnIceGatheringChange(
     webrtc::PeerConnectionInterface::IceGatheringState new_state) {
   observer_->on_ice_gathering_change(static_cast<IceGatheringState>(new_state));
 }
 
-void NativePeerConnectionObserver::OnIceCandidate(
+void PeerConnection::OnIceCandidate(
     const webrtc::IceCandidateInterface* candidate) {
   auto new_candidate = webrtc::CreateIceCandidate(candidate->sdp_mid(),
                                                   candidate->sdp_mline_index(),
@@ -416,16 +422,15 @@ void NativePeerConnectionObserver::OnIceCandidate(
       std::make_unique<IceCandidate>(std::move(new_candidate)));
 }
 
-void NativePeerConnectionObserver::OnIceCandidateError(
-    const std::string& address,
-    int port,
-    const std::string& url,
-    int error_code,
-    const std::string& error_text) {
+void PeerConnection::OnIceCandidateError(const std::string& address,
+                                         int port,
+                                         const std::string& url,
+                                         int error_code,
+                                         const std::string& error_text) {
   observer_->on_ice_candidate_error(address, port, url, error_code, error_text);
 }
 
-void NativePeerConnectionObserver::OnIceCandidatesRemoved(
+void PeerConnection::OnIceCandidatesRemoved(
     const std::vector<cricket::Candidate>& candidates) {
   rust::Vec<CandidatePtr> vec;
 
@@ -436,12 +441,11 @@ void NativePeerConnectionObserver::OnIceCandidatesRemoved(
   observer_->on_ice_candidates_removed(std::move(vec));
 }
 
-void NativePeerConnectionObserver::OnIceConnectionReceivingChange(
-    bool receiving) {
+void PeerConnection::OnIceConnectionReceivingChange(bool receiving) {
   observer_->on_ice_connection_receiving_change(receiving);
 }
 
-void NativePeerConnectionObserver::OnIceSelectedCandidatePairChanged(
+void PeerConnection::OnIceSelectedCandidatePairChanged(
     const cricket::CandidatePairChangeEvent& event) {
   CandidatePairChangeEvent e{};
   e.selected_candidate_pair.local =
@@ -455,7 +459,7 @@ void NativePeerConnectionObserver::OnIceSelectedCandidatePairChanged(
   observer_->on_ice_selected_candidate_pair_changed(std::move(e));
 }
 
-void NativePeerConnectionObserver::OnAddTrack(
+void PeerConnection::OnAddTrack(
     rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
     const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&
         streams) {
@@ -470,26 +474,20 @@ void NativePeerConnectionObserver::OnAddTrack(
                           std::move(vec));
 }
 
-void NativePeerConnectionObserver::OnTrack(
+void PeerConnection::OnTrack(
     rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
   observer_->on_track(
       std::make_unique<RtpTransceiver>(rtc_runtime_, transceiver));
 }
 
-void NativePeerConnectionObserver::OnRemoveTrack(
+void PeerConnection::OnRemoveTrack(
     rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) {
   observer_->on_remove_track(
       std::make_unique<RtpReceiver>(rtc_runtime_, receiver));
 }
 
-void NativePeerConnectionObserver::OnInterestingUsage(int usage_pattern) {
+void PeerConnection::OnInterestingUsage(int usage_pattern) {
   observer_->on_interesting_usage(usage_pattern);
-}
-
-std::unique_ptr<NativePeerConnectionObserver>
-create_native_peer_connection_observer(
-    rust::Box<PeerConnectionObserverWrapper> observer) {
-  return std::make_unique<NativePeerConnectionObserver>(std::move(observer));
 }
 
 }  // namespace livekit
