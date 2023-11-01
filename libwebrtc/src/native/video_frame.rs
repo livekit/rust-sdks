@@ -21,7 +21,7 @@ use webrtc_sys::video_frame as vf_sys;
 use webrtc_sys::video_frame_buffer as vfb_sys;
 
 /// We don't use vf::VideoFrameBuffer trait for the types inside this module to avoid confusion
-/// because irectly using platform specific types is not valid (e.g user callback)
+/// because directly using platform specific types is not valid (e.g user callback)
 /// All the types inside this module are only used internally. For public types, see the top level video_frame.rs
 
 pub fn new_video_frame_buffer(
