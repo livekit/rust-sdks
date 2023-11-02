@@ -51,7 +51,7 @@ class PeerConnection : webrtc::PeerConnectionObserver {
   PeerConnection(
       std::shared_ptr<RtcRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
-      rust::Box<PeerConnectionObserverWrapper> observer);
+      rust::Box<PeerConnectionObserverWrapper>&& observer);
 
   ~PeerConnection();
 

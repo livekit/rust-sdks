@@ -75,7 +75,7 @@ to_native_offer_answer_options(const RtcOfferAnswerOptions& options) {
 PeerConnection::PeerConnection(
     std::shared_ptr<RtcRuntime> rtc_runtime_,
     rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
-    rust::Box<PeerConnectionObserverWrapper> observer)
+    rust::Box<PeerConnectionObserverWrapper>&& observer)
     : rtc_runtime_(std::move(rtc_runtime_)),
       pc_factory_(std::move(pc_factory)),
       observer_(std::move(observer)) {
