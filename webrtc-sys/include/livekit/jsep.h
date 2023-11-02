@@ -132,7 +132,7 @@ class NativeSetRemoteSdpObserver
 };
 
 
-template<class T>
+template<class T> // Context type
 class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
  public:
   NativeRtcStatsCollector(rust::Box<T> ctx,
