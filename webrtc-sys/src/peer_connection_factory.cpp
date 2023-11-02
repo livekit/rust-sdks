@@ -22,6 +22,7 @@
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/peer_connection_interface.h"
+#include "api/rtc_error.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
@@ -39,6 +40,8 @@
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
 namespace livekit {
+
+class PeerConnectionObserver;
 
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
@@ -96,18 +99,16 @@ PeerConnectionFactory::~PeerConnectionFactory() {
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     RtcConfiguration config,
-    std::unique_ptr<NativePeerConnectionObserver> observer) const {
-  observer->rtc_runtime_ = rtc_runtime_;  // See peer_connection.h
-  webrtc::PeerConnectionDependencies deps{observer.get()};
-  auto result = peer_factory_->CreatePeerConnectionOrError(
-      to_native_rtc_configuration(config), std::move(deps));
+    rust::Box<PeerConnectionObserverWrapper> observer) const {
+  std::shared_ptr<PeerConnection> pc = std::make_shared<PeerConnection>(
+      rtc_runtime_, peer_factory_, std::move(observer));
 
-  if (!result.ok()) {
-    throw std::runtime_error(serialize_error(to_error(result.error())));
+  if (!pc->Initialize(to_native_rtc_configuration(config))) {
+    throw std::runtime_error(serialize_error(to_error(webrtc::RTCError(
+        webrtc::RTCErrorType::INTERNAL_ERROR, "failed to initialize pc"))));
   }
 
-  return std::make_shared<PeerConnection>(rtc_runtime_, std::move(observer),
-                                          result.value());
+  return pc;
 }
 
 std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(

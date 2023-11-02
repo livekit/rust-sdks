@@ -14,6 +14,7 @@
 
 use crate::prelude::*;
 use libwebrtc::prelude::*;
+use libwebrtc::stats::RtcStats;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
@@ -111,6 +112,15 @@ impl Track {
             Self::RemoteVideo(track) => track.rtc_track().into(),
         }
     }
+
+    pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
+        match self {
+            Self::LocalAudio(track) => track.get_stats().await,
+            Self::LocalVideo(track) => track.get_stats().await,
+            Self::RemoteAudio(track) => track.get_stats().await,
+            Self::RemoteVideo(track) => track.get_stats().await,
+        }
+    }
 }
 
 pub(super) use track_dispatch;
@@ -161,6 +171,16 @@ pub(super) fn new_inner(
         rtc_track,
         events: Default::default(),
     }
+}
+
+pub(super) async fn get_stats(inner: &Arc<TrackInner>) -> RoomResult<Vec<RtcStats>> {
+    let transceiver = inner.info.read().transceiver.clone();
+    let Some(transceiver) = transceiver.as_ref() else {
+        return Err(RoomError::Internal("no transceiver found for track".into()));
+    };
+
+    let rtp_receiver = transceiver.receiver();
+    Ok(rtp_receiver.get_stats().await?)
 }
 
 /// This is only called for local tracks

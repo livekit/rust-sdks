@@ -14,7 +14,6 @@
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
-
     // Wrapper to opaque C++ objects
     // https://github.com/dtolnay/cxx/issues/741
     // Used to allow SharedPtr/UniquePtr type inside a rust::Vec

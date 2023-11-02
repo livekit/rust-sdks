@@ -15,7 +15,10 @@
 use crate::imp::media_stream_track::new_media_stream_track;
 use crate::media_stream_track::MediaStreamTrack;
 use crate::rtp_parameters::RtpParameters;
+use crate::stats::RtcStats;
+use crate::{RtcError, RtcErrorType};
 use cxx::SharedPtr;
+use tokio::sync::oneshot;
 use webrtc_sys::rtp_receiver as sys_rr;
 
 #[derive(Clone)]
@@ -31,6 +34,27 @@ impl RtpReceiver {
         }
 
         Some(new_media_stream_track(track_handle))
+    }
+
+    pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
+        let (tx, rx) = oneshot::channel::<Result<Vec<RtcStats>, RtcError>>();
+        let ctx = Box::new(sys_rr::ReceiverContext(Box::new(tx)));
+
+        self.sys_handle.get_stats(ctx, |ctx, stats| {
+            let tx = ctx
+                .0
+                .downcast::<oneshot::Sender<Result<Vec<RtcStats>, RtcError>>>()
+                .unwrap();
+
+            // Unwrap because it should not happens
+            let vec = serde_json::from_str(&stats).unwrap();
+            let _ = tx.send(Ok(vec));
+        });
+
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "get_stats cancelled".to_owned(),
+        })?
     }
 
     pub fn parameters(&self) -> RtpParameters {

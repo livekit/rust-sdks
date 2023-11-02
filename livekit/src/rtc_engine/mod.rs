@@ -136,6 +136,7 @@ struct EngineHandle {
 
 struct EngineInner {
     // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection factory accross multiple Rtc sessions
+    #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     engine_tx: EngineEmitter,
     options: EngineOptions,
@@ -204,12 +205,12 @@ impl RtcEngine {
         session.add_track(req).await
     }
 
-    pub async fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+    pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
         // We don't need to wait for the reconnection
         let session = self.inner.running_handle.read().session.clone();
-        session.remove_track(sender).await // TODO(theomonnom): Ignore errors where this
-                                           // RtpSender is bound to the old session. (Can
-                                           // happen on bad timing and it is safe to ignore)
+        session.remove_track(sender) // TODO(theomonnom): Ignore errors where this
+                                     // RtpSender is bound to the old session. (Can
+                                     // happen on bad timing and it is safe to ignore)
     }
 
     pub async fn create_sender(

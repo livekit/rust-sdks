@@ -15,12 +15,22 @@
  */
 
 #include "livekit/rtp_sender.h"
+#include "livekit/jsep.h"
+
+#include "rust/cxx.h"
+#include "webrtc-sys/src/rtp_sender.rs.h"
 
 namespace livekit {
 
-RtpSender::RtpSender(std::shared_ptr<RtcRuntime> rtc_runtime,
-                     rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
-    : rtc_runtime_(rtc_runtime), sender_(std::move(sender)) {}
+
+
+RtpSender::RtpSender(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
+    rtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
+    rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
+    : rtc_runtime_(rtc_runtime),
+      sender_(std::move(sender)),
+      peer_connection_(std::move(peer_connection)) {}
 
 bool RtpSender::set_track(std::shared_ptr<MediaStreamTrack> track) const {
   return sender_->SetTrack(track->rtc_track().get());
@@ -32,6 +42,14 @@ std::shared_ptr<MediaStreamTrack> RtpSender::track() const {
 
 uint32_t RtpSender::ssrc() const {
   return sender_->ssrc();
+}
+
+void RtpSender::get_stats(
+    rust::Box<SenderContext> ctx,
+    rust::Fn<void(rust::Box<SenderContext>, rust::String)> on_stats) const {
+  auto observer =
+      rtc::make_ref_counted<NativeRtcStatsCollector<SenderContext>>(std::move(ctx), on_stats);
+  peer_connection_->GetStats(sender_, observer);
 }
 
 MediaType RtpSender::media_type() const {

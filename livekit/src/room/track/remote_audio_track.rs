@@ -15,6 +15,7 @@
 use super::{remote_track, TrackInner};
 use crate::prelude::*;
 use libwebrtc::prelude::*;
+use libwebrtc::stats::RtcStats;
 use livekit_protocol as proto;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -89,11 +90,15 @@ impl RemoteAudioTrack {
         true
     }
 
-    pub fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
+    pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
+        super::get_stats(&self.inner).await
+    }
+
+    pub(crate) fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
 
-    pub fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
+    pub(crate) fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
         *self.inner.events.unmuted.lock() = Some(Box::new(f));
     }
 

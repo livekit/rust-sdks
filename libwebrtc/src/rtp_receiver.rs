@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use crate::{
     imp::rtp_receiver as imp_rr, media_stream_track::MediaStreamTrack,
-    rtp_parameters::RtpParameters,
+    rtp_parameters::RtpParameters, stats::RtcStats, RtcError,
 };
 
 #[derive(Clone)]
@@ -27,6 +27,10 @@ pub struct RtpReceiver {
 impl RtpReceiver {
     pub fn track(&self) -> Option<MediaStreamTrack> {
         self.handle.track()
+    }
+
+    pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
+        self.handle.get_stats().await
     }
 
     pub fn parameters(&self) -> RtpParameters {

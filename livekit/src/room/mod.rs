@@ -23,6 +23,7 @@ use libwebrtc::prelude::{
     ContinualGatheringPolicy, IceTransportsType, MediaStream, MediaStreamTrack, RtcConfiguration,
 };
 use libwebrtc::rtp_transceiver::RtpTransceiver;
+use libwebrtc::RtcError;
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
@@ -55,6 +56,8 @@ pub enum RoomError {
     Engine(#[from] EngineError),
     #[error("room failure: {0}")]
     Internal(String),
+    #[error("rtc: {0}")]
+    Rtc(#[from] RtcError),
     #[error("this track or a track of the same source is already published")]
     TrackAlreadyPublished,
     #[error("already closed")]
@@ -474,7 +477,6 @@ pub(crate) struct RoomSession {
     local_participant: LocalParticipant,
     participants: RwLock<(
         // Keep track of participants by sid and identity
-        // Ideally we would just need identity
         HashMap<ParticipantSid, RemoteParticipant>,
         HashMap<ParticipantIdentity, RemoteParticipant>,
     )>,

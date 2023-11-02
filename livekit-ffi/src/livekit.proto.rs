@@ -2226,4 +2226,977 @@ pub struct DisposeCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RtcStats {
+    #[prost(oneof="rtc_stats::Stats", tags="3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17")]
+    pub stats: ::core::option::Option<rtc_stats::Stats>,
+}
+/// Nested message and enum types in `RtcStats`.
+pub mod rtc_stats {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Codec {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub codec: ::core::option::Option<super::CodecStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct InboundRtp {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub stream: ::core::option::Option<super::RtpStreamStats>,
+        #[prost(message, optional, tag="3")]
+        pub received: ::core::option::Option<super::ReceivedRtpStreamStats>,
+        #[prost(message, optional, tag="4")]
+        pub inbound: ::core::option::Option<super::InboundRtpStreamStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct OutboundRtp {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub stream: ::core::option::Option<super::RtpStreamStats>,
+        #[prost(message, optional, tag="3")]
+        pub sent: ::core::option::Option<super::SentRtpStreamStats>,
+        #[prost(message, optional, tag="4")]
+        pub outbound: ::core::option::Option<super::OutboundRtpStreamStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct RemoteInboundRtp {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub stream: ::core::option::Option<super::RtpStreamStats>,
+        #[prost(message, optional, tag="3")]
+        pub received: ::core::option::Option<super::ReceivedRtpStreamStats>,
+        #[prost(message, optional, tag="4")]
+        pub remote_inbound: ::core::option::Option<super::RemoteInboundRtpStreamStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct RemoteOutboundRtp {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub stream: ::core::option::Option<super::RtpStreamStats>,
+        #[prost(message, optional, tag="3")]
+        pub sent: ::core::option::Option<super::SentRtpStreamStats>,
+        #[prost(message, optional, tag="4")]
+        pub remote_outbound: ::core::option::Option<super::RemoteOutboundRtpStreamStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct MediaSource {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub source: ::core::option::Option<super::MediaSourceStats>,
+        #[prost(message, optional, tag="3")]
+        pub audio: ::core::option::Option<super::AudioSourceStats>,
+        #[prost(message, optional, tag="4")]
+        pub video: ::core::option::Option<super::VideoSourceStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct MediaPlayout {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub audio_playout: ::core::option::Option<super::AudioPlayoutStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct PeerConnection {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub pc: ::core::option::Option<super::PeerConnectionStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct DataChannel {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub dc: ::core::option::Option<super::DataChannelStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Transport {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub transport: ::core::option::Option<super::TransportStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct CandidatePair {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub candidate_pair: ::core::option::Option<super::CandidatePairStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct LocalCandidate {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub candidate: ::core::option::Option<super::IceCandidateStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct RemoteCandidate {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub candidate: ::core::option::Option<super::IceCandidateStats>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Certificate {
+        #[prost(message, optional, tag="1")]
+        pub rtc: ::core::option::Option<super::RtcStatsData>,
+        #[prost(message, optional, tag="2")]
+        pub certificate: ::core::option::Option<super::CertificateStats>,
+    }
+    /// Deprecated
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Track {
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Stats {
+        #[prost(message, tag="3")]
+        Codec(Codec),
+        #[prost(message, tag="4")]
+        InboundRtp(InboundRtp),
+        #[prost(message, tag="5")]
+        OutboundRtp(OutboundRtp),
+        #[prost(message, tag="6")]
+        RemoteInboundRtp(RemoteInboundRtp),
+        #[prost(message, tag="7")]
+        RemoteOutboundRtp(RemoteOutboundRtp),
+        #[prost(message, tag="8")]
+        MediaSource(MediaSource),
+        #[prost(message, tag="9")]
+        MediaPlayout(MediaPlayout),
+        #[prost(message, tag="10")]
+        PeerConnection(PeerConnection),
+        #[prost(message, tag="11")]
+        DataChannel(DataChannel),
+        #[prost(message, tag="12")]
+        Transport(Transport),
+        #[prost(message, tag="13")]
+        CandidatePair(CandidatePair),
+        #[prost(message, tag="14")]
+        LocalCandidate(LocalCandidate),
+        #[prost(message, tag="15")]
+        RemoteCandidate(RemoteCandidate),
+        #[prost(message, tag="16")]
+        Certificate(Certificate),
+        #[prost(message, tag="17")]
+        Track(Track),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RtcStatsData {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(int64, tag="2")]
+    pub timestamp: i64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CodecStats {
+    #[prost(uint32, tag="1")]
+    pub payload_type: u32,
+    #[prost(string, tag="2")]
+    pub transport_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub mime_type: ::prost::alloc::string::String,
+    #[prost(uint32, tag="4")]
+    pub clock_rate: u32,
+    #[prost(uint32, tag="5")]
+    pub channels: u32,
+    #[prost(string, tag="6")]
+    pub sdp_fmtp_line: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RtpStreamStats {
+    #[prost(uint32, tag="1")]
+    pub ssrc: u32,
+    #[prost(string, tag="2")]
+    pub kind: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub transport_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub codec_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReceivedRtpStreamStats {
+    #[prost(uint64, tag="1")]
+    pub packets_received: u64,
+    #[prost(int64, tag="2")]
+    pub packets_lost: i64,
+    #[prost(double, tag="3")]
+    pub jitter: f64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct InboundRtpStreamStats {
+    #[prost(string, tag="1")]
+    pub track_identifier: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub mid: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub remote_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag="4")]
+    pub frames_decoded: u32,
+    #[prost(uint32, tag="5")]
+    pub key_frames_decoded: u32,
+    #[prost(uint32, tag="6")]
+    pub frames_rendered: u32,
+    #[prost(uint32, tag="7")]
+    pub frames_dropped: u32,
+    #[prost(uint32, tag="8")]
+    pub frame_width: u32,
+    #[prost(uint32, tag="9")]
+    pub frame_height: u32,
+    #[prost(double, tag="10")]
+    pub frames_per_second: f64,
+    #[prost(uint64, tag="11")]
+    pub qp_sum: u64,
+    #[prost(double, tag="12")]
+    pub total_decode_time: f64,
+    #[prost(double, tag="13")]
+    pub total_inter_frame_delay: f64,
+    #[prost(double, tag="14")]
+    pub total_squared_inter_frame_delay: f64,
+    #[prost(uint32, tag="15")]
+    pub pause_count: u32,
+    #[prost(double, tag="16")]
+    pub total_pause_duration: f64,
+    #[prost(uint32, tag="17")]
+    pub freeze_count: u32,
+    #[prost(double, tag="18")]
+    pub total_freeze_duration: f64,
+    #[prost(double, tag="19")]
+    pub last_packet_received_timestamp: f64,
+    #[prost(uint64, tag="20")]
+    pub header_bytes_received: u64,
+    #[prost(uint64, tag="21")]
+    pub packets_discarded: u64,
+    #[prost(uint64, tag="22")]
+    pub fec_bytes_received: u64,
+    #[prost(uint64, tag="23")]
+    pub fec_packets_received: u64,
+    #[prost(uint64, tag="24")]
+    pub fec_packets_discarded: u64,
+    #[prost(uint64, tag="25")]
+    pub bytes_received: u64,
+    #[prost(uint32, tag="26")]
+    pub nack_count: u32,
+    #[prost(uint32, tag="27")]
+    pub fir_count: u32,
+    #[prost(uint32, tag="28")]
+    pub pli_count: u32,
+    #[prost(double, tag="29")]
+    pub total_processing_delay: f64,
+    #[prost(double, tag="30")]
+    pub estimated_playout_timestamp: f64,
+    #[prost(double, tag="31")]
+    pub jitter_buffer_delay: f64,
+    #[prost(double, tag="32")]
+    pub jitter_buffer_target_delay: f64,
+    #[prost(uint64, tag="33")]
+    pub jitter_buffer_emitted_count: u64,
+    #[prost(double, tag="34")]
+    pub jitter_buffer_minimum_delay: f64,
+    #[prost(uint64, tag="35")]
+    pub total_samples_received: u64,
+    #[prost(uint64, tag="36")]
+    pub concealed_samples: u64,
+    #[prost(uint64, tag="37")]
+    pub silent_concealed_samples: u64,
+    #[prost(uint64, tag="38")]
+    pub concealment_events: u64,
+    #[prost(uint64, tag="39")]
+    pub inserted_samples_for_deceleration: u64,
+    #[prost(uint64, tag="40")]
+    pub removed_samples_for_acceleration: u64,
+    #[prost(double, tag="41")]
+    pub audio_level: f64,
+    #[prost(double, tag="42")]
+    pub total_audio_energy: f64,
+    #[prost(double, tag="43")]
+    pub total_samples_duration: f64,
+    #[prost(uint64, tag="44")]
+    pub frames_received: u64,
+    #[prost(string, tag="45")]
+    pub decoder_implementation: ::prost::alloc::string::String,
+    #[prost(string, tag="46")]
+    pub playout_id: ::prost::alloc::string::String,
+    #[prost(bool, tag="47")]
+    pub power_efficient_decoder: bool,
+    #[prost(uint64, tag="48")]
+    pub frames_assembled_from_multiple_packets: u64,
+    #[prost(double, tag="49")]
+    pub total_assembly_time: f64,
+    #[prost(uint64, tag="50")]
+    pub retransmitted_packets_received: u64,
+    #[prost(uint64, tag="51")]
+    pub retransmitted_bytes_received: u64,
+    #[prost(uint32, tag="52")]
+    pub rtx_ssrc: u32,
+    #[prost(uint32, tag="53")]
+    pub fec_ssrc: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SentRtpStreamStats {
+    #[prost(uint64, tag="1")]
+    pub packets_sent: u64,
+    #[prost(uint64, tag="2")]
+    pub bytes_sent: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OutboundRtpStreamStats {
+    #[prost(string, tag="1")]
+    pub mid: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub media_source_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub remote_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub rid: ::prost::alloc::string::String,
+    #[prost(uint64, tag="5")]
+    pub header_bytes_sent: u64,
+    #[prost(uint64, tag="6")]
+    pub retransmitted_packets_sent: u64,
+    #[prost(uint64, tag="7")]
+    pub retransmitted_bytes_sent: u64,
+    #[prost(uint32, tag="8")]
+    pub rtx_ssrc: u32,
+    #[prost(double, tag="9")]
+    pub target_bitrate: f64,
+    #[prost(uint64, tag="10")]
+    pub total_encoded_bytes_target: u64,
+    #[prost(uint32, tag="11")]
+    pub frame_width: u32,
+    #[prost(uint32, tag="12")]
+    pub frame_height: u32,
+    #[prost(double, tag="13")]
+    pub frames_per_second: f64,
+    #[prost(uint32, tag="14")]
+    pub frames_sent: u32,
+    #[prost(uint32, tag="15")]
+    pub huge_frames_sent: u32,
+    #[prost(uint32, tag="16")]
+    pub frames_encoded: u32,
+    #[prost(uint32, tag="17")]
+    pub key_frames_encoded: u32,
+    #[prost(uint64, tag="18")]
+    pub qp_sum: u64,
+    #[prost(double, tag="19")]
+    pub total_encode_time: f64,
+    #[prost(double, tag="20")]
+    pub total_packet_send_delay: f64,
+    #[prost(enumeration="QualityLimitationReason", tag="21")]
+    pub quality_limitation_reason: i32,
+    #[prost(map="string, double", tag="22")]
+    pub quality_limitation_durations: ::std::collections::HashMap<::prost::alloc::string::String, f64>,
+    #[prost(uint32, tag="23")]
+    pub quality_limitation_resolution_changes: u32,
+    #[prost(uint32, tag="24")]
+    pub nack_count: u32,
+    #[prost(uint32, tag="25")]
+    pub fir_count: u32,
+    #[prost(uint32, tag="26")]
+    pub pli_count: u32,
+    #[prost(string, tag="27")]
+    pub encoder_implementation: ::prost::alloc::string::String,
+    #[prost(bool, tag="28")]
+    pub power_efficient_encoder: bool,
+    #[prost(bool, tag="29")]
+    pub active: bool,
+    #[prost(string, tag="30")]
+    pub scalibility_mode: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RemoteInboundRtpStreamStats {
+    #[prost(string, tag="1")]
+    pub local_id: ::prost::alloc::string::String,
+    #[prost(double, tag="2")]
+    pub round_trip_time: f64,
+    #[prost(double, tag="3")]
+    pub total_round_trip_time: f64,
+    #[prost(double, tag="4")]
+    pub fraction_lost: f64,
+    #[prost(uint64, tag="5")]
+    pub round_trip_time_measurements: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RemoteOutboundRtpStreamStats {
+    #[prost(string, tag="1")]
+    pub local_id: ::prost::alloc::string::String,
+    #[prost(double, tag="2")]
+    pub remote_timestamp: f64,
+    #[prost(uint64, tag="3")]
+    pub reports_sent: u64,
+    #[prost(double, tag="4")]
+    pub round_trip_time: f64,
+    #[prost(double, tag="5")]
+    pub total_round_trip_time: f64,
+    #[prost(uint64, tag="6")]
+    pub round_trip_time_measurements: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MediaSourceStats {
+    #[prost(string, tag="1")]
+    pub track_identifier: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub kind: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AudioSourceStats {
+    #[prost(double, tag="1")]
+    pub audio_level: f64,
+    #[prost(double, tag="2")]
+    pub total_audio_energy: f64,
+    #[prost(double, tag="3")]
+    pub total_samples_duration: f64,
+    #[prost(double, tag="4")]
+    pub echo_return_loss: f64,
+    #[prost(double, tag="5")]
+    pub echo_return_loss_enhancement: f64,
+    #[prost(double, tag="6")]
+    pub dropped_samples_duration: f64,
+    #[prost(uint32, tag="7")]
+    pub dropped_samples_events: u32,
+    #[prost(double, tag="8")]
+    pub total_capture_delay: f64,
+    #[prost(uint64, tag="9")]
+    pub total_samples_captured: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VideoSourceStats {
+    #[prost(uint32, tag="1")]
+    pub width: u32,
+    #[prost(uint32, tag="2")]
+    pub height: u32,
+    #[prost(uint32, tag="3")]
+    pub frames: u32,
+    #[prost(double, tag="4")]
+    pub frames_per_second: f64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AudioPlayoutStats {
+    #[prost(string, tag="1")]
+    pub kind: ::prost::alloc::string::String,
+    #[prost(double, tag="2")]
+    pub synthesized_samples_duration: f64,
+    #[prost(uint32, tag="3")]
+    pub synthesized_samples_events: u32,
+    #[prost(double, tag="4")]
+    pub total_samples_duration: f64,
+    #[prost(double, tag="5")]
+    pub total_playout_delay: f64,
+    #[prost(uint64, tag="6")]
+    pub total_samples_count: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PeerConnectionStats {
+    #[prost(uint32, tag="1")]
+    pub data_channels_opened: u32,
+    #[prost(uint32, tag="2")]
+    pub data_channels_closed: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataChannelStats {
+    #[prost(string, tag="1")]
+    pub label: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub protocol: ::prost::alloc::string::String,
+    #[prost(int32, tag="3")]
+    pub data_channel_identifier: i32,
+    #[prost(enumeration="DataChannelState", optional, tag="4")]
+    pub state: ::core::option::Option<i32>,
+    #[prost(uint32, tag="5")]
+    pub messages_sent: u32,
+    #[prost(uint64, tag="6")]
+    pub bytes_sent: u64,
+    #[prost(uint32, tag="7")]
+    pub messages_received: u32,
+    #[prost(uint64, tag="8")]
+    pub bytes_received: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TransportStats {
+    #[prost(uint64, tag="1")]
+    pub packets_sent: u64,
+    #[prost(uint64, tag="2")]
+    pub packets_received: u64,
+    #[prost(uint64, tag="3")]
+    pub bytes_sent: u64,
+    #[prost(uint64, tag="4")]
+    pub bytes_received: u64,
+    #[prost(enumeration="IceRole", tag="5")]
+    pub ice_role: i32,
+    #[prost(string, tag="6")]
+    pub ice_local_username_fragment: ::prost::alloc::string::String,
+    #[prost(enumeration="DtlsTransportState", optional, tag="7")]
+    pub dtls_state: ::core::option::Option<i32>,
+    #[prost(enumeration="IceTransportState", optional, tag="8")]
+    pub ice_state: ::core::option::Option<i32>,
+    #[prost(string, tag="9")]
+    pub selected_candidate_pair_id: ::prost::alloc::string::String,
+    #[prost(string, tag="10")]
+    pub local_certificate_id: ::prost::alloc::string::String,
+    #[prost(string, tag="11")]
+    pub remote_certificate_id: ::prost::alloc::string::String,
+    #[prost(string, tag="12")]
+    pub tls_version: ::prost::alloc::string::String,
+    #[prost(string, tag="13")]
+    pub dtls_cipher: ::prost::alloc::string::String,
+    #[prost(enumeration="DtlsRole", tag="14")]
+    pub dtls_role: i32,
+    #[prost(string, tag="15")]
+    pub srtp_cipher: ::prost::alloc::string::String,
+    #[prost(uint32, tag="16")]
+    pub selected_candidate_pair_changes: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CandidatePairStats {
+    #[prost(string, tag="1")]
+    pub transport_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub local_candidate_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub remote_candidate_id: ::prost::alloc::string::String,
+    #[prost(enumeration="IceCandidatePairState", optional, tag="4")]
+    pub state: ::core::option::Option<i32>,
+    #[prost(bool, tag="5")]
+    pub nominated: bool,
+    #[prost(uint64, tag="6")]
+    pub packets_sent: u64,
+    #[prost(uint64, tag="7")]
+    pub packets_received: u64,
+    #[prost(uint64, tag="8")]
+    pub bytes_sent: u64,
+    #[prost(uint64, tag="9")]
+    pub bytes_received: u64,
+    #[prost(double, tag="10")]
+    pub last_packet_sent_timestamp: f64,
+    #[prost(double, tag="11")]
+    pub last_packet_received_timestamp: f64,
+    #[prost(double, tag="12")]
+    pub total_round_trip_time: f64,
+    #[prost(double, tag="13")]
+    pub current_round_trip_time: f64,
+    #[prost(double, tag="14")]
+    pub available_outgoing_bitrate: f64,
+    #[prost(double, tag="15")]
+    pub available_incoming_bitrate: f64,
+    #[prost(uint64, tag="16")]
+    pub requests_received: u64,
+    #[prost(uint64, tag="17")]
+    pub requests_sent: u64,
+    #[prost(uint64, tag="18")]
+    pub responses_received: u64,
+    #[prost(uint64, tag="19")]
+    pub responses_sent: u64,
+    #[prost(uint64, tag="20")]
+    pub consent_requests_sent: u64,
+    #[prost(uint32, tag="21")]
+    pub packets_discarded_on_send: u32,
+    #[prost(uint64, tag="22")]
+    pub bytes_discarded_on_send: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct IceCandidateStats {
+    #[prost(string, tag="1")]
+    pub transport_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub address: ::prost::alloc::string::String,
+    #[prost(int32, tag="3")]
+    pub port: i32,
+    #[prost(string, tag="4")]
+    pub protocol: ::prost::alloc::string::String,
+    #[prost(enumeration="IceCandidateType", optional, tag="5")]
+    pub candidate_type: ::core::option::Option<i32>,
+    #[prost(int32, tag="6")]
+    pub priority: i32,
+    #[prost(string, tag="7")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(enumeration="IceServerTransportProtocol", optional, tag="8")]
+    pub relay_protocol: ::core::option::Option<i32>,
+    #[prost(string, tag="9")]
+    pub foundation: ::prost::alloc::string::String,
+    #[prost(string, tag="10")]
+    pub related_address: ::prost::alloc::string::String,
+    #[prost(int32, tag="11")]
+    pub related_port: i32,
+    #[prost(string, tag="12")]
+    pub username_fragment: ::prost::alloc::string::String,
+    #[prost(enumeration="IceTcpCandidateType", optional, tag="13")]
+    pub tcp_type: ::core::option::Option<i32>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CertificateStats {
+    #[prost(string, tag="1")]
+    pub fingerprint: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub fingerprint_algorithm: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub base64_certificate: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub issuer_certificate_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DataChannelState {
+    DcConnecting = 0,
+    DcOpen = 1,
+    DcClosing = 2,
+    DcClosed = 3,
+}
+impl DataChannelState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            DataChannelState::DcConnecting => "DC_CONNECTING",
+            DataChannelState::DcOpen => "DC_OPEN",
+            DataChannelState::DcClosing => "DC_CLOSING",
+            DataChannelState::DcClosed => "DC_CLOSED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DC_CONNECTING" => Some(Self::DcConnecting),
+            "DC_OPEN" => Some(Self::DcOpen),
+            "DC_CLOSING" => Some(Self::DcClosing),
+            "DC_CLOSED" => Some(Self::DcClosed),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum QualityLimitationReason {
+    LimitationNone = 0,
+    LimitationCpu = 1,
+    LimitationBandwidth = 2,
+    LimitationOther = 3,
+}
+impl QualityLimitationReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            QualityLimitationReason::LimitationNone => "LIMITATION_NONE",
+            QualityLimitationReason::LimitationCpu => "LIMITATION_CPU",
+            QualityLimitationReason::LimitationBandwidth => "LIMITATION_BANDWIDTH",
+            QualityLimitationReason::LimitationOther => "LIMITATION_OTHER",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "LIMITATION_NONE" => Some(Self::LimitationNone),
+            "LIMITATION_CPU" => Some(Self::LimitationCpu),
+            "LIMITATION_BANDWIDTH" => Some(Self::LimitationBandwidth),
+            "LIMITATION_OTHER" => Some(Self::LimitationOther),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IceRole {
+    IceUnknown = 0,
+    IceControlling = 1,
+    IceControlled = 2,
+}
+impl IceRole {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            IceRole::IceUnknown => "ICE_UNKNOWN",
+            IceRole::IceControlling => "ICE_CONTROLLING",
+            IceRole::IceControlled => "ICE_CONTROLLED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ICE_UNKNOWN" => Some(Self::IceUnknown),
+            "ICE_CONTROLLING" => Some(Self::IceControlling),
+            "ICE_CONTROLLED" => Some(Self::IceControlled),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DtlsTransportState {
+    DtlsTransportNew = 0,
+    DtlsTransportConnecting = 1,
+    DtlsTransportConnected = 2,
+    DtlsTransportClosed = 3,
+    DtlsTransportFailed = 4,
+}
+impl DtlsTransportState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            DtlsTransportState::DtlsTransportNew => "DTLS_TRANSPORT_NEW",
+            DtlsTransportState::DtlsTransportConnecting => "DTLS_TRANSPORT_CONNECTING",
+            DtlsTransportState::DtlsTransportConnected => "DTLS_TRANSPORT_CONNECTED",
+            DtlsTransportState::DtlsTransportClosed => "DTLS_TRANSPORT_CLOSED",
+            DtlsTransportState::DtlsTransportFailed => "DTLS_TRANSPORT_FAILED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DTLS_TRANSPORT_NEW" => Some(Self::DtlsTransportNew),
+            "DTLS_TRANSPORT_CONNECTING" => Some(Self::DtlsTransportConnecting),
+            "DTLS_TRANSPORT_CONNECTED" => Some(Self::DtlsTransportConnected),
+            "DTLS_TRANSPORT_CLOSED" => Some(Self::DtlsTransportClosed),
+            "DTLS_TRANSPORT_FAILED" => Some(Self::DtlsTransportFailed),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IceTransportState {
+    IceTransportNew = 0,
+    IceTransportChecking = 1,
+    IceTransportConnected = 2,
+    IceTransportCompleted = 3,
+    IceTransportDisconnected = 4,
+    IceTransportFailed = 5,
+    IceTransportClosed = 6,
+}
+impl IceTransportState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            IceTransportState::IceTransportNew => "ICE_TRANSPORT_NEW",
+            IceTransportState::IceTransportChecking => "ICE_TRANSPORT_CHECKING",
+            IceTransportState::IceTransportConnected => "ICE_TRANSPORT_CONNECTED",
+            IceTransportState::IceTransportCompleted => "ICE_TRANSPORT_COMPLETED",
+            IceTransportState::IceTransportDisconnected => "ICE_TRANSPORT_DISCONNECTED",
+            IceTransportState::IceTransportFailed => "ICE_TRANSPORT_FAILED",
+            IceTransportState::IceTransportClosed => "ICE_TRANSPORT_CLOSED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ICE_TRANSPORT_NEW" => Some(Self::IceTransportNew),
+            "ICE_TRANSPORT_CHECKING" => Some(Self::IceTransportChecking),
+            "ICE_TRANSPORT_CONNECTED" => Some(Self::IceTransportConnected),
+            "ICE_TRANSPORT_COMPLETED" => Some(Self::IceTransportCompleted),
+            "ICE_TRANSPORT_DISCONNECTED" => Some(Self::IceTransportDisconnected),
+            "ICE_TRANSPORT_FAILED" => Some(Self::IceTransportFailed),
+            "ICE_TRANSPORT_CLOSED" => Some(Self::IceTransportClosed),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DtlsRole {
+    DtlsClient = 0,
+    DtlsServer = 1,
+    DtlsUnknown = 2,
+}
+impl DtlsRole {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            DtlsRole::DtlsClient => "DTLS_CLIENT",
+            DtlsRole::DtlsServer => "DTLS_SERVER",
+            DtlsRole::DtlsUnknown => "DTLS_UNKNOWN",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DTLS_CLIENT" => Some(Self::DtlsClient),
+            "DTLS_SERVER" => Some(Self::DtlsServer),
+            "DTLS_UNKNOWN" => Some(Self::DtlsUnknown),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IceCandidatePairState {
+    PairFrozen = 0,
+    PairWaiting = 1,
+    PairInProgress = 2,
+    PairFailed = 3,
+    PairSucceeded = 4,
+}
+impl IceCandidatePairState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            IceCandidatePairState::PairFrozen => "PAIR_FROZEN",
+            IceCandidatePairState::PairWaiting => "PAIR_WAITING",
+            IceCandidatePairState::PairInProgress => "PAIR_IN_PROGRESS",
+            IceCandidatePairState::PairFailed => "PAIR_FAILED",
+            IceCandidatePairState::PairSucceeded => "PAIR_SUCCEEDED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PAIR_FROZEN" => Some(Self::PairFrozen),
+            "PAIR_WAITING" => Some(Self::PairWaiting),
+            "PAIR_IN_PROGRESS" => Some(Self::PairInProgress),
+            "PAIR_FAILED" => Some(Self::PairFailed),
+            "PAIR_SUCCEEDED" => Some(Self::PairSucceeded),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IceCandidateType {
+    Host = 0,
+    Srflx = 1,
+    Prflx = 2,
+    Relay = 3,
+}
+impl IceCandidateType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            IceCandidateType::Host => "HOST",
+            IceCandidateType::Srflx => "SRFLX",
+            IceCandidateType::Prflx => "PRFLX",
+            IceCandidateType::Relay => "RELAY",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "HOST" => Some(Self::Host),
+            "SRFLX" => Some(Self::Srflx),
+            "PRFLX" => Some(Self::Prflx),
+            "RELAY" => Some(Self::Relay),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IceServerTransportProtocol {
+    TransportUdp = 0,
+    TransportTcp = 1,
+    TransportTls = 2,
+}
+impl IceServerTransportProtocol {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            IceServerTransportProtocol::TransportUdp => "TRANSPORT_UDP",
+            IceServerTransportProtocol::TransportTcp => "TRANSPORT_TCP",
+            IceServerTransportProtocol::TransportTls => "TRANSPORT_TLS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TRANSPORT_UDP" => Some(Self::TransportUdp),
+            "TRANSPORT_TCP" => Some(Self::TransportTcp),
+            "TRANSPORT_TLS" => Some(Self::TransportTls),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IceTcpCandidateType {
+    CandidateActive = 0,
+    CandidatePassive = 1,
+    CandidateSo = 2,
+}
+impl IceTcpCandidateType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            IceTcpCandidateType::CandidateActive => "CANDIDATE_ACTIVE",
+            IceTcpCandidateType::CandidatePassive => "CANDIDATE_PASSIVE",
+            IceTcpCandidateType::CandidateSo => "CANDIDATE_SO",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CANDIDATE_ACTIVE" => Some(Self::CandidateActive),
+            "CANDIDATE_PASSIVE" => Some(Self::CandidatePassive),
+            "CANDIDATE_SO" => Some(Self::CandidateSo),
+            _ => None,
+        }
+    }
+}
 // @@protoc_insertion_point(module)

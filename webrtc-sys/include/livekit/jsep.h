@@ -22,7 +22,9 @@
 #include "api/ref_counted_base.h"
 #include "api/set_local_description_observer_interface.h"
 #include "api/set_remote_description_observer_interface.h"
+#include "api/stats/rtc_stats_collector_callback.h"
 #include "livekit/rtc_error.h"
+#include "rtc_base/ref_count.h"
 #include "rust/cxx.h"
 
 namespace livekit {
@@ -33,7 +35,7 @@ class SessionDescription;
 
 namespace livekit {
 
-class AsyncContext;
+class PeerContext;
 
 class IceCandidate {
  public:
@@ -86,47 +88,64 @@ class NativeCreateSdpObserver
     : public webrtc::CreateSessionDescriptionObserver {
  public:
   NativeCreateSdpObserver(
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext> ctx,
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext> ctx,
                     std::unique_ptr<SessionDescription>)> on_success,
-      rust::Fn<void(rust::Box<AsyncContext> ctx, RtcError)> on_error);
+      rust::Fn<void(rust::Box<PeerContext> ctx, RtcError)> on_error);
 
   void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
   void OnFailure(webrtc::RTCError error) override;
 
  private:
-  rust::Box<AsyncContext> ctx_;
-  rust::Fn<void(rust::Box<AsyncContext>, std::unique_ptr<SessionDescription>)>
+  rust::Box<PeerContext> ctx_;
+  rust::Fn<void(rust::Box<PeerContext>, std::unique_ptr<SessionDescription>)>
       on_success_;
-  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_error_;
+  rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_error_;
 };
 
 class NativeSetLocalSdpObserver
     : public webrtc::SetLocalDescriptionObserverInterface {
  public:
   NativeSetLocalSdpObserver(
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete);
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete);
 
   void OnSetLocalDescriptionComplete(webrtc::RTCError error) override;
 
  private:
-  rust::Box<AsyncContext> ctx_;
-  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete_;
+  rust::Box<PeerContext> ctx_;
+  rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete_;
 };
 
 class NativeSetRemoteSdpObserver
     : public webrtc::SetRemoteDescriptionObserverInterface {
  public:
   NativeSetRemoteSdpObserver(
-      rust::Box<AsyncContext> ctx,
-      rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete);
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete);
 
   void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override;
 
  private:
-  rust::Box<AsyncContext> ctx_;
-  rust::Fn<void(rust::Box<AsyncContext>, RtcError)> on_complete_;
+  rust::Box<PeerContext> ctx_;
+  rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete_;
 };
+
+
+template<class T> // Context type
+class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
+ public:
+  NativeRtcStatsCollector(rust::Box<T> ctx,
+			    rust::Fn<void(rust::Box<T>, rust::String)> on_stats);
+
+  void OnStatsDelivered(
+		const rtc::scoped_refptr<const webrtc::RTCStatsReport> &report) override;
+
+ private:
+  rust::Box<T> ctx_;
+  rust::Fn<void(rust::Box<PeerContext>, rust::String)> on_stats_;
+};
+
+
 
 }  // namespace livekit

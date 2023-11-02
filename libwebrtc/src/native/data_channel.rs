@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::data_channel::{
-    DataBuffer, DataChannelError, DataChannelInit, DataState, OnBufferedAmountChange, OnMessage,
-    OnStateChange,
+    DataBuffer, DataChannelError, DataChannelInit, DataChannelState, OnBufferedAmountChange,
+    OnMessage, OnStateChange,
 };
 use cxx::SharedPtr;
 use parking_lot::Mutex;
@@ -22,7 +22,7 @@ use std::str;
 use std::sync::Arc;
 use webrtc_sys::data_channel as sys_dc;
 
-impl From<sys_dc::ffi::DataState> for DataState {
+impl From<sys_dc::ffi::DataState> for DataChannelState {
     fn from(value: sys_dc::ffi::DataState) -> Self {
         match value {
             sys_dc::ffi::DataState::Connecting => Self::Connecting,
@@ -95,7 +95,7 @@ impl DataChannel {
         self.sys_handle.label()
     }
 
-    pub fn state(&self) -> DataState {
+    pub fn state(&self) -> DataChannelState {
         self.sys_handle.state().into()
     }
 

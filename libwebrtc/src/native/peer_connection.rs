@@ -38,6 +38,7 @@ use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::RtpTransceiver;
 use crate::rtp_transceiver::RtpTransceiverInit;
+use crate::stats::RtcStats;
 use crate::MediaType;
 use crate::RtcErrorType;
 use crate::{session_description::SessionDescription, RtcError};
@@ -49,6 +50,7 @@ use tokio::sync::oneshot;
 use webrtc_sys::data_channel as sys_dc;
 use webrtc_sys::jsep as sys_jsep;
 use webrtc_sys::peer_connection as sys_pc;
+use webrtc_sys::peer_connection_factory as sys_pcf;
 use webrtc_sys::rtc_error as sys_err;
 
 impl From<OfferOptions> for sys_pc::ffi::RtcOfferAnswerOptions {
@@ -203,7 +205,7 @@ impl PeerConnection {
         options: OfferOptions,
     ) -> Result<SessionDescription, RtcError> {
         let (tx, mut rx) = mpsc::channel::<Result<SessionDescription, RtcError>>(1);
-        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+        let ctx = Box::new(sys_pc::PeerContext(Box::new(tx)));
         type CtxType = mpsc::Sender<Result<SessionDescription, RtcError>>;
 
         self.sys_handle.create_offer(
@@ -229,7 +231,7 @@ impl PeerConnection {
         options: AnswerOptions,
     ) -> Result<SessionDescription, RtcError> {
         let (tx, mut rx) = mpsc::channel::<Result<SessionDescription, RtcError>>(1);
-        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+        let ctx = Box::new(sys_pc::PeerContext(Box::new(tx)));
         type CtxType = mpsc::Sender<Result<SessionDescription, RtcError>>;
 
         self.sys_handle.create_answer(
@@ -252,7 +254,7 @@ impl PeerConnection {
 
     pub async fn set_local_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
         let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
-        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+        let ctx = Box::new(sys_pc::PeerContext(Box::new(tx)));
 
         self.sys_handle
             .set_local_description(desc.handle.sys_handle, ctx, |ctx, err| {
@@ -273,7 +275,7 @@ impl PeerConnection {
 
     pub async fn set_remote_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
         let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
-        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+        let ctx = Box::new(sys_pc::PeerContext(Box::new(tx)));
 
         self.sys_handle
             .set_remote_description(desc.handle.sys_handle, ctx, |ctx, err| {
@@ -297,7 +299,7 @@ impl PeerConnection {
 
     pub async fn add_ice_candidate(&self, candidate: IceCandidate) -> Result<(), RtcError> {
         let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
-        let ctx = Box::new(sys_pc::AsyncContext(Box::new(tx)));
+        let ctx = Box::new(sys_pc::PeerContext(Box::new(tx)));
 
         self.sys_handle
             .add_ice_candidate(candidate.handle.sys_handle, ctx, |ctx, err| {
@@ -440,6 +442,27 @@ impl PeerConnection {
             .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
     }
 
+    pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
+        let (tx, rx) = oneshot::channel::<Result<Vec<RtcStats>, RtcError>>();
+        let ctx = Box::new(sys_pc::PeerContext(Box::new(tx)));
+
+        self.sys_handle.get_stats(ctx, |ctx, stats| {
+            let tx = ctx
+                .0
+                .downcast::<oneshot::Sender<Result<Vec<RtcStats>, RtcError>>>()
+                .unwrap();
+
+            // Unwrap because it should not happens
+            let vec = serde_json::from_str(&stats).unwrap();
+            let _ = tx.send(Ok(vec));
+        });
+
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "get_stats cancelled".to_owned(),
+        })?
+    }
+
     pub fn senders(&self) -> Vec<RtpSender> {
         self.sys_handle
             .get_senders()
@@ -526,7 +549,7 @@ pub struct PeerObserver {
     pub track_handler: Mutex<Option<OnTrack>>,
 }
 
-impl sys_pc::PeerConnectionObserver for PeerObserver {
+impl sys_pcf::PeerConnectionObserver for PeerObserver {
     fn on_signaling_change(&self, new_state: sys_pc::ffi::SignalingState) {
         if let Some(f) = self.signaling_change_handler.lock().as_mut() {
             f(new_state.into());
@@ -612,7 +635,7 @@ impl sys_pc::PeerConnectionObserver for PeerObserver {
 
     fn on_ice_selected_candidate_pair_changed(
         &self,
-        _event: sys_pc::ffi::CandidatePairChangeEvent,
+        _event: sys_pcf::ffi::CandidatePairChangeEvent,
     ) {
     }
 

@@ -20,17 +20,20 @@
 #include "api/scoped_refptr.h"
 #include "livekit/audio_device.h"
 #include "media_stream.h"
-#include "peer_connection.h"
 #include "rtp_parameters.h"
 #include "rust/cxx.h"
 #include "webrtc.h"
 
 namespace livekit {
 class PeerConnectionFactory;
+class PeerConnectionObserverWrapper;
 }  // namespace livekit
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
 namespace livekit {
+
+class PeerConnection;
+struct RtcConfiguration;
 
 webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
     RtcConfiguration config);
@@ -42,7 +45,7 @@ class PeerConnectionFactory {
 
   std::shared_ptr<PeerConnection> create_peer_connection(
       RtcConfiguration config,
-      std::unique_ptr<NativePeerConnectionObserver> observer) const;
+      rust::Box<PeerConnectionObserverWrapper> observer) const;
 
   std::shared_ptr<VideoTrack> create_video_track(
       rust::String label,
