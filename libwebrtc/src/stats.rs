@@ -151,7 +151,7 @@ pub enum RtcStats {
 pub enum QualityLimitationReason {
     #[default]
     None,
-    CPU,
+    Cpu,
     Bandwidth,
     Other,
 }

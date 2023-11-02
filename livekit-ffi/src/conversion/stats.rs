@@ -2,8 +2,8 @@ use crate::proto;
 use livekit::webrtc::{
     prelude::DataChannelState,
     stats::{
-        self as rtc, DtlsRole, DtlsTransportState, IceCandidatePairState, IceRole,
-        IceServerTransportProtocol, IceTcpCandidateType, IceTransportState,
+        self as rtc, DtlsRole, DtlsTransportState, IceCandidatePairState, IceCandidateType,
+        IceRole, IceServerTransportProtocol, IceTcpCandidateType, IceTransportState,
         QualityLimitationReason,
     },
 };
@@ -43,11 +43,11 @@ impl From<IceRole> for proto::IceRole {
 impl From<DtlsTransportState> for proto::DtlsTransportState {
     fn from(value: DtlsTransportState) -> Self {
         match value {
-            DtlsTransportState::New => Self::DtlsNew,
-            DtlsTransportState::Connecting => Self::DtlsConnecting,
-            DtlsTransportState::Connected => Self::DtlsConnected,
-            DtlsTransportState::Closed => Self::DtlsClosed,
-            DtlsTransportState::Failed => Self::DtlsFailed,
+            DtlsTransportState::New => Self::DtlsTransportNew,
+            DtlsTransportState::Connecting => Self::DtlsTransportConnecting,
+            DtlsTransportState::Connected => Self::DtlsTransportConnected,
+            DtlsTransportState::Closed => Self::DtlsTransportClosed,
+            DtlsTransportState::Failed => Self::DtlsTransportFailed,
         }
     }
 }
@@ -55,13 +55,13 @@ impl From<DtlsTransportState> for proto::DtlsTransportState {
 impl From<IceTransportState> for proto::IceTransportState {
     fn from(value: IceTransportState) -> Self {
         match value {
-            IceTransportState::New => Self::IceNew,
-            IceTransportState::Checking => Self::IceChecking,
-            IceTransportState::Connected => Self::IceConnected,
-            IceTransportState::Completed => Self::IceCompleted,
-            IceTransportState::Disconnected => Self::IceDisconnected,
-            IceTransportState::Failed => Self::IceFailed,
-            IceTransportState::Closed => Self::IceClosed,
+            IceTransportState::New => Self::IceTransportNew,
+            IceTransportState::Checking => Self::IceTransportChecking,
+            IceTransportState::Connected => Self::IceTransportConnected,
+            IceTransportState::Completed => Self::IceTransportCompleted,
+            IceTransportState::Disconnected => Self::IceTransportDisconnected,
+            IceTransportState::Failed => Self::IceTransportFailed,
+            IceTransportState::Closed => Self::IceTransportClosed,
         }
     }
 }
@@ -79,11 +79,11 @@ impl From<DtlsRole> for proto::DtlsRole {
 impl From<IceCandidatePairState> for proto::IceCandidatePairState {
     fn from(value: IceCandidatePairState) -> Self {
         match value {
-            IceCandidatePairState::Frozen => Self::IceFrozen,
-            IceCandidatePairState::Waiting => Self::IceWaiting,
-            IceCandidatePairState::InProgress => Self::IceInProgress,
-            IceCandidatePairState::Failed => Self::IceFailed,
-            IceCandidatePairState::Succeeded => Self::IceSucceeded,
+            IceCandidatePairState::Frozen => Self::PairFrozen,
+            IceCandidatePairState::Waiting => Self::PairWaiting,
+            IceCandidatePairState::InProgress => Self::PairInProgress,
+            IceCandidatePairState::Failed => Self::PairFailed,
+            IceCandidatePairState::Succeeded => Self::PairSucceeded,
         }
     }
 }
@@ -91,9 +91,20 @@ impl From<IceCandidatePairState> for proto::IceCandidatePairState {
 impl From<IceServerTransportProtocol> for proto::IceServerTransportProtocol {
     fn from(value: IceServerTransportProtocol) -> Self {
         match value {
-            IceServerTransportProtocol::Udp => Self::IceUdp,
-            IceServerTransportProtocol::Tcp => Self::IceTcp,
-            IceServerTransportProtocol::Tls => Self::IceTls,
+            IceServerTransportProtocol::Udp => Self::TransportUdp,
+            IceServerTransportProtocol::Tcp => Self::TransportTcp,
+            IceServerTransportProtocol::Tls => Self::TransportTls,
+        }
+    }
+}
+
+impl From<IceCandidateType> for proto::IceCandidateType {
+    fn from(value: IceCandidateType) -> Self {
+        match value {
+            IceCandidateType::Host => Self::Host,
+            IceCandidateType::Srflx => Self::Srflx,
+            IceCandidateType::Prflx => Self::Prflx,
+            IceCandidateType::Relay => Self::Relay,
         }
     }
 }
@@ -101,22 +112,130 @@ impl From<IceServerTransportProtocol> for proto::IceServerTransportProtocol {
 impl From<IceTcpCandidateType> for proto::IceTcpCandidateType {
     fn from(value: IceTcpCandidateType) -> Self {
         match value {
-            IceTcpCandidateType::Active => Self::IceActive,
-            IceTcpCandidateType::Passive => Self::IcePassive,
-            IceTcpCandidateType::So => Self::IceSo,
+            IceTcpCandidateType::Active => Self::CandidateActive,
+            IceTcpCandidateType::Passive => Self::CandidatePassive,
+            IceTcpCandidateType::So => Self::CandidateSo,
         }
     }
 }
 
 impl From<rtc::RtcStats> for proto::RtcStats {
     fn from(value: rtc::RtcStats) -> Self {
-        Self {
-            stats: value
-                .stats
-                .into_iter()
-                .map(|s| s.into())
-                .collect::<Vec<proto::RtcStatsData>>(),
-        }
+        let stats = match value {
+            rtc::RtcStats::Codec { rtc, codec } => {
+                proto::rtc_stats::Stats::Codec(proto::rtc_stats::Codec {
+                    rtc: Some(rtc.into()),
+                    codec: Some(codec.into()),
+                })
+            }
+            rtc::RtcStats::InboundRtp {
+                rtc,
+                stream,
+                received,
+                inbound,
+            } => proto::rtc_stats::Stats::InboundRtp(proto::rtc_stats::InboundRtp {
+                rtc: Some(rtc.into()),
+                stream: Some(stream.into()),
+                received: Some(received.into()),
+                inbound: Some(inbound.into()),
+            }),
+            rtc::RtcStats::OutboundRtp {
+                rtc,
+                stream,
+                sent,
+                outbound,
+            } => proto::rtc_stats::Stats::OutboundRtp(proto::rtc_stats::OutboundRtp {
+                rtc: Some(rtc.into()),
+                stream: Some(stream.into()),
+                sent: Some(sent.into()),
+                outbound: Some(outbound.into()),
+            }),
+            rtc::RtcStats::RemoteInboundRtp {
+                rtc,
+                stream,
+                received,
+                remote_inbound,
+            } => proto::rtc_stats::Stats::RemoteInboundRtp(proto::rtc_stats::RemoteInboundRtp {
+                rtc: Some(rtc.into()),
+                stream: Some(stream.into()),
+                received: Some(received.into()),
+                remote_inbound: Some(remote_inbound.into()),
+            }),
+            rtc::RtcStats::RemoteOutboundRtp {
+                rtc,
+                stream,
+                sent,
+                remote_outbound,
+            } => proto::rtc_stats::Stats::RemoteOutboundRtp(proto::rtc_stats::RemoteOutboundRtp {
+                rtc: Some(rtc.into()),
+                stream: Some(stream.into()),
+                sent: Some(sent.into()),
+                remote_outbound: Some(remote_outbound.into()),
+            }),
+            rtc::RtcStats::MediaSource {
+                rtc,
+                source,
+                audio,
+                video,
+            } => proto::rtc_stats::Stats::MediaSource(proto::rtc_stats::MediaSource {
+                rtc: Some(rtc.into()),
+                source: Some(source.into()),
+                audio: Some(audio.into()),
+                video: Some(video.into()),
+            }),
+            rtc::RtcStats::MediaPlayout { rtc, audio_playout } => {
+                proto::rtc_stats::Stats::MediaPlayout(proto::rtc_stats::MediaPlayout {
+                    rtc: Some(rtc.into()),
+                    audio_playout: Some(audio_playout.into()),
+                })
+            }
+            rtc::RtcStats::PeerConnection { rtc, pc } => {
+                proto::rtc_stats::Stats::PeerConnection(proto::rtc_stats::PeerConnection {
+                    rtc: Some(rtc.into()),
+                    pc: Some(pc.into()),
+                })
+            }
+            rtc::RtcStats::DataChannel { rtc, dc } => {
+                proto::rtc_stats::Stats::DataChannel(proto::rtc_stats::DataChannel {
+                    rtc: Some(rtc.into()),
+                    dc: Some(dc.into()),
+                })
+            }
+            rtc::RtcStats::Transport { rtc, transport } => {
+                proto::rtc_stats::Stats::Transport(proto::rtc_stats::Transport {
+                    rtc: Some(rtc.into()),
+                    transport: Some(transport.into()),
+                })
+            }
+            rtc::RtcStats::CandidatePair {
+                rtc,
+                candidate_pair,
+            } => proto::rtc_stats::Stats::CandidatePair(proto::rtc_stats::CandidatePair {
+                rtc: Some(rtc.into()),
+                candidate_pair: Some(candidate_pair.into()),
+            }),
+            rtc::RtcStats::LocalCandidate { rtc, candidate } => {
+                proto::rtc_stats::Stats::LocalCandidate(proto::rtc_stats::LocalCandidate {
+                    rtc: Some(rtc.into()),
+                    candidate: Some(candidate.into()),
+                })
+            }
+            rtc::RtcStats::RemoteCandidate { rtc, candidate } => {
+                proto::rtc_stats::Stats::RemoteCandidate(proto::rtc_stats::RemoteCandidate {
+                    rtc: Some(rtc.into()),
+                    candidate: Some(candidate.into()),
+                })
+            }
+            rtc::RtcStats::Certificate { rtc, certificate } => {
+                proto::rtc_stats::Stats::Certificate(proto::rtc_stats::Certificate {
+                    rtc: Some(rtc.into()),
+                    certificate: Some(certificate.into()),
+                })
+            }
+            rtc::RtcStats::Track {} => proto::rtc_stats::Stats::Track(proto::rtc_stats::Track {}),
+        };
+
+        proto::RtcStats { stats: Some(stats) }
     }
 }
 
@@ -255,7 +374,9 @@ impl From<rtc::OutboundRtpStreamStats> for proto::OutboundRtpStreamStats {
             qp_sum: value.qp_sum,
             total_encode_time: value.total_encode_time,
             total_packet_send_delay: value.total_packet_send_delay,
-            quality_limitation_reason: value.quality_limitation_reason,
+            quality_limitation_reason: proto::QualityLimitationReason::from(
+                value.quality_limitation_reason,
+            ) as i32,
             quality_limitation_durations: value.quality_limitation_durations,
             quality_limitation_resolution_changes: value.quality_limitation_resolution_changes,
             nack_count: value.nack_count,
@@ -358,7 +479,7 @@ impl From<rtc::DataChannelStats> for proto::DataChannelStats {
             label: value.label,
             protocol: value.protocol,
             data_channel_identifier: value.data_channel_identifier,
-            state: value.state,
+            state: value.state.map(|v| proto::DataChannelState::from(v) as i32),
             messages_sent: value.messages_sent,
             bytes_sent: value.bytes_sent,
             messages_received: value.messages_received,
@@ -374,16 +495,20 @@ impl From<rtc::TransportStats> for proto::TransportStats {
             packets_received: value.packets_received,
             bytes_sent: value.bytes_sent,
             bytes_received: value.bytes_received,
-            ice_role: value.ice_role,
+            ice_role: proto::IceRole::from(value.ice_role) as i32,
             ice_local_username_fragment: value.ice_local_username_fragment,
-            dtls_state: value.dtls_state,
-            ice_state: value.ice_state,
+            dtls_state: value
+                .dtls_state
+                .map(|v| proto::DtlsTransportState::from(v) as i32),
+            ice_state: value
+                .ice_state
+                .map(|v| proto::IceTransportState::from(v) as i32),
             selected_candidate_pair_id: value.selected_candidate_pair_id,
             local_certificate_id: value.local_certificate_id,
             remote_certificate_id: value.remote_certificate_id,
             tls_version: value.tls_version,
             dtls_cipher: value.dtls_cipher,
-            dtls_role: value.dtls_role,
+            dtls_role: proto::DtlsRole::from(value.dtls_role) as i32,
             srtp_cipher: value.srtp_cipher,
             selected_candidate_pair_changes: value.selected_candidate_pair_changes,
         }
@@ -396,7 +521,9 @@ impl From<rtc::CandidatePairStats> for proto::CandidatePairStats {
             transport_id: value.transport_id,
             local_candidate_id: value.local_candidate_id,
             remote_candidate_id: value.remote_candidate_id,
-            state: value.state,
+            state: value
+                .state
+                .map(|v| proto::IceCandidatePairState::from(v) as i32),
             nominated: value.nominated,
             packets_sent: value.packets_sent,
             packets_received: value.packets_received,
@@ -426,15 +553,21 @@ impl From<rtc::IceCandidateStats> for proto::IceCandidateStats {
             address: value.address,
             port: value.port,
             protocol: value.protocol,
-            candidate_type: value.candidate_type,
+            candidate_type: value
+                .candidate_type
+                .map(|v| proto::IceCandidateType::from(v) as i32),
             priority: value.priority,
             url: value.url,
-            relay_protocol: value.relay_protocol,
+            relay_protocol: value
+                .relay_protocol
+                .map(|v| proto::IceServerTransportProtocol::from(v) as i32),
             foundation: value.foundation,
             related_address: value.related_address,
             related_port: value.related_port,
             username_fragment: value.username_fragment,
-            tcp_type: value.tcp_type,
+            tcp_type: value
+                .tcp_type
+                .map(|v| proto::IceTcpCandidateType::from(v) as i32),
         }
     }
 }

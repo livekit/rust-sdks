@@ -78,15 +78,15 @@ enum IceCandidateType {
 }
 
 enum IceServerTransportProtocol {
-    UDP = 0;
-    TCP = 1;
-    TLS = 2;
+    TRANSPORT_UDP = 0;
+    TRANSPORT_TCP = 1;
+    TRANSPORT_TLS = 2;
 }
 
 enum IceTcpCandidateType {
-    ACTIVE = 0;
-    PASSIVE = 1;
-    SO = 2;
+    CANDIDATE_ACTIVE = 0;
+    CANDIDATE_PASSIVE = 1;
+    CANDIDATE_SO = 2;
 }
 
 message RtcStats {
@@ -132,7 +132,7 @@ message RtcStats {
 
     message MediaPlayout {
         RtcStatsData rtc = 1;
-        AudioSourceStats audio_playout = 2;
+        AudioPlayoutStats audio_playout = 2;
     }
 
     message PeerConnection {
@@ -147,7 +147,7 @@ message RtcStats {
 
     message Transport {
         RtcStatsData rtc = 1;
-	CandidatePairStats candidate_pair = 2;
+	TransportStats transport  = 2;
     }
 
     message CandidatePair {
@@ -403,7 +403,7 @@ message CandidatePairStats {
     string transport_id = 1;
     string local_candidate_id = 2;
     string remote_candidate_id = 3;
-    IceCandidatePairState state = 4;
+    optional IceCandidatePairState state = 4;
     bool nominated = 5;
     uint64 packets_sent = 6;
     uint64 packets_received = 7;
@@ -429,15 +429,15 @@ message IceCandidateStats {
     string address = 2;
     int32 port = 3;
     string protocol = 4;
-    IceCandidateType candidate_type = 5;
+    optional IceCandidateType candidate_type = 5;
     int32 priority = 6;
     string url = 7;
-    IceServerTransportProtocol relay_protocol = 8;
+    optional IceServerTransportProtocol relay_protocol = 8;
     string foundation = 9;
     string related_address = 10;
     int32 related_port = 11;
     string username_fragment = 12;
-    IceTcpCandidateType tcp_type = 13;
+    optional IceTcpCandidateType tcp_type = 13;
 }
 
 message CertificateStats {

@@ -2296,7 +2296,7 @@ pub mod rtc_stats {
         #[prost(message, optional, tag="1")]
         pub rtc: ::core::option::Option<super::RtcStatsData>,
         #[prost(message, optional, tag="2")]
-        pub audio_playout: ::core::option::Option<super::AudioSourceStats>,
+        pub audio_playout: ::core::option::Option<super::AudioPlayoutStats>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2320,7 +2320,7 @@ pub mod rtc_stats {
         #[prost(message, optional, tag="1")]
         pub rtc: ::core::option::Option<super::RtcStatsData>,
         #[prost(message, optional, tag="2")]
-        pub candidate_pair: ::core::option::Option<super::CandidatePairStats>,
+        pub transport: ::core::option::Option<super::TransportStats>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2783,8 +2783,8 @@ pub struct CandidatePairStats {
     pub local_candidate_id: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub remote_candidate_id: ::prost::alloc::string::String,
-    #[prost(enumeration="IceCandidatePairState", tag="4")]
-    pub state: i32,
+    #[prost(enumeration="IceCandidatePairState", optional, tag="4")]
+    pub state: ::core::option::Option<i32>,
     #[prost(bool, tag="5")]
     pub nominated: bool,
     #[prost(uint64, tag="6")]
@@ -2833,14 +2833,14 @@ pub struct IceCandidateStats {
     pub port: i32,
     #[prost(string, tag="4")]
     pub protocol: ::prost::alloc::string::String,
-    #[prost(enumeration="IceCandidateType", tag="5")]
-    pub candidate_type: i32,
+    #[prost(enumeration="IceCandidateType", optional, tag="5")]
+    pub candidate_type: ::core::option::Option<i32>,
     #[prost(int32, tag="6")]
     pub priority: i32,
     #[prost(string, tag="7")]
     pub url: ::prost::alloc::string::String,
-    #[prost(enumeration="IceServerTransportProtocol", tag="8")]
-    pub relay_protocol: i32,
+    #[prost(enumeration="IceServerTransportProtocol", optional, tag="8")]
+    pub relay_protocol: ::core::option::Option<i32>,
     #[prost(string, tag="9")]
     pub foundation: ::prost::alloc::string::String,
     #[prost(string, tag="10")]
@@ -2849,8 +2849,8 @@ pub struct IceCandidateStats {
     pub related_port: i32,
     #[prost(string, tag="12")]
     pub username_fragment: ::prost::alloc::string::String,
-    #[prost(enumeration="IceTcpCandidateType", tag="13")]
-    pub tcp_type: i32,
+    #[prost(enumeration="IceTcpCandidateType", optional, tag="13")]
+    pub tcp_type: ::core::option::Option<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3132,9 +3132,9 @@ impl IceCandidateType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum IceServerTransportProtocol {
-    Udp = 0,
-    Tcp = 1,
-    Tls = 2,
+    TransportUdp = 0,
+    TransportTcp = 1,
+    TransportTls = 2,
 }
 impl IceServerTransportProtocol {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3143,17 +3143,17 @@ impl IceServerTransportProtocol {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            IceServerTransportProtocol::Udp => "UDP",
-            IceServerTransportProtocol::Tcp => "TCP",
-            IceServerTransportProtocol::Tls => "TLS",
+            IceServerTransportProtocol::TransportUdp => "TRANSPORT_UDP",
+            IceServerTransportProtocol::TransportTcp => "TRANSPORT_TCP",
+            IceServerTransportProtocol::TransportTls => "TRANSPORT_TLS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "UDP" => Some(Self::Udp),
-            "TCP" => Some(Self::Tcp),
-            "TLS" => Some(Self::Tls),
+            "TRANSPORT_UDP" => Some(Self::TransportUdp),
+            "TRANSPORT_TCP" => Some(Self::TransportTcp),
+            "TRANSPORT_TLS" => Some(Self::TransportTls),
             _ => None,
         }
     }
@@ -3161,9 +3161,9 @@ impl IceServerTransportProtocol {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum IceTcpCandidateType {
-    Active = 0,
-    Passive = 1,
-    So = 2,
+    CandidateActive = 0,
+    CandidatePassive = 1,
+    CandidateSo = 2,
 }
 impl IceTcpCandidateType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3172,17 +3172,17 @@ impl IceTcpCandidateType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            IceTcpCandidateType::Active => "ACTIVE",
-            IceTcpCandidateType::Passive => "PASSIVE",
-            IceTcpCandidateType::So => "SO",
+            IceTcpCandidateType::CandidateActive => "CANDIDATE_ACTIVE",
+            IceTcpCandidateType::CandidatePassive => "CANDIDATE_PASSIVE",
+            IceTcpCandidateType::CandidateSo => "CANDIDATE_SO",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "ACTIVE" => Some(Self::Active),
-            "PASSIVE" => Some(Self::Passive),
-            "SO" => Some(Self::So),
+            "CANDIDATE_ACTIVE" => Some(Self::CandidateActive),
+            "CANDIDATE_PASSIVE" => Some(Self::CandidatePassive),
+            "CANDIDATE_SO" => Some(Self::CandidateSo),
             _ => None,
         }
     }

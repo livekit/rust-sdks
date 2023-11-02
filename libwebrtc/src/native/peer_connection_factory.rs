@@ -29,7 +29,6 @@ use cxx::UniquePtr;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use webrtc_sys::peer_connection as sys_pc;
 use webrtc_sys::peer_connection_factory as sys_pcf;
 use webrtc_sys::rtc_error as sys_err;
 use webrtc_sys::webrtc as sys_rtc;
@@ -78,13 +77,12 @@ impl PeerConnectionFactory {
         config: RtcConfiguration,
     ) -> Result<PeerConnection, RtcError> {
         let observer = Arc::new(imp_pc::PeerObserver::default());
-        let native_observer = sys_pc::ffi::create_native_peer_connection_observer(Box::new(
-            sys_pc::PeerConnectionObserverWrapper::new(observer.clone()),
-        ));
-
-        let res = self
-            .sys_handle
-            .create_peer_connection(config.into(), native_observer);
+        let res = self.sys_handle.create_peer_connection(
+            config.into(),
+            Box::new(sys_pcf::PeerConnectionObserverWrapper::new(
+                observer.clone(),
+            )),
+        );
 
         match res {
             Ok(sys_handle) => Ok(PeerConnection {

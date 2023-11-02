@@ -14,7 +14,7 @@
 
 use crate::{imp::data_channel as dc_imp, rtp_parameters::Priority};
 use serde::Deserialize;
-use std::{default, fmt::Debug, str::Utf8Error};
+use std::{fmt::Debug, str::Utf8Error};
 use thiserror::Error;
 
 #[derive(Clone, Debug)]
