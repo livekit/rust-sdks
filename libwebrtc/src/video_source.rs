@@ -41,7 +41,7 @@ impl RtcVideoSource {
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     use super::*;
-    use crate::video_frame::{VideoFrame, VideoFrameBuffer};
+    use crate::video_frame::{VideoBuffer, VideoFrame};
     use std::fmt::{Debug, Formatter};
 
     #[derive(Clone)]
@@ -68,7 +68,7 @@ pub mod native {
             }
         }
 
-        pub fn capture_frame<T: AsRef<dyn VideoFrameBuffer>>(&self, frame: &VideoFrame<T>) {
+        pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
         }
 

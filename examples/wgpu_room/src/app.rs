@@ -190,13 +190,13 @@ impl LkApp {
         });
 
         ui.horizontal(|ui| {
-            ui.label("E2EE Key: ");
+            ui.label("E2ee Key: ");
             ui.text_edit_singleline(&mut self.state.key);
         });
 
         ui.horizontal(|ui| {
             ui.add_enabled_ui(true, |ui| {
-                ui.checkbox(&mut self.state.enable_e2ee, "Enable E2EE");
+                ui.checkbox(&mut self.state.enable_e2ee, "Enable E2ee");
             });
         });
 
@@ -342,10 +342,23 @@ impl LkApp {
                         for ((participant_sid, _), video_renderer) in &self.video_renderers {
                             ui.video_frame(|ui| {
                                 let room = room.as_ref().unwrap().clone();
-                                let name =
-                                    room.participants().get(participant_sid).map(|p| p.name());
 
-                                draw_video(&name.unwrap_or_default(), video_renderer, ui);
+                                if let Some(participant) = room.participants().get(participant_sid)
+                                {
+                                    draw_video(
+                                        participant.name().as_str(),
+                                        participant.is_speaking(),
+                                        video_renderer,
+                                        ui,
+                                    );
+                                } else {
+                                    draw_video(
+                                        room.local_participant().name().as_str(),
+                                        room.local_participant().is_speaking(),
+                                        video_renderer,
+                                        ui,
+                                    );
+                                }
                             });
                         }
                     } else {
@@ -409,22 +422,21 @@ impl eframe::App for LkApp {
 }
 
 /// Draw a wgpu texture to the VideoGrid
-fn draw_video(name: &str, video_renderer: &VideoRenderer, ui: &mut egui::Ui) {
+fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &mut egui::Ui) {
     let rect = ui.available_rect_before_wrap();
+    let inner_rect = rect.shrink(1.0);
+
+    if speaking {
+        ui.painter()
+            .rect(rect, Rounding::none(), egui::Color32::GREEN, Stroke::NONE);
+    }
 
     // Always draw a background in case we still didn't receive a frame
-    ui.painter().rect(
-        rect,
-        Rounding::none(),
-        ui.style().visuals.code_bg_color,
-        Stroke::NONE,
-    );
-
     let resolution = video_renderer.resolution();
     if let Some(tex) = video_renderer.texture_id() {
         ui.painter().image(
             tex,
-            rect,
+            inner_rect,
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             egui::Color32::WHITE,
         );

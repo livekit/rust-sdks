@@ -53,11 +53,9 @@ pub struct FfiDataBuffer {
 }
 
 impl FfiHandle for FfiDataBuffer {}
-
-// TODO(theomonnom) Wrap these types
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
-impl FfiHandle for BoxVideoFrameBuffer {}
+impl FfiHandle for BoxVideoBuffer {}
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough

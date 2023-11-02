@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::video_frame::{VideoFrame, VideoFrameBuffer};
+use crate::video_frame::{VideoBuffer, VideoFrame};
 use crate::video_source::VideoResolution;
 use cxx::SharedPtr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -55,7 +55,7 @@ impl NativeVideoSource {
         self.sys_handle.clone()
     }
 
-    pub fn capture_frame<T: AsRef<dyn VideoFrameBuffer>>(&self, frame: &VideoFrame<T>) {
+    pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
         let mut builder = vf_sys::ffi::new_video_frame_builder();
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder

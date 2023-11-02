@@ -19,6 +19,7 @@ option csharp_namespace = "LiveKit.Proto";
 
 import "e2ee.proto";
 import "handle.proto";
+import "stats.proto";
 
 // Create a new VideoTrack from a VideoSource
 message CreateVideoTrackRequest {
@@ -36,6 +37,18 @@ message CreateAudioTrackRequest {
 }
 message CreateAudioTrackResponse {
   OwnedTrack track = 1;
+}
+
+message GetStatsRequest {
+  uint64 track_handle = 1;
+}
+message GetStatsResponse {
+  uint64 async_id = 1;
+}
+message GetStatsCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
+  repeated RtcStats stats = 3;
 }
 
 //

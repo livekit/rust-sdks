@@ -131,21 +131,21 @@ class NativeSetRemoteSdpObserver
   rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete_;
 };
 
-
-template<class T> // Context type
+template <class T>  // Context type
 class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
  public:
   NativeRtcStatsCollector(rust::Box<T> ctx,
-			    rust::Fn<void(rust::Box<T>, rust::String)> on_stats);
+                          rust::Fn<void(rust::Box<T>, rust::String)> on_stats)
+      : ctx_(std::move(ctx)), on_stats_(on_stats) {}
 
   void OnStatsDelivered(
-		const rtc::scoped_refptr<const webrtc::RTCStatsReport> &report) override;
+      const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
+    on_stats_(std::move(ctx_), report->ToJson());
+  }
 
  private:
   rust::Box<T> ctx_;
-  rust::Fn<void(rust::Box<PeerContext>, rust::String)> on_stats_;
+  rust::Fn<void(rust::Box<T>, rust::String)> on_stats_;
 };
-
-
 
 }  // namespace livekit

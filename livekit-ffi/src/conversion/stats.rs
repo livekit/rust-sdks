@@ -121,126 +121,196 @@ impl From<IceTcpCandidateType> for proto::IceTcpCandidateType {
 
 impl From<rtc::RtcStats> for proto::RtcStats {
     fn from(value: rtc::RtcStats) -> Self {
-        let stats = match value {
-            rtc::RtcStats::Codec { rtc, codec } => {
-                proto::rtc_stats::Stats::Codec(proto::rtc_stats::Codec {
-                    rtc: Some(rtc.into()),
-                    codec: Some(codec.into()),
-                })
-            }
-            rtc::RtcStats::InboundRtp {
-                rtc,
-                stream,
-                received,
-                inbound,
-            } => proto::rtc_stats::Stats::InboundRtp(proto::rtc_stats::InboundRtp {
-                rtc: Some(rtc.into()),
-                stream: Some(stream.into()),
-                received: Some(received.into()),
-                inbound: Some(inbound.into()),
+        proto::RtcStats {
+            stats: Some(match value {
+                rtc::RtcStats::Codec(codec) => proto::rtc_stats::Stats::Codec(codec.into()),
+                rtc::RtcStats::InboundRtp(inbound) => {
+                    proto::rtc_stats::Stats::InboundRtp(inbound.into())
+                }
+                rtc::RtcStats::OutboundRtp(outbound) => {
+                    proto::rtc_stats::Stats::OutboundRtp(outbound.into())
+                }
+                rtc::RtcStats::RemoteInboundRtp(remote) => {
+                    proto::rtc_stats::Stats::RemoteInboundRtp(remote.into())
+                }
+                rtc::RtcStats::RemoteOutboundRtp(remote) => {
+                    proto::rtc_stats::Stats::RemoteOutboundRtp(remote.into())
+                }
+                rtc::RtcStats::MediaSource(source) => {
+                    proto::rtc_stats::Stats::MediaSource(source.into())
+                }
+                rtc::RtcStats::MediaPlayout(playout) => {
+                    proto::rtc_stats::Stats::MediaPlayout(playout.into())
+                }
+                rtc::RtcStats::PeerConnection(peer) => {
+                    proto::rtc_stats::Stats::PeerConnection(peer.into())
+                }
+                rtc::RtcStats::DataChannel(channel) => {
+                    proto::rtc_stats::Stats::DataChannel(channel.into())
+                }
+                rtc::RtcStats::Transport(transport) => {
+                    proto::rtc_stats::Stats::Transport(transport.into())
+                }
+                rtc::RtcStats::CandidatePair(pair) => {
+                    proto::rtc_stats::Stats::CandidatePair(pair.into())
+                }
+                rtc::RtcStats::LocalCandidate(candidate) => {
+                    proto::rtc_stats::Stats::LocalCandidate(candidate.into())
+                }
+                rtc::RtcStats::RemoteCandidate(candidate) => {
+                    proto::rtc_stats::Stats::RemoteCandidate(candidate.into())
+                }
+                rtc::RtcStats::Certificate(certificate) => {
+                    proto::rtc_stats::Stats::Certificate(certificate.into())
+                }
+                rtc::RtcStats::Track {} => {
+                    proto::rtc_stats::Stats::Track(proto::rtc_stats::Track {})
+                }
             }),
-            rtc::RtcStats::OutboundRtp {
-                rtc,
-                stream,
-                sent,
-                outbound,
-            } => proto::rtc_stats::Stats::OutboundRtp(proto::rtc_stats::OutboundRtp {
-                rtc: Some(rtc.into()),
-                stream: Some(stream.into()),
-                sent: Some(sent.into()),
-                outbound: Some(outbound.into()),
-            }),
-            rtc::RtcStats::RemoteInboundRtp {
-                rtc,
-                stream,
-                received,
-                remote_inbound,
-            } => proto::rtc_stats::Stats::RemoteInboundRtp(proto::rtc_stats::RemoteInboundRtp {
-                rtc: Some(rtc.into()),
-                stream: Some(stream.into()),
-                received: Some(received.into()),
-                remote_inbound: Some(remote_inbound.into()),
-            }),
-            rtc::RtcStats::RemoteOutboundRtp {
-                rtc,
-                stream,
-                sent,
-                remote_outbound,
-            } => proto::rtc_stats::Stats::RemoteOutboundRtp(proto::rtc_stats::RemoteOutboundRtp {
-                rtc: Some(rtc.into()),
-                stream: Some(stream.into()),
-                sent: Some(sent.into()),
-                remote_outbound: Some(remote_outbound.into()),
-            }),
-            rtc::RtcStats::MediaSource {
-                rtc,
-                source,
-                audio,
-                video,
-            } => proto::rtc_stats::Stats::MediaSource(proto::rtc_stats::MediaSource {
-                rtc: Some(rtc.into()),
-                source: Some(source.into()),
-                audio: Some(audio.into()),
-                video: Some(video.into()),
-            }),
-            rtc::RtcStats::MediaPlayout { rtc, audio_playout } => {
-                proto::rtc_stats::Stats::MediaPlayout(proto::rtc_stats::MediaPlayout {
-                    rtc: Some(rtc.into()),
-                    audio_playout: Some(audio_playout.into()),
-                })
-            }
-            rtc::RtcStats::PeerConnection { rtc, pc } => {
-                proto::rtc_stats::Stats::PeerConnection(proto::rtc_stats::PeerConnection {
-                    rtc: Some(rtc.into()),
-                    pc: Some(pc.into()),
-                })
-            }
-            rtc::RtcStats::DataChannel { rtc, dc } => {
-                proto::rtc_stats::Stats::DataChannel(proto::rtc_stats::DataChannel {
-                    rtc: Some(rtc.into()),
-                    dc: Some(dc.into()),
-                })
-            }
-            rtc::RtcStats::Transport { rtc, transport } => {
-                proto::rtc_stats::Stats::Transport(proto::rtc_stats::Transport {
-                    rtc: Some(rtc.into()),
-                    transport: Some(transport.into()),
-                })
-            }
-            rtc::RtcStats::CandidatePair {
-                rtc,
-                candidate_pair,
-            } => proto::rtc_stats::Stats::CandidatePair(proto::rtc_stats::CandidatePair {
-                rtc: Some(rtc.into()),
-                candidate_pair: Some(candidate_pair.into()),
-            }),
-            rtc::RtcStats::LocalCandidate { rtc, candidate } => {
-                proto::rtc_stats::Stats::LocalCandidate(proto::rtc_stats::LocalCandidate {
-                    rtc: Some(rtc.into()),
-                    candidate: Some(candidate.into()),
-                })
-            }
-            rtc::RtcStats::RemoteCandidate { rtc, candidate } => {
-                proto::rtc_stats::Stats::RemoteCandidate(proto::rtc_stats::RemoteCandidate {
-                    rtc: Some(rtc.into()),
-                    candidate: Some(candidate.into()),
-                })
-            }
-            rtc::RtcStats::Certificate { rtc, certificate } => {
-                proto::rtc_stats::Stats::Certificate(proto::rtc_stats::Certificate {
-                    rtc: Some(rtc.into()),
-                    certificate: Some(certificate.into()),
-                })
-            }
-            rtc::RtcStats::Track {} => proto::rtc_stats::Stats::Track(proto::rtc_stats::Track {}),
-        };
-
-        proto::RtcStats { stats: Some(stats) }
+        }
     }
 }
 
-impl From<rtc::RtcStatsData> for proto::RtcStatsData {
-    fn from(value: rtc::RtcStatsData) -> Self {
+impl From<rtc::CodecStats> for proto::rtc_stats::Codec {
+    fn from(value: rtc::CodecStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            codec: Some(value.codec.into()),
+        }
+    }
+}
+
+impl From<rtc::InboundRtpStats> for proto::rtc_stats::InboundRtp {
+    fn from(value: rtc::InboundRtpStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            stream: Some(value.stream.into()),
+            received: Some(value.received.into()),
+            inbound: Some(value.inbound.into()),
+        }
+    }
+}
+
+impl From<rtc::OutboundRtpStats> for proto::rtc_stats::OutboundRtp {
+    fn from(value: rtc::OutboundRtpStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            stream: Some(value.stream.into()),
+            sent: Some(value.sent.into()),
+            outbound: Some(value.outbound.into()),
+        }
+    }
+}
+
+impl From<rtc::RemoteInboundRtpStats> for proto::rtc_stats::RemoteInboundRtp {
+    fn from(value: rtc::RemoteInboundRtpStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            stream: Some(value.stream.into()),
+            received: Some(value.received.into()),
+            remote_inbound: Some(value.remote_inbound.into()),
+        }
+    }
+}
+
+impl From<rtc::RemoteOutboundRtpStats> for proto::rtc_stats::RemoteOutboundRtp {
+    fn from(value: rtc::RemoteOutboundRtpStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            stream: Some(value.stream.into()),
+            sent: Some(value.sent.into()),
+            remote_outbound: Some(value.remote_outbound.into()),
+        }
+    }
+}
+
+impl From<rtc::MediaSourceStats> for proto::rtc_stats::MediaSource {
+    fn from(value: rtc::MediaSourceStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            source: Some(value.source.into()),
+            audio: Some(value.audio.into()),
+            video: Some(value.video.into()),
+        }
+    }
+}
+
+impl From<rtc::MediaPlayoutStats> for proto::rtc_stats::MediaPlayout {
+    fn from(value: rtc::MediaPlayoutStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            audio_playout: Some(value.audio_playout.into()),
+        }
+    }
+}
+
+impl From<rtc::PeerConnectionStats> for proto::rtc_stats::PeerConnection {
+    fn from(value: rtc::PeerConnectionStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            pc: Some(value.pc.into()),
+        }
+    }
+}
+
+impl From<rtc::DataChannelStats> for proto::rtc_stats::DataChannel {
+    fn from(value: rtc::DataChannelStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            dc: Some(value.dc.into()),
+        }
+    }
+}
+
+impl From<rtc::TransportStats> for proto::rtc_stats::Transport {
+    fn from(value: rtc::TransportStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            transport: Some(value.transport.into()),
+        }
+    }
+}
+
+impl From<rtc::CandidatePairStats> for proto::rtc_stats::CandidatePair {
+    fn from(value: rtc::CandidatePairStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            candidate_pair: Some(value.candidate_pair.into()),
+        }
+    }
+}
+
+impl From<rtc::LocalCandidateStats> for proto::rtc_stats::LocalCandidate {
+    fn from(value: rtc::LocalCandidateStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            candidate: Some(value.local_candidate.into()),
+        }
+    }
+}
+
+impl From<rtc::RemoteCandidateStats> for proto::rtc_stats::RemoteCandidate {
+    fn from(value: rtc::RemoteCandidateStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            candidate: Some(value.remote_candidate.into()),
+        }
+    }
+}
+
+impl From<rtc::CertificateStats> for proto::rtc_stats::Certificate {
+    fn from(value: rtc::CertificateStats) -> Self {
+        Self {
+            rtc: Some(value.rtc.into()),
+            certificate: Some(value.certificate.into()),
+        }
+    }
+}
+
+// Dictionaries
+
+impl From<rtc::dictionaries::RtcStats> for proto::RtcStatsData {
+    fn from(value: rtc::dictionaries::RtcStats) -> Self {
         Self {
             id: value.id,
             timestamp: value.timestamp,
@@ -248,8 +318,8 @@ impl From<rtc::RtcStatsData> for proto::RtcStatsData {
     }
 }
 
-impl From<rtc::CodecStats> for proto::CodecStats {
-    fn from(value: rtc::CodecStats) -> Self {
+impl From<rtc::dictionaries::CodecStats> for proto::CodecStats {
+    fn from(value: rtc::dictionaries::CodecStats) -> Self {
         Self {
             payload_type: value.payload_type,
             transport_id: value.transport_id,
@@ -261,8 +331,8 @@ impl From<rtc::CodecStats> for proto::CodecStats {
     }
 }
 
-impl From<rtc::RtpStreamStats> for proto::RtpStreamStats {
-    fn from(value: rtc::RtpStreamStats) -> Self {
+impl From<rtc::dictionaries::RtpStreamStats> for proto::RtpStreamStats {
+    fn from(value: rtc::dictionaries::RtpStreamStats) -> Self {
         Self {
             ssrc: value.ssrc,
             kind: value.kind,
@@ -272,8 +342,8 @@ impl From<rtc::RtpStreamStats> for proto::RtpStreamStats {
     }
 }
 
-impl From<rtc::ReceivedRtpStreamStats> for proto::ReceivedRtpStreamStats {
-    fn from(value: rtc::ReceivedRtpStreamStats) -> Self {
+impl From<rtc::dictionaries::ReceivedRtpStreamStats> for proto::ReceivedRtpStreamStats {
+    fn from(value: rtc::dictionaries::ReceivedRtpStreamStats) -> Self {
         Self {
             packets_received: value.packets_received,
             packets_lost: value.packets_lost,
@@ -282,8 +352,8 @@ impl From<rtc::ReceivedRtpStreamStats> for proto::ReceivedRtpStreamStats {
     }
 }
 
-impl From<rtc::InboundRtpStreamStats> for proto::InboundRtpStreamStats {
-    fn from(value: rtc::InboundRtpStreamStats) -> Self {
+impl From<rtc::dictionaries::InboundRtpStreamStats> for proto::InboundRtpStreamStats {
+    fn from(value: rtc::dictionaries::InboundRtpStreamStats) -> Self {
         Self {
             track_identifier: value.track_identifier,
             mid: value.mid,
@@ -342,8 +412,8 @@ impl From<rtc::InboundRtpStreamStats> for proto::InboundRtpStreamStats {
     }
 }
 
-impl From<rtc::SentRtpStreamStats> for proto::SentRtpStreamStats {
-    fn from(value: rtc::SentRtpStreamStats) -> Self {
+impl From<rtc::dictionaries::SentRtpStreamStats> for proto::SentRtpStreamStats {
+    fn from(value: rtc::dictionaries::SentRtpStreamStats) -> Self {
         Self {
             packets_sent: value.packets_sent,
             bytes_sent: value.bytes_sent,
@@ -351,8 +421,8 @@ impl From<rtc::SentRtpStreamStats> for proto::SentRtpStreamStats {
     }
 }
 
-impl From<rtc::OutboundRtpStreamStats> for proto::OutboundRtpStreamStats {
-    fn from(value: rtc::OutboundRtpStreamStats) -> Self {
+impl From<rtc::dictionaries::OutboundRtpStreamStats> for proto::OutboundRtpStreamStats {
+    fn from(value: rtc::dictionaries::OutboundRtpStreamStats) -> Self {
         Self {
             mid: value.mid,
             media_source_id: value.media_source_id,
@@ -390,8 +460,8 @@ impl From<rtc::OutboundRtpStreamStats> for proto::OutboundRtpStreamStats {
     }
 }
 
-impl From<rtc::RemoteInboundRtpStreamStats> for proto::RemoteInboundRtpStreamStats {
-    fn from(value: rtc::RemoteInboundRtpStreamStats) -> Self {
+impl From<rtc::dictionaries::RemoteInboundRtpStreamStats> for proto::RemoteInboundRtpStreamStats {
+    fn from(value: rtc::dictionaries::RemoteInboundRtpStreamStats) -> Self {
         Self {
             local_id: value.local_id,
             round_trip_time: value.round_trip_time,
@@ -402,8 +472,8 @@ impl From<rtc::RemoteInboundRtpStreamStats> for proto::RemoteInboundRtpStreamSta
     }
 }
 
-impl From<rtc::RemoteOutboundRtpStreamStats> for proto::RemoteOutboundRtpStreamStats {
-    fn from(value: rtc::RemoteOutboundRtpStreamStats) -> Self {
+impl From<rtc::dictionaries::RemoteOutboundRtpStreamStats> for proto::RemoteOutboundRtpStreamStats {
+    fn from(value: rtc::dictionaries::RemoteOutboundRtpStreamStats) -> Self {
         Self {
             local_id: value.local_id,
             remote_timestamp: value.remote_timestamp,
@@ -415,8 +485,8 @@ impl From<rtc::RemoteOutboundRtpStreamStats> for proto::RemoteOutboundRtpStreamS
     }
 }
 
-impl From<rtc::MediaSourceStats> for proto::MediaSourceStats {
-    fn from(value: rtc::MediaSourceStats) -> Self {
+impl From<rtc::dictionaries::MediaSourceStats> for proto::MediaSourceStats {
+    fn from(value: rtc::dictionaries::MediaSourceStats) -> Self {
         Self {
             track_identifier: value.track_identifier,
             kind: value.kind,
@@ -424,8 +494,8 @@ impl From<rtc::MediaSourceStats> for proto::MediaSourceStats {
     }
 }
 
-impl From<rtc::AudioSourceStats> for proto::AudioSourceStats {
-    fn from(value: rtc::AudioSourceStats) -> Self {
+impl From<rtc::dictionaries::AudioSourceStats> for proto::AudioSourceStats {
+    fn from(value: rtc::dictionaries::AudioSourceStats) -> Self {
         Self {
             audio_level: value.audio_level,
             total_audio_energy: value.total_audio_energy,
@@ -440,8 +510,8 @@ impl From<rtc::AudioSourceStats> for proto::AudioSourceStats {
     }
 }
 
-impl From<rtc::VideoSourceStats> for proto::VideoSourceStats {
-    fn from(value: rtc::VideoSourceStats) -> Self {
+impl From<rtc::dictionaries::VideoSourceStats> for proto::VideoSourceStats {
+    fn from(value: rtc::dictionaries::VideoSourceStats) -> Self {
         Self {
             width: value.width,
             height: value.height,
@@ -451,8 +521,8 @@ impl From<rtc::VideoSourceStats> for proto::VideoSourceStats {
     }
 }
 
-impl From<rtc::AudioPlayoutStats> for proto::AudioPlayoutStats {
-    fn from(value: rtc::AudioPlayoutStats) -> Self {
+impl From<rtc::dictionaries::AudioPlayoutStats> for proto::AudioPlayoutStats {
+    fn from(value: rtc::dictionaries::AudioPlayoutStats) -> Self {
         Self {
             kind: value.kind,
             synthesized_samples_duration: value.synthesized_samples_duration,
@@ -464,8 +534,8 @@ impl From<rtc::AudioPlayoutStats> for proto::AudioPlayoutStats {
     }
 }
 
-impl From<rtc::PeerConnectionStats> for proto::PeerConnectionStats {
-    fn from(value: rtc::PeerConnectionStats) -> Self {
+impl From<rtc::dictionaries::PeerConnectionStats> for proto::PeerConnectionStats {
+    fn from(value: rtc::dictionaries::PeerConnectionStats) -> Self {
         Self {
             data_channels_opened: value.data_channels_opened,
             data_channels_closed: value.data_channels_closed,
@@ -473,8 +543,8 @@ impl From<rtc::PeerConnectionStats> for proto::PeerConnectionStats {
     }
 }
 
-impl From<rtc::DataChannelStats> for proto::DataChannelStats {
-    fn from(value: rtc::DataChannelStats) -> Self {
+impl From<rtc::dictionaries::DataChannelStats> for proto::DataChannelStats {
+    fn from(value: rtc::dictionaries::DataChannelStats) -> Self {
         Self {
             label: value.label,
             protocol: value.protocol,
@@ -488,8 +558,8 @@ impl From<rtc::DataChannelStats> for proto::DataChannelStats {
     }
 }
 
-impl From<rtc::TransportStats> for proto::TransportStats {
-    fn from(value: rtc::TransportStats) -> Self {
+impl From<rtc::dictionaries::TransportStats> for proto::TransportStats {
+    fn from(value: rtc::dictionaries::TransportStats) -> Self {
         Self {
             packets_sent: value.packets_sent,
             packets_received: value.packets_received,
@@ -515,8 +585,8 @@ impl From<rtc::TransportStats> for proto::TransportStats {
     }
 }
 
-impl From<rtc::CandidatePairStats> for proto::CandidatePairStats {
-    fn from(value: rtc::CandidatePairStats) -> Self {
+impl From<rtc::dictionaries::CandidatePairStats> for proto::CandidatePairStats {
+    fn from(value: rtc::dictionaries::CandidatePairStats) -> Self {
         Self {
             transport_id: value.transport_id,
             local_candidate_id: value.local_candidate_id,
@@ -546,8 +616,8 @@ impl From<rtc::CandidatePairStats> for proto::CandidatePairStats {
     }
 }
 
-impl From<rtc::IceCandidateStats> for proto::IceCandidateStats {
-    fn from(value: rtc::IceCandidateStats) -> Self {
+impl From<rtc::dictionaries::IceCandidateStats> for proto::IceCandidateStats {
+    fn from(value: rtc::dictionaries::IceCandidateStats) -> Self {
         Self {
             transport_id: value.transport_id,
             address: value.address,
@@ -572,8 +642,8 @@ impl From<rtc::IceCandidateStats> for proto::IceCandidateStats {
     }
 }
 
-impl From<rtc::CertificateStats> for proto::CertificateStats {
-    fn from(value: rtc::CertificateStats) -> Self {
+impl From<rtc::dictionaries::CertificateStats> for proto::CertificateStats {
+    fn from(value: rtc::dictionaries::CertificateStats) -> Self {
         Self {
             fingerprint: value.fingerprint,
             fingerprint_algorithm: value.fingerprint_algorithm,

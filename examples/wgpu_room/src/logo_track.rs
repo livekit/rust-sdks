@@ -6,7 +6,6 @@ use livekit::webrtc::video_source::RtcVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
 use livekit::webrtc::{
     native::yuv_helper,
-    video_frame::native::I420BufferExt,
     video_frame::{I420Buffer, VideoFrame, VideoRotation},
     video_source::native::NativeVideoSource,
 };
