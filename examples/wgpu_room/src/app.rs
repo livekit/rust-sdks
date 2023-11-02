@@ -153,8 +153,8 @@ impl LkApp {
             });
 
             ui.menu_button("Publish", |ui| {
-                if ui.button("Logo").clicked() {
-                    let _ = self.service.send(AsyncCmd::ToggleLogo);
+                if ui.button("Screen-sharing").clicked() {
+                    let _ = self.service.send(AsyncCmd::ToggleScreensharing);
                 }
                 if ui.button("SineWave").clicked() {
                     let _ = self.service.send(AsyncCmd::ToggleSine);
