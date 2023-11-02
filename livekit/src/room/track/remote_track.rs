@@ -16,6 +16,8 @@ use super::track_dispatch;
 use super::TrackInner;
 use crate::prelude::*;
 use libwebrtc::prelude::*;
+use libwebrtc::stats::InboundRtpStats;
+use libwebrtc::stats::RtcStats;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use std::sync::Arc;
