@@ -452,6 +452,11 @@ impl PeerConnection {
                 .downcast::<oneshot::Sender<Result<Vec<RtcStats>, RtcError>>>()
                 .unwrap();
 
+            if stats.is_empty() {
+                let _ = tx.send(Ok(vec![]));
+                return;
+            }
+
             // Unwrap because it should not happens
             let vec = serde_json::from_str(&stats).unwrap();
             let _ = tx.send(Ok(vec));
