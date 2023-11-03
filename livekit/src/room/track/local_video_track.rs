@@ -121,7 +121,7 @@ impl LocalVideoTrack {
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
-        super::get_stats(&self.inner).await
+        super::local_track::get_stats(&self.inner).await
     }
 
     pub(crate) fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {

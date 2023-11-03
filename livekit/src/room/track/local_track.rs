@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::track_dispatch;
+use std::sync::Arc;
+
+use super::{track_dispatch, TrackInner};
 use crate::prelude::*;
 use libwebrtc::prelude::*;
+use libwebrtc::stats::RtcStats;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 
@@ -60,4 +63,13 @@ impl TryFrom<Track> for LocalTrack {
             _ => Err("not a local track"),
         }
     }
+}
+
+pub(super) async fn get_stats(inner: &Arc<TrackInner>) -> RoomResult<Vec<RtcStats>> {
+    let transceiver = inner.info.read().transceiver.clone();
+    let Some(transceiver) = transceiver.as_ref() else {
+        return Err(RoomError::Internal("no transceiver found for track".into()));
+    };
+
+    Ok(transceiver.sender().get_stats().await?)
 }

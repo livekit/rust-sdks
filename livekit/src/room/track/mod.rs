@@ -173,16 +173,6 @@ pub(super) fn new_inner(
     }
 }
 
-pub(super) async fn get_stats(inner: &Arc<TrackInner>) -> RoomResult<Vec<RtcStats>> {
-    let transceiver = inner.info.read().transceiver.clone();
-    let Some(transceiver) = transceiver.as_ref() else {
-        return Err(RoomError::Internal("no transceiver found for track".into()));
-    };
-
-    let rtp_receiver = transceiver.receiver();
-    Ok(rtp_receiver.get_stats().await?)
-}
-
 /// This is only called for local tracks
 pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     let info = inner.info.read();

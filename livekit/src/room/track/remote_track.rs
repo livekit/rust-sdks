@@ -16,7 +16,6 @@ use super::track_dispatch;
 use super::TrackInner;
 use crate::prelude::*;
 use libwebrtc::prelude::*;
-use libwebrtc::stats::InboundRtpStats;
 use libwebrtc::stats::RtcStats;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
@@ -38,6 +37,15 @@ impl RemoteTrack {
             Self::Video(track) => track.rtc_track().into(),
         }
     }
+}
+
+pub(super) async fn get_stats(inner: &Arc<TrackInner>) -> RoomResult<Vec<RtcStats>> {
+    let transceiver = inner.info.read().transceiver.clone();
+    let Some(transceiver) = transceiver.as_ref() else {
+        return Err(RoomError::Internal("no transceiver found for track".into()));
+    };
+
+    Ok(transceiver.receiver().get_stats().await?)
 }
 
 pub(super) fn update_info(inner: &Arc<TrackInner>, track: &Track, new_info: proto::TrackInfo) {
