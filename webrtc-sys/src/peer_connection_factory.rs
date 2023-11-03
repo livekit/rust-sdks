@@ -37,7 +37,6 @@ pub mod ffi {
     }
 
     extern "C++" {
-        include!("livekit/peer_connection_factory.h");
         include!("livekit/rtp_parameters.h");
         include!("livekit/rtc_error.h");
         include!("livekit/helper.h");

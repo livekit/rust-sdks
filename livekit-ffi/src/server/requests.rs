@@ -21,7 +21,7 @@ use crate::proto;
 use livekit::prelude::*;
 use livekit::webrtc::native::{audio_resampler, yuv_helper};
 use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, I420Buffer};
+use livekit::webrtc::video_frame::{BoxVideoBuffer, I420Buffer};
 use parking_lot::Mutex;
 use std::slice;
 use std::sync::Arc;
@@ -232,19 +232,54 @@ fn on_create_audio_track(
     })
 }
 
+/// Retrieve the stats from a track
+fn on_get_stats(
+    server: &'static FfiServer,
+    get_stats: proto::GetStatsRequest,
+) -> FfiResult<proto::GetStatsResponse> {
+    let ffi_track = server
+        .retrieve_handle::<FfiTrack>(get_stats.track_handle)?
+        .clone();
+
+    let async_id = server.next_id();
+
+    server.async_runtime.spawn(async move {
+        match ffi_track.track.get_stats().await {
+            Ok(stats) => {
+                let _ = server
+                    .send_event(proto::ffi_event::Message::GetStats(
+                        proto::GetStatsCallback {
+                            async_id,
+                            error: None,
+                            stats: stats.into_iter().map(Into::into).collect(),
+                        },
+                    ))
+                    .await;
+            }
+            Err(err) => {
+                let _ = server
+                    .send_event(proto::ffi_event::Message::GetStats(
+                        proto::GetStatsCallback {
+                            async_id,
+                            error: Some(err.to_string()),
+                            stats: Vec::default(),
+                        },
+                    ))
+                    .await;
+            }
+        }
+    });
+
+    Ok(proto::GetStatsResponse { async_id })
+}
+
 /// Allocate a new video buffer
 fn on_alloc_video_buffer(
     server: &'static FfiServer,
     alloc: proto::AllocVideoBufferRequest,
 ) -> FfiResult<proto::AllocVideoBufferResponse> {
-    let buffer: BoxVideoFrameBuffer = match alloc.r#type() {
-        proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(
-            alloc.width,
-            alloc.height,
-            alloc.width,
-            (alloc.width + 1) / 2,
-            (alloc.width + 1) / 2,
-        )),
+    let buffer: BoxVideoBuffer = match alloc.r#type() {
+        proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(alloc.width, alloc.height)),
         _ => {
             return Err(FfiError::InvalidRequest(
                 "frame type is not supported".into(),
@@ -313,10 +348,10 @@ unsafe fn on_to_i420(
     #[rustfmt::skip]
     let i420 = match from {
         proto::to_i420_request::From::Handle(handle) => server
-            .retrieve_handle::<BoxVideoFrameBuffer>(handle)?
+            .retrieve_handle::<BoxVideoBuffer>(handle)?
             .to_i420(),
         proto::to_i420_request::From::Argb(info) => {
-            let mut i420 = I420Buffer::new(info.width, info.height, info.width, (info.width + 1) / 2, (info.width + 1) / 2);
+            let mut i420 = I420Buffer::new(info.width, info.height);
             let (w, h) = (
                 info.width as i32,
                 info.height as i32 * if to_i420.flip_y { -1 } else { 1 },
@@ -343,7 +378,7 @@ unsafe fn on_to_i420(
             i420
         }
         proto::to_i420_request::From::Buffer(info) => {
-            let mut i420 = I420Buffer::new(info.width, info.height, info.width, (info.width + 1) / 2, (info.width + 1) / 2);
+            let mut i420 = I420Buffer::new(info.width, info.height);
             let (w, h) = (info.width as i32, info.height as i32);
             let (sy, su, sv) = i420.strides();
             let (dy, du, dv) = i420.data_mut();
@@ -405,7 +440,7 @@ unsafe fn on_to_i420(
         }
     };
 
-    let i420: BoxVideoFrameBuffer = Box::new(i420);
+    let i420: BoxVideoBuffer = Box::new(i420);
     let handle_id = server.next_id();
     let buffer_info = proto::VideoFrameBufferInfo::from(&i420);
     server.store_handle(handle_id, i420);
@@ -767,6 +802,9 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::CreateAudioTrack(create) => {
             proto::ffi_response::Message::CreateAudioTrack(on_create_audio_track(server, create)?)
+        }
+        proto::ffi_request::Message::GetStats(get_stats) => {
+            proto::ffi_response::Message::GetStats(on_get_stats(server, get_stats)?)
         }
         proto::ffi_request::Message::AllocVideoBuffer(alloc) => {
             proto::ffi_response::Message::AllocVideoBuffer(on_alloc_video_buffer(server, alloc)?)

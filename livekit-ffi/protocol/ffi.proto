@@ -70,23 +70,24 @@ message FfiRequest {
     // Track
     CreateVideoTrackRequest create_video_track = 11;
     CreateAudioTrackRequest create_audio_track = 12;
+    GetStatsRequest get_stats = 13;
 
     // Video
-    AllocVideoBufferRequest alloc_video_buffer = 13;
-    NewVideoStreamRequest new_video_stream = 14;
-    NewVideoSourceRequest new_video_source = 15;
-    CaptureVideoFrameRequest capture_video_frame = 16;
-    ToI420Request to_i420 = 17;
-    ToArgbRequest to_argb = 18;
+    AllocVideoBufferRequest alloc_video_buffer = 14;
+    NewVideoStreamRequest new_video_stream = 15;
+    NewVideoSourceRequest new_video_source = 16;
+    CaptureVideoFrameRequest capture_video_frame = 17;
+    ToI420Request to_i420 = 18;
+    ToArgbRequest to_argb = 19;
 
     // Audio
-    AllocAudioBufferRequest alloc_audio_buffer = 19;
-    NewAudioStreamRequest new_audio_stream = 20;
-    NewAudioSourceRequest new_audio_source = 21;
-    CaptureAudioFrameRequest capture_audio_frame = 22;
-    NewAudioResamplerRequest new_audio_resampler = 23;
-    RemixAndResampleRequest remix_and_resample = 24;
-    E2eeRequest e2ee = 25;
+    AllocAudioBufferRequest alloc_audio_buffer = 20;
+    NewAudioStreamRequest new_audio_stream = 21;
+    NewAudioSourceRequest new_audio_source = 22;
+    CaptureAudioFrameRequest capture_audio_frame = 23;
+    NewAudioResamplerRequest new_audio_resampler = 24;
+    RemixAndResampleRequest remix_and_resample = 25;
+    E2eeRequest e2ee = 26;
   }
 }
 
@@ -109,23 +110,24 @@ message FfiResponse {
     // Track
     CreateVideoTrackResponse create_video_track = 11;
     CreateAudioTrackResponse create_audio_track = 12;
+    GetStatsResponse get_stats = 13;
 
     // Video
-    AllocVideoBufferResponse alloc_video_buffer = 13;
-    NewVideoStreamResponse new_video_stream = 14;
-    NewVideoSourceResponse new_video_source = 15;
-    CaptureVideoFrameResponse capture_video_frame = 16;
-    ToI420Response to_i420 = 17;
-    ToArgbResponse to_argb = 18;
+    AllocVideoBufferResponse alloc_video_buffer = 14;
+    NewVideoStreamResponse new_video_stream = 15;
+    NewVideoSourceResponse new_video_source = 16;
+    CaptureVideoFrameResponse capture_video_frame = 17;
+    ToI420Response to_i420 = 18;
+    ToArgbResponse to_argb = 19;
 
     // Audio
-    AllocAudioBufferResponse alloc_audio_buffer = 19;
-    NewAudioStreamResponse new_audio_stream = 20;
-    NewAudioSourceResponse new_audio_source = 21;
-    CaptureAudioFrameResponse capture_audio_frame = 22;
-    NewAudioResamplerResponse new_audio_resampler = 23;
-    RemixAndResampleResponse remix_and_resample = 24;
-    E2eeResponse e2ee = 25;
+    AllocAudioBufferResponse alloc_audio_buffer = 20;
+    NewAudioStreamResponse new_audio_stream = 21;
+    NewAudioSourceResponse new_audio_source = 22;
+    CaptureAudioFrameResponse capture_audio_frame = 23;
+    NewAudioResamplerResponse new_audio_resampler = 24;
+    RemixAndResampleResponse remix_and_resample = 25;
+    E2eeResponse e2ee = 26;
   }
 }
 
@@ -147,6 +149,7 @@ message FfiEvent {
     CaptureAudioFrameCallback capture_audio_frame = 11;
     UpdateLocalMetadataCallback update_local_metadata = 12;
     UpdateLocalNameCallback update_local_name = 13;
+    GetStatsCallback get_stats = 14;
   }
 }
 

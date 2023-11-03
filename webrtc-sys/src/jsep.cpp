@@ -148,17 +148,4 @@ void NativeSetRemoteSdpObserver::OnSetRemoteDescriptionComplete(
     webrtc::RTCError error) {
   on_complete_(std::move(ctx_), to_error(error));
 }
-
-template <class T>
-NativeRtcStatsCollector<T>::NativeRtcStatsCollector(
-    rust::Box<T> ctx,
-    rust::Fn<void(rust::Box<T>, rust::String)> on_stats)
-    : ctx_(std::move(ctx)), on_stats_(on_stats) {}
-
-template <class T>
-void NativeRtcStatsCollector<T>::OnStatsDelivered(
-    const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
-  on_stats_(std::move(ctx_), report->ToJson());
-}
-
 }  // namespace livekit

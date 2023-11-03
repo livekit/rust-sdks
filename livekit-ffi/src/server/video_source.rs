@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
 use std::slice;
-
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame::{BoxVideoFrameBuffer, VideoFrame};
+use livekit::webrtc::video_frame::{BoxVideoBuffer, VideoFrame};
 
 use super::FfiHandle;
 
@@ -86,7 +84,7 @@ impl FfiVideoSource {
 
                 // copy the provided buffer
                 #[rustfmt::skip]
-                let buffer: BoxVideoFrameBuffer = match from {
+                let buffer: BoxVideoBuffer = match from {
                     proto::capture_video_frame_request::From::Info(info) => {
                         match &info.buffer {
                             Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) => {
@@ -104,31 +102,31 @@ impl FfiVideoSource {
 
                                         match info.buffer_type() {
                                             proto::VideoFrameBufferType::I420 | proto::VideoFrameBufferType::I420a => {
-                                                let mut i420 = I420Buffer::new(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
+                                                let mut i420 = I420Buffer::with_strides(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
                                                 let (dy, du, dv) = i420.data_mut();
                                                 
                                                 dy.copy_from_slice(y);
                                                 du.copy_from_slice(u);
                                                 dv.copy_from_slice(v);
-                                                Box::new(i420) as BoxVideoFrameBuffer
+                                                Box::new(i420) as BoxVideoBuffer
                                             },
                                             proto::VideoFrameBufferType::I422 => {
-                                                let mut i422 = I422Buffer::new(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
+                                                let mut i422 = I422Buffer::with_strides(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
                                                 let (dy, du, dv) = i422.data_mut();
 
                                                 dy.copy_from_slice(y);
                                                 du.copy_from_slice(u);
                                                 dv.copy_from_slice(v);
-                                                Box::new(i422) as BoxVideoFrameBuffer
+                                                Box::new(i422) as BoxVideoBuffer
                                             },
                                             proto::VideoFrameBufferType::I444 => {
-                                                let mut i444 = I444Buffer::new(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
+                                                let mut i444 = I444Buffer::with_strides(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
                                                 let (dy, du, dv) = i444.data_mut();
 
                                                 dy.copy_from_slice(y);
                                                 du.copy_from_slice(u);
                                                 dv.copy_from_slice(v);
-                                                Box::new(i444) as BoxVideoFrameBuffer
+                                                Box::new(i444) as BoxVideoBuffer
                                             }
                                             _ => unreachable!()
                                         }
@@ -140,13 +138,13 @@ impl FfiVideoSource {
                                             slice::from_raw_parts(yuv.data_v_ptr as *const u16, (yuv.stride_v * yuv.chroma_height) as usize / std::mem::size_of::<u16>())
                                         );
 
-                                        let mut i010 = I010Buffer::new(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
+                                        let mut i010 = I010Buffer::with_strides(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
                                         let (dy, du, dv) = i010.data_mut();
 
                                         dy.copy_from_slice(y);
                                         du.copy_from_slice(u);
                                         dv.copy_from_slice(v);
-                                        Box::new(i010) as BoxVideoFrameBuffer
+                                        Box::new(i010) as BoxVideoBuffer
                                     }
                                     _ => return Err(FfiError::InvalidRequest("invalid yuv description".into()))
                                 }
@@ -158,12 +156,12 @@ impl FfiVideoSource {
                                 );
 
                                 if info.buffer_type() == proto::VideoFrameBufferType::Nv12 {
-                                    let mut nv12 = NV12Buffer::new(info.width, info.height, biyuv.stride_y, biyuv.stride_uv);
+                                    let mut nv12 = NV12Buffer::with_strides(info.width, info.height, biyuv.stride_y, biyuv.stride_uv);
                                     let (dy, duv) = nv12.data_mut();
 
                                     dy.copy_from_slice(y);
                                     duv.copy_from_slice(uv);
-                                    Box::new(nv12) as BoxVideoFrameBuffer
+                                    Box::new(nv12) as BoxVideoBuffer 
                                 } else {
                                     return Err(FfiError::InvalidRequest("invalid biyuv description".into()))
                                 }
@@ -178,7 +176,7 @@ impl FfiVideoSource {
                             .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
 
                         *(buffer
-                            .downcast::<BoxVideoFrameBuffer>()
+                            .downcast::<BoxVideoBuffer>()
                             .map_err(|_| FfiError::InvalidRequest("handle is not video frame".into()))?)
                     }
                 };

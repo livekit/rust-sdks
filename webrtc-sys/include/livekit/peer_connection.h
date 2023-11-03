@@ -34,17 +34,15 @@
 
 namespace livekit {
 class PeerConnection;
-class NativePeerConnectionObserver;
 }  // namespace livekit
 #include "webrtc-sys/src/peer_connection.rs.h"
-
-#include "livekit/peer_connection_factory.h"
 
 namespace livekit {
 
 webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
     RtcConfiguration config);
-class PeerConnectionFactory;
+
+class PeerConnectionObserverWrapper;
 
 class PeerConnection : webrtc::PeerConnectionObserver {
  public:

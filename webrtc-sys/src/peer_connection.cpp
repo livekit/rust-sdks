@@ -15,6 +15,7 @@
  */
 
 #include "livekit/peer_connection.h"
+#include "livekit/peer_connection_factory.h"
 
 #include <memory>
 
@@ -27,8 +28,6 @@
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_transceiver.h"
 #include "rtc_base/logging.h"
-#include "webrtc-sys/src/peer_connection.rs.h"
-#include "webrtc-sys/src/rtc_error.rs.h"
 
 namespace livekit {
 
@@ -73,10 +72,10 @@ to_native_offer_answer_options(const RtcOfferAnswerOptions& options) {
 }
 
 PeerConnection::PeerConnection(
-    std::shared_ptr<RtcRuntime> rtc_runtime_,
+    std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
     rust::Box<PeerConnectionObserverWrapper> observer)
-    : rtc_runtime_(std::move(rtc_runtime_)),
+    : rtc_runtime_(std::move(rtc_runtime)),
       pc_factory_(std::move(pc_factory)),
       observer_(std::move(observer)) {
   RTC_LOG(LS_VERBOSE) << "PeerConnection::PeerConnection()";
