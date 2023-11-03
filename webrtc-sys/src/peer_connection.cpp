@@ -15,6 +15,7 @@
  */
 
 #include "livekit/peer_connection.h"
+#include "livekit/peer_connection_factory.h"
 
 #include <memory>
 
@@ -27,8 +28,6 @@
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_transceiver.h"
 #include "rtc_base/logging.h"
-#include "webrtc-sys/src/peer_connection.rs.h"
-#include "webrtc-sys/src/rtc_error.rs.h"
 
 namespace livekit {
 
