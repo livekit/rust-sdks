@@ -230,7 +230,9 @@ impl LkApp {
         ui.label("Participants");
         ui.separator();
 
-        let Some(room) = self.service.room() else { return; };
+        let Some(room) = self.service.room() else {
+            return;
+        };
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
