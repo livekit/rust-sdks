@@ -184,9 +184,11 @@ impl AccessToken {
             return Err(AccessTokenError::InvalidKeys);
         }
 
-        if self.claims.video.room_join && self.claims.sub.is_empty() {
+        if self.claims.video.room_join
+            && (self.claims.sub.is_empty() || self.claims.video.room.is_empty())
+        {
             return Err(AccessTokenError::InvalidClaims(
-                "token grants room_join but doesn't have an identity",
+                "token grants room_join but doesn't have an identity or room",
             ));
         }
 
