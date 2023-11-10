@@ -20,9 +20,10 @@
 - [x] Receiving tracks
 - [x] Publishing tracks
 - [x] Data channels
+- [x] Simulcast
+- [ ] SVC codecs (AV1/VP9)
 - [ ] Adaptive Streaming
 - [ ] Dynacast
-- [x] Simulcast
 - [x] Hardware video enc/dec
   - [x] VideoToolbox for MacOS/iOS
 - Supported Platforms
@@ -35,7 +36,7 @@
 ## Crates
 
 - `livekit-api`: Server APIs and auth token generation
-- `livekit`: LiveKit real-time SDK for all platforms
+- `livekit`: LiveKit real-time SDK
 - `livekit-ffi`: Internal crate, used to generate bindings for other languages
 
 ## Getting started
