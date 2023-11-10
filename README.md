@@ -15,53 +15,40 @@
 [![Builds](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml)
 [![Tests](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml)
 
-⚠️ Warning
-
-> This SDK is currently in Developer Preview mode and not ready for production use. There will be bugs and APIs may change during this period.
->
-> We welcome and appreciate any feedback or contributions. You can create issues here or chat live with us in the #rust-developer-preview channel within the [LiveKit Community Slack](https://livekit.io/join-slack).
-
 ## Features
 
 - [x] Receiving tracks
-- [x] Cross-platform ( currently tested on Windows & MacOS )
-- [x] Data channels
 - [x] Publishing tracks
+- [x] Data channels
 - [ ] Adaptive Streaming
 - [ ] Dynacast
 - [x] Simulcast
-- [ ] Hardware video enc/dec
-  - [ ] NvEnc for Windows
+- [x] Hardware video enc/dec
   - [x] VideoToolbox for MacOS/iOS
+- Supported Platforms
+  - [x] Windows
+  - [x] MacOS
+  - [x] Linux
+  - [x] iOS
+  - [x] Android
 
 ## Crates
 
-- `livekit-core`: LiveKit protocol implementation
-- `livekit-utils`: Shared utilities between our crates
-- `livekit-ffi`: Bindings for other languages. Uses `livekit-core`.
-- `libwebrtc`: Safe Rust bindings to libwebrtc
-- `webrtc-sys`: Unsafe bindings to libwebrtc
-
-## Motivation and Design Goals
-
-LiveKit aims to provide an open source, end-to-end WebRTC stack that works everywhere. We have two goals in mind with this SDK:
-
-1. Build a standalone, cross-platform LiveKit client SDK for Rustaceans.
-2. Build a common core for other platform-specific SDKs (e.g. Unity, Unreal, iOS, Android)
-
-Regarding (2), we've already developed a number of [client SDKs](https://github.com/livekit?q=client-sdk&type=all) for several platforms and encountered a few challenges in the process:
-
-- There's a significant amount of business/control logic in our signaling protocol and WebRTC. Currently, this logic needs to be implemented in every new platform we support.
-- Interactions with media devices and encoding/decoding are specific to each platform and framework.
-- For multi-platform frameworks (e.g. Unity, Flutter, React Native), the aforementioned tasks proved to be extremely painful.
-
-Thus, we posited a Rust SDK, something we wanted build anyway, encapsulating all our business logic and platform-specific APIs into a clean set of abstractions, could also serve as the foundation for our other SDKs!
-
-We'll first use it as a basis for our Unity SDK (under development), but over time, it will power our other SDKs, as well.
+- `livekit-api`: Server APIs and auth token generation
+- `livekit`: LiveKit real-time SDK for all platforms
+- `livekit-ffi`: Internal crate, used to generate bindings for other languages
 
 ## Getting started
 
 Currently, Tokio is required to use this SDK, however we plan to make the async executor runtime agnostic.
+
+### Generating an access token
+
+```rust
+use livekit-api::*;
+
+
+```
 
 ### Connect to a Room and listen for events:
 
@@ -111,35 +98,27 @@ We made a [basic room demo](https://github.com/livekit/client-sdk-native/tree/ma
 
 ![](https://github.com/livekit/client-sdk-rust/blob/main/examples/images/simple-room-demo.gif)
 
-## FAQ
+## Motivation and Design Goals
 
-### Do you plan to offer a C/C++ SDK?
+LiveKit aims to provide an open source, end-to-end WebRTC stack that works everywhere. We have two goals in mind with this SDK:
 
-Yes! In fact, we also plan to release an SDK for C++ in the coming months. It, like our other platform-specific SDKs, will use the Rust SDK. 🙂
+1. Build a standalone, cross-platform LiveKit client SDK for Rustaceans.
+2. Build a common core for other platform-specific SDKs (e.g. Unity, Unreal, iOS, Android)
 
-### Did you consider C/C++ as your common core?
+Regarding (2), we've already developed a number of [client SDKs](https://github.com/livekit?q=client-sdk&type=all) for several platforms and encountered a few challenges in the process:
 
-Yes. We chose Rust over C++ for a few reasons:
+- There's a significant amount of business/control logic in our signaling protocol and WebRTC. Currently, this logic needs to be implemented in every new platform we support.
+- Interactions with media devices and encoding/decoding are specific to each platform and framework.
+- For multi-platform frameworks (e.g. Unity, Flutter, React Native), the aforementioned tasks proved to be extremely painful.
 
-- Rust's ownership model and thread-safety leads to fewer crashes/issues.
-- Rust's build system requires less configuration and is easier to work with.
-- While we love C/C++, it's a bit nicer to write code in Rust.
-- Rust has a rich ecosystem of tools (e.g. websockets, async executor).
-- Having the WebAssembly target will be useful down the road, C++ has Emscripten but it's a bit harder to set up and doesn't yet have WebRTC support.
+Thus, we posited a Rust SDK, something we wanted build anyway, encapsulating all our business logic and platform-specific APIs into a clean set of abstractions, could also serve as the foundation for our other SDKs!
 
-### Did you look at [Arcas](https://github.com/arcas-io/libwebrtc) for libwebrtc bindings?
-
-Yes. Our build system is inspired by LBL's work! Given that some of our logic (e.g. hardware decoder code) is in C++ and that we may need to bridge more/different things than Arcas, we decided it was better to have our own bindings for full control.
-
-### Did you consider using [webrtc.rs](https://webrtc.rs/) instead of libwebrtc?
-Yes! As webrtc.rs matures, we'll eventually migrate to a pure Rust stack. For now, we chose libwebrtc for a few reasons:
-
-- Chrome's adoption and usage means libwebrtc is thoroughly battle-tested.
-- webrtc.rs is ported from Pion (which [our SFU](https://github.com/livekit/livekit) is built on) and a better fit for server-side use.
-- libwebrtc currently supports more features like encoding/decoding and includes platform-specific code for dealing with media devices.
+We'll first use it as a basis for our Unity SDK (under development), but over time, it will power our other SDKs, as well.
 
 <!--BEGIN_REPO_NAV-->
+
 <br/><table>
+
 <thead><tr><th colspan="2">LiveKit Ecosystem</th></tr></thead>
 <tbody>
 <tr><td>Client SDKs</td><td><a href="https://github.com/livekit/components-js">Components</a> · <a href="https://github.com/livekit/client-sdk-js">JavaScript</a> · <a href="https://github.com/livekit/client-sdk-swift">iOS/macOS</a> · <a href="https://github.com/livekit/client-sdk-android">Android</a> · <a href="https://github.com/livekit/client-sdk-flutter">Flutter</a> · <a href="https://github.com/livekit/client-sdk-react-native">React Native</a> · <b>Rust</b> · <a href="https://github.com/livekit/client-sdk-python">Python</a> · <a href="https://github.com/livekit/client-sdk-unity-web">Unity (web)</a> · <a href="https://github.com/livekit/client-sdk-unity">Unity (beta)</a></td></tr><tr></tr>
