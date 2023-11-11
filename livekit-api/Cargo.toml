@@ -4,7 +4,7 @@ version = "0.2.0"
 license = "Apache-2.0"
 description = "Rust Server SDK for LiveKit"
 edition = "2021"
-repository = "https://github.com/livekit/client-sdk-rust" 
+repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 # By default ws TLS is not enabled

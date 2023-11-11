@@ -3,8 +3,8 @@ name = "livekit-ffi"
 version = "0.3.12"
 edition = "2021"
 license = "Apache-2.0"
-description = "LiveKit interface to easily use the Rust SDK on other languages"
-repository = "https://github.com/livekit/client-sdk-rust"
+description = "FFI interface for bindings in other languages"
+repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 default = ["rustls-tls-native-roots"]

@@ -12,8 +12,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/livekit.svg)](https://crates.io/crates/livekit)
 [![livekit docs.rs](https://img.shields.io/docsrs/livekit)](https://docs.rs/livekit/latest/)
-[![Builds](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/builds.yml)
-[![Tests](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/livekit/client-sdk-native/actions/workflows/tests.yml)
+[![Builds](https://github.com/livekit/rust-sdks/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/livekit/rust-sdks/actions/workflows/builds.yml)
+[![Tests](https://github.com/livekit/rust-sdks/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/livekit/rust-sdks/actions/workflows/tests.yml)
 
 ## Features
 
@@ -43,13 +43,44 @@
 
 Currently, Tokio is required to use this SDK, however we plan to make the async executor runtime agnostic.
 
+## Using Server API
+
 ### Generating an access token
 
 ```rust
-use livekit-api::*;
+use livekit_api::access_token;
 
+fn create_token() -> Result<String, AccessTokenError> {
+   let api_key = env::var("LIVEKIT_API_KEY").expect("LIVEKIT_API_KEY is not set");
+   let api_secret = env::var("LIVEKIT_API_SECRET").expect("LIVEKIT_API_SECRET is not set");
 
+   let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
+      .with_identity("rust-bot")
+      .with_name("Rust Bot")
+      .with_grants(access_token::VideoGrants {
+         room_join: true,
+         room: "my-room".to_string(),
+         ..Default::default()
+      })
+      .to_jwt();
+   return token
+}
 ```
+
+### Creating a room with RoomService API
+
+```rust
+use livekit_api::services::room;
+
+async fn create_room() -> Result<()> {
+   // by default, it'll load API Key and Secret from env vars
+   // LIVEKIT_API_KEY and LIVEKIT_API_SECRET
+   let client = room::RoomClient::new("https://my.livekit.server");
+   // TODO: fill out
+}
+```
+
+## Using Real-time SDK
 
 ### Connect to a Room and listen for events:
 
@@ -95,9 +126,13 @@ match event {
 
 ## Examples
 
-We made a [basic room demo](https://github.com/livekit/client-sdk-native/tree/main/examples/basic_room) leveraging all the current SDK features. Videos are rendered using wgpu and egui.
+![](https://github.com/livekit/rust-sdks/blob/main/examples/images/simple-room-demo.gif)
 
-![](https://github.com/livekit/client-sdk-rust/blob/main/examples/images/simple-room-demo.gif)
+- [basic room](https://github.com/livekit/rust-sdks/tree/main/examples/basic_room): simple example connecting to a room.
+- [wgpu_room](https://github.com/livekit/rust-sdks/tree/main/examples/wgpu_room): complete example app with video rendering using wgpu and egui.
+- [mobile](https://github.com/livekit/rust-sdks/tree/main/examples/mobile): mobile app targeting iOS and Android
+- [play_from_disk](https://github.com/livekit/rust-sdks/tree/main/examples/play_from_disk): publish audio from a wav file
+- [save_to_disk](https://github.com/livekit/rust-sdks/tree/main/examples/save_to_disk): save received audio to a wav file
 
 ## Motivation and Design Goals
 
