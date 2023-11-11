@@ -107,19 +107,29 @@ async fn main() -> Result<()> {
 ### Receive video frames of a subscribed track
 
 ```rust
+...
+use futures::StreamExt; // this trait is required for iterating on audio & video frames
+use livekit::prelude::*;
+
 match event {
    RoomEvent::TrackSubscribed { track, publication, participant } => {
-      if let RemoteTrackHandle::Video(video_track) => {
-          let rtc_track = video_track.rtc_track();
-          rtc_track.on_frame(Box::new(move |frame, buffer| {
-              // Just received a video frame!
-              // The buffer is YuvEncoded, you can decode it to ABGR by using our yuv_helper
-              // See the basic_room example for the conversion
-          });
-      } else {
-          // Audio Track..
+      match track {
+         RemoteTrack::Audio(audio_track) => {
+            let audio_rtc_track = audio_track.rtc_track();
+            let audio_stream = NativeAudioStream::new(audio_rtc_track);
+            while let Some(audio) = audio_stream.next().await {
+               info!("audio buffer info - {audio:#?}");
+            }
+         },
+         RemoteTrack::Video(video_track) => {
+            let video_rtc_track = video_track.rtc_track();
+            let video_stream = NativeVideoStream::new(video_rtc_track);
+            while let Some(video_frame) = video_stream.next().await {
+               info!("video frame info - {video_frame:#?}");
+            }
+         },
       }
-   }
+   },
    _ => {}
 }
 ```
