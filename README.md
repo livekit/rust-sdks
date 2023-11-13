@@ -116,18 +116,24 @@ match event {
    RoomEvent::TrackSubscribed { track, publication, participant } => {
       match track {
          RemoteTrack::Audio(audio_track) => {
-            let audio_rtc_track = audio_track.rtc_track();
-            let audio_stream = NativeAudioStream::new(audio_rtc_track);
-            while let Some(audio) = audio_stream.next().await {
-               info!("audio buffer info - {audio:#?}");
-            }
+            let rtc_track = audio_track.rtc_track();
+            let audio_stream = NativeAudioStream::new(rtc_track);
+            tokio::spawn(async move {
+                // Receive the audio frames in a new task 
+                while let Some(audio_frame) = audio_stream.next().await {
+                   log::info!("received audio frame - {audio_frame:#?}");
+                }
+            });
          },
          RemoteTrack::Video(video_track) => {
-            let video_rtc_track = video_track.rtc_track();
-            let video_stream = NativeVideoStream::new(video_rtc_track);
-            while let Some(video_frame) = video_stream.next().await {
-               info!("video frame info - {video_frame:#?}");
-            }
+            let rtc_track = video_track.rtc_track();
+            let video_stream = NativeVideoStream::new(rtc_track);
+            tokio::spawn(async move {
+                // Receive the video frames in a new task 
+                while let Some(video_frame) = video_stream.next().await {
+                   log::info!("received video frame - {video_frame:#?}");
+                }
+            });
          },
       }
    },
