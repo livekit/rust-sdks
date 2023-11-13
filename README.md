@@ -52,32 +52,37 @@ use livekit_api::access_token;
 use std::env;
 
 fn create_token() -> Result<String, access_token::AccessTokenError> {
-   let api_key = env::var("LIVEKIT_API_KEY").expect("LIVEKIT_API_KEY is not set");
-   let api_secret = env::var("LIVEKIT_API_SECRET").expect("LIVEKIT_API_SECRET is not set");
+    let api_key = env::var("LIVEKIT_API_KEY").expect("LIVEKIT_API_KEY is not set");
+    let api_secret = env::var("LIVEKIT_API_SECRET").expect("LIVEKIT_API_SECRET is not set");
 
-   let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
-      .with_identity("rust-bot")
-      .with_name("Rust Bot")
-      .with_grants(access_token::VideoGrants {
-         room_join: true,
-         room: "my-room".to_string(),
-         ..Default::default()
-      })
-      .to_jwt();
-   return token
+    let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
+        .with_identity("rust-bot")
+        .with_name("Rust Bot")
+        .with_grants(access_token::VideoGrants {
+             room_join: true,
+             room: "my-room".to_string(),
+             ..Default::default()
+        })
+        .to_jwt();
+    return token
 }
 ```
 
 ### Creating a room with RoomService API
 
 ```rust
-use livekit_api::services::room;
+use livekit_api::services::room::{CreateRoomOptions, RoomClient};
 
-async fn create_room() -> Result<()> {
-   // by default, it'll load API Key and Secret from env vars
-   // LIVEKIT_API_KEY and LIVEKIT_API_SECRET
-   let client = room::RoomClient::new("https://my.livekit.server");
-   // TODO: fill out
+#[tokio::main]
+async fn main() {
+    let room_service = RoomClient::new("http://localhost:7880").unwrap();
+
+    let room = room_service
+        .create_room("my_room", CreateRoomOptions::default())
+        .await
+        .unwrap();
+
+    println!("Created room: {:?}", room);
 }
 ```
 
@@ -90,18 +95,18 @@ use livekit::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-   let (room, mut room_events) = Room::connect(&url, &token).await?;
+    let (room, mut room_events) = Room::connect(&url, &token).await?;
 
-   while let Some(event) = room_events.recv().await {
-      match event {
-         RoomEvent::TrackSubscribed { track, publication, participant } => {
-            // ...
-         }
-         _ => {}
-      }
-   }
+    while let Some(event) = room_events.recv().await {
+        match event {
+            RoomEvent::TrackSubscribed { track, publication, participant } => {
+                // ...
+            }
+            _ => {}
+        }
+    }
 
-   Ok(())
+    Ok(())
 }
 ```
 
@@ -113,31 +118,31 @@ use futures::StreamExt; // this trait is required for iterating on audio & video
 use livekit::prelude::*;
 
 match event {
-   RoomEvent::TrackSubscribed { track, publication, participant } => {
-      match track {
-         RemoteTrack::Audio(audio_track) => {
-            let rtc_track = audio_track.rtc_track();
-            let audio_stream = NativeAudioStream::new(rtc_track);
-            tokio::spawn(async move {
-                // Receive the audio frames in a new task 
-                while let Some(audio_frame) = audio_stream.next().await {
-                   log::info!("received audio frame - {audio_frame:#?}");
-                }
-            });
-         },
-         RemoteTrack::Video(video_track) => {
-            let rtc_track = video_track.rtc_track();
-            let video_stream = NativeVideoStream::new(rtc_track);
-            tokio::spawn(async move {
-                // Receive the video frames in a new task 
-                while let Some(video_frame) = video_stream.next().await {
-                   log::info!("received video frame - {video_frame:#?}");
-                }
-            });
-         },
-      }
-   },
-   _ => {}
+    RoomEvent::TrackSubscribed { track, publication, participant } => {
+        match track {
+            RemoteTrack::Audio(audio_track) => {
+                let rtc_track = audio_track.rtc_track();
+                let audio_stream = NativeAudioStream::new(rtc_track);
+                tokio::spawn(async move {
+                    // Receive the audio frames in a new task 
+                    while let Some(audio_frame) = audio_stream.next().await {
+                        log::info!("received audio frame - {audio_frame:#?}");
+                    }
+                });
+            },
+            RemoteTrack::Video(video_track) => {
+                let rtc_track = video_track.rtc_track();
+                let video_stream = NativeVideoStream::new(rtc_track);
+                tokio::spawn(async move {
+                    // Receive the video frames in a new task 
+                    while let Some(video_frame) = video_stream.next().await {
+                        log::info!("received video frame - {video_frame:#?}");
+                    }
+                });
+            },
+        }
+    },
+    _ => {}
 }
 ```
 
