@@ -94,6 +94,7 @@ args="is_debug=$debug  \
   is_component_build=false \
   enable_stripping=true \
   use_goma=false \
+  ffmpeg_branding=\"Chrome\" \
   rtc_use_h264=true \
   rtc_use_pipewire=false \
   symbol_level=0 \
