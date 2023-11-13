@@ -118,13 +118,12 @@ jobs:
         if: ${{ matrix.target.os == 'macos-latest' }}
         run: brew install ninja
 
-      # It doesn't seem to be used?
       - name: Install windows dependencies
-        if: ${{ matrix.target.os == 'windows-latest' }}
+        if: ${{ matrix.os == 'windows-latest' }}
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
-          Expand-Archive -Path ninja.zip -DestinationPath ninja
-          echo "${{ github.workspace }}\ninja" >> $GITHUB_PATH
+          Expand-Archive -Path ninja.zip -DestinationPath ${{ github.workspace }}\ninja
+          echo "${{ github.workspace }}\ninja" | Out-File -Append -Encoding utf8 -FilePath $Env:GITHUB_PATH
 
       - name: Print ninja version
         run: ninja --version
