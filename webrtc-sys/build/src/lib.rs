@@ -26,7 +26,7 @@ use regex::Regex;
 use reqwest::StatusCode;
 
 pub const SCRATH_PATH: &str = "livekit_webrtc";
-pub const WEBRTC_TAG: &str = "webrtc-0649214";
+pub const WEBRTC_TAG: &str = "webrtc-d5afc4b";
 pub const IGNORE_DEFINES: [&str; 2] = ["CR_CLANG_REVISION", "CR_XCODE_VERSION"];
 
 pub fn target_os() -> String {
@@ -60,10 +60,10 @@ pub fn target_arch() -> String {
 }
 
 /// The full name of the webrtc library
-/// e.g. webrtc-mac-x64-release (Same name on GH releases)
+/// e.g. mac-x64-release (Same name on GH releases)
 pub fn webrtc_triple() -> String {
     let profile = if use_debug() { "debug" } else { "release" };
-    format!("webrtc-{}-{}-{}", target_os(), target_arch(), profile)
+    format!("{}-{}-{}", target_os(), target_arch(), profile)
 }
 
 /// Using debug builds of webrtc is still experimental for now
@@ -100,7 +100,7 @@ pub fn download_url() -> String {
     format!(
         "https://github.com/livekit/client-sdk-rust/releases/download/{}/{}.zip",
         WEBRTC_TAG,
-        webrtc_triple()
+        format!("webrtc-{}", webrtc_triple())
     )
 }
 
