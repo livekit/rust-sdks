@@ -299,10 +299,21 @@ impl EngineInner {
         };
 
         let mut last_error = None;
-        for _ in 0..(max_retries + 1) {
+        for i in 0..(max_retries + 1) {
             match try_connect().await {
                 Ok(res) => return Ok(res),
-                Err(e) => last_error = Some(e),
+                Err(e) => {
+                    let attempt_i = i + 1;
+                    if i < max_retries {
+                        log::warn!(
+                            "failed to connect: {:?}, retrying... ({}/{})",
+                            e,
+                            attempt_i,
+                            max_retries
+                        );
+                    }
+                    last_error = Some(e)
+                }
             }
         }
 
