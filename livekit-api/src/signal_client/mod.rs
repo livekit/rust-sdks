@@ -361,10 +361,11 @@ async fn signal_task(
                                 .as_millis() as i64;
 
                             rtt = now - pong.last_ping_timestamp;
-                            ping_timeout.as_mut().reset(Instant::now() + timeout_duration);
                         }
                         _ => {}
                     }
+
+                    ping_timeout.as_mut().reset(Instant::now() + timeout_duration);
 
                     let _ = emitter.send(SignalEvent::Message(signal));
                 } else {
