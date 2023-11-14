@@ -2299,6 +2299,8 @@ pub struct RoomOptions {
     /// allow to setup a custom RtcConfiguration
     #[prost(message, optional, tag="5")]
     pub rtc_config: ::core::option::Option<RtcConfig>,
+    #[prost(uint32, tag="6")]
+    pub join_retries: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

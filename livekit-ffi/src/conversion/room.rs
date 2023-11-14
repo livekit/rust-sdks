@@ -166,6 +166,7 @@ impl From<proto::RoomOptions> for RoomOptions {
             dynacast: value.dynacast,
             e2ee,
             rtc_config,
+            join_retries: value.join_retries,
         }
     }
 }

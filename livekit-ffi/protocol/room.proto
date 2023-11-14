@@ -183,6 +183,7 @@ message RoomOptions {
   bool dynacast = 3;
   optional E2eeOptions e2ee = 4;
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
+  uint32 join_retries = 6;
 }
 
 //
