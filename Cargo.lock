@@ -1069,6 +1069,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-dylib"
+version = "0.1.0"
+dependencies = [
+ "livekit",
+]
+
+[[package]]
 name = "livekit-ffi"
 version = "0.3.13"
 dependencies = [
