@@ -122,7 +122,7 @@ match event {
         match track {
             RemoteTrack::Audio(audio_track) => {
                 let rtc_track = audio_track.rtc_track();
-                let audio_stream = NativeAudioStream::new(rtc_track);
+                let mut audio_stream = NativeAudioStream::new(rtc_track);
                 tokio::spawn(async move {
                     // Receive the audio frames in a new task 
                     while let Some(audio_frame) = audio_stream.next().await {
@@ -132,7 +132,7 @@ match event {
             },
             RemoteTrack::Video(video_track) => {
                 let rtc_track = video_track.rtc_track();
-                let video_stream = NativeVideoStream::new(rtc_track);
+                let mut video_stream = NativeVideoStream::new(rtc_track);
                 tokio::spawn(async move {
                     // Receive the video frames in a new task 
                     while let Some(video_frame) = video_stream.next().await {
