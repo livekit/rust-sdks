@@ -139,6 +139,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
 
 [[package]]
+name = "api"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "livekit-api",
+ "tokio",
+]
+
+[[package]]
 name = "arboard"
 version = "3.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -283,6 +292,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "livekit",
+ "livekit-api",
  "log",
  "tokio",
 ]
