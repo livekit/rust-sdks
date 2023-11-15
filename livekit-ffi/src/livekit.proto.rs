@@ -3155,7 +3155,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3191,6 +3191,8 @@ pub mod ffi_event {
         UpdateLocalName(super::UpdateLocalNameCallback),
         #[prost(message, tag="14")]
         GetStats(super::GetStatsCallback),
+        #[prost(message, tag="15")]
+        Logs(super::LogBatch),
     }
 }
 /// Setup the callback where the foreign language can receive events
@@ -3200,6 +3202,12 @@ pub mod ffi_event {
 pub struct InitializeRequest {
     #[prost(uint64, tag="1")]
     pub event_callback_ptr: u64,
+    /// When true, the FfiServer will forward logs using LogRecord
+    #[prost(bool, tag="2")]
+    pub capture_logs: bool,
+    /// Max number of log records in a single LogBatch
+    #[prost(uint32, tag="3")]
+    pub max_log_batch_size: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3226,5 +3234,63 @@ pub struct DisposeResponse {
 pub struct DisposeCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LogRecord {
+    #[prost(enumeration="LogLevel", tag="1")]
+    pub level: i32,
+    /// e.g "livekit", "libwebrtc", "tokio-tungstenite", etc...
+    #[prost(string, tag="2")]
+    pub target: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="3")]
+    pub module_path: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="4")]
+    pub file: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint32, optional, tag="5")]
+    pub line: ::core::option::Option<u32>,
+    #[prost(string, tag="6")]
+    pub message: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LogBatch {
+    #[prost(message, repeated, tag="1")]
+    pub records: ::prost::alloc::vec::Vec<LogRecord>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum LogLevel {
+    LogError = 0,
+    LogWarn = 1,
+    LogInfo = 2,
+    LogDebug = 3,
+    LogTrace = 4,
+}
+impl LogLevel {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            LogLevel::LogError => "LOG_ERROR",
+            LogLevel::LogWarn => "LOG_WARN",
+            LogLevel::LogInfo => "LOG_INFO",
+            LogLevel::LogDebug => "LOG_DEBUG",
+            LogLevel::LogTrace => "LOG_TRACE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "LOG_ERROR" => Some(Self::LogError),
+            "LOG_WARN" => Some(Self::LogWarn),
+            "LOG_INFO" => Some(Self::LogInfo),
+            "LOG_DEBUG" => Some(Self::LogDebug),
+            "LOG_TRACE" => Some(Self::LogTrace),
+            _ => None,
+        }
+    }
 }
 // @@protoc_insertion_point(module)

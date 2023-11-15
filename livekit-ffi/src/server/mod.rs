@@ -29,6 +29,7 @@ use std::time::Duration;
 
 pub mod audio_source;
 pub mod audio_stream;
+pub mod logger;
 pub mod requests;
 pub mod room;
 pub mod video_source;
@@ -133,6 +134,7 @@ impl FfiServer {
             .as_ref()
             .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn))?;
 
+        // TODO(theomonnom): Don't reallocate
         let message = proto::FfiEvent {
             message: Some(message),
         }
