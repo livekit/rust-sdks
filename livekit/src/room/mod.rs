@@ -172,6 +172,7 @@ pub struct RoomOptions {
     pub dynacast: bool,
     pub e2ee: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
+    pub join_retries: u32,
 }
 
 impl Default for RoomOptions {
@@ -188,6 +189,7 @@ impl Default for RoomOptions {
                 continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
                 ice_transport_type: IceTransportsType::All,
             },
+            join_retries: 3,
         }
     }
 }
@@ -228,6 +230,7 @@ impl Room {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
                 },
+                join_retries: options.join_retries,
             },
         )
         .await?;

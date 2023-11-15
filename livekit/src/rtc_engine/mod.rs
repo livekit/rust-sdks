@@ -74,6 +74,7 @@ pub enum EngineError {
 pub struct EngineOptions {
     pub rtc_config: RtcConfiguration,
     pub signal_options: SignalOptions,
+    pub join_retries: u32,
 }
 
 #[derive(Debug)]
@@ -258,35 +259,65 @@ impl EngineInner {
         options: EngineOptions,
     ) -> EngineResult<(Arc<Self>, proto::JoinResponse, EngineEvents)> {
         let lk_runtime = LkRuntime::instance();
+        let max_retries = options.join_retries;
 
-        let (session, join_response, session_events) =
-            RtcSession::connect(url, token, options.clone()).await?;
-        let (engine_tx, engine_rx) = mpsc::unbounded_channel();
+        let try_connect = {
+            move || {
+                let options = options.clone();
+                let lk_runtime = lk_runtime.clone();
+                async move {
+                    let (session, join_response, session_events) =
+                        RtcSession::connect(url, token, options.clone()).await?;
+                    session.wait_pc_connection().await?;
 
-        session.wait_pc_connection().await?;
+                    let (engine_tx, engine_rx) = mpsc::unbounded_channel();
+                    let inner = Arc::new(Self {
+                        lk_runtime,
+                        engine_tx,
+                        close_notifier: Arc::new(Notify::new()),
+                        running_handle: RwLock::new(EngineHandle {
+                            session: Arc::new(session),
+                            closed: false,
+                            reconnecting: false,
+                            full_reconnect: false,
+                            engine_task: None,
+                        }),
+                        options,
+                        reconnecting_lock: AsyncRwLock::default(),
+                        reconnecting_interval: AsyncMutex::new(interval(RECONNECT_INTERVAL)),
+                    });
 
-        let inner = Arc::new(Self {
-            lk_runtime,
-            engine_tx,
-            close_notifier: Arc::new(Notify::new()),
-            running_handle: RwLock::new(EngineHandle {
-                session: Arc::new(session),
-                closed: false,
-                reconnecting: false,
-                full_reconnect: false,
-                engine_task: None,
-            }),
-            options,
-            reconnecting_lock: AsyncRwLock::default(),
-            reconnecting_interval: AsyncMutex::new(interval(RECONNECT_INTERVAL)),
-        });
+                    // Start initial tasks
+                    let (close_tx, close_rx) = oneshot::channel();
+                    let session_task =
+                        tokio::spawn(Self::engine_task(inner.clone(), session_events, close_rx));
+                    inner.running_handle.write().engine_task = Some((session_task, close_tx));
 
-        // Start initial tasks
-        let (close_tx, close_rx) = oneshot::channel();
-        let session_task = tokio::spawn(Self::engine_task(inner.clone(), session_events, close_rx));
-        inner.running_handle.write().engine_task = Some((session_task, close_tx));
+                    Ok((inner, join_response, engine_rx))
+                }
+            }
+        };
 
-        Ok((inner, join_response, engine_rx))
+        let mut last_error = None;
+        for i in 0..(max_retries + 1) {
+            match try_connect().await {
+                Ok(res) => return Ok(res),
+                Err(e) => {
+                    let attempt_i = i + 1;
+                    if i < max_retries {
+                        log::warn!(
+                            "failed to connect: {:?}, retrying... ({}/{})",
+                            e,
+                            attempt_i,
+                            max_retries
+                        );
+                    }
+                    last_error = Some(e)
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
     }
 
     async fn engine_task(
