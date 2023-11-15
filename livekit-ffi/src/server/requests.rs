@@ -14,8 +14,8 @@
 
 use super::room::{FfiParticipant, FfiPublication, FfiTrack};
 use super::{
-    audio_source, audio_stream, room, video_source, video_stream, FfiConfig, FfiError, FfiResult,
-    FfiServer,
+    audio_source, audio_stream, logger::FfiLogger, room, video_source, video_stream, FfiConfig,
+    FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
 use livekit::prelude::*;
@@ -36,12 +36,17 @@ fn on_initialize(
         return Err(FfiError::AlreadyInitialized);
     }
 
-    log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
-
     // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
     *server.config.lock() = Some(FfiConfig {
         callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr as usize) },
     });
+
+    if init.capture_logs {
+        let ffi_logger = FfiLogger::new(server, init.max_log_batch_size);
+        let _ = log::set_boxed_logger(Box::new(ffi_logger));
+    }
+
+    log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
 
     Ok(proto::InitializeResponse::default())
 }

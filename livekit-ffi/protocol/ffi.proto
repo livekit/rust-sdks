@@ -159,7 +159,6 @@ message FfiEvent {
 message InitializeRequest { 
   uint64 event_callback_ptr = 1; 
   bool capture_logs = 2; // When true, the FfiServer will forward logs using LogRecord
-  uint32 max_log_batch_size = 3; // Max number of log records in a single LogBatch
 }
 message InitializeResponse {}
 

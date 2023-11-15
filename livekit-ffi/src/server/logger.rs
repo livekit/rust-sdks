@@ -1,39 +1,86 @@
 use crate::proto;
 use crate::server::FfiServer;
+use env_logger;
 use log::{self, Log};
-use std::future::Future;
-use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
+pub const BATCH_SIZE: usize = 16;
+
+/// Logger that forward logs to the FfiClient when capture_logs is enabled
+/// Otherwise fallback to the env_logger
+pub struct FfiLogger {
+    server: &'static FfiServer,
+    log_tx: mpsc::UnboundedSender<LogMsg>,
+    capture_logs: AtomicBool,
+    env_logger: env_logger::Logger,
+}
 
 enum LogMsg {
     Log(proto::LogRecord),
     Flush(oneshot::Sender<()>),
 }
 
-pub struct FfiLogger {
-    server: &'static FfiServer,
-    log_tx: mpsc::UnboundedSender<LogMsg>,
-}
-
 impl FfiLogger {
-    pub fn new(server: &'static FfiServer, max_batch_size: u32) -> Self {
+    pub fn new(server: &'static FfiServer, capture_logs: bool) -> Self {
         let (log_tx, log_rx) = mpsc::unbounded_channel();
-        server
-            .async_runtime
-            .spawn(log_task(server, max_batch_size, log_rx));
-        FfiLogger { server, log_tx }
+        server.async_runtime.spawn(log_forward_task(server, log_rx));
+
+        let env_logger = env_logger::Builder::from_default_env().build();
+        FfiLogger {
+            server,
+            log_tx,
+            capture_logs: AtomicBool::new(capture_logs),
+            env_logger,
+        }
     }
 }
 
-async fn log_task(
-    server: &'static FfiServer,
-    max_batch_size: u32,
-    mut rx: mpsc::UnboundedReceiver<LogMsg>,
-) {
+impl FfiLogger {
+    pub fn capture_logs(&self) -> bool {
+        self.capture_logs.load(Ordering::Acquire)
+    }
+
+    pub fn set_capture_logs(&self, capture: bool) {
+        self.capture_logs.store(capture, Ordering::Release);
+    }
+}
+
+impl Log for FfiLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        if !self.capture_logs() {
+            return self.env_logger.enabled(metadata);
+        }
+
+        true // The ffi client decides what to log (FfiLogger is just forwarding)
+    }
+
+    fn log(&self, record: &log::Record) {
+        if !self.capture_logs() {
+            return self.env_logger.log(record);
+        }
+
+        self.log_tx.send(LogMsg::Log(record.into())).unwrap();
+    }
+
+    fn flush(&self) {
+        if !self.capture_logs() {
+            return self.env_logger.flush();
+        }
+
+        let (tx, mut rx) = oneshot::channel();
+        self.log_tx.send(LogMsg::Flush(tx)).unwrap();
+        let _ = self.server.async_runtime.block_on(rx); // should we block?
+    }
+}
+
+async fn log_forward_task(server: &'static FfiServer, mut rx: mpsc::UnboundedReceiver<LogMsg>) {
     async fn flush(server: &'static FfiServer, batch: &mut Vec<proto::LogRecord>) {
+        if batch.is_empty() {
+            return;
+        }
         let _ = server
             .send_event(proto::ffi_event::Message::Logs(proto::LogBatch {
                 records: batch.clone(), // Avoid clone here?
@@ -42,49 +89,28 @@ async fn log_task(
         batch.clear();
     }
 
-    let mut batch = Vec::with_capacity(max_batch_size as usize);
+    let mut batch = Vec::with_capacity(BATCH_SIZE);
     let mut interval = tokio::time::interval(FLUSH_INTERVAL);
 
     loop {
         tokio::select! {
-            msg = rx.recv() => {
-                if let Some(msg) = msg {
-
-                    match msg {
-                        LogMsg::Log(record) => {
-                            batch.push(record);
-                        }
-                        LogMsg::Flush(tx) => {
-                            flush(server, &mut batch).await;
-                            let _ = tx.send(());
-                        }
+            Some(msg) = rx.recv() => {
+                match msg {
+                    LogMsg::Log(record) => {
+                        batch.push(record);
                     }
-
-                } else {
-                    flush(server, &mut batch).await;
-                    break; // FfiLogger dropped
+                    LogMsg::Flush(tx) => {
+                        flush(server, &mut batch).await;
+                        let _ = tx.send(());
+                    }
                 }
-            },
+           },
             _ = interval.tick() => {
                 flush(server, &mut batch).await;
             }
         }
-    }
-}
 
-impl Log for FfiLogger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        true // The ffi client decides what to log (FfiLogger is just forwarding)
-    }
-
-    fn log(&self, record: &log::Record) {
-        self.log_tx.send(LogMsg::Log(record.into())).unwrap();
-    }
-
-    fn flush(&self) {
-        let (tx, mut rx) = oneshot::channel();
-        self.log_tx.send(LogMsg::Flush(tx)).unwrap();
-        let _ = self.server.async_runtime.block_on(rx); // should we block?
+        flush(server, &mut batch).await;
     }
 }
 
