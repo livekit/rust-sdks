@@ -1,5 +1,6 @@
 use crate::proto;
 use crate::server::FfiServer;
+use crate::FFI_SERVER;
 use env_logger;
 use log::{self, Log};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,13 +25,15 @@ enum LogMsg {
 }
 
 impl FfiLogger {
-    pub fn new(server: &'static FfiServer, capture_logs: bool) -> Self {
+    pub fn new(capture_logs: bool) -> Self {
         let (log_tx, log_rx) = mpsc::unbounded_channel();
-        server.async_runtime.spawn(log_forward_task(server, log_rx));
+        FFI_SERVER
+            .async_runtime
+            .spawn(log_forward_task(&FFI_SERVER, log_rx));
 
         let env_logger = env_logger::Builder::from_default_env().build();
         FfiLogger {
-            server,
+            server: &FFI_SERVER,
             log_tx,
             capture_logs: AtomicBool::new(capture_logs),
             env_logger,

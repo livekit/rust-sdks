@@ -66,11 +66,14 @@ pub struct FfiServer {
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
+    logger: &'static logger::FfiLogger, // Weird cyclic reference here
 }
 
 impl Default for FfiServer {
     fn default() -> Self {
-        // Initialize the FfiLogger
+        let logger = logger::FfiLogger::new(false); // Don't capture logs by default
+        let logger = Box::leak(Box::new(logger));
+        log::set_logger(logger).unwrap();
 
         #[cfg(feature = "tracing")]
         console_subscriber::init();
@@ -100,6 +103,7 @@ impl Default for FfiServer {
                 .build()
                 .unwrap(),
             config: Default::default(),
+            logger,
         }
     }
 }

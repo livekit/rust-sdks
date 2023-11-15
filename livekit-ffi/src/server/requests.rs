@@ -36,15 +36,12 @@ fn on_initialize(
         return Err(FfiError::AlreadyInitialized);
     }
 
+    server.logger.set_capture_logs(init.capture_logs);
+
     // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
     *server.config.lock() = Some(FfiConfig {
         callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr as usize) },
     });
-
-    if init.capture_logs {
-        let ffi_logger = FfiLogger::new(server, init.max_log_batch_size);
-        let _ = log::set_boxed_logger(Box::new(ffi_logger));
-    }
 
     log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
 
