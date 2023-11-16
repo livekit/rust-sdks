@@ -14,8 +14,8 @@
 
 use super::room::{FfiParticipant, FfiPublication, FfiTrack};
 use super::{
-    audio_source, audio_stream, logger::FfiLogger, room, video_source, video_stream, FfiConfig,
-    FfiError, FfiResult, FfiServer,
+    audio_source, audio_stream, room, video_source, video_stream, FfiConfig, FfiError, FfiResult,
+    FfiServer,
 };
 use crate::proto;
 use livekit::prelude::*;

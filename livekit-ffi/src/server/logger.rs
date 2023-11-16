@@ -73,7 +73,7 @@ impl Log for FfiLogger {
             return self.env_logger.flush();
         }
 
-        let (tx, mut rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel();
         self.log_tx.send(LogMsg::Flush(tx)).unwrap();
         let _ = self.server.async_runtime.block_on(rx); // should we block?
     }
@@ -97,8 +97,12 @@ async fn log_forward_task(server: &'static FfiServer, mut rx: mpsc::UnboundedRec
 
     loop {
         tokio::select! {
-            Some(msg) = rx.recv() => {
-                match msg {
+            msg = rx.recv() => {
+                if msg.is_none() {
+                    break;
+                }
+
+                match msg.unwrap() {
                     LogMsg::Log(record) => {
                         batch.push(record);
                     }
