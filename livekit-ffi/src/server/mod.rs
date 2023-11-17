@@ -80,6 +80,7 @@ impl Default for FfiServer {
             async_runtime.handle().clone(),
         )));
         log::set_logger(logger).unwrap();
+        log::set_max_level(log::LevelFilter::Trace);
 
         #[cfg(feature = "tracing")]
         console_subscriber::init();

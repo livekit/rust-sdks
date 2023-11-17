@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
-pub const BATCH_SIZE: usize = 16;
+pub const BATCH_SIZE: usize = 32;
 
 /// Logger that forward logs to the FfiClient when capture_logs is enabled
 /// Otherwise fallback to the env_logger
@@ -112,7 +112,7 @@ async fn log_forward_task(mut rx: mpsc::UnboundedReceiver<LogMsg>) {
                         let _ = tx.send(());
                     }
                 }
-           },
+            },
             _ = interval.tick() => {
                 flush(&mut batch).await;
             }
@@ -120,6 +120,8 @@ async fn log_forward_task(mut rx: mpsc::UnboundedReceiver<LogMsg>) {
 
         flush(&mut batch).await;
     }
+
+    println!("log forwarding task stopped"); // Shouldn't happen (logger is leaked)
 }
 
 impl From<&log::Record<'_>> for proto::LogRecord {
