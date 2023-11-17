@@ -66,13 +66,19 @@ pub struct FfiServer {
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
-    logger: &'static logger::FfiLogger, // Weird cyclic reference here
+    logger: &'static logger::FfiLogger,
 }
 
 impl Default for FfiServer {
     fn default() -> Self {
-        let logger = logger::FfiLogger::new(false); // Don't capture logs by default
-        let logger = Box::leak(Box::new(logger));
+        let async_runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let logger = Box::leak(Box::new(logger::FfiLogger::new(
+            async_runtime.handle().clone(),
+        )));
         log::set_logger(logger).unwrap();
 
         #[cfg(feature = "tracing")]
@@ -98,10 +104,7 @@ impl Default for FfiServer {
         Self {
             ffi_handles: Default::default(),
             next_id: AtomicU64::new(1), // 0 is invalid
-            async_runtime: tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
+            async_runtime,
             config: Default::default(),
             logger,
         }

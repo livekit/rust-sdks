@@ -3205,9 +3205,6 @@ pub struct InitializeRequest {
     /// When true, the FfiServer will forward logs using LogRecord
     #[prost(bool, tag="2")]
     pub capture_logs: bool,
-    /// Max number of log records in a single LogBatch
-    #[prost(uint32, tag="3")]
-    pub max_log_batch_size: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
