@@ -29,6 +29,7 @@ use std::time::Duration;
 
 pub mod audio_source;
 pub mod audio_stream;
+pub mod logger;
 pub mod requests;
 pub mod room;
 pub mod video_source;
@@ -65,11 +66,21 @@ pub struct FfiServer {
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
+    logger: &'static logger::FfiLogger,
 }
 
 impl Default for FfiServer {
     fn default() -> Self {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+        let async_runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let logger = Box::leak(Box::new(logger::FfiLogger::new(
+            async_runtime.handle().clone(),
+        )));
+        log::set_logger(logger).unwrap();
+        log::set_max_level(log::LevelFilter::Trace);
 
         #[cfg(feature = "tracing")]
         console_subscriber::init();
@@ -94,11 +105,9 @@ impl Default for FfiServer {
         Self {
             ffi_handles: Default::default(),
             next_id: AtomicU64::new(1), // 0 is invalid
-            async_runtime: tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
+            async_runtime,
             config: Default::default(),
+            logger,
         }
     }
 }
@@ -133,6 +142,7 @@ impl FfiServer {
             .as_ref()
             .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn))?;
 
+        // TODO(theomonnom): Don't reallocate
         let message = proto::FfiEvent {
             message: Some(message),
         }

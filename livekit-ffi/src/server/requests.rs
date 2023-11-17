@@ -36,12 +36,14 @@ fn on_initialize(
         return Err(FfiError::AlreadyInitialized);
     }
 
-    log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
+    server.logger.set_capture_logs(init.capture_logs);
 
     // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
     *server.config.lock() = Some(FfiConfig {
         callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr as usize) },
     });
+
+    log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
 
     Ok(proto::InitializeResponse::default())
 }

@@ -150,12 +150,16 @@ message FfiEvent {
     UpdateLocalMetadataCallback update_local_metadata = 12;
     UpdateLocalNameCallback update_local_name = 13;
     GetStatsCallback get_stats = 14;
+    LogBatch logs = 15;
   }
 }
 
 // Setup the callback where the foreign language can receive events
 // and responses to asynchronous requests
-message InitializeRequest { uint64 event_callback_ptr = 1; }
+message InitializeRequest { 
+  uint64 event_callback_ptr = 1; 
+  bool capture_logs = 2; // When true, the FfiServer will forward logs using LogRecord
+}
 message InitializeResponse {}
 
 // Stop all rooms synchronously (Do we need async here?).
@@ -172,5 +176,26 @@ message DisposeCallback {
   uint64 async_id = 1;
 }
 
-// TODO(theomonnom): Debug messages (Print handles, forward logs).
+enum LogLevel {
+  LOG_ERROR = 0;
+  LOG_WARN = 1;
+  LOG_INFO = 2;
+  LOG_DEBUG = 3;
+  LOG_TRACE = 4;
+}
+
+message LogRecord {
+  LogLevel level = 1;
+  string target = 2; // e.g "livekit", "libwebrtc", "tokio-tungstenite", etc...
+  optional string module_path = 3;
+  optional string file = 4;
+  optional uint32 line = 5;
+  string message = 6;
+}
+
+message LogBatch {
+  repeated LogRecord records = 1;
+}
+
+// TODO(theomonnom): Debug messages (Print handles).
 
