@@ -26,22 +26,22 @@ jobs:
       matrix:
         target:
           - name: win
-            os: windows-latest
+            os: windows-2019
             cmd: .\build_windows.cmd
             arch: x64
 
           - name: win
-            os: windows-latest
+            os: windows-2019
             cmd: .\build_windows.cmd
             arch: arm64
 
           - name: mac
-            os: macos-latest
+            os: macos-11
             cmd: ./build_macos.sh
             arch: x64
 
           - name: mac
-            os: macos-latest
+            os: macos-11
             cmd: ./build_macos.sh
             arch: arm64
 
@@ -56,29 +56,29 @@ jobs:
             arch: arm64 
           
           - name: android
-            os: ubuntu-latest
+            os: ubuntu-20.04
             cmd: ./build_android.sh
             arch: arm64
 
           - name: android
-            os: ubuntu-latest
+            os: ubuntu-20.04
             cmd: ./build_android.sh
             arch: arm
 
           - name: android
-            os: ubuntu-latest
+            os: ubuntu-20.04
             cmd: ./build_android.sh
             arch: x64
 
           - name: ios
             out: ios-device-arm64
-            os: macos-latest
+            os: macos-11
             cmd: ./build_ios.sh
             arch: arm64
 
           - name: ios
             out: ios-simulator-arm64
-            os: macos-latest
+            os: macos-11
             cmd: ./build_ios.sh
             arch: arm64
             buildargs: --environment simulator 
@@ -118,11 +118,11 @@ jobs:
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
       - name: Install macos dependencies
-        if: ${{ matrix.target.os == 'macos-latest' }}
+        if: ${{ matrix.target.os == 'macos-11' }}
         run: brew install ninja
 
       - name: Install windows dependencies
-        if: ${{ matrix.target.os == 'windows-latest' }}
+        if: ${{ matrix.target.os == 'windows-2019' }}
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ${{ github.workspace }}\ninja
@@ -141,13 +141,13 @@ jobs:
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)
-        if: ${{ matrix.target.os != 'windows-latest' }}
+        if: ${{ matrix.target.os != 'windows-2019' }}
         run: |
           cd webrtc-sys/libwebrtc
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ steps.setup.outputs.OUT }} -r
 
       - name: Zip artifact (Windows)
-        if: ${{ matrix.target.os == 'windows-latest' }}
+        if: ${{ matrix.target.os == 'windows-2019' }}
         run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
 
       - name: Upload artifacts
