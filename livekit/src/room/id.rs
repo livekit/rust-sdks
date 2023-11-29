@@ -7,7 +7,7 @@ const PARTICIPANT_PREFIX: &str = "PA_";
 const TRACK_PREFIX: &str = "TR_";
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct ParticipantSid(String);
+pub struct ParticipantSid(pub String);
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ParticipantIdentity(pub String);
