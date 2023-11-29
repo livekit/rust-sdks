@@ -40,4 +40,4 @@ webrtc-sys-build = { path = "../webrtc-sys/build", version = "0.2.0" }
 livekit-api = { path = "../livekit-api", version = "0.2.0" }
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["lib", "cdylib"]

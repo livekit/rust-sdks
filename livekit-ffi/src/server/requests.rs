@@ -14,8 +14,7 @@
 
 use super::room::{FfiParticipant, FfiPublication, FfiTrack};
 use super::{
-    audio_source, audio_stream, room, video_source, video_stream, FfiConfig, FfiError, FfiResult,
-    FfiServer,
+    audio_source, audio_stream, room, video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
 use livekit::prelude::*;
@@ -25,28 +24,6 @@ use livekit::webrtc::video_frame::{BoxVideoBuffer, I420Buffer};
 use parking_lot::Mutex;
 use std::slice;
 use std::sync::Arc;
-
-/// This is the first request called by the foreign language
-/// It sets the callback function to be called when an event is received
-fn on_initialize(
-    server: &'static FfiServer,
-    init: proto::InitializeRequest,
-) -> FfiResult<proto::InitializeResponse> {
-    if server.config.lock().is_some() {
-        return Err(FfiError::AlreadyInitialized);
-    }
-
-    server.logger.set_capture_logs(init.capture_logs);
-
-    // # SAFETY: The foreign language is responsible for ensuring that the callback function is valid
-    *server.config.lock() = Some(FfiConfig {
-        callback_fn: unsafe { std::mem::transmute(init.event_callback_ptr as usize) },
-    });
-
-    log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
-
-    Ok(proto::InitializeResponse::default())
-}
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -769,9 +746,6 @@ pub fn handle_request(
     let mut res = proto::FfiResponse::default();
 
     res.message = Some(match request {
-        proto::ffi_request::Message::Initialize(init) => {
-            proto::ffi_response::Message::Initialize(on_initialize(server, init)?)
-        }
         proto::ffi_request::Message::Dispose(dispose) => {
             proto::ffi_response::Message::Dispose(on_dispose(server, dispose)?)
         }
