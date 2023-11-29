@@ -59,6 +59,7 @@ pub enum SessionEvent {
         // None when the data comes from the ServerSDK (So no real participant)
         participant_sid: Option<ParticipantSid>,
         payload: Vec<u8>,
+        topic: Option<String>,
         kind: DataPacketKind,
     },
     MediaTrack {
@@ -573,6 +574,7 @@ impl SessionInner {
                             kind: data.kind().into(),
                             participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
                             payload: user.payload.clone(),
+                            topic: user.topic.clone(),
                         });
                     }
                     proto::data_packet::Value::Speaker(_) => {}

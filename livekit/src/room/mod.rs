@@ -132,6 +132,7 @@ pub enum RoomEvent {
     },
     DataReceived {
         payload: Arc<Vec<u8>>,
+        topic: Option<String>,
         kind: DataPacketKind,
         participant: Option<RemoteParticipant>,
     },
@@ -557,10 +558,11 @@ impl RoomSession {
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
+                topic,
                 kind,
                 participant_sid,
             } => {
-                self.handle_data(payload, kind, participant_sid);
+                self.handle_data(payload, topic, kind, participant_sid);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
@@ -970,6 +972,7 @@ impl RoomSession {
     fn handle_data(
         &self,
         payload: Vec<u8>,
+        topic: Option<String>,
         kind: DataPacketKind,
         participant_sid: Option<ParticipantSid>,
     ) {
@@ -985,6 +988,7 @@ impl RoomSession {
 
         self.dispatcher.dispatch(&RoomEvent::DataReceived {
             payload: Arc::new(payload),
+            topic,
             kind,
             participant,
         });

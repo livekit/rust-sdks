@@ -286,9 +286,19 @@ impl LocalParticipant {
         }
     }
 
+    pub async fn publish_data_only(
+        &self,
+        data: Vec<u8>,
+        kind: DataPacketKind,
+        destination_sids: Vec<String>,
+    ) -> RoomResult<()> {
+        self.publish_data(data, None, kind, destination_sids).await
+    }
+
     pub async fn publish_data(
         &self,
         data: Vec<u8>,
+        topic: Option<String>,
         kind: DataPacketKind,
         destination_sids: Vec<String>,
     ) -> RoomResult<()> {
@@ -296,6 +306,7 @@ impl LocalParticipant {
             kind: kind as i32,
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
                 payload: data,
+                topic: topic,
                 destination_sids: destination_sids.to_owned(),
                 ..Default::default()
             })),
