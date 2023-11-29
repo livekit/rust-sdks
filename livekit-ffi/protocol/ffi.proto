@@ -54,7 +54,6 @@ import "audio_frame.proto";
 // We always expect a response (FFIResponse, even if it's empty)
 message FfiRequest {
   oneof message {
-    InitializeRequest initialize = 1;
     DisposeRequest dispose = 2;
 
     // Room
@@ -94,7 +93,6 @@ message FfiRequest {
 // This is the output of livekit_ffi_request function.
 message FfiResponse {
   oneof message {
-    InitializeResponse initialize = 1;
     DisposeResponse dispose = 2;
 
     // Room
@@ -153,14 +151,6 @@ message FfiEvent {
     LogBatch logs = 15;
   }
 }
-
-// Setup the callback where the foreign language can receive events
-// and responses to asynchronous requests
-message InitializeRequest { 
-  uint64 event_callback_ptr = 1; 
-  bool capture_logs = 2; // When true, the FfiServer will forward logs using LogRecord
-}
-message InitializeResponse {}
 
 // Stop all rooms synchronously (Do we need async here?).
 // e.g: This is used for the Unity Editor after each assemblies reload.

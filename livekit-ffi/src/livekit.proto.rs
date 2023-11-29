@@ -3015,7 +3015,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3023,8 +3023,6 @@ pub mod ffi_request {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Message {
-        #[prost(message, tag="1")]
-        Initialize(super::InitializeRequest),
         #[prost(message, tag="2")]
         Dispose(super::DisposeRequest),
         /// Room
@@ -3085,7 +3083,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3093,8 +3091,6 @@ pub mod ffi_response {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Message {
-        #[prost(message, tag="1")]
-        Initialize(super::InitializeResponse),
         #[prost(message, tag="2")]
         Dispose(super::DisposeResponse),
         /// Room
@@ -3196,21 +3192,6 @@ pub mod ffi_event {
         #[prost(message, tag="15")]
         Logs(super::LogBatch),
     }
-}
-/// Setup the callback where the foreign language can receive events
-/// and responses to asynchronous requests
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct InitializeRequest {
-    #[prost(uint64, tag="1")]
-    pub event_callback_ptr: u64,
-    /// When true, the FfiServer will forward logs using LogRecord
-    #[prost(bool, tag="2")]
-    pub capture_logs: bool,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct InitializeResponse {
 }
 /// Stop all rooms synchronously (Do we need async here?).
 /// e.g: This is used for the Unity Editor after each assemblies reload.

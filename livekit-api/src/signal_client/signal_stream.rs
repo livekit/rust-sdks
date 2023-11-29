@@ -190,6 +190,7 @@ impl SignalStream {
                     log::debug!("server closed the connection: {:?}", close);
                     break;
                 }
+                Ok(Message::Frame(_)) => {}
                 _ => {
                     log::error!("unhandled websocket message {:?}", msg);
                     break;

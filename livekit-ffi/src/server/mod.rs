@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{proto, FfiCallbackFn, INVALID_HANDLE};
+use crate::proto::FfiEvent;
+use crate::{proto, INVALID_HANDLE};
 use crate::{FfiError, FfiHandleId, FfiResult};
 use dashmap::mapref::one::MappedRef;
 use dashmap::DashMap;
@@ -21,7 +22,6 @@ use livekit::webrtc::native::audio_resampler::AudioResampler;
 use livekit::webrtc::prelude::*;
 use parking_lot::deadlock;
 use parking_lot::Mutex;
-use prost::Message;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -38,8 +38,10 @@ pub mod video_stream;
 //#[cfg(test)]
 //mod tests;
 
+#[derive(Clone)]
 pub struct FfiConfig {
-    callback_fn: FfiCallbackFn,
+    pub callback_fn: Arc<dyn Fn(FfiEvent) + Send + Sync>,
+    pub capture_logs: bool,
 }
 
 /// To make sure we use the right types, only types that implement this trait
@@ -115,6 +117,13 @@ impl Default for FfiServer {
 // Using &'static self inside the implementation, not sure if this is really idiomatic
 // It simplifies the code a lot tho. In most cases the server is used until the end of the process
 impl FfiServer {
+    pub fn setup(&self, config: FfiConfig) {
+        *self.config.lock() = Some(config.clone());
+        self.logger.set_capture_logs(config.capture_logs);
+
+        log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
+    }
+
     pub async fn dispose(&self) {
         log::info!("disposing the FfiServer, closing all rooms...");
 
@@ -136,20 +145,15 @@ impl FfiServer {
     }
 
     pub async fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
-        let callback_fn = self
-            .config
-            .lock()
-            .as_ref()
-            .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn))?;
+        let cb = self.config.lock().as_ref().map_or_else(
+            || Err(FfiError::NotConfigured),
+            |c| Ok(c.callback_fn.clone()),
+        )?;
 
-        // TODO(theomonnom): Don't reallocate
-        let message = proto::FfiEvent {
-            message: Some(message),
-        }
-        .encode_to_vec();
-
-        let cb_task = self.async_runtime.spawn_blocking(move || unsafe {
-            callback_fn(message.as_ptr(), message.len());
+        let cb_task = self.async_runtime.spawn_blocking(move || {
+            cb(proto::FfiEvent {
+                message: Some(message),
+            });
         });
 
         tokio::select! {
