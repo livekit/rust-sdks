@@ -125,7 +125,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=dylib=shcore");
 
-            builder.flag("/std:c++latest").flag("/EHsc").flag("/W");
+            builder.flag("/std:c++latest").flag("/EHsc").flag("/W0");
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=Xext");
