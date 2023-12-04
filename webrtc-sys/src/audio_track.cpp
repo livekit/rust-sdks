@@ -131,8 +131,8 @@ void AudioTrackSource::InternalSource::RemoveSink(
 
 void AudioTrackSource::InternalSource::on_captured_frame(
     rust::Slice<const int16_t> data,
-    int sample_rate,
-    size_t number_of_channels,
+    uint32_t sample_rate,
+    uint32_t number_of_channels,
     size_t number_of_frames) {
   webrtc::MutexLock lock(&mutex_);
   for (auto sink : sinks_) {

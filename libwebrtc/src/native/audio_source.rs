@@ -14,6 +14,8 @@
 
 use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
 use cxx::SharedPtr;
+use std::borrow::Cow;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{sync::Arc, time::Duration};
 use tokio::{
     sync::{Mutex as AsyncMutex, MutexGuard},
@@ -33,6 +35,8 @@ pub struct NativeAudioSource {
 struct AudioSourceInner {
     buf: Box<[i16]>,
 
+    captured_frames: usize,
+
     // Amount of data from the previous frame that hasn't been sent to the libwebrtc source
     // (because it requires 10ms of data)
     len: usize,
@@ -51,10 +55,11 @@ impl NativeAudioSource {
     ) -> NativeAudioSource {
         let samples_10ms = (sample_rate / 100 * num_channels) as usize;
 
-        Self {
+        let source = Self {
             sys_handle: sys_at::ffi::new_audio_track_source(options.into()),
             inner: Arc::new(AsyncMutex::new(AudioSourceInner {
                 buf: vec![0; samples_10ms].into_boxed_slice(),
+                captured_frames: 0,
                 len: 0,
                 read_offset: 0,
                 interval: None, // interval must be created from a tokio runtime context
@@ -62,7 +67,35 @@ impl NativeAudioSource {
             sample_rate,
             num_channels,
             samples_10ms,
-        }
+        };
+
+        tokio::spawn({
+            let source = source.clone();
+            async move {
+                let mut interval = interval(Duration::from_millis(10));
+
+                loop {
+                    // We directly use the sys_handle instead of the capture_frame function
+                    // (We don't want to increase the captured_frames count  and no need to buffer)
+                    interval.tick().await;
+
+                    let mut inner = source.inner.lock().await;
+                    if inner.captured_frames > 0 {
+                        break; // User captured something, stop injecting silence
+                    }
+
+                    let data = vec![0; samples_10ms];
+                    source.sys_handle.on_captured_frame(
+                        &data,
+                        sample_rate,
+                        num_channels,
+                        sample_rate / 100,
+                    );
+                }
+            }
+        });
+
+        source
     }
 
     pub fn sys_handle(&self) -> SharedPtr<sys_at::ffi::AudioTrackSource> {
@@ -131,6 +164,8 @@ impl NativeAudioSource {
         }
 
         let mut inner = self.inner.lock().await;
+        inner.captured_frames += 1;
+
         let mut interval = inner.interval.take().unwrap_or_else(|| {
             let mut interval = interval(Duration::from_millis(10));
             interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -145,11 +180,12 @@ impl NativeAudioSource {
 
             interval.tick().await;
 
+            // samples per channel = number of frames
             let samples_per_channel = data.len() / self.num_channels as usize;
             self.sys_handle.on_captured_frame(
                 data,
-                self.sample_rate as i32,
-                self.num_channels as usize,
+                self.sample_rate,
+                self.num_channels,
                 samples_per_channel,
             );
         }

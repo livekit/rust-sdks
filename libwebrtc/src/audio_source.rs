@@ -34,6 +34,9 @@ impl RtcAudioSource {
         [Native];
         fn set_audio_options(self: &Self, options: AudioSourceOptions) -> ();
         fn audio_options(self: &Self) -> AudioSourceOptions;
+        fn captured_frames(self: &Self) -> usize;
+        fn sample_rate(self: &Self) -> u32;
+        fn num_channels(self: &Self) -> u32;
     );
 }
 
@@ -75,6 +78,10 @@ pub mod native {
 
         pub fn audio_options(&self) -> AudioSourceOptions {
             self.handle.audio_options()
+        }
+
+        pub fn captured_frames(&self) -> usize {
+            self.handle.captured_frames()
         }
 
         pub fn sample_rate(&self) -> u32 {

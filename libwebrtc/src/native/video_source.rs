@@ -15,6 +15,10 @@
 use crate::video_frame::{VideoBuffer, VideoFrame};
 use crate::video_source::VideoResolution;
 use cxx::SharedPtr;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 use webrtc_sys::video_frame as vf_sys;
 use webrtc_sys::video_track as vt_sys;
@@ -40,6 +44,7 @@ impl From<VideoResolution> for vt_sys::ffi::VideoResolution {
 #[derive(Clone)]
 pub struct NativeVideoSource {
     sys_handle: SharedPtr<vt_sys::ffi::VideoTrackSource>,
+    captured_frames: Arc<AtomicUsize>,
 }
 
 impl NativeVideoSource {
@@ -48,6 +53,7 @@ impl NativeVideoSource {
             sys_handle: vt_sys::ffi::new_video_track_source(&vt_sys::ffi::VideoResolution::from(
                 resolution,
             )),
+            captured_frames: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -55,7 +61,13 @@ impl NativeVideoSource {
         self.sys_handle.clone()
     }
 
+    pub fn captured_frames(&self) -> usize {
+        self.captured_frames.load(Ordering::Relaxed)
+    }
+
     pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
+        self.captured_frames.fetch_add(1, Ordering::Relaxed);
+
         let mut builder = vf_sys::ffi::new_video_frame_builder();
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder

@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2024 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ impl RtcVideoSource {
     enum_dispatch!(
         [Native];
         pub fn video_resolution(self: &Self) -> VideoResolution;
+        pub fn captured_frames(self: &Self) -> usize;
     );
 }
 
@@ -66,6 +67,10 @@ pub mod native {
             Self {
                 handle: vs_imp::NativeVideoSource::new(resolution),
             }
+        }
+
+        pub fn captured_frames(&self) -> usize {
+            self.handle.captured_frames()
         }
 
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
