@@ -132,6 +132,7 @@ pub enum RoomEvent {
     },
     DataReceived {
         payload: Arc<Vec<u8>>,
+        topic: Option<String>,
         kind: DataPacketKind,
         participant: Option<RemoteParticipant>,
     },
@@ -163,6 +164,25 @@ pub enum ConnectionState {
 pub enum DataPacketKind {
     Lossy,
     Reliable,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataPacket {
+    pub payload: Vec<u8>,
+    pub topic: Option<String>,
+    pub kind: DataPacketKind,
+    pub destination_sids: Vec<ParticipantSid>,
+}
+
+impl Default for DataPacket {
+    fn default() -> Self {
+        Self {
+            payload: Vec::new(),
+            topic: None,
+            kind: DataPacketKind::Reliable,
+            destination_sids: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -427,6 +447,10 @@ impl Room {
         }
     }
 
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
+        self.inner.rtc_engine.simulate_scenario(scenario).await
+    }
+
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {
         self.inner.dispatcher.register()
     }
@@ -453,10 +477,6 @@ impl Room {
 
     pub fn participants(&self) -> HashMap<ParticipantSid, RemoteParticipant> {
         self.inner.participants.read().0.clone()
-    }
-
-    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
-        self.inner.rtc_engine.simulate_scenario(scenario).await
     }
 
     pub fn e2ee_manager(&self) -> &E2eeManager {
@@ -557,10 +577,11 @@ impl RoomSession {
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data {
                 payload,
+                topic,
                 kind,
                 participant_sid,
             } => {
-                self.handle_data(payload, kind, participant_sid);
+                self.handle_data(payload, topic, kind, participant_sid);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
@@ -970,6 +991,7 @@ impl RoomSession {
     fn handle_data(
         &self,
         payload: Vec<u8>,
+        topic: Option<String>,
         kind: DataPacketKind,
         participant_sid: Option<ParticipantSid>,
     ) {
@@ -985,6 +1007,7 @@ impl RoomSession {
 
         self.dispatcher.dispatch(&RoomEvent::DataReceived {
             payload: Arc::new(payload),
+            topic,
             kind,
             participant,
         });

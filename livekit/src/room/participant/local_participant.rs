@@ -21,6 +21,7 @@ use crate::options::video_layers_from_encodings;
 use crate::options::TrackPublishOptions;
 use crate::prelude::*;
 use crate::rtc_engine::RtcEngine;
+use crate::DataPacket;
 use crate::DataPacketKind;
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
@@ -286,24 +287,24 @@ impl LocalParticipant {
         }
     }
 
-    pub async fn publish_data(
-        &self,
-        data: Vec<u8>,
-        kind: DataPacketKind,
-        destination_sids: Vec<String>,
-    ) -> RoomResult<()> {
+    pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
         let data = proto::DataPacket {
-            kind: kind as i32,
+            kind: DataPacketKind::from(packet.kind) as i32,
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
-                payload: data,
-                destination_sids: destination_sids.to_owned(),
+                payload: packet.payload,
+                topic: packet.topic,
+                destination_sids: packet
+                    .destination_sids
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
                 ..Default::default()
             })),
         };
 
         self.inner
             .rtc_engine
-            .publish_data(&data, kind)
+            .publish_data(&data, packet.kind)
             .await
             .map_err(Into::into)
     }
