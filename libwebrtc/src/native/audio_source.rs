@@ -79,7 +79,7 @@ impl NativeAudioSource {
                     // (We don't want to increase the captured_frames count  and no need to buffer)
                     interval.tick().await;
 
-                    let mut inner = source.inner.lock().await;
+                    let inner = source.inner.lock().await;
                     if inner.captured_frames > 0 {
                         break; // User captured something, stop injecting silence
                     }
@@ -89,7 +89,7 @@ impl NativeAudioSource {
                         &data,
                         sample_rate,
                         num_channels,
-                        sample_rate / 100,
+                        sample_rate as usize / 100,
                     );
                 }
             }
