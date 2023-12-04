@@ -122,8 +122,10 @@ fn on_set_subscribed(
         server.retrieve_handle::<FfiPublication>(set_subscribed.publication_handle)?;
 
     let TrackPublication::Remote(publication) = &ffi_publication.publication else {
-            return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
-        };
+        return Err(FfiError::InvalidRequest(
+            "publication is not a RemotePublication".into(),
+        ));
+    };
 
     let _guard = server.async_runtime.enter();
     publication.set_subscribed(set_subscribed.subscribe);
@@ -457,7 +459,7 @@ unsafe fn on_to_argb(
             let Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) = &buffer.buffer else {
                 return Err(FfiError::InvalidRequest(
                     "invalid i420 buffer description".into(),
-                ))
+                ));
             };
 
             #[rustfmt::skip]
@@ -470,19 +472,19 @@ unsafe fn on_to_argb(
             match rgba_format {
                 proto::VideoFormatType::FormatArgb => {
                     #[rustfmt::skip]
-                    yuv_helper::i420_to_argb(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                    yuv_helper::i420_to_bgra(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
                 }
                 proto::VideoFormatType::FormatBgra => {
                     #[rustfmt::skip]
-                    yuv_helper::i420_to_bgra(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                    yuv_helper::i420_to_argb(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
                 }
                 proto::VideoFormatType::FormatRgba => {
                     #[rustfmt::skip]
-                    yuv_helper::i420_to_rgba(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                    yuv_helper::i420_to_abgr(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
                 }
                 proto::VideoFormatType::FormatAbgr => {
                     #[rustfmt::skip]
-                    yuv_helper::i420_to_abgr(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
+                    yuv_helper::i420_to_rgba(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
                 }
             }
         }
