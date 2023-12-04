@@ -1,5 +1,5 @@
-use livekit_api::access_token;
 use livekit::prelude::*;
+use livekit_api::access_token;
 use std::env;
 
 // Connect to a room using the specified env variables
@@ -24,18 +24,17 @@ async fn main() {
         .to_jwt()
         .unwrap();
 
-
     let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
         .await
         .unwrap();
     log::info!("Connected to room: {} - {}", room.name(), room.sid());
 
     room.local_participant()
-        .publish_data(
-            "Hello world".to_owned().into_bytes(),
-            DataPacketKind::Reliable,
-            Default::default(),
-        )
+        .publish_data(DataPacket {
+            payload: "Hello world".to_owned().into_bytes(),
+            kind: DataPacketKind::Reliable,
+            ..Default::default()
+        })
         .await
         .unwrap();
 

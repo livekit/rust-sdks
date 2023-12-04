@@ -166,6 +166,25 @@ pub enum DataPacketKind {
     Reliable,
 }
 
+#[derive(Debug, Clone)]
+pub struct DataPacket {
+    pub payload: Vec<u8>,
+    pub topic: Option<String>,
+    pub kind: DataPacketKind,
+    pub destination_sids: Vec<ParticipantSid>,
+}
+
+impl Default for DataPacket {
+    fn default() -> Self {
+        Self {
+            payload: Vec::new(),
+            topic: None,
+            kind: DataPacketKind::Reliable,
+            destination_sids: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
@@ -428,6 +447,10 @@ impl Room {
         }
     }
 
+    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
+        self.inner.rtc_engine.simulate_scenario(scenario).await
+    }
+
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {
         self.inner.dispatcher.register()
     }
@@ -454,10 +477,6 @@ impl Room {
 
     pub fn participants(&self) -> HashMap<ParticipantSid, RemoteParticipant> {
         self.inner.participants.read().0.clone()
-    }
-
-    pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
-        self.inner.rtc_engine.simulate_scenario(scenario).await
     }
 
     pub fn e2ee_manager(&self) -> &E2eeManager {
