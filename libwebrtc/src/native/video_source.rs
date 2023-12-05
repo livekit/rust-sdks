@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::video_frame::{VideoBuffer, VideoFrame};
+use crate::video_frame::{I420Buffer, VideoBuffer, VideoFrame};
 use crate::video_source::VideoResolution;
 use cxx::SharedPtr;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
-use std::time::{SystemTime, UNIX_EPOCH};
+use parking_lot::Mutex;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use webrtc_sys::video_frame as vf_sys;
+use webrtc_sys::video_frame::ffi::VideoRotation;
 use webrtc_sys::video_track as vt_sys;
 
 impl From<vt_sys::ffi::VideoResolution> for VideoResolution {
@@ -44,29 +43,64 @@ impl From<VideoResolution> for vt_sys::ffi::VideoResolution {
 #[derive(Clone)]
 pub struct NativeVideoSource {
     sys_handle: SharedPtr<vt_sys::ffi::VideoTrackSource>,
-    captured_frames: Arc<AtomicUsize>,
+    inner: Arc<Mutex<VideoSourceInner>>,
+}
+
+struct VideoSourceInner {
+    captured_frames: usize,
 }
 
 impl NativeVideoSource {
     pub fn new(resolution: VideoResolution) -> NativeVideoSource {
-        Self {
+        let source = Self {
             sys_handle: vt_sys::ffi::new_video_track_source(&vt_sys::ffi::VideoResolution::from(
-                resolution,
+                resolution.clone(),
             )),
-            captured_frames: Arc::new(AtomicUsize::new(0)),
-        }
+            inner: Arc::new(Mutex::new(VideoSourceInner { captured_frames: 0 })),
+        };
+
+        tokio::spawn({
+            let source = source.clone();
+            let i420 = I420Buffer::new(resolution.width, resolution.height);
+            async move {
+                let mut interval = tokio::time::interval(Duration::from_millis(100)); // 10 fps
+
+                loop {
+                    interval.tick().await;
+
+                    let inner = source.inner.lock();
+                    if inner.captured_frames > 0 {
+                        break;
+                    }
+
+                    let mut builder = vf_sys::ffi::new_video_frame_builder();
+                    builder
+                        .pin_mut()
+                        .set_rotation(VideoRotation::VideoRotation0);
+                    builder
+                        .pin_mut()
+                        .set_video_frame_buffer(i420.as_ref().sys_handle());
+
+                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                    builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
+
+                    source
+                        .sys_handle
+                        .on_captured_frame(&builder.pin_mut().build());
+                }
+            }
+        });
+
+        source
     }
 
     pub fn sys_handle(&self) -> SharedPtr<vt_sys::ffi::VideoTrackSource> {
         self.sys_handle.clone()
     }
 
-    pub fn captured_frames(&self) -> usize {
-        self.captured_frames.load(Ordering::Relaxed)
-    }
-
     pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
-        self.captured_frames.fetch_add(1, Ordering::Relaxed);
+        let mut inner = self.inner.lock();
+        inner.captured_frames += 1;
 
         let mut builder = vf_sys::ffi::new_video_frame_builder();
         builder.pin_mut().set_rotation(frame.rotation.into());

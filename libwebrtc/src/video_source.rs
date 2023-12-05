@@ -35,7 +35,6 @@ impl RtcVideoSource {
     enum_dispatch!(
         [Native];
         pub fn video_resolution(self: &Self) -> VideoResolution;
-        pub fn captured_frames(self: &Self) -> usize;
     );
 }
 
@@ -67,10 +66,6 @@ pub mod native {
             Self {
                 handle: vs_imp::NativeVideoSource::new(resolution),
             }
-        }
-
-        pub fn captured_frames(&self) -> usize {
-            self.handle.captured_frames()
         }
 
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {

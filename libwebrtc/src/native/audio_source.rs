@@ -14,8 +14,6 @@
 
 use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
 use cxx::SharedPtr;
-use std::borrow::Cow;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{sync::Arc, time::Duration};
 use tokio::{
     sync::{Mutex as AsyncMutex, MutexGuard},
@@ -76,7 +74,7 @@ impl NativeAudioSource {
 
                 loop {
                     // We directly use the sys_handle instead of the capture_frame function
-                    // (We don't want to increase the captured_frames count  and no need to buffer)
+                    // (We don't want to increase the captured_frames count and no need to buffer)
                     interval.tick().await;
 
                     let inner = source.inner.lock().await;
