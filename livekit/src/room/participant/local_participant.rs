@@ -29,6 +29,8 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::sleep;
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -227,7 +229,6 @@ impl LocalParticipant {
         {
             local_track_published(self.clone(), publication.clone());
         }
-
         track.enable();
 
         Ok(publication)
