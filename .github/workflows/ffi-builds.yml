@@ -29,17 +29,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            platform: windows
-            dylib: livekit_ffi.dll
-            target: x86_64-pc-windows-msvc
-            name: ffi-windows-x86_64
-          - os: windows-latest
-            platform: windows
-            dylib: livekit_ffi.dll
-            buildargs: --no-default-features --features "native-tls" # ring 0.16 is incompatible with win aarch64
-            target: aarch64-pc-windows-msvc
-            name: ffi-windows-arm64
+          #- os: windows-latest
+          #  platform: windows
+          #  dylib: livekit_ffi.dll
+          #  target: x86_64-pc-windows-msvc
+          #  name: ffi-windows-x86_64
+          #- os: windows-latest
+          #  platform: windows
+          #  dylib: livekit_ffi.dll
+          #  buildargs: --no-default-features --features "native-tls" # ring 0.16 is incompatible with win aarch64
+          #  target: aarch64-pc-windows-msvc
+          #  name: ffi-windows-arm64
           - os: macos-latest
             platform: macos
             dylib: liblivekit_ffi.dylib
