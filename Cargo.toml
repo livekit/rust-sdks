@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "livekit",
+    "livekit-dylib",
     "livekit-api",
     "livekit-protocol",
     "livekit-ffi",
