@@ -43,7 +43,9 @@ impl FfiAudioStream {
         server: &'static server::FfiServer,
         new_stream: proto::NewAudioStreamRequest,
     ) -> FfiResult<proto::OwnedAudioStream> {
-        let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?;
+        let ffi_track = server
+            .retrieve_handle::<FfiTrack>(new_stream.track_handle)?
+            .clone();
         let rtc_track = ffi_track.track.rtc_track();
 
         let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
