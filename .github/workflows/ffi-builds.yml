@@ -165,7 +165,7 @@ jobs:
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h LICENSE.md
 
       - name: Zip artifact (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.os == 'windows-2019' }}
         run: |
           cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
           cd target/${{ matrix.target }}/release/
