@@ -160,6 +160,7 @@ fn main() {
             builder
                 .file("src/objc_video_factory.mm")
                 .flag("-stdlib=libc++")
+                .define("RTC_USE_LIBAOM_AV1_ENCODER", None)
                 .flag("-std=c++20");
         }
         "ios" => {

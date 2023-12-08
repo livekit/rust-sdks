@@ -1,6 +1,7 @@
 use image::ImageFormat;
 use image::RgbaImage;
 use livekit::options::TrackPublishOptions;
+use livekit::options::VideoCodec;
 use livekit::prelude::*;
 use livekit::webrtc::video_source::RtcVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
@@ -76,6 +77,7 @@ impl LogoTrack {
                 LocalTrack::Video(track.clone()),
                 TrackPublishOptions {
                     source: TrackSource::Camera,
+                    video_codec: VideoCodec::AV1,
                     //simulcast: false,
                     ..Default::default()
                 },
