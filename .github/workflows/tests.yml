@@ -31,7 +31,7 @@ jobs:
       matrix:
         include:
           # Platform supports is limited for tests (no aarch64)
-          - os: windows-latest
+          - os: windows-2019
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: x86_64-apple-darwin
