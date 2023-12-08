@@ -177,13 +177,16 @@ pub fn compute_appropriate_encoding(
     let presets = compute_presets_for_resolution(is_screenshare, width, height);
     let size = u32::max(width, height);
 
+    let mut encoding = presets.first().unwrap().encoding.clone();
+
     for preset in presets {
+        encoding = preset.encoding.clone();
         if preset.width >= size {
-            return preset.encoding.clone();
+            break;
         }
     }
 
-    unreachable!()
+    encoding
 }
 
 pub fn compute_presets_for_resolution(
