@@ -40,31 +40,31 @@ jobs:
             buildargs: --no-default-features --features "native-tls" # ring 0.16 is incompatible with win aarch64
             target: aarch64-pc-windows-msvc
             name: ffi-windows-arm64
-          - os: macos-latest
+          - os: macos-11
             platform: macos
             dylib: liblivekit_ffi.dylib
             target: x86_64-apple-darwin
             macosx_deployment_target: "10.15"
             name: ffi-macos-x86_64
-          - os: macos-latest
+          - os: macos-11
             platform: macos
             dylib: liblivekit_ffi.dylib
             target: aarch64-apple-darwin
             macosx_deployment_target: "11.0" # aarch64 requires 11
             name: ffi-macos-arm64
-          - os: macos-latest
+          - os: macos-11
             platform: ios
             dylib: liblivekit_ffi.dylib
             target: aarch64-apple-ios
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-arm64
-          - os: macos-latest
+          - os: macos-11
             platform: ios
             dylib: liblivekit_ffi.dylib
             target: aarch64-apple-ios-sim
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-sim-arm64
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             platform: linux
             build_image: quay.io/pypa/manylinux_2_28_x86_64
             dylib: liblivekit_ffi.so
@@ -76,17 +76,17 @@ jobs:
             dylib: liblivekit_ffi.so
             target: aarch64-unknown-linux-gnu
             name: ffi-linux-arm64
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
             target: aarch64-linux-android
             name: ffi-android-arm64
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
             target: armv7-linux-androideabi
             name: ffi-android-armv7
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
             target: x86_64-linux-android
@@ -158,14 +158,14 @@ jobs:
 
       # zip the files
       - name: Zip artifact (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
+        if: ${{ matrix.os != 'windows-2019' }}
         run: |
           cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
           cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h LICENSE.md
 
       - name: Zip artifact (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.os == 'windows-2019' }}
         run: |
           cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
           cd target/${{ matrix.target }}/release/
