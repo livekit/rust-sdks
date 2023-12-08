@@ -19,15 +19,18 @@
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
-#include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
 #include "livekit/objc_video_factory.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
 #include "rtc_base/logging.h"
-
+#if defined(RTC_USE_LIBAOM_AV1_ENCODER)
+#include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"
+#endif
 #if defined(WEBRTC_USE_H264)
 #include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
 #endif
+#include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
+#include "api/video_codecs/video_encoder_factory_template_libvpx_vp9_adapter.h"
 
 #ifdef WEBRTC_ANDROID
 #include "livekit/android.h"
@@ -35,13 +38,15 @@
 
 namespace livekit {
 
-using Factory =
-    webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter
+using Factory = webrtc::VideoEncoderFactoryTemplate<
+    webrtc::LibvpxVp8EncoderTemplateAdapter,
 #if defined(WEBRTC_USE_H264)
-                                        ,
-                                        webrtc::OpenH264EncoderTemplateAdapter
+    webrtc::OpenH264EncoderTemplateAdapter,
 #endif
-                                        >;
+#if defined(RTC_USE_LIBAOM_AV1_ENCODER)
+    webrtc::LibaomAv1EncoderTemplateAdapter,
+#endif
+    webrtc::LibvpxVp9EncoderTemplateAdapter>;
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef __APPLE__

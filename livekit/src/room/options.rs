@@ -20,6 +20,7 @@ use livekit_protocol as proto;
 pub enum VideoCodec {
     VP8,
     H264,
+    VP9,
     AV1,
 }
 
@@ -28,6 +29,7 @@ impl VideoCodec {
         match self {
             VideoCodec::VP8 => "vp8",
             VideoCodec::H264 => "h264",
+            VideoCodec::VP9 => "vp9",
             VideoCodec::AV1 => "av1",
         }
     }

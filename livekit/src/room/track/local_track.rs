@@ -42,6 +42,13 @@ impl LocalTrack {
             Self::Video(track) => track.rtc_track().into(),
         }
     }
+
+    pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
+        match self {
+            Self::Audio(track) => track.get_stats().await,
+            Self::Video(track) => track.get_stats().await,
+        }
+    }
 }
 
 impl From<LocalTrack> for Track {
