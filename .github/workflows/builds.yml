@@ -29,9 +29,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2019
             target: x86_64-pc-windows-msvc
-          - os: windows-latest
+          - os: windows-2019
             target: aarch64-pc-windows-msvc
             #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
           - os: macos-latest
