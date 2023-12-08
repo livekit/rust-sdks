@@ -2157,6 +2157,8 @@ pub struct PublishDataRequest {
     /// destination
     #[prost(string, repeated, tag="5")]
     pub destination_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="6")]
+    pub topic: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2541,6 +2543,8 @@ pub struct DataReceived {
     pub participant_sid: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(enumeration="DataPacketKind", tag="3")]
     pub kind: i32,
+    #[prost(string, optional, tag="4")]
+    pub topic: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -94,8 +94,8 @@ class AudioTrackSource {
     // AudioFrame should always contain 10 ms worth of data (see index.md of
     // acm)
     void on_captured_frame(rust::Slice<const int16_t> audio_data,
-                           int sample_rate,
-                           size_t number_of_channels,
+                           uint32_t sample_rate,
+                           uint32_t number_of_channels,
                            size_t number_of_frames);
 
    private:
@@ -112,8 +112,8 @@ class AudioTrackSource {
   void set_audio_options(const AudioSourceOptions& options) const;
 
   void on_captured_frame(rust::Slice<const int16_t> audio_data,
-                         int sample_rate,
-                         size_t number_of_channels,
+                         uint32_t sample_rate,
+                         uint32_t number_of_channels,
                          size_t number_of_frames) const;
 
   rtc::scoped_refptr<InternalSource> get() const;
