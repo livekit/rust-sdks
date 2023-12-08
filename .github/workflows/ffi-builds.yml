@@ -158,7 +158,7 @@ jobs:
 
       # zip the files
       - name: Zip artifact (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
+        if: ${{ matrix.os != 'windows-2019' }}
         run: |
           cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
           cd target/${{ matrix.target }}/release/
