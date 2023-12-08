@@ -90,6 +90,7 @@ pub enum EngineEvent {
     Data {
         participant_sid: Option<ParticipantSid>,
         payload: Vec<u8>,
+        topic: Option<String>,
         kind: DataPacketKind,
     },
     SpeakersChanged {
@@ -383,11 +384,13 @@ impl EngineInner {
             SessionEvent::Data {
                 participant_sid,
                 payload,
+                topic,
                 kind,
             } => {
                 let _ = self.engine_tx.send(EngineEvent::Data {
                     participant_sid,
                     payload,
+                    topic,
                     kind,
                 });
             }

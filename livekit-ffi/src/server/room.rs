@@ -59,7 +59,7 @@ pub struct FfiRoom {
 pub struct RoomInner {
     pub room: Room,
     handle_id: FfiHandleId,
-    data_tx: mpsc::UnboundedSender<DataPacket>,
+    data_tx: mpsc::UnboundedSender<FfiDataPacket>,
 
     // local tracks just published, it is used to synchronize the publish events:
     // - make sure LocalTrackPublised is sent *after* the PublishTrack callback)
@@ -74,10 +74,8 @@ struct Handle {
     close_tx: broadcast::Sender<()>,
 }
 
-struct DataPacket {
-    data: Vec<u8>,
-    kind: DataPacketKind,
-    destination_sids: Vec<String>,
+struct FfiDataPacket {
+    payload: DataPacket,
     async_id: u64,
 }
 
@@ -99,9 +97,12 @@ impl FfiRoom {
                 Ok((room, mut events)) => {
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
-                    let Some(RoomEvent::Connected { participants_with_tracks}) = events.recv().await else {
-                            unreachable!("Connected event should always be the first event");
-                        };
+                    let Some(RoomEvent::Connected {
+                        participants_with_tracks,
+                    }) = events.recv().await
+                    else {
+                        unreachable!("Connected event should always be the first event");
+                    };
 
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
                     let (close_tx, close_rx) = broadcast::channel(1);
@@ -201,14 +202,20 @@ impl RoomInner {
             slice::from_raw_parts(publish.data_ptr as *const u8, publish.data_len as usize)
         };
         let kind = publish.kind();
-        let destination_sids: Vec<String> = publish.destination_sids;
+        let destination_sids = publish.destination_sids;
         let async_id = server.next_id();
 
         self.data_tx
-            .send(DataPacket {
-                data: data.to_vec(), // Avoid copy?
-                kind: kind.into(),
-                destination_sids,
+            .send(FfiDataPacket {
+                payload: DataPacket {
+                    payload: data.to_vec(), // Avoid copy?
+                    kind: kind.into(),
+                    topic: publish.topic,
+                    destination_sids: destination_sids
+                        .into_iter()
+                        .map(|str| str.try_into().unwrap())
+                        .collect(),
+                },
                 async_id,
             })
             .map_err(|_| FfiError::InvalidRequest("failed to send data packet".into()))?;
@@ -384,17 +391,13 @@ impl RoomInner {
 async fn data_task(
     server: &'static FfiServer,
     inner: Arc<RoomInner>,
-    mut data_rx: mpsc::UnboundedReceiver<DataPacket>,
+    mut data_rx: mpsc::UnboundedReceiver<FfiDataPacket>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
     loop {
         tokio::select! {
             Some(event) = data_rx.recv() => {
-                let res = inner.room.local_participant().publish_data(
-                    event.data,
-                    event.kind,
-                    event.destination_sids,
-                ).await;
+                let res = inner.room.local_participant().publish_data(event.payload).await;
 
                 let cb = proto::PublishDataCallback {
                     async_id: event.async_id,
@@ -727,6 +730,7 @@ async fn forward_event(
             payload,
             kind,
             participant,
+            topic,
         } => {
             let handle_id = server.next_id();
             let buffer_info = proto::BufferInfo {
@@ -749,6 +753,7 @@ async fn forward_event(
                     }),
                     participant_sid: participant.map(|p| p.sid().to_string()),
                     kind: proto::DataPacketKind::from(kind).into(),
+                    topic,
                 },
             ))
             .await;

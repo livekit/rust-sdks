@@ -43,7 +43,9 @@ impl FfiVideoStream {
         server: &'static server::FfiServer,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FfiResult<proto::OwnedVideoStream> {
-        let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?;
+        let ffi_track = server
+            .retrieve_handle::<FfiTrack>(new_stream.track_handle)?
+            .clone();
         let rtc_track = ffi_track.track.rtc_track();
 
         let MediaStreamTrack::Video(rtc_track) = rtc_track else {

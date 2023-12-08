@@ -44,8 +44,8 @@ pub mod ffi {
         fn on_captured_frame(
             self: &AudioTrackSource,
             data: &[i16],
-            sample_rate: i32,
-            nb_channels: usize,
+            sample_rate: u32,
+            nb_channels: u32,
             nb_frames: usize,
         );
         fn audio_options(self: &AudioTrackSource) -> AudioSourceOptions;

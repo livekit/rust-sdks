@@ -89,6 +89,7 @@ message PublishDataRequest {
   uint64 data_len = 3;
   DataPacketKind kind = 4;
   repeated string destination_sids = 5; // destination
+  optional string topic = 6;
 }
 message PublishDataResponse {
   uint64 async_id = 1;
@@ -343,6 +344,7 @@ message DataReceived {
   OwnedBuffer data = 1;
   optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
   DataPacketKind kind = 3;
+  optional string topic = 4;
 }
 
 message ConnectionStateChanged { ConnectionState state = 1; }
