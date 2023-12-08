@@ -34,23 +34,23 @@ jobs:
           - os: windows-2019
             target: aarch64-pc-windows-msvc
             #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
-          - os: macos-latest
+          - os: macos-11
             target: x86_64-apple-darwin
-          - os: macos-latest
+          - os: macos-11
             target: aarch64-apple-darwin
-          - os: macos-latest
+          - os: macos-11
             target: aarch64-apple-ios
-          - os: macos-latest
+          - os: macos-11
             target: aarch64-apple-ios-sim
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             target: x86_64-unknown-linux-gnu
           - os: buildjet-4vcpu-ubuntu-2204-arm
             target: aarch64-unknown-linux-gnu
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             target: aarch64-linux-android
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             target: armv7-linux-androideabi
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             target: x86_64-linux-android
 
 
@@ -62,7 +62,7 @@ jobs:
           submodules: true
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm'}}
+        if: ${{ matrix.os == 'ubuntu-20.04' || matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm'}}
         run: |
           sudo apt update -y
           sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
