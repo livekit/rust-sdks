@@ -1,8 +1,18 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index d5289b85d7..5254c97ffc 100644
+index d5289b85d7..76823f6cff 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -292,6 +292,10 @@ config("common_config") {
+@@ -24,6 +24,9 @@
+ import("//build/config/linux/pkg_config.gni")
+ import("//build/config/sanitizers/sanitizers.gni")
+ import("webrtc.gni")
++import("//third_party/libaom/options.gni")
++
++
+ if (rtc_enable_protobuf) {
+   import("//third_party/protobuf/proto_library.gni")
+ }
+@@ -292,6 +295,10 @@ config("common_config") {
      defines += [ "WEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE" ]
    }
  
@@ -13,7 +23,7 @@ index d5289b85d7..5254c97ffc 100644
    if (rtc_libvpx_build_vp9) {
      defines += [ "RTC_ENABLE_VP9" ]
    }
-@@ -517,6 +521,10 @@ if (!build_with_chromium) {
+@@ -517,6 +524,10 @@ if (!build_with_chromium) {
        "pc:rtc_pc",
        "sdk",
        "video",
