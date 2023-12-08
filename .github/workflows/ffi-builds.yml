@@ -29,12 +29,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2019
             platform: windows
             dylib: livekit_ffi.dll
             target: x86_64-pc-windows-msvc
             name: ffi-windows-x86_64
-          - os: windows-latest
+          - os: windows-2019
             platform: windows
             dylib: livekit_ffi.dll
             buildargs: --no-default-features --features "native-tls" # ring 0.16 is incompatible with win aarch64
