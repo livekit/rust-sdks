@@ -1843,6 +1843,7 @@ pub enum VideoCodec {
     Vp8 = 0,
     H264 = 1,
     Av1 = 2,
+    Vp9 = 3,
 }
 impl VideoCodec {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1854,6 +1855,7 @@ impl VideoCodec {
             VideoCodec::Vp8 => "VP8",
             VideoCodec::H264 => "H264",
             VideoCodec::Av1 => "AV1",
+            VideoCodec::Vp9 => "VP9",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1862,6 +1864,7 @@ impl VideoCodec {
             "VP8" => Some(Self::Vp8),
             "H264" => Some(Self::H264),
             "AV1" => Some(Self::Av1),
+            "VP9" => Some(Self::Vp9),
             _ => None,
         }
     }
