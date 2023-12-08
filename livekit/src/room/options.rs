@@ -131,7 +131,7 @@ pub fn compute_video_encodings(
     options: &TrackPublishOptions,
 ) -> Vec<RtpEncodingParameters> {
     let screenshare = options.source == TrackSource::Screenshare;
-    let encoding = compute_appropriate_encoding(screenshare, width, height);
+    let encoding = compute_appropriate_encoding(screenshare, width, height, options.video_codec);
 
     let initial_preset = VideoPreset {
         width,
@@ -173,17 +173,27 @@ pub fn compute_appropriate_encoding(
     is_screenshare: bool,
     width: u32,
     height: u32,
+    codec: VideoCodec,
 ) -> VideoEncoding {
     let presets = compute_presets_for_resolution(is_screenshare, width, height);
     let size = u32::max(width, height);
 
+    let mut encoding = presets.first().unwrap().encoding.clone();
+
     for preset in presets {
+        encoding = preset.encoding.clone();
         if preset.width >= size {
-            return preset.encoding.clone();
+            break;
         }
     }
 
-    unreachable!()
+    match codec {
+        VideoCodec::VP9 => encoding.max_bitrate = (encoding.max_bitrate as f32 * 0.85) as u64,
+        VideoCodec::AV1 => encoding.max_bitrate = (encoding.max_bitrate as f32 * 0.7) as u64,
+        _ => {}
+    }
+
+    encoding
 }
 
 pub fn compute_presets_for_resolution(
