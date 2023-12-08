@@ -33,6 +33,7 @@ pub enum AsyncCmd {
         publication: RemoteTrackPublication,
     },
     E2eeKeyRatchet,
+    LogStats,
 }
 
 #[derive(Debug)]
@@ -196,6 +197,32 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     let e2ee_manager = state.room.e2ee_manager();
                     if let Some(key_provider) = e2ee_manager.key_provider() {
                         key_provider.ratchet_shared_key(0);
+                    }
+                }
+            }
+            AsyncCmd::LogStats => {
+                if let Some(state) = running_state.as_ref() {
+                    for (_, publication) in state.room.local_participant().tracks() {
+                        if let Some(track) = publication.track() {
+                            log::info!(
+                                "track stats: LOCAL {:?} {:?}",
+                                track.sid(),
+                                track.get_stats().await,
+                            );
+                        }
+                    }
+
+                    for (_, participant) in state.room.participants() {
+                        for (_, publication) in participant.tracks() {
+                            if let Some(track) = publication.track() {
+                                log::info!(
+                                    "track stats: {:?} {:?} {:?}",
+                                    participant.identity(),
+                                    track.sid(),
+                                    track.get_stats().await,
+                                );
+                            }
+                        }
                     }
                 }
             }

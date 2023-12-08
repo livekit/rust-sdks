@@ -162,8 +162,8 @@ impl LkApp {
             });
 
             ui.menu_button("Debug", |ui| {
-                if ui.button("Refresh stats").clicked() {
-                    // TODO
+                if ui.button("Log stats").clicked() {
+                    let _ = self.service.send(AsyncCmd::LogStats);
                 }
             });
         });

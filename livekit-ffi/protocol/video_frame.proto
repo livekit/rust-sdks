@@ -97,6 +97,7 @@ enum VideoCodec {
   VP8 = 0;
   H264 = 1;
   AV1 = 2;
+  VP9 = 3;
 }
 
 enum VideoRotation {

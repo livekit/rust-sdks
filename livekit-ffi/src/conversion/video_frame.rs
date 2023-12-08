@@ -132,6 +132,7 @@ impl From<proto::VideoCodec> for VideoCodec {
             proto::VideoCodec::Vp8 => Self::VP8,
             proto::VideoCodec::H264 => Self::H264,
             proto::VideoCodec::Av1 => Self::AV1,
+            proto::VideoCodec::Vp9 => Self::VP9,
         }
     }
 }
