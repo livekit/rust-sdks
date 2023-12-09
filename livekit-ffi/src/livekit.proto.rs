@@ -2232,6 +2232,30 @@ pub struct SetSubscribedRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetSubscribedResponse {
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetSessionStatsRequest {
+    #[prost(uint64, tag="1")]
+    pub room_handle: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetSessionStatsResponse {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetSessionStatsCallback {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="3")]
+    pub publisher_stats: ::prost::alloc::vec::Vec<RtcStats>,
+    #[prost(message, repeated, tag="4")]
+    pub subscriber_stats: ::prost::alloc::vec::Vec<RtcStats>,
+}
 //
 // Options
 //
@@ -3022,7 +3046,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3049,40 +3073,42 @@ pub mod ffi_request {
         UpdateLocalMetadata(super::UpdateLocalMetadataRequest),
         #[prost(message, tag="10")]
         UpdateLocalName(super::UpdateLocalNameRequest),
-        /// Track
         #[prost(message, tag="11")]
-        CreateVideoTrack(super::CreateVideoTrackRequest),
+        GetSessionStats(super::GetSessionStatsRequest),
+        /// Track
         #[prost(message, tag="12")]
-        CreateAudioTrack(super::CreateAudioTrackRequest),
+        CreateVideoTrack(super::CreateVideoTrackRequest),
         #[prost(message, tag="13")]
+        CreateAudioTrack(super::CreateAudioTrackRequest),
+        #[prost(message, tag="14")]
         GetStats(super::GetStatsRequest),
         /// Video
-        #[prost(message, tag="14")]
-        AllocVideoBuffer(super::AllocVideoBufferRequest),
         #[prost(message, tag="15")]
-        NewVideoStream(super::NewVideoStreamRequest),
+        AllocVideoBuffer(super::AllocVideoBufferRequest),
         #[prost(message, tag="16")]
-        NewVideoSource(super::NewVideoSourceRequest),
+        NewVideoStream(super::NewVideoStreamRequest),
         #[prost(message, tag="17")]
-        CaptureVideoFrame(super::CaptureVideoFrameRequest),
+        NewVideoSource(super::NewVideoSourceRequest),
         #[prost(message, tag="18")]
-        ToI420(super::ToI420Request),
+        CaptureVideoFrame(super::CaptureVideoFrameRequest),
         #[prost(message, tag="19")]
+        ToI420(super::ToI420Request),
+        #[prost(message, tag="20")]
         ToArgb(super::ToArgbRequest),
         /// Audio
-        #[prost(message, tag="20")]
-        AllocAudioBuffer(super::AllocAudioBufferRequest),
         #[prost(message, tag="21")]
-        NewAudioStream(super::NewAudioStreamRequest),
+        AllocAudioBuffer(super::AllocAudioBufferRequest),
         #[prost(message, tag="22")]
-        NewAudioSource(super::NewAudioSourceRequest),
+        NewAudioStream(super::NewAudioStreamRequest),
         #[prost(message, tag="23")]
-        CaptureAudioFrame(super::CaptureAudioFrameRequest),
+        NewAudioSource(super::NewAudioSourceRequest),
         #[prost(message, tag="24")]
-        NewAudioResampler(super::NewAudioResamplerRequest),
+        CaptureAudioFrame(super::CaptureAudioFrameRequest),
         #[prost(message, tag="25")]
-        RemixAndResample(super::RemixAndResampleRequest),
+        NewAudioResampler(super::NewAudioResamplerRequest),
         #[prost(message, tag="26")]
+        RemixAndResample(super::RemixAndResampleRequest),
+        #[prost(message, tag="27")]
         E2ee(super::E2eeRequest),
     }
 }
@@ -3090,7 +3116,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3117,40 +3143,42 @@ pub mod ffi_response {
         UpdateLocalMetadata(super::UpdateLocalMetadataResponse),
         #[prost(message, tag="10")]
         UpdateLocalName(super::UpdateLocalNameResponse),
-        /// Track
         #[prost(message, tag="11")]
-        CreateVideoTrack(super::CreateVideoTrackResponse),
+        GetSessionStats(super::GetSessionStatsResponse),
+        /// Track
         #[prost(message, tag="12")]
-        CreateAudioTrack(super::CreateAudioTrackResponse),
+        CreateVideoTrack(super::CreateVideoTrackResponse),
         #[prost(message, tag="13")]
+        CreateAudioTrack(super::CreateAudioTrackResponse),
+        #[prost(message, tag="14")]
         GetStats(super::GetStatsResponse),
         /// Video
-        #[prost(message, tag="14")]
-        AllocVideoBuffer(super::AllocVideoBufferResponse),
         #[prost(message, tag="15")]
-        NewVideoStream(super::NewVideoStreamResponse),
+        AllocVideoBuffer(super::AllocVideoBufferResponse),
         #[prost(message, tag="16")]
-        NewVideoSource(super::NewVideoSourceResponse),
+        NewVideoStream(super::NewVideoStreamResponse),
         #[prost(message, tag="17")]
-        CaptureVideoFrame(super::CaptureVideoFrameResponse),
+        NewVideoSource(super::NewVideoSourceResponse),
         #[prost(message, tag="18")]
-        ToI420(super::ToI420Response),
+        CaptureVideoFrame(super::CaptureVideoFrameResponse),
         #[prost(message, tag="19")]
+        ToI420(super::ToI420Response),
+        #[prost(message, tag="20")]
         ToArgb(super::ToArgbResponse),
         /// Audio
-        #[prost(message, tag="20")]
-        AllocAudioBuffer(super::AllocAudioBufferResponse),
         #[prost(message, tag="21")]
-        NewAudioStream(super::NewAudioStreamResponse),
+        AllocAudioBuffer(super::AllocAudioBufferResponse),
         #[prost(message, tag="22")]
-        NewAudioSource(super::NewAudioSourceResponse),
+        NewAudioStream(super::NewAudioStreamResponse),
         #[prost(message, tag="23")]
-        CaptureAudioFrame(super::CaptureAudioFrameResponse),
+        NewAudioSource(super::NewAudioSourceResponse),
         #[prost(message, tag="24")]
-        NewAudioResampler(super::NewAudioResamplerResponse),
+        CaptureAudioFrame(super::CaptureAudioFrameResponse),
         #[prost(message, tag="25")]
-        RemixAndResample(super::RemixAndResampleResponse),
+        NewAudioResampler(super::NewAudioResamplerResponse),
         #[prost(message, tag="26")]
+        RemixAndResample(super::RemixAndResampleResponse),
+        #[prost(message, tag="27")]
         E2ee(super::E2eeResponse),
     }
 }
@@ -3160,7 +3188,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3198,6 +3226,8 @@ pub mod ffi_event {
         GetStats(super::GetStatsCallback),
         #[prost(message, tag="15")]
         Logs(super::LogBatch),
+        #[prost(message, tag="16")]
+        GetSessionStats(super::GetSessionStatsCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

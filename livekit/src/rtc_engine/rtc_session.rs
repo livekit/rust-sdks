@@ -23,6 +23,7 @@ use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
 use crate::track::LocalTrack;
 use crate::DataPacketKind;
 use libwebrtc::prelude::*;
+use libwebrtc::stats::RtcStats;
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
@@ -49,6 +50,12 @@ pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150)
 
 pub type SessionEmitter = mpsc::UnboundedSender<SessionEvent>;
 pub type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
+
+#[derive(Debug, Clone)]
+pub struct SessionStats {
+    pub publisher_stats: Vec<RtcStats>,
+    pub subscriber_stats: Vec<RtcStats>,
+}
 
 #[derive(Debug)]
 pub enum SessionEvent {
@@ -227,12 +234,16 @@ impl RtcSession {
         self.inner.has_published.load(Ordering::Acquire)
     }
 
-    pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
-        self.inner.add_track(req).await
-    }
-
     pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
         self.inner.remove_track(sender)
+    }
+
+    pub fn publisher_negotiation_needed(&self) {
+        self.inner.publisher_negotiation_needed()
+    }
+
+    pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
+        self.inner.add_track(req).await
     }
 
     pub async fn create_sender(
@@ -242,10 +253,6 @@ impl RtcSession {
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
         self.inner.create_sender(track, options, encodings).await
-    }
-
-    pub fn publisher_negotiation_needed(&self) {
-        self.inner.publisher_negotiation_needed()
     }
 
     /// Close the PeerConnections and the SignalClient
@@ -285,6 +292,27 @@ impl RtcSession {
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.simulate_scenario(scenario).await
+    }
+
+    pub async fn get_stats(&self) -> EngineResult<SessionStats> {
+        let publisher_stats = self
+            .inner
+            .publisher_pc
+            .peer_connection()
+            .get_stats()
+            .await?;
+
+        let subscriber_stats = self
+            .inner
+            .subscriber_pc
+            .peer_connection()
+            .get_stats()
+            .await?;
+
+        Ok(SessionStats {
+            publisher_stats,
+            subscriber_stats,
+        })
     }
 
     pub fn publisher(&self) -> &PeerTransport {

@@ -22,6 +22,7 @@ import "handle.proto";
 import "participant.proto";
 import "track.proto";
 import "video_frame.proto";
+import "stats.proto";
 
 // Connect to a new LiveKit room
 message ConnectRequest {
@@ -129,6 +130,19 @@ message SetSubscribedRequest {
   uint64 publication_handle = 2;
 }
 message SetSubscribedResponse {}
+
+message GetSessionStatsRequest {
+  uint64 room_handle = 1;
+}
+message GetSessionStatsResponse {
+  uint64 async_id = 1;
+}
+message GetSessionStatsCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
+  repeated RtcStats publisher_stats = 3;
+  repeated RtcStats subscriber_stats = 4;
+}
 
 
 //

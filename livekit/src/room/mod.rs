@@ -16,7 +16,7 @@ use self::e2ee::manager::E2eeManager;
 use self::e2ee::E2eeOptions;
 use crate::participant::ConnectionQuality;
 use crate::prelude::*;
-use crate::rtc_engine::{EngineError, EngineOptions};
+use crate::rtc_engine::{EngineError, EngineOptions, SessionStats};
 use crate::rtc_engine::{EngineEvent, EngineEvents, EngineResult, RtcEngine};
 use libwebrtc::native::frame_cryptor::EncryptionState;
 use libwebrtc::prelude::{
@@ -449,6 +449,10 @@ impl Room {
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.rtc_engine.simulate_scenario(scenario).await
+    }
+
+    pub async fn get_stats(&self) -> EngineResult<SessionStats> {
+        self.inner.rtc_engine.get_stats().await
     }
 
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {
