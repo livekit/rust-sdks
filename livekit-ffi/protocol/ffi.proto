@@ -65,28 +65,29 @@ message FfiRequest {
     SetSubscribedRequest set_subscribed = 8;
     UpdateLocalMetadataRequest update_local_metadata = 9;
     UpdateLocalNameRequest update_local_name = 10;
+    GetSessionStatsRequest get_session_stats = 11;
 
     // Track
-    CreateVideoTrackRequest create_video_track = 11;
-    CreateAudioTrackRequest create_audio_track = 12;
-    GetStatsRequest get_stats = 13;
+    CreateVideoTrackRequest create_video_track = 12;
+    CreateAudioTrackRequest create_audio_track = 13;
+    GetStatsRequest get_stats = 14;
 
     // Video
-    AllocVideoBufferRequest alloc_video_buffer = 14;
-    NewVideoStreamRequest new_video_stream = 15;
-    NewVideoSourceRequest new_video_source = 16;
-    CaptureVideoFrameRequest capture_video_frame = 17;
-    ToI420Request to_i420 = 18;
-    ToArgbRequest to_argb = 19;
+    AllocVideoBufferRequest alloc_video_buffer = 15;
+    NewVideoStreamRequest new_video_stream = 16;
+    NewVideoSourceRequest new_video_source = 17;
+    CaptureVideoFrameRequest capture_video_frame = 18;
+    ToI420Request to_i420 = 19;
+    ToArgbRequest to_argb = 20;
 
     // Audio
-    AllocAudioBufferRequest alloc_audio_buffer = 20;
-    NewAudioStreamRequest new_audio_stream = 21;
-    NewAudioSourceRequest new_audio_source = 22;
-    CaptureAudioFrameRequest capture_audio_frame = 23;
-    NewAudioResamplerRequest new_audio_resampler = 24;
-    RemixAndResampleRequest remix_and_resample = 25;
-    E2eeRequest e2ee = 26;
+    AllocAudioBufferRequest alloc_audio_buffer = 21;
+    NewAudioStreamRequest new_audio_stream = 22;
+    NewAudioSourceRequest new_audio_source = 23;
+    CaptureAudioFrameRequest capture_audio_frame = 24;
+    NewAudioResamplerRequest new_audio_resampler = 25;
+    RemixAndResampleRequest remix_and_resample = 26;
+    E2eeRequest e2ee = 27;
   }
 }
 
@@ -104,28 +105,29 @@ message FfiResponse {
     SetSubscribedResponse set_subscribed = 8;
     UpdateLocalMetadataResponse update_local_metadata = 9;
     UpdateLocalNameResponse update_local_name = 10;
+    GetSessionStatsResponse get_session_stats = 11;
 
     // Track
-    CreateVideoTrackResponse create_video_track = 11;
-    CreateAudioTrackResponse create_audio_track = 12;
-    GetStatsResponse get_stats = 13;
+    CreateVideoTrackResponse create_video_track = 12;
+    CreateAudioTrackResponse create_audio_track = 13;
+    GetStatsResponse get_stats = 14;
 
     // Video
-    AllocVideoBufferResponse alloc_video_buffer = 14;
-    NewVideoStreamResponse new_video_stream = 15;
-    NewVideoSourceResponse new_video_source = 16;
-    CaptureVideoFrameResponse capture_video_frame = 17;
-    ToI420Response to_i420 = 18;
-    ToArgbResponse to_argb = 19;
+    AllocVideoBufferResponse alloc_video_buffer = 15;
+    NewVideoStreamResponse new_video_stream = 16;
+    NewVideoSourceResponse new_video_source = 17;
+    CaptureVideoFrameResponse capture_video_frame = 18;
+    ToI420Response to_i420 = 19;
+    ToArgbResponse to_argb = 20;
 
     // Audio
-    AllocAudioBufferResponse alloc_audio_buffer = 20;
-    NewAudioStreamResponse new_audio_stream = 21;
-    NewAudioSourceResponse new_audio_source = 22;
-    CaptureAudioFrameResponse capture_audio_frame = 23;
-    NewAudioResamplerResponse new_audio_resampler = 24;
-    RemixAndResampleResponse remix_and_resample = 25;
-    E2eeResponse e2ee = 26;
+    AllocAudioBufferResponse alloc_audio_buffer = 21;
+    NewAudioStreamResponse new_audio_stream = 22;
+    NewAudioSourceResponse new_audio_source = 23;
+    CaptureAudioFrameResponse capture_audio_frame = 24;
+    NewAudioResamplerResponse new_audio_resampler = 25;
+    RemixAndResampleResponse remix_and_resample = 26;
+    E2eeResponse e2ee = 27;
   }
 }
 
@@ -149,6 +151,7 @@ message FfiEvent {
     UpdateLocalNameCallback update_local_name = 13;
     GetStatsCallback get_stats = 14;
     LogBatch logs = 15;
+    GetSessionStatsCallback get_session_stats = 16;
   }
 }
 

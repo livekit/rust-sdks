@@ -35,6 +35,8 @@ use tokio::sync::{RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Interval};
 
+pub use self::rtc_session::SessionStats;
+
 pub mod lk_runtime;
 mod peer_transport;
 mod rtc_events;
@@ -246,6 +248,11 @@ impl RtcEngine {
         let session = self.inner.running_handle.read().session.clone();
         session.signal_client().send(msg).await // Returns () and automatically queues the message
                                                 // on fail
+    }
+
+    pub async fn get_stats(&self) -> EngineResult<SessionStats> {
+        let session = self.inner.running_handle.read().session.clone();
+        session.get_stats().await
     }
 
     pub fn session(&self) -> Arc<RtcSession> {

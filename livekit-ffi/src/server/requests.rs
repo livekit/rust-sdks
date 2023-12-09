@@ -736,6 +736,54 @@ fn on_e2ee_request(
     Ok(proto::E2eeResponse { message: Some(msg) })
 }
 
+fn on_get_session_stats(
+    server: &'static FfiServer,
+    get_session_stats: proto::GetSessionStatsRequest,
+) -> FfiResult<proto::GetSessionStatsResponse> {
+    let ffi_room = server
+        .retrieve_handle::<room::FfiRoom>(get_session_stats.room_handle)?
+        .clone();
+    let async_id = server.next_id();
+
+    server.async_runtime.spawn(async move {
+        match ffi_room.inner.room.get_stats().await {
+            Ok(stats) => {
+                let _ = server
+                    .send_event(proto::ffi_event::Message::GetSessionStats(
+                        proto::GetSessionStatsCallback {
+                            async_id,
+                            error: None,
+                            publisher_stats: stats
+                                .publisher_stats
+                                .into_iter()
+                                .map(Into::into)
+                                .collect(),
+                            subscriber_stats: stats
+                                .subscriber_stats
+                                .into_iter()
+                                .map(Into::into)
+                                .collect(),
+                        },
+                    ))
+                    .await;
+            }
+            Err(err) => {
+                let _ = server
+                    .send_event(proto::ffi_event::Message::GetSessionStats(
+                        proto::GetSessionStatsCallback {
+                            async_id,
+                            error: Some(err.to_string()),
+                            ..Default::default()
+                        },
+                    ))
+                    .await;
+            }
+        }
+    });
+
+    Ok(proto::GetSessionStatsResponse { async_id })
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -822,6 +870,12 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::E2ee(e2ee) => {
             proto::ffi_response::Message::E2ee(on_e2ee_request(server, e2ee)?)
+        }
+        proto::ffi_request::Message::GetSessionStats(get_session_stats) => {
+            proto::ffi_response::Message::GetSessionStats(on_get_session_stats(
+                server,
+                get_session_stats,
+            )?)
         }
     });
 
