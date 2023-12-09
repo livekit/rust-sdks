@@ -37,6 +37,8 @@ impl FfiAudioSource {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioSourceType::AudioSourceNative => {
                 use livekit::webrtc::audio_source::native::NativeAudioSource;
+
+                let _guard = server.async_runtime.enter();
                 let audio_source = NativeAudioSource::new(
                     new_source.options.map(Into::into).unwrap_or_default(),
                     new_source.sample_rate,

@@ -38,6 +38,8 @@ impl FfiVideoSource {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoSourceType::VideoSourceNative => {
                 use livekit::webrtc::video_source::native::NativeVideoSource;
+
+                let _guard = server.async_runtime.enter();
                 let video_source = NativeVideoSource::new(
                     new_source.resolution.map(Into::into).unwrap_or_default(),
                 );
