@@ -16,7 +16,7 @@ use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError,
 use cxx::SharedPtr;
 use std::{sync::Arc, time::Duration};
 use tokio::{
-    sync::{Mutex as AsyncMutex, MutexGuard},
+    sync::{oneshot, Mutex as AsyncMutex, MutexGuard},
     time::{interval, Instant, MissedTickBehavior},
 };
 use webrtc_sys::audio_track as sys_at;
@@ -28,6 +28,7 @@ pub struct NativeAudioSource {
     sample_rate: u32,
     num_channels: u32,
     samples_10ms: usize,
+    _close_tx: Arc<oneshot::Sender<()>>,
 }
 
 struct AudioSourceInner {
@@ -52,6 +53,7 @@ impl NativeAudioSource {
         num_channels: u32,
     ) -> NativeAudioSource {
         let samples_10ms = (sample_rate / 100 * num_channels) as usize;
+        let (close_tx, mut close_rx) = oneshot::channel();
 
         let source = Self {
             sys_handle: sys_at::ffi::new_audio_track_source(options.into()),
@@ -65,6 +67,7 @@ impl NativeAudioSource {
             sample_rate,
             num_channels,
             samples_10ms,
+            _close_tx: Arc::new(close_tx),
         };
 
         tokio::spawn({
@@ -73,24 +76,25 @@ impl NativeAudioSource {
                 let mut interval = interval(Duration::from_millis(10));
 
                 loop {
-                    // We directly use the sys_handle instead of the capture_frame function
-                    // (We don't want to increase the captured_frames count and no need to buffer)
-                    interval.tick().await;
+                    tokio::select! {
+                        _ = &mut close_rx => break,
+                        _ = interval.tick() => {
+                            let inner = source.inner.lock().await;
+                            if let Some(last_capture) = inner.last_capture {
+                                if last_capture.elapsed() < Duration::from_millis(20) {
+                                    continue;
+                                }
+                            }
 
-                    let inner = source.inner.lock().await;
-                    if let Some(last_capture) = inner.last_capture {
-                        if last_capture.elapsed() < Duration::from_millis(20) {
-                            continue;
+                            let data = vec![0; samples_10ms];
+                            source.sys_handle.on_captured_frame(
+                                &data,
+                                sample_rate,
+                                num_channels,
+                                sample_rate as usize / 100,
+                            );
                         }
                     }
-
-                    let data = vec![0; samples_10ms];
-                    source.sys_handle.on_captured_frame(
-                        &data,
-                        sample_rate,
-                        num_channels,
-                        sample_rate as usize / 100,
-                    );
                 }
             }
         });
