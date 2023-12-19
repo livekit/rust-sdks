@@ -24,8 +24,6 @@ pub struct Room {
     pub num_publishers: u32,
     #[prost(bool, tag="10")]
     pub active_recording: bool,
-    #[prost(message, optional, tag="12")]
-    pub playout_delay: ::core::option::Option<PlayoutDelay>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -69,6 +67,9 @@ pub struct ParticipantPermission {
     /// indicates that participant can update own metadata
     #[prost(bool, tag="10")]
     pub can_update_metadata: bool,
+    /// indicates that participant is an agent
+    #[prost(bool, tag="11")]
+    pub agent: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -98,6 +99,8 @@ pub struct ParticipantInfo {
     /// and can publish to the server
     #[prost(bool, tag="13")]
     pub is_publisher: bool,
+    #[prost(enumeration="participant_info::Kind", tag="14")]
+    pub kind: i32,
 }
 /// Nested message and enum types in `ParticipantInfo`.
 pub mod participant_info {
@@ -133,6 +136,46 @@ pub mod participant_info {
                 "JOINED" => Some(Self::Joined),
                 "ACTIVE" => Some(Self::Active),
                 "DISCONNECTED" => Some(Self::Disconnected),
+                _ => None,
+            }
+        }
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Kind {
+        /// standard participants, e.g. web clients
+        Standard = 0,
+        /// only ingests streams
+        Ingress = 1,
+        /// only consumes streams
+        Egress = 2,
+        /// SIP participants
+        Sip = 3,
+        /// LiveKit agents
+        Agent = 4,
+    }
+    impl Kind {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Kind::Standard => "STANDARD",
+                Kind::Ingress => "INGRESS",
+                Kind::Egress => "EGRESS",
+                Kind::Sip => "SIP",
+                Kind::Agent => "AGENT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "STANDARD" => Some(Self::Standard),
+                "INGRESS" => Some(Self::Ingress),
+                "EGRESS" => Some(Self::Egress),
+                "SIP" => Some(Self::Sip),
+                "AGENT" => Some(Self::Agent),
                 _ => None,
             }
         }
@@ -690,6 +733,32 @@ impl VideoCodec {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum ImageCodec {
+    IcDefault = 0,
+    IcJpeg = 1,
+}
+impl ImageCodec {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ImageCodec::IcDefault => "IC_DEFAULT",
+            ImageCodec::IcJpeg => "IC_JPEG",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "IC_DEFAULT" => Some(Self::IcDefault),
+            "IC_JPEG" => Some(Self::IcJpeg),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum TrackType {
     Audio = 0,
     Video = 1,
@@ -790,6 +859,7 @@ pub enum ConnectionQuality {
     Poor = 0,
     Good = 1,
     Excellent = 2,
+    Lost = 3,
 }
 impl ConnectionQuality {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -801,6 +871,7 @@ impl ConnectionQuality {
             ConnectionQuality::Poor => "POOR",
             ConnectionQuality::Good => "GOOD",
             ConnectionQuality::Excellent => "EXCELLENT",
+            ConnectionQuality::Lost => "LOST",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -809,6 +880,7 @@ impl ConnectionQuality {
             "POOR" => Some(Self::Poor),
             "GOOD" => Some(Self::Good),
             "EXCELLENT" => Some(Self::Excellent),
+            "LOST" => Some(Self::Lost),
             _ => None,
         }
     }
@@ -975,6 +1047,8 @@ pub struct RoomCompositeEgressRequest {
     pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
     #[prost(message, repeated, tag="13")]
     pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(message, repeated, tag="14")]
+    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
     /// deprecated (use _output fields)
     #[prost(oneof="room_composite_egress_request::Output", tags="6, 7, 10")]
     pub output: ::core::option::Option<room_composite_egress_request::Output>,
@@ -1023,6 +1097,8 @@ pub struct WebEgressRequest {
     pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
     #[prost(message, repeated, tag="11")]
     pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(message, repeated, tag="13")]
+    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
     /// deprecated (use _output fields)
     #[prost(oneof="web_egress_request::Output", tags="4, 5, 6")]
     pub output: ::core::option::Option<web_egress_request::Output>,
@@ -1070,6 +1146,8 @@ pub struct ParticipantEgressRequest {
     pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
     #[prost(message, repeated, tag="8")]
     pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(message, repeated, tag="9")]
+    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
     #[prost(oneof="participant_egress_request::Options", tags="4, 5")]
     pub options: ::core::option::Option<participant_egress_request::Options>,
 }
@@ -1105,6 +1183,8 @@ pub struct TrackCompositeEgressRequest {
     pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
     #[prost(message, repeated, tag="13")]
     pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(message, repeated, tag="14")]
+    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
     /// deprecated (use _output fields)
     #[prost(oneof="track_composite_egress_request::Output", tags="4, 5, 8")]
     pub output: ::core::option::Option<track_composite_egress_request::Output>,
@@ -1265,6 +1345,50 @@ pub mod direct_file_output {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ImageOutput {
+    /// in seconds (required)
+    #[prost(uint32, tag="1")]
+    pub capture_interval: u32,
+    /// (optional, defaults to track width)
+    #[prost(int32, tag="2")]
+    pub width: i32,
+    /// (optional, defaults to track height)
+    #[prost(int32, tag="3")]
+    pub height: i32,
+    /// (optional)
+    #[prost(string, tag="4")]
+    pub filename_prefix: ::prost::alloc::string::String,
+    /// (optional, default INDEX)
+    #[prost(enumeration="ImageFileSuffix", tag="5")]
+    pub filename_suffix: i32,
+    /// (optional)
+    #[prost(enumeration="ImageCodec", tag="6")]
+    pub image_codec: i32,
+    /// disable upload of manifest file (default false)
+    #[prost(bool, tag="7")]
+    pub disable_manifest: bool,
+    /// required
+    #[prost(oneof="image_output::Output", tags="8, 9, 10, 11")]
+    pub output: ::core::option::Option<image_output::Output>,
+}
+/// Nested message and enum types in `ImageOutput`.
+pub mod image_output {
+    /// required
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Output {
+        #[prost(message, tag="8")]
+        S3(super::S3Upload),
+        #[prost(message, tag="9")]
+        Gcp(super::GcpUpload),
+        #[prost(message, tag="10")]
+        Azure(super::AzureBlobUpload),
+        #[prost(message, tag="11")]
+        AliOss(super::AliOssUpload),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct S3Upload {
     #[prost(string, tag="1")]
     pub access_key: ::prost::alloc::string::String,
@@ -1282,10 +1406,14 @@ pub struct S3Upload {
     pub metadata: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(string, tag="8")]
     pub tagging: ::prost::alloc::string::String,
+    /// Content-Disposition header
+    #[prost(string, tag="9")]
+    pub content_disposition: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GcpUpload {
+    /// service account credentials serialized in JSON "credentials.json"
     #[prost(string, tag="1")]
     pub credentials: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
@@ -1346,6 +1474,9 @@ pub struct EncodingOptions {
     /// (default 128)
     #[prost(int32, tag="6")]
     pub audio_bitrate: i32,
+    /// quality setting on audio encoder
+    #[prost(int32, tag="11")]
+    pub audio_quality: i32,
     /// (default 44100)
     #[prost(int32, tag="7")]
     pub audio_frequency: i32,
@@ -1355,6 +1486,9 @@ pub struct EncodingOptions {
     /// (default 4500)
     #[prost(int32, tag="9")]
     pub video_bitrate: i32,
+    /// quality setting on video encoder
+    #[prost(int32, tag="12")]
+    pub video_quality: i32,
     /// in seconds (default 4s for streaming, segment duration for segmented output, encoder default for files)
     #[prost(double, tag="10")]
     pub key_frame_interval: f64,
@@ -1427,6 +1561,8 @@ pub struct EgressInfo {
     pub file_results: ::prost::alloc::vec::Vec<FileInfo>,
     #[prost(message, repeated, tag="17")]
     pub segment_results: ::prost::alloc::vec::Vec<SegmentsInfo>,
+    #[prost(message, repeated, tag="20")]
+    pub image_results: ::prost::alloc::vec::Vec<ImagesInfo>,
     #[prost(oneof="egress_info::Request", tags="4, 14, 19, 5, 6")]
     pub request: ::core::option::Option<egress_info::Request>,
     /// deprecated (use _result fields)
@@ -1555,6 +1691,16 @@ pub struct SegmentsInfo {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ImagesInfo {
+    #[prost(int64, tag="1")]
+    pub image_count: i64,
+    #[prost(int64, tag="2")]
+    pub started_at: i64,
+    #[prost(int64, tag="3")]
+    pub ended_at: i64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AutoParticipantEgress {
     #[prost(message, repeated, tag="3")]
     pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
@@ -1679,6 +1825,32 @@ impl SegmentedFileSuffix {
         match value {
             "INDEX" => Some(Self::Index),
             "TIMESTAMP" => Some(Self::Timestamp),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ImageFileSuffix {
+    ImageSuffixIndex = 0,
+    ImageSuffixTimestamp = 1,
+}
+impl ImageFileSuffix {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ImageFileSuffix::ImageSuffixIndex => "IMAGE_SUFFIX_INDEX",
+            ImageFileSuffix::ImageSuffixTimestamp => "IMAGE_SUFFIX_TIMESTAMP",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "IMAGE_SUFFIX_INDEX" => Some(Self::ImageSuffixIndex),
+            "IMAGE_SUFFIX_TIMESTAMP" => Some(Self::ImageSuffixTimestamp),
             _ => None,
         }
     }
@@ -2459,6 +2631,10 @@ pub struct CreateRoomRequest {
     pub min_playout_delay: u32,
     #[prost(uint32, tag="8")]
     pub max_playout_delay: u32,
+    /// improves A/V sync when playout_delay set to a value larger than 200ms. It will disables transceiver re-use 
+    /// so not recommended for rooms with frequent subscription changes
+    #[prost(bool, tag="9")]
+    pub sync_streams: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -22,6 +22,7 @@ impl From<ConnectionQuality> for participant::ConnectionQuality {
             ConnectionQuality::Excellent => Self::Excellent,
             ConnectionQuality::Good => Self::Good,
             ConnectionQuality::Poor => Self::Poor,
+            ConnectionQuality::Lost => Self::Lost,
         }
     }
 }

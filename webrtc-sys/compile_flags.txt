@@ -1,4 +1,5 @@
 -xc++
+-xobjective-c
 -xobjective-c++
 -std=c++17
 -Iinclude

@@ -32,6 +32,7 @@ pub enum ConnectionQuality {
     Excellent,
     Good,
     Poor,
+    Lost,
 }
 
 #[derive(Debug, Clone)]
