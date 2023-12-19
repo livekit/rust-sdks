@@ -17,7 +17,7 @@ use cxx::SharedPtr;
 use std::{sync::Arc, time::Duration};
 use tokio::{
     sync::{Mutex as AsyncMutex, MutexGuard},
-    time::{interval, MissedTickBehavior},
+    time::{interval, Instant, MissedTickBehavior},
 };
 use webrtc_sys::audio_track as sys_at;
 
@@ -33,7 +33,7 @@ pub struct NativeAudioSource {
 struct AudioSourceInner {
     buf: Box<[i16]>,
 
-    captured_frames: usize,
+    last_capture: Option<Instant>,
 
     // Amount of data from the previous frame that hasn't been sent to the libwebrtc source
     // (because it requires 10ms of data)
@@ -57,7 +57,7 @@ impl NativeAudioSource {
             sys_handle: sys_at::ffi::new_audio_track_source(options.into()),
             inner: Arc::new(AsyncMutex::new(AudioSourceInner {
                 buf: vec![0; samples_10ms].into_boxed_slice(),
-                captured_frames: 0,
+                last_capture: None,
                 len: 0,
                 read_offset: 0,
                 interval: None, // interval must be created from a tokio runtime context
@@ -78,8 +78,10 @@ impl NativeAudioSource {
                     interval.tick().await;
 
                     let inner = source.inner.lock().await;
-                    if inner.captured_frames > 0 {
-                        break; // User captured something, stop injecting silence
+                    if let Some(last_capture) = inner.last_capture {
+                        if last_capture.elapsed() < Duration::from_millis(20) {
+                            break;
+                        }
                     }
 
                     let data = vec![0; samples_10ms];
@@ -162,8 +164,6 @@ impl NativeAudioSource {
         }
 
         let mut inner = self.inner.lock().await;
-        inner.captured_frames += 1;
-
         let mut interval = inner.interval.take().unwrap_or_else(|| {
             let mut interval = interval(Duration::from_millis(10));
             interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -176,7 +176,7 @@ impl NativeAudioSource {
                 break;
             };
 
-            interval.tick().await;
+            let last_capture = interval.tick().await;
 
             // samples per channel = number of frames
             let samples_per_channel = data.len() / self.num_channels as usize;
@@ -186,6 +186,8 @@ impl NativeAudioSource {
                 self.num_channels,
                 samples_per_channel,
             );
+
+            inner.last_capture = Some(last_capture);
         }
 
         Ok(())
