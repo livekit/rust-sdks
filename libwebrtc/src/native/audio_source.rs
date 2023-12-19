@@ -80,7 +80,7 @@ impl NativeAudioSource {
                     let inner = source.inner.lock().await;
                     if let Some(last_capture) = inner.last_capture {
                         if last_capture.elapsed() < Duration::from_millis(20) {
-                            break;
+                            continue;
                         }
                     }
 
