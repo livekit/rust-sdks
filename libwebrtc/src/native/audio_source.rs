@@ -74,6 +74,7 @@ impl NativeAudioSource {
             let source = source.clone();
             async move {
                 let mut interval = interval(Duration::from_millis(10));
+                let data = vec![0; samples_10ms];
 
                 loop {
                     tokio::select! {
@@ -86,7 +87,6 @@ impl NativeAudioSource {
                                 }
                             }
 
-                            let data = vec![0; samples_10ms];
                             source.sys_handle.on_captured_frame(
                                 &data,
                                 sample_rate,
