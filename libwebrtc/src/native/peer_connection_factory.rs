@@ -46,22 +46,13 @@ impl Default for PeerConnectionFactory {
     fn default() -> Self {
         let mut log_sink = LOG_SINK.lock();
         if log_sink.is_none() {
-            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, severity| {
+            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
                 let msg = msg
                     .strip_suffix("\r\n")
                     .or(msg.strip_suffix('\n'))
                     .unwrap_or(&msg);
 
-                let lvl = match severity {
-                    sys_rtc::ffi::LoggingSeverity::Verbose => log::Level::Trace,
-                    sys_rtc::ffi::LoggingSeverity::Info => log::Level::Debug, // Translte webrtc
-                    // info to debug log level to avoid polluting the user logs
-                    sys_rtc::ffi::LoggingSeverity::Warning => log::Level::Warn,
-                    sys_rtc::ffi::LoggingSeverity::Error => log::Level::Error,
-                    _ => log::Level::Debug,
-                };
-
-                log::log!(target: "libwebrtc", lvl, "{}", msg);
+                log::debug!("{}", msg);
             }));
         }
 
