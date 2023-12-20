@@ -2851,8 +2851,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "ring"
-version = "0.16.20"
-source = "git+https://github.com/1Password/ring?branch=1p/release-0.16#d2cc20fd523abe5aef18bb67e3df49654fa9376b"
