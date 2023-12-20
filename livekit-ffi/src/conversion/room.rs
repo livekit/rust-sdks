@@ -43,6 +43,7 @@ impl From<ConnectionQuality> for proto::ConnectionQuality {
             ConnectionQuality::Excellent => Self::QualityExcellent,
             ConnectionQuality::Good => Self::QualityGood,
             ConnectionQuality::Poor => Self::QualityPoor,
+            ConnectionQuality::Lost => Self::QualityLost,
         }
     }
 }

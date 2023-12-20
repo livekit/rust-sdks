@@ -2664,6 +2664,7 @@ pub enum ConnectionQuality {
     QualityPoor = 0,
     QualityGood = 1,
     QualityExcellent = 2,
+    QualityLost = 3,
 }
 impl ConnectionQuality {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2675,6 +2676,7 @@ impl ConnectionQuality {
             ConnectionQuality::QualityPoor => "QUALITY_POOR",
             ConnectionQuality::QualityGood => "QUALITY_GOOD",
             ConnectionQuality::QualityExcellent => "QUALITY_EXCELLENT",
+            ConnectionQuality::QualityLost => "QUALITY_LOST",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2683,6 +2685,7 @@ impl ConnectionQuality {
             "QUALITY_POOR" => Some(Self::QualityPoor),
             "QUALITY_GOOD" => Some(Self::QualityGood),
             "QUALITY_EXCELLENT" => Some(Self::QualityExcellent),
+            "QUALITY_LOST" => Some(Self::QualityLost),
             _ => None,
         }
     }

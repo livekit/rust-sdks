@@ -209,6 +209,7 @@ enum ConnectionQuality {
   QUALITY_POOR = 0;
   QUALITY_GOOD = 1;
   QUALITY_EXCELLENT = 2;
+  QUALITY_LOST = 3;
 }
 
 enum ConnectionState {
