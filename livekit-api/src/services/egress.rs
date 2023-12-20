@@ -31,6 +31,7 @@ pub struct WebOptions {
     pub encoding: encoding::EncodingOptions,
     pub audio_only: bool,
     pub video_only: bool,
+    pub await_start_signal: bool,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -45,6 +46,7 @@ pub enum EgressOutput {
     File(proto::EncodedFileOutput),
     Stream(proto::StreamOutput),
     Segments(proto::SegmentedFileOutput),
+    Image(proto::ImageOutput),
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +95,7 @@ impl EgressClient {
         outputs: Vec<EgressOutput>,
         options: RoomCompositeOptions,
     ) -> ServiceResult<proto::EgressInfo> {
-        let (file_outputs, stream_outputs, segment_outputs) = get_outputs(outputs);
+        let (file_outputs, stream_outputs, segment_outputs, image_outputs) = get_outputs(outputs);
         self.client
             .request(
                 SVC,
@@ -110,6 +112,7 @@ impl EgressClient {
                     file_outputs,
                     stream_outputs,
                     segment_outputs,
+                    image_outputs,
                     output: None, // Deprecated
                 },
                 self.base.auth_header(VideoGrants {
@@ -127,7 +130,7 @@ impl EgressClient {
         outputs: Vec<EgressOutput>,
         options: WebOptions,
     ) -> ServiceResult<proto::EgressInfo> {
-        let (file_outputs, stream_outputs, segment_outputs) = get_outputs(outputs);
+        let (file_outputs, stream_outputs, segment_outputs, image_outputs) = get_outputs(outputs);
         self.client
             .request(
                 SVC,
@@ -142,8 +145,9 @@ impl EgressClient {
                     file_outputs,
                     stream_outputs,
                     segment_outputs,
-                    output: None,              // Deprecated
-                    await_start_signal: false, // TODO Expose
+                    image_outputs,
+                    output: None, // Deprecated
+                    await_start_signal: options.await_start_signal,
                 },
                 self.base.auth_header(VideoGrants {
                     room_record: true,
@@ -160,7 +164,7 @@ impl EgressClient {
         outputs: Vec<EgressOutput>,
         options: TrackCompositeOptions,
     ) -> ServiceResult<proto::EgressInfo> {
-        let (file_outputs, stream_outputs, segment_outputs) = get_outputs(outputs);
+        let (file_outputs, stream_outputs, segment_outputs, image_outputs) = get_outputs(outputs);
         self.client
             .request(
                 SVC,
@@ -175,6 +179,7 @@ impl EgressClient {
                     file_outputs,
                     stream_outputs,
                     segment_outputs,
+                    image_outputs,
                     output: None, // Deprecated
                 },
                 self.base.auth_header(VideoGrants {
@@ -320,20 +325,23 @@ fn get_outputs(
     Vec<proto::EncodedFileOutput>,
     Vec<proto::StreamOutput>,
     Vec<proto::SegmentedFileOutput>,
+    Vec<proto::ImageOutput>,
 ) {
     let mut file_outputs = Vec::new();
     let mut stream_outputs = Vec::new();
     let mut segment_outputs = Vec::new();
+    let mut image_outputs = Vec::new();
 
     for output in outputs {
         match output {
             EgressOutput::File(f) => file_outputs.push(f),
             EgressOutput::Stream(s) => stream_outputs.push(s),
             EgressOutput::Segments(s) => segment_outputs.push(s),
+            EgressOutput::Image(i) => image_outputs.push(i),
         }
     }
 
-    (file_outputs, stream_outputs, segment_outputs)
+    (file_outputs, stream_outputs, segment_outputs, image_outputs)
 }
 
 pub mod encoding {
@@ -351,6 +359,8 @@ pub mod encoding {
         pub video_codec: proto::VideoCodec,
         pub video_bitrate: i32,
         pub keyframe_interval: f64,
+        pub audio_quality: i32,
+        pub video_quality: i32,
     }
 
     impl From<EncodingOptions> for proto::EncodingOptions {
@@ -366,6 +376,8 @@ pub mod encoding {
                 video_codec: opts.video_codec as i32,
                 video_bitrate: opts.video_bitrate,
                 key_frame_interval: opts.keyframe_interval,
+                audio_quality: opts.audio_quality,
+                video_quality: opts.video_quality,
             }
         }
     }
@@ -383,6 +395,8 @@ pub mod encoding {
                 video_codec: proto::VideoCodec::H264Main,
                 video_bitrate: 4500,
                 keyframe_interval: 0.0,
+                audio_quality: 0,
+                video_quality: 0,
             }
         }
     }
