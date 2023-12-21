@@ -205,8 +205,7 @@ impl RoomInner {
         let destination_sids = publish.destination_sids;
         let async_id = server.next_id();
 
-        // Ignore result, if the channel is closed, it means the room has been closed
-        let _ = self.data_tx.send(FfiDataPacket {
+        if let Err(err) = self.data_tx.send(FfiDataPacket {
             payload: DataPacket {
                 payload: data.to_vec(), // Avoid copy?
                 kind: kind.into(),
@@ -217,7 +216,18 @@ impl RoomInner {
                     .collect(),
             },
             async_id,
-        });
+        }) {
+            server.async_runtime.spawn(async move {
+                let cb = proto::PublishDataCallback {
+                    async_id,
+                    error: Some(err.to_string()),
+                };
+
+                let _ = server
+                    .send_event(proto::ffi_event::Message::PublishData(cb))
+                    .await;
+            });
+        }
 
         Ok(proto::PublishDataResponse { async_id })
     }
