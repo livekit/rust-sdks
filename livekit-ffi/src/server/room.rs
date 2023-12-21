@@ -205,20 +205,29 @@ impl RoomInner {
         let destination_sids = publish.destination_sids;
         let async_id = server.next_id();
 
-        self.data_tx
-            .send(FfiDataPacket {
-                payload: DataPacket {
-                    payload: data.to_vec(), // Avoid copy?
-                    kind: kind.into(),
-                    topic: publish.topic,
-                    destination_sids: destination_sids
-                        .into_iter()
-                        .map(|str| str.try_into().unwrap())
-                        .collect(),
-                },
-                async_id,
-            })
-            .map_err(|_| FfiError::InvalidRequest("failed to send data packet".into()))?;
+        if let Err(err) = self.data_tx.send(FfiDataPacket {
+            payload: DataPacket {
+                payload: data.to_vec(), // Avoid copy?
+                kind: kind.into(),
+                topic: publish.topic,
+                destination_sids: destination_sids
+                    .into_iter()
+                    .map(|str| str.try_into().unwrap())
+                    .collect(),
+            },
+            async_id,
+        }) {
+            server.async_runtime.spawn(async move {
+                let cb = proto::PublishDataCallback {
+                    async_id,
+                    error: Some(format!("failed to send data, room closed: {}", err).into()),
+                };
+
+                let _ = server
+                    .send_event(proto::ffi_event::Message::PublishData(cb))
+                    .await;
+            });
+        }
 
         Ok(proto::PublishDataResponse { async_id })
     }
