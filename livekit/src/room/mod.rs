@@ -745,6 +745,7 @@ impl RoomSession {
         for update in updates {
             let quality: ConnectionQuality = update.quality().into();
             let sid: ParticipantSid = update.participant_sid.try_into().unwrap();
+
             let participant = {
                 if sid == self.local_participant.sid() {
                     Participant::Local(self.local_participant.clone())
@@ -999,10 +1000,11 @@ impl RoomSession {
         kind: DataPacketKind,
         participant_sid: Option<ParticipantSid>,
     ) {
+        let participants = self.participants.read(); // Keep the lock until the event is dispatched
         let participant = participant_sid
-            .as_ref()
-            .map(|sid| self.get_participant_by_sid(sid))
-            .unwrap_or(None);
+            .map(|sid| participants.0.get(&sid))
+            .unwrap_or(None)
+            .cloned();
 
         if participant.is_none() && participant_sid.is_some() {
             // We received a data packet from a participant that is not in the participants list
@@ -1164,17 +1166,6 @@ impl RoomSession {
         participants.1.remove(&remote_participant.identity());
         self.dispatcher
             .dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
-    }
-
-    fn get_participant_by_sid(&self, sid: &ParticipantSid) -> Option<RemoteParticipant> {
-        self.participants.read().0.get(sid).cloned()
-    }
-
-    fn get_participant_by_identity(
-        &self,
-        identity: &ParticipantIdentity,
-    ) -> Option<RemoteParticipant> {
-        self.participants.read().1.get(identity).cloned()
     }
 }
 
