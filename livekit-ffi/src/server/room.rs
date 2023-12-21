@@ -220,7 +220,7 @@ impl RoomInner {
             server.async_runtime.spawn(async move {
                 let cb = proto::PublishDataCallback {
                     async_id,
-                    error: Some(err.to_string()),
+                    error: Some("failed to send data, room closed".into()),
                 };
 
                 let _ = server
