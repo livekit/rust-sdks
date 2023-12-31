@@ -131,7 +131,7 @@ impl E2eeManager {
         let state_changed = self.state_changed.clone();
         frame_cryptor.on_state_change(Some(Box::new(move |participant_identity, state| {
             if let Some(state_changed) = state_changed.lock().as_ref() {
-                state_changed(participant_identity.try_into().unwrap(), state);
+                state_changed(participant_identity.into(), state);
             }
         })));
     }

@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
 
 use lazy_static::lazy_static;
 use livekit::prelude::*;
-use prost::Message;
-use server::FfiDataBuffer;
 use thiserror::Error;
 
 mod conversion;

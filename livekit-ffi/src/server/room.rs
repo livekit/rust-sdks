@@ -217,7 +217,7 @@ impl RoomInner {
             server.async_runtime.spawn(async move {
                 let cb = proto::PublishDataCallback {
                     async_id,
-                    error: Some(format!("failed to send data, room closed: {}", err).into()),
+                    error: Some(format!("failed to send data, room closed: {}", err)),
                 };
 
                 let _ = server.send_event(proto::ffi_event::Message::PublishData(cb)).await;

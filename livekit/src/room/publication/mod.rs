@@ -117,7 +117,7 @@ pub(super) fn new_inner(
     let info = PublicationInfo {
         track,
         proto_info: info.clone(),
-        source: info.source().try_into().unwrap(),
+        source: info.source().into(),
         kind: info.r#type().try_into().unwrap(),
         encryption_type: info.encryption().into(),
         name: info.name,

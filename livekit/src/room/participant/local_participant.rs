@@ -25,7 +25,7 @@ use crate::{
     options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     rtc_engine::RtcEngine,
-    DataPacket, DataPacketKind,
+    DataPacket,
 };
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -272,7 +272,7 @@ impl LocalParticipant {
 
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
         let data = proto::DataPacket {
-            kind: DataPacketKind::from(packet.kind) as i32,
+            kind: packet.kind as i32,
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
                 payload: packet.payload,
                 topic: packet.topic,
