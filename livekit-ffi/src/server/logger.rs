@@ -1,10 +1,13 @@
-use crate::proto;
-use crate::FFI_SERVER;
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
+
 use env_logger;
 use log::{self, Log};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+
+use crate::{proto, FFI_SERVER};
 
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 pub const BATCH_SIZE: usize = 32;

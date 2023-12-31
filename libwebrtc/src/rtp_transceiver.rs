@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::rtp_transceiver as imp_rt;
-use crate::rtp_parameters::{RtpCodecCapability, RtpEncodingParameters};
-use crate::rtp_receiver::RtpReceiver;
-use crate::rtp_sender::RtpSender;
-use crate::RtcError;
 use std::fmt::Debug;
+
+use crate::{
+    imp::rtp_transceiver as imp_rt,
+    rtp_parameters::{RtpCodecCapability, RtpEncodingParameters},
+    rtp_receiver::RtpReceiver,
+    rtp_sender::RtpSender,
+    RtcError,
+};
 
 #[derive(Debug, Clone)]
 pub struct RtpTransceiverInit {

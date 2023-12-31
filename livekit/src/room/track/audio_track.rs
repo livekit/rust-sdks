@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::track_dispatch;
-use crate::prelude::*;
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
+
+use super::track_dispatch;
+use crate::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum AudioTrack {

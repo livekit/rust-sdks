@@ -1,10 +1,13 @@
+use std::sync::Arc;
+
 use cxx::SharedPtr;
 use parking_lot::Mutex;
-use std::sync::Arc;
 use webrtc_sys::frame_cryptor::{self as sys_fc};
 
-use crate::peer_connection_factory::PeerConnectionFactory;
-use crate::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
+use crate::{
+    peer_connection_factory::PeerConnectionFactory, rtp_receiver::RtpReceiver,
+    rtp_sender::RtpSender,
+};
 
 pub type OnStateChange = Box<dyn FnMut(String, EncryptionState) + Send + Sync>;
 
@@ -40,9 +43,7 @@ pub struct KeyProvider {
 
 impl KeyProvider {
     pub fn new(options: KeyProviderOptions) -> Self {
-        Self {
-            sys_handle: sys_fc::ffi::new_key_provider(options.into()),
-        }
+        Self { sys_handle: sys_fc::ffi::new_key_provider(options.into()) }
     }
 
     pub fn set_shared_key(&self, key_index: i32, key: Vec<u8>) -> bool {
@@ -96,14 +97,9 @@ impl FrameCryptor {
             key_provider.sys_handle,
             sender.handle.sys_handle,
         );
-        let fc = Self {
-            observer: observer.clone(),
-            sys_handle: sys_handle.clone(),
-        };
+        let fc = Self { observer: observer.clone(), sys_handle: sys_handle.clone() };
         fc.sys_handle
-            .register_observer(Box::new(sys_fc::RtcFrameCryptorObserverWrapper::new(
-                observer,
-            )));
+            .register_observer(Box::new(sys_fc::RtcFrameCryptorObserverWrapper::new(observer)));
         fc
     }
 
@@ -122,14 +118,9 @@ impl FrameCryptor {
             key_provider.sys_handle,
             receiver.handle.sys_handle,
         );
-        let fc = Self {
-            observer: observer.clone(),
-            sys_handle: sys_handle.clone(),
-        };
+        let fc = Self { observer: observer.clone(), sys_handle: sys_handle.clone() };
         fc.sys_handle
-            .register_observer(Box::new(sys_fc::RtcFrameCryptorObserverWrapper::new(
-                observer,
-            )));
+            .register_observer(Box::new(sys_fc::RtcFrameCryptorObserverWrapper::new(observer)));
         fc
     }
 

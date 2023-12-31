@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::session_description as sd_imp;
 use std::{
     fmt::{Debug, Display},
     str::FromStr,
 };
+
 use thiserror::Error;
+
+use crate::imp::session_description as sd_imp;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SdpType {
@@ -83,8 +85,6 @@ impl ToString for SessionDescription {
 
 impl Debug for SessionDescription {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SessionDescription")
-            .field("sdp_type", &self.sdp_type())
-            .finish()
+        f.debug_struct("SessionDescription").field("sdp_type", &self.sdp_type()).finish()
     }
 }

@@ -13,11 +13,14 @@
 // limitations under the License.
 
 use std::slice;
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
-use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame::{BoxVideoBuffer, VideoFrame};
+
+use livekit::webrtc::{
+    prelude::*,
+    video_frame::{BoxVideoBuffer, VideoFrame},
+};
 
 use super::FfiHandle;
+use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 pub struct FfiVideoSource {
     pub handle_id: FfiHandleId,
@@ -45,19 +48,11 @@ impl FfiVideoSource {
                 );
                 RtcVideoSource::Native(video_source)
             }
-            _ => {
-                return Err(FfiError::InvalidRequest(
-                    "unsupported video source type".into(),
-                ))
-            }
+            _ => return Err(FfiError::InvalidRequest("unsupported video source type".into())),
         };
 
         let handle_id = server.next_id();
-        let video_source = Self {
-            handle_id,
-            source_type,
-            source: source_inner,
-        };
+        let video_source = Self { handle_id, source_type, source: source_inner };
         let source_info = proto::VideoSourceInfo::from(&video_source);
         server.store_handle(handle_id, video_source);
 
@@ -72,17 +67,14 @@ impl FfiVideoSource {
         server: &'static server::FfiServer,
         capture: proto::CaptureVideoFrameRequest,
     ) -> FfiResult<()> {
-
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Native(ref source) => {
-                let frame_info = capture
-                    .frame
-                    .ok_or(FfiError::InvalidRequest("frame is empty".into()))?;
+                let frame_info =
+                    capture.frame.ok_or(FfiError::InvalidRequest("frame is empty".into()))?;
 
-                let from = capture
-                    .from
-                    .ok_or(FfiError::InvalidRequest("capture from is empty".into()))?;
+                let from =
+                    capture.from.ok_or(FfiError::InvalidRequest("capture from is empty".into()))?;
 
                 // copy the provided buffer
                 #[rustfmt::skip]
@@ -91,7 +83,7 @@ impl FfiVideoSource {
                         match &info.buffer {
                             Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) => {
                                  match info.buffer_type() {
-                                    proto::VideoFrameBufferType::I420 
+                                    proto::VideoFrameBufferType::I420
                                         | proto::VideoFrameBufferType::I420a
                                         | proto::VideoFrameBufferType::I422
                                         | proto::VideoFrameBufferType::I444 => {
@@ -106,7 +98,7 @@ impl FfiVideoSource {
                                             proto::VideoFrameBufferType::I420 | proto::VideoFrameBufferType::I420a => {
                                                 let mut i420 = I420Buffer::with_strides(info.width, info.height, yuv.stride_y, yuv.stride_u, yuv.stride_v);
                                                 let (dy, du, dv) = i420.data_mut();
-                                                
+
                                                 dy.copy_from_slice(y);
                                                 du.copy_from_slice(u);
                                                 dv.copy_from_slice(v);
@@ -163,7 +155,7 @@ impl FfiVideoSource {
 
                                     dy.copy_from_slice(y);
                                     duv.copy_from_slice(uv);
-                                    Box::new(nv12) as BoxVideoBuffer 
+                                    Box::new(nv12) as BoxVideoBuffer
                                 } else {
                                     return Err(FfiError::InvalidRequest("invalid biyuv description".into()))
                                 }

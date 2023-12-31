@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::services::twirp_client::TwirpClient;
-use crate::{access_token::VideoGrants, get_env_keys};
 use livekit_protocol as proto;
+
+use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
 #[derive(Default, Clone, Debug)]
 pub struct RoomCompositeOptions {
@@ -115,10 +115,7 @@ impl EgressClient {
                     image_outputs,
                     output: None, // Deprecated
                 },
-                self.base.auth_header(VideoGrants {
-                    room_record: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -149,10 +146,7 @@ impl EgressClient {
                     output: None, // Deprecated
                     await_start_signal: options.await_start_signal,
                 },
-                self.base.auth_header(VideoGrants {
-                    room_record: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -182,10 +176,7 @@ impl EgressClient {
                     image_outputs,
                     output: None, // Deprecated
                 },
-                self.base.auth_header(VideoGrants {
-                    room_record: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -213,10 +204,7 @@ impl EgressClient {
                     },
                     track_id: track_id.to_string(),
                 },
-                self.base.auth_header(VideoGrants {
-                    room_record: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -235,10 +223,7 @@ impl EgressClient {
                     egress_id: egress_id.to_owned(),
                     layout: layout.to_owned(),
                 },
-                self.base.auth_header(VideoGrants {
-                    room_record: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -259,10 +244,7 @@ impl EgressClient {
                     add_output_urls,
                     remove_output_urls,
                 },
-                self.base.auth_header(VideoGrants {
-                    room_record: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -286,15 +268,8 @@ impl EgressClient {
             .request(
                 SVC,
                 "ListEgress",
-                proto::ListEgressRequest {
-                    room_name,
-                    egress_id,
-                    active: options.active,
-                },
-                self.base.auth_header(VideoGrants {
-                    room_record: true,
-                    ..Default::default()
-                })?,
+                proto::ListEgressRequest { room_name, egress_id, active: options.active },
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
             .await?;
 
@@ -306,13 +281,8 @@ impl EgressClient {
             .request(
                 SVC,
                 "StopEgress",
-                proto::StopEgressRequest {
-                    egress_id: egress_id.to_owned(),
-                },
-                self.base.auth_header(VideoGrants {
-                    room_record: true,
-                    ..Default::default()
-                })?,
+                proto::StopEgressRequest { egress_id: egress_id.to_owned() },
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -407,41 +377,19 @@ pub mod encoding {
         }
     }
 
-    pub const H264_720P_30: EncodingOptions = EncodingOptions {
-        width: 1280,
-        height: 720,
-        video_bitrate: 3000,
-        ..EncodingOptions::new()
-    };
-    pub const H264_720P_60: EncodingOptions = EncodingOptions {
-        width: 1280,
-        height: 720,
-        framerate: 60,
-        ..EncodingOptions::new()
-    };
+    pub const H264_720P_30: EncodingOptions =
+        EncodingOptions { width: 1280, height: 720, video_bitrate: 3000, ..EncodingOptions::new() };
+    pub const H264_720P_60: EncodingOptions =
+        EncodingOptions { width: 1280, height: 720, framerate: 60, ..EncodingOptions::new() };
     pub const H264_1080P_30: EncodingOptions = EncodingOptions::new();
-    pub const H264_1080P_60: EncodingOptions = EncodingOptions {
-        framerate: 60,
-        video_bitrate: 6000,
-        ..EncodingOptions::new()
-    };
-    pub const PORTRAIT_H264_720P_30: EncodingOptions = EncodingOptions {
-        width: 720,
-        height: 1280,
-        video_bitrate: 3000,
-        ..EncodingOptions::new()
-    };
-    pub const PORTRAIT_H264_720P_60: EncodingOptions = EncodingOptions {
-        width: 720,
-        height: 1280,
-        framerate: 60,
-        ..EncodingOptions::new()
-    };
-    pub const PORTRAIT_H264_1080P_30: EncodingOptions = EncodingOptions {
-        width: 1080,
-        height: 1920,
-        ..EncodingOptions::new()
-    };
+    pub const H264_1080P_60: EncodingOptions =
+        EncodingOptions { framerate: 60, video_bitrate: 6000, ..EncodingOptions::new() };
+    pub const PORTRAIT_H264_720P_30: EncodingOptions =
+        EncodingOptions { width: 720, height: 1280, video_bitrate: 3000, ..EncodingOptions::new() };
+    pub const PORTRAIT_H264_720P_60: EncodingOptions =
+        EncodingOptions { width: 720, height: 1280, framerate: 60, ..EncodingOptions::new() };
+    pub const PORTRAIT_H264_1080P_30: EncodingOptions =
+        EncodingOptions { width: 1080, height: 1920, ..EncodingOptions::new() };
     pub const PORTRAIT_H264_1080P_60: EncodingOptions = EncodingOptions {
         width: 1080,
         height: 1920,

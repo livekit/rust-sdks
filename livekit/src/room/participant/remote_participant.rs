@@ -12,19 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::TrackKind;
-use super::{ConnectionQuality, ParticipantInner};
-use crate::prelude::*;
-use crate::rtc_engine::RtcEngine;
-use crate::track::TrackError;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    sync::Arc,
+    time::Duration,
+};
+
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
-use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::timeout;
+
+use super::{ConnectionQuality, ParticipantInner, TrackKind};
+use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -77,10 +78,7 @@ impl RemoteParticipant {
     ) -> Self {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
-            remote: Arc::new(RemoteInfo {
-                events: Default::default(),
-                auto_subscribe,
-            }),
+            remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
     }
 
@@ -151,7 +149,8 @@ impl RemoteParticipant {
             self.add_publication(TrackPublication::Remote(remote_publication.clone()));
             track.enable();
 
-            remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the publication
+            remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the
+                                                       // publication
         } else {
             log::error!("could not find published track with sid: {:?}", sid);
 
@@ -184,11 +183,7 @@ impl RemoteParticipant {
     }
 
     pub(crate) fn update_info(&self, info: proto::ParticipantInfo) {
-        super::update_info(
-            &self.inner,
-            &Participant::Remote(self.clone()),
-            info.clone(),
-        );
+        super::update_info(&self.inner, &Participant::Remote(self.clone()), info.clone());
 
         let mut valid_tracks = HashSet::<TrackSid>::new();
         for track in info.tracks {

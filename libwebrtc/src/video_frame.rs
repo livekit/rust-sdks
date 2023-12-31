@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::video_frame as vf_imp;
 use std::fmt::Debug;
+
 use thiserror::Error;
+
+use crate::imp::video_frame as vf_imp;
 
 #[derive(Debug, Error)]
 pub enum SinkError {
@@ -134,9 +136,7 @@ macro_rules! new_buffer_type {
 
             #[cfg(not(target_arch = "wasm32"))]
             fn to_i420(&self) -> I420Buffer {
-                I420Buffer {
-                    handle: self.handle.to_i420(),
-                }
+                I420Buffer { handle: self.handle.to_i420() }
             }
 
             #[cfg(not(target_arch = "wasm32"))]
@@ -218,11 +218,7 @@ impl I420Buffer {
     }
 
     pub fn strides(&self) -> (u32, u32, u32) {
-        (
-            self.handle.stride_y(),
-            self.handle.stride_u(),
-            self.handle.stride_v(),
-        )
+        (self.handle.stride_y(), self.handle.stride_u(), self.handle.stride_v())
     }
 
     pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
@@ -304,11 +300,7 @@ impl I422Buffer {
     }
 
     pub fn strides(&self) -> (u32, u32, u32) {
-        (
-            self.handle.stride_y(),
-            self.handle.stride_u(),
-            self.handle.stride_v(),
-        )
+        (self.handle.stride_y(), self.handle.stride_u(), self.handle.stride_v())
     }
 
     pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
@@ -351,11 +343,7 @@ impl I444Buffer {
     }
 
     pub fn strides(&self) -> (u32, u32, u32) {
-        (
-            self.handle.stride_y(),
-            self.handle.stride_u(),
-            self.handle.stride_v(),
-        )
+        (self.handle.stride_y(), self.handle.stride_u(), self.handle.stride_v())
     }
 
     pub fn data(&self) -> (&[u8], &[u8], &[u8]) {
@@ -398,11 +386,7 @@ impl I010Buffer {
     }
 
     pub fn strides(&self) -> (u32, u32, u32) {
-        (
-            self.handle.stride_y(),
-            self.handle.stride_u(),
-            self.handle.stride_v(),
-        )
+        (self.handle.stride_y(), self.handle.stride_u(), self.handle.stride_v())
     }
 
     pub fn data(&self) -> (&[u16], &[u16], &[u16]) {
@@ -459,8 +443,9 @@ impl NV12Buffer {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
-    use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
     use std::fmt::Debug;
+
+    use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
 
     new_buffer_type!(NativeBuffer, Native, as_native);
 

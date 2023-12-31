@@ -12,30 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::id::ParticipantSid;
-use crate::options::TrackPublishOptions;
-use crate::prelude::LocalTrack;
-use crate::room::DisconnectReason;
-use crate::rtc_engine::lk_runtime::LkRuntime;
-use crate::rtc_engine::rtc_session::{RtcSession, SessionEvent, SessionEvents};
-use crate::DataPacketKind;
+use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
+
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
-use parking_lot::RwLock;
-use parking_lot::RwLockReadGuard;
-use std::borrow::Cow;
-use std::fmt::Debug;
-use std::sync::Arc;
-use std::time::Duration;
+use parking_lot::{RwLock, RwLockReadGuard};
 use thiserror::Error;
-use tokio::sync::{mpsc, oneshot};
-use tokio::sync::{Mutex as AsyncMutex, Notify};
-use tokio::sync::{RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard};
-use tokio::task::JoinHandle;
-use tokio::time::{interval, Interval};
+use tokio::{
+    sync::{
+        mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
+        RwLockReadGuard as AsyncRwLockReadGuard,
+    },
+    task::JoinHandle,
+    time::{interval, Interval},
+};
 
 pub use self::rtc_session::SessionStats;
+use crate::{
+    id::ParticipantSid,
+    options::TrackPublishOptions,
+    prelude::LocalTrack,
+    room::DisconnectReason,
+    rtc_engine::{
+        lk_runtime::LkRuntime,
+        rtc_session::{RtcSession, SessionEvent, SessionEvents},
+    },
+    DataPacketKind,
+};
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -139,7 +143,8 @@ struct EngineHandle {
 }
 
 struct EngineInner {
-    // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection factory accross multiple Rtc sessions
+    // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection
+    // factory accross multiple Rtc sessions
     #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     engine_tx: EngineEmitter,
@@ -367,13 +372,7 @@ impl EngineInner {
 
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
-            SessionEvent::Close {
-                source,
-                reason,
-                can_reconnect,
-                retry_now,
-                full_reconnect,
-            } => {
+            SessionEvent::Close { source, reason, can_reconnect, retry_now, full_reconnect } => {
                 log::info!("received session close: {}, {:?}", source, reason);
                 if can_reconnect {
                     self.reconnection_needed(retry_now, full_reconnect);
@@ -388,12 +387,7 @@ impl EngineInner {
                     });
                 }
             }
-            SessionEvent::Data {
-                participant_sid,
-                payload,
-                topic,
-                kind,
-            } => {
+            SessionEvent::Data { participant_sid, payload, topic, kind } => {
                 let _ = self.engine_tx.send(EngineEvent::Data {
                     participant_sid,
                     payload,
@@ -401,31 +395,17 @@ impl EngineInner {
                     kind,
                 });
             }
-            SessionEvent::MediaTrack {
-                track,
-                stream,
-                transceiver,
-            } => {
-                let _ = self.engine_tx.send(EngineEvent::MediaTrack {
-                    track,
-                    stream,
-                    transceiver,
-                });
+            SessionEvent::MediaTrack { track, stream, transceiver } => {
+                let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });
             }
             SessionEvent::ParticipantUpdate { updates } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::ParticipantUpdate { updates });
+                let _ = self.engine_tx.send(EngineEvent::ParticipantUpdate { updates });
             }
             SessionEvent::SpeakersChanged { speakers } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::SpeakersChanged { speakers });
+                let _ = self.engine_tx.send(EngineEvent::SpeakersChanged { speakers });
             }
             SessionEvent::ConnectionQuality { updates } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::ConnectionQuality { updates });
+                let _ = self.engine_tx.send(EngineEvent::ConnectionQuality { updates });
             }
             SessionEvent::RoomUpdate { room } => {
                 let _ = self.engine_tx.send(EngineEvent::RoomUpdate { room });
@@ -532,7 +512,8 @@ impl EngineInner {
     /// We first try to resume the connection, if it fails, we start a full reconnect.
     /// NOTE: The reconnect_task must be canncellation safe
     async fn reconnect_task(self: &Arc<Self>) -> EngineResult<()> {
-        // Get the latest connection info from the signal_client (including the refreshed token because the initial join token may have expired)
+        // Get the latest connection info from the signal_client (including the refreshed token
+        // because the initial join token may have expired)
         let (url, token) = {
             let running_handle = self.running_handle.read();
             let signal_client = running_handle.session.signal_client();
@@ -549,9 +530,7 @@ impl EngineInner {
             };
 
             if is_closed {
-                return Err(EngineError::Connection(
-                    "attempt canncelled, engine is closed".into(),
-                ));
+                return Err(EngineError::Connection("attempt canncelled, engine is closed".into()));
             }
 
             if full_reconnect {
@@ -562,9 +541,8 @@ impl EngineInner {
                 }
 
                 log::error!("restarting connection... attempt: {}", i);
-                if let Err(err) = self
-                    .try_restart_connection(&url, &token, self.options.clone())
-                    .await
+                if let Err(err) =
+                    self.try_restart_connection(&url, &token, self.options.clone()).await
                 {
                     log::error!("restarting connection failed: {}", err);
                 } else {
@@ -604,7 +582,8 @@ impl EngineInner {
     }
 
     /// Try to recover the connection by doing a full reconnect.
-    /// It recreates a new RtcSession (new peer connection, new signal client, new data channels, etc...)
+    /// It recreates a new RtcSession (new peer connection, new signal client, new data channels,
+    /// etc...)
     async fn try_restart_connection(
         self: &Arc<Self>,
         url: &str,
@@ -631,9 +610,7 @@ impl EngineInner {
         // On SignalRestarted, the room will try to unpublish the local tracks
         // NOTE: Doing operations that use rtc_session will not use the new one
         let (tx, rx) = oneshot::channel();
-        let _ = self
-            .engine_tx
-            .send(EngineEvent::SignalRestarted { join_response, tx });
+        let _ = self.engine_tx.send(EngineEvent::SignalRestarted { join_response, tx });
         let _ = rx.await;
 
         new_session.wait_pc_connection().await?;
@@ -659,10 +636,7 @@ impl EngineInner {
         let reconnect_response = session.restart().await?;
 
         let (tx, rx) = oneshot::channel();
-        let _ = self.engine_tx.send(EngineEvent::SignalResumed {
-            reconnect_response,
-            tx,
-        });
+        let _ = self.engine_tx.send(EngineEvent::SignalResumed { reconnect_response, tx });
 
         // With SignalResumed, the room will send a SyncState message to the server
         let _ = rx.await;

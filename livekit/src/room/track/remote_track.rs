@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::track_dispatch;
-use super::TrackInner;
-use crate::prelude::*;
-use libwebrtc::prelude::*;
-use libwebrtc::stats::RtcStats;
+use std::sync::Arc;
+
+use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
-use std::sync::Arc;
+
+use super::{track_dispatch, TrackInner};
+use crate::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum RemoteTrack {

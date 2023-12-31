@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::prelude::*;
-use crate::rtc_engine::RtcEngine;
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
+
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::sync::Arc;
+
+use crate::{prelude::*, rtc_engine::RtcEngine};
 
 mod local_participant;
 mod remote_participant;

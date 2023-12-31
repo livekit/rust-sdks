@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::TrackInner;
-use crate::prelude::*;
-use crate::rtc_engine::lk_runtime::LkRuntime;
 use core::panic;
-use libwebrtc::prelude::*;
-use libwebrtc::stats::RtcStats;
+use std::{fmt::Debug, sync::Arc};
+
+use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
-use std::fmt::Debug;
-use std::sync::Arc;
+
+use super::TrackInner;
+use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 
 #[derive(Clone)]
 pub struct LocalAudioTrack {

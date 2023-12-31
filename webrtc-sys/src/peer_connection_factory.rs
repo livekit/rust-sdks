@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::candidate::ffi::Candidate;
-use crate::data_channel::ffi::DataChannel;
-use crate::impl_thread_safety;
-use crate::jsep::ffi::IceCandidate;
-use crate::media_stream::ffi::MediaStream;
-use crate::rtp_receiver::ffi::RtpReceiver;
-use crate::rtp_transceiver::ffi::RtpTransceiver;
-use cxx::SharedPtr;
 use std::sync::Arc;
+
+use cxx::SharedPtr;
+
+use crate::{
+    candidate::ffi::Candidate, data_channel::ffi::DataChannel, impl_thread_safety,
+    jsep::ffi::IceCandidate, media_stream::ffi::MediaStream, rtp_receiver::ffi::RtpReceiver,
+    rtp_transceiver::ffi::RtpTransceiver,
+};
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -251,8 +251,7 @@ impl PeerConnectionObserverWrapper {
     }
 
     fn on_standardized_ice_connection_change(&self, new_state: ffi::IceConnectionState) {
-        self.observer
-            .on_standardized_ice_connection_change(new_state);
+        self.observer.on_standardized_ice_connection_change(new_state);
     }
 
     fn on_connection_change(&self, new_state: ffi::PeerConnectionState) {
@@ -275,13 +274,11 @@ impl PeerConnectionObserverWrapper {
         error_code: i32,
         error_text: String,
     ) {
-        self.observer
-            .on_ice_candidate_error(address, port, url, error_code, error_text);
+        self.observer.on_ice_candidate_error(address, port, url, error_code, error_text);
     }
 
     fn on_ice_candidates_removed(&self, candidates: Vec<ffi::CandidatePtr>) {
-        self.observer
-            .on_ice_candidates_removed(candidates.into_iter().map(|v| v.ptr).collect());
+        self.observer.on_ice_candidates_removed(candidates.into_iter().map(|v| v.ptr).collect());
     }
 
     fn on_ice_connection_receiving_change(&self, receiving: bool) {
@@ -293,8 +290,7 @@ impl PeerConnectionObserverWrapper {
     }
 
     fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
-        self.observer
-            .on_add_track(receiver, streams.into_iter().map(|v| v.ptr).collect());
+        self.observer.on_add_track(receiver, streams.into_iter().map(|v| v.ptr).collect());
     }
 
     fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>) {

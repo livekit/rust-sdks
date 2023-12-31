@@ -12,18 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::rtp_receiver::RtpReceiver;
-use crate::imp::rtp_sender::RtpSender;
-use crate::rtp_parameters::RtpCodecCapability;
-use crate::rtp_receiver;
-use crate::rtp_sender;
-use crate::rtp_transceiver::RtpTransceiverDirection;
-use crate::rtp_transceiver::RtpTransceiverInit;
-use crate::RtcError;
 use cxx::SharedPtr;
-use webrtc_sys::rtc_error as sys_err;
-use webrtc_sys::rtp_transceiver as sys_rt;
-use webrtc_sys::webrtc as sys_webrtc;
+use webrtc_sys::{rtc_error as sys_err, rtp_transceiver as sys_rt, webrtc as sys_webrtc};
+
+use crate::{
+    imp::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender},
+    rtp_parameters::RtpCodecCapability,
+    rtp_receiver, rtp_sender,
+    rtp_transceiver::{RtpTransceiverDirection, RtpTransceiverInit},
+    RtcError,
+};
 
 impl From<sys_webrtc::ffi::RtpTransceiverDirection> for RtpTransceiverDirection {
     fn from(value: sys_webrtc::ffi::RtpTransceiverDirection) -> Self {
@@ -79,19 +77,11 @@ impl RtpTransceiver {
     }
 
     pub fn sender(&self) -> rtp_sender::RtpSender {
-        rtp_sender::RtpSender {
-            handle: RtpSender {
-                sys_handle: self.sys_handle.sender(),
-            },
-        }
+        rtp_sender::RtpSender { handle: RtpSender { sys_handle: self.sys_handle.sender() } }
     }
 
     pub fn receiver(&self) -> rtp_receiver::RtpReceiver {
-        rtp_receiver::RtpReceiver {
-            handle: RtpReceiver {
-                sys_handle: self.sys_handle.receiver(),
-            },
-        }
+        rtp_receiver::RtpReceiver { handle: RtpReceiver { sys_handle: self.sys_handle.receiver() } }
     }
 
     pub fn set_codec_preferences(&self, codecs: Vec<RtpCodecCapability>) -> Result<(), RtcError> {

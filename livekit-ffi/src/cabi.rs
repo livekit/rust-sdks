@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
+use prost::Message;
+use server::FfiDataBuffer;
+
 use crate::{
     proto,
     server::{self, FfiConfig},
     FfiHandleId, FFI_SERVER,
 };
-use prost::Message;
-use server::FfiDataBuffer;
-use std::sync::Arc;
 
 /// # SAFTEY: The "C" callback must be threadsafe and not block
 pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
@@ -58,10 +60,7 @@ pub unsafe extern "C" fn livekit_ffi_request(
     }
 
     let handle_id = FFI_SERVER.next_id();
-    let ffi_data = FfiDataBuffer {
-        handle: handle_id,
-        data: Arc::new(res),
-    };
+    let ffi_data = FfiDataBuffer { handle: handle_id, data: Arc::new(res) };
 
     FFI_SERVER.store_handle(handle_id, ffi_data);
     handle_id

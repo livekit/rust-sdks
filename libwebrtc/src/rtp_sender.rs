@@ -48,8 +48,6 @@ impl RtpSender {
 
 impl Debug for RtpSender {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RtpReceiver")
-            .field("cname", &self.parameters().rtcp.cname)
-            .finish()
+        f.debug_struct("RtpReceiver").field("cname", &self.parameters().rtcp.cname).finish()
     }
 }

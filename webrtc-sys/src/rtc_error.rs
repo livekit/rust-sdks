@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
-// cxx doesn't support custom Exception type, so we serialize RtcError inside the cxx::Exception "what" string
+// cxx doesn't support custom Exception type, so we serialize RtcError inside the cxx::Exception
+// "what" string
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -89,11 +92,7 @@ impl Error for ffi::RtcError {}
 
 impl Display for ffi::RtcError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "RtcError occurred {:?}: {}",
-            self.error_type, self.message
-        )
+        write!(f, "RtcError occurred {:?}: {}", self.error_type, self.message)
     }
 }
 
@@ -120,10 +119,7 @@ mod tests {
         assert_eq!(error.error_detail, RtcErrorDetailType::DataChannelFailure);
         assert_eq!(error.has_sctp_cause_code, true);
         assert_eq!(error.sctp_cause_code, 24);
-        assert_eq!(
-            error.message,
-            "this is not a test, I repeat, this is not a test"
-        );
+        assert_eq!(error.message, "this is not a test, I repeat, this is not a test");
     }
 
     #[test]

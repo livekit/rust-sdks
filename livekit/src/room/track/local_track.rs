@@ -14,12 +14,12 @@
 
 use std::sync::Arc;
 
-use super::{track_dispatch, TrackInner};
-use crate::prelude::*;
-use libwebrtc::prelude::*;
-use libwebrtc::stats::RtcStats;
+use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
+
+use super::{track_dispatch, TrackInner};
+use crate::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum LocalTrack {

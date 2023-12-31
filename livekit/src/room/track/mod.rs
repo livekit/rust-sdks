@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::prelude::*;
-use libwebrtc::prelude::*;
-use libwebrtc::stats::RtcStats;
+use std::{fmt::Debug, sync::Arc};
+
+use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
-use std::fmt::Debug;
-use std::sync::Arc;
 use thiserror::Error;
+
+use crate::prelude::*;
 
 mod audio_track;
 mod local_audio_track;

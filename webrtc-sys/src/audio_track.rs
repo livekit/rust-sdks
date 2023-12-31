@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::impl_thread_safety;
 use std::sync::Arc;
+
+use crate::impl_thread_safety;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -88,7 +89,6 @@ impl AudioSinkWrapper {
     }
 
     fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
-        self.observer
-            .on_data(data, sample_rate, nb_channels, nb_frames);
+        self.observer.on_data(data, sample_rate, nb_channels, nb_frames);
     }
 }

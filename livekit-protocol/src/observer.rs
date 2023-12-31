@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures_util::sink::Sink;
-use futures_util::task::{Context, Poll};
+use std::{pin::Pin, sync::Arc};
+
+use futures_util::{
+    sink::Sink,
+    task::{Context, Poll},
+};
 use parking_lot::Mutex;
-use std::pin::Pin;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[derive(Clone, Debug)]
@@ -32,9 +34,7 @@ where
     T: Clone,
 {
     fn default() -> Self {
-        Self {
-            senders: Default::default(),
-        }
+        Self { senders: Default::default() }
     }
 }
 
@@ -49,9 +49,7 @@ where
     }
 
     pub fn dispatch(&self, msg: &T) {
-        self.senders
-            .lock()
-            .retain(|sender| sender.send(msg.clone()).is_ok());
+        self.senders.lock().retain(|sender| sender.send(msg.clone()).is_ok());
     }
 
     pub fn clear(&self) {

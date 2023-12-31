@@ -12,23 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::ConnectionQuality;
-use super::ParticipantInner;
-use crate::e2ee::EncryptionType;
-use crate::options;
-use crate::options::compute_video_encodings;
-use crate::options::video_layers_from_encodings;
-use crate::options::TrackPublishOptions;
-use crate::prelude::*;
-use crate::rtc_engine::RtcEngine;
-use crate::DataPacket;
-use crate::DataPacketKind;
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
+
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::sync::Arc;
+
+use super::{ConnectionQuality, ParticipantInner};
+use crate::{
+    e2ee::EncryptionType,
+    options,
+    options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
+    prelude::*,
+    rtc_engine::RtcEngine,
+    DataPacket, DataPacketKind,
+};
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -71,10 +69,7 @@ impl LocalParticipant {
     ) -> Self {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
-            local: Arc::new(LocalInfo {
-                events: LocalEvents::default(),
-                encryption_type,
-            }),
+            local: Arc::new(LocalInfo { events: LocalEvents::default(), encryption_type }),
         }
     }
 
@@ -195,10 +190,8 @@ impl LocalParticipant {
             }
             LocalTrack::Audio(_audio_track) => {
                 // Setup audio encoding
-                let audio_encoding = options
-                    .audio_encoding
-                    .as_ref()
-                    .unwrap_or(&options::audio::SPEECH.encoding);
+                let audio_encoding =
+                    options.audio_encoding.as_ref().unwrap_or(&options::audio::SPEECH.encoding);
 
                 encodings.push(RtpEncodingParameters {
                     max_bitrate: Some(audio_encoding.max_bitrate),
@@ -210,11 +203,8 @@ impl LocalParticipant {
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
 
-        let transceiver = self
-            .inner
-            .rtc_engine
-            .create_sender(track.clone(), options.clone(), encodings)
-            .await?;
+        let transceiver =
+            self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
 
         track.set_transceiver(Some(transceiver));
 
@@ -236,10 +226,7 @@ impl LocalParticipant {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata {
-                    metadata,
-                    name: self.name(),
-                },
+                proto::UpdateParticipantMetadata { metadata, name: self.name() },
             ))
             .await;
         Ok(())
@@ -249,10 +236,7 @@ impl LocalParticipant {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata {
-                    metadata: self.metadata(),
-                    name,
-                },
+                proto::UpdateParticipantMetadata { metadata: self.metadata(), name },
             ))
             .await;
         Ok(())
@@ -292,20 +276,12 @@ impl LocalParticipant {
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
                 payload: packet.payload,
                 topic: packet.topic,
-                destination_sids: packet
-                    .destination_sids
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
+                destination_sids: packet.destination_sids.into_iter().map(Into::into).collect(),
                 ..Default::default()
             })),
         };
 
-        self.inner
-            .rtc_engine
-            .publish_data(&data, packet.kind)
-            .await
-            .map_err(Into::into)
+        self.inner.rtc_engine.publish_data(&data, packet.kind).await.map_err(Into::into)
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {

@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fmt::Debug, sync::Arc};
+
+use libwebrtc::{prelude::*, stats::RtcStats};
+use livekit_protocol as proto;
+
 use super::{remote_track, TrackInner};
 use crate::prelude::*;
-use libwebrtc::prelude::*;
-use libwebrtc::stats::RtcStats;
-use livekit_protocol as proto;
-use std::fmt::Debug;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct RemoteAudioTrack {

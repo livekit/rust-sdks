@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{e2ee::EncryptionType, participant, track, DataPacketKind};
 use livekit_protocol::*;
+
+use crate::{e2ee::EncryptionType, participant, track, DataPacketKind};
 
 // Conversions
 impl From<ConnectionQuality> for participant::ConnectionQuality {

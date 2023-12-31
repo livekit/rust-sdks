@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::services::twirp_client::TwirpClient;
-use crate::{access_token::VideoGrants, get_env_keys};
 use livekit_protocol as proto;
+
+use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
 #[derive(Default, Clone, Debug)]
 pub struct IngressOptions {
@@ -75,10 +75,7 @@ impl IngressClient {
                     bypass_transcoding: false, // TODO Expose
                     ..Default::default()
                 },
-                self.base.auth_header(VideoGrants {
-                    ingress_admin: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -103,10 +100,7 @@ impl IngressClient {
                     video: Some(options.video),
                     bypass_transcoding: None, // TODO Expose
                 },
-                self.base.auth_header(VideoGrants {
-                    ingress_admin: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -131,10 +125,7 @@ impl IngressClient {
                         _ => Default::default(),
                     },
                 },
-                self.base.auth_header(VideoGrants {
-                    ingress_admin: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
             )
             .await?;
 
@@ -146,13 +137,8 @@ impl IngressClient {
             .request(
                 SVC,
                 "DeleteIngress",
-                proto::DeleteIngressRequest {
-                    ingress_id: ingress_id.to_owned(),
-                },
-                self.base.auth_header(VideoGrants {
-                    ingress_admin: true,
-                    ..Default::default()
-                })?,
+                proto::DeleteIngressRequest { ingress_id: ingress_id.to_owned() },
+                self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)

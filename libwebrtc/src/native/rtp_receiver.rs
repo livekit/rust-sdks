@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::media_stream_track::new_media_stream_track;
-use crate::media_stream_track::MediaStreamTrack;
-use crate::rtp_parameters::RtpParameters;
-use crate::stats::RtcStats;
-use crate::{RtcError, RtcErrorType};
 use cxx::SharedPtr;
 use tokio::sync::oneshot;
 use webrtc_sys::rtp_receiver as sys_rr;
+
+use crate::{
+    imp::media_stream_track::new_media_stream_track, media_stream_track::MediaStreamTrack,
+    rtp_parameters::RtpParameters, stats::RtcStats, RtcError, RtcErrorType,
+};
 
 #[derive(Clone)]
 pub struct RtpReceiver {
@@ -41,10 +41,7 @@ impl RtpReceiver {
         let ctx = Box::new(sys_rr::ReceiverContext(Box::new(tx)));
 
         self.sys_handle.get_stats(ctx, |ctx, stats| {
-            let tx = ctx
-                .0
-                .downcast::<oneshot::Sender<Result<Vec<RtcStats>, RtcError>>>()
-                .unwrap();
+            let tx = ctx.0.downcast::<oneshot::Sender<Result<Vec<RtcStats>, RtcError>>>().unwrap();
 
             if stats.is_empty() {
                 let _ = tx.send(Ok(vec![]));

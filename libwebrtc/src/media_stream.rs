@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::audio_track::RtcAudioTrack;
-use crate::imp::media_stream as imp_ms;
-use crate::video_track::RtcVideoTrack;
 use std::fmt::Debug;
+
+use crate::{audio_track::RtcAudioTrack, imp::media_stream as imp_ms, video_track::RtcVideoTrack};
 
 #[derive(Clone)]
 pub struct MediaStream {

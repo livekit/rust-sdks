@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
-use crate::e2ee::EncryptionType;
-use crate::prelude::*;
+use std::{fmt::Debug, sync::Arc};
+
 use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
-use std::fmt::Debug;
-use std::sync::Arc;
+
+use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
+use crate::{e2ee::EncryptionType, prelude::*};
 
 type SubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
 type UnsubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
@@ -72,10 +72,7 @@ impl RemoteTrackPublication {
         Self {
             inner: super::new_inner(info, track.map(Into::into)),
             remote: Arc::new(RemoteInner {
-                info: RwLock::new(RemoteInfo {
-                    subscribed: auto_subscribe,
-                    allowed: true,
-                }),
+                info: RwLock::new(RemoteInfo { subscribed: auto_subscribe, allowed: true }),
                 events: Default::default(),
             }),
         }
@@ -114,12 +111,8 @@ impl RemoteTrackPublication {
 
     pub(crate) fn emit_subscription_update(&self, old_subscription_state: SubscriptionStatus) {
         if old_subscription_state != self.subscription_status() {
-            if let Some(subscription_status_changed) = self
-                .remote
-                .events
-                .subscription_status_changed
-                .lock()
-                .as_ref()
+            if let Some(subscription_status_changed) =
+                self.remote.events.subscription_status_changed.lock().as_ref()
             {
                 subscription_status_changed(
                     self.clone(),
@@ -150,11 +143,7 @@ impl RemoteTrackPublication {
     }
 
     pub(crate) fn update_info(&self, new_info: proto::TrackInfo) {
-        super::update_info(
-            &self.inner,
-            &TrackPublication::Remote(self.clone()),
-            new_info.clone(),
-        );
+        super::update_info(&self.inner, &TrackPublication::Remote(self.clone()), new_info.clone());
 
         let mut info = self.inner.info.write();
         let muted = info.muted;
@@ -234,12 +223,8 @@ impl RemoteTrackPublication {
         self.set_track(None);
 
         // Request to send an update to the SFU
-        if let Some(subscription_update_needed) = self
-            .remote
-            .events
-            .subscription_update_needed
-            .lock()
-            .as_ref()
+        if let Some(subscription_update_needed) =
+            self.remote.events.subscription_update_needed.lock().as_ref()
         {
             subscription_update_needed(self.clone(), subscribed);
         }
@@ -305,12 +290,7 @@ impl RemoteTrackPublication {
     }
 
     pub fn track(&self) -> Option<RemoteTrack> {
-        self.inner
-            .info
-            .read()
-            .track
-            .clone()
-            .map(|track| track.try_into().unwrap())
+        self.inner.info.read().track.clone().map(|track| track.try_into().unwrap())
     }
 
     pub fn mime_type(&self) -> String {

@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
-use cxx::SharedPtr;
 use std::{sync::Arc, time::Duration};
+
+use cxx::SharedPtr;
 use tokio::{
     sync::{oneshot, Mutex as AsyncMutex, MutexGuard},
     time::{interval, Instant, MissedTickBehavior},
 };
 use webrtc_sys::audio_track as sys_at;
+
+use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
 
 #[derive(Clone)]
 pub struct NativeAudioSource {
@@ -107,8 +109,7 @@ impl NativeAudioSource {
     }
 
     pub fn set_audio_options(&self, options: AudioSourceOptions) {
-        self.sys_handle
-            .set_audio_options(&sys_at::ffi::AudioSourceOptions::from(options))
+        self.sys_handle.set_audio_options(&sys_at::ffi::AudioSourceOptions::from(options))
     }
 
     pub fn audio_options(&self) -> AudioSourceOptions {
@@ -126,7 +127,8 @@ impl NativeAudioSource {
     // Implemented inside another functions to allow unit testing
     fn next_frame<'a>(
         &self,
-        inner: &'a mut MutexGuard<'_, AudioSourceInner>, // The lock musts be guarded by capture_frame
+        inner: &'a mut MutexGuard<'_, AudioSourceInner>, /* The lock musts be guarded by
+                                                          * capture_frame */
         frame: &'a AudioFrame<'_>,
     ) -> Option<&'a [i16]> {
         let available_data = inner.len + frame.data.len() - inner.read_offset;
@@ -147,7 +149,8 @@ impl NativeAudioSource {
                 &frame.data[start..end]
             })
         } else {
-            // Save to buf and wait for the next capture_frame to give enough data to complete a 10ms frame
+            // Save to buf and wait for the next capture_frame to give enough data to complete a
+            // 10ms frame
             let remaining_data = frame.data.len() - inner.read_offset; // remaining data from frame.data
             let start = inner.len;
             let end = start + remaining_data;
@@ -296,18 +299,9 @@ mod tests {
         let mut inner = source.inner.lock().await;
 
         let samples_10ms = source.sample_rate() as usize / 100 * source.num_channels() as usize;
-        assert_eq!(
-            source.next_frame(&mut inner, &audio_frame).unwrap().len(),
-            samples_10ms
-        );
-        assert_eq!(
-            source.next_frame(&mut inner, &audio_frame).unwrap().len(),
-            samples_10ms
-        );
-        assert_eq!(
-            source.next_frame(&mut inner, &audio_frame).unwrap().len(),
-            samples_10ms
-        );
+        assert_eq!(source.next_frame(&mut inner, &audio_frame).unwrap().len(), samples_10ms);
+        assert_eq!(source.next_frame(&mut inner, &audio_frame).unwrap().len(), samples_10ms);
+        assert_eq!(source.next_frame(&mut inner, &audio_frame).unwrap().len(), samples_10ms);
         assert!(source.next_frame(&mut inner, &audio_frame).is_none());
 
         let samples_5ms = source.sample_rate() as usize / 1000 * 5 * source.num_channels() as usize;

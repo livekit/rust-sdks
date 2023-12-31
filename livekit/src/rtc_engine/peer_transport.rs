@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
+
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::EngineResult;
@@ -38,9 +41,7 @@ pub struct PeerTransport {
 
 impl Debug for PeerTransport {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.debug_struct("PeerTransport")
-            .field("target", &self.signal_target)
-            .finish()
+        f.debug_struct("PeerTransport").field("target", &self.signal_target).finish()
     }
 }
 
@@ -83,9 +84,7 @@ impl PeerTransport {
 
         if self.peer_connection.current_remote_description().is_some() && !inner.restarting_ice {
             drop(inner);
-            self.peer_connection
-                .add_ice_candidate(ice_candidate)
-                .await?;
+            self.peer_connection.add_ice_candidate(ice_candidate).await?;
 
             return Ok(());
         }
@@ -100,9 +99,7 @@ impl PeerTransport {
     ) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
 
-        self.peer_connection
-            .set_remote_description(remote_description)
-            .await?;
+        self.peer_connection.set_remote_description(remote_description).await?;
 
         for ic in inner.pending_candidates.drain(..) {
             self.peer_connection.add_ice_candidate(ic).await?;
@@ -125,9 +122,7 @@ impl PeerTransport {
     ) -> EngineResult<SessionDescription> {
         self.set_remote_description(offer).await?;
         let answer = self.peer_connection().create_answer(options).await?;
-        self.peer_connection()
-            .set_local_description(answer.clone())
-            .await?;
+        self.peer_connection().set_local_description(answer.clone()).await?;
 
         Ok(answer)
     }
@@ -144,11 +139,9 @@ impl PeerTransport {
             if options.ice_restart && remote_sdp.is_some() {
                 let remote_sdp = remote_sdp.unwrap();
 
-                // Cancel the old renegotiation (Basically say the server rejected the previous offer)
-                // So we can resend a new offer just after this
-                self.peer_connection
-                    .set_remote_description(remote_sdp)
-                    .await?;
+                // Cancel the old renegotiation (Basically say the server rejected the previous
+                // offer) So we can resend a new offer just after this
+                self.peer_connection.set_remote_description(remote_sdp).await?;
             } else {
                 inner.renegotiate = true;
                 return Ok(());
@@ -159,9 +152,7 @@ impl PeerTransport {
         }
 
         let offer = self.peer_connection.create_offer(options).await?;
-        self.peer_connection
-            .set_local_description(offer.clone())
-            .await?;
+        self.peer_connection.set_local_description(offer.clone()).await?;
 
         if let Some(handler) = self.on_offer_handler.lock().as_mut() {
             handler(offer);

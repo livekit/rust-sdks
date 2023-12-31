@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::env;
-use std::path;
-use std::process::Command;
+use std::{env, path, process::Command};
 
 fn main() {
     if env::var("DOCS_RS").is_ok() {
@@ -93,10 +91,7 @@ fn main() {
         webrtc_include.join("sdk/objc/base"),
     ]);
 
-    println!(
-        "cargo:rustc-link-search=native={}",
-        webrtc_lib.to_str().unwrap()
-    );
+    println!("cargo:rustc-link-search=native={}", webrtc_lib.to_str().unwrap());
 
     for (key, value) in webrtc_sys_build::webrtc_defines() {
         let value = value.as_deref();
@@ -157,10 +152,7 @@ fn main() {
 
             configure_darwin_sysroot(&mut builder);
 
-            builder
-                .file("src/objc_video_factory.mm")
-                .flag("-stdlib=libc++")
-                .flag("-std=c++20");
+            builder.file("src/objc_video_factory.mm").flag("-stdlib=libc++").flag("-std=c++20");
         }
         "ios" => {
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
@@ -192,10 +184,7 @@ fn main() {
 
             configure_android_sysroot(&mut builder);
 
-            builder
-                .file("src/android.cpp")
-                .flag("-std=c++20")
-                .cpp_link_stdlib("c++_static");
+            builder.file("src/android.cpp").flag("-std=c++20").cpp_link_stdlib("c++_static");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
@@ -239,18 +228,12 @@ fn configure_darwin_sysroot(builder: &mut cc::Build) {
     println!("cargo:rustc-link-lib={}", clang_rt);
     println!("cargo:rustc-link-arg=-ObjC");
 
-    let sysroot = Command::new("xcrun")
-        .args(["--sdk", sdk, "--show-sdk-path"])
-        .output()
-        .unwrap();
+    let sysroot = Command::new("xcrun").args(["--sdk", sdk, "--show-sdk-path"]).output().unwrap();
 
     let sysroot = String::from_utf8_lossy(&sysroot.stdout);
     let sysroot = sysroot.trim();
 
-    let search_dirs = Command::new("clang")
-        .arg("--print-search-dirs")
-        .output()
-        .unwrap();
+    let search_dirs = Command::new("clang").arg("--print-search-dirs").output().unwrap();
 
     let search_dirs = String::from_utf8_lossy(&search_dirs.stdout);
     for line in search_dirs.lines() {

@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::peer_transport::PeerTransport;
-use crate::rtc_engine::peer_transport::OnOfferCreated;
 use libwebrtc::{self as rtc, prelude::*};
 use livekit_protocol as proto;
 use log::error;
 use tokio::sync::mpsc;
+
+use super::peer_transport::PeerTransport;
+use crate::rtc_engine::peer_transport::OnOfferCreated;
 
 pub type RtcEmitter = mpsc::UnboundedSender<RtcEvent>;
 pub type RtcEvents = mpsc::UnboundedReceiver<RtcEvent>;
@@ -70,10 +71,7 @@ fn on_ice_candidate(
     emitter: RtcEmitter,
 ) -> rtc::peer_connection::OnIceCandidate {
     Box::new(move |ice_candidate| {
-        let _ = emitter.send(RtcEvent::IceCandidate {
-            ice_candidate,
-            target,
-        });
+        let _ = emitter.send(RtcEvent::IceCandidate { ice_candidate, target });
     })
 }
 
@@ -90,10 +88,7 @@ fn on_data_channel(
     Box::new(move |data_channel| {
         data_channel.on_message(Some(on_message(emitter.clone())));
 
-        let _ = emitter.send(RtcEvent::DataChannel {
-            data_channel,
-            target,
-        });
+        let _ = emitter.send(RtcEvent::DataChannel { data_channel, target });
     })
 }
 
@@ -127,33 +122,23 @@ pub fn forward_pc_events(transport: &mut PeerTransport, rtc_emitter: RtcEmitter)
         .peer_connection()
         .on_data_channel(Some(on_data_channel(signal_target, rtc_emitter.clone())));
 
-    transport
-        .peer_connection()
-        .on_track(Some(on_track(signal_target, rtc_emitter.clone())));
+    transport.peer_connection().on_track(Some(on_track(signal_target, rtc_emitter.clone())));
+
+    transport.peer_connection().on_connection_state_change(Some(on_connection_state_change(
+        signal_target,
+        rtc_emitter.clone(),
+    )));
 
     transport
         .peer_connection()
-        .on_connection_state_change(Some(on_connection_state_change(
-            signal_target,
-            rtc_emitter.clone(),
-        )));
-
-    transport
-        .peer_connection()
-        .on_ice_candidate_error(Some(on_ice_candidate_error(
-            signal_target,
-            rtc_emitter.clone(),
-        )));
+        .on_ice_candidate_error(Some(on_ice_candidate_error(signal_target, rtc_emitter.clone())));
 
     transport.on_offer(Some(on_offer(signal_target, rtc_emitter)));
 }
 
 fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
     Box::new(move |buffer| {
-        let _ = emitter.send(RtcEvent::Data {
-            data: buffer.data.to_vec(),
-            binary: buffer.binary,
-        });
+        let _ = emitter.send(RtcEvent::Data { data: buffer.data.to_vec(), binary: buffer.binary });
     })
 }
 

@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{imp::data_channel as dc_imp, rtp_parameters::Priority};
-use serde::Deserialize;
 use std::{fmt::Debug, str::Utf8Error};
+
+use serde::Deserialize;
 use thiserror::Error;
+
+use crate::{imp::data_channel as dc_imp, rtp_parameters::Priority};
 
 #[derive(Clone, Debug)]
 pub struct DataChannelInit {

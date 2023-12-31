@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::room::FfiTrack;
-use super::FfiHandle;
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
-use livekit::webrtc::audio_stream::native::NativeAudioStream;
-use livekit::webrtc::prelude::*;
+use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
 use tokio::sync::oneshot;
+
+use super::{room::FfiTrack, FfiHandle};
+use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 pub struct FfiAudioStream {
     pub handle_id: FfiHandleId,
@@ -43,9 +42,7 @@ impl FfiAudioStream {
         server: &'static server::FfiServer,
         new_stream: proto::NewAudioStreamRequest,
     ) -> FfiResult<proto::OwnedAudioStream> {
-        let ffi_track = server
-            .retrieve_handle::<FfiTrack>(new_stream.track_handle)?
-            .clone();
+        let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?.clone();
         let rtc_track = ffi_track.track.rtc_track();
 
         let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
@@ -58,11 +55,7 @@ impl FfiAudioStream {
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
-                let audio_stream = Self {
-                    handle_id,
-                    stream_type,
-                    close_tx,
-                };
+                let audio_stream = Self { handle_id, stream_type, close_tx };
 
                 let native_stream = NativeAudioStream::new(rtc_track);
                 server.async_runtime.spawn(Self::native_audio_stream_task(
@@ -73,11 +66,7 @@ impl FfiAudioStream {
                 ));
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
             }
-            _ => {
-                return Err(FfiError::InvalidRequest(
-                    "unsupported audio stream type".into(),
-                ))
-            }
+            _ => return Err(FfiError::InvalidRequest("unsupported audio stream type".into())),
         }?;
 
         // Store AudioStreamInfothe new audio stream and return the info
@@ -130,14 +119,10 @@ impl FfiAudioStream {
         }
 
         if let Err(err) = server
-            .send_event(proto::ffi_event::Message::AudioStreamEvent(
-                proto::AudioStreamEvent {
-                    stream_handle: stream_handle_id,
-                    message: Some(proto::audio_stream_event::Message::Eos(
-                        proto::AudioStreamEos {},
-                    )),
-                },
-            ))
+            .send_event(proto::ffi_event::Message::AudioStreamEvent(proto::AudioStreamEvent {
+                stream_handle: stream_handle_id,
+                message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
+            }))
             .await
         {
             log::warn!("failed to send audio EOS: {}", err);

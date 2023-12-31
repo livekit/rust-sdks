@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::media_stream_track::impl_media_stream_track;
-use crate::media_stream_track::RtcTrackState;
 use cxx::SharedPtr;
 use sys_at::ffi::audio_to_media;
 use webrtc_sys::audio_track as sys_at;
+
+use super::media_stream_track::impl_media_stream_track;
+use crate::media_stream_track::RtcTrackState;
 
 #[derive(Clone)]
 pub struct RtcAudioTrack {

@@ -14,9 +14,10 @@
 
 use std::{borrow::Cow, slice};
 
+use livekit::webrtc::prelude::*;
+
 use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
-use livekit::webrtc::prelude::*;
 
 pub struct FfiAudioSource {
     pub handle_id: FfiHandleId,
@@ -46,19 +47,11 @@ impl FfiAudioSource {
                 );
                 RtcAudioSource::Native(audio_source)
             }
-            _ => {
-                return Err(FfiError::InvalidRequest(
-                    "unsupported audio source type".into(),
-                ))
-            }
+            _ => return Err(FfiError::InvalidRequest("unsupported audio source type".into())),
         };
 
         let handle_id = server.next_id();
-        let source = Self {
-            handle_id,
-            source_type,
-            source: source_inner,
-        };
+        let source = Self { handle_id, source_type, source: source_inner };
 
         let info = proto::AudioSourceInfo::from(&source);
         server.store_handle(source.handle_id, source);

@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::audio_track;
-use crate::imp::audio_track::RtcAudioTrack;
-use crate::imp::video_track::RtcVideoTrack;
-use crate::video_track;
 use cxx::SharedPtr;
 use webrtc_sys::media_stream as sys_ms;
+
+use crate::{
+    audio_track,
+    imp::{audio_track::RtcAudioTrack, video_track::RtcVideoTrack},
+    video_track,
+};
 
 #[derive(Clone)]
 pub struct MediaStream {
@@ -33,9 +35,7 @@ impl MediaStream {
         self.sys_handle
             .get_audio_tracks()
             .into_iter()
-            .map(|t| audio_track::RtcAudioTrack {
-                handle: RtcAudioTrack { sys_handle: t.ptr },
-            })
+            .map(|t| audio_track::RtcAudioTrack { handle: RtcAudioTrack { sys_handle: t.ptr } })
             .collect()
     }
 
@@ -43,9 +43,7 @@ impl MediaStream {
         self.sys_handle
             .get_video_tracks()
             .into_iter()
-            .map(|t| video_track::RtcVideoTrack {
-                handle: RtcVideoTrack { sys_handle: t.ptr },
-            })
+            .map(|t| video_track::RtcVideoTrack { handle: RtcVideoTrack { sys_handle: t.ptr } })
             .collect()
     }
 }

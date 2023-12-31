@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::impl_thread_safety;
 use std::sync::Arc;
+
+use crate::impl_thread_safety;
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {

@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::peer_connection_factory as imp_pcf;
-use crate::peer_connection::PeerConnection;
-use crate::rtp_parameters::RtpCapabilities;
-use crate::MediaType;
-use crate::RtcError;
 use std::fmt::Debug;
+
+use crate::{
+    imp::peer_connection_factory as imp_pcf, peer_connection::PeerConnection,
+    rtp_parameters::RtpCapabilities, MediaType, RtcError,
+};
 
 #[derive(Debug, Clone)]
 pub struct IceServer {
@@ -86,10 +86,10 @@ impl PeerConnectionFactory {
 
 pub mod native {
     use super::PeerConnectionFactory;
-    use crate::audio_source::native::NativeAudioSource;
-    use crate::audio_track::RtcAudioTrack;
-    use crate::video_source::native::NativeVideoSource;
-    use crate::video_track::RtcVideoTrack;
+    use crate::{
+        audio_source::native::NativeAudioSource, audio_track::RtcAudioTrack,
+        video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
+    };
 
     pub trait PeerConnectionFactoryExt {
         fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;

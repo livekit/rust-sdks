@@ -12,22 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::signal_client::signal_stream::SignalStream;
+use std::{
+    borrow::Cow,
+    fmt::Debug,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use reqwest::StatusCode;
-use std::borrow::Cow;
-use std::fmt::Debug;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tokio::sync::mpsc;
-use tokio::sync::Mutex as AsyncMutex;
-use tokio::sync::RwLock as AsyncRwLock;
-use tokio::task::JoinHandle;
-use tokio::time::{interval, sleep, Instant};
+use tokio::{
+    sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock},
+    task::JoinHandle,
+    time::{interval, sleep, Instant},
+};
 use tokio_tungstenite::tungstenite::Error as WsError;
+
+use crate::signal_client::signal_stream::SignalStream;
 
 mod signal_stream;
 
@@ -64,10 +70,7 @@ pub struct SignalOptions {
 
 impl Default for SignalOptions {
     fn default() -> Self {
-        Self {
-            auto_subscribe: true,
-            adaptive_stream: false,
-        }
+        Self { auto_subscribe: true, adaptive_stream: false }
     }
 }
 
@@ -117,15 +120,7 @@ impl SignalClient {
         let (emitter, events) = mpsc::unbounded_channel();
         let signal_task = tokio::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
 
-        Ok((
-            Self {
-                inner,
-                emitter,
-                handle: Mutex::new(Some(signal_task)),
-            },
-            join_response,
-            events,
-        ))
+        Ok((Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events))
     }
 
     /// Restart the connection to the server
@@ -134,11 +129,8 @@ impl SignalClient {
         self.close().await;
 
         let (reconnect_response, stream_events) = self.inner.restart().await?;
-        let signal_task = tokio::spawn(signal_task(
-            self.inner.clone(),
-            self.emitter.clone(),
-            stream_events,
-        ));
+        let signal_task =
+            tokio::spawn(signal_task(self.inner.clone(), self.emitter.clone(), stream_events));
 
         *self.handle.lock() = Some(signal_task);
         Ok(reconnect_response)
@@ -222,13 +214,7 @@ impl SignalInner {
 
     /// Validate the connection by calling rtc/validate
     async fn validate(mut ws_url: url::Url) -> SignalResult<()> {
-        ws_url
-            .set_scheme(if ws_url.scheme() == "wss" {
-                "https"
-            } else {
-                "http"
-            })
-            .unwrap();
+        ws_url.set_scheme(if ws_url.scheme() == "wss" { "https" } else { "http" }).unwrap();
 
         if let Ok(mut segs) = ws_url.path_segments_mut() {
             segs.extend(&["rtc", "validate"]);
@@ -267,10 +253,7 @@ impl SignalInner {
         let token = self.token.lock().clone();
 
         let mut lk_url = get_livekit_url(&self.url, &token, &self.options).unwrap();
-        lk_url
-            .query_pairs_mut()
-            .append_pair("reconnect", "1")
-            .append_pair("sid", sid);
+        lk_url.query_pairs_mut().append_pair("reconnect", "1").append_pair("sid", sid);
 
         let (new_stream, mut events) = SignalStream::connect(lk_url).await?;
         let reconnect_response = get_reconnect_response(&mut events).await?;
@@ -334,9 +317,7 @@ async fn signal_task(
     emitter: SignalEmitter, // Public emitter
     mut internal_events: mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
 ) {
-    let mut ping_interval = interval(Duration::from_secs(
-        inner.join_response.ping_interval as u64,
-    ));
+    let mut ping_interval = interval(Duration::from_secs(inner.join_response.ping_interval as u64));
     let timeout_duration = Duration::from_secs(inner.join_response.ping_timeout as u64);
     let ping_timeout = sleep(timeout_duration);
     tokio::pin!(ping_timeout);
@@ -422,14 +403,8 @@ fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalRes
         .append_pair("sdk", "rust")
         .append_pair("access_token", token)
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-        .append_pair(
-            "auto_subscribe",
-            if options.auto_subscribe { "1" } else { "0" },
-        )
-        .append_pair(
-            "adaptive_stream",
-            if options.adaptive_stream { "1" } else { "0" },
-        );
+        .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
+        .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
     Ok(lk_url)
 }
@@ -449,14 +424,9 @@ macro_rules! get_async_message {
                 Err(WsError::ConnectionClosed)?
             };
 
-            tokio::time::timeout(JOIN_RESPONSE_TIMEOUT, join)
-                .await
-                .map_err(|_| {
-                    SignalError::Timeout(format!(
-                        "failed to receive {}",
-                        std::any::type_name::<$ty>()
-                    ))
-                })?
+            tokio::time::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
+                SignalError::Timeout(format!("failed to receive {}", std::any::type_name::<$ty>()))
+            })?
         }
     };
 }

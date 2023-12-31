@@ -161,7 +161,6 @@ impl RtcFrameCryptorObserverWrapper {
         participant_id: String,
         state: FrameCryptionState,
     ) {
-        self.observer
-            .on_frame_cryption_state_change(participant_id, state);
+        self.observer.on_frame_cryption_state_change(participant_id, state);
     }
 }

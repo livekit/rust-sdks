@@ -19,6 +19,7 @@ pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
 pub mod data_channel;
+pub mod frame_cryptor;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod media_stream_track;
@@ -34,12 +35,10 @@ pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
 pub mod yuv_helper;
-pub mod frame_cryptor;
 
-use crate::MediaType;
-use crate::{RtcError, RtcErrorType};
-use webrtc_sys::rtc_error as sys_err;
-use webrtc_sys::webrtc as sys_rtc;
+use webrtc_sys::{rtc_error as sys_err, webrtc as sys_rtc};
+
+use crate::{MediaType, RtcError, RtcErrorType};
 
 impl From<sys_err::ffi::RtcErrorType> for RtcErrorType {
     fn from(value: sys_err::ffi::RtcErrorType) -> Self {
@@ -52,10 +51,7 @@ impl From<sys_err::ffi::RtcErrorType> for RtcErrorType {
 
 impl From<sys_err::ffi::RtcError> for RtcError {
     fn from(value: sys_err::ffi::RtcError) -> Self {
-        Self {
-            error_type: value.error_type.into(),
-            message: value.message,
-        }
+        Self { error_type: value.error_type.into(), message: value.message }
     }
 }
 

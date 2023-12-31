@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures_util::Future;
 use std::time::Duration;
+
+use futures_util::Future;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -35,10 +36,7 @@ where
     let (tx, rx) = mpsc::unbounded_channel();
     let (cancel_tx, cancel_rx) = oneshot::channel();
     tokio::spawn(debounce_task(duration, future, rx, cancel_rx));
-    Debouncer {
-        tx,
-        cancel_tx: Some(cancel_tx),
-    }
+    Debouncer { tx, cancel_tx: Some(cancel_tx) }
 }
 
 async fn debounce_task<F>(

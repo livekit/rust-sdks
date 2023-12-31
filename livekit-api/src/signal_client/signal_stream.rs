@@ -12,16 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{SignalError, SignalResult};
-use futures_util::stream::{SplitSink, SplitStream};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{
+    stream::{SplitSink, SplitStream},
+    SinkExt, StreamExt,
+};
 use livekit_protocol as proto;
 use prost::Message as ProtoMessage;
-use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio::{
+    net::TcpStream,
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+
+use super::{SignalError, SignalResult};
 
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -55,10 +59,7 @@ impl SignalStream {
     /// closed.
     pub async fn connect(
         mut url: url::Url,
-    ) -> SignalResult<(
-        Self,
-        mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
-    )> {
+    ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
         {
             // Don't log sensitive info
             let mut url = url.clone();
@@ -96,14 +97,7 @@ impl SignalStream {
         let write_handle = tokio::spawn(Self::write_task(internal_rx, ws_writer));
         let read_handle = tokio::spawn(Self::read_task(internal_tx.clone(), ws_reader, emitter));
 
-        Ok((
-            Self {
-                internal_tx,
-                read_handle,
-                write_handle,
-            },
-            events,
-        ))
+        Ok((Self { internal_tx, read_handle, write_handle }, events))
     }
 
     /// Close the websocket
@@ -118,10 +112,7 @@ impl SignalStream {
     /// It also waits for the message to be sent
     pub async fn send(&self, signal: proto::signal_request::Message) -> SignalResult<()> {
         let (send, recv) = oneshot::channel();
-        let msg = InternalMessage::Signal {
-            signal,
-            response_chn: send,
-        };
+        let msg = InternalMessage::Signal { signal, response_chn: send };
         let _ = self.internal_tx.send(msg).await;
         recv.await.map_err(|_| SignalError::SendError)?
     }
@@ -134,14 +125,8 @@ impl SignalStream {
     ) {
         while let Some(msg) = internal_rx.recv().await {
             match msg {
-                InternalMessage::Signal {
-                    signal,
-                    response_chn,
-                } => {
-                    let data = proto::SignalRequest {
-                        message: Some(signal),
-                    }
-                    .encode_to_vec();
+                InternalMessage::Signal { signal, response_chn } => {
+                    let data = proto::SignalRequest { message: Some(signal) }.encode_to_vec();
 
                     if let Err(err) = ws_writer.send(Message::Binary(data)).await {
                         let _ = response_chn.send(Err(err.into()));
@@ -181,9 +166,7 @@ impl SignalStream {
                     let _ = emitter.send(Box::new(msg));
                 }
                 Ok(Message::Ping(data)) => {
-                    let _ = internal_tx
-                        .send(InternalMessage::Pong { ping_data: data })
-                        .await;
+                    let _ = internal_tx.send(InternalMessage::Pong { ping_data: data }).await;
                     continue;
                 }
                 Ok(Message::Close(close)) => {
