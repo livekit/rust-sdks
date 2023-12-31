@@ -39,6 +39,12 @@
 - `livekit`: LiveKit real-time SDK
 - `livekit-ffi`: Internal crate, used to generate bindings for other languages
 
+When adding the SDK as a dependency to your project, make sure to add the
+[necessary `rustflags`](https://github.com/livekit/rust-sdks/blob/main/.cargo/config)
+to your cargo config, otherwise linking may fail.
+
+Also, please refer to the list of the [supported platform toolkits](https://github.com/livekit/rust-sdks/blob/main/.github/workflows/builds.yml).
+
 ## Getting started
 
 Currently, Tokio is required to use this SDK, however we plan to make the async executor runtime agnostic.
