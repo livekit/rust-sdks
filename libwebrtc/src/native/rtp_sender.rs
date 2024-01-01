@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::media_stream_track::new_media_stream_track;
-use crate::media_stream_track::MediaStreamTrack;
-use crate::stats::RtcStats;
-use crate::{rtp_parameters::RtpParameters, RtcError, RtcErrorType};
 use cxx::SharedPtr;
 use tokio::sync::oneshot;
-use webrtc_sys::rtc_error as sys_err;
-use webrtc_sys::rtp_sender as sys_rs;
+use webrtc_sys::{rtc_error as sys_err, rtp_sender as sys_rs};
+
+use super::media_stream_track::new_media_stream_track;
+use crate::{
+    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, RtcError,
+    RtcErrorType,
+};
 
 #[derive(Clone)]
 pub struct RtpSender {
@@ -41,10 +42,7 @@ impl RtpSender {
         let ctx = Box::new(sys_rs::SenderContext(Box::new(tx)));
 
         self.sys_handle.get_stats(ctx, |ctx, stats| {
-            let tx = ctx
-                .0
-                .downcast::<oneshot::Sender<Result<Vec<RtcStats>, RtcError>>>()
-                .unwrap();
+            let tx = ctx.0.downcast::<oneshot::Sender<Result<Vec<RtcStats>, RtcError>>>().unwrap();
 
             if stats.is_empty() {
                 let _ = tx.send(Ok(vec![]));
@@ -63,10 +61,7 @@ impl RtpSender {
     }
 
     pub fn set_track(&self, track: Option<MediaStreamTrack>) -> Result<(), RtcError> {
-        if !self
-            .sys_handle
-            .set_track(track.map_or(SharedPtr::null(), |t| t.sys_handle()))
-        {
+        if !self.sys_handle.set_track(track.map_or(SharedPtr::null(), |t| t.sys_handle())) {
             return Err(RtcError {
                 error_type: RtcErrorType::InvalidState,
                 message: "Failed to set track".to_string(),

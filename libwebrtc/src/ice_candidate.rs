@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{imp::ice_candidate as imp_ic, session_description::SdpParseError};
 use std::fmt::Debug;
+
+use crate::{imp::ice_candidate as imp_ic, session_description::SdpParseError};
 
 pub struct IceCandidate {
     pub(crate) handle: imp_ic::IceCandidate,
@@ -49,8 +50,6 @@ impl ToString for IceCandidate {
 
 impl Debug for IceCandidate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IceCandidate")
-            .field("candidate", &self.to_string())
-            .finish()
+        f.debug_struct("IceCandidate").field("candidate", &self.to_string()).finish()
     }
 }

@@ -40,9 +40,10 @@ impl RtcVideoSource {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
+    use std::fmt::{Debug, Formatter};
+
     use super::*;
     use crate::video_frame::{VideoBuffer, VideoFrame};
-    use std::fmt::{Debug, Formatter};
 
     #[derive(Clone)]
     pub struct NativeVideoSource {
@@ -63,9 +64,7 @@ pub mod native {
 
     impl NativeVideoSource {
         pub fn new(resolution: VideoResolution) -> Self {
-            Self {
-                handle: vs_imp::NativeVideoSource::new(resolution),
-            }
+            Self { handle: vs_imp::NativeVideoSource::new(resolution) }
         }
 
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {

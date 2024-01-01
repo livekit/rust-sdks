@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::room::FfiTrack;
-use super::FfiHandle;
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
-use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_stream::native::NativeVideoStream;
+use livekit::webrtc::{prelude::*, video_stream::native::NativeVideoStream};
 use tokio::sync::oneshot;
+
+use super::{room::FfiTrack, FfiHandle};
+use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 pub struct FfiVideoStream {
     pub handle_id: FfiHandleId,
@@ -43,9 +42,7 @@ impl FfiVideoStream {
         server: &'static server::FfiServer,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FfiResult<proto::OwnedVideoStream> {
-        let ffi_track = server
-            .retrieve_handle::<FfiTrack>(new_stream.track_handle)?
-            .clone();
+        let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?.clone();
         let rtc_track = ffi_track.track.rtc_track();
 
         let MediaStreamTrack::Video(rtc_track) = rtc_track else {
@@ -58,11 +55,7 @@ impl FfiVideoStream {
         let stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
-                let video_stream = Self {
-                    handle_id,
-                    close_tx,
-                    stream_type,
-                };
+                let video_stream = Self { handle_id, close_tx, stream_type };
                 server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
@@ -71,11 +64,7 @@ impl FfiVideoStream {
                 ));
                 Ok::<FfiVideoStream, FfiError>(video_stream)
             }
-            _ => {
-                return Err(FfiError::InvalidRequest(
-                    "unsupported video stream type".into(),
-                ))
-            }
+            _ => return Err(FfiError::InvalidRequest("unsupported video stream type".into())),
         }?;
 
         // Store the new video stream and return the info
@@ -132,14 +121,10 @@ impl FfiVideoStream {
         }
 
         if let Err(err) = server
-            .send_event(proto::ffi_event::Message::VideoStreamEvent(
-                proto::VideoStreamEvent {
-                    stream_handle,
-                    message: Some(proto::video_stream_event::Message::Eos(
-                        proto::VideoStreamEos {},
-                    )),
-                },
-            ))
+            .send_event(proto::ffi_event::Message::VideoStreamEvent(proto::VideoStreamEvent {
+                stream_handle,
+                message: Some(proto::video_stream_event::Message::Eos(proto::VideoStreamEos {})),
+            }))
             .await
         {
             log::warn!("failed to send video EOS: {}", err);

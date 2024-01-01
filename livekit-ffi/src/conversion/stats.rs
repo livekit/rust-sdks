@@ -1,4 +1,3 @@
-use crate::proto;
 use livekit::webrtc::{
     prelude::DataChannelState,
     stats::{
@@ -7,6 +6,8 @@ use livekit::webrtc::{
         QualityLimitationReason,
     },
 };
+
+use crate::proto;
 
 impl From<DataChannelState> for proto::DataChannelState {
     fn from(value: DataChannelState) -> Self {
@@ -173,10 +174,7 @@ impl From<rtc::RtcStats> for proto::RtcStats {
 
 impl From<rtc::CodecStats> for proto::rtc_stats::Codec {
     fn from(value: rtc::CodecStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            codec: Some(value.codec.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), codec: Some(value.codec.into()) }
     }
 }
 
@@ -237,73 +235,49 @@ impl From<rtc::MediaSourceStats> for proto::rtc_stats::MediaSource {
 
 impl From<rtc::MediaPlayoutStats> for proto::rtc_stats::MediaPlayout {
     fn from(value: rtc::MediaPlayoutStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            audio_playout: Some(value.audio_playout.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), audio_playout: Some(value.audio_playout.into()) }
     }
 }
 
 impl From<rtc::PeerConnectionStats> for proto::rtc_stats::PeerConnection {
     fn from(value: rtc::PeerConnectionStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            pc: Some(value.pc.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), pc: Some(value.pc.into()) }
     }
 }
 
 impl From<rtc::DataChannelStats> for proto::rtc_stats::DataChannel {
     fn from(value: rtc::DataChannelStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            dc: Some(value.dc.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), dc: Some(value.dc.into()) }
     }
 }
 
 impl From<rtc::TransportStats> for proto::rtc_stats::Transport {
     fn from(value: rtc::TransportStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            transport: Some(value.transport.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), transport: Some(value.transport.into()) }
     }
 }
 
 impl From<rtc::CandidatePairStats> for proto::rtc_stats::CandidatePair {
     fn from(value: rtc::CandidatePairStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            candidate_pair: Some(value.candidate_pair.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), candidate_pair: Some(value.candidate_pair.into()) }
     }
 }
 
 impl From<rtc::LocalCandidateStats> for proto::rtc_stats::LocalCandidate {
     fn from(value: rtc::LocalCandidateStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            candidate: Some(value.local_candidate.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), candidate: Some(value.local_candidate.into()) }
     }
 }
 
 impl From<rtc::RemoteCandidateStats> for proto::rtc_stats::RemoteCandidate {
     fn from(value: rtc::RemoteCandidateStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            candidate: Some(value.remote_candidate.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), candidate: Some(value.remote_candidate.into()) }
     }
 }
 
 impl From<rtc::CertificateStats> for proto::rtc_stats::Certificate {
     fn from(value: rtc::CertificateStats) -> Self {
-        Self {
-            rtc: Some(value.rtc.into()),
-            certificate: Some(value.certificate.into()),
-        }
+        Self { rtc: Some(value.rtc.into()), certificate: Some(value.certificate.into()) }
     }
 }
 
@@ -311,10 +285,7 @@ impl From<rtc::CertificateStats> for proto::rtc_stats::Certificate {
 
 impl From<rtc::dictionaries::RtcStats> for proto::RtcStatsData {
     fn from(value: rtc::dictionaries::RtcStats) -> Self {
-        Self {
-            id: value.id,
-            timestamp: value.timestamp,
-        }
+        Self { id: value.id, timestamp: value.timestamp }
     }
 }
 
@@ -414,10 +385,7 @@ impl From<rtc::dictionaries::InboundRtpStreamStats> for proto::InboundRtpStreamS
 
 impl From<rtc::dictionaries::SentRtpStreamStats> for proto::SentRtpStreamStats {
     fn from(value: rtc::dictionaries::SentRtpStreamStats) -> Self {
-        Self {
-            packets_sent: value.packets_sent,
-            bytes_sent: value.bytes_sent,
-        }
+        Self { packets_sent: value.packets_sent, bytes_sent: value.bytes_sent }
     }
 }
 
@@ -487,10 +455,7 @@ impl From<rtc::dictionaries::RemoteOutboundRtpStreamStats> for proto::RemoteOutb
 
 impl From<rtc::dictionaries::MediaSourceStats> for proto::MediaSourceStats {
     fn from(value: rtc::dictionaries::MediaSourceStats) -> Self {
-        Self {
-            track_identifier: value.track_identifier,
-            kind: value.kind,
-        }
+        Self { track_identifier: value.track_identifier, kind: value.kind }
     }
 }
 
@@ -567,12 +532,8 @@ impl From<rtc::dictionaries::TransportStats> for proto::TransportStats {
             bytes_received: value.bytes_received,
             ice_role: proto::IceRole::from(value.ice_role) as i32,
             ice_local_username_fragment: value.ice_local_username_fragment,
-            dtls_state: value
-                .dtls_state
-                .map(|v| proto::DtlsTransportState::from(v) as i32),
-            ice_state: value
-                .ice_state
-                .map(|v| proto::IceTransportState::from(v) as i32),
+            dtls_state: value.dtls_state.map(|v| proto::DtlsTransportState::from(v) as i32),
+            ice_state: value.ice_state.map(|v| proto::IceTransportState::from(v) as i32),
             selected_candidate_pair_id: value.selected_candidate_pair_id,
             local_certificate_id: value.local_certificate_id,
             remote_certificate_id: value.remote_certificate_id,
@@ -591,9 +552,7 @@ impl From<rtc::dictionaries::CandidatePairStats> for proto::CandidatePairStats {
             transport_id: value.transport_id,
             local_candidate_id: value.local_candidate_id,
             remote_candidate_id: value.remote_candidate_id,
-            state: value
-                .state
-                .map(|v| proto::IceCandidatePairState::from(v) as i32),
+            state: value.state.map(|v| proto::IceCandidatePairState::from(v) as i32),
             nominated: value.nominated,
             packets_sent: value.packets_sent,
             packets_received: value.packets_received,
@@ -623,9 +582,7 @@ impl From<rtc::dictionaries::IceCandidateStats> for proto::IceCandidateStats {
             address: value.address,
             port: value.port,
             protocol: value.protocol,
-            candidate_type: value
-                .candidate_type
-                .map(|v| proto::IceCandidateType::from(v) as i32),
+            candidate_type: value.candidate_type.map(|v| proto::IceCandidateType::from(v) as i32),
             priority: value.priority,
             url: value.url,
             relay_protocol: value
@@ -635,9 +592,7 @@ impl From<rtc::dictionaries::IceCandidateStats> for proto::IceCandidateStats {
             related_address: value.related_address,
             related_port: value.related_port,
             username_fragment: value.username_fragment,
-            tcp_type: value
-                .tcp_type
-                .map(|v| proto::IceTcpCandidateType::from(v) as i32),
+            tcp_type: value.tcp_type.map(|v| proto::IceTcpCandidateType::from(v) as i32),
         }
     }
 }

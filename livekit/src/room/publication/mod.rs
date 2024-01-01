@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::track::TrackDimension;
-use crate::track::Track;
-use crate::{e2ee::EncryptionType, prelude::*};
+use std::sync::Arc;
+
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
-use std::sync::Arc;
+
+use super::track::TrackDimension;
+use crate::{e2ee::EncryptionType, prelude::*, track::Track};
 
 mod local;
 mod remote;
@@ -116,7 +117,7 @@ pub(super) fn new_inner(
     let info = PublicationInfo {
         track,
         proto_info: info.clone(),
-        source: info.source().try_into().unwrap(),
+        source: info.source().into(),
         kind: info.r#type().try_into().unwrap(),
         encryption_type: info.encryption().into(),
         name: info.name,
@@ -127,10 +128,7 @@ pub(super) fn new_inner(
         muted: info.muted,
     };
 
-    Arc::new(TrackPublicationInner {
-        info: RwLock::new(info),
-        events: Default::default(),
-    })
+    Arc::new(TrackPublicationInner { info: RwLock::new(info), events: Default::default() })
 }
 
 pub(super) fn update_info(

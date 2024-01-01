@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::video_track as imp_vt;
-use crate::media_stream_track::media_stream_track;
-use crate::media_stream_track::RtcTrackState;
 use std::fmt::Debug;
+
+use crate::{
+    imp::video_track as imp_vt,
+    media_stream_track::{media_stream_track, RtcTrackState},
+};
 
 #[derive(Clone)]
 pub struct RtcVideoTrack {

@@ -19,13 +19,16 @@ use crate::imp::video_stream as stream_imp;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
-    use super::stream_imp;
-    use crate::video_frame::BoxVideoFrame;
-    use crate::video_track::RtcVideoTrack;
-    use std::fmt::Debug;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
+    use std::{
+        fmt::Debug,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
     use tokio_stream::Stream;
+
+    use super::stream_imp;
+    use crate::{video_frame::BoxVideoFrame, video_track::RtcVideoTrack};
 
     pub struct NativeVideoStream {
         pub(crate) handle: stream_imp::NativeVideoStream,
@@ -33,17 +36,13 @@ pub mod native {
 
     impl Debug for NativeVideoStream {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.debug_struct("NativeVideoStream")
-                .field("track", &self.track())
-                .finish()
+            f.debug_struct("NativeVideoStream").field("track", &self.track()).finish()
         }
     }
 
     impl NativeVideoStream {
         pub fn new(video_track: RtcVideoTrack) -> Self {
-            Self {
-                handle: stream_imp::NativeVideoStream::new(video_track),
-            }
+            Self { handle: stream_imp::NativeVideoStream::new(video_track) }
         }
 
         pub fn track(&self) -> RtcVideoTrack {

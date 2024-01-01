@@ -12,16 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::video_frame::new_video_frame_buffer;
-use crate::video_frame::{BoxVideoFrame, VideoFrame};
-use crate::video_track::RtcVideoTrack;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
+
 use cxx::{SharedPtr, UniquePtr};
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
 use webrtc_sys::video_track as sys_vt;
+
+use super::video_frame::new_video_frame_buffer;
+use crate::{
+    video_frame::{BoxVideoFrame, VideoFrame},
+    video_track::RtcVideoTrack,
+};
 
 pub struct NativeVideoStream {
     native_sink: SharedPtr<sys_vt::ffi::NativeVideoSink>,
@@ -40,11 +46,7 @@ impl NativeVideoStream {
         let video = unsafe { sys_vt::ffi::media_to_video(video_track.sys_handle()) };
         video.add_sink(&native_sink);
 
-        Self {
-            native_sink,
-            video_track,
-            frame_rx,
-        }
+        Self { native_sink, video_track, frame_rx }
     }
 
     pub fn track(&self) -> RtcVideoTrack {

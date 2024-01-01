@@ -12,18 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::key_provider::KeyProvider;
-use super::EncryptionType;
-use crate::e2ee::E2eeOptions;
-use crate::id::{ParticipantIdentity, TrackSid};
-use crate::participant::{LocalParticipant, RemoteParticipant};
-use crate::prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication};
-use crate::rtc_engine::lk_runtime::LkRuntime;
-use libwebrtc::native::frame_cryptor::{EncryptionAlgorithm, EncryptionState, FrameCryptor};
-use libwebrtc::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender};
+use std::{collections::HashMap, sync::Arc};
+
+use libwebrtc::{
+    native::frame_cryptor::{EncryptionAlgorithm, EncryptionState, FrameCryptor},
+    rtp_receiver::RtpReceiver,
+    rtp_sender::RtpSender,
+};
 use parking_lot::Mutex;
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use super::{key_provider::KeyProvider, EncryptionType};
+use crate::{
+    e2ee::E2eeOptions,
+    id::{ParticipantIdentity, TrackSid},
+    participant::{LocalParticipant, RemoteParticipant},
+    prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication},
+    rtc_engine::lk_runtime::LkRuntime,
+};
 
 type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Send>;
 
@@ -40,7 +45,8 @@ pub struct E2eeManager {
 }
 
 impl E2eeManager {
-    /// E2eeOptions is an optional parameter. We may support to reconfigure e2ee after connect in the future.
+    /// E2eeOptions is an optional parameter. We may support to reconfigure e2ee after connect in
+    /// the future.
     pub(crate) fn new(options: Option<E2eeOptions>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(ManagerInner {
@@ -94,9 +100,7 @@ impl E2eeManager {
         self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();
-        inner
-            .frame_cryptors
-            .insert((identity, publication.sid()), frame_cryptor.clone());
+        inner.frame_cryptors.insert((identity, publication.sid()), frame_cryptor.clone());
     }
 
     /// Called by the room
@@ -120,16 +124,14 @@ impl E2eeManager {
         self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();
-        inner
-            .frame_cryptors
-            .insert((identity, publication.sid()), frame_cryptor.clone());
+        inner.frame_cryptors.insert((identity, publication.sid()), frame_cryptor.clone());
     }
 
     fn setup_cryptor(&self, frame_cryptor: &FrameCryptor) {
         let state_changed = self.state_changed.clone();
         frame_cryptor.on_state_change(Some(Box::new(move |participant_identity, state| {
             if let Some(state_changed) = state_changed.lock().as_ref() {
-                state_changed(participant_identity.try_into().unwrap(), state);
+                state_changed(participant_identity.into(), state);
             }
         })));
     }
@@ -179,11 +181,7 @@ impl E2eeManager {
 
     pub fn encryption_type(&self) -> EncryptionType {
         let inner = self.inner.lock();
-        inner
-            .options
-            .as_ref()
-            .map(|opts| opts.encryption_type)
-            .unwrap_or(EncryptionType::None)
+        inner.options.as_ref().map(|opts| opts.encryption_type).unwrap_or(EncryptionType::None)
     }
 
     fn setup_rtp_sender(
@@ -228,8 +226,6 @@ impl E2eeManager {
         log::debug!("removing frame cryptor for {}", participant_identity);
 
         let mut inner = self.inner.lock();
-        inner
-            .frame_cryptors
-            .remove(&(participant_identity, track_sid));
+        inner.frame_cryptors.remove(&(participant_identity, track_sid));
     }
 }

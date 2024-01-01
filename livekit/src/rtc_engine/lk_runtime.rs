@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    fmt::{Debug, Formatter},
+    sync::{Arc, Weak},
+};
+
 use lazy_static::lazy_static;
 use libwebrtc::prelude::*;
 use parking_lot::Mutex;
-use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Weak};
 
 lazy_static! {
     static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
@@ -39,9 +42,7 @@ impl LkRuntime {
             lk_runtime
         } else {
             log::debug!("LkRuntime::new()");
-            let new_runtime = Arc::new(Self {
-                pc_factory: PeerConnectionFactory::default(),
-            });
+            let new_runtime = Arc::new(Self { pc_factory: PeerConnectionFactory::default() });
             *lk_runtime_ref = Arc::downgrade(&new_runtime);
             new_runtime
         }

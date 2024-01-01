@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::proto;
-use crate::server::audio_source::FfiAudioSource;
-use crate::server::audio_stream::FfiAudioStream;
-use livekit::webrtc::audio_source::AudioSourceOptions;
-use livekit::webrtc::prelude::*;
+use livekit::webrtc::{audio_source::AudioSourceOptions, prelude::*};
+
+use crate::{
+    proto,
+    server::{audio_source::FfiAudioSource, audio_stream::FfiAudioStream},
+};
 
 impl From<proto::AudioSourceOptions> for AudioSourceOptions {
     fn from(opts: proto::AudioSourceOptions) -> Self {
@@ -41,16 +42,12 @@ impl From<&AudioFrame<'_>> for proto::AudioFrameBufferInfo {
 
 impl From<&FfiAudioSource> for proto::AudioSourceInfo {
     fn from(source: &FfiAudioSource) -> Self {
-        Self {
-            r#type: source.source_type as i32,
-        }
+        Self { r#type: source.source_type as i32 }
     }
 }
 
 impl From<&FfiAudioStream> for proto::AudioStreamInfo {
     fn from(stream: &FfiAudioStream) -> Self {
-        Self {
-            r#type: stream.stream_type as i32,
-        }
+        Self { r#type: stream.stream_type as i32 }
     }
 }

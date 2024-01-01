@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ice_candidate as ic;
-use crate::session_description::SdpParseError;
 use cxx::SharedPtr;
 use webrtc_sys::jsep as sys_jsep;
+
+use crate::{ice_candidate as ic, session_description::SdpParseError};
 
 #[derive(Clone)]
 pub struct IceCandidate {
@@ -35,9 +35,7 @@ impl IceCandidate {
         );
 
         match res {
-            Ok(sys_handle) => Ok(ic::IceCandidate {
-                handle: IceCandidate { sys_handle },
-            }),
+            Ok(sys_handle) => Ok(ic::IceCandidate { handle: IceCandidate { sys_handle } }),
             Err(e) => Err(unsafe { sys_jsep::ffi::SdpParseError::from(e.what()).into() }),
         }
     }

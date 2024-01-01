@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
+
 use crate::impl_thread_safety;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {
@@ -74,11 +77,7 @@ impl Error for ffi::SdpParseError {}
 
 impl Display for ffi::SdpParseError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "SdpParseError occurred {}: {}",
-            self.line, self.description
-        )
+        write!(f, "SdpParseError occurred {}: {}", self.line, self.description)
     }
 }
 

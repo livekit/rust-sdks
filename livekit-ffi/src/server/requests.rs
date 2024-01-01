@@ -12,18 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::room::{FfiParticipant, FfiPublication, FfiTrack};
+use std::{slice, sync::Arc};
+
+use livekit::{
+    prelude::*,
+    webrtc::{
+        native::{audio_resampler, yuv_helper},
+        prelude::*,
+        video_frame::{BoxVideoBuffer, I420Buffer},
+    },
+};
+use parking_lot::Mutex;
+
 use super::{
-    audio_source, audio_stream, room, video_source, video_stream, FfiError, FfiResult, FfiServer,
+    audio_source, audio_stream, room,
+    room::{FfiParticipant, FfiPublication, FfiTrack},
+    video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
-use livekit::prelude::*;
-use livekit::webrtc::native::{audio_resampler, yuv_helper};
-use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame::{BoxVideoBuffer, I420Buffer};
-use parking_lot::Mutex;
-use std::slice;
-use std::sync::Arc;
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -59,17 +65,15 @@ fn on_disconnect(
 ) -> FfiResult<proto::DisconnectResponse> {
     let async_id = server.next_id();
     server.async_runtime.spawn(async move {
-        let ffi_room = server
-            .retrieve_handle::<room::FfiRoom>(disconnect.room_handle)
-            .unwrap()
-            .clone();
+        let ffi_room =
+            server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle).unwrap().clone();
 
         ffi_room.close().await;
 
         let _ = server
-            .send_event(proto::ffi_event::Message::Disconnect(
-                proto::DisconnectCallback { async_id },
-            ))
+            .send_event(proto::ffi_event::Message::Disconnect(proto::DisconnectCallback {
+                async_id,
+            }))
             .await;
     });
 
@@ -82,9 +86,8 @@ fn on_publish_track(
     server: &'static FfiServer,
     publish: proto::PublishTrackRequest,
 ) -> FfiResult<proto::PublishTrackResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?.clone();
 
     Ok(ffi_participant.room.publish_track(server, publish))
 }
@@ -94,9 +97,8 @@ fn on_unpublish_track(
     server: &'static FfiServer,
     unpublish: proto::UnpublishTrackRequest,
 ) -> FfiResult<proto::UnpublishTrackResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(unpublish.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(unpublish.local_participant_handle)?.clone();
 
     Ok(ffi_participant.room.unpublish_track(server, unpublish))
 }
@@ -122,9 +124,7 @@ fn on_set_subscribed(
         server.retrieve_handle::<FfiPublication>(set_subscribed.publication_handle)?;
 
     let TrackPublication::Remote(publication) = &ffi_publication.publication else {
-        return Err(FfiError::InvalidRequest(
-            "publication is not a RemotePublication".into(),
-        ));
+        return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
     };
 
     let _guard = server.async_runtime.enter();
@@ -140,9 +140,7 @@ fn on_update_local_metadata(
         .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
         .clone();
 
-    Ok(ffi_participant
-        .room
-        .update_local_metadata(server, update_local_metadata))
+    Ok(ffi_participant.room.update_local_metadata(server, update_local_metadata))
 }
 
 fn on_update_local_name(
@@ -153,9 +151,7 @@ fn on_update_local_name(
         .retrieve_handle::<FfiParticipant>(update_local_name.local_participant_handle)?
         .clone();
 
-    Ok(ffi_participant
-        .room
-        .update_local_name(server, update_local_name))
+    Ok(ffi_participant.room.update_local_name(server, update_local_name))
 }
 
 /// Create a new video track from a source
@@ -170,10 +166,7 @@ fn on_create_video_track(
 
     let handle_id = server.next_id();
     let video_track = LocalVideoTrack::create_video_track(&create.name, source);
-    let ffi_track = FfiTrack {
-        handle: handle_id,
-        track: Track::LocalVideo(video_track),
-    };
+    let ffi_track = FfiTrack { handle: handle_id, track: Track::LocalVideo(video_track) };
 
     let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
@@ -198,10 +191,7 @@ fn on_create_audio_track(
 
     let handle_id = server.next_id();
     let audio_track = LocalAudioTrack::create_audio_track(&create.name, source);
-    let ffi_track = FfiTrack {
-        handle: handle_id,
-        track: Track::LocalAudio(audio_track),
-    };
+    let ffi_track = FfiTrack { handle: handle_id, track: Track::LocalAudio(audio_track) };
     let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
 
@@ -218,9 +208,7 @@ fn on_get_stats(
     server: &'static FfiServer,
     get_stats: proto::GetStatsRequest,
 ) -> FfiResult<proto::GetStatsResponse> {
-    let ffi_track = server
-        .retrieve_handle::<FfiTrack>(get_stats.track_handle)?
-        .clone();
+    let ffi_track = server.retrieve_handle::<FfiTrack>(get_stats.track_handle)?.clone();
 
     let async_id = server.next_id();
 
@@ -228,24 +216,20 @@ fn on_get_stats(
         match ffi_track.track.get_stats().await {
             Ok(stats) => {
                 let _ = server
-                    .send_event(proto::ffi_event::Message::GetStats(
-                        proto::GetStatsCallback {
-                            async_id,
-                            error: None,
-                            stats: stats.into_iter().map(Into::into).collect(),
-                        },
-                    ))
+                    .send_event(proto::ffi_event::Message::GetStats(proto::GetStatsCallback {
+                        async_id,
+                        error: None,
+                        stats: stats.into_iter().map(Into::into).collect(),
+                    }))
                     .await;
             }
             Err(err) => {
                 let _ = server
-                    .send_event(proto::ffi_event::Message::GetStats(
-                        proto::GetStatsCallback {
-                            async_id,
-                            error: Some(err.to_string()),
-                            stats: Vec::default(),
-                        },
-                    ))
+                    .send_event(proto::ffi_event::Message::GetStats(proto::GetStatsCallback {
+                        async_id,
+                        error: Some(err.to_string()),
+                        stats: Vec::default(),
+                    }))
                     .await;
             }
         }
@@ -261,11 +245,7 @@ fn on_alloc_video_buffer(
 ) -> FfiResult<proto::AllocVideoBufferResponse> {
     let buffer: BoxVideoBuffer = match alloc.r#type() {
         proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(alloc.width, alloc.height)),
-        _ => {
-            return Err(FfiError::InvalidRequest(
-                "frame type is not supported".into(),
-            ))
-        }
+        _ => return Err(FfiError::InvalidRequest("frame type is not supported".into())),
     };
 
     let handle_id = server.next_id();
@@ -286,9 +266,7 @@ fn on_new_video_stream(
     new_stream: proto::NewVideoStreamRequest,
 ) -> FfiResult<proto::NewVideoStreamResponse> {
     let stream_info = video_stream::FfiVideoStream::setup(server, new_stream)?;
-    Ok(proto::NewVideoStreamResponse {
-        stream: Some(stream_info),
-    })
+    Ok(proto::NewVideoStreamResponse { stream: Some(stream_info) })
 }
 
 /// Create a new video source, used to publish data to a track
@@ -297,9 +275,7 @@ fn on_new_video_source(
     new_source: proto::NewVideoSourceRequest,
 ) -> FfiResult<proto::NewVideoSourceResponse> {
     let source_info = video_source::FfiVideoSource::setup(server, new_source)?;
-    Ok(proto::NewVideoSourceResponse {
-        source: Some(source_info),
-    })
+    Ok(proto::NewVideoSourceResponse { source: Some(source_info) })
 }
 
 /// Push a frame to a source, libwebrtc will then decide if the frame should be dropped or not
@@ -322,9 +298,7 @@ unsafe fn on_to_i420(
     server: &'static FfiServer,
     to_i420: proto::ToI420Request,
 ) -> FfiResult<proto::ToI420Response> {
-    let from = to_i420
-        .from
-        .ok_or(FfiError::InvalidRequest("from is empty".into()))?;
+    let from = to_i420.from.ok_or(FfiError::InvalidRequest("from is empty".into()))?;
 
     #[rustfmt::skip]
     let i420 = match from {
@@ -439,10 +413,8 @@ unsafe fn on_to_argb(
     _server: &'static FfiServer,
     to_argb: proto::ToArgbRequest,
 ) -> FfiResult<proto::ToArgbResponse> {
-    let buffer = to_argb
-        .buffer
-        .as_ref()
-        .ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
+    let buffer =
+        to_argb.buffer.as_ref().ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
 
     let argb = slice::from_raw_parts_mut(
         to_argb.dst_ptr as *mut u8,
@@ -457,9 +429,7 @@ unsafe fn on_to_argb(
     match buffer.buffer_type() {
         proto::VideoFrameBufferType::I420 => {
             let Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) = &buffer.buffer else {
-                return Err(FfiError::InvalidRequest(
-                    "invalid i420 buffer description".into(),
-                ));
+                return Err(FfiError::InvalidRequest("invalid i420 buffer description".into()));
             };
 
             #[rustfmt::skip]
@@ -488,11 +458,7 @@ unsafe fn on_to_argb(
                 }
             }
         }
-        _ => {
-            return Err(FfiError::InvalidRequest(
-                "to_argb buffer type is not supported".into(),
-            ))
-        }
+        _ => return Err(FfiError::InvalidRequest("to_argb buffer type is not supported".into())),
     }
 
     Ok(proto::ToArgbResponse::default())
@@ -503,11 +469,7 @@ fn on_alloc_audio_buffer(
     server: &'static FfiServer,
     alloc: proto::AllocAudioBufferRequest,
 ) -> FfiResult<proto::AllocAudioBufferResponse> {
-    let frame = AudioFrame::new(
-        alloc.sample_rate,
-        alloc.num_channels,
-        alloc.samples_per_channel,
-    );
+    let frame = AudioFrame::new(alloc.sample_rate, alloc.num_channels, alloc.samples_per_channel);
 
     let handle_id = server.next_id();
     let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
@@ -527,9 +489,7 @@ fn on_new_audio_stream(
     new_stream: proto::NewAudioStreamRequest,
 ) -> FfiResult<proto::NewAudioStreamResponse> {
     let stream_info = audio_stream::FfiAudioStream::setup(server, new_stream)?;
-    Ok(proto::NewAudioStreamResponse {
-        stream: Some(stream_info),
-    })
+    Ok(proto::NewAudioStreamResponse { stream: Some(stream_info) })
 }
 
 /// Create a new audio source (used to publish audio frames to a track)
@@ -538,9 +498,7 @@ fn on_new_audio_source(
     new_source: proto::NewAudioSourceRequest,
 ) -> FfiResult<proto::NewAudioSourceResponse> {
     let source_info = audio_source::FfiAudioSource::setup(server, new_source)?;
-    Ok(proto::NewAudioSourceResponse {
-        source: Some(source_info),
-    })
+    Ok(proto::NewAudioSourceResponse { source: Some(source_info) })
 }
 
 /// Push a frame to a source
@@ -580,9 +538,7 @@ fn remix_and_resample(
         .retrieve_handle::<Arc<Mutex<audio_resampler::AudioResampler>>>(remix.resampler_handle)?
         .clone();
 
-    let buffer = remix
-        .buffer
-        .ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
+    let buffer = remix.buffer.ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
 
     let data = unsafe {
         let len = (buffer.num_channels * buffer.samples_per_channel) as usize;
@@ -629,9 +585,7 @@ fn on_e2ee_request(
     let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?;
     let e2ee_manager = ffi_room.inner.room.e2ee_manager();
 
-    let request = request
-        .message
-        .ok_or(FfiError::InvalidRequest("message is empty".into()))?;
+    let request = request.message.ok_or(FfiError::InvalidRequest("message is empty".into()))?;
 
     let msg = match request {
         proto::e2ee_request::Message::ManagerSetEnabled(request) => {
@@ -654,9 +608,7 @@ fn on_e2ee_request(
                 .collect();
 
             proto::e2ee_response::Message::ManagerGetFrameCryptors(
-                proto::E2eeManagerGetFrameCryptorsResponse {
-                    frame_cryptors: proto_frame_cryptors,
-                },
+                proto::E2eeManagerGetFrameCryptorsResponse { frame_cryptors: proto_frame_cryptors },
             )
         }
         proto::e2ee_request::Message::CryptorSetEnabled(request) => {
@@ -740,9 +692,7 @@ fn on_get_session_stats(
     server: &'static FfiServer,
     get_session_stats: proto::GetSessionStatsRequest,
 ) -> FfiResult<proto::GetSessionStatsResponse> {
-    let ffi_room = server
-        .retrieve_handle::<room::FfiRoom>(get_session_stats.room_handle)?
-        .clone();
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(get_session_stats.room_handle)?.clone();
     let async_id = server.next_id();
 
     server.async_runtime.spawn(async move {
@@ -789,9 +739,7 @@ pub fn handle_request(
     server: &'static FfiServer,
     request: proto::FfiRequest,
 ) -> FfiResult<proto::FfiResponse> {
-    let request = request
-        .message
-        .ok_or(FfiError::InvalidRequest("message is empty".into()))?;
+    let request = request.message.ok_or(FfiError::InvalidRequest("message is empty".into()))?;
 
     let mut res = proto::FfiResponse::default();
 

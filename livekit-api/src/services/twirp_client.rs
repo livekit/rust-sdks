@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::Display;
+
 use reqwest::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
     StatusCode,
 };
 use serde::Deserialize;
-use std::fmt::Display;
 use thiserror::Error;
 
 pub const DEFAULT_PREFIX: &str = "/twirp";
@@ -95,23 +96,11 @@ impl TwirpClient {
         mut headers: HeaderMap,
     ) -> TwirpResult<R> {
         let mut url = url::Url::parse(&self.host)?;
-        url.set_path(&format!(
-            "{}/{}.{}/{}",
-            self.prefix, self.pkg, service, method
-        ));
+        url.set_path(&format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method));
 
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/protobuf"),
-        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/protobuf"));
 
-        let resp = self
-            .client
-            .post(url)
-            .headers(headers)
-            .body(data.encode_to_vec())
-            .send()
-            .await?;
+        let resp = self.client.post(url).headers(headers).body(data.encode_to_vec()).send().await?;
 
         if resp.status() == StatusCode::OK {
             Ok(R::decode(resp.bytes().await?)?)

@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::prelude::*;
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
+
+use crate::prelude::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum VideoCodec {
@@ -68,9 +69,7 @@ pub struct AudioPreset {
 
 impl AudioPreset {
     pub const fn new(max_bitrate: u64) -> Self {
-        Self {
-            encoding: AudioEncoding { max_bitrate },
-        }
+        Self { encoding: AudioEncoding { max_bitrate } }
     }
 }
 
@@ -103,14 +102,7 @@ impl Default for TrackPublishOptions {
 
 impl VideoPreset {
     pub const fn new(width: u32, height: u32, max_bitrate: u64, max_framerate: f64) -> Self {
-        Self {
-            width,
-            height,
-            encoding: VideoEncoding {
-                max_bitrate,
-                max_framerate,
-            },
-        }
+        Self { width, height, encoding: VideoEncoding { max_bitrate, max_framerate } }
     }
 
     pub fn resolution(&self) -> VideoResolution {
@@ -316,14 +308,8 @@ pub mod audio {
     pub const MUSIC_HIGH_QUALITY: AudioPreset = AudioPreset::new(64_000);
     pub const MUSIC_HIGH_QUALITY_STEREO: AudioPreset = AudioPreset::new(96_000);
 
-    pub const PRESETS: &[AudioPreset] = &[
-        TELEPHONE,
-        SPEECH,
-        MUSIC,
-        MUSIC_STEREO,
-        MUSIC_HIGH_QUALITY,
-        MUSIC_HIGH_QUALITY_STEREO,
-    ];
+    pub const PRESETS: &[AudioPreset] =
+        &[TELEPHONE, SPEECH, MUSIC, MUSIC_STEREO, MUSIC_HIGH_QUALITY, MUSIC_HIGH_QUALITY_STEREO];
 }
 
 pub mod video {

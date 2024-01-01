@@ -12,20 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::proto;
-use crate::server::video_source::FfiVideoSource;
-use crate::server::video_stream::FfiVideoStream;
-use livekit::options::{VideoCodec, VideoResolution};
-use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame;
-use livekit::webrtc::video_source::VideoResolution as VideoSourceResolution;
+use livekit::{
+    options::{VideoCodec, VideoResolution},
+    webrtc::{prelude::*, video_frame, video_source::VideoResolution as VideoSourceResolution},
+};
+
+use crate::{
+    proto,
+    server::{video_source::FfiVideoSource, video_stream::FfiVideoStream},
+};
 
 impl From<proto::VideoSourceResolution> for VideoSourceResolution {
     fn from(res: proto::VideoSourceResolution) -> Self {
-        Self {
-            width: res.width,
-            height: res.height,
-        }
+        Self { width: res.width, height: res.height }
     }
 }
 
@@ -43,17 +42,13 @@ impl proto::VideoFrameInfo {
 
 impl From<&FfiVideoSource> for proto::VideoSourceInfo {
     fn from(source: &FfiVideoSource) -> Self {
-        Self {
-            r#type: source.source_type as i32,
-        }
+        Self { r#type: source.source_type as i32 }
     }
 }
 
 impl From<&FfiVideoStream> for proto::VideoStreamInfo {
     fn from(stream: &FfiVideoStream) -> Self {
-        Self {
-            r#type: stream.stream_type as i32,
-        }
+        Self { r#type: stream.stream_type as i32 }
     }
 }
 

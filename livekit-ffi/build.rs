@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::env;
-use std::path::Path;
+use std::{env, path::Path};
 
 fn main() {
     if env::var("DOCS_RS").is_ok() {

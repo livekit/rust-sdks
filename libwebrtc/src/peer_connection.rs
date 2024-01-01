@@ -12,19 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::data_channel::{DataChannel, DataChannelInit};
-use crate::ice_candidate::IceCandidate;
-use crate::imp::peer_connection as imp_pc;
-use crate::media_stream::MediaStream;
-use crate::media_stream_track::MediaStreamTrack;
-use crate::peer_connection_factory::RtcConfiguration;
-use crate::rtp_receiver::RtpReceiver;
-use crate::rtp_sender::RtpSender;
-use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverInit};
-use crate::session_description::SessionDescription;
-use crate::stats::RtcStats;
-use crate::{MediaType, RtcError};
 use std::fmt::Debug;
+
+use crate::{
+    data_channel::{DataChannel, DataChannelInit},
+    ice_candidate::IceCandidate,
+    imp::peer_connection as imp_pc,
+    media_stream::MediaStream,
+    media_stream_track::MediaStreamTrack,
+    peer_connection_factory::RtcConfiguration,
+    rtp_receiver::RtpReceiver,
+    rtp_sender::RtpSender,
+    rtp_transceiver::{RtpTransceiver, RtpTransceiverInit},
+    session_description::SessionDescription,
+    stats::RtcStats,
+    MediaType, RtcError,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PeerConnectionState {
@@ -270,10 +273,10 @@ impl Debug for PeerConnection {
 
 #[cfg(test)]
 mod tests {
-    use crate::peer_connection::*;
-    use crate::peer_connection_factory::*;
     use log::trace;
     use tokio::sync::mpsc;
+
+    use crate::{peer_connection::*, peer_connection_factory::*};
 
     #[tokio::test]
     async fn create_pc() {
@@ -309,9 +312,7 @@ mod tests {
             alice_dc_tx.send(dc).unwrap();
         })));
 
-        let bob_dc = bob
-            .create_data_channel("test_dc", DataChannelInit::default())
-            .unwrap();
+        let bob_dc = bob.create_data_channel("test_dc", DataChannelInit::default()).unwrap();
 
         let offer = bob.create_offer(OfferOptions::default()).await.unwrap();
         trace!("Bob offer: {:?}", offer);
@@ -332,9 +333,7 @@ mod tests {
         let (data_tx, mut data_rx) = mpsc::unbounded_channel::<String>();
         let alice_dc = alice_dc_rx.recv().await.unwrap();
         alice_dc.on_message(Some(Box::new(move |buffer| {
-            data_tx
-                .send(String::from_utf8_lossy(buffer.data).to_string())
-                .unwrap();
+            data_tx.send(String::from_utf8_lossy(buffer.data).to_string()).unwrap();
         })));
 
         bob_dc.send(b"This is a test", true).unwrap();

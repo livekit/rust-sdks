@@ -83,8 +83,8 @@ pub fn custom_dir() -> Option<path::PathBuf> {
 }
 
 /// Location of the downloaded webrtc binaries
-/// The reason why we don't use OUT_DIR is because we sometimes need to share the same binaries across multiple crates
-/// without dependencies constraints
+/// The reason why we don't use OUT_DIR is because we sometimes need to share the same binaries
+/// across multiple crates without dependencies constraints
 /// This also has the benefit of not re-downloading the binaries for each crate
 pub fn prebuilt_dir() -> path::PathBuf {
     let target_dir = scratch::path(SCRATH_PATH);
@@ -119,9 +119,7 @@ pub fn webrtc_defines() -> Vec<(String, Option<String>)> {
     let webrtc_gni = fs::File::open(webrtc_dir().join("webrtc.ninja")).unwrap();
 
     let mut defines_line = String::default();
-    io::BufReader::new(webrtc_gni)
-        .read_line(&mut defines_line)
-        .unwrap();
+    io::BufReader::new(webrtc_gni).read_line(&mut defines_line).unwrap();
 
     let mut vec = Vec::default();
     for cap in defines_re.captures_iter(&defines_line) {
@@ -157,10 +155,8 @@ pub fn configure_jni_symbols() -> Result<(), Box<dyn Error>> {
 
     let jni_regex = Regex::new(r"(Java_org_webrtc.*)").unwrap();
     let content = String::from_utf8_lossy(&readelf_output.stdout);
-    let jni_symbols: Vec<&str> = jni_regex
-        .captures_iter(&content)
-        .map(|cap| cap.get(1).unwrap().as_str())
-        .collect();
+    let jni_symbols: Vec<&str> =
+        jni_regex.captures_iter(&content).map(|cap| cap.get(1).unwrap().as_str()).collect();
 
     if jni_symbols.is_empty() {
         return Err("No JNI symbols found".into()); // Shouldn't happen
@@ -178,10 +174,7 @@ pub fn configure_jni_symbols() -> Result<(), Box<dyn Error>> {
     let jni_symbols = jni_symbols.join("; ");
     write!(vs_file, "JNI_WEBRTC {{\n\tglobal: {}; \n}};", jni_symbols).unwrap();
 
-    println!(
-        "cargo:rustc-link-arg=-Wl,--version-script={}",
-        vs_path.display()
-    );
+    println!("cargo:rustc-link-arg=-Wl,--version-script={}", vs_path.display());
 
     Ok(())
 }
@@ -203,11 +196,7 @@ pub fn download_webrtc() -> Result<(), Box<dyn Error>> {
 
     let tmp_path = env::var("OUT_DIR").unwrap() + "/webrtc.zip";
     let tmp_path = path::Path::new(&tmp_path);
-    let mut file = fs::File::options()
-        .write(true)
-        .read(true)
-        .create(true)
-        .open(tmp_path)?;
+    let mut file = fs::File::options().write(true).read(true).create(true).open(tmp_path)?;
     resp.copy_to(&mut file)?;
 
     let mut archive = zip::ZipArchive::new(file)?;

@@ -12,20 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::proto::FfiEvent;
-use crate::{proto, INVALID_HANDLE};
-use crate::{FfiError, FfiHandleId, FfiResult};
-use dashmap::mapref::one::MappedRef;
-use dashmap::DashMap;
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    thread,
+    time::Duration,
+};
+
+use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
-use livekit::webrtc::native::audio_resampler::AudioResampler;
-use livekit::webrtc::prelude::*;
-use parking_lot::deadlock;
-use parking_lot::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
+use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
+use parking_lot::{deadlock, Mutex};
+
+use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
 pub mod audio_source;
 pub mod audio_stream;
@@ -73,14 +74,10 @@ pub struct FfiServer {
 
 impl Default for FfiServer {
     fn default() -> Self {
-        let async_runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let async_runtime =
+            tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
-        let logger = Box::leak(Box::new(logger::FfiLogger::new(
-            async_runtime.handle().clone(),
-        )));
+        let logger = Box::leak(Box::new(logger::FfiLogger::new(async_runtime.handle().clone())));
         log::set_logger(logger).unwrap();
         log::set_max_level(log::LevelFilter::Trace);
 
@@ -145,15 +142,14 @@ impl FfiServer {
     }
 
     pub async fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
-        let cb = self.config.lock().as_ref().map_or_else(
-            || Err(FfiError::NotConfigured),
-            |c| Ok(c.callback_fn.clone()),
-        )?;
+        let cb = self
+            .config
+            .lock()
+            .as_ref()
+            .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn.clone()))?;
 
         let cb_task = self.async_runtime.spawn_blocking(move || {
-            cb(proto::FfiEvent {
-                message: Some(message),
-            });
+            cb(proto::FfiEvent { message: Some(message) });
         });
 
         tokio::select! {
@@ -188,10 +184,8 @@ impl FfiServer {
             return Err(FfiError::InvalidRequest("handle is invalid".into()));
         }
 
-        let handle = self
-            .ffi_handles
-            .get(&id)
-            .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
+        let handle =
+            self.ffi_handles.get(&id).ok_or(FfiError::InvalidRequest("handle not found".into()))?;
 
         if !handle.is::<T>() {
             let tyname = std::any::type_name::<T>();

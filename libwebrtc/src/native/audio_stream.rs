@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::audio_frame::AudioFrame;
-use crate::audio_track::RtcAudioTrack;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
+
 use cxx::SharedPtr;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
 use webrtc_sys::audio_track as sys_at;
+
+use crate::{audio_frame::AudioFrame, audio_track::RtcAudioTrack};
 
 pub struct NativeAudioStream {
     native_sink: SharedPtr<sys_at::ffi::NativeAudioSink>,
@@ -39,11 +42,7 @@ impl NativeAudioStream {
         let audio = unsafe { sys_at::ffi::media_to_audio(audio_track.sys_handle()) };
         audio.add_sink(&native_sink);
 
-        Self {
-            native_sink,
-            audio_track,
-            frame_rx,
-        }
+        Self { native_sink, audio_track, frame_rx }
     }
 
     pub fn track(&self) -> RtcAudioTrack {

@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::access_token::{AccessTokenError, TokenVerifier};
 use base64::Engine;
 use livekit_protocol as proto;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+
+use crate::access_token::{AccessTokenError, TokenVerifier};
 
 #[derive(Debug, Error)]
 pub enum WebhookError {

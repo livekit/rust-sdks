@@ -12,31 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::video_frame::{I420Buffer, VideoBuffer, VideoFrame};
-use crate::video_source::VideoResolution;
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
 use cxx::SharedPtr;
 use parking_lot::Mutex;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use webrtc_sys::video_frame as vf_sys;
-use webrtc_sys::video_frame::ffi::VideoRotation;
-use webrtc_sys::video_track as vt_sys;
+use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
+
+use crate::{
+    video_frame::{I420Buffer, VideoBuffer, VideoFrame},
+    video_source::VideoResolution,
+};
 
 impl From<vt_sys::ffi::VideoResolution> for VideoResolution {
     fn from(res: vt_sys::ffi::VideoResolution) -> Self {
-        Self {
-            width: res.width,
-            height: res.height,
-        }
+        Self { width: res.width, height: res.height }
     }
 }
 
 impl From<VideoResolution> for vt_sys::ffi::VideoResolution {
     fn from(res: VideoResolution) -> Self {
-        Self {
-            width: res.width,
-            height: res.height,
-        }
+        Self { width: res.width, height: res.height }
     }
 }
 
@@ -74,19 +72,13 @@ impl NativeVideoSource {
                     }
 
                     let mut builder = vf_sys::ffi::new_video_frame_builder();
-                    builder
-                        .pin_mut()
-                        .set_rotation(VideoRotation::VideoRotation0);
-                    builder
-                        .pin_mut()
-                        .set_video_frame_buffer(i420.as_ref().sys_handle());
+                    builder.pin_mut().set_rotation(VideoRotation::VideoRotation0);
+                    builder.pin_mut().set_video_frame_buffer(i420.as_ref().sys_handle());
 
                     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                     builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
 
-                    source
-                        .sys_handle
-                        .on_captured_frame(&builder.pin_mut().build());
+                    source.sys_handle.on_captured_frame(&builder.pin_mut().build());
                 }
             }
         });
@@ -104,9 +96,7 @@ impl NativeVideoSource {
 
         let mut builder = vf_sys::ffi::new_video_frame_builder();
         builder.pin_mut().set_rotation(frame.rotation.into());
-        builder
-            .pin_mut()
-            .set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
+        builder.pin_mut().set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
 
         if frame.timestamp_us == 0 {
             // If the timestamp is set to 0, default to now
@@ -116,8 +106,7 @@ impl NativeVideoSource {
             builder.pin_mut().set_timestamp_us(frame.timestamp_us);
         }
 
-        self.sys_handle
-            .on_captured_frame(&builder.pin_mut().build());
+        self.sys_handle.on_captured_frame(&builder.pin_mut().build());
     }
 
     pub fn video_resolution(&self) -> VideoResolution {

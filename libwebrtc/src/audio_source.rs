@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::audio_source as imp_as;
 use livekit_protocol::enum_dispatch;
+
+use crate::imp::audio_source as imp_as;
 
 #[derive(Default, Debug)]
 pub struct AudioSourceOptions {
@@ -41,9 +42,10 @@ impl RtcAudioSource {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
+    use std::fmt::{Debug, Formatter};
+
     use super::*;
     use crate::{audio_frame::AudioFrame, RtcError};
-    use std::fmt::{Debug, Formatter};
 
     #[derive(Clone)]
     pub struct NativeAudioSource {
@@ -62,9 +64,7 @@ pub mod native {
             sample_rate: u32,
             num_channels: u32,
         ) -> NativeAudioSource {
-            Self {
-                handle: imp_as::NativeAudioSource::new(options, sample_rate, num_channels),
-            }
+            Self { handle: imp_as::NativeAudioSource::new(options, sample_rate, num_channels) }
         }
 
         pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {

@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::impl_thread_safety;
-use crate::video_frame::ffi::VideoFrame;
-use cxx::UniquePtr;
 use std::sync::Arc;
+
+use cxx::UniquePtr;
+
+use crate::{impl_thread_safety, video_frame::ffi::VideoFrame};
 
 #[cxx::bridge(namespace = "livekit")]
 pub mod ffi {

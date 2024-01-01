@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::services::twirp_client::TwirpClient;
-use crate::{access_token::VideoGrants, get_env_keys};
 use livekit_protocol as proto;
+
+use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
 const SVC: &str = "RoomService";
 
@@ -81,10 +81,7 @@ impl RoomClient {
                     egress: options.egress,
                     ..Default::default()
                 },
-                self.base.auth_header(VideoGrants {
-                    room_create: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { room_create: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -97,10 +94,7 @@ impl RoomClient {
                 SVC,
                 "ListRooms",
                 proto::ListRoomsRequest { names },
-                self.base.auth_header(VideoGrants {
-                    room_list: true,
-                    ..Default::default()
-                })?,
+                self.base.auth_header(VideoGrants { room_list: true, ..Default::default() })?,
             )
             .await?;
 
@@ -112,13 +106,8 @@ impl RoomClient {
             .request(
                 SVC,
                 "DeleteRoom",
-                proto::DeleteRoomRequest {
-                    room: room.to_owned(),
-                },
-                self.base.auth_header(VideoGrants {
-                    room_create: true,
-                    ..Default::default()
-                })?,
+                proto::DeleteRoomRequest { room: room.to_owned() },
+                self.base.auth_header(VideoGrants { room_create: true, ..Default::default() })?,
             )
             .await
             .map_err(Into::into)
@@ -156,9 +145,7 @@ impl RoomClient {
             .request(
                 SVC,
                 "ListParticipants",
-                proto::ListParticipantsRequest {
-                    room: room.to_owned(),
-                },
+                proto::ListParticipantsRequest { room: room.to_owned() },
                 self.base.auth_header(VideoGrants {
                     room_admin: true,
                     room: room.to_owned(),

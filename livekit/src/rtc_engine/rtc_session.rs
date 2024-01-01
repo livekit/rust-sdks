@@ -12,35 +12,48 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::id::ParticipantSid;
-use crate::options::TrackPublishOptions;
-use crate::prelude::TrackKind;
-use crate::room::DisconnectReason;
-use crate::rtc_engine::lk_runtime::LkRuntime;
-use crate::rtc_engine::peer_transport::PeerTransport;
-use crate::rtc_engine::rtc_events::{RtcEvent, RtcEvents};
-use crate::track::LocalTrack;
-use crate::DataPacketKind;
-use libwebrtc::prelude::*;
-use libwebrtc::stats::RtcStats;
+use std::{
+    collections::HashMap,
+    convert::TryInto,
+    fmt::Debug,
+    ops::Not,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+
+use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use prost::Message;
-use proto::debouncer::{self, Debouncer};
-use proto::SignalTarget;
+use proto::{
+    debouncer::{self, Debouncer},
+    SignalTarget,
+};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::fmt::Debug;
-use std::ops::Not;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{mpsc, oneshot, watch};
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::{
+    sync::{mpsc, oneshot, watch},
+    task::JoinHandle,
+    time::sleep,
+};
+
+use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
+use crate::{
+    id::ParticipantSid,
+    options::TrackPublishOptions,
+    prelude::TrackKind,
+    room::DisconnectReason,
+    rtc_engine::{
+        lk_runtime::LkRuntime,
+        peer_transport::PeerTransport,
+        rtc_events::{RtcEvent, RtcEvents},
+    },
+    track::LocalTrack,
+    DataPacketKind,
+};
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -166,9 +179,7 @@ impl RtcSession {
 
         let lk_runtime = LkRuntime::instance();
         let mut publisher_pc = PeerTransport::new(
-            lk_runtime
-                .pc_factory()
-                .create_peer_connection(rtc_config.clone())?,
+            lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
             proto::SignalTarget::Publisher,
         );
 
@@ -188,10 +199,7 @@ impl RtcSession {
 
         let mut reliable_dc = publisher_pc.peer_connection().create_data_channel(
             RELIABLE_DC_LABEL,
-            DataChannelInit {
-                ordered: true,
-                ..DataChannelInit::default()
-            },
+            DataChannelInit { ordered: true, ..DataChannelInit::default() },
         )?;
 
         // Forward events received inside the signaling thread to our rtc channel
@@ -221,11 +229,7 @@ impl RtcSession {
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx));
 
-        let handle = Mutex::new(Some(SessionHandle {
-            close_tx,
-            signal_task,
-            rtc_task,
-        }));
+        let handle = Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_task }));
 
         Ok((Self { inner, handle }, join_response, session_events))
     }
@@ -295,24 +299,11 @@ impl RtcSession {
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
-        let publisher_stats = self
-            .inner
-            .publisher_pc
-            .peer_connection()
-            .get_stats()
-            .await?;
+        let publisher_stats = self.inner.publisher_pc.peer_connection().get_stats().await?;
 
-        let subscriber_stats = self
-            .inner
-            .subscriber_pc
-            .peer_connection()
-            .get_stats()
-            .await?;
+        let subscriber_stats = self.inner.subscriber_pc.peer_connection().get_stats().await?;
 
-        Ok(SessionStats {
-            publisher_stats,
-            subscriber_stats,
-        })
+        Ok(SessionStats { publisher_stats, subscriber_stats })
     }
 
     pub fn publisher(&self) -> &PeerTransport {
@@ -433,18 +424,14 @@ impl SessionInner {
                 log::debug!("received subscriber offer: {:?}", offer);
                 let offer =
                     SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap()).unwrap();
-                let answer = self
-                    .subscriber_pc
-                    .create_anwser(offer, AnswerOptions::default())
-                    .await?;
+                let answer =
+                    self.subscriber_pc.create_anwser(offer, AnswerOptions::default()).await?;
 
                 self.signal_client
-                    .send(proto::signal_request::Message::Answer(
-                        proto::SessionDescription {
-                            r#type: "answer".to_string(),
-                            sdp: answer.to_string(),
-                        },
-                    ))
+                    .send(proto::signal_request::Message::Answer(proto::SessionDescription {
+                        r#type: "answer".to_string(),
+                        sdp: answer.to_string(),
+                    }))
                     .await;
             }
             proto::signal_response::Message::Trickle(trickle) => {
@@ -475,19 +462,17 @@ impl SessionInner {
                 );
             }
             proto::signal_response::Message::Update(update) => {
-                let _ = self.emitter.send(SessionEvent::ParticipantUpdate {
-                    updates: update.participants,
-                });
+                let _ = self
+                    .emitter
+                    .send(SessionEvent::ParticipantUpdate { updates: update.participants });
             }
             proto::signal_response::Message::SpeakersChanged(speaker) => {
-                let _ = self.emitter.send(SessionEvent::SpeakersChanged {
-                    speakers: speaker.speakers,
-                });
+                let _ =
+                    self.emitter.send(SessionEvent::SpeakersChanged { speakers: speaker.speakers });
             }
             proto::signal_response::Message::ConnectionQuality(quality) => {
-                let _ = self.emitter.send(SessionEvent::ConnectionQuality {
-                    updates: quality.updates,
-                });
+                let _ =
+                    self.emitter.send(SessionEvent::ConnectionQuality { updates: quality.updates });
             }
             proto::signal_response::Message::TrackPublished(publish_res) => {
                 let mut pending_tracks = self.pending_tracks.lock();
@@ -496,9 +481,8 @@ impl SessionInner {
                 }
             }
             proto::signal_response::Message::RoomUpdate(room_update) => {
-                let _ = self.emitter.send(SessionEvent::RoomUpdate {
-                    room: room_update.room.unwrap(),
-                });
+                let _ =
+                    self.emitter.send(SessionEvent::RoomUpdate { room: room_update.room.unwrap() });
             }
             _ => {}
         }
@@ -508,23 +492,18 @@ impl SessionInner {
 
     async fn on_rtc_event(&self, event: RtcEvent) -> EngineResult<()> {
         match event {
-            RtcEvent::IceCandidate {
-                ice_candidate,
-                target,
-            } => {
+            RtcEvent::IceCandidate { ice_candidate, target } => {
                 log::debug!("local ice_candidate {:?} {:?}", ice_candidate, target);
                 self.signal_client
-                    .send(proto::signal_request::Message::Trickle(
-                        proto::TrickleRequest {
-                            candidate_init: serde_json::to_string(&IceCandidateJson {
-                                sdp_mid: ice_candidate.sdp_mid(),
-                                sdp_m_line_index: ice_candidate.sdp_mline_index(),
-                                candidate: ice_candidate.candidate(),
-                            })
-                            .unwrap(),
-                            target: target as i32,
-                        },
-                    ))
+                    .send(proto::signal_request::Message::Trickle(proto::TrickleRequest {
+                        candidate_init: serde_json::to_string(&IceCandidateJson {
+                            sdp_mid: ice_candidate.sdp_mid(),
+                            sdp_m_line_index: ice_candidate.sdp_mline_index(),
+                            candidate: ice_candidate.candidate(),
+                        })
+                        .unwrap(),
+                        target: target as i32,
+                    }))
                     .await;
             }
             RtcEvent::ConnectionChange { state, target } => {
@@ -541,10 +520,7 @@ impl SessionInner {
                     );
                 }
             }
-            RtcEvent::DataChannel {
-                data_channel,
-                target,
-            } => {
+            RtcEvent::DataChannel { data_channel, target } => {
                 log::debug!("received data channel: {:?} {:?}", data_channel, target);
                 if target == SignalTarget::Subscriber {
                     if data_channel.label() == LOSSY_DC_LABEL {
@@ -558,20 +534,13 @@ impl SessionInner {
                 // Send the publisher offer to the server
                 log::debug!("sending publisher offer: {:?}", offer);
                 self.signal_client
-                    .send(proto::signal_request::Message::Offer(
-                        proto::SessionDescription {
-                            r#type: "offer".to_string(),
-                            sdp: offer.to_string(),
-                        },
-                    ))
+                    .send(proto::signal_request::Message::Offer(proto::SessionDescription {
+                        r#type: "offer".to_string(),
+                        sdp: offer.to_string(),
+                    }))
                     .await;
             }
-            RtcEvent::Track {
-                mut streams,
-                track,
-                transceiver,
-                target: _,
-            } => {
+            RtcEvent::Track { mut streams, track, transceiver, target: _ } => {
                 if !streams.is_empty() {
                     let _ = self.emitter.send(SessionEvent::MediaTrack {
                         stream: streams.remove(0),
@@ -584,9 +553,7 @@ impl SessionInner {
             }
             RtcEvent::Data { data, binary } => {
                 if !binary {
-                    Err(EngineError::Internal(
-                        "text messages aren't supported".into(),
-                    ))?;
+                    Err(EngineError::Internal("text messages aren't supported".into()))?;
                 }
 
                 let data = proto::DataPacket::decode(&*data).unwrap();
@@ -625,9 +592,7 @@ impl SessionInner {
             pendings_tracks.insert(cid.clone(), tx);
         }
 
-        self.signal_client
-            .send(proto::signal_request::Message::AddTrack(req))
-            .await;
+        self.signal_client.send(proto::signal_request::Message::AddTrack(req)).await;
 
         // Wait the result from the server (TrackInfo)
         tokio::select! {
@@ -665,18 +630,16 @@ impl SessionInner {
             send_encodings: encodings,
         };
 
-        let transceiver = self
-            .publisher_pc
-            .peer_connection()
-            .add_transceiver(track.rtc_track(), init)?;
+        let transceiver =
+            self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
         if track.kind() == TrackKind::Video {
-            let capabilities = LkRuntime::instance()
-                .pc_factory()
-                .get_rtp_sender_capabilities(match track.kind() {
+            let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
+                match track.kind() {
                     TrackKind::Video => MediaType::Video,
                     TrackKind::Audio => MediaType::Audio,
-                });
+                },
+            );
 
             let mut matched = Vec::new();
             let mut partial_matched = Vec::new();
@@ -743,12 +706,10 @@ impl SessionInner {
 
     async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         let simulate_leave = || {
-            self.on_signal_event(proto::signal_response::Message::Leave(
-                proto::LeaveRequest {
-                    reason: DisconnectReason::ClientInitiated as i32,
-                    can_reconnect: true,
-                },
-            ))
+            self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                reason: DisconnectReason::ClientInitiated as i32,
+                can_reconnect: true,
+            }))
         };
 
         match scenario {
@@ -757,66 +718,54 @@ impl SessionInner {
             }
             SimulateScenario::Speaker => {
                 self.signal_client
-                    .send(proto::signal_request::Message::Simulate(
-                        proto::SimulateScenario {
-                            scenario: Some(proto::simulate_scenario::Scenario::SpeakerUpdate(3)),
-                        },
-                    ))
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(proto::simulate_scenario::Scenario::SpeakerUpdate(3)),
+                    }))
                     .await;
             }
             SimulateScenario::NodeFailure => {
                 self.signal_client
-                    .send(proto::signal_request::Message::Simulate(
-                        proto::SimulateScenario {
-                            scenario: Some(proto::simulate_scenario::Scenario::NodeFailure(true)),
-                        },
-                    ))
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(proto::simulate_scenario::Scenario::NodeFailure(true)),
+                    }))
                     .await;
             }
             SimulateScenario::ServerLeave => {
                 self.signal_client
-                    .send(proto::signal_request::Message::Simulate(
-                        proto::SimulateScenario {
-                            scenario: Some(proto::simulate_scenario::Scenario::ServerLeave(true)),
-                        },
-                    ))
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(proto::simulate_scenario::Scenario::ServerLeave(true)),
+                    }))
                     .await;
             }
             SimulateScenario::Migration => {
                 self.signal_client
-                    .send(proto::signal_request::Message::Simulate(
-                        proto::SimulateScenario {
-                            scenario: Some(proto::simulate_scenario::Scenario::Migration(true)),
-                        },
-                    ))
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(proto::simulate_scenario::Scenario::Migration(true)),
+                    }))
                     .await;
             }
             SimulateScenario::ForceTcp => {
                 self.signal_client
-                    .send(proto::signal_request::Message::Simulate(
-                        proto::SimulateScenario {
-                            scenario: Some(
-                                proto::simulate_scenario::Scenario::SwitchCandidateProtocol(
-                                    proto::CandidateProtocol::Tcp as i32,
-                                ),
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::SwitchCandidateProtocol(
+                                proto::CandidateProtocol::Tcp as i32,
                             ),
-                        },
-                    ))
+                        ),
+                    }))
                     .await;
 
                 simulate_leave().await?
             }
             SimulateScenario::ForceTls => {
                 self.signal_client
-                    .send(proto::signal_request::Message::Simulate(
-                        proto::SimulateScenario {
-                            scenario: Some(
-                                proto::simulate_scenario::Scenario::SwitchCandidateProtocol(
-                                    proto::CandidateProtocol::Tls as i32,
-                                ),
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::SwitchCandidateProtocol(
+                                proto::CandidateProtocol::Tls as i32,
                             ),
-                        },
-                    ))
+                        ),
+                    }))
                     .await;
 
                 simulate_leave().await?
@@ -839,19 +788,16 @@ impl SessionInner {
             })
     }
 
-    /// This reconnection if more seemless compared to the full reconnection implemented in ['RTCEngine']
+    /// This reconnection if more seemless compared to the full reconnection implemented in
+    /// ['RTCEngine']
     async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
         let reconnect_response = self.signal_client.restart().await?;
         log::info!("received reconnect response: {:?}", reconnect_response);
 
         let rtc_config =
             make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());
-        self.publisher_pc
-            .peer_connection()
-            .set_configuration(rtc_config.clone())?;
-        self.subscriber_pc
-            .peer_connection()
-            .set_configuration(rtc_config)?;
+        self.publisher_pc.peer_connection().set_configuration(rtc_config.clone())?;
+        self.subscriber_pc.peer_connection().set_configuration(rtc_config)?;
 
         Ok(reconnect_response)
     }
@@ -859,10 +805,7 @@ impl SessionInner {
     async fn restart_publisher(&self) -> EngineResult<()> {
         if self.has_published.load(Ordering::Acquire) {
             self.publisher_pc
-                .create_and_send_offer(OfferOptions {
-                    ice_restart: true,
-                    ..Default::default()
-                })
+                .create_and_send_offer(OfferOptions { ice_restart: true, ..Default::default() })
                 .await?;
         }
         Ok(())
@@ -903,19 +846,14 @@ impl SessionInner {
         if debouncer.is_none() || debouncer.as_ref().unwrap().call().is_err() {
             let session = self.clone();
 
-            *debouncer = Some(debouncer::debounce(
-                PUBLISHER_NEGOTIATION_FREQUENCY,
-                async move {
-                    log::debug!("negotiating the publisher");
-                    if let Err(err) = session
-                        .publisher_pc
-                        .create_and_send_offer(OfferOptions::default())
-                        .await
-                    {
-                        log::error!("failed to negotiate the publisher: {:?}", err);
-                    }
-                },
-            ));
+            *debouncer = Some(debouncer::debounce(PUBLISHER_NEGOTIATION_FREQUENCY, async move {
+                log::debug!("negotiating the publisher");
+                if let Err(err) =
+                    session.publisher_pc.create_and_send_offer(OfferOptions::default()).await
+                {
+                    log::error!("failed to negotiate the publisher: {:?}", err);
+                }
+            }));
         }
     }
 
