@@ -58,7 +58,7 @@ impl SignalStream {
     /// SignalStream will never try to reconnect if the connection has been
     /// closed.
     pub async fn connect(
-        mut url: url::Url,
+        url: url::Url,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
         {
             // Don't log sensitive info
@@ -80,13 +80,6 @@ impl SignalStream {
             }
 
             log::info!("connecting to {}", url);
-        }
-
-        // Automatically switch to websocket scheme when using http
-        if url.scheme() == "https" {
-            url.set_scheme("wss").unwrap();
-        } else if url.scheme() == "http" {
-            url.set_scheme("ws").unwrap();
         }
 
         let (ws_stream, _) = connect_async(url).await?;
