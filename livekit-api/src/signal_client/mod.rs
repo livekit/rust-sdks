@@ -48,7 +48,7 @@ pub const PROTOCOL_VERSION: u32 = 9;
 pub enum SignalError {
     #[error("ws failure: {0}")]
     WsError(#[from] WsError),
-    #[error("failed to parse the url {0}")]
+    #[error("failed to parse the url: {0}")]
     UrlParse(String),
     #[error("client error: {0} - {1}")]
     Client(StatusCode, String),
