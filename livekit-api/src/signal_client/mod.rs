@@ -49,7 +49,7 @@ pub enum SignalError {
     #[error("ws failure: {0}")]
     WsError(#[from] WsError),
     #[error("failed to parse the url {0}")]
-    UrlParse(#[from] url::ParseError),
+    UrlParse(String),
     #[error("client error: {0} - {1}")]
     Client(StatusCode, String),
     #[error("server error: {0} - {1}")]
@@ -392,7 +392,20 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
 }
 
 fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalResult<url::Url> {
-    let mut lk_url = url::Url::parse(url)?;
+    let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
+
+    if !lk_url.has_host() {
+        return Err(SignalError::UrlParse("missing host or scheme".into()));
+    }
+
+    // Automatically switch to websocket scheme when using user is providing http(s) scheme
+    if lk_url.scheme() == "https" {
+        lk_url.set_scheme("wss").unwrap();
+    } else if lk_url.scheme() == "http" {
+        lk_url.set_scheme("ws").unwrap();
+    } else if lk_url.scheme() != "wss" && lk_url.scheme() != "ws" {
+        return Err(SignalError::UrlParse(format!("unsupported scheme: {}", lk_url.scheme())));
+    }
 
     if let Ok(mut segs) = lk_url.path_segments_mut() {
         segs.push("rtc");
@@ -442,3 +455,21 @@ get_async_message!(
     proto::signal_response::Message::Reconnect(msg) => msg,
     proto::ReconnectResponse
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn livekit_url_test() {
+        let it = "null_token";
+        let io = SignalOptions::default();
+
+        assert!(get_livekit_url("localhost:7880", it, &io).is_err());
+        assert_eq!(get_livekit_url("https://localhost:7880", it, &io).unwrap().scheme(), "wss");
+        assert_eq!(get_livekit_url("http://localhost:7880", it, &io).unwrap().scheme(), "ws");
+        assert_eq!(get_livekit_url("wss://localhost:7880", it, &io).unwrap().scheme(), "wss");
+        assert_eq!(get_livekit_url("ws://localhost:7880", it, &io).unwrap().scheme(), "ws");
+        assert!(get_livekit_url("ftp://localhost:7880", it, &io).is_err());
+    }
+}
