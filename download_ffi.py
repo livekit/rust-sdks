@@ -43,13 +43,20 @@ def target_os():
 def target_arch():
     arch = platform.machine().lower()
     arch_mapping = {
-        'amd64': 'x86_64',
-        'x86_64': 'x86_64',
-        'arm64': 'arm64',
-        'aarch64': 'arm64',
-        'armv7': 'armv7',
-        'armv7l': 'armv7'
+        "amd64": "x86_64",
+        "x86_64": "x86_64",
+        "arm64": "arm64",
+        "aarch64": "arm64",
+        "armv7": "armv7",
+        "armv7l": "armv7",
     }
+
+    # make sure cibuildwheel download the right binary when cross-compiling to arm64
+    # TODO: Make this more generic
+    if os.environ.get("CIBUILDWHEEL") == "1" and "arm64" in os.environ.get(
+        "ARCHFLAGS", ""
+    ):
+        return "arm64"
 
     return arch_mapping.get(arch)
 
@@ -57,7 +64,7 @@ def target_arch():
 # extract the version from livekit-ffi/Cargo.toml
 def ffi_version():
     file = os.path.join(os.path.dirname(__file__), "livekit-ffi", "Cargo.toml")
-    with open(file, 'r') as f:
+    with open(file, "r") as f:
         return re.search(r'version\s*=\s*"(\d+\.\d+\.\d+)"', f.read()).group(1)
 
 
@@ -109,7 +116,9 @@ if __name__ == "__main__":
     parser.add_argument("--output", help="output path", required=True)
     args = parser.parse_args()
 
-    print("downloading livekit-ffi v%s for %s-%s" %
-          (args.version, args.platform, args.arch))
+    print(
+        "downloading livekit-ffi v%s for %s-%s"
+        % (args.version, args.platform, args.arch)
+    )
     download_ffi(args.platform, args.arch, args.version, args.output)
     print("downloaded to %s" % os.path.abspath(args.output))
