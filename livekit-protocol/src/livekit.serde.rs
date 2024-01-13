@@ -12345,6 +12345,9 @@ impl serde::Serialize for Room {
         if self.active_recording {
             len += 1;
         }
+        if self.version.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.Room", len)?;
         if !self.sid.is_empty() {
             struct_ser.serialize_field("sid", &self.sid)?;
@@ -12379,6 +12382,9 @@ impl serde::Serialize for Room {
         if self.active_recording {
             struct_ser.serialize_field("activeRecording", &self.active_recording)?;
         }
+        if let Some(v) = self.version.as_ref() {
+            struct_ser.serialize_field("version", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -12408,6 +12414,7 @@ impl<'de> serde::Deserialize<'de> for Room {
             "numPublishers",
             "active_recording",
             "activeRecording",
+            "version",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -12423,6 +12430,7 @@ impl<'de> serde::Deserialize<'de> for Room {
             NumParticipants,
             NumPublishers,
             ActiveRecording,
+            Version,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -12455,6 +12463,7 @@ impl<'de> serde::Deserialize<'de> for Room {
                             "numParticipants" | "num_participants" => Ok(GeneratedField::NumParticipants),
                             "numPublishers" | "num_publishers" => Ok(GeneratedField::NumPublishers),
                             "activeRecording" | "active_recording" => Ok(GeneratedField::ActiveRecording),
+                            "version" => Ok(GeneratedField::Version),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -12485,6 +12494,7 @@ impl<'de> serde::Deserialize<'de> for Room {
                 let mut num_participants__ = None;
                 let mut num_publishers__ = None;
                 let mut active_recording__ = None;
+                let mut version__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Sid => {
@@ -12563,6 +12573,12 @@ impl<'de> serde::Deserialize<'de> for Room {
                             }
                             active_recording__ = Some(map.next_value()?);
                         }
+                        GeneratedField::Version => {
+                            if version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("version"));
+                            }
+                            version__ = map.next_value()?;
+                        }
                     }
                 }
                 Ok(Room {
@@ -12577,6 +12593,7 @@ impl<'de> serde::Deserialize<'de> for Room {
                     num_participants: num_participants__.unwrap_or_default(),
                     num_publishers: num_publishers__.unwrap_or_default(),
                     active_recording: active_recording__.unwrap_or_default(),
+                    version: version__,
                 })
             }
         }
@@ -18524,6 +18541,9 @@ impl serde::Serialize for TrackInfo {
         if !self.stream.is_empty() {
             len += 1;
         }
+        if self.version.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.TrackInfo", len)?;
         if !self.sid.is_empty() {
             struct_ser.serialize_field("sid", &self.sid)?;
@@ -18582,6 +18602,9 @@ impl serde::Serialize for TrackInfo {
         if !self.stream.is_empty() {
             struct_ser.serialize_field("stream", &self.stream)?;
         }
+        if let Some(v) = self.version.as_ref() {
+            struct_ser.serialize_field("version", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -18612,6 +18635,7 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
             "disableRed",
             "encryption",
             "stream",
+            "version",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -18633,6 +18657,7 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
             DisableRed,
             Encryption,
             Stream,
+            Version,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -18671,6 +18696,7 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
                             "disableRed" | "disable_red" => Ok(GeneratedField::DisableRed),
                             "encryption" => Ok(GeneratedField::Encryption),
                             "stream" => Ok(GeneratedField::Stream),
+                            "version" => Ok(GeneratedField::Version),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -18707,6 +18733,7 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
                 let mut disable_red__ = None;
                 let mut encryption__ = None;
                 let mut stream__ = None;
+                let mut version__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Sid => {
@@ -18815,6 +18842,12 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
                             }
                             stream__ = Some(map.next_value()?);
                         }
+                        GeneratedField::Version => {
+                            if version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("version"));
+                            }
+                            version__ = map.next_value()?;
+                        }
                     }
                 }
                 Ok(TrackInfo {
@@ -18835,6 +18868,7 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
                     disable_red: disable_red__.unwrap_or_default(),
                     encryption: encryption__.unwrap_or_default(),
                     stream: stream__.unwrap_or_default(),
+                    version: version__,
                 })
             }
         }

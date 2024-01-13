@@ -24,6 +24,8 @@ pub struct Room {
     pub num_publishers: u32,
     #[prost(bool, tag="10")]
     pub active_recording: bool,
+    #[prost(message, optional, tag="13")]
+    pub version: ::core::option::Option<TimedVersion>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -274,6 +276,8 @@ pub struct TrackInfo {
     pub encryption: i32,
     #[prost(string, tag="17")]
     pub stream: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="18")]
+    pub version: ::core::option::Option<TimedVersion>,
 }
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
