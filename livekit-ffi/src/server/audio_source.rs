@@ -39,7 +39,6 @@ impl FfiAudioSource {
             proto::AudioSourceType::AudioSourceNative => {
                 use livekit::webrtc::audio_source::native::NativeAudioSource;
 
-                let _guard = server.async_runtime.enter();
                 let audio_source = NativeAudioSource::new(
                     new_source.options.map(Into::into).unwrap_or_default(),
                     new_source.sample_rate,
@@ -74,18 +73,19 @@ impl FfiAudioSource {
         let source = self.source.clone();
         let async_id = server.next_id();
 
+        let data = unsafe {
+            let len = buffer.num_channels * buffer.samples_per_channel;
+            slice::from_raw_parts(buffer.data_ptr as *const i16, len as usize)
+        }
+        .to_vec();
+
         server.async_runtime.spawn(async move {
             // The data must be available as long as the client receive the callback.
-            let data = unsafe {
-                let len = buffer.num_channels * buffer.samples_per_channel;
-                slice::from_raw_parts(buffer.data_ptr as *const i16, len as usize)
-            };
-
             match source {
                 #[cfg(not(target_arch = "wasm32"))]
                 RtcAudioSource::Native(ref source) => {
                     let audio_frame = AudioFrame {
-                        data: Cow::Borrowed(data),
+                        data: Cow::Owned(data),
                         sample_rate: buffer.sample_rate,
                         num_channels: buffer.num_channels,
                         samples_per_channel: buffer.samples_per_channel,

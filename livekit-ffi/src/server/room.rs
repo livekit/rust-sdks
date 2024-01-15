@@ -197,7 +197,9 @@ impl RoomInner {
     ) -> FfiResult<proto::PublishDataResponse> {
         let data = unsafe {
             slice::from_raw_parts(publish.data_ptr as *const u8, publish.data_len as usize)
-        };
+        }
+        .to_vec();
+
         let kind = publish.kind();
         let destination_sids = publish.destination_sids;
         let async_id = server.next_id();
