@@ -127,7 +127,6 @@ fn on_set_subscribed(
         return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
     };
 
-    let _guard = server.async_runtime.enter();
     publication.set_subscribed(set_subscribed.subscribe);
     Ok(proto::SetSubscribedResponse {})
 }
@@ -739,6 +738,7 @@ pub fn handle_request(
     server: &'static FfiServer,
     request: proto::FfiRequest,
 ) -> FfiResult<proto::FfiResponse> {
+    let _async_guard = server.async_runtime.enter();
     let request = request.message.ok_or(FfiError::InvalidRequest("message is empty".into()))?;
 
     let mut res = proto::FfiResponse::default();
