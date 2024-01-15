@@ -6,7 +6,7 @@ use server::FfiDataBuffer;
 use crate::{
     proto,
     server::{self, FfiConfig},
-    FfiHandleId, FFI_SERVER,
+    FfiHandleId, FFI_SERVER, INVALID_HANDLE,
 };
 
 /// # SAFTEY: The "C" callback must be threadsafe and not block
@@ -39,17 +39,19 @@ pub unsafe extern "C" fn livekit_ffi_request(
     res_len: *mut usize,
 ) -> FfiHandleId {
     let data = unsafe { std::slice::from_raw_parts(data, len) };
-    let res = match proto::FfiRequest::decode(data) {
-        Ok(res) => res,
+    let req = match proto::FfiRequest::decode(data) {
+        Ok(req) => req,
         Err(err) => {
-            panic!("failed to decode request: {}", err);
+            log::error!("failed to decode request: {:?}", err);
+            return INVALID_HANDLE;
         }
     };
 
-    let res = match server::requests::handle_request(&FFI_SERVER, res) {
+    let res = match server::requests::handle_request(&FFI_SERVER, req.clone()) {
         Ok(res) => res,
         Err(err) => {
-            panic!("failed to handle request: {}", err);
+            log::error!("failed to handle request {:?}: {:?}", req, err);
+            return INVALID_HANDLE;
         }
     }
     .encode_to_vec();
