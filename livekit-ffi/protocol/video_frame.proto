@@ -19,14 +19,6 @@ option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
 
-// Allocate a new VideoFrameBuffer
-message AllocVideoBufferRequest {
-  VideoFrameBufferType type = 1; // Only I420 is supported atm
-  uint32 width = 2;
-  uint32 height = 3;
-}
-message AllocVideoBufferResponse { OwnedVideoFrameBuffer buffer = 1; }
-
 // Create a new VideoStream
 // VideoStream is used to receive video frames from a track
 message NewVideoStreamRequest {
@@ -42,46 +34,30 @@ message NewVideoSourceRequest {
   // Used to determine which encodings to use + simulcast layers
   // Most of the time it corresponds to the source resolution 
   VideoSourceResolution resolution = 2;
+  // Get the frame on a specific format
+  optional VideoBufferType format = 3;
 }
 message NewVideoSourceResponse { OwnedVideoSource source = 1; }
 
 // Push a frame to a VideoSource
 message CaptureVideoFrameRequest {
   uint64 source_handle = 1;
-  VideoFrameInfo frame = 2;
-  oneof from {
-    VideoFrameBufferInfo info = 3;
-    uint64 handle = 4;
-  }
+  VideoBufferInfo buffer = 2;
+  int64 timestamp_us = 3; // In microseconds
+  VideoRotation rotation = 4;
 }
+
 message CaptureVideoFrameResponse {}
 
-// Convert a RGBA frame to a I420 YUV frame
-// Or convert another YUV frame format to I420
-message ToI420Request {
+message VideoConvertRequest {
   bool flip_y = 1;
-  oneof from {
-    ArgbBufferInfo argb = 2;
-    VideoFrameBufferInfo buffer = 3;
-    uint64 handle = 4;
-  }
+  VideoBufferInfo buffer = 2;
+  VideoBufferType dst_type = 3;
 }
-message ToI420Response { 
-  OwnedVideoFrameBuffer buffer = 1; 
+message VideoConvertResponse { 
+  optional string error = 1;
+  OwnedVideoBuffer buffer = 2; 
 }
-
-// Convert a YUV frame to a RGBA frame
-// Only I420 is supported atm
-message ToArgbRequest {
-  VideoFrameBufferInfo buffer = 1;
-  uint64 dst_ptr = 2;
-  VideoFormatType dst_format = 3;
-  uint32 dst_stride = 4;
-  uint32 dst_width = 5;
-  uint32 dst_height = 6;
-  bool flip_y = 7;
-}
-message ToArgbResponse {}
 
 //
 // VideoFrame buffers
@@ -107,79 +83,38 @@ enum VideoRotation {
   VIDEO_ROTATION_270 = 3;
 }
 
-enum VideoFormatType {
-  FORMAT_ARGB = 0;
-  FORMAT_BGRA = 1;
-  FORMAT_ABGR = 2;
-  FORMAT_RGBA = 3;
+enum VideoBufferType {
+  RGBA = 0;
+  ABGR = 1;
+  ARGB = 2;
+  BGRA = 3;
+  RGB24 = 4;
+  I420 = 5;
+  I420A = 6;
+  I422 = 7;
+  I444 = 8;
+  I010 = 9;
+  NV12 = 10;
 }
 
-enum VideoFrameBufferType {
-  NATIVE = 0;
-  I420 = 1;
-  I420A = 2;
-  I422 = 3;
-  I444 = 4;
-  I010 = 5;
-  NV12 = 6;
-}
-
-message ArgbBufferInfo {
-  uint64 ptr = 1;
-  VideoFormatType format = 2;
-  uint32 stride = 3;
-  uint32 width = 4;
-  uint32 height = 5;
-}
-
-message VideoFrameInfo {
-  int64 timestamp_us = 1; // In microseconds
-  VideoRotation rotation = 2;
-}
-
-message VideoFrameBufferInfo {
-  VideoFrameBufferType buffer_type = 1;
+message VideoBufferInfo {
+  message ComponentInfo {
+    uint64 ptr = 1;
+    uint32 pstride = 2;
+    uint32 rstride = 3;
+    uint32 offset = 4;
+    uint32 size = 5;
+  }
+  VideoBufferType type = 1;
   uint32 width = 2;
   uint32 height = 3;
-  oneof buffer {
-    PlanarYuvBufferInfo yuv = 4;
-    BiplanarYuvBufferInfo bi_yuv = 5;
-    NativeBufferInfo native = 6;
-  }
+  uint64 base_ptr = 4;
+  repeated ComponentInfo components = 5;
 }
 
-message OwnedVideoFrameBuffer {
+message OwnedVideoBuffer {
   FfiOwnedHandle handle = 1;
-  VideoFrameBufferInfo info = 2;
-}
-
-message PlanarYuvBufferInfo {
-  uint32 chroma_width = 1;
-  uint32 chroma_height = 2;
-  uint32 stride_y = 3;
-  uint32 stride_u = 4;
-  uint32 stride_v = 5;
-  uint32 stride_a = 6;
-
-  // *const u8 or *const u16
-  uint64 data_y_ptr = 7;
-  uint64 data_u_ptr = 8;
-  uint64 data_v_ptr = 9;
-  uint64 data_a_ptr = 10; // nullptr = no alpha
-}
-
-message BiplanarYuvBufferInfo {
-  uint32 chroma_width = 1;
-  uint32 chroma_height = 2;
-  uint32 stride_y = 3;
-  uint32 stride_uv = 4;
-
-  uint64 data_y_ptr = 5;
-  uint64 data_uv_ptr = 6;
-}
-
-message NativeBufferInfo {
-  // TODO(theomonnom): Expose graphic context?
+  VideoBufferInfo info = 2;
 }
 
 //
@@ -210,8 +145,10 @@ message VideoStreamEvent {
 }
 
 message VideoFrameReceived {
-  VideoFrameInfo frame = 1;
-  OwnedVideoFrameBuffer buffer = 2;
+  VideoBufferInfo frame = 1;
+  OwnedVideoBuffer buffer = 2;
+  int64 timestamp_us = 3; // In microseconds
+  VideoRotation rotation = 4;
 }
 
 message VideoStreamEOS {}

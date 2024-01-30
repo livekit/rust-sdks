@@ -73,15 +73,12 @@ message FfiRequest {
     GetStatsRequest get_stats = 14;
 
     // Video
-    AllocVideoBufferRequest alloc_video_buffer = 15;
     NewVideoStreamRequest new_video_stream = 16;
     NewVideoSourceRequest new_video_source = 17;
     CaptureVideoFrameRequest capture_video_frame = 18;
-    ToI420Request to_i420 = 19;
-    ToArgbRequest to_argb = 20;
+    VideoConvertRequest video_convert = 19;
 
     // Audio
-    AllocAudioBufferRequest alloc_audio_buffer = 21;
     NewAudioStreamRequest new_audio_stream = 22;
     NewAudioSourceRequest new_audio_source = 23;
     CaptureAudioFrameRequest capture_audio_frame = 24;
@@ -113,15 +110,12 @@ message FfiResponse {
     GetStatsResponse get_stats = 14;
 
     // Video
-    AllocVideoBufferResponse alloc_video_buffer = 15;
     NewVideoStreamResponse new_video_stream = 16;
     NewVideoSourceResponse new_video_source = 17;
     CaptureVideoFrameResponse capture_video_frame = 18;
-    ToI420Response to_i420 = 19;
-    ToArgbResponse to_argb = 20;
+    VideoConvertResponse video_convert = 19;
 
     // Audio
-    AllocAudioBufferResponse alloc_audio_buffer = 21;
     NewAudioStreamResponse new_audio_stream = 22;
     NewAudioSourceResponse new_audio_source = 23;
     CaptureAudioFrameResponse capture_audio_frame = 24;

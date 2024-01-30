@@ -1518,24 +1518,6 @@ pub struct OwnedParticipant {
     #[prost(message, optional, tag="2")]
     pub info: ::core::option::Option<ParticipantInfo>,
 }
-/// Allocate a new VideoFrameBuffer
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AllocVideoBufferRequest {
-    /// Only I420 is supported atm
-    #[prost(enumeration="VideoFrameBufferType", tag="1")]
-    pub r#type: i32,
-    #[prost(uint32, tag="2")]
-    pub width: u32,
-    #[prost(uint32, tag="3")]
-    pub height: u32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AllocVideoBufferResponse {
-    #[prost(message, optional, tag="1")]
-    pub buffer: ::core::option::Option<OwnedVideoFrameBuffer>,
-}
 /// Create a new VideoStream
 /// VideoStream is used to receive video frames from a track
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1563,6 +1545,9 @@ pub struct NewVideoSourceRequest {
     /// Most of the time it corresponds to the source resolution 
     #[prost(message, optional, tag="2")]
     pub resolution: ::core::option::Option<VideoSourceResolution>,
+    /// Get the frame on a specific format
+    #[prost(enumeration="VideoBufferType", optional, tag="3")]
+    pub format: ::core::option::Option<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1577,77 +1562,34 @@ pub struct CaptureVideoFrameRequest {
     #[prost(uint64, tag="1")]
     pub source_handle: u64,
     #[prost(message, optional, tag="2")]
-    pub frame: ::core::option::Option<VideoFrameInfo>,
-    #[prost(oneof="capture_video_frame_request::From", tags="3, 4")]
-    pub from: ::core::option::Option<capture_video_frame_request::From>,
-}
-/// Nested message and enum types in `CaptureVideoFrameRequest`.
-pub mod capture_video_frame_request {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum From {
-        #[prost(message, tag="3")]
-        Info(super::VideoFrameBufferInfo),
-        #[prost(uint64, tag="4")]
-        Handle(u64),
-    }
+    pub buffer: ::core::option::Option<VideoBufferInfo>,
+    /// In microseconds
+    #[prost(int64, tag="3")]
+    pub timestamp_us: i64,
+    #[prost(enumeration="VideoRotation", tag="4")]
+    pub rotation: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureVideoFrameResponse {
 }
-/// Convert a RGBA frame to a I420 YUV frame
-/// Or convert another YUV frame format to I420
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ToI420Request {
+pub struct VideoConvertRequest {
     #[prost(bool, tag="1")]
     pub flip_y: bool,
-    #[prost(oneof="to_i420_request::From", tags="2, 3, 4")]
-    pub from: ::core::option::Option<to_i420_request::From>,
-}
-/// Nested message and enum types in `ToI420Request`.
-pub mod to_i420_request {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum From {
-        #[prost(message, tag="2")]
-        Argb(super::ArgbBufferInfo),
-        #[prost(message, tag="3")]
-        Buffer(super::VideoFrameBufferInfo),
-        #[prost(uint64, tag="4")]
-        Handle(u64),
-    }
+    #[prost(message, optional, tag="2")]
+    pub buffer: ::core::option::Option<VideoBufferInfo>,
+    #[prost(enumeration="VideoBufferType", tag="3")]
+    pub dst_type: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ToI420Response {
-    #[prost(message, optional, tag="1")]
-    pub buffer: ::core::option::Option<OwnedVideoFrameBuffer>,
-}
-/// Convert a YUV frame to a RGBA frame
-/// Only I420 is supported atm
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ToArgbRequest {
-    #[prost(message, optional, tag="1")]
-    pub buffer: ::core::option::Option<VideoFrameBufferInfo>,
-    #[prost(uint64, tag="2")]
-    pub dst_ptr: u64,
-    #[prost(enumeration="VideoFormatType", tag="3")]
-    pub dst_format: i32,
-    #[prost(uint32, tag="4")]
-    pub dst_stride: u32,
-    #[prost(uint32, tag="5")]
-    pub dst_width: u32,
-    #[prost(uint32, tag="6")]
-    pub dst_height: u32,
-    #[prost(bool, tag="7")]
-    pub flip_y: bool,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ToArgbResponse {
+pub struct VideoConvertResponse {
+    #[prost(string, optional, tag="1")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag="2")]
+    pub buffer: ::core::option::Option<OwnedVideoBuffer>,
 }
 //
 // VideoFrame buffers
@@ -1665,106 +1607,42 @@ pub struct VideoResolution {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ArgbBufferInfo {
-    #[prost(uint64, tag="1")]
-    pub ptr: u64,
-    #[prost(enumeration="VideoFormatType", tag="2")]
-    pub format: i32,
-    #[prost(uint32, tag="3")]
-    pub stride: u32,
-    #[prost(uint32, tag="4")]
-    pub width: u32,
-    #[prost(uint32, tag="5")]
-    pub height: u32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct VideoFrameInfo {
-    /// In microseconds
-    #[prost(int64, tag="1")]
-    pub timestamp_us: i64,
-    #[prost(enumeration="VideoRotation", tag="2")]
-    pub rotation: i32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct VideoFrameBufferInfo {
-    #[prost(enumeration="VideoFrameBufferType", tag="1")]
-    pub buffer_type: i32,
+pub struct VideoBufferInfo {
+    #[prost(enumeration="VideoBufferType", tag="1")]
+    pub r#type: i32,
     #[prost(uint32, tag="2")]
     pub width: u32,
     #[prost(uint32, tag="3")]
     pub height: u32,
-    #[prost(oneof="video_frame_buffer_info::Buffer", tags="4, 5, 6")]
-    pub buffer: ::core::option::Option<video_frame_buffer_info::Buffer>,
+    #[prost(uint64, tag="4")]
+    pub base_ptr: u64,
+    #[prost(message, repeated, tag="5")]
+    pub components: ::prost::alloc::vec::Vec<video_buffer_info::ComponentInfo>,
 }
-/// Nested message and enum types in `VideoFrameBufferInfo`.
-pub mod video_frame_buffer_info {
+/// Nested message and enum types in `VideoBufferInfo`.
+pub mod video_buffer_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Buffer {
-        #[prost(message, tag="4")]
-        Yuv(super::PlanarYuvBufferInfo),
-        #[prost(message, tag="5")]
-        BiYuv(super::BiplanarYuvBufferInfo),
-        #[prost(message, tag="6")]
-        Native(super::NativeBufferInfo),
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ComponentInfo {
+        #[prost(uint64, tag="1")]
+        pub ptr: u64,
+        #[prost(uint32, tag="2")]
+        pub pstride: u32,
+        #[prost(uint32, tag="3")]
+        pub rstride: u32,
+        #[prost(uint32, tag="4")]
+        pub offset: u32,
+        #[prost(uint32, tag="5")]
+        pub size: u32,
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OwnedVideoFrameBuffer {
+pub struct OwnedVideoBuffer {
     #[prost(message, optional, tag="1")]
     pub handle: ::core::option::Option<FfiOwnedHandle>,
     #[prost(message, optional, tag="2")]
-    pub info: ::core::option::Option<VideoFrameBufferInfo>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PlanarYuvBufferInfo {
-    #[prost(uint32, tag="1")]
-    pub chroma_width: u32,
-    #[prost(uint32, tag="2")]
-    pub chroma_height: u32,
-    #[prost(uint32, tag="3")]
-    pub stride_y: u32,
-    #[prost(uint32, tag="4")]
-    pub stride_u: u32,
-    #[prost(uint32, tag="5")]
-    pub stride_v: u32,
-    #[prost(uint32, tag="6")]
-    pub stride_a: u32,
-    /// *const u8 or *const u16
-    #[prost(uint64, tag="7")]
-    pub data_y_ptr: u64,
-    #[prost(uint64, tag="8")]
-    pub data_u_ptr: u64,
-    #[prost(uint64, tag="9")]
-    pub data_v_ptr: u64,
-    /// nullptr = no alpha
-    #[prost(uint64, tag="10")]
-    pub data_a_ptr: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BiplanarYuvBufferInfo {
-    #[prost(uint32, tag="1")]
-    pub chroma_width: u32,
-    #[prost(uint32, tag="2")]
-    pub chroma_height: u32,
-    #[prost(uint32, tag="3")]
-    pub stride_y: u32,
-    #[prost(uint32, tag="4")]
-    pub stride_uv: u32,
-    #[prost(uint64, tag="5")]
-    pub data_y_ptr: u64,
-    #[prost(uint64, tag="6")]
-    pub data_uv_ptr: u64,
-}
-/// TODO(theomonnom): Expose graphic context?
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NativeBufferInfo {
+    pub info: ::core::option::Option<VideoBufferInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1803,9 +1681,14 @@ pub mod video_stream_event {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoFrameReceived {
     #[prost(message, optional, tag="1")]
-    pub frame: ::core::option::Option<VideoFrameInfo>,
+    pub frame: ::core::option::Option<VideoBufferInfo>,
     #[prost(message, optional, tag="2")]
-    pub buffer: ::core::option::Option<OwnedVideoFrameBuffer>,
+    pub buffer: ::core::option::Option<OwnedVideoBuffer>,
+    /// In microseconds
+    #[prost(int64, tag="3")]
+    pub timestamp_us: i64,
+    #[prost(enumeration="VideoRotation", tag="4")]
+    pub rotation: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1903,67 +1786,47 @@ impl VideoRotation {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum VideoFormatType {
-    FormatArgb = 0,
-    FormatBgra = 1,
-    FormatAbgr = 2,
-    FormatRgba = 3,
+pub enum VideoBufferType {
+    Rgba = 0,
+    Abgr = 1,
+    Argb = 2,
+    Bgra = 3,
+    Rgb24 = 4,
+    I420 = 5,
+    I420a = 6,
+    I422 = 7,
+    I444 = 8,
+    I010 = 9,
+    Nv12 = 10,
 }
-impl VideoFormatType {
+impl VideoBufferType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            VideoFormatType::FormatArgb => "FORMAT_ARGB",
-            VideoFormatType::FormatBgra => "FORMAT_BGRA",
-            VideoFormatType::FormatAbgr => "FORMAT_ABGR",
-            VideoFormatType::FormatRgba => "FORMAT_RGBA",
+            VideoBufferType::Rgba => "RGBA",
+            VideoBufferType::Abgr => "ABGR",
+            VideoBufferType::Argb => "ARGB",
+            VideoBufferType::Bgra => "BGRA",
+            VideoBufferType::Rgb24 => "RGB24",
+            VideoBufferType::I420 => "I420",
+            VideoBufferType::I420a => "I420A",
+            VideoBufferType::I422 => "I422",
+            VideoBufferType::I444 => "I444",
+            VideoBufferType::I010 => "I010",
+            VideoBufferType::Nv12 => "NV12",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "FORMAT_ARGB" => Some(Self::FormatArgb),
-            "FORMAT_BGRA" => Some(Self::FormatBgra),
-            "FORMAT_ABGR" => Some(Self::FormatAbgr),
-            "FORMAT_RGBA" => Some(Self::FormatRgba),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum VideoFrameBufferType {
-    Native = 0,
-    I420 = 1,
-    I420a = 2,
-    I422 = 3,
-    I444 = 4,
-    I010 = 5,
-    Nv12 = 6,
-}
-impl VideoFrameBufferType {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            VideoFrameBufferType::Native => "NATIVE",
-            VideoFrameBufferType::I420 => "I420",
-            VideoFrameBufferType::I420a => "I420A",
-            VideoFrameBufferType::I422 => "I422",
-            VideoFrameBufferType::I444 => "I444",
-            VideoFrameBufferType::I010 => "I010",
-            VideoFrameBufferType::Nv12 => "NV12",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "NATIVE" => Some(Self::Native),
+            "RGBA" => Some(Self::Rgba),
+            "ABGR" => Some(Self::Abgr),
+            "ARGB" => Some(Self::Argb),
+            "BGRA" => Some(Self::Bgra),
+            "RGB24" => Some(Self::Rgb24),
             "I420" => Some(Self::I420),
             "I420A" => Some(Self::I420a),
             "I422" => Some(Self::I422),
@@ -2745,25 +2608,6 @@ impl DataPacketKind {
         }
     }
 }
-/// Allocate a new AudioFrameBuffer
-/// This is not necessary required because the data structure is fairly simple
-/// But keep the API consistent with VideoFrame
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AllocAudioBufferRequest {
-    #[prost(uint32, tag="1")]
-    pub sample_rate: u32,
-    #[prost(uint32, tag="2")]
-    pub num_channels: u32,
-    #[prost(uint32, tag="3")]
-    pub samples_per_channel: u32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AllocAudioBufferResponse {
-    #[prost(message, optional, tag="1")]
-    pub buffer: ::core::option::Option<OwnedAudioFrameBuffer>,
-}
 /// Create a new AudioStream
 /// AudioStream is used to receive audio frames from a track
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3049,7 +2893,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3086,8 +2930,6 @@ pub mod ffi_request {
         #[prost(message, tag="14")]
         GetStats(super::GetStatsRequest),
         /// Video
-        #[prost(message, tag="15")]
-        AllocVideoBuffer(super::AllocVideoBufferRequest),
         #[prost(message, tag="16")]
         NewVideoStream(super::NewVideoStreamRequest),
         #[prost(message, tag="17")]
@@ -3095,12 +2937,8 @@ pub mod ffi_request {
         #[prost(message, tag="18")]
         CaptureVideoFrame(super::CaptureVideoFrameRequest),
         #[prost(message, tag="19")]
-        ToI420(super::ToI420Request),
-        #[prost(message, tag="20")]
-        ToArgb(super::ToArgbRequest),
+        VideoConvert(super::VideoConvertRequest),
         /// Audio
-        #[prost(message, tag="21")]
-        AllocAudioBuffer(super::AllocAudioBufferRequest),
         #[prost(message, tag="22")]
         NewAudioStream(super::NewAudioStreamRequest),
         #[prost(message, tag="23")]
@@ -3119,7 +2957,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3156,8 +2994,6 @@ pub mod ffi_response {
         #[prost(message, tag="14")]
         GetStats(super::GetStatsResponse),
         /// Video
-        #[prost(message, tag="15")]
-        AllocVideoBuffer(super::AllocVideoBufferResponse),
         #[prost(message, tag="16")]
         NewVideoStream(super::NewVideoStreamResponse),
         #[prost(message, tag="17")]
@@ -3165,12 +3001,8 @@ pub mod ffi_response {
         #[prost(message, tag="18")]
         CaptureVideoFrame(super::CaptureVideoFrameResponse),
         #[prost(message, tag="19")]
-        ToI420(super::ToI420Response),
-        #[prost(message, tag="20")]
-        ToArgb(super::ToArgbResponse),
+        VideoConvert(super::VideoConvertResponse),
         /// Audio
-        #[prost(message, tag="21")]
-        AllocAudioBuffer(super::AllocAudioBufferResponse),
         #[prost(message, tag="22")]
         NewAudioStream(super::NewAudioStreamResponse),
         #[prost(message, tag="23")]
