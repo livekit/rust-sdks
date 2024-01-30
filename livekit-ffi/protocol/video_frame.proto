@@ -106,8 +106,9 @@ message VideoBufferInfo {
   VideoBufferType type = 1;
   uint32 width = 2;
   uint32 height = 3;
-  uint64 base_ptr = 4;
-  repeated ComponentInfo components = 5;
+  uint64 data_ptr = 4;
+  uint32 data_len = 5;
+  repeated ComponentInfo components = 6;
 }
 
 message OwnedVideoBuffer {
