@@ -24,6 +24,8 @@ import "handle.proto";
 message NewVideoStreamRequest {
   uint64 track_handle = 1;
   VideoStreamType type = 2;
+  // Get the frame on a specific format
+  optional VideoBufferType format = 3;
 }
 message NewVideoStreamResponse { OwnedVideoStream stream = 1; }
 
@@ -34,8 +36,6 @@ message NewVideoSourceRequest {
   // Used to determine which encodings to use + simulcast layers
   // Most of the time it corresponds to the source resolution 
   VideoSourceResolution resolution = 2;
-  // Get the frame on a specific format
-  optional VideoBufferType format = 3;
 }
 message NewVideoSourceResponse { OwnedVideoSource source = 1; }
 
@@ -144,10 +144,9 @@ message VideoStreamEvent {
 }
 
 message VideoFrameReceived {
-  VideoBufferInfo frame = 1;
-  OwnedVideoBuffer buffer = 2;
-  int64 timestamp_us = 3; // In microseconds
-  VideoRotation rotation = 4;
+  OwnedVideoBuffer buffer = 1;
+  int64 timestamp_us = 2; // In microseconds
+  VideoRotation rotation = 3;
 }
 
 message VideoStreamEOS {}
