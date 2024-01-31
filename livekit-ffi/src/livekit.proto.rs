@@ -1527,6 +1527,9 @@ pub struct NewVideoStreamRequest {
     pub track_handle: u64,
     #[prost(enumeration="VideoStreamType", tag="2")]
     pub r#type: i32,
+    /// Get the frame on a specific format
+    #[prost(enumeration="VideoBufferType", optional, tag="3")]
+    pub format: ::core::option::Option<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1545,9 +1548,6 @@ pub struct NewVideoSourceRequest {
     /// Most of the time it corresponds to the source resolution 
     #[prost(message, optional, tag="2")]
     pub resolution: ::core::option::Option<VideoSourceResolution>,
-    /// Get the frame on a specific format
-    #[prost(enumeration="VideoBufferType", optional, tag="3")]
-    pub format: ::core::option::Option<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1615,8 +1615,13 @@ pub struct VideoBufferInfo {
     #[prost(uint32, tag="3")]
     pub height: u32,
     #[prost(uint64, tag="4")]
-    pub base_ptr: u64,
-    #[prost(message, repeated, tag="5")]
+    pub data_ptr: u64,
+    #[prost(uint32, tag="5")]
+    pub data_len: u32,
+    /// for packed formats
+    #[prost(uint32, tag="6")]
+    pub stride: u32,
+    #[prost(message, repeated, tag="7")]
     pub components: ::prost::alloc::vec::Vec<video_buffer_info::ComponentInfo>,
 }
 /// Nested message and enum types in `VideoBufferInfo`.
@@ -1624,15 +1629,11 @@ pub mod video_buffer_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ComponentInfo {
-        #[prost(uint64, tag="1")]
-        pub ptr: u64,
-        #[prost(uint32, tag="2")]
-        pub pstride: u32,
-        #[prost(uint32, tag="3")]
-        pub rstride: u32,
-        #[prost(uint32, tag="4")]
+        #[prost(uint32, tag="1")]
         pub offset: u32,
-        #[prost(uint32, tag="5")]
+        #[prost(uint32, tag="2")]
+        pub stride: u32,
+        #[prost(uint32, tag="3")]
         pub size: u32,
     }
 }
@@ -1681,13 +1682,11 @@ pub mod video_stream_event {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoFrameReceived {
     #[prost(message, optional, tag="1")]
-    pub frame: ::core::option::Option<VideoBufferInfo>,
-    #[prost(message, optional, tag="2")]
     pub buffer: ::core::option::Option<OwnedVideoBuffer>,
     /// In microseconds
-    #[prost(int64, tag="3")]
+    #[prost(int64, tag="2")]
     pub timestamp_us: i64,
-    #[prost(enumeration="VideoRotation", tag="4")]
+    #[prost(enumeration="VideoRotation", tag="3")]
     pub rotation: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

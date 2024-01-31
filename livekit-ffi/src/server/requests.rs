@@ -25,7 +25,7 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, room,
+    audio_source, audio_stream, colorcvt, room,
     room::{FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
@@ -135,6 +135,7 @@ fn on_update_local_metadata(
     server: &'static FfiServer,
     update_local_metadata: proto::UpdateLocalMetadataRequest,
 ) -> FfiResult<proto::UpdateLocalMetadataResponse> {
+    let e = true;
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
         .clone();
@@ -237,28 +238,6 @@ fn on_get_stats(
     Ok(proto::GetStatsResponse { async_id })
 }
 
-/// Allocate a new video buffer
-fn on_alloc_video_buffer(
-    server: &'static FfiServer,
-    alloc: proto::AllocVideoBufferRequest,
-) -> FfiResult<proto::AllocVideoBufferResponse> {
-    let buffer: BoxVideoBuffer = match alloc.r#type() {
-        proto::VideoFrameBufferType::I420 => Box::new(I420Buffer::new(alloc.width, alloc.height)),
-        _ => return Err(FfiError::InvalidRequest("frame type is not supported".into())),
-    };
-
-    let handle_id = server.next_id();
-    let buffer_info = proto::VideoFrameBufferInfo::from(&buffer);
-    server.store_handle(handle_id, buffer);
-
-    Ok(proto::AllocVideoBufferResponse {
-        buffer: Some(proto::OwnedVideoFrameBuffer {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(buffer_info),
-        }),
-    })
-}
-
 /// Create a new VideoStream, a video stream is used to receive frames from a Track
 fn on_new_video_stream(
     server: &'static FfiServer,
@@ -288,198 +267,15 @@ unsafe fn on_capture_video_frame(
     Ok(proto::CaptureVideoFrameResponse::default())
 }
 
-/// Convert a frame to I420
-/// The destination can now be a new buffer or an existing buffer
+/// Convert a video frame
 ///
 /// # Safety: The user must ensure that the pointers/len provided are valid
 /// There is no way for us to verify the inputs
-unsafe fn on_to_i420(
+unsafe fn on_video_convert(
     server: &'static FfiServer,
-    to_i420: proto::ToI420Request,
-) -> FfiResult<proto::ToI420Response> {
-    let from = to_i420.from.ok_or(FfiError::InvalidRequest("from is empty".into()))?;
-
-    #[rustfmt::skip]
-    let i420 = match from {
-        proto::to_i420_request::From::Handle(handle) => server
-            .retrieve_handle::<BoxVideoBuffer>(handle)?
-            .to_i420(),
-        proto::to_i420_request::From::Argb(info) => {
-            let mut i420 = I420Buffer::new(info.width, info.height);
-            let (w, h) = (
-                info.width as i32,
-                info.height as i32 * if to_i420.flip_y { -1 } else { 1 },
-            );
-            let (sy, su, sv) = i420.strides();
-            let (dy, du, dv) = i420.data_mut();
-
-            let argb = slice::from_raw_parts(info.ptr as *const u8, (info.stride * info.height) as usize);
-
-            match info.format() {
-                proto::VideoFormatType::FormatArgb => {
-                    yuv_helper::argb_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h);
-                }
-                proto::VideoFormatType::FormatAbgr => {
-                    yuv_helper::abgr_to_i420(argb, info.stride, dy, sy, du, su, dv, sv, w, h);
-                }
-                _ => {
-                    return Err(FfiError::InvalidRequest(
-                        "the format is not supported".into(),
-                    ))
-                }
-            }
-
-            i420
-        }
-        proto::to_i420_request::From::Buffer(info) => {
-            let mut i420 = I420Buffer::new(info.width, info.height);
-            let (w, h) = (info.width as i32, info.height as i32);
-            let (sy, su, sv) = i420.strides();
-            let (dy, du, dv) = i420.data_mut();
-
-            match &info.buffer {
-                Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) => {
-                     match info.buffer_type() {
-                        proto::VideoFrameBufferType::I420 
-                            | proto::VideoFrameBufferType::I420a
-                            | proto::VideoFrameBufferType::I422
-                            | proto::VideoFrameBufferType::I444 => {
-
-                            let (y, u, v) = (
-                                slice::from_raw_parts(yuv.data_y_ptr as *const u8, (yuv.stride_y * info.height) as usize),
-                                slice::from_raw_parts(yuv.data_u_ptr as *const u8, (yuv.stride_u * yuv.chroma_height) as usize),
-                                slice::from_raw_parts(yuv.data_v_ptr as *const u8, (yuv.stride_v * yuv.chroma_height) as usize)
-                            );
-
-                            match info.buffer_type() {
-                                proto::VideoFrameBufferType::I420 | proto::VideoFrameBufferType::I420a => {
-                                    dy[..sy as usize].copy_from_slice(y);
-                                    du[..su as usize].copy_from_slice(u);
-                                    dv[..sv as usize].copy_from_slice(v);
-                                },
-                                proto::VideoFrameBufferType::I422 => {
-                                    yuv_helper::i422_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
-                                },
-                                proto::VideoFrameBufferType::I444 => {
-                                    yuv_helper::i444_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
-                                }
-                                _ => unreachable!()
-                            }
-                       }
-                       proto::VideoFrameBufferType::I010 => {
-                            let (y, u, v) = (
-                                slice::from_raw_parts(yuv.data_y_ptr as *const u16, (yuv.stride_y * info.height) as usize / std::mem::size_of::<u16>()),
-                                slice::from_raw_parts(yuv.data_u_ptr as *const u16, (yuv.stride_u * yuv.chroma_height) as usize / std::mem::size_of::<u16>()),
-                                slice::from_raw_parts(yuv.data_v_ptr as *const u16, (yuv.stride_v * yuv.chroma_height) as usize / std::mem::size_of::<u16>())
-                            );
-
-                            yuv_helper::i010_to_i420(y, yuv.stride_y, u, yuv.stride_u, v, yuv.stride_v, dy, sy, du, su, dv, sv, w, h);
-                        }
-                        _ => return Err(FfiError::InvalidRequest("invalid yuv description".into()))
-                    };
-                }
-                Some(proto::video_frame_buffer_info::Buffer::BiYuv(biyuv)) => {
-                    let (y, uv) = (
-                        slice::from_raw_parts(biyuv.data_y_ptr as *const u8, (biyuv.stride_y * info.height) as usize),
-                        slice::from_raw_parts(biyuv.data_uv_ptr as *const u8, (biyuv.stride_uv * biyuv.chroma_height) as usize)
-                    );
-
-                    if info.buffer_type() == proto::VideoFrameBufferType::Nv12 {
-                        yuv_helper::nv12_to_i420(y, biyuv.stride_y, uv, biyuv.stride_uv, dy, sy, du, su, dv, sv, w, h);
-                    }
-               }
-                _ => return Err(FfiError::InvalidRequest("conversion not supported".into()))
-            }
-            i420
-        }
-    };
-
-    let i420: BoxVideoBuffer = Box::new(i420);
-    let handle_id = server.next_id();
-    let buffer_info = proto::VideoFrameBufferInfo::from(&i420);
-    server.store_handle(handle_id, i420);
-    Ok(proto::ToI420Response {
-        buffer: Some(proto::OwnedVideoFrameBuffer {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(buffer_info),
-        }),
-    })
-}
-
-/// Convert a YUY buffer to argb
-/// # Safety: the caller must ensure that the buffer is valid
-unsafe fn on_to_argb(
-    _server: &'static FfiServer,
-    to_argb: proto::ToArgbRequest,
-) -> FfiResult<proto::ToArgbResponse> {
-    let buffer =
-        to_argb.buffer.as_ref().ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
-
-    let argb = slice::from_raw_parts_mut(
-        to_argb.dst_ptr as *mut u8,
-        (to_argb.dst_stride * to_argb.dst_height) as usize,
-    );
-
-    let w = to_argb.dst_width as i32;
-    let h = to_argb.dst_height as i32 * (if to_argb.flip_y { -1 } else { 1 });
-    let stride = to_argb.dst_stride;
-    let rgba_format = to_argb.dst_format();
-
-    match buffer.buffer_type() {
-        proto::VideoFrameBufferType::I420 => {
-            let Some(proto::video_frame_buffer_info::Buffer::Yuv(yuv)) = &buffer.buffer else {
-                return Err(FfiError::InvalidRequest("invalid i420 buffer description".into()));
-            };
-
-            #[rustfmt::skip]
-            let (src_y, src_u, src_v) = (
-                slice::from_raw_parts(yuv.data_y_ptr as *const u8, (yuv.stride_y * buffer.height) as usize),
-                slice::from_raw_parts(yuv.data_u_ptr as *const u8, (yuv.stride_u * yuv.chroma_height) as usize),
-                slice::from_raw_parts(yuv.data_v_ptr as *const u8, (yuv.stride_v * yuv.chroma_height) as usize)
-            );
-
-            match rgba_format {
-                proto::VideoFormatType::FormatArgb => {
-                    #[rustfmt::skip]
-                    yuv_helper::i420_to_bgra(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
-                }
-                proto::VideoFormatType::FormatBgra => {
-                    #[rustfmt::skip]
-                    yuv_helper::i420_to_argb(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
-                }
-                proto::VideoFormatType::FormatRgba => {
-                    #[rustfmt::skip]
-                    yuv_helper::i420_to_abgr(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
-                }
-                proto::VideoFormatType::FormatAbgr => {
-                    #[rustfmt::skip]
-                    yuv_helper::i420_to_rgba(src_y, yuv.stride_y, src_u, yuv.stride_u, src_v, yuv.stride_v, argb, stride, w, h);
-                }
-            }
-        }
-        _ => return Err(FfiError::InvalidRequest("to_argb buffer type is not supported".into())),
-    }
-
-    Ok(proto::ToArgbResponse::default())
-}
-
-/// Allocate a new audio buffer
-fn on_alloc_audio_buffer(
-    server: &'static FfiServer,
-    alloc: proto::AllocAudioBufferRequest,
-) -> FfiResult<proto::AllocAudioBufferResponse> {
-    let frame = AudioFrame::new(alloc.sample_rate, alloc.num_channels, alloc.samples_per_channel);
-
-    let handle_id = server.next_id();
-    let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
-    server.store_handle(handle_id, frame);
-
-    Ok(proto::AllocAudioBufferResponse {
-        buffer: Some(proto::OwnedAudioFrameBuffer {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(buffer_info),
-        }),
-    })
+    video_convert: proto::VideoConvertRequest,
+) -> FfiResult<proto::VideoConvertResponse> {
+    colorcvt::on_video_convert(server, video_convert)
 }
 
 /// Create a new audio stream (used to receive audio frames from a track)
@@ -780,9 +576,6 @@ pub fn handle_request(
         proto::ffi_request::Message::GetStats(get_stats) => {
             proto::ffi_response::Message::GetStats(on_get_stats(server, get_stats)?)
         }
-        proto::ffi_request::Message::AllocVideoBuffer(alloc) => {
-            proto::ffi_response::Message::AllocVideoBuffer(on_alloc_video_buffer(server, alloc)?)
-        }
         proto::ffi_request::Message::NewVideoStream(new_stream) => {
             proto::ffi_response::Message::NewVideoStream(on_new_video_stream(server, new_stream)?)
         }
@@ -792,15 +585,9 @@ pub fn handle_request(
         proto::ffi_request::Message::CaptureVideoFrame(push) => unsafe {
             proto::ffi_response::Message::CaptureVideoFrame(on_capture_video_frame(server, push)?)
         },
-        proto::ffi_request::Message::ToI420(to_i420) => unsafe {
-            proto::ffi_response::Message::ToI420(on_to_i420(server, to_i420)?)
+        proto::ffi_request::Message::VideoConvert(video_convert) => unsafe {
+            proto::ffi_response::Message::VideoConvert(on_video_convert(server, video_convert)?)
         },
-        proto::ffi_request::Message::ToArgb(to_argb) => unsafe {
-            proto::ffi_response::Message::ToArgb(on_to_argb(server, to_argb)?)
-        },
-        proto::ffi_request::Message::AllocAudioBuffer(alloc) => {
-            proto::ffi_response::Message::AllocAudioBuffer(on_alloc_audio_buffer(server, alloc)?)
-        }
         proto::ffi_request::Message::NewAudioStream(new_stream) => {
             proto::ffi_response::Message::NewAudioStream(on_new_audio_stream(server, new_stream)?)
         }
