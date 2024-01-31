@@ -32,7 +32,7 @@ dashmap = "5.4"
 env_logger = "0.10"
 downcast-rs = "1.2"
 console-subscriber = { version = "0.1", features = ["parking_lot"], optional = true }
-imgproc = "0.3.4"
+imgproc = "0.3.5"
 
 [build-dependencies]
 webrtc-sys-build = { path = "../webrtc-sys/build", version = "0.3.0" }

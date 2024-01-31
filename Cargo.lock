@@ -897,9 +897,9 @@ dependencies = [
 
 [[package]]
 name = "imgproc"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e9bce6e8f59ef17a8f042687ddd86bfc49bce96ff6f794157b1fe19b3f540c8"
+checksum = "9d3a9cf5e30b522b828c6dcae37532bf14a61c989b316e9beaa94ed3f7efdc7b"
 dependencies = [
  "yuv-sys",
 ]

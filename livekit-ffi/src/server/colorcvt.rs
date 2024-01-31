@@ -1,6 +1,7 @@
+use std::slice;
+
 use super::{FfiError, FfiResult, FfiServer};
 use crate::proto;
-use std::slice;
 
 pub fn on_video_convert(
     server: &'static FfiServer,
@@ -14,11 +15,21 @@ pub fn on_video_convert(
         unsafe { slice::from_raw_parts(buffer.data_ptr as *const u8, buffer.data_len as usize) };
 
     let info = match buffer.r#type() {
-        proto::VideoBufferType::Rgba => todo!(),
-        proto::VideoBufferType::Abgr => todo!(),
-        proto::VideoBufferType::Argb => todo!(),
-        proto::VideoBufferType::Bgra => todo!(),
-        proto::VideoBufferType::Rgb24 => todo!(),
+        proto::VideoBufferType::Rgba => {
+            rgba_to_x(server, buffer, data, video_convert.dst_type(), video_convert.flip_y)
+        }
+        proto::VideoBufferType::Abgr => {
+            abgr_to_x(server, buffer, data, video_convert.dst_type(), video_convert.flip_y)
+        }
+        proto::VideoBufferType::Argb => {
+            argb_to_x(server, buffer, data, video_convert.dst_type(), video_convert.flip_y)
+        }
+        proto::VideoBufferType::Bgra => {
+            bgra_to_x(server, buffer, data, video_convert.dst_type(), video_convert.flip_y)
+        }
+        proto::VideoBufferType::Rgb24 => {
+            rgb24_to_x(server, buffer, data, video_convert.dst_type(), video_convert.flip_y)
+        }
         proto::VideoBufferType::I420 => {
             i420_to_x(server, buffer, data, video_convert.dst_type(), video_convert.flip_y)
         }
@@ -42,6 +53,286 @@ pub fn on_video_convert(
     match info {
         Ok(info) => Ok(proto::VideoConvertResponse { buffer: Some(info), error: None }),
         Err(err) => Ok(proto::VideoConvertResponse { buffer: None, error: Some(err.to_string()) }),
+    }
+}
+
+fn rgba_to_x(
+    server: &'static FfiServer,
+    buffer: proto::VideoBufferInfo,
+    data: &[u8],
+    dst_type: proto::VideoBufferType,
+    flip_y: bool,
+) -> FfiResult<proto::OwnedVideoBuffer> {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
+    let stride = buffer.stride;
+
+    match dst_type {
+        proto::VideoBufferType::I420 => {
+            let chroma_width = (buffer.width + 1) / 2;
+            let chroma_height = (buffer.height + 1) / 2;
+            let mut dst_i420 = vec![
+                0u8;
+                (buffer.width * buffer.height + chroma_width * chroma_height * 2)
+                    as usize
+            ];
+            let (dst_y, dst_u, dst_v) = split_i420_mut(
+                dst_i420.as_mut_slice(),
+                buffer.width,
+                chroma_width,
+                chroma_width,
+                buffer.height,
+            );
+
+            imgproc::colorcvt::abgr_to_i420(
+                data,
+                stride,
+                dst_y,
+                buffer.width,
+                dst_u,
+                chroma_width,
+                dst_v,
+                chroma_width,
+                buffer.width,
+                buffer.height,
+                flip_y,
+            );
+
+            let id = server.next_id();
+            server.store_handle(id, dst_i420);
+            return Ok(proto::OwnedVideoBuffer {
+                handle: Some(proto::FfiOwnedHandle { id }),
+                info: Some(i420_info(dst_i420.as_slice(), buffer.width, buffer.height)),
+            });
+        }
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                format!("rgba to {:?} is not supported", dst_type).into(),
+            ))
+        }
+    }
+}
+
+fn abgr_to_x(
+    server: &'static FfiServer,
+    buffer: proto::VideoBufferInfo,
+    data: &[u8],
+    dst_type: proto::VideoBufferType,
+    flip_y: bool,
+) -> FfiResult<proto::OwnedVideoBuffer> {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
+    let stride = buffer.stride;
+
+    match dst_type {
+        proto::VideoBufferType::I420 => {
+            let chroma_width = (buffer.width + 1) / 2;
+            let chroma_height = (buffer.height + 1) / 2;
+            let mut dst_i420 = vec![
+                0u8;
+                (buffer.width * buffer.height + chroma_width * chroma_height * 2)
+                    as usize
+            ];
+            let (dst_y, dst_u, dst_v) = split_i420_mut(
+                dst_i420.as_mut_slice(),
+                buffer.width,
+                chroma_width,
+                chroma_width,
+                buffer.height,
+            );
+
+            imgproc::colorcvt::rgba_to_i420(
+                data,
+                stride,
+                dst_y,
+                buffer.width,
+                dst_u,
+                chroma_width,
+                dst_v,
+                chroma_width,
+                buffer.width,
+                buffer.height,
+                flip_y,
+            );
+
+            let id = server.next_id();
+            server.store_handle(id, dst_i420);
+            return Ok(proto::OwnedVideoBuffer {
+                handle: Some(proto::FfiOwnedHandle { id }),
+                info: Some(i420_info(dst_i420.as_slice(), buffer.width, buffer.height)),
+            });
+        }
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                format!("abgr to {:?} is not supported", dst_type).into(),
+            ))
+        }
+    }
+}
+
+fn argb_to_x(
+    server: &'static FfiServer,
+    buffer: proto::VideoBufferInfo,
+    data: &[u8],
+    dst_type: proto::VideoBufferType,
+    flip_y: bool,
+) -> FfiResult<proto::OwnedVideoBuffer> {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
+    let stride = buffer.stride;
+
+    match dst_type {
+        proto::VideoBufferType::I420 => {
+            let chroma_width = (buffer.width + 1) / 2;
+            let chroma_height = (buffer.height + 1) / 2;
+            let mut dst_i420 = vec![
+                0u8;
+                (buffer.width * buffer.height + chroma_width * chroma_height * 2)
+                    as usize
+            ];
+            let (dst_y, dst_u, dst_v) = split_i420_mut(
+                dst_i420.as_mut_slice(),
+                buffer.width,
+                chroma_width,
+                chroma_width,
+                buffer.height,
+            );
+
+            imgproc::colorcvt::bgra_to_i420(
+                data,
+                stride,
+                dst_y,
+                buffer.width,
+                dst_u,
+                chroma_width,
+                dst_v,
+                chroma_width,
+                buffer.width,
+                buffer.height,
+                flip_y,
+            );
+
+            let id = server.next_id();
+            server.store_handle(id, dst_i420);
+            return Ok(proto::OwnedVideoBuffer {
+                handle: Some(proto::FfiOwnedHandle { id }),
+                info: Some(i420_info(dst_i420.as_slice(), buffer.width, buffer.height)),
+            });
+        }
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                format!("argb to {:?} is not supported", dst_type).into(),
+            ))
+        }
+    }
+}
+
+fn bgra_to_x(
+    server: &'static FfiServer,
+    buffer: proto::VideoBufferInfo,
+    data: &[u8],
+    dst_type: proto::VideoBufferType,
+    flip_y: bool,
+) -> FfiResult<proto::OwnedVideoBuffer> {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
+    let stride = buffer.stride;
+
+    match dst_type {
+        proto::VideoBufferType::I420 => {
+            let chroma_width = (buffer.width + 1) / 2;
+            let chroma_height = (buffer.height + 1) / 2;
+            let mut dst_i420 = vec![
+                0u8;
+                (buffer.width * buffer.height + chroma_width * chroma_height * 2)
+                    as usize
+            ];
+            let (dst_y, dst_u, dst_v) = split_i420_mut(
+                dst_i420.as_mut_slice(),
+                buffer.width,
+                chroma_width,
+                chroma_width,
+                buffer.height,
+            );
+
+            imgproc::colorcvt::argb_to_i420(
+                data,
+                stride,
+                dst_y,
+                buffer.width,
+                dst_u,
+                chroma_width,
+                dst_v,
+                chroma_width,
+                buffer.width,
+                buffer.height,
+                flip_y,
+            );
+
+            let id = server.next_id();
+            server.store_handle(id, dst_i420);
+            return Ok(proto::OwnedVideoBuffer {
+                handle: Some(proto::FfiOwnedHandle { id }),
+                info: Some(i420_info(dst_i420.as_slice(), buffer.width, buffer.height)),
+            });
+        }
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                format!("bgra to {:?} is not supported", dst_type).into(),
+            ))
+        }
+    }
+}
+
+fn rgb24_to_x(
+    server: &'static FfiServer,
+    buffer: proto::VideoBufferInfo,
+    data: &[u8],
+    dst_type: proto::VideoBufferType,
+    flip_y: bool,
+) -> FfiResult<proto::OwnedVideoBuffer> {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
+    let stride = buffer.stride;
+
+    match dst_type {
+        proto::VideoBufferType::I420 => {
+            let chroma_width = (buffer.width + 1) / 2;
+            let chroma_height = (buffer.height + 1) / 2;
+            let mut dst_i420 = vec![
+                0u8;
+                (buffer.width * buffer.height + chroma_width * chroma_height * 2)
+                    as usize
+            ];
+            let (dst_y, dst_u, dst_v) = split_i420_mut(
+                dst_i420.as_mut_slice(),
+                buffer.width,
+                chroma_width,
+                chroma_width,
+                buffer.height,
+            );
+
+            imgproc::colorcvt::raw_to_i420(
+                data,
+                stride,
+                dst_y,
+                buffer.width,
+                dst_u,
+                chroma_width,
+                dst_v,
+                chroma_width,
+                buffer.width,
+                buffer.height,
+                flip_y,
+            );
+
+            let id = server.next_id();
+            server.store_handle(id, dst_i420);
+            return Ok(proto::OwnedVideoBuffer {
+                handle: Some(proto::FfiOwnedHandle { id }),
+                info: Some(i420_info(dst_i420.as_slice(), buffer.width, buffer.height)),
+            });
+        }
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                format!("raw to {:?} is not supported", dst_type).into(),
+            ))
+        }
     }
 }
 
