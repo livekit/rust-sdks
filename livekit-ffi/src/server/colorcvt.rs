@@ -1,8 +1,6 @@
-use std::slice;
-
 use super::{FfiError, FfiResult, FfiServer};
 use crate::proto;
-use imgproc;
+use std::slice;
 
 pub fn on_video_convert(
     server: &'static FfiServer,
