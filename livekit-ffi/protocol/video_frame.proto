@@ -26,6 +26,7 @@ message NewVideoStreamRequest {
   VideoStreamType type = 2;
   // Get the frame on a specific format
   optional VideoBufferType format = 3;
+  bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
 }
 message NewVideoStreamResponse { OwnedVideoStream stream = 1; }
 
