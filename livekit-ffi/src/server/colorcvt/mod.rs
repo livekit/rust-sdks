@@ -19,7 +19,7 @@ macro_rules! to_i420 {
     }};
 }
 
-pub fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffer {
+pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffer {
     let data = unsafe { slice::from_raw_parts(info.data_ptr as *const u8, info.data_len as usize) };
 
     let proto::VideoBufferInfo { width, height, components, .. } = info;
