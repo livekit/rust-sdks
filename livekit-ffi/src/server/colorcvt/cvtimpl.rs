@@ -266,6 +266,33 @@ pub unsafe fn cvt_i420a(
             );
             Ok((dst, i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w)))
         }
+        proto::VideoBufferType::I420a => {
+            let chroma_w = (width + 1) / 2;
+            let chroma_h = (height + 1) / 2;
+            let mut dst =
+                vec![0u8; (width * height + chroma_w * chroma_h * 2 + width * height) as usize]
+                    .into_boxed_slice();
+            let (dst_y, dst_u, dst_v, dst_a) =
+                split_i420a_mut(&mut dst, width, chroma_w, chroma_w, width, height);
+
+            colorcvt::i420a_copy(
+                y, c0.stride, u, c1.stride, v, c2.stride, a, c3.stride, dst_y, width, dst_u,
+                chroma_w, dst_v, chroma_w, dst_a, width, width, height, flip_y,
+            );
+            Ok((
+                dst,
+                i420a_info(
+                    dst.as_ptr(),
+                    dst.len(),
+                    width,
+                    height,
+                    width,
+                    chroma_w,
+                    chroma_w,
+                    width,
+                ),
+            ))
+        }
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("i420a to {:?} is not supported", dst_type).into(),
@@ -324,6 +351,19 @@ pub unsafe fn cvt_i422(
 
             Ok((dst, i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w)))
         }
+        proto::VideoBufferType::I422 => {
+            let chroma_w = (width + 1) / 2;
+            let chroma_h = height;
+            let mut dst =
+                vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
+            let (dst_y, dst_u, dst_v) = split_i422_mut(&mut dst, width, chroma_w, chroma_w, height);
+
+            colorcvt::i422_copy(
+                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
+                chroma_w, width, height, flip_y,
+            );
+            Ok((dst, i422_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w)))
+        }
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("i422 to {:?} is not supported", dst_type).into(),
@@ -378,6 +418,20 @@ pub unsafe fn cvt_i444(
             );
 
             Ok((dst, i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w)))
+        }
+        proto::VideoBufferType::I444 => {
+            let chroma_w = width;
+            let chroma_h = height;
+            let mut dst =
+                vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
+            let (dst_y, dst_u, dst_v) = split_i444_mut(&mut dst, width, chroma_w, chroma_w, height);
+
+            colorcvt::i444_copy(
+                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
+                chroma_w, width, height, flip_y,
+            );
+
+            Ok((dst, i444_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w)))
         }
         _ => {
             return Err(FfiError::InvalidRequest(
@@ -491,6 +545,19 @@ pub unsafe fn cvt_nv12(
             );
 
             Ok((dst, i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w)))
+        }
+        proto::VideoBufferType::Nv12 => {
+            let chroma_w = (buffer.width + 1) / 2;
+            let chroma_h = (buffer.height + 1) / 2;
+            let mut dst =
+                vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
+            let (dst_y, dst_uv) = split_nv12_mut(&mut dst, width, chroma_w, height);
+
+            imgproc::colorcvt::nv12_copy(
+                y, c0.stride, uv, c1.stride, dst_y, width, dst_uv, chroma_w, width, height, flip_y,
+            );
+
+            Ok((dst, nv12_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w)))
         }
         _ => {
             return Err(FfiError::InvalidRequest(

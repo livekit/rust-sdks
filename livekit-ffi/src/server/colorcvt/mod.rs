@@ -242,6 +242,21 @@ pub fn split_i420a(
     (luma, u, v, a)
 }
 
+pub fn split_i420a_mut(
+    src: &mut [u8],
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+    stride_a: u32,
+    height: u32,
+) -> (&mut [u8], &mut [u8], &mut [u8], &mut [u8]) {
+    let chroma_height = (height + 1) / 2;
+    let (luma, chroma) = src.split_at_mut((stride_y * height) as usize);
+    let (u, v) = chroma.split_at_mut((stride_u * chroma_height) as usize);
+    let (v, a) = v.split_at_mut((stride_v * chroma_height) as usize);
+    (luma, u, v, a)
+}
+
 pub fn split_i422(
     src: &[u8],
     stride_y: u32,
@@ -254,6 +269,18 @@ pub fn split_i422(
     (luma, u, v)
 }
 
+pub fn split_i422_mut(
+    src: &mut [u8],
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+    height: u32,
+) -> (&mut [u8], &mut [u8], &mut [u8]) {
+    let (luma, chroma) = src.split_at_mut((stride_y * height) as usize);
+    let (u, v) = chroma.split_at_mut((stride_u * height) as usize);
+    (luma, u, v)
+}
+
 pub fn split_i444(
     src: &[u8],
     stride_y: u32,
@@ -263,6 +290,18 @@ pub fn split_i444(
 ) -> (&[u8], &[u8], &[u8]) {
     let (luma, chroma) = src.split_at((stride_y * height) as usize);
     let (u, v) = chroma.split_at((stride_u * height) as usize);
+    (luma, u, v)
+}
+
+pub fn split_i444_mut(
+    src: &mut [u8],
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+    height: u32,
+) -> (&mut [u8], &mut [u8], &mut [u8]) {
+    let (luma, chroma) = src.split_at_mut((stride_y * height) as usize);
+    let (u, v) = chroma.split_at_mut((stride_u * height) as usize);
     (luma, u, v)
 }
 
@@ -279,10 +318,35 @@ pub fn split_i010(
     (luma, u, v)
 }
 
+pub fn split_i010_mut(
+    src: &mut [u8],
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+    height: u32,
+) -> (&mut [u8], &mut [u8], &mut [u8]) {
+    let chroma_height = (height + 1) / 2;
+    let (luma, chroma) = src.split_at_mut((stride_y * height) as usize);
+    let (u, v) = chroma.split_at_mut((stride_u * chroma_height) as usize);
+    (luma, u, v)
+}
+
 pub fn split_nv12(src: &[u8], stride_y: u32, stride_uv: u32, height: u32) -> (&[u8], &[u8]) {
     let chroma_height = (height + 1) / 2;
     let (luma, chroma) = src.split_at((stride_y * height) as usize);
     let (u, v) = chroma.split_at((stride_uv * chroma_height) as usize);
+    (luma, u)
+}
+
+pub fn split_nv12_mut(
+    src: &mut [u8],
+    stride_y: u32,
+    stride_uv: u32,
+    height: u32,
+) -> (&mut [u8], &mut [u8]) {
+    let chroma_height = (height + 1) / 2;
+    let (luma, chroma) = src.split_at_mut((stride_y * height) as usize);
+    let (u, v) = chroma.split_at_mut((stride_uv * chroma_height) as usize);
     (luma, u)
 }
 
