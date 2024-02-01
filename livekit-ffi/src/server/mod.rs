@@ -61,7 +61,7 @@ impl FfiHandle for FfiDataBuffer {}
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
-impl FfiHandle for Vec<u8> {}
+impl FfiHandle for Box<[u8]> {}
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough

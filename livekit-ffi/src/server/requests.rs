@@ -14,13 +14,10 @@
 
 use std::{slice, sync::Arc};
 
+use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
-    webrtc::{
-        native::{audio_resampler, yuv_helper},
-        prelude::*,
-        video_frame::{BoxVideoBuffer, I420Buffer},
-    },
+    webrtc::{native::audio_resampler, prelude::*},
 };
 use parking_lot::Mutex;
 
@@ -275,7 +272,42 @@ unsafe fn on_video_convert(
     server: &'static FfiServer,
     video_convert: proto::VideoConvertRequest,
 ) -> FfiResult<proto::VideoConvertResponse> {
-    colorcvt::on_video_convert(server, video_convert)
+    let Some(buffer) = video_convert.buffer else {
+        return Err(FfiError::InvalidRequest("buffer is empty".into()));
+    };
+
+    let flip_y = video_convert.flip_y;
+    let res = match buffer.r#type() {
+        proto::VideoBufferType::Rgba => cvtimpl::cvt_rgba(buffer, video_convert.dst_type(), flip_y),
+        proto::VideoBufferType::Abgr => cvtimpl::cvt_abgr(buffer, video_convert.dst_type(), flip_y),
+        proto::VideoBufferType::Argb => cvtimpl::cvt_argb(buffer, video_convert.dst_type(), flip_y),
+        proto::VideoBufferType::Bgra => cvtimpl::cvt_bgra(buffer, video_convert.dst_type(), flip_y),
+        proto::VideoBufferType::Rgb24 => {
+            cvtimpl::cvt_rgb24(buffer, video_convert.dst_type(), flip_y)
+        }
+        proto::VideoBufferType::I420 => cvtimpl::cvt_i420(buffer, video_convert.dst_type(), flip_y),
+        proto::VideoBufferType::I420a => {
+            cvtimpl::cvt_i420a(buffer, video_convert.dst_type(), flip_y)
+        }
+        proto::VideoBufferType::I422 => cvtimpl::cvt_i422(buffer, video_convert.dst_type(), flip_y),
+        proto::VideoBufferType::I444 => cvtimpl::cvt_i444(buffer, video_convert.dst_type(), flip_y),
+        proto::VideoBufferType::I010 => cvtimpl::cvt_i010(buffer, video_convert.dst_type(), flip_y),
+        proto::VideoBufferType::Nv12 => cvtimpl::cvt_nv12(buffer, video_convert.dst_type(), flip_y),
+    };
+
+    match res {
+        Ok((buffer, info)) => {
+            let id = server.next_id();
+            server.store_handle(id, buffer);
+            let owned_info = proto::OwnedVideoBuffer {
+                handle: Some(proto::FfiOwnedHandle { id }),
+                info: Some(info),
+            };
+            Ok(proto::VideoConvertResponse { buffer: Some(owned_info), error: None })
+        }
+
+        Err(err) => Ok(proto::VideoConvertResponse { buffer: None, error: Some(err.to_string()) }),
+    }
 }
 
 /// Create a new audio stream (used to receive audio frames from a track)
