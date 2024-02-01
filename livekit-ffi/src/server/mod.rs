@@ -30,6 +30,7 @@ use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HA
 
 pub mod audio_source;
 pub mod audio_stream;
+pub mod colorcvt;
 pub mod logger;
 pub mod requests;
 pub mod room;
@@ -60,6 +61,7 @@ impl FfiHandle for FfiDataBuffer {}
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
+impl FfiHandle for Box<[u8]> {}
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough

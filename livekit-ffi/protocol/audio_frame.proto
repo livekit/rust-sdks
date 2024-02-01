@@ -19,16 +19,6 @@ option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
 
-// Allocate a new AudioFrameBuffer
-// This is not necessary required because the data structure is fairly simple
-// But keep the API consistent with VideoFrame
-message AllocAudioBufferRequest { 
-  uint32 sample_rate = 1;
-  uint32 num_channels = 2;
-  uint32 samples_per_channel = 3;
-}
-message AllocAudioBufferResponse { OwnedAudioFrameBuffer buffer = 1; }
-
 // Create a new AudioStream
 // AudioStream is used to receive audio frames from a track
 message NewAudioStreamRequest {
