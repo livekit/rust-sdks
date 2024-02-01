@@ -132,7 +132,7 @@ jobs:
           docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
             uname -a; \
             export PATH=/root/.cargo/bin:\$PATH; \
-            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel -y; \
+            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel clang-libs -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
             cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
@@ -144,7 +144,7 @@ jobs:
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
-          cargo ndk --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
+          cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
 
       - name: Copy/Build licenses
         run: |
