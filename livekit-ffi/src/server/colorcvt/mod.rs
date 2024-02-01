@@ -1,4 +1,4 @@
-use crate::proto;
+use crate::{proto, FfiResult};
 use livekit::webrtc::{prelude::*, video_frame::BoxVideoBuffer};
 use std::slice;
 
@@ -107,84 +107,98 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
 
 pub fn to_video_buffer_info(
     rtcbuffer: BoxVideoBuffer,
-    normalize_stride: bool,
-) -> (Box<[u8]>, proto::VideoBufferInfo) {
-    let info = match rtcbuffer.buffer_type() {
+    dst_type: Option<proto::VideoBufferType>,
+    _normalize_stride: bool, // always normalize stride for now..
+) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
+    match rtcbuffer.buffer_type() {
         // Convert Native buffer to I420
         VideoBufferType::Native => {
             let i420 = rtcbuffer.to_i420();
             let (stride_y, stride_u, stride_v) = i420.strides();
             let ptr = i420.data().0.as_ptr() as *const u8;
-            let len = stride_y * i420.height()
+            let len = (stride_y * i420.height()
                 + stride_u * i420.chroma_height()
-                + stride_v * i420.chroma_height();
-
-            i420_info(ptr, len as usize, i420.width(), i420.height(), stride_y, stride_u, stride_v)
+                + stride_v * i420.chroma_height()) as usize;
+            let info =
+                i420_info(ptr, len, i420.width(), i420.height(), stride_y, stride_u, stride_v);
+            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false) }
         }
         VideoBufferType::I420 => {
             let i420 = rtcbuffer.as_i420().unwrap();
             let (stride_y, stride_u, stride_v) = i420.strides();
             let ptr = i420.data().0.as_ptr() as *const u8;
-            let len = stride_y * i420.height()
+            let len = (stride_y * i420.height()
                 + stride_u * i420.chroma_height()
-                + stride_v * i420.chroma_height();
-            i420_info(ptr, len as usize, i420.width(), i420.height(), stride_y, stride_u, stride_v)
+                + stride_v * i420.chroma_height()) as usize;
+            let info =
+                i420_info(ptr, len, i420.width(), i420.height(), stride_y, stride_u, stride_v);
+            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false) }
         }
         VideoBufferType::I420A => {
             let i420 = rtcbuffer.as_i420a().unwrap();
             let (stride_y, stride_u, stride_v, stride_a) = i420.strides();
             let ptr = i420.data().0.as_ptr() as *const u8;
-            let len = stride_y * i420.height()
+            let len = (stride_y * i420.height()
                 + stride_u * i420.chroma_height()
                 + stride_v * i420.chroma_height()
-                + stride_a * i420.height();
-            i420a_info(
+                + stride_a * i420.height()) as usize;
+
+            let info = i420a_info(
                 ptr,
-                len as usize,
+                len,
                 i420.width(),
                 i420.height(),
                 stride_y,
                 stride_u,
                 stride_v,
                 stride_a,
-            )
+            );
+            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420a), false) }
         }
         VideoBufferType::I422 => {
             let i422 = rtcbuffer.as_i422().unwrap();
             let (stride_y, stride_u, stride_v) = i422.strides();
             let ptr = i422.data().0.as_ptr() as *const u8;
-            let len = stride_y * i422.height()
+            let len = (stride_y * i422.height()
                 + stride_u * i422.chroma_height()
-                + stride_v * i422.chroma_height();
-            i422_info(ptr, len as usize, i422.width(), i422.height(), stride_y, stride_u, stride_v)
+                + stride_v * i422.chroma_height()) as usize;
+            let info =
+                i422_info(ptr, len, i422.width(), i422.height(), stride_y, stride_u, stride_v);
+            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I422), false) }
         }
         VideoBufferType::I444 => {
             let i444 = rtcbuffer.as_i444().unwrap();
             let (stride_y, stride_u, stride_v) = i444.strides();
             let ptr = i444.data().0.as_ptr() as *const u8;
-            let len = stride_y * i444.height()
+            let len = (stride_y * i444.height()
                 + stride_u * i444.chroma_height()
-                + stride_v * i444.chroma_height();
-            i444_info(ptr, len as usize, i444.width(), i444.height(), stride_y, stride_u, stride_v)
+                + stride_v * i444.chroma_height()) as usize;
+            let info =
+                i444_info(ptr, len, i444.width(), i444.height(), stride_y, stride_u, stride_v);
+            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I444), false) }
         }
         VideoBufferType::I010 => {
             let i010 = rtcbuffer.as_i010().unwrap();
             let (stride_y, stride_u, stride_v) = i010.strides();
             let ptr = i010.data().0.as_ptr() as *const u8;
-            let len = stride_y * i010.height()
+            let len = (stride_y * i010.height()
                 + stride_u * i010.chroma_height()
-                + stride_v * i010.chroma_height();
-            i010_info(ptr, len as usize, i010.width(), i010.height(), stride_y, stride_u, stride_v)
+                + stride_v * i010.chroma_height()) as usize;
+            let info =
+                i010_info(ptr, len, i010.width(), i010.height(), stride_y, stride_u, stride_v);
+            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I010), false) }
         }
         VideoBufferType::NV12 => {
             let nv12 = rtcbuffer.as_nv12().unwrap();
             let (stride_y, stride_uv) = nv12.strides();
             let ptr = nv12.data().0.as_ptr() as *const u8;
             let len = stride_y * nv12.height() + stride_uv * nv12.chroma_height() * 2;
-            nv12_info(ptr, len as usize, nv12.width(), nv12.height(), stride_y, stride_uv)
+            let info =
+                nv12_info(ptr, len as usize, nv12.width(), nv12.height(), stride_y, stride_uv);
+            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::Nv12), false) }
         }
         _ => todo!(),
-    };
+    }
 }
 
 pub fn split_i420_mut(
