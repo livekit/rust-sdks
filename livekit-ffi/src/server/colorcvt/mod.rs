@@ -105,6 +105,88 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
     }
 }
 
+pub fn to_video_buffer_info(
+    rtcbuffer: BoxVideoBuffer,
+    normalize_stride: bool,
+) -> (Box<[u8]>, proto::VideoBufferInfo) {
+    let info = match rtcbuffer.buffer_type() {
+        // Convert Native buffer to I420
+        VideoBufferType::Native => {
+            let i420 = rtcbuffer.to_i420();
+            let (stride_y, stride_u, stride_v) = i420.strides();
+            let ptr = i420.data().0.as_ptr() as *const u8;
+            let len = stride_y * i420.height()
+                + stride_u * i420.chroma_height()
+                + stride_v * i420.chroma_height();
+
+            i420_info(ptr, len as usize, i420.width(), i420.height(), stride_y, stride_u, stride_v)
+        }
+        VideoBufferType::I420 => {
+            let i420 = rtcbuffer.as_i420().unwrap();
+            let (stride_y, stride_u, stride_v) = i420.strides();
+            let ptr = i420.data().0.as_ptr() as *const u8;
+            let len = stride_y * i420.height()
+                + stride_u * i420.chroma_height()
+                + stride_v * i420.chroma_height();
+            i420_info(ptr, len as usize, i420.width(), i420.height(), stride_y, stride_u, stride_v)
+        }
+        VideoBufferType::I420A => {
+            let i420 = rtcbuffer.as_i420a().unwrap();
+            let (stride_y, stride_u, stride_v, stride_a) = i420.strides();
+            let ptr = i420.data().0.as_ptr() as *const u8;
+            let len = stride_y * i420.height()
+                + stride_u * i420.chroma_height()
+                + stride_v * i420.chroma_height()
+                + stride_a * i420.height();
+            i420a_info(
+                ptr,
+                len as usize,
+                i420.width(),
+                i420.height(),
+                stride_y,
+                stride_u,
+                stride_v,
+                stride_a,
+            )
+        }
+        VideoBufferType::I422 => {
+            let i422 = rtcbuffer.as_i422().unwrap();
+            let (stride_y, stride_u, stride_v) = i422.strides();
+            let ptr = i422.data().0.as_ptr() as *const u8;
+            let len = stride_y * i422.height()
+                + stride_u * i422.chroma_height()
+                + stride_v * i422.chroma_height();
+            i422_info(ptr, len as usize, i422.width(), i422.height(), stride_y, stride_u, stride_v)
+        }
+        VideoBufferType::I444 => {
+            let i444 = rtcbuffer.as_i444().unwrap();
+            let (stride_y, stride_u, stride_v) = i444.strides();
+            let ptr = i444.data().0.as_ptr() as *const u8;
+            let len = stride_y * i444.height()
+                + stride_u * i444.chroma_height()
+                + stride_v * i444.chroma_height();
+            i444_info(ptr, len as usize, i444.width(), i444.height(), stride_y, stride_u, stride_v)
+        }
+        VideoBufferType::I010 => {
+            let i010 = rtcbuffer.as_i010().unwrap();
+            let (stride_y, stride_u, stride_v) = i010.strides();
+            let ptr = i010.data().0.as_ptr() as *const u8;
+            let len = stride_y * i010.height()
+                + stride_u * i010.chroma_height()
+                + stride_v * i010.chroma_height();
+            i010_info(ptr, len as usize, i010.width(), i010.height(), stride_y, stride_u, stride_v)
+        }
+        VideoBufferType::NV12 => {
+            let nv12 = rtcbuffer.as_nv12().unwrap();
+            let (stride_y, stride_uv) = nv12.strides();
+            let ptr = nv12.data().0.as_ptr() as *const u8;
+            let len = stride_y * nv12.height() + stride_uv * nv12.chroma_height() * 2;
+            nv12_info(ptr, len as usize, nv12.width(), nv12.height(), stride_y, stride_uv)
+        }
+        _ => todo!(),
+    };
+}
+
 pub fn split_i420_mut(
     src: &mut [u8],
     stride_y: u32,
@@ -190,24 +272,34 @@ pub fn split_nv12(src: &[u8], stride_y: u32, stride_uv: u32, height: u32) -> (&[
     (luma, u)
 }
 
-pub fn i420_info(data: &[u8], width: u32, height: u32) -> proto::VideoBufferInfo {
-    let chroma_width = (width + 1) / 2;
+pub fn i420_info(
+    data_ptr: *const u8,
+    data_len: usize,
+    width: u32,
+    height: u32,
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+) -> proto::VideoBufferInfo {
     let chroma_height = (height + 1) / 2;
 
     let mut components = Vec::with_capacity(3);
-    let c1 =
-        proto::video_buffer_info::ComponentInfo { offset: 0, stride: width, size: width * height };
+    let c1 = proto::video_buffer_info::ComponentInfo {
+        offset: 0,
+        stride: stride_y,
+        size: stride_y * height,
+    };
 
     let c2 = proto::video_buffer_info::ComponentInfo {
         offset: c1.size,
-        stride: chroma_width,
-        size: chroma_width * chroma_height,
+        stride: stride_u,
+        size: stride_u * chroma_height,
     };
 
     let c3 = proto::video_buffer_info::ComponentInfo {
         offset: c1.size + c2.size,
-        stride: chroma_width,
-        size: chroma_width * chroma_height,
+        stride: stride_v,
+        size: stride_v * chroma_height,
     };
 
     proto::VideoBufferInfo {
@@ -215,8 +307,210 @@ pub fn i420_info(data: &[u8], width: u32, height: u32) -> proto::VideoBufferInfo
         height,
         r#type: proto::VideoBufferType::I420.into(),
         components,
-        data_ptr: data.as_ptr() as u64,
-        data_len: data.len() as u32,
+        data_ptr: data_ptr as u64,
+        data_len: data_len as u32,
+        stride: 0,
+    }
+}
+
+pub fn i420a_info(
+    data_ptr: *const u8,
+    data_len: usize,
+    width: u32,
+    height: u32,
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+    stride_a: u32,
+) -> proto::VideoBufferInfo {
+    let chroma_height = (height + 1) / 2;
+
+    let mut components = Vec::with_capacity(4);
+    let c1 = proto::video_buffer_info::ComponentInfo {
+        offset: 0,
+        stride: stride_y,
+        size: stride_y * height,
+    };
+
+    let c2 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size,
+        stride: stride_u,
+        size: stride_u * chroma_height,
+    };
+
+    let c3 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size + c2.size,
+        stride: stride_v,
+        size: stride_v * chroma_height,
+    };
+
+    let c4 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size + c2.size + c3.size,
+        stride: stride_a,
+        size: stride_a * height,
+    };
+
+    proto::VideoBufferInfo {
+        width,
+        height,
+        r#type: proto::VideoBufferType::I420a.into(),
+        components,
+        data_ptr: data_ptr as u64,
+        data_len: data_len as u32,
+        stride: 0,
+    }
+}
+
+pub fn i422_info(
+    data_ptr: *const u8,
+    data_len: usize,
+    width: u32,
+    height: u32,
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+) -> proto::VideoBufferInfo {
+    let mut components = Vec::with_capacity(3);
+    let c1 = proto::video_buffer_info::ComponentInfo {
+        offset: 0,
+        stride: stride_y,
+        size: stride_y * height,
+    };
+
+    let c2 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size,
+        stride: stride_u,
+        size: stride_u * height,
+    };
+
+    let c3 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size + c2.size,
+        stride: stride_v,
+        size: stride_v * height,
+    };
+
+    proto::VideoBufferInfo {
+        width,
+        height,
+        r#type: proto::VideoBufferType::I422.into(),
+        components,
+        data_ptr: data_ptr as u64,
+        data_len: data_len as u32,
+        stride: 0,
+    }
+}
+
+pub fn i444_info(
+    data_ptr: *const u8,
+    data_len: usize,
+    width: u32,
+    height: u32,
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+) -> proto::VideoBufferInfo {
+    let mut components = Vec::with_capacity(3);
+    let c1 = proto::video_buffer_info::ComponentInfo {
+        offset: 0,
+        stride: stride_y,
+        size: stride_y * height,
+    };
+
+    let c2 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size,
+        stride: stride_u,
+        size: stride_u * height,
+    };
+
+    let c3 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size + c2.size,
+        stride: stride_v,
+        size: stride_v * height,
+    };
+
+    proto::VideoBufferInfo {
+        width,
+        height,
+        r#type: proto::VideoBufferType::I444.into(),
+        components,
+        data_ptr: data_ptr as u64,
+        data_len: data_len as u32,
+        stride: 0,
+    }
+}
+
+pub fn i010_info(
+    data_ptr: *const u8,
+    data_len: usize,
+    width: u32,
+    height: u32,
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+) -> proto::VideoBufferInfo {
+    let chroma_height = (height + 1) / 2;
+
+    let mut components = Vec::with_capacity(3);
+    let c1 = proto::video_buffer_info::ComponentInfo {
+        offset: 0,
+        stride: stride_y,
+        size: stride_y * height,
+    };
+
+    let c2 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size,
+        stride: stride_u,
+        size: stride_u * chroma_height,
+    };
+
+    let c3 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size + c2.size,
+        stride: stride_v,
+        size: stride_v * chroma_height,
+    };
+
+    proto::VideoBufferInfo {
+        width,
+        height,
+        r#type: proto::VideoBufferType::I010.into(),
+        components,
+        data_ptr: data_ptr as u64,
+        data_len: data_len as u32,
+        stride: 0,
+    }
+}
+
+pub fn nv12_info(
+    data_ptr: *const u8,
+    data_len: usize,
+    width: u32,
+    height: u32,
+    stride_y: u32,
+    stride_uv: u32,
+) -> proto::VideoBufferInfo {
+    let chroma_width = (width + 1) / 2;
+    let chroma_height = (height + 1) / 2;
+
+    let mut components = Vec::with_capacity(2);
+    let c1 = proto::video_buffer_info::ComponentInfo {
+        offset: 0,
+        stride: stride_y,
+        size: stride_y * height,
+    };
+
+    let c2 = proto::video_buffer_info::ComponentInfo {
+        offset: c1.size,
+        stride: stride_uv,
+        size: stride_uv * chroma_height * 2,
+    };
+
+    proto::VideoBufferInfo {
+        width,
+        height,
+        r#type: proto::VideoBufferType::Nv12.into(),
+        components,
+        data_ptr: data_ptr as u64,
+        data_len: data_len as u32,
         stride: 0,
     }
 }

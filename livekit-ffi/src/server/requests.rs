@@ -277,25 +277,8 @@ unsafe fn on_video_convert(
     };
 
     let flip_y = video_convert.flip_y;
-    let res = match buffer.r#type() {
-        proto::VideoBufferType::Rgba => cvtimpl::cvt_rgba(buffer, video_convert.dst_type(), flip_y),
-        proto::VideoBufferType::Abgr => cvtimpl::cvt_abgr(buffer, video_convert.dst_type(), flip_y),
-        proto::VideoBufferType::Argb => cvtimpl::cvt_argb(buffer, video_convert.dst_type(), flip_y),
-        proto::VideoBufferType::Bgra => cvtimpl::cvt_bgra(buffer, video_convert.dst_type(), flip_y),
-        proto::VideoBufferType::Rgb24 => {
-            cvtimpl::cvt_rgb24(buffer, video_convert.dst_type(), flip_y)
-        }
-        proto::VideoBufferType::I420 => cvtimpl::cvt_i420(buffer, video_convert.dst_type(), flip_y),
-        proto::VideoBufferType::I420a => {
-            cvtimpl::cvt_i420a(buffer, video_convert.dst_type(), flip_y)
-        }
-        proto::VideoBufferType::I422 => cvtimpl::cvt_i422(buffer, video_convert.dst_type(), flip_y),
-        proto::VideoBufferType::I444 => cvtimpl::cvt_i444(buffer, video_convert.dst_type(), flip_y),
-        proto::VideoBufferType::I010 => cvtimpl::cvt_i010(buffer, video_convert.dst_type(), flip_y),
-        proto::VideoBufferType::Nv12 => cvtimpl::cvt_nv12(buffer, video_convert.dst_type(), flip_y),
-    };
-
-    match res {
+    let dst_type = video_convert.dst_type();
+    match cvtimpl::cvt(buffer, dst_type, flip_y) {
         Ok((buffer, info)) => {
             let id = server.next_id();
             server.store_handle(id, buffer);
