@@ -7,7 +7,7 @@ pub mod cvtimpl;
 macro_rules! to_i420 {
     ($buffer:ident, $data:expr) => {{
         let proto::VideoBufferInfo { width, height, components, .. } = $buffer;
-        let [c0, c1, c2, ..] = components.as_slice();
+        let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
         let (y, u, v) = split_i420($data, c0.stride, c1.stride, c2.stride, height);
         let mut i420 = I420Buffer::with_strides(width, height, c0.stride, c1.stride, c2.stride);
 
@@ -21,10 +21,10 @@ macro_rules! to_i420 {
 
 pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffer {
     let data = unsafe { slice::from_raw_parts(info.data_ptr as *const u8, info.data_len as usize) };
+    let r#type = info.r#type();
+    let proto::VideoBufferInfo { width, height, components, .. } = info.clone();
 
-    let proto::VideoBufferInfo { width, height, components, .. } = info;
-
-    match info.r#type() {
+    match r#type {
         // For rgba buffer, automatically convert to I420
         proto::VideoBufferType::Rgba => {
             let (data, info) =
@@ -52,10 +52,18 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
             to_i420!(info, &data)
         }
         proto::VideoBufferType::I420 | proto::VideoBufferType::I420a => {
-            to_i420!(info, data)
+            let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
+            let (y, u, v) = split_i420(data, c0.stride, c1.stride, c2.stride, height);
+            let mut i420 = I420Buffer::with_strides(width, height, c0.stride, c1.stride, c2.stride);
+
+            let (dy, du, dv) = i420.data_mut();
+            dy.copy_from_slice(y);
+            du.copy_from_slice(u);
+            dv.copy_from_slice(v);
+            Box::new(i420) as BoxVideoBuffer
         }
         proto::VideoBufferType::I422 => {
-            let [c0, c1, c2, ..] = components.as_slice();
+            let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
             let (y, u, v) = split_i422(data, c0.stride, c1.stride, c2.stride, height);
             let mut i422 = I422Buffer::with_strides(width, height, c0.stride, c1.stride, c2.stride);
 
@@ -66,7 +74,7 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
             Box::new(i422) as BoxVideoBuffer
         }
         proto::VideoBufferType::I444 => {
-            let [c0, c1, c2, ..] = components.as_slice();
+            let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
             let (y, u, v) = split_i444(data, c0.stride, c1.stride, c2.stride, height);
             let mut i444 = I444Buffer::with_strides(width, height, c0.stride, c1.stride, c2.stride);
 
@@ -77,12 +85,12 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
             Box::new(i444) as BoxVideoBuffer
         }
         proto::VideoBufferType::I010 => {
-            let [c0, c1, c2, ..] = components.as_slice();
+            let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
             let (y, u, v) = split_i010(data, c0.stride, c1.stride, c2.stride, height);
 
-            let (_, y, _) = unsafe { y.align_to_mut::<u16>() };
-            let (_, u, _) = unsafe { u.align_to_mut::<u16>() };
-            let (_, v, _) = unsafe { v.align_to_mut::<u16>() };
+            let (_, y, _) = unsafe { y.align_to::<u16>() };
+            let (_, u, _) = unsafe { u.align_to::<u16>() };
+            let (_, v, _) = unsafe { v.align_to::<u16>() };
 
             let mut i010 = I010Buffer::with_strides(width, height, c0.stride, c1.stride, c2.stride);
 
@@ -93,7 +101,7 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
             Box::new(i010) as BoxVideoBuffer
         }
         proto::VideoBufferType::Nv12 => {
-            let [c0, c1, ..] = components.as_slice();
+            let (c0, c1) = (&components[0], &components[1]);
             let (y, uv) = split_nv12(data, c0.stride, c1.stride, info.height);
             let mut nv12 = NV12Buffer::with_strides(info.width, info.height, c0.stride, c1.stride);
 
@@ -222,8 +230,8 @@ pub fn split_i420(
     height: u32,
 ) -> (&[u8], &[u8], &[u8]) {
     let chroma_height = (height + 1) / 2;
-    let (luma, chroma) = dst.split_at_mut((stride_y * height) as usize);
-    let (u, v) = chroma.split_at_mut((stride_u * chroma_height) as usize);
+    let (luma, chroma) = dst.split_at((stride_y * height) as usize);
+    let (u, v) = chroma.split_at((stride_u * chroma_height) as usize);
     (luma, u, v)
 }
 
@@ -232,7 +240,7 @@ pub fn split_i420a(
     stride_y: u32,
     stride_u: u32,
     stride_v: u32,
-    stride_a: u32,
+    _stride_a: u32,
     height: u32,
 ) -> (&[u8], &[u8], &[u8], &[u8]) {
     let chroma_height = (height + 1) / 2;
@@ -247,7 +255,7 @@ pub fn split_i420a_mut(
     stride_y: u32,
     stride_u: u32,
     stride_v: u32,
-    stride_a: u32,
+    _stride_a: u32,
     height: u32,
 ) -> (&mut [u8], &mut [u8], &mut [u8], &mut [u8]) {
     let chroma_height = (height + 1) / 2;
@@ -261,7 +269,7 @@ pub fn split_i422(
     src: &[u8],
     stride_y: u32,
     stride_u: u32,
-    stride_v: u32,
+    _stride_v: u32,
     height: u32,
 ) -> (&[u8], &[u8], &[u8]) {
     let (luma, chroma) = src.split_at((stride_y * height) as usize);
@@ -273,7 +281,7 @@ pub fn split_i422_mut(
     src: &mut [u8],
     stride_y: u32,
     stride_u: u32,
-    stride_v: u32,
+    _stride_v: u32,
     height: u32,
 ) -> (&mut [u8], &mut [u8], &mut [u8]) {
     let (luma, chroma) = src.split_at_mut((stride_y * height) as usize);
@@ -285,7 +293,7 @@ pub fn split_i444(
     src: &[u8],
     stride_y: u32,
     stride_u: u32,
-    stride_v: u32,
+    _stride_v: u32,
     height: u32,
 ) -> (&[u8], &[u8], &[u8]) {
     let (luma, chroma) = src.split_at((stride_y * height) as usize);
@@ -297,7 +305,7 @@ pub fn split_i444_mut(
     src: &mut [u8],
     stride_y: u32,
     stride_u: u32,
-    stride_v: u32,
+    _stride_v: u32,
     height: u32,
 ) -> (&mut [u8], &mut [u8], &mut [u8]) {
     let (luma, chroma) = src.split_at_mut((stride_y * height) as usize);
@@ -309,7 +317,7 @@ pub fn split_i010(
     src: &[u8],
     stride_y: u32,
     stride_u: u32,
-    stride_v: u32,
+    _stride_v: u32,
     height: u32,
 ) -> (&[u8], &[u8], &[u8]) {
     let chroma_height = (height + 1) / 2;
@@ -322,7 +330,7 @@ pub fn split_i010_mut(
     src: &mut [u8],
     stride_y: u32,
     stride_u: u32,
-    stride_v: u32,
+    _stride_v: u32,
     height: u32,
 ) -> (&mut [u8], &mut [u8], &mut [u8]) {
     let chroma_height = (height + 1) / 2;
@@ -331,23 +339,19 @@ pub fn split_i010_mut(
     (luma, u, v)
 }
 
-pub fn split_nv12(src: &[u8], stride_y: u32, stride_uv: u32, height: u32) -> (&[u8], &[u8]) {
-    let chroma_height = (height + 1) / 2;
+pub fn split_nv12(src: &[u8], stride_y: u32, _stride_uv: u32, height: u32) -> (&[u8], &[u8]) {
     let (luma, chroma) = src.split_at((stride_y * height) as usize);
-    let (u, v) = chroma.split_at((stride_uv * chroma_height) as usize);
-    (luma, u)
+    (luma, chroma)
 }
 
 pub fn split_nv12_mut(
     src: &mut [u8],
     stride_y: u32,
-    stride_uv: u32,
+    _stride_uv: u32,
     height: u32,
 ) -> (&mut [u8], &mut [u8]) {
-    let chroma_height = (height + 1) / 2;
     let (luma, chroma) = src.split_at_mut((stride_y * height) as usize);
-    let (u, v) = chroma.split_at_mut((stride_uv * chroma_height) as usize);
-    (luma, u)
+    (luma, chroma)
 }
 
 pub fn i420_info(
@@ -379,6 +383,7 @@ pub fn i420_info(
         stride: stride_v,
         size: stride_v * chroma_height,
     };
+    components.extend_from_slice(&[c1, c2, c3]);
 
     proto::VideoBufferInfo {
         width,
@@ -427,6 +432,7 @@ pub fn i420a_info(
         stride: stride_a,
         size: stride_a * height,
     };
+    components.extend_from_slice(&[c1, c2, c3, c4]);
 
     proto::VideoBufferInfo {
         width,
@@ -466,6 +472,7 @@ pub fn i422_info(
         stride: stride_v,
         size: stride_v * height,
     };
+    components.extend_from_slice(&[c1, c2, c3]);
 
     proto::VideoBufferInfo {
         width,
@@ -505,6 +512,7 @@ pub fn i444_info(
         stride: stride_v,
         size: stride_v * height,
     };
+    components.extend_from_slice(&[c1, c2, c3]);
 
     proto::VideoBufferInfo {
         width,
@@ -546,6 +554,7 @@ pub fn i010_info(
         stride: stride_v,
         size: stride_v * chroma_height,
     };
+    components.extend_from_slice(&[c1, c2, c3]);
 
     proto::VideoBufferInfo {
         width,
@@ -566,7 +575,6 @@ pub fn nv12_info(
     stride_y: u32,
     stride_uv: u32,
 ) -> proto::VideoBufferInfo {
-    let chroma_width = (width + 1) / 2;
     let chroma_height = (height + 1) / 2;
 
     let mut components = Vec::with_capacity(2);
@@ -581,6 +589,7 @@ pub fn nv12_info(
         stride: stride_uv,
         size: stride_uv * chroma_height * 2,
     };
+    components.extend_from_slice(&[c1, c2]);
 
     proto::VideoBufferInfo {
         width,

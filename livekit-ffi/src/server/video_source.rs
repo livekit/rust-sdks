@@ -57,17 +57,18 @@ impl FfiVideoSource {
 
     pub unsafe fn capture_frame(
         &self,
-        server: &'static server::FfiServer,
+        _server: &'static server::FfiServer,
         capture: proto::CaptureVideoFrameRequest,
     ) -> FfiResult<()> {
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Native(ref source) => {
-                let buffer =
-                    capture.buffer.ok_or(FfiError::InvalidRequest("frame is empty".into()))?;
+                let buffer = capture
+                    .buffer
+                    .as_ref()
+                    .ok_or(FfiError::InvalidRequest("frame is empty".into()))?;
 
-                let buffer = colorcvt::to_libwebrtc_buffer(buffer);
-
+                let buffer = colorcvt::to_libwebrtc_buffer(buffer.clone());
                 let frame = VideoFrame {
                     rotation: capture.rotation().into(),
                     timestamp_us: capture.timestamp_us,

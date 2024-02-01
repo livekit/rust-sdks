@@ -132,7 +132,6 @@ fn on_update_local_metadata(
     server: &'static FfiServer,
     update_local_metadata: proto::UpdateLocalMetadataRequest,
 ) -> FfiResult<proto::UpdateLocalMetadataResponse> {
-    let e = true;
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
         .clone();
@@ -272,13 +271,13 @@ unsafe fn on_video_convert(
     server: &'static FfiServer,
     video_convert: proto::VideoConvertRequest,
 ) -> FfiResult<proto::VideoConvertResponse> {
-    let Some(buffer) = video_convert.buffer else {
+    let Some(ref buffer) = video_convert.buffer else {
         return Err(FfiError::InvalidRequest("buffer is empty".into()));
     };
 
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
-    match cvtimpl::cvt(buffer, dst_type, flip_y) {
+    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y) {
         Ok((buffer, info)) => {
             let id = server.next_id();
             server.store_handle(id, buffer);
