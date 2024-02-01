@@ -3,7 +3,7 @@ use crate::proto;
 use crate::{FfiError, FfiResult};
 use imgproc::colorcvt;
 
-pub fn cvt_rgba(
+pub unsafe fn cvt_rgba(
     buffer: proto::VideoBufferInfo,
     dst: proto::VideoBufferType,
     flip_y: bool,
@@ -30,7 +30,7 @@ pub fn cvt_rgba(
     }
 }
 
-pub fn cvt_abgr(
+pub unsafe fn cvt_abgr(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
     flip_y: bool,
@@ -60,7 +60,7 @@ pub fn cvt_abgr(
     }
 }
 
-pub fn cvt_argb(
+pub unsafe fn cvt_argb(
     buffer: proto::VideoBufferInfo,
     dst: proto::VideoBufferType,
     flip_y: bool,
@@ -88,7 +88,7 @@ pub fn cvt_argb(
     }
 }
 
-pub fn cvt_bgra(
+pub unsafe fn cvt_bgra(
     buffer: proto::VideoBufferInfo,
     dst: proto::VideoBufferType,
     flip_y: bool,
@@ -115,7 +115,7 @@ pub fn cvt_bgra(
     }
 }
 
-pub fn cvt_rgb24(
+pub unsafe fn cvt_rgb24(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
     flip_y: bool,
@@ -146,7 +146,7 @@ pub fn cvt_rgb24(
     }
 }
 
-pub fn cvt_i420(
+pub unsafe fn cvt_i420(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
     flip_y: bool,
@@ -216,7 +216,7 @@ pub fn cvt_i420(
     }
 }
 
-pub fn cvt_i420a(
+pub unsafe fn cvt_i420a(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
     flip_y: bool,
@@ -250,7 +250,7 @@ pub fn cvt_i420a(
     }
 }
 
-pub fn cvt_i422(
+pub unsafe fn cvt_i422(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
     flip_y: bool,
@@ -308,7 +308,7 @@ pub fn cvt_i422(
     }
 }
 
-pub fn cvt_i444(
+pub unsafe fn cvt_i444(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
     flip_y: bool,
@@ -363,7 +363,7 @@ pub fn cvt_i444(
     }
 }
 
-pub fn cvt_i010(
+pub unsafe fn cvt_i010(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
     flip_y: bool,
@@ -422,7 +422,7 @@ pub fn cvt_i010(
     }
 }
 
-pub fn cvt_nv12(
+pub unsafe fn cvt_nv12(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
     flip_y: bool,
