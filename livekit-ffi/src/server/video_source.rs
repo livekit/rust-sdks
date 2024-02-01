@@ -12,15 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::slice;
-
-use livekit::webrtc::{
-    prelude::*,
-    video_frame::{BoxVideoBuffer, VideoFrame},
-};
-
 use super::{colorcvt, FfiHandle};
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+use livekit::webrtc::{prelude::*, video_frame::VideoFrame};
 
 pub struct FfiVideoSource {
     pub handle_id: FfiHandleId,

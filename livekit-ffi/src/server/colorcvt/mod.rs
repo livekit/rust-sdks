@@ -4,29 +4,55 @@ use std::slice;
 
 pub mod cvtimpl;
 
-pub fn to_libwebrtc_buffer(buffer: proto::VideoBufferInfo) -> BoxVideoBuffer {
-    let data =
-        unsafe { slice::from_raw_parts(buffer.data_ptr as *const u8, buffer.data_len as usize) };
+macro_rules! to_i420 {
+    ($buffer:ident, $data:expr) => {{
+        let proto::VideoBufferInfo { width, height, components, .. } = $buffer;
+        let [c0, c1, c2, ..] = components.as_slice();
+        let (y, u, v) = split_i420($data, c0.stride, c1.stride, c2.stride, height);
+        let mut i420 = I420Buffer::with_strides(width, height, c0.stride, c1.stride, c2.stride);
 
-    let proto::VideoBufferInfo { width, height, components, .. } = buffer;
+        let (dy, du, dv) = i420.data_mut();
+        dy.copy_from_slice(y);
+        du.copy_from_slice(u);
+        dv.copy_from_slice(v);
+        Box::new(i420) as BoxVideoBuffer
+    }};
+}
 
-    match buffer.r#type() {
+pub fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffer {
+    let data = unsafe { slice::from_raw_parts(info.data_ptr as *const u8, info.data_len as usize) };
+
+    let proto::VideoBufferInfo { width, height, components, .. } = info;
+
+    match info.r#type() {
         // For rgba buffer, automatically convert to I420
-        proto::VideoBufferType::Rgba => todo!(),
-        proto::VideoBufferType::Abgr => todo!(),
-        proto::VideoBufferType::Argb => todo!(),
-        proto::VideoBufferType::Bgra => todo!(),
-        proto::VideoBufferType::Rgb24 => todo!(),
+        proto::VideoBufferType::Rgba => {
+            let (data, info) =
+                cvtimpl::cvt_rgba(info, proto::VideoBufferType::I420, false).unwrap();
+            to_i420!(info, &data)
+        }
+        proto::VideoBufferType::Abgr => {
+            let (data, info) =
+                cvtimpl::cvt_abgr(info, proto::VideoBufferType::I420, false).unwrap();
+            to_i420!(info, &data)
+        }
+        proto::VideoBufferType::Argb => {
+            let (data, info) =
+                cvtimpl::cvt_argb(info, proto::VideoBufferType::I420, false).unwrap();
+            to_i420!(info, &data)
+        }
+        proto::VideoBufferType::Bgra => {
+            let (data, info) =
+                cvtimpl::cvt_bgra(info, proto::VideoBufferType::I420, false).unwrap();
+            to_i420!(info, &data)
+        }
+        proto::VideoBufferType::Rgb24 => {
+            let (data, info) =
+                cvtimpl::cvt_rgb24(info, proto::VideoBufferType::I420, false).unwrap();
+            to_i420!(info, &data)
+        }
         proto::VideoBufferType::I420 | proto::VideoBufferType::I420a => {
-            let [c0, c1, c2, ..] = components.as_slice();
-            let (y, u, v) = split_i420(data, c0.stride, c1.stride, c2.stride, height);
-            let mut i420 = I420Buffer::with_strides(width, height, c0.stride, c1.stride, c2.stride);
-
-            let (dy, du, dv) = i420.data_mut();
-            dy.copy_from_slice(y);
-            du.copy_from_slice(u);
-            dv.copy_from_slice(v);
-            Box::new(i420) as BoxVideoBuffer
+            to_i420!(info, data)
         }
         proto::VideoBufferType::I422 => {
             let [c0, c1, c2, ..] = components.as_slice();
@@ -68,9 +94,8 @@ pub fn to_libwebrtc_buffer(buffer: proto::VideoBufferInfo) -> BoxVideoBuffer {
         }
         proto::VideoBufferType::Nv12 => {
             let [c0, c1, ..] = components.as_slice();
-            let (y, uv) = split_nv12(data, c0.stride, c1.stride, buffer.height);
-            let mut nv12 =
-                NV12Buffer::with_strides(buffer.width, buffer.height, c0.stride, c1.stride);
+            let (y, uv) = split_nv12(data, c0.stride, c1.stride, info.height);
+            let mut nv12 = NV12Buffer::with_strides(info.width, info.height, c0.stride, c1.stride);
 
             let (dy, duv) = nv12.data_mut();
             dy.copy_from_slice(y);

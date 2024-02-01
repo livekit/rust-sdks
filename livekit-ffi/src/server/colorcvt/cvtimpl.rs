@@ -1,5 +1,6 @@
 use super::*;
 use crate::proto;
+use crate::{FfiError, FfiResult};
 use imgproc::colorcvt;
 
 pub fn cvt_rgba(
