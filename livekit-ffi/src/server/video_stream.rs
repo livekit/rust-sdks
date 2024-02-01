@@ -16,7 +16,7 @@ use futures_util::StreamExt;
 use livekit::webrtc::{prelude::*, video_stream::native::NativeVideoStream};
 use tokio::sync::oneshot;
 
-use super::{room::FfiTrack, FfiHandle};
+use super::{colorcvt, room::FfiTrack, FfiHandle};
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 pub struct FfiVideoStream {
@@ -59,6 +59,8 @@ impl FfiVideoStream {
                 server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
+                    new_stream.format.and_then(|_| Some(new_stream.format())),
+                    new_stream.normalize_stride,
                     NativeVideoStream::new(rtc_track),
                     close_rx,
                 ));
@@ -80,6 +82,8 @@ impl FfiVideoStream {
     async fn native_video_stream_task(
         server: &'static server::FfiServer,
         stream_handle: FfiHandleId,
+        dst_type: Option<proto::VideoBufferType>,
+        normalize_stride: bool,
         mut native_stream: NativeVideoStream,
         mut close_rx: oneshot::Receiver<()>,
     ) {
@@ -93,22 +97,28 @@ impl FfiVideoStream {
                         break;
                     };
 
+
+                    let Ok((buffer, info)) = colorcvt::to_video_buffer_info(frame.buffer, dst_type, normalize_stride) else {
+                        log::error!("video stream failed to convert video frame to {:?}", dst_type);
+                        continue;
+                    };
+
                     let handle_id = server.next_id();
-                    let frame_info = proto::VideoFrameInfo::from(&frame);
-                    let buffer_info = proto::VideoFrameBufferInfo::from(&frame.buffer);
-                    server.store_handle(handle_id, frame.buffer);
+                    server.store_handle(handle_id, buffer);
+
 
                     if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
                         proto::VideoStreamEvent {
                             stream_handle,
                             message: Some(proto::video_stream_event::Message::FrameReceived(
                                 proto::VideoFrameReceived {
-                                    frame: Some(frame_info),
-                                    buffer: Some(proto::OwnedVideoFrameBuffer {
+                                    timestamp_us: frame.timestamp_us,
+                                    rotation: proto::VideoRotation::from(frame.rotation).into(),
+                                    buffer: Some(proto::OwnedVideoBuffer {
                                         handle: Some(proto::FfiOwnedHandle {
                                             id: handle_id,
                                         }),
-                                        info: Some(buffer_info),
+                                        info: Some(info),
                                     }),
                                 }
                             )),

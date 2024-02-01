@@ -1530,6 +1530,9 @@ pub struct NewVideoStreamRequest {
     /// Get the frame on a specific format
     #[prost(enumeration="VideoBufferType", optional, tag="3")]
     pub format: ::core::option::Option<i32>,
+    /// if true, stride will be set to width/chroma_width
+    #[prost(bool, tag="4")]
+    pub normalize_stride: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
