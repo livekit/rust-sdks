@@ -134,6 +134,7 @@ jobs:
             export PATH=/root/.cargo/bin:\$PATH; \
             yum install llvm llvm-libs -y; \
             yum install clang -y; \
+            yum groupinstall 'Development Tools' -y; \
             clang --version; \
             yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
