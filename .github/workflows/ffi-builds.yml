@@ -133,7 +133,7 @@ jobs:
             uname -a; \
             export PATH=/root/.cargo/bin:\$PATH; \
             yum install centos-release-scl -y; \
-            yum install llvm-toolset-7 -y; \
+            yum install llvm-toolset-7 llvm-toolset-7-clang -y; \
             scl enable llvm-toolset-7 'bash'; \
             yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
