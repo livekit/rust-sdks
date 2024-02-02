@@ -897,9 +897,9 @@ dependencies = [
 
 [[package]]
 name = "imgproc"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "836f68090f9346e59d5c08a07be758bd0c1933ead57580b14f1d927ea0789a5c"
+checksum = "abd6e837fccd22f9e266795129f610930b2ca6c4d87be5f0e492f88d8b205091"
 dependencies = [
  "yuv-sys",
 ]
@@ -2892,9 +2892,9 @@ dependencies = [
 
 [[package]]
 name = "yuv-sys"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71d565b640821bcfaa20a715cdb04176265dfc82e8f0820e961e9c699faeed5e"
+checksum = "99002680195a5ffe5d4cd6bad6c81cc3600526b9d9246cccfba21f3fe5fba1bd"
 dependencies = [
  "bindgen",
  "cc",
