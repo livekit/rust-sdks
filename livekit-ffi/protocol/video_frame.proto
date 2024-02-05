@@ -100,7 +100,7 @@ enum VideoBufferType {
 
 message VideoBufferInfo {
   message ComponentInfo {
-    uint32 offset = 1;
+    uint64 data_ptr = 1;
     uint32 stride = 2;
     uint32 size = 3;
   }
@@ -108,8 +108,7 @@ message VideoBufferInfo {
   uint32 width = 2;
   uint32 height = 3;
   uint64 data_ptr = 4;
-  uint32 data_len = 5;
-  uint32 stride = 6; // for packed formats
+  uint32 stride = 6; // only for packed formats
   repeated ComponentInfo components = 7;
 }
 
