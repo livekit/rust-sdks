@@ -29,7 +29,8 @@ pub unsafe fn cvt_rgba(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
-    let proto::VideoBufferInfo { stride, width, height, data_ptr, data_len, .. } = buffer;
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
     match dst_type {
@@ -38,13 +39,28 @@ pub unsafe fn cvt_rgba(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dy, du, dv) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::abgr_to_i420(
-                data, stride, dy, width, du, chroma_w, dv, chroma_w, width, height, flip_y,
+                data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -59,7 +75,8 @@ pub unsafe fn cvt_abgr(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
-    let proto::VideoBufferInfo { stride, width, height, data_ptr, data_len, .. } = buffer;
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
     match dst_type {
@@ -68,13 +85,28 @@ pub unsafe fn cvt_abgr(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             imgproc::colorcvt::rgba_to_i420(
                 data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -89,7 +121,8 @@ pub unsafe fn cvt_argb(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Argb);
-    let proto::VideoBufferInfo { stride, width, height, data_ptr, data_len, .. } = buffer;
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
     match dst_type {
@@ -98,13 +131,27 @@ pub unsafe fn cvt_argb(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::bgra_to_i420(
                 data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -119,7 +166,8 @@ pub unsafe fn cvt_bgra(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Bgra);
-    let proto::VideoBufferInfo { stride, width, height, data_ptr, data_len, .. } = buffer;
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
     match dst_type {
@@ -128,13 +176,27 @@ pub unsafe fn cvt_bgra(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::argb_to_i420(
                 data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -149,7 +211,8 @@ pub unsafe fn cvt_rgb24(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgb24);
-    let proto::VideoBufferInfo { stride, width, height, data_ptr, data_len, .. } = buffer;
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
     match dst_type {
@@ -158,13 +221,27 @@ pub unsafe fn cvt_rgb24(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::raw_to_i420(
                 data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -181,11 +258,16 @@ pub unsafe fn cvt_i420(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::I420);
-    let proto::VideoBufferInfo { width, height, components, data_ptr, data_len, .. } = buffer;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let proto::VideoBufferInfo { width, height, components, .. } = buffer;
 
     let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
-    let (y, u, v) = split_i420(data, c0.stride, c1.stride, c2.stride, height);
+    let (data_y, data_u, data_v) = unsafe {
+        (
+            slice::from_raw_parts(c0.data_ptr as *const u8, c0.size as usize),
+            slice::from_raw_parts(c1.data_ptr as *const u8, c1.size as usize),
+            slice::from_raw_parts(c2.data_ptr as *const u8, c2.size as usize),
+        )
+    };
 
     match dst_type {
         proto::VideoBufferType::Rgba
@@ -199,8 +281,8 @@ pub unsafe fn cvt_i420(
                 ($rgba:expr, $fnc:ident) => {
                     if dst_type == $rgba {
                         colorcvt::$fnc(
-                            y, c0.stride, u, c1.stride, v, c2.stride, &mut dst, stride, width,
-                            height, flip_y,
+                            data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
+                            stride, width, height, flip_y,
                         );
                     }
                 };
@@ -211,7 +293,7 @@ pub unsafe fn cvt_i420(
             cvt!(proto::VideoBufferType::Argb, i420_to_bgra);
             cvt!(proto::VideoBufferType::Bgra, i420_to_argb);
 
-            let info = rgba_info(&dst, dst_type, width, height);
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
             Ok((dst, info))
         }
         proto::VideoBufferType::Rgb24 => {
@@ -219,10 +301,11 @@ pub unsafe fn cvt_i420(
             let stride = width * 3;
 
             colorcvt::i420_to_raw(
-                y, c0.stride, u, c1.stride, v, c2.stride, &mut dst, stride, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst, stride, width,
+                height, flip_y,
             );
 
-            let info = rgb_info(&dst, dst_type, width, height);
+            let info = rgb_info(dst.as_ptr(), dst_type, width, height);
             Ok((dst, info))
         }
         proto::VideoBufferType::I420 => {
@@ -230,14 +313,28 @@ pub unsafe fn cvt_i420(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::i420_copy(
-                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
-                chroma_w, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, dst_y, width, dst_u,
+                chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -254,11 +351,17 @@ pub unsafe fn cvt_i420a(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::I420a);
-    let proto::VideoBufferInfo { width, height, components, data_ptr, data_len, .. } = buffer;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let proto::VideoBufferInfo { width, height, components, .. } = buffer;
 
     let (c0, c1, c2, c3) = (&components[0], &components[1], &components[2], &components[3]);
-    let (y, u, v, a) = split_i420a(data, c0.stride, c1.stride, c2.stride, c3.stride, height);
+    let (data_y, data_u, data_v, data_a) = unsafe {
+        (
+            slice::from_raw_parts(c0.data_ptr as *const u8, c0.size as usize),
+            slice::from_raw_parts(c1.data_ptr as *const u8, c1.size as usize),
+            slice::from_raw_parts(c2.data_ptr as *const u8, c2.size as usize),
+            slice::from_raw_parts(c3.data_ptr as *const u8, c3.size as usize),
+        )
+    };
 
     match dst_type {
         proto::VideoBufferType::I420 => {
@@ -266,13 +369,27 @@ pub unsafe fn cvt_i420a(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::i420_copy(
-                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
-                chroma_w, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, dst_y, width, dst_u,
+                chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         proto::VideoBufferType::I420a => {
@@ -281,17 +398,25 @@ pub unsafe fn cvt_i420a(
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2 + width * height) as usize]
                     .into_boxed_slice();
-            let (dst_y, dst_u, dst_v, dst_a) =
-                split_i420a_mut(&mut dst, width, chroma_w, chroma_w, width, height);
+
+            let (dst_y, dst_u, dst_v, dst_a) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, va) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                let (v, a) = va.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v, a)
+            };
 
             colorcvt::i420a_copy(
-                y, c0.stride, u, c1.stride, v, c2.stride, a, c3.stride, dst_y, width, dst_u,
-                chroma_w, dst_v, chroma_w, dst_a, width, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, data_a, c3.stride, dst_y,
+                width, dst_u, chroma_w, dst_v, chroma_w, dst_a, width, width, height, flip_y,
             );
 
             let info = i420a_info(
-                dst.as_ptr(),
-                dst.len(),
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                dst_a.as_ptr(),
                 width,
                 height,
                 width,
@@ -315,11 +440,16 @@ pub unsafe fn cvt_i422(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::I422);
-    let proto::VideoBufferInfo { width, height, components, data_ptr, data_len, .. } = buffer;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let proto::VideoBufferInfo { width, height, components, .. } = buffer;
 
     let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
-    let (y, u, v) = split_i422(data, c0.stride, c1.stride, c2.stride, height);
+    let (data_y, data_u, data_v) = unsafe {
+        (
+            slice::from_raw_parts(c0.data_ptr as *const u8, c0.size as usize),
+            slice::from_raw_parts(c1.data_ptr as *const u8, c1.size as usize),
+            slice::from_raw_parts(c2.data_ptr as *const u8, c2.size as usize),
+        )
+    };
 
     match dst_type {
         proto::VideoBufferType::Rgba
@@ -332,8 +462,8 @@ pub unsafe fn cvt_i422(
                 ($rgba:expr, $fnc:ident) => {
                     if dst_type == $rgba {
                         colorcvt::$fnc(
-                            y, c0.stride, u, c1.stride, v, c2.stride, &mut dst, stride, width,
-                            height, flip_y,
+                            data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
+                            stride, width, height, flip_y,
                         );
                     }
                 };
@@ -343,7 +473,7 @@ pub unsafe fn cvt_i422(
             cvt!(proto::VideoBufferType::Abgr, i422_to_rgba);
             cvt!(proto::VideoBufferType::Argb, i422_to_bgra);
 
-            let info = rgba_info(&dst, dst_type, width, height);
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
             Ok((dst, info))
         }
         proto::VideoBufferType::I420 => {
@@ -351,14 +481,28 @@ pub unsafe fn cvt_i422(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::i422_to_i420(
-                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
-                chroma_w, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, dst_y, width, dst_u,
+                chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         proto::VideoBufferType::I422 => {
@@ -366,13 +510,27 @@ pub unsafe fn cvt_i422(
             let chroma_h = height;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i422_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::i422_copy(
-                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
-                chroma_w, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, dst_y, width, dst_u,
+                chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
-            let info = i422_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i422_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -389,11 +547,16 @@ pub unsafe fn cvt_i444(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::I444);
-    let proto::VideoBufferInfo { width, height, components, data_ptr, data_len, .. } = buffer;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let proto::VideoBufferInfo { width, height, components, .. } = buffer;
 
     let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
-    let (y, u, v) = split_i444(data, c0.stride, c1.stride, c2.stride, height);
+    let (data_y, data_u, data_v) = unsafe {
+        (
+            slice::from_raw_parts(c0.data_ptr as *const u8, c0.size as usize),
+            slice::from_raw_parts(c1.data_ptr as *const u8, c1.size as usize),
+            slice::from_raw_parts(c2.data_ptr as *const u8, c2.size as usize),
+        )
+    };
 
     match dst_type {
         proto::VideoBufferType::Rgba | proto::VideoBufferType::Bgra => {
@@ -404,8 +567,8 @@ pub unsafe fn cvt_i444(
                 ($rgba:expr, $fnc:ident) => {
                     if dst_type == $rgba {
                         imgproc::colorcvt::$fnc(
-                            y, c0.stride, u, c1.stride, v, c2.stride, &mut dst, stride, width,
-                            height, flip_y,
+                            data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
+                            stride, width, height, flip_y,
                         );
                     }
                 };
@@ -414,7 +577,7 @@ pub unsafe fn cvt_i444(
             cvt!(proto::VideoBufferType::Rgba, i444_to_abgr);
             cvt!(proto::VideoBufferType::Bgra, i444_to_argb);
 
-            let info = rgba_info(&dst, dst_type, width, height);
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
             Ok((dst, info))
         }
         proto::VideoBufferType::I420 => {
@@ -422,14 +585,28 @@ pub unsafe fn cvt_i444(
             let chroma_h = (height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::i444_to_i420(
-                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
-                chroma_w, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, dst_y, width, dst_u,
+                chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         proto::VideoBufferType::I444 => {
@@ -437,14 +614,29 @@ pub unsafe fn cvt_i444(
             let chroma_h = height;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i444_mut(&mut dst, width, chroma_w, chroma_w, height);
+
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             colorcvt::i444_copy(
-                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
-                chroma_w, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, dst_y, width, dst_u,
+                chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i444_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i444_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                data_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -461,15 +653,16 @@ pub unsafe fn cvt_i010(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::I010);
-    let proto::VideoBufferInfo { width, height, components, data_ptr, data_len, .. } = buffer;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let proto::VideoBufferInfo { width, height, components, .. } = buffer;
 
     let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
-    let (y, u, v) = split_i010(data, c0.stride, c1.stride, c2.stride, height);
-
-    let (_, y, _) = unsafe { y.align_to::<u16>() };
-    let (_, u, _) = unsafe { u.align_to::<u16>() };
-    let (_, v, _) = unsafe { v.align_to::<u16>() };
+    let (data_y, data_u, data_v) = unsafe {
+        (
+            slice::from_raw_parts(c0.data_ptr as *const u16, c0.size as usize / 2),
+            slice::from_raw_parts(c1.data_ptr as *const u16, c1.size as usize / 2),
+            slice::from_raw_parts(c2.data_ptr as *const u16, c2.size as usize / 2),
+        )
+    };
 
     match dst_type {
         proto::VideoBufferType::Rgba | proto::VideoBufferType::Bgra => {
@@ -480,8 +673,8 @@ pub unsafe fn cvt_i010(
                 ($rgba:expr, $fnc:ident) => {
                     if dst_type == $rgba {
                         imgproc::colorcvt::$fnc(
-                            y, c0.stride, u, c1.stride, v, c2.stride, &mut dst, stride, width,
-                            height, flip_y,
+                            data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
+                            stride, width, height, flip_y,
                         );
                     }
                 };
@@ -490,7 +683,7 @@ pub unsafe fn cvt_i010(
             cvt!(proto::VideoBufferType::Rgba, i010_to_abgr);
             cvt!(proto::VideoBufferType::Bgra, i010_to_argb);
 
-            let info = rgba_info(&dst, dst_type, width, height);
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
             Ok((dst, info))
         }
         proto::VideoBufferType::I420 => {
@@ -498,14 +691,28 @@ pub unsafe fn cvt_i010(
             let chroma_h = (buffer.height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             imgproc::colorcvt::i010_to_i420(
-                y, c0.stride, u, c1.stride, v, c2.stride, dst_y, width, dst_u, chroma_w, dst_v,
-                chroma_w, width, height, flip_y,
+                data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, dst_y, width, dst_u,
+                chroma_w, dst_v, chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {
@@ -522,11 +729,15 @@ pub unsafe fn cvt_nv12(
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Nv12);
-    let proto::VideoBufferInfo { width, height, components, data_ptr, data_len, .. } = buffer;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let proto::VideoBufferInfo { width, height, components, .. } = buffer;
 
     let (c0, c1) = (&components[0], &components[1]);
-    let (y, uv) = split_nv12(data, c0.stride, c1.stride, height);
+    let (data_y, data_uv) = unsafe {
+        (
+            slice::from_raw_parts(c0.data_ptr as *const u8, c0.size as usize),
+            slice::from_raw_parts(c1.data_ptr as *const u8, c1.size as usize),
+        )
+    };
 
     match dst_type {
         proto::VideoBufferType::Rgba | proto::VideoBufferType::Bgra => {
@@ -537,7 +748,8 @@ pub unsafe fn cvt_nv12(
                 ($rgba:expr, $fnc:ident) => {
                     if dst_type == $rgba {
                         imgproc::colorcvt::$fnc(
-                            y, c0.stride, uv, c1.stride, &mut dst, stride, width, height, flip_y,
+                            data_y, c0.stride, data_uv, c1.stride, &mut dst, stride, width, height,
+                            flip_y,
                         );
                     }
                 };
@@ -546,7 +758,7 @@ pub unsafe fn cvt_nv12(
             cvt!(proto::VideoBufferType::Rgba, nv12_to_abgr);
             cvt!(proto::VideoBufferType::Bgra, nv12_to_argb);
 
-            let info = rgba_info(&dst, dst_type, width, height);
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
             Ok((dst, info))
         }
         proto::VideoBufferType::I420 => {
@@ -554,14 +766,28 @@ pub unsafe fn cvt_nv12(
             let chroma_h = (buffer.height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_u, dst_v) = split_i420_mut(&mut dst, width, chroma_w, chroma_w, height);
+            let (dst_y, dst_u, dst_v) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                let (u, v) = chroma.split_at_mut((chroma_w * chroma_h) as usize);
+                (luma, u, v)
+            };
 
             imgproc::colorcvt::nv12_to_i420(
-                y, c0.stride, uv, c1.stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width,
-                height, flip_y,
+                data_y, c0.stride, data_uv, c1.stride, dst_y, width, dst_u, chroma_w, dst_v,
+                chroma_w, width, height, flip_y,
             );
 
-            let info = i420_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w, chroma_w);
+            let info = i420_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_u.as_ptr(),
+                dst_v.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         proto::VideoBufferType::Nv12 => {
@@ -569,13 +795,25 @@ pub unsafe fn cvt_nv12(
             let chroma_h = (buffer.height + 1) / 2;
             let mut dst =
                 vec![0u8; (width * height + chroma_w * chroma_h * 2) as usize].into_boxed_slice();
-            let (dst_y, dst_uv) = split_nv12_mut(&mut dst, width, chroma_w, height);
+            let (dst_y, dst_uv) = {
+                let (luma, chroma) = dst.split_at_mut((width * height) as usize);
+                (luma, chroma)
+            };
 
             imgproc::colorcvt::nv12_copy(
-                y, c0.stride, uv, c1.stride, dst_y, width, dst_uv, chroma_w, width, height, flip_y,
+                data_y, c0.stride, data_uv, c1.stride, dst_y, width, dst_uv, chroma_w, width,
+                height, flip_y,
             );
 
-            let info = nv12_info(dst.as_ptr(), dst.len(), width, height, width, chroma_w);
+            let info = nv12_info(
+                dst_y.as_ptr(),
+                dst_y.as_ptr(),
+                dst_uv.as_ptr(),
+                width,
+                height,
+                width,
+                chroma_w,
+            );
             Ok((dst, info))
         }
         _ => {

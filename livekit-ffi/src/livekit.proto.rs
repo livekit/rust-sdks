@@ -1619,9 +1619,7 @@ pub struct VideoBufferInfo {
     pub height: u32,
     #[prost(uint64, tag="4")]
     pub data_ptr: u64,
-    #[prost(uint32, tag="5")]
-    pub data_len: u32,
-    /// for packed formats
+    /// only for packed formats
     #[prost(uint32, tag="6")]
     pub stride: u32,
     #[prost(message, repeated, tag="7")]
@@ -1632,8 +1630,8 @@ pub mod video_buffer_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ComponentInfo {
-        #[prost(uint32, tag="1")]
-        pub offset: u32,
+        #[prost(uint64, tag="1")]
+        pub data_ptr: u64,
         #[prost(uint32, tag="2")]
         pub stride: u32,
         #[prost(uint32, tag="3")]
