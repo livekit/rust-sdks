@@ -79,7 +79,7 @@ impl FfiAudioSource {
         }
         .to_vec();
 
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             // The data must be available as long as the client receive the callback.
             match source {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -104,6 +104,7 @@ impl FfiAudioSource {
                 _ => {}
             }
         });
+        server.watch_panic(handle);
 
         Ok(proto::CaptureAudioFrameResponse { async_id })
     }

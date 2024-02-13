@@ -148,12 +148,22 @@ impl FfiRoom {
                         .await;
 
                     // Forward events
-                    let event_handle = {
+                    let event_handle = server.watch_panic({
                         let close_rx = close_rx.resubscribe();
-                        tokio::spawn(room_task(server, inner.clone(), events, close_rx))
-                    };
-                    let data_handle =
-                        tokio::spawn(data_task(server, inner.clone(), data_rx, close_rx)); // Publish data
+                        server.async_runtime.spawn(room_task(
+                            server,
+                            inner.clone(),
+                            events,
+                            close_rx,
+                        ))
+                    });
+
+                    let data_handle = server.watch_panic(server.async_runtime.spawn(data_task(
+                        server,
+                        inner.clone(),
+                        data_rx,
+                        close_rx,
+                    ))); // Publish data
 
                     *handle = Some(Handle { event_handle, data_handle, close_tx });
                 }
@@ -172,7 +182,7 @@ impl FfiRoom {
             };
         };
 
-        server.async_runtime.spawn(connect);
+        server.watch_panic(server.async_runtime.spawn(connect));
         proto::ConnectResponse { async_id }
     }
 
@@ -216,7 +226,7 @@ impl RoomInner {
             },
             async_id,
         }) {
-            server.async_runtime.spawn(async move {
+            let handle = server.async_runtime.spawn(async move {
                 let cb = proto::PublishDataCallback {
                     async_id,
                     error: Some(format!("failed to send data, room closed: {}", err)),
@@ -224,6 +234,7 @@ impl RoomInner {
 
                 let _ = server.send_event(proto::ffi_event::Message::PublishData(cb)).await;
             });
+            server.watch_panic(handle);
         }
 
         Ok(proto::PublishDataResponse { async_id })
@@ -311,7 +322,7 @@ impl RoomInner {
     ) -> proto::UnpublishTrackResponse {
         let async_id = server.next_id();
         let inner = self.clone();
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             let sid = unpublish.track_sid.try_into().unwrap();
             let unpublish_res = inner.room.local_participant().unpublish_track(&sid).await;
 
@@ -336,7 +347,7 @@ impl RoomInner {
                 ))
                 .await;
         });
-
+        server.watch_panic(handle);
         proto::UnpublishTrackResponse { async_id }
     }
 
@@ -347,7 +358,7 @@ impl RoomInner {
     ) -> proto::UpdateLocalMetadataResponse {
         let async_id = server.next_id();
         let inner = self.clone();
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             let _ = inner
                 .room
                 .local_participant()
@@ -360,7 +371,7 @@ impl RoomInner {
                 ))
                 .await;
         });
-
+        server.watch_panic(handle);
         proto::UpdateLocalMetadataResponse { async_id }
     }
 
@@ -371,7 +382,7 @@ impl RoomInner {
     ) -> proto::UpdateLocalNameResponse {
         let async_id = server.next_id();
         let inner = self.clone();
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             let _ = inner.room.local_participant().update_name(update_local_name.name).await;
 
             let _ = server
@@ -380,7 +391,7 @@ impl RoomInner {
                 ))
                 .await;
         });
-
+        server.watch_panic(handle);
         proto::UpdateLocalNameResponse { async_id }
     }
 }
@@ -448,7 +459,7 @@ async fn room_task(
                     }
                 }
 
-                task.await.unwrap();
+                let _ = server.watch_panic(task).await;
             },
             _ = close_rx.recv() => {
                 break;

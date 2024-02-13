@@ -58,12 +58,13 @@ impl FfiAudioStream {
                 let audio_stream = Self { handle_id, stream_type, close_tx };
 
                 let native_stream = NativeAudioStream::new(rtc_track);
-                server.async_runtime.spawn(Self::native_audio_stream_task(
+                let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     handle_id,
                     native_stream,
                     close_rx,
                 ));
+                server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
             }
             _ => return Err(FfiError::InvalidRequest("unsupported audio stream type".into())),

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    error::Error,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -23,8 +24,10 @@ use std::{
 
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
+use futures_util::Future;
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
+use tokio::task::JoinHandle;
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
@@ -201,5 +204,33 @@ impl FfiServer {
 
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
         self.ffi_handles.remove(&id).is_some()
+    }
+
+    pub fn send_panic(&self, err: Box<dyn Error>) {
+        // Ok to block here, we're panicking anyway
+        // Mb send_event can now be sync since we're more confident about
+        // the callback function not blocking on Python
+        let _ = self.async_runtime.block_on(self.send_event(proto::ffi_event::Message::Panic(
+            proto::Panic { message: err.as_ref().to_string() },
+        )));
+    }
+
+    pub fn watch_panic<O>(&'static self, handle: JoinHandle<O>) -> JoinHandle<O>
+    where
+        O: Send + 'static,
+    {
+        let handle = self.async_runtime.spawn(async move {
+            match handle.await {
+                Ok(r) => r,
+                Err(e) => {
+                    // Forward the panic to the client
+                    // Recommended behaviour is to exit the process
+                    log::error!("task panicked: {:?}", e);
+                    self.send_panic(Box::new(e));
+                    panic!("watch_panic: task panicked");
+                }
+            }
+        });
+        handle
     }
 }

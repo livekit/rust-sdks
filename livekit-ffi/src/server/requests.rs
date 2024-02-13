@@ -61,7 +61,7 @@ fn on_disconnect(
     disconnect: proto::DisconnectRequest,
 ) -> FfiResult<proto::DisconnectResponse> {
     let async_id = server.next_id();
-    server.async_runtime.spawn(async move {
+    let handle = server.async_runtime.spawn(async move {
         let ffi_room =
             server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle).unwrap().clone();
 
@@ -73,7 +73,7 @@ fn on_disconnect(
             }))
             .await;
     });
-
+    server.watch_panic(handle);
     Ok(proto::DisconnectResponse { async_id })
 }
 
@@ -205,10 +205,8 @@ fn on_get_stats(
     get_stats: proto::GetStatsRequest,
 ) -> FfiResult<proto::GetStatsResponse> {
     let ffi_track = server.retrieve_handle::<FfiTrack>(get_stats.track_handle)?.clone();
-
     let async_id = server.next_id();
-
-    server.async_runtime.spawn(async move {
+    let handle = server.async_runtime.spawn(async move {
         match ffi_track.track.get_stats().await {
             Ok(stats) => {
                 let _ = server
@@ -230,7 +228,7 @@ fn on_get_stats(
             }
         }
     });
-
+    server.watch_panic(handle);
     Ok(proto::GetStatsResponse { async_id })
 }
 
@@ -339,6 +337,7 @@ fn new_audio_resampler(
 }
 
 /// Remix and resample an audio frame
+/// TODO: Deprecate this function
 fn remix_and_resample(
     server: &'static FfiServer,
     remix: proto::RemixAndResampleRequest,
@@ -504,7 +503,7 @@ fn on_get_session_stats(
     let ffi_room = server.retrieve_handle::<room::FfiRoom>(get_session_stats.room_handle)?.clone();
     let async_id = server.next_id();
 
-    server.async_runtime.spawn(async move {
+    let handle = server.async_runtime.spawn(async move {
         match ffi_room.inner.room.get_stats().await {
             Ok(stats) => {
                 let _ = server
@@ -539,7 +538,7 @@ fn on_get_session_stats(
             }
         }
     });
-
+    server.watch_panic(handle);
     Ok(proto::GetSessionStatsResponse { async_id })
 }
 

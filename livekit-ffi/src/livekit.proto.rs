@@ -3023,7 +3023,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3063,6 +3063,8 @@ pub mod ffi_event {
         Logs(super::LogBatch),
         #[prost(message, tag="16")]
         GetSessionStats(super::GetSessionStatsCallback),
+        #[prost(message, tag="17")]
+        Panic(super::Panic),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).
@@ -3109,6 +3111,12 @@ pub struct LogRecord {
 pub struct LogBatch {
     #[prost(message, repeated, tag="1")]
     pub records: ::prost::alloc::vec::Vec<LogRecord>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Panic {
+    #[prost(string, tag="1")]
+    pub message: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

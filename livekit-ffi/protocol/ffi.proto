@@ -146,6 +146,7 @@ message FfiEvent {
     GetStatsCallback get_stats = 14;
     LogBatch logs = 15;
     GetSessionStatsCallback get_session_stats = 16;
+    Panic panic = 17;
   }
 }
 
@@ -184,5 +185,11 @@ message LogBatch {
   repeated LogRecord records = 1;
 }
 
+message Panic {
+  string message = 1;
+}
+
 // TODO(theomonnom): Debug messages (Print handles).
+
+
 
