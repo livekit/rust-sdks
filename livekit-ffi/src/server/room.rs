@@ -132,8 +132,6 @@ impl FfiRoom {
                     let mut handle = ffi_room.handle.lock().await;
                     let room_info = proto::RoomInfo::from(&ffi_room);
 
-                    panic!("room_info: {:?}", room_info);
-
                     // Send the async response to the FfiClient *before* starting the tasks.
                     // Ensure no events are sent before the callback
                     let _ = server.send_event(proto::ffi_event::Message::Connect(
