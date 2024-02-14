@@ -47,7 +47,7 @@ impl Default for PeerConnectionFactory {
             *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
                 let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
 
-                log::debug!("{}", msg);
+                log::debug!(target: "libwebrtc", "{}", msg);
             }));
         }
 
