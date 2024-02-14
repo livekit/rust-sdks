@@ -92,14 +92,12 @@ impl FfiAudioSource {
                     };
 
                     let res = source.capture_frame(&audio_frame).await;
-                    let _ = server
-                        .send_event(proto::ffi_event::Message::CaptureAudioFrame(
-                            proto::CaptureAudioFrameCallback {
-                                async_id,
-                                error: res.err().map(|e| e.to_string()),
-                            },
-                        ))
-                        .await;
+                    let _ = server.send_event(proto::ffi_event::Message::CaptureAudioFrame(
+                        proto::CaptureAudioFrameCallback {
+                            async_id,
+                            error: res.err().map(|e| e.to_string()),
+                        },
+                    ));
                 }
                 _ => {}
             }
