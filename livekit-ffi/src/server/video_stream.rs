@@ -56,7 +56,7 @@ impl FfiVideoStream {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
                 let video_stream = Self { handle_id, close_tx, stream_type };
-                server.async_runtime.spawn(Self::native_video_stream_task(
+                let handle = server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
                     new_stream.format.and_then(|_| Some(new_stream.format())),
@@ -64,6 +64,7 @@ impl FfiVideoStream {
                     NativeVideoStream::new(rtc_track),
                     close_rx,
                 ));
+                server.watch_panic(handle);
                 Ok::<FfiVideoStream, FfiError>(video_stream)
             }
             _ => return Err(FfiError::InvalidRequest("unsupported video stream type".into())),
