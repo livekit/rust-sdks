@@ -46,27 +46,27 @@ jobs:
             arch: arm64
 
           - name: linux 
-            os: buildjet-8vcpu-ubuntu-2204
+            os: buildjet-8vcpu-ubuntu-2004
             cmd: ./build_linux.sh
             arch: x64
 
           - name: linux
-            os: buildjet-8vcpu-ubuntu-2204
+            os: buildjet-8vcpu-ubuntu-2004
             cmd: ./build_linux.sh
             arch: arm64 
           
           - name: android
-            os: buildjet-8vcpu-ubuntu-2204
+            os: buildjet-8vcpu-ubuntu-2004
             cmd: ./build_android.sh
             arch: arm64
 
           - name: android
-            os: buildjet-8vcpu-ubuntu-2204
+            os: buildjet-8vcpu-ubuntu-2004
             cmd: ./build_android.sh
             arch: arm
 
           - name: android
-            os: buildjet-8vcpu-ubuntu-2204
+            os: buildjet-8vcpu-ubuntu-2004
             cmd: ./build_android.sh
             arch: x64
 
