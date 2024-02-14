@@ -24,7 +24,6 @@ use std::{
 
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
-use futures_util::Future;
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
 use tokio::task::JoinHandle;
@@ -146,24 +145,14 @@ impl FfiServer {
         *self.config.lock() = None; // Invalidate the config
     }
 
-    pub async fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
+    pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
         let cb = self
             .config
             .lock()
             .as_ref()
             .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn.clone()))?;
 
-        let cb_task = self.async_runtime.spawn_blocking(move || {
-            cb(proto::FfiEvent { message: Some(message) });
-        });
-
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                log::error!("sending an event to the foreign language took too much time, is your callback function blocking?");
-            }
-            _ = cb_task => {}
-        }
-
+        cb(proto::FfiEvent { message: Some(message) });
         Ok(())
     }
 
@@ -207,12 +196,9 @@ impl FfiServer {
     }
 
     pub fn send_panic(&self, err: Box<dyn Error>) {
-        // Ok to block here, we're panicking anyway
-        // Mb send_event can now be sync since we're more confident about
-        // the callback function not blocking on Python
-        let _ = self.async_runtime.block_on(self.send_event(proto::ffi_event::Message::Panic(
-            proto::Panic { message: err.as_ref().to_string() },
-        )));
+        let _ = self.send_event(proto::ffi_event::Message::Panic(proto::Panic {
+            message: err.as_ref().to_string(),
+        }));
     }
 
     pub fn watch_panic<O>(&'static self, handle: JoinHandle<O>) -> JoinHandle<O>

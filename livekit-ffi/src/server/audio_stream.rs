@@ -112,20 +112,20 @@ impl FfiAudioStream {
                                 },
                             )),
                         },
-                    )).await {
+                    )) {
+                        server.drop_handle(handle_id);
                         log::warn!("failed to send audio frame: {}", err);
                     }
                 }
             }
         }
 
-        if let Err(err) = server
-            .send_event(proto::ffi_event::Message::AudioStreamEvent(proto::AudioStreamEvent {
+        if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+            proto::AudioStreamEvent {
                 stream_handle: stream_handle_id,
                 message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
-            }))
-            .await
-        {
+            },
+        )) {
             log::warn!("failed to send audio EOS: {}", err);
         }
     }

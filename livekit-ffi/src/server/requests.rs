@@ -67,11 +67,10 @@ fn on_disconnect(
 
         ffi_room.close().await;
 
-        let _ = server
-            .send_event(proto::ffi_event::Message::Disconnect(proto::DisconnectCallback {
+        let _ =
+            server.send_event(proto::ffi_event::Message::Disconnect(proto::DisconnectCallback {
                 async_id,
-            }))
-            .await;
+            }));
     });
     server.watch_panic(handle);
     Ok(proto::DisconnectResponse { async_id })
@@ -209,22 +208,22 @@ fn on_get_stats(
     let handle = server.async_runtime.spawn(async move {
         match ffi_track.track.get_stats().await {
             Ok(stats) => {
-                let _ = server
-                    .send_event(proto::ffi_event::Message::GetStats(proto::GetStatsCallback {
+                let _ = server.send_event(proto::ffi_event::Message::GetStats(
+                    proto::GetStatsCallback {
                         async_id,
                         error: None,
                         stats: stats.into_iter().map(Into::into).collect(),
-                    }))
-                    .await;
+                    },
+                ));
             }
             Err(err) => {
-                let _ = server
-                    .send_event(proto::ffi_event::Message::GetStats(proto::GetStatsCallback {
+                let _ = server.send_event(proto::ffi_event::Message::GetStats(
+                    proto::GetStatsCallback {
                         async_id,
                         error: Some(err.to_string()),
                         stats: Vec::default(),
-                    }))
-                    .await;
+                    },
+                ));
             }
         }
     });
@@ -506,35 +505,31 @@ fn on_get_session_stats(
     let handle = server.async_runtime.spawn(async move {
         match ffi_room.inner.room.get_stats().await {
             Ok(stats) => {
-                let _ = server
-                    .send_event(proto::ffi_event::Message::GetSessionStats(
-                        proto::GetSessionStatsCallback {
-                            async_id,
-                            error: None,
-                            publisher_stats: stats
-                                .publisher_stats
-                                .into_iter()
-                                .map(Into::into)
-                                .collect(),
-                            subscriber_stats: stats
-                                .subscriber_stats
-                                .into_iter()
-                                .map(Into::into)
-                                .collect(),
-                        },
-                    ))
-                    .await;
+                let _ = server.send_event(proto::ffi_event::Message::GetSessionStats(
+                    proto::GetSessionStatsCallback {
+                        async_id,
+                        error: None,
+                        publisher_stats: stats
+                            .publisher_stats
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                        subscriber_stats: stats
+                            .subscriber_stats
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                    },
+                ));
             }
             Err(err) => {
-                let _ = server
-                    .send_event(proto::ffi_event::Message::GetSessionStats(
-                        proto::GetSessionStatsCallback {
-                            async_id,
-                            error: Some(err.to_string()),
-                            ..Default::default()
-                        },
-                    ))
-                    .await;
+                let _ = server.send_event(proto::ffi_event::Message::GetSessionStats(
+                    proto::GetSessionStatsCallback {
+                        async_id,
+                        error: Some(err.to_string()),
+                        ..Default::default()
+                    },
+                ));
             }
         }
     });
