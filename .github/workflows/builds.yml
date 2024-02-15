@@ -17,8 +17,14 @@ name: Builds
 on:
   push:
     branches: ["main"]
+    paths:
+      - livekit/**
+      - libwebrtc/**
   pull_request:
     branches: ["main"]
+    paths:
+      - livekit/**
+      - libwebrtc/**
 
 env:
   CARGO_TERM_COLOR: always
@@ -53,11 +59,10 @@ jobs:
           - os: ubuntu-20.04
             target: x86_64-linux-android
 
-
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
 
