@@ -7,7 +7,6 @@ edition = "2021"
 repository = "https://github.com/livekit/rust-sdks"
 
 [features]
-# By default ws TLS is not enabled
 default = ["runtime-tokio"]
 runtime-tokio = ["tokio"]
 
