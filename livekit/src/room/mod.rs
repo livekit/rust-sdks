@@ -26,14 +26,12 @@ use libwebrtc::{
 use livekit_api::signal_client::SignalOptions;
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
+use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::SignalTarget;
 use thiserror::Error;
-use tokio::{
-    sync::{mpsc, oneshot, Mutex as AsyncMutex},
-    task::JoinHandle,
-};
+use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
 use self::e2ee::{manager::E2eeManager, E2eeOptions};
 pub use crate::rtc_engine::SimulateScenario;
@@ -410,7 +408,8 @@ impl Room {
         inner.update_connection_state(ConnectionState::Connected);
 
         let (close_emitter, close_receiver) = oneshot::channel();
-        let session_task = tokio::spawn(inner.clone().room_task(engine_events, close_receiver));
+        let session_task =
+            livekit_runtime::spawn(inner.clone().room_task(engine_events, close_receiver));
 
         Ok((
             Self {
@@ -517,7 +516,7 @@ impl RoomSession {
                     let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
-                    let task = tokio::spawn(async move {
+                    let task = livekit_runtime::spawn(async move {
                         if let Err(err) = inner.on_engine_event(event).await {
                             log::error!("failed to handle engine event: {:?}", err);
                         }
@@ -532,7 +531,7 @@ impl RoomSession {
                         }
                     }
 
-                    task.await.unwrap();
+                    task.await;
                 },
                  _ = &mut close_receiver => {
                     break;
@@ -668,7 +667,7 @@ impl RoomSession {
         let remote_participant = self.get_participant_by_sid(&participant_sid);
 
         if let Some(remote_participant) = remote_participant {
-            tokio::spawn(async move {
+            livekit_runtime::spawn(async move {
                 remote_participant.add_subscribed_media_track(track_sid, track, transceiver).await;
             });
         } else {
@@ -845,7 +844,7 @@ impl RoomSession {
         _reconnect_repsonse: proto::ReconnectResponse,
         tx: oneshot::Sender<()>,
     ) {
-        tokio::spawn({
+        livekit_runtime::spawn({
             let session = self.clone();
             async move {
                 session.send_sync_state().await;
@@ -880,7 +879,7 @@ impl RoomSession {
 
         // Spawining a new task because we need to wait for the RtcEngine to close the reconnection
         // lock.
-        tokio::spawn({
+        livekit_runtime::spawn({
             let session = self.clone();
             async move {
                 let mut set = tokio::task::JoinSet::new();

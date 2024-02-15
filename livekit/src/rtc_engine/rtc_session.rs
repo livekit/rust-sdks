@@ -27,6 +27,7 @@ use std::{
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_protocol as proto;
+use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
 use proto::{
@@ -34,11 +35,7 @@ use proto::{
     SignalTarget,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{
-    sync::{mpsc, oneshot, watch},
-    task::JoinHandle,
-    time::sleep,
-};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
@@ -226,8 +223,9 @@ impl RtcSession {
         });
 
         // Start session tasks
-        let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
-        let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx));
+        let signal_task =
+            livekit_runtime::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
+        let rtc_task = livekit_runtime::spawn(inner.clone().rtc_session_task(rtc_events, close_rx));
 
         let handle = Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_task }));
 

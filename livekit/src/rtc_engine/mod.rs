@@ -17,15 +17,12 @@ use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
+use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
 use thiserror::Error;
-use tokio::{
-    sync::{
-        mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
-        RwLockReadGuard as AsyncRwLockReadGuard,
-    },
-    task::JoinHandle,
-    time::{interval, Interval},
+use tokio::sync::{
+    mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
+    RwLockReadGuard as AsyncRwLockReadGuard,
 };
 
 pub use self::rtc_session::SessionStats;
@@ -302,8 +299,11 @@ impl EngineInner {
 
                     // Start initial tasks
                     let (close_tx, close_rx) = oneshot::channel();
-                    let session_task =
-                        tokio::spawn(Self::engine_task(inner.clone(), session_events, close_rx));
+                    let session_task = livekit_runtime::spawn(Self::engine_task(
+                        inner.clone(),
+                        session_events,
+                        close_rx,
+                    ));
                     inner.running_handle.write().engine_task = Some((session_task, close_tx));
 
                     Ok((inner, join_response, engine_rx))
@@ -624,7 +624,7 @@ impl EngineInner {
         handle.session = Arc::new(new_session);
 
         let (close_tx, close_rx) = oneshot::channel();
-        let task = tokio::spawn(self.clone().engine_task(session_events, close_rx));
+        let task = livekit_runtime::spawn(self.clone().engine_task(session_events, close_rx));
         handle.engine_task = Some((task, close_tx));
 
         Ok(())
