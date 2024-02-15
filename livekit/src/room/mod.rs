@@ -531,7 +531,7 @@ impl RoomSession {
                         }
                     }
 
-                    task.await;
+                    task.await.unwrap();
                 },
                  _ = &mut close_receiver => {
                     break;

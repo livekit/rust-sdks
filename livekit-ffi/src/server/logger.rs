@@ -15,7 +15,7 @@ pub const BATCH_SIZE: usize = 32;
 /// Logger that forward logs to the FfiClient when capture_logs is enabled
 /// Otherwise fallback to the env_logger
 pub struct FfiLogger {
-    async_runtime: tokio::runtime::Handle,
+    async_runtime: livekit_runtime::Handle,
     log_tx: mpsc::UnboundedSender<LogMsg>,
     capture_logs: AtomicBool,
     env_logger: env_logger::Logger,
@@ -27,7 +27,7 @@ enum LogMsg {
 }
 
 impl FfiLogger {
-    pub fn new(async_runtime: tokio::runtime::Handle) -> Self {
+    pub fn new(async_runtime: livekit_runtime::Handle) -> Self {
         let (log_tx, log_rx) = mpsc::unbounded_channel();
         async_runtime.spawn(log_forward_task(log_rx));
 

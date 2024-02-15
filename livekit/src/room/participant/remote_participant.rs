@@ -21,8 +21,8 @@ use std::{
 
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
+use livekit_runtime::timeout;
 use parking_lot::Mutex;
-use tokio::time::timeout;
 
 use super::{ConnectionQuality, ParticipantInner, TrackKind};
 use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};

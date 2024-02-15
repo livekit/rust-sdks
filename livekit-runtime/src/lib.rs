@@ -25,6 +25,35 @@ impl Display for TimeoutError {
 }
 impl Error for TimeoutError {}
 
+#[derive(Debug)]
+pub enum JoinError {
+    Cancelled {
+        #[cfg(feature = "runtime-tokio")]
+        inner: tokio::task::JoinError,
+        _p: PhantomData<()>,
+    },
+    Panic {
+        #[cfg(feature = "runtime-tokio")]
+        inner: tokio::task::JoinError,
+        _p: PhantomData<()>,
+    },
+}
+
+impl Display for JoinError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "task failed: {}",
+            match self {
+                JoinError::Cancelled { .. } => "cancelled",
+                JoinError::Panic { .. } => "panicked",
+            }
+        )?;
+        Ok(())
+    }
+}
+impl Error for JoinError {}
+
 pub enum JoinHandle<T> {
     #[cfg(feature = "runtime-tokio")]
     Tokio(tokio::task::JoinHandle<T>),
@@ -38,18 +67,112 @@ pub enum Interval {
     _Phantom,
 }
 
+pub enum Runtime {
+    #[cfg(feature = "runtime-tokio")]
+    Tokio(tokio::runtime::Runtime),
+    _Phantom,
+}
+
+#[derive(Clone)]
+pub enum Handle {
+    #[cfg(feature = "runtime-tokio")]
+    Tokio(tokio::runtime::Handle),
+    _Phantom,
+}
+
+pub enum EnterGuard<'a> {
+    #[cfg(feature = "runtime-tokio")]
+    Tokio(tokio::runtime::EnterGuard<'a>),
+    _Phantom,
+}
+
+impl Handle {
+    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        match self {
+            #[cfg(feature = "runtime-tokio")]
+            Handle::Tokio(handle) => JoinHandle::Tokio(handle.spawn(future)),
+            Handle::_Phantom => unreachable!("runtime should have been checked on spawn"),
+        }
+    }
+
+    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        match self {
+            #[cfg(feature = "runtime-tokio")]
+            Handle::Tokio(handle) => handle.block_on(future),
+            Handle::_Phantom => unreachable!("runtime should have been checked on spawn"),
+        }
+    }
+}
+
+impl Runtime {
+    pub fn new() -> Self {
+        #[cfg(feature = "runtime-tokio")]
+        {
+            Runtime::Tokio(
+                tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
+            )
+        }
+
+        // TODO(Zed): fix this cfg flag once there's more of them
+        #[cfg(not(feature = "runtime-tokio"))]
+        {
+            return Runtime::_Phantom;
+        }
+    }
+
+    pub fn handle(&self) -> Handle {
+        match self {
+            #[cfg(feature = "runtime-tokio")]
+            Runtime::Tokio(handle) => Handle::Tokio(handle.handle().clone()),
+            Runtime::_Phantom => unreachable!("runtime should have been checked on spawn"),
+        }
+    }
+
+    pub fn enter(&self) -> EnterGuard {
+        match self {
+            #[cfg(feature = "runtime-tokio")]
+            Runtime::Tokio(runtime) => EnterGuard::Tokio(runtime.enter()),
+            Runtime::_Phantom => unreachable!("runtime should have been checked on spawn"),
+        }
+    }
+
+    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        match self {
+            #[cfg(feature = "runtime-tokio")]
+            Runtime::Tokio(rt) => JoinHandle::Tokio(rt.spawn(future)),
+            Runtime::_Phantom => unreachable!("runtime should have been checked on spawn"),
+        }
+    }
+
+    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        match self {
+            #[cfg(feature = "runtime-tokio")]
+            Runtime::Tokio(runtime) => runtime.block_on(future),
+            Runtime::_Phantom => unreachable!("runtime should have been checked on spawn"),
+        }
+    }
+}
+
 #[track_caller]
-pub fn spawn<F>(fut: F) -> JoinHandle<F::Output>
+pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
     #[cfg(feature = "runtime-tokio")]
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        return JoinHandle::Tokio(handle.spawn(fut));
+        return JoinHandle::Tokio(handle.spawn(future));
     }
 
-    missing_rt(fut)
+    missing_rt(future)
 }
 
 pub async fn timeout<F: Future>(duration: Duration, f: F) -> Result<F::Output, TimeoutError> {
@@ -90,15 +213,19 @@ pub fn missing_rt<T>(_unused: T) -> ! {
 }
 
 impl<T: Send + 'static> Future for JoinHandle<T> {
-    type Output = T;
+    type Output = Result<T, JoinError>;
 
     #[track_caller]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match &mut *self {
             #[cfg(feature = "runtime-tokio")]
-            Self::Tokio(handle) => {
-                Pin::new(handle).poll(cx).map(|res| res.expect("spawned task panicked"))
-            }
+            Self::Tokio(handle) => Pin::new(handle).poll(cx).map_err(|e| {
+                if e.is_panic() {
+                    JoinError::Panic { inner: e, _p: PhantomData }
+                } else {
+                    JoinError::Cancelled { inner: e, _p: PhantomData }
+                }
+            }),
             Self::_Phantom(_) => {
                 let _ = cx;
                 unreachable!("runtime should have been checked on spawn")

@@ -25,8 +25,8 @@ use std::{
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
+use livekit_runtime::JoinHandle;
 use parking_lot::{deadlock, Mutex};
-use tokio::task::JoinHandle;
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
@@ -69,7 +69,7 @@ pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, Box<dyn FfiHandle>>,
-    async_runtime: tokio::runtime::Runtime,
+    async_runtime: livekit_runtime::Runtime,
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
@@ -78,8 +78,7 @@ pub struct FfiServer {
 
 impl Default for FfiServer {
     fn default() -> Self {
-        let async_runtime =
-            tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let async_runtime = livekit_runtime::Runtime::new();
 
         let logger = Box::leak(Box::new(logger::FfiLogger::new(async_runtime.handle().clone())));
         log::set_logger(logger).unwrap();
