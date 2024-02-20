@@ -1137,7 +1137,6 @@ dependencies = [
  "futures-util",
  "jsonwebtoken",
  "livekit-protocol",
- "livekit-runtime",
  "log",
  "parking_lot",
  "prost 0.12.3",
@@ -1166,7 +1165,6 @@ dependencies = [
  "livekit",
  "livekit-api",
  "livekit-protocol",
- "livekit-runtime",
  "log",
  "parking_lot",
  "prost 0.12.3",
@@ -2053,6 +2051,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7cee0529a6d40f580e7a5e6c495c8fbfe21b7b52795ed4bb5e62cdf92bc6380"
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8229b473baa5980ac72ef434c4415e70c4b5e71b423043adb4ba059f89c99a1"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2246,6 +2253,7 @@ dependencies = [
  "num_cpus",
  "parking_lot",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "tracing",

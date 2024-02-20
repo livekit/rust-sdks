@@ -15,7 +15,7 @@
 use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
 use livekit::prelude::*;
-use livekit_runtime::JoinHandle;
+use tokio::task::JoinHandle;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 
@@ -434,7 +434,7 @@ async fn room_task(
                 let inner = inner.clone();
                 let present_state = present_state.clone();
                 let (tx, rx) = oneshot::channel();
-                let task = livekit_runtime::spawn(async move {
+                let task = tokio::spawn(async move {
                     forward_event(server, &inner, event, present_state).await;
                     let _ = tx.send(());
                 });

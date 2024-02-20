@@ -19,9 +19,8 @@ tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
 livekit = { path = "../livekit", version = "0.3.0" }
-livekit-runtime = { path = "../livekit-runtime", version = "0.3.0" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.0" }
-tokio = { version = "1", default-features = false, features = ["sync", "macros", "parking_lot"] }
+tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 prost = "0.12"

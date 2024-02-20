@@ -39,7 +39,6 @@ __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
 [dependencies]
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.0" }
-livekit-runtime = { path = "../livekit-runtime", version = "0.3.0" }
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
@@ -57,7 +56,7 @@ jsonwebtoken = { version = "9", default-features = false, optional = true }
 
 # signal_client
 tokio-tungstenite = { version = "0.20", optional = true }
-tokio = { version = "1", default-features = false, features = [ "sync", "macros" ], optional = true }
+tokio = { version = "1", features = [ "full" ], optional = true }
 futures-util = { version = "0.3", default-features = false, features = [ "sink" ], optional = true }
 
 reqwest = { version = "0.11", default-features = false, features = [ "json" ], optional = true }
