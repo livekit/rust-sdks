@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await
         .unwrap();
     let room = Arc::new(room);
-    log::info!("Connected to room: {} - {}", room.name(), room.sid());
+    println!("Connected to room: {} - {}", room.name(), room.sid());
 
     let source = NativeAudioSource::new(
         AudioSourceOptions::default(),
@@ -133,6 +133,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let track = LocalAudioTrack::create_audio_track("file", RtcAudioSource::Native(source.clone()));
 
+    println!("publishing track");
     room.local_participant()
         .publish_track(
             LocalTrack::Audio(track),
@@ -142,6 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             },
         )
         .await?;
+    println!("published track");
 
     // Play the wav file and disconnect
     tokio::spawn({
@@ -175,6 +177,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     audio_frame.data.to_mut()[i] = sample;
                 }
 
+                dbg!("capturing frame");
                 source.capture_frame(&audio_frame).await.unwrap();
                 written_samples += frame_size;
             }

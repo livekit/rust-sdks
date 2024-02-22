@@ -27,7 +27,7 @@ async fn main() {
     let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
         .await
         .unwrap();
-    log::info!("Connected to room: {} - {}", room.name(), room.sid());
+    println!("Connected to room: {} - {}", room.name(), room.sid());
 
     room.local_participant()
         .publish_data(DataPacket {
@@ -39,6 +39,6 @@ async fn main() {
         .unwrap();
 
     while let Some(msg) = rx.recv().await {
-        log::info!("Event: {:?}", msg);
+        println!("Event: {:?}", msg);
     }
 }
