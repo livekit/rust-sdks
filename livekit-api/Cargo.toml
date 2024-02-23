@@ -10,6 +10,12 @@ repository = "https://github.com/livekit/rust-sdks"
 # By default ws TLS is not enabled
 default = ["services", "access-token", "webhooks"]
 
+tokio = ["dep:reqwest"]
+# TODO: Pick an async_std http client
+async = ["dep:reqwest"]
+
+# TODO: Can we split the signal client out so we can more easily compile
+# tokio-tungstenite and async-tungstenite separately?
 signal-client = [
     "dep:tokio-tungstenite",
     "dep:tokio",
@@ -55,9 +61,14 @@ base64 = { version = "0.21", optional = true }
 jsonwebtoken = { version = "9", default-features = false, optional = true }
 
 # signal_client
+livekit-runtime = { path = "../livekit-runtime", version = "0.3.0", optional = true}
 tokio-tungstenite = { version = "0.20", optional = true }
-tokio = { version = "1", features = [ "full" ], optional = true }
+# async-tungstenite = { version = "0.25.0", optional = true }
+tokio = { version = "1", default-features = false, features = ["sync", "macros"], optional = true }
 futures-util = { version = "0.3", default-features = false, features = [ "sink" ], optional = true }
 
+# This dependency must be kept in sync with reqwest's version
+http = "0.2"
 reqwest = { version = "0.11", default-features = false, features = [ "json" ], optional = true }
+
 scopeguard = "1.2.0"

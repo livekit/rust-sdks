@@ -24,7 +24,7 @@ use std::{
 
 use livekit_protocol as proto;
 use parking_lot::Mutex;
-use reqwest::StatusCode;
+use http::StatusCode;
 use thiserror::Error;
 use tokio::{
     sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock},

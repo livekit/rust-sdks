@@ -14,7 +14,7 @@
 
 use std::fmt::Display;
 
-use reqwest::{
+use http::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
     StatusCode,
 };

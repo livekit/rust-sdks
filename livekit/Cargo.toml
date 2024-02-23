@@ -8,7 +8,8 @@ repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 # By default ws TLS is not enabled
-default = ["livekit-runtime/tokio"]
+# TODO: Change back to tokio
+default = ["livekit-runtime/async"]
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys

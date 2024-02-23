@@ -19,10 +19,14 @@ use futures_util::{
 use livekit_protocol as proto;
 use tokio::task::JoinHandle;
 use prost::Message as ProtoMessage;
+
+// TODO: TCP Stream
 use tokio::{
     net::TcpStream,
     sync::{mpsc, oneshot},
 };
+
+// TODO: Web sockets
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use super::{SignalError, SignalResult};
