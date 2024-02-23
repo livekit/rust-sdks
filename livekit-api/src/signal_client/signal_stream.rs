@@ -17,7 +17,7 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use livekit_protocol as proto;
-use tokio::task::JoinHandle;
+use livekit_runtime::JoinHandle;
 use prost::Message as ProtoMessage;
 
 // TODO: TCP Stream
@@ -91,9 +91,9 @@ impl SignalStream {
 
         let (emitter, events) = mpsc::unbounded_channel();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
-        let write_handle = tokio::spawn(Self::write_task(internal_rx, ws_writer));
+        let write_handle = livekit_runtime::spawn(Self::write_task(internal_rx, ws_writer));
         let read_handle =
-            tokio::spawn(Self::read_task(internal_tx.clone(), ws_reader, emitter));
+            livekit_runtime::spawn(Self::read_task(internal_tx.clone(), ws_reader, emitter));
 
         Ok((Self { internal_tx, read_handle, write_handle }, events))
     }

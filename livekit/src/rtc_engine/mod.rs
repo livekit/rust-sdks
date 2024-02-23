@@ -236,7 +236,7 @@ impl RtcEngine {
 
     pub fn publisher_negotiation_needed(&self) {
         let inner = self.inner.clone();
-        tokio::spawn(async move {
+        livekit_runtime::spawn(async move {
             if let Ok((handle, _)) = inner.wait_reconnection().await {
                 handle.session.publisher_negotiation_needed()
             }
@@ -344,7 +344,7 @@ impl EngineInner {
                     let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
-                    let task = tokio::spawn(async move {
+                    let task = livekit_runtime::spawn(async move {
                         if let Err(err) = inner.on_session_event(event).await {
                             log::error!("failed to handle session event: {:?}", err);
                         }
@@ -354,12 +354,12 @@ impl EngineInner {
                     // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
-                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                        _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
                             log::error!("session_event is taking too much time: {}", debug);
                         }
                     }
 
-                    task.await.unwrap();
+                    task.await;
                 },
                  _ = &mut close_receiver => {
                     break;
@@ -379,7 +379,7 @@ impl EngineInner {
                 } else {
                     // Spawning a new task because the close function wait for the engine_task to
                     // finish. (So it doesn't make sense to await it here)
-                    tokio::spawn({
+                    livekit_runtime::spawn({
                         let inner = self.clone();
                         async move {
                             inner.close(reason).await;
@@ -463,7 +463,7 @@ impl EngineInner {
 
             if retry_now {
                 let inner = self.clone();
-                tokio::spawn(async move {
+                livekit_runtime::spawn(async move {
                     inner.reconnecting_interval.lock().await.reset();
                 });
             }
@@ -474,7 +474,7 @@ impl EngineInner {
         running_handle.reconnecting = true;
         running_handle.full_reconnect = full_reconnect;
 
-        tokio::spawn({
+        livekit_runtime::spawn({
             let inner = self.clone();
             async move {
                 // Hold the reconnection lock for the whole reconnection time

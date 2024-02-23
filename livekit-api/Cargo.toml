@@ -14,6 +14,8 @@ tokio = ["dep:reqwest"]
 # TODO: Pick an async_std http client
 async = ["dep:reqwest"]
 
+# TODO: This is already a backend crate, livekit crate can select the feature
+
 # TODO: Can we split the signal client out so we can more easily compile
 # tokio-tungstenite and async-tungstenite separately?
 signal-client = [
@@ -21,6 +23,7 @@ signal-client = [
     "dep:tokio",
     "dep:futures-util",
     "dep:reqwest",
+    "dep:livekit-runtime"
 ]
 services = ["dep:reqwest"]
 access-token = ["dep:jsonwebtoken"]

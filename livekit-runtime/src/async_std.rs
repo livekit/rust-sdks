@@ -1,70 +1,10 @@
-use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
 
-pub type JoinHandle<T> = AsyncJoinHandle<T>;
+pub type JoinHandle<T> = async_std::task::JoinHandle<T>;
+pub use std::time::Instant;
 pub use async_std::future::timeout;
-pub use async_std::task::sleep;
-use futures::StreamExt;
-
-pub fn spawn<F, T>(future: F) -> AsyncJoinHandle<T>
-where
-    F: Future<Output = T> + Send + 'static,
-    T: Send + 'static,
-{
-    AsyncJoinHandle { handle: async_std::task::spawn(future) }
-}
-
-#[derive(Debug)]
-pub struct AsyncJoinHandle<T> {
-    handle: async_std::task::JoinHandle<T>,
-}
-
-// TODO, determine if this is ok?
-#[derive(Debug)]
-pub struct JoinError {}
-
-// impl<T> Future for AsyncJoinHandle<T> {
-//     type Output = Result<T, JoinError>;
-
-//     fn poll(
-//         mut self: std::pin::Pin<&mut Self>,
-//         cx: &mut std::task::Context<'_>,
-//     ) -> std::task::Poll<Self::Output> {
-//         let this = &mut *self;
-//         let mut handle = &mut this.handle;
-
-//         let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-//             Pin::new(&mut handle).poll(cx)
-//         }));
-
-//         // Result<Poll<T>> -> Poll<Result<T>>
-
-//         match result {
-//             Ok(result) => match result {
-//                 std::task::Poll::Ready(t) => std::task::Poll::Ready(Ok(t)),
-//                 std::task::Poll::Pending => std::task::Poll::Pending,
-//             },
-//             Err(_) => std::task::Poll::Ready(Err(JoinError {})),
-//         }
-//     }
-// }
-
-impl<T> Future for AsyncJoinHandle<T> {
-    type Output = Result<T, JoinError>;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        let this = &mut *self;
-        let mut handle = &mut this.handle;
-        match Pin::new(&mut handle).poll(cx) {
-            std::task::Poll::Ready(value) => std::task::Poll::Ready(Ok(value)),
-            std::task::Poll::Pending => std::task::Poll::Pending,
-        }
-    }
-}
+pub use async_std::task::spawn;
+use futures::{Future, FutureExt, StreamExt};
 
 pub struct Interval {
     duration: Duration,
@@ -73,14 +13,36 @@ pub struct Interval {
 
 impl Interval {
     pub fn reset(&mut self) {
-        self.timer = async_io::Timer::interval(self.duration);
+        self.timer.set_after(self.duration)
     }
 
-    pub async fn tick(&mut self) {
-        self.timer.next().await;
+    pub async fn tick(&mut self) -> Instant {
+        self.timer.next().await.unwrap()
     }
 }
 
 pub fn interval(duration: Duration) -> Interval {
     Interval { duration, timer: async_io::Timer::interval(duration) }
+}
+
+pub struct Sleep {
+    timer: async_io::Timer
+}
+
+impl Sleep {
+    pub fn reset(&mut self, deadline: Instant) {
+        self.timer.set_at(deadline)
+    }
+}
+
+pub fn sleep(duration: Duration) -> Sleep {
+    Sleep { timer: async_io::Timer::after(duration) }
+}
+
+impl Future for Sleep {
+    type Output = ();
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        self.timer.poll_unpin(cx).map(|_| ())
+    }
 }

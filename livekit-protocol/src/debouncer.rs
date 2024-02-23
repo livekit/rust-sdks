@@ -35,7 +35,7 @@ where
 {
     let (tx, rx) = mpsc::unbounded_channel();
     let (cancel_tx, cancel_rx) = oneshot::channel();
-    tokio::spawn(debounce_task(duration, future, rx, cancel_rx));
+    livekit_runtime::spawn(debounce_task(duration, future, rx, cancel_rx));
     Debouncer { tx, cancel_tx: Some(cancel_tx) }
 }
 
@@ -51,7 +51,7 @@ async fn debounce_task<F>(
         tokio::select! {
             _ = &mut cancel_rx => break,
             _ = rx.recv() => continue,
-            _ = tokio::time::sleep(duration) => {
+            _ = livekit_runtime::sleep(duration) => {
                 future.await;
                 break;
             }

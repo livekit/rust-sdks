@@ -333,7 +333,7 @@ impl SessionInner {
                     let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
-                    let task = tokio::spawn(async move {
+                    let task = livekit_runtime::spawn(async move {
                         if let Err(err) = inner.on_rtc_event(event).await {
                             log::error!("failed to handle rtc event: {:?}", err);
                         }
@@ -343,12 +343,12 @@ impl SessionInner {
                     // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
-                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                        _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
                             log::error!("rtc_event is taking too much time: {}", debug);
                         }
                     }
 
-                    task.await.unwrap();
+                    task.await;
                 },
                 _ = close_rx.changed() => {
                     break;
@@ -372,7 +372,7 @@ impl SessionInner {
                             let debug = format!("{:?}", signal);
                             let inner = self.clone();
                             let (tx, rx) = oneshot::channel();
-                            let task = tokio::spawn(async move {
+                            let task = livekit_runtime::spawn(async move {
                                 if let Err(err) = inner.on_signal_event(*signal).await {
                                     log::error!("failed to handle signal: {:?}", err);
                                 }
@@ -382,12 +382,12 @@ impl SessionInner {
                             // Monitor sync/async blockings
                             tokio::select! {
                                 _ = rx => {},
-                                _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                                _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
                                     log::error!("signal_event taking too much time: {}", debug);
                                 }
                             }
 
-                            task.await.unwrap();
+                            task.await;
                         }
                         SignalEvent::Close(reason) => {
                             // SignalClient has been closed
@@ -819,7 +819,7 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".into()));
                 }
 
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                livekit_runtime::sleep(Duration::from_millis(50)).await;
             }
 
             Ok(())
@@ -879,7 +879,7 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".into()));
                 }
 
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                livekit_runtime::sleep(Duration::from_millis(50)).await;
             }
 
             Ok(())

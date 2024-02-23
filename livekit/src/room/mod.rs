@@ -526,12 +526,12 @@ impl RoomSession {
                     // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
-                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                        _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
                             log::error!("engine_event is taking too much time: {}", debug);
                         }
                     }
 
-                    task.await.unwrap();
+                    task.await;
                 },
                  _ = &mut close_receiver => {
                     break;

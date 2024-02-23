@@ -15,10 +15,8 @@
 use std::{sync::Arc, time::Duration};
 
 use cxx::SharedPtr;
-use tokio::{
-    sync::{oneshot, Mutex as AsyncMutex, MutexGuard},
-    time::{interval, Instant, MissedTickBehavior},
-};
+use livekit_runtime::{interval, Instant};
+use tokio::sync::{oneshot, Mutex as AsyncMutex, MutexGuard};
 use webrtc_sys::audio_track as sys_at;
 
 use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
@@ -45,7 +43,7 @@ struct AudioSourceInner {
     // Amount of data that have been read inside the current AudioFrame
     read_offset: usize,
 
-    interval: Option<tokio::time::Interval>,
+    interval: Option<livekit_runtime::Interval>,
 }
 
 impl NativeAudioSource {
@@ -72,7 +70,7 @@ impl NativeAudioSource {
             _close_tx: Arc::new(close_tx),
         };
 
-        tokio::spawn({
+        livekit_runtime::spawn({
             let source = source.clone();
             async move {
                 let mut interval = interval(Duration::from_millis(10));
@@ -172,8 +170,9 @@ impl NativeAudioSource {
 
         let mut inner = self.inner.lock().await;
         let mut interval = inner.interval.take().unwrap_or_else(|| {
-            let mut interval = interval(Duration::from_millis(10));
-            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            let interval = interval(Duration::from_millis(10));
+            // TODO: Double check the interval behavior
+            // interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
             interval
         });
 
