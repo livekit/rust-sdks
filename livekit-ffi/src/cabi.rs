@@ -87,6 +87,10 @@ pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
 
 #[cfg(target_os = "android")]
 pub mod android {
+    use jni::{
+        sys::{jint, JNI_VERSION_1_6},
+        JavaVM,
+    };
     use std::os::raw::c_void;
 
     #[allow(non_snake_case)]
