@@ -84,3 +84,16 @@ pub unsafe extern "C" fn livekit_ffi_request(
 pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     FFI_SERVER.drop_handle(handle_id)
 }
+
+#[cfg(target_os = "android")]
+pub mod android {
+    use std::os::raw::c_void;
+
+    #[allow(non_snake_case)]
+    #[no_mangle]
+    pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
+        println!("JNI_OnLoad, initializing LiveKit");
+        livekit::webrtc::android::initialize_android(&vm);
+        JNI_VERSION_1_6
+    }
+}
