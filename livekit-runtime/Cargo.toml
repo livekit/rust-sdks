@@ -7,7 +7,6 @@ edition = "2021"
 repository = "https://github.com/livekit/rust-sdks"
 
 [features]
-default = ["async"]
 tokio = ["dep:tokio"]
 async = ["dep:async-std", "dep:futures", "dep:async-io"]
 

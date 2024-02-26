@@ -1,13 +1,18 @@
-pub use tokio::task::spawn;
+use std::future::Future;
+use std::pin::Pin;
+use std::time::Duration;
+
 pub use tokio::time::Instant;
 pub use tokio::time::sleep;
 pub use tokio::time::timeout;
+pub use tokio::net::TcpStream;
 
 pub type JoinHandle<T> = TokioJoinHandle<T>;
 pub type Interval = tokio::time::Interval;
 
-struct TokioJoinHandle<T> {
-    handle: JoinHandle<T>,
+#[derive(Debug)]
+pub struct TokioJoinHandle<T> {
+    handle: tokio::task::JoinHandle<T>,
 }
 
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
@@ -37,7 +42,7 @@ impl<T> Future for TokioJoinHandle<T> {
 // TODO: Is this ok? Or should we have some kind of seperate compatibility layer?
 // TODO: Confirm that this matches the async-io implementation
 pub fn interval(duration: Duration) -> Interval {
-    let timer = tokio::time::interval(duration);
+    let mut timer = tokio::time::interval(duration);
     timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     timer
 }

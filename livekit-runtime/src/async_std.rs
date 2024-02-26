@@ -1,9 +1,9 @@
 use std::time::Duration;
-
 pub type JoinHandle<T> = async_std::task::JoinHandle<T>;
 pub use std::time::Instant;
 pub use async_std::future::timeout;
 pub use async_std::task::spawn;
+pub use async_std::net::TcpStream;
 use futures::{Future, FutureExt, StreamExt};
 
 pub struct Interval {

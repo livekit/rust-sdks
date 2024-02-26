@@ -18,7 +18,7 @@ __rustls-tls = ["livekit/__rustls-tls"]
 tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
-livekit = { path = "../livekit", version = "0.3.0" }
+livekit = { path = "../livekit", features = ["async"], default-features = false, version = "0.3.0" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.0" }
 tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }

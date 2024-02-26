@@ -17,17 +17,17 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use livekit_protocol as proto;
-use livekit_runtime::JoinHandle;
+use livekit_runtime::{JoinHandle, TcpStream};
 use prost::Message as ProtoMessage;
 
-// TODO: TCP Stream
-use tokio::{
-    net::TcpStream,
-    sync::{mpsc, oneshot},
-};
+use tokio::sync::{mpsc, oneshot};
 
-// TODO: Web sockets
+#[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+
+#[cfg(feature = "signal-client-async")]
+use async_tungstenite::{tungstenite::Message, async_std::ClientStream as MaybeTlsStream, WebSocketStream,
+    async_std::connect_async as connect_async};
 
 use super::{SignalError, SignalResult};
 

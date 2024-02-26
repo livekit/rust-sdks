@@ -8,30 +8,36 @@ repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 # By default ws TLS is not enabled
-default = ["services", "access-token", "webhooks"]
+default = ["services-tokio", "access-token", "webhooks"]
 
-tokio = ["dep:reqwest"]
-# TODO: Pick an async_std http client
-async = ["dep:reqwest"]
-
-# TODO: This is already a backend crate, livekit crate can select the feature
-
-# TODO: Can we split the signal client out so we can more easily compile
-# tokio-tungstenite and async-tungstenite separately?
-signal-client = [
+signal-client-tokio = [
     "dep:tokio-tungstenite",
     "dep:tokio",
     "dep:futures-util",
     "dep:reqwest",
     "dep:livekit-runtime"
 ]
-services = ["dep:reqwest"]
+
+signal-client-async = [
+    "dep:async-tungstenite",
+    "dep:tokio", # For macros and sync
+    "dep:futures-util",
+    "dep:isahc",
+    "dep:livekit-runtime"
+]
+
+services-tokio = ["dep:reqwest"]
+services-async = ["dep:isahc"]
 access-token = ["dep:jsonwebtoken"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys
-native-tls = ["tokio-tungstenite?/native-tls", "reqwest?/native-tls"]
+native-tls = [
+    "tokio-tungstenite?/native-tls",
+    "async-tungstenite?/async-native-tls",
+    "reqwest?/native-tls"
+]
 native-tls-vendored = [
     "tokio-tungstenite?/native-tls-vendored",
     "reqwest?/native-tls-vendored",
@@ -66,12 +72,13 @@ jsonwebtoken = { version = "9", default-features = false, optional = true }
 # signal_client
 livekit-runtime = { path = "../livekit-runtime", version = "0.3.0", optional = true}
 tokio-tungstenite = { version = "0.20", optional = true }
-# async-tungstenite = { version = "0.25.0", optional = true }
+async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
 tokio = { version = "1", default-features = false, features = ["sync", "macros"], optional = true }
 futures-util = { version = "0.3", default-features = false, features = [ "sink" ], optional = true }
 
 # This dependency must be kept in sync with reqwest's version
-http = "0.2"
+http = "0.2.1"
 reqwest = { version = "0.11", default-features = false, features = [ "json" ], optional = true }
+isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
 
 scopeguard = "1.2.0"

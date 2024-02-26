@@ -28,9 +28,14 @@ use http::StatusCode;
 use thiserror::Error;
 use livekit_runtime::{JoinHandle, interval, sleep, Instant};
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
+
+#[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::tungstenite::Error as WsError;
 
-use crate::signal_client::signal_stream::SignalStream;
+#[cfg(feature = "signal-client-async")]
+use async_tungstenite::tungstenite::Error as WsError;
+
+use crate::{http_client, signal_client::signal_stream::SignalStream};
 
 mod signal_stream;
 
@@ -217,7 +222,7 @@ impl SignalInner {
             segs.extend(&["rtc", "validate"]);
         }
 
-        if let Ok(res) = reqwest::get(ws_url.as_str()).await {
+        if let Ok(res) = http_client::get(ws_url.as_str()).await {
             let status = res.status();
             let body = res.text().await.ok().unwrap_or_default();
 
