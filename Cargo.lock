@@ -1159,6 +1159,7 @@ dependencies = [
  "env_logger",
  "futures-util",
  "imgproc",
+ "jni",
  "lazy_static",
  "livekit",
  "livekit-api",
