@@ -25,8 +25,8 @@ use std::{
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
-use tokio::task::JoinHandle;
 use parking_lot::{deadlock, Mutex};
+use tokio::task::JoinHandle;
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
@@ -78,7 +78,8 @@ pub struct FfiServer {
 
 impl Default for FfiServer {
     fn default() -> Self {
-        let async_runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let async_runtime =
+            tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
         let logger = Box::leak(Box::new(logger::FfiLogger::new(async_runtime.handle().clone())));
         log::set_logger(logger).unwrap();

@@ -16,7 +16,6 @@ mod async_std {
     // #[cfg(any(feature = "native-tls-vendored", feature = "rustls-tls-native-roots", feature = "rustls-tls-webpki-roots", feature = "__rustls-tls"))]
     // compile_error!("the async std compatible libraries do not support these features");
 
-
     #[cfg(any(feature = "signal-client-async", feature = "services-async"))]
     pub struct Response(http::Response<isahc::AsyncBody>);
 
@@ -47,7 +46,6 @@ mod async_std {
 
     #[cfg(feature = "signal-client-async")]
     pub use signal_client::*;
-
 
     #[cfg(feature = "services-async")]
     mod services {

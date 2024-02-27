@@ -1,10 +1,10 @@
 use std::time::Duration;
 pub type JoinHandle<T> = async_std::task::JoinHandle<T>;
-pub use std::time::Instant;
 pub use async_std::future::timeout;
-pub use async_std::task::spawn;
 pub use async_std::net::TcpStream;
+pub use async_std::task::spawn;
 use futures::{Future, FutureExt, StreamExt};
+pub use std::time::Instant;
 
 pub struct Interval {
     duration: Duration,
@@ -26,7 +26,7 @@ pub fn interval(duration: Duration) -> Interval {
 }
 
 pub struct Sleep {
-    timer: async_io::Timer
+    timer: async_io::Timer,
 }
 
 impl Sleep {
@@ -42,7 +42,10 @@ pub fn sleep(duration: Duration) -> Sleep {
 impl Future for Sleep {
     type Output = ();
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         self.timer.poll_unpin(cx).map(|_| ())
     }
 }

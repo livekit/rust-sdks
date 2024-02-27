@@ -2,10 +2,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-pub use tokio::time::Instant;
+pub use tokio::net::TcpStream;
 pub use tokio::time::sleep;
 pub use tokio::time::timeout;
-pub use tokio::net::TcpStream;
+pub use tokio::time::Instant;
 
 pub type JoinHandle<T> = TokioJoinHandle<T>;
 pub type Interval = tokio::time::Interval;
@@ -33,7 +33,9 @@ impl<T> Future for TokioJoinHandle<T> {
         let this = &mut *self;
         let mut handle = &mut this.handle;
         match Pin::new(&mut handle).poll(cx) {
-            std::task::Poll::Ready(value) => std::task::Poll::Ready(value.expect("Tasks should not panic")),
+            std::task::Poll::Ready(value) => {
+                std::task::Poll::Ready(value.expect("Tasks should not panic"))
+            }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }

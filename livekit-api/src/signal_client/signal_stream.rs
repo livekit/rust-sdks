@@ -26,8 +26,10 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 #[cfg(feature = "signal-client-async")]
-use async_tungstenite::{tungstenite::Message, async_std::ClientStream as MaybeTlsStream, WebSocketStream,
-    async_std::connect_async as connect_async};
+use async_tungstenite::{
+    async_std::connect_async, async_std::ClientStream as MaybeTlsStream, tungstenite::Message,
+    WebSocketStream,
+};
 
 use super::{SignalError, SignalResult};
 

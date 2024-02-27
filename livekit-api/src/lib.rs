@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 #[cfg(feature = "access-token")]
 pub mod access_token;
 
@@ -22,7 +21,12 @@ pub mod services;
 #[cfg(any(feature = "signal-client-tokio", feature = "signal-client-async"))]
 pub mod signal_client;
 
-#[cfg(any(feature = "signal-client-tokio", feature = "signal-client-async", feature = "services-tokio", feature = "services-async"))]
+#[cfg(any(
+    feature = "signal-client-tokio",
+    feature = "signal-client-async",
+    feature = "services-tokio",
+    feature = "services-async"
+))]
 mod http_client;
 
 #[cfg(feature = "webhooks")]
