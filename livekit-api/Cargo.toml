@@ -1,6 +1,6 @@
 [package]
 name = "livekit-api"
-version = "0.3.0"
+version = "0.3.1"
 license = "Apache-2.0"
 description = "Rust Server SDK for LiveKit"
 edition = "2021"
@@ -24,7 +24,7 @@ rustls-tls-webpki-roots = ["tokio-tungstenite?/rustls-tls-webpki-roots", "reqwes
 __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
 [dependencies]
-livekit-protocol = { path = "../livekit-protocol", version = "0.3.0" }
+livekit-protocol = { path = "../livekit-protocol", version = "0.3.1" }
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
