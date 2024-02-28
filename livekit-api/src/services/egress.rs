@@ -35,6 +35,12 @@ pub struct WebOptions {
 }
 
 #[derive(Default, Clone, Debug)]
+pub struct ParticipantEgressOptions {
+    pub screenshare: bool,
+    pub encoding: encoding::EncodingOptions,
+}
+
+#[derive(Default, Clone, Debug)]
 pub struct TrackCompositeOptions {
     pub encoding: encoding::EncodingOptions,
     pub audio_track_id: String,
@@ -145,6 +151,36 @@ impl EgressClient {
                     image_outputs,
                     output: None, // Deprecated
                     await_start_signal: options.await_start_signal,
+                },
+                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn start_participant_egress(
+        &self,
+        room: &str,
+        participant_identity: &str,
+        outputs: Vec<EgressOutput>,
+        options: ParticipantEgressOptions,
+    ) -> ServiceResult<proto::EgressInfo> {
+        let (file_outputs, stream_outputs, segment_outputs, image_outputs) = get_outputs(outputs);
+        self.client
+            .request(
+                SVC,
+                "StartParticipantEgress",
+                proto::ParticipantEgressRequest {
+                    room_name: room.to_string(),
+                    identity: participant_identity.to_string(),
+                    options: Some(proto::participant_egress_request::Options::Advanced(
+                        options.encoding.into(),
+                    )),
+                    screen_share: options.screenshare,
+                    file_outputs,
+                    stream_outputs,
+                    segment_outputs,
+                    image_outputs,
                 },
                 self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
             )
