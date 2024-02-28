@@ -41,8 +41,8 @@ impl<T> Future for TokioJoinHandle<T> {
     }
 }
 
-// TODO: Is this ok? Or should we have some kind of seperate compatibility layer?
-// TODO: Confirm that this matches the async-io implementation
+// TODO(zed): Is this ok? Or should we have some kind of seperate compatibility layer?
+// TODO(zed): Confirm that this matches the async-io implementation
 pub fn interval(duration: Duration) -> Interval {
     let mut timer = tokio::time::interval(duration);
     timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
