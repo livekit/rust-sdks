@@ -929,6 +929,8 @@ pub enum DisconnectReason {
     RoomDeleted = 5,
     StateMismatch = 6,
     JoinFailure = 7,
+    Migration = 8,
+    SignalClose = 9,
 }
 impl DisconnectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -945,6 +947,8 @@ impl DisconnectReason {
             DisconnectReason::RoomDeleted => "ROOM_DELETED",
             DisconnectReason::StateMismatch => "STATE_MISMATCH",
             DisconnectReason::JoinFailure => "JOIN_FAILURE",
+            DisconnectReason::Migration => "MIGRATION",
+            DisconnectReason::SignalClose => "SIGNAL_CLOSE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -958,6 +962,8 @@ impl DisconnectReason {
             "ROOM_DELETED" => Some(Self::RoomDeleted),
             "STATE_MISMATCH" => Some(Self::StateMismatch),
             "JOIN_FAILURE" => Some(Self::JoinFailure),
+            "MIGRATION" => Some(Self::Migration),
+            "SIGNAL_CLOSE" => Some(Self::SignalClose),
             _ => None,
         }
     }
@@ -2295,10 +2301,51 @@ pub struct UpdateTrackSettings {
 pub struct LeaveRequest {
     /// sent when server initiates the disconnect due to server-restart
     /// indicates clients should attempt full-reconnect sequence
+    /// NOTE: `can_reconnect` obsoleted by `action` starting in protocol version 13
     #[prost(bool, tag="1")]
     pub can_reconnect: bool,
     #[prost(enumeration="DisconnectReason", tag="2")]
     pub reason: i32,
+    #[prost(enumeration="leave_request::Action", tag="3")]
+    pub action: i32,
+    #[prost(message, optional, tag="4")]
+    pub regions: ::core::option::Option<RegionSettings>,
+}
+/// Nested message and enum types in `LeaveRequest`.
+pub mod leave_request {
+    /// indicates action clients should take on receiving this message
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Action {
+        /// should disconnect
+        Disconnect = 0,
+        /// should attempt a resume with `reconnect=1` in join URL
+        Resume = 1,
+        /// should attempt a reconnect, i. e. no `reconnect=1`
+        Reconnect = 2,
+    }
+    impl Action {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Action::Disconnect => "DISCONNECT",
+                Action::Resume => "RESUME",
+                Action::Reconnect => "RECONNECT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "DISCONNECT" => Some(Self::Disconnect),
+                "RESUME" => Some(Self::Resume),
+                "RECONNECT" => Some(Self::Reconnect),
+                _ => None,
+            }
+        }
+    }
 }
 /// message to indicate published video track dimensions are changing
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2443,6 +2490,8 @@ pub struct SyncState {
     /// last received server side offer before reconnecting
     #[prost(message, optional, tag="5")]
     pub offer: ::core::option::Option<SessionDescription>,
+    #[prost(string, repeated, tag="6")]
+    pub track_sids_disabled: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2457,7 +2506,7 @@ pub struct DataChannelInfo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SimulateScenario {
-    #[prost(oneof="simulate_scenario::Scenario", tags="1, 2, 3, 4, 5, 6")]
+    #[prost(oneof="simulate_scenario::Scenario", tags="1, 2, 3, 4, 5, 6, 7, 8")]
     pub scenario: ::core::option::Option<simulate_scenario::Scenario>,
 }
 /// Nested message and enum types in `SimulateScenario`.
@@ -2484,6 +2533,12 @@ pub mod simulate_scenario {
         /// when zero, clears artificial bandwidth limit
         #[prost(int64, tag="6")]
         SubscriberBandwidth(i64),
+        /// disconnect signal on resume
+        #[prost(bool, tag="7")]
+        DisconnectSignalOnResume(bool),
+        /// disconnect signal on resume before sending any messages from server
+        #[prost(bool, tag="8")]
+        DisconnectSignalOnResumeNoMessages(bool),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2814,6 +2869,9 @@ pub struct CreateIngressRequest {
     /// name of publishing participant (used for display only)
     #[prost(string, tag="5")]
     pub participant_name: ::prost::alloc::string::String,
+    /// metadata associated with the publishing participant
+    #[prost(string, tag="10")]
+    pub participant_metadata: ::prost::alloc::string::String,
     /// whether to pass through the incoming media without transcoding, only compatible with some input types
     #[prost(bool, tag="8")]
     pub bypass_transcoding: bool,
@@ -2918,6 +2976,8 @@ pub struct IngressInfo {
     pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="10")]
     pub participant_name: ::prost::alloc::string::String,
+    #[prost(string, tag="14")]
+    pub participant_metadata: ::prost::alloc::string::String,
     #[prost(bool, tag="11")]
     pub reusable: bool,
     /// Description of error/stream non compliance and debug info for publisher otherwise (received bitrate, resolution, bandwidth)
@@ -3025,6 +3085,8 @@ pub struct UpdateIngressRequest {
     pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub participant_name: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub participant_metadata: ::prost::alloc::string::String,
     #[prost(bool, optional, tag="8")]
     pub bypass_transcoding: ::core::option::Option<bool>,
     #[prost(message, optional, tag="6")]
