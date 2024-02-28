@@ -801,6 +801,7 @@ impl RoomSession {
                 sdp: offer.to_string(),
                 r#type: offer.sdp_type().to_string(),
             }),
+            track_sids_disabled: Vec::default(), // TODO: New protocol version
             subscription: Some(proto::UpdateSubscription {
                 track_sids,
                 subscribe: !auto_subscribe,

@@ -21,6 +21,7 @@ use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::Twi
 pub struct IngressOptions {
     pub name: String,
     pub room_name: String,
+    pub participant_metadata: String,
     pub participant_identity: String,
     pub participant_name: String,
     pub audio: proto::IngressAudioOptions,
@@ -94,6 +95,7 @@ impl IngressClient {
                     ingress_id: ingress_id.to_owned(),
                     name: options.name,
                     room_name: options.room_name,
+                    participant_metadata: options.participant_metadata,
                     participant_identity: options.participant_identity,
                     participant_name: options.participant_name,
                     audio: Some(options.audio),
