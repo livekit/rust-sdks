@@ -10,7 +10,7 @@ mod tokio {
 #[cfg(any(feature = "services-tokio", feature = "signal-client-tokio"))]
 pub use tokio::*;
 
-#[cfg(any(feature = "signal-client-async", feature = "services-async"))]
+#[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
 mod async_std {
 
     #[cfg(any(
@@ -21,10 +21,10 @@ mod async_std {
     ))]
     compile_error!("the async std compatible libraries do not support these features");
 
-    #[cfg(any(feature = "signal-client-async", feature = "services-async"))]
+    #[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
     pub struct Response(http::Response<isahc::AsyncBody>);
 
-    #[cfg(feature = "signal-client-async")]
+    #[cfg(feature = "__signal-client-async-compatible")]
     mod signal_client {
         use std::io;
 
@@ -48,7 +48,7 @@ mod async_std {
         }
     }
 
-    #[cfg(feature = "signal-client-async")]
+    #[cfg(feature = "__signal-client-async-compatible")]
     pub use signal_client::*;
 
     #[cfg(feature = "services-async")]
@@ -143,5 +143,5 @@ mod async_std {
     pub use services::*;
 }
 
-#[cfg(any(feature = "signal-client-async", feature = "services-async"))]
+#[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
 pub use async_std::*;

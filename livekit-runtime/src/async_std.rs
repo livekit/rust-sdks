@@ -1,5 +1,6 @@
 use std::time::Duration;
 pub type JoinHandle<T> = async_std::task::JoinHandle<T>;
+// async_std::future::timeout uses async_io under the hood
 pub use async_std::future::timeout;
 pub use async_std::net::TcpStream;
 pub use async_std::task::spawn;

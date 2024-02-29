@@ -32,7 +32,7 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 #[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::tungstenite::Error as WsError;
 
-#[cfg(feature = "signal-client-async")]
+#[cfg(feature = "__signal-client-async-compatible")]
 use async_tungstenite::tungstenite::Error as WsError;
 
 use crate::{http_client, signal_client::signal_stream::SignalStream};

@@ -25,7 +25,7 @@ use tokio::sync::{mpsc, oneshot};
 #[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-#[cfg(feature = "signal-client-async")]
+#[cfg(feature = "__signal-client-async-compatible")]
 use async_tungstenite::{
     async_std::connect_async, async_std::ClientStream as MaybeTlsStream, tungstenite::Message,
     WebSocketStream,
@@ -88,6 +88,7 @@ impl SignalStream {
             log::info!("connecting to {}", url);
         }
 
+        // TODO: Fix this :(
         let (ws_stream, _) = connect_async(url).await?;
         let (ws_writer, ws_reader) = ws_stream.split();
 
