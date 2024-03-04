@@ -1,33 +1,97 @@
-pub use async_net::TcpStream;
-use futures::{Future, FutureExt};
-use std::{marker::PhantomData, time::Duration};
+use async_task::Runnable;
+use futures::{select_biased, Future, FutureExt};
+use std::{sync::OnceLock, task::Poll, time::Duration};
+
+pub use async_std::net::TcpStream;
 pub use std::time::Instant;
 
-// We need to create:
-// - async_io::Timer::interval
+/// This is semantically equivalent to Tokio's MissedTickBehavior:
+/// https://docs.rs/tokio/1.36.0/tokio/time/enum.MissedTickBehavior.html
+pub enum MissedTickBehavior {
+    Burst,
+    Delay,
+    Skip,
+}
+
+static DISPATCHER: OnceLock<&'static dyn Dispatcher> = OnceLock::new();
+
+pub trait Dispatcher: 'static + Send + Sync {
+    fn dispatch(&self, runnable: Runnable);
+    fn dispatch_after(&self, duration: Duration, runnable: Runnable);
+}
+
+pub fn set_dispatcher(dispatcher: impl Dispatcher) {
+    let dispatcher = Box::leak(Box::new(dispatcher));
+    DISPATCHER.set(dispatcher).ok();
+}
+
+fn get_dispatcher() -> &'static dyn Dispatcher {
+    *DISPATCHER.get().expect("The livekit dispatcher requires a call to set_dispatcher()")
+}
 
 #[derive(Debug)]
 pub struct JoinHandle<T> {
-    handle: PhantomData<T>
+    task: Option<async_task::Task<T>>,
 }
 
-pub fn spawn<F>(
-    future: F,
-) -> JoinHandle<F::Output>
+pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
-    F: Future,
+    F: Future + 'static + Send,
+    F::Output: 'static + Send,
 {
-    todo!()
+    let dispatcher = get_dispatcher();
+    let (runnable, task) = async_task::spawn(future, |runnable| dispatcher.dispatch(runnable));
+    runnable.schedule();
+    JoinHandle { task: Some(task) }
 }
 
 impl<T> Future for JoinHandle<T> {
     type Output = T;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        todo!()
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        self.task.as_mut().expect("poll() should not be called after drop()").poll_unpin(cx)
     }
 }
 
+impl<T> Drop for JoinHandle<T> {
+    fn drop(&mut self) {
+        self.task.take().expect("This is the only place the option is mutated").detach();
+    }
+}
+
+pub struct Sleep {
+    task: async_task::Task<()>,
+}
+
+pub fn sleep(time: Duration) -> Sleep {
+    let dispatcher = get_dispatcher();
+    let (runnable, task) =
+        async_task::spawn(async {}, move |runnable| dispatcher.dispatch_after(time, runnable));
+    runnable.schedule();
+
+    Sleep { task }
+}
+
+impl Sleep {
+    pub fn reset(&mut self, _deadline: Instant) {
+        // TODO: Check math
+        self.task = sleep(Duration::ZERO).task
+    }
+}
+
+impl Future for Sleep {
+    type Output = ();
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        self.task.poll_unpin(cx)
+    }
+}
 
 pub struct TimeoutError {}
 
@@ -38,51 +102,53 @@ pub fn timeout<T>(
 where
     T: Future,
 {
-    async { todo!("async_std::future::timeout") }
-}
-
-pub fn interval(duration: Duration) -> Interval {
-    todo!()
+    async move {
+        select_biased! {
+            res = future.fuse() => Ok(res),
+            _ = sleep(duration).fuse() => Err(TimeoutError {}),
+        }
+    }
 }
 
 pub struct Interval {
     duration: Duration,
-    timer: PhantomData<()>, // TODO!()
+    timer: Option<Sleep>,
+}
+
+pub fn interval(duration: Duration) -> Interval {
+    Interval { duration, timer: Some(sleep(duration)) }
 }
 
 impl Interval {
     pub fn reset(&mut self) {
-        // self.timer.set_after(self.duration)
+        self.timer = Some(sleep(self.duration))
     }
 
     pub async fn tick(&mut self) -> Instant {
-        todo!()
-        // self.timer.next().await.unwrap()
+        let timer = self.timer.take().expect("timer should always be set");
+        timer.await;
+        self.timer = Some(sleep(self.duration));
+        Instant::now()
+    }
+
+    pub fn set_missed_tick_behavior(&mut self, _: MissedTickBehavior) {
+        // noop, this runtime does not support this feature
     }
 }
 
-
-pub struct Sleep {
-    timer: async_io::Timer,
-}
-
-impl Sleep {
-    pub fn reset(&mut self, deadline: Instant) {
-        self.timer.set_at(deadline)
-    }
-}
-
-pub fn sleep(duration: Duration) -> Sleep {
-    Sleep { timer: async_io::Timer::after(duration) }
-}
-
-impl Future for Sleep {
-    type Output = ();
+impl Future for Interval {
+    type Output = Instant;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        self.timer.poll_unpin(cx).map(|_| ())
+    ) -> Poll<Self::Output> {
+        match self.timer.as_mut().expect("timer should always be set").poll_unpin(cx) {
+            Poll::Ready(_) => {
+                self.timer = Some(sleep(self.duration));
+                Poll::Ready(Instant::now())
+            }
+            Poll::Pending => Poll::Pending,
+        }
     }
 }

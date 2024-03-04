@@ -7,8 +7,7 @@ description = "FFI interface for bindings in other languages"
 repository = "https://github.com/livekit/rust-sdks"
 
 [features]
-# TODO(zed): Switch to rustls-tls-native-roots
-default = ["native-tls"]
+default = ["rustls-tls-native-roots"]
 native-tls = ["livekit/native-tls"]
 native-tls-vendored = ["livekit/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
@@ -19,8 +18,7 @@ __rustls-tls = ["livekit/__rustls-tls"]
 tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
-# TODO(zed): Switch to tokio
-livekit = { path = "../livekit", features = ["dispatcher"], default-features = false, version = "0.3.0" }
+livekit = { path = "../livekit", features = ["tokio"], default-features = false, version = "0.3.0" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.0" }
 tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }

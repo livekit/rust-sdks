@@ -1,11 +1,12 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::time::Duration;
 
 pub use tokio::net::TcpStream;
 pub use tokio::time::sleep;
 pub use tokio::time::timeout;
 pub use tokio::time::Instant;
+pub use tokio::time::interval;
+pub use tokio::time::MissedTickBehavior;
 
 pub type JoinHandle<T> = TokioJoinHandle<T>;
 pub type Interval = tokio::time::Interval;
@@ -39,12 +40,4 @@ impl<T> Future for TokioJoinHandle<T> {
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }
-}
-
-// TODO(zed): Is this ok? Or should we have some kind of seperate compatibility layer?
-// TODO(zed): Confirm that this matches the async-io implementation
-pub fn interval(duration: Duration) -> Interval {
-    let mut timer = tokio::time::interval(duration);
-    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    timer
 }

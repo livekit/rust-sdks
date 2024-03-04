@@ -18,12 +18,17 @@ pub mod access_token;
 #[cfg(any(feature = "services-tokio", feature = "services-async"))]
 pub mod services;
 
-#[cfg(any(feature = "signal-client-tokio", feature = "signal-client-async", feature = "signal-client-dispatcher"))]
+#[cfg(any(
+    feature = "signal-client-tokio",
+    feature = "signal-client-async",
+    feature = "signal-client-dispatcher"
+))]
 pub mod signal_client;
 
 #[cfg(any(
     feature = "signal-client-tokio",
     feature = "signal-client-async",
+    feature = "signal-client-dispatcher",
     feature = "services-tokio",
     feature = "services-async"
 ))]

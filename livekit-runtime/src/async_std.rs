@@ -7,6 +7,14 @@ pub use async_std::task::spawn;
 use futures::{Future, FutureExt, StreamExt};
 pub use std::time::Instant;
 
+/// This is semantically equivalent to Tokio's MissedTickBehavior:
+/// https://docs.rs/tokio/1.36.0/tokio/time/enum.MissedTickBehavior.html
+pub enum MissedTickBehavior {
+    Burst,
+    Delay,
+    Skip,
+}
+
 pub struct Interval {
     duration: Duration,
     timer: async_io::Timer,
@@ -19,6 +27,10 @@ impl Interval {
 
     pub async fn tick(&mut self) -> Instant {
         self.timer.next().await.unwrap()
+    }
+
+    pub fn set_missed_tick_behavior(&mut self, _: MissedTickBehavior) {
+        // noop, this runtime does not support this feature
     }
 }
 
