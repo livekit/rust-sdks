@@ -2,10 +2,10 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub use tokio::net::TcpStream;
+pub use tokio::time::interval;
 pub use tokio::time::sleep;
 pub use tokio::time::timeout;
 pub use tokio::time::Instant;
-pub use tokio::time::interval;
 pub use tokio::time::MissedTickBehavior;
 
 pub type JoinHandle<T> = TokioJoinHandle<T>;

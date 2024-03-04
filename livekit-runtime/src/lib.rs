@@ -19,8 +19,3 @@ pub use async_std::*;
 mod dispatcher;
 #[cfg(feature = "dispatcher")]
 pub use dispatcher::*;
-
-// TODO:
-// - Add that setting for the interval
-// - Add the dispatcher executor
-// - Double check the task drop behavior

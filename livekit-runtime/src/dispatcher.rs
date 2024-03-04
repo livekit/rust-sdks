@@ -54,7 +54,7 @@ impl<T> Future for JoinHandle<T> {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
-        self.task.as_mut().expect("poll() should not be called after drop()").poll_unpin(cx)
+        self.task.as_mut().expect("poll should not be called after drop").poll_unpin(cx)
     }
 }
 

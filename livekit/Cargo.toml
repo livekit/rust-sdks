@@ -28,7 +28,7 @@ __lk-internal = []
 
 [dependencies]
 livekit-runtime = { path = "../livekit-runtime", version = "0.3.0", default-features = false }
-livekit-api = { path = "../livekit-api", version = "0.3.2", default-features = false, features = ["signal-client"] }
+livekit-api = { path = "../livekit-api", version = "0.3.2", default-features = false }
 libwebrtc = { path = "../libwebrtc", version = "0.3.2" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.2" }
 prost = "0.12"

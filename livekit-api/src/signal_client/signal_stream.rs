@@ -23,9 +23,7 @@ use prost::Message as ProtoMessage;
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "signal-client-tokio")]
-use tokio_tungstenite::{
-    connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 #[cfg(feature = "__signal-client-async-compatible")]
 use async_tungstenite::{
