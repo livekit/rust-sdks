@@ -6,6 +6,6 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 env_logger = "0.10"
-livekit = { path = "../../livekit", version = "0.3.0", features = ["native-tls"]}
-livekit-api = { path = "../../livekit-api", version = "0.3.0"}
+livekit = { path = "../../livekit", version = "0.3.2", features = ["native-tls"]}
+livekit-api = { path = "../../livekit-api", version = "0.3.2"}
 log = "0.4"

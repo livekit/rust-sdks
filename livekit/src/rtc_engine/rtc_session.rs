@@ -693,6 +693,7 @@ impl SessionInner {
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
                 can_reconnect: false,
                 reason: DisconnectReason::ClientInitiated as i32,
+                ..Default::default()
             }))
             .await;
 
@@ -707,6 +708,7 @@ impl SessionInner {
             self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
                 reason: DisconnectReason::ClientInitiated as i32,
                 can_reconnect: true,
+                ..Default::default()
             }))
         };
 
