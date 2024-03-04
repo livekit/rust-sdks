@@ -1,5 +1,5 @@
 [package]
-name = "basic_room"
+name = "basic_room_async"
 version = "0.1.0"
 edition = "2021"
 

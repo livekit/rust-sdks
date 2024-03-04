@@ -1,13 +1,15 @@
-use async_task::Runnable;
-use futures::{select_biased, Future, FutureExt};
+use futures::{channel::mpsc::UnboundedReceiver, select_biased, Future, FutureExt, StreamExt};
 use std::{sync::OnceLock, task::Poll, time::Duration};
 
 pub use async_std::net::TcpStream;
+pub use async_task::Runnable;
 pub use std::time::Instant;
 
 /// This is semantically equivalent to Tokio's MissedTickBehavior:
 /// https://docs.rs/tokio/1.36.0/tokio/time/enum.MissedTickBehavior.html
+#[derive(Default, Copy, Clone)]
 pub enum MissedTickBehavior {
+    #[default]
     Burst,
     Delay,
     Skip,
@@ -76,9 +78,9 @@ pub fn sleep(time: Duration) -> Sleep {
 }
 
 impl Sleep {
-    pub fn reset(&mut self, _deadline: Instant) {
-        // TODO: Check math
-        self.task = sleep(Duration::ZERO).task
+    pub fn reset(&mut self, deadline: Instant) {
+        let duration = deadline.saturating_duration_since(Instant::now());
+        self.task = sleep(duration).task
     }
 }
 
@@ -112,27 +114,41 @@ where
 
 pub struct Interval {
     duration: Duration,
-    timer: Option<Sleep>,
+    _timer_loop: JoinHandle<()>,
+    missed_tick_behavior: MissedTickBehavior,
+    rx: UnboundedReceiver<Instant>,
 }
 
 pub fn interval(duration: Duration) -> Interval {
-    Interval { duration, timer: Some(sleep(duration)) }
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    let timer_loop = spawn(async move {
+        loop {
+            sleep(duration).await;
+            tx.unbounded_send(Instant::now()).ok();
+        }
+    });
+
+    Interval {
+        duration,
+        rx,
+        _timer_loop: timer_loop,
+        missed_tick_behavior: MissedTickBehavior::default(),
+    }
 }
 
 impl Interval {
     pub fn reset(&mut self) {
-        self.timer = Some(sleep(self.duration))
+        let missed_tick_behavior = self.missed_tick_behavior;
+        *self = interval(self.duration);
+        self.set_missed_tick_behavior(missed_tick_behavior);
     }
 
     pub async fn tick(&mut self) -> Instant {
-        let timer = self.timer.take().expect("timer should always be set");
-        timer.await;
-        self.timer = Some(sleep(self.duration));
-        Instant::now()
+        self.rx.next().await.expect("timer loop should always be running")
     }
 
-    pub fn set_missed_tick_behavior(&mut self, _: MissedTickBehavior) {
-        // noop, this runtime does not support this feature
+    pub fn set_missed_tick_behavior(&mut self, behavior: MissedTickBehavior) {
+        self.missed_tick_behavior = behavior;
     }
 }
 
@@ -143,12 +159,8 @@ impl Future for Interval {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
-        match self.timer.as_mut().expect("timer should always be set").poll_unpin(cx) {
-            Poll::Ready(_) => {
-                self.timer = Some(sleep(self.duration));
-                Poll::Ready(Instant::now())
-            }
-            Poll::Pending => Poll::Pending,
-        }
+        self.rx.next().poll_unpin(cx).map(|option| {
+            option.expect("join loop should be running for as long as the interval exists")
+        })
     }
 }

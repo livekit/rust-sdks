@@ -26,4 +26,8 @@ pub use room::*;
 pub mod prelude;
 
 #[cfg(feature = "dispatcher")]
-pub use livekit_runtime::set_dispatcher;
+pub mod dispatcher {
+    pub use livekit_runtime::set_dispatcher;
+    pub use livekit_runtime::Dispatcher;
+    pub use livekit_runtime::Runnable;
+}
