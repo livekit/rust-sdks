@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
+use crate::id::ParticipantIdentity;
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -75,9 +76,16 @@ pub enum SessionEvent {
     Data {
         // None when the data comes from the ServerSDK (So no real participant)
         participant_sid: Option<ParticipantSid>,
+        participant_identity: Option<ParticipantIdentity>,
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+    },
+    SipDTMF {
+        // None when the data comes from the ServerSDK (So no real participant)
+        participant_identity: Option<ParticipantIdentity>,
+        code: u32,
+        digit: Option<String>,
     },
     MediaTrack {
         track: MediaStreamTrack,
@@ -563,11 +571,36 @@ impl SessionInner {
                             .not()
                             .then_some(user.participant_sid.clone());
 
+                        let participant_identity = if !data.participant_identity.is_empty() {
+                            Some(data.participant_identity.clone())
+                        } else if !user.participant_identity.is_empty() {
+                            Some(user.participant_identity.clone())
+                        } else {
+                            None
+                        };
+
                         let _ = self.emitter.send(SessionEvent::Data {
                             kind: data.kind().into(),
                             participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
+                            participant_identity: participant_identity
+                                .map(|s| s.try_into().unwrap()),
                             payload: user.payload.clone(),
                             topic: user.topic.clone(),
+                        });
+                    }
+                    proto::data_packet::Value::SipDtmf(dtmf) => {
+                        let participant_identity = data
+                            .participant_identity
+                            .is_empty()
+                            .not()
+                            .then_some(data.participant_identity.clone());
+                        let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
+
+                        let _ = self.emitter.send(SessionEvent::SipDTMF {
+                            participant_identity: participant_identity
+                                .map(|s| s.try_into().unwrap()),
+                            digit: digit.map(|s| s.try_into().unwrap()),
+                            code: dtmf.code,
                         });
                     }
                     proto::data_packet::Value::Speaker(_) => {}

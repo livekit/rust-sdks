@@ -221,6 +221,7 @@ impl RoomInner {
                     .into_iter()
                     .map(|str| str.try_into().unwrap())
                     .collect(),
+                destination_identities: Vec::new(), // TODO
             },
             async_id,
         }) {

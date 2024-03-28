@@ -26,6 +26,7 @@ use tokio::sync::{
 };
 
 pub use self::rtc_session::SessionStats;
+use crate::prelude::ParticipantIdentity;
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -92,9 +93,15 @@ pub enum EngineEvent {
     },
     Data {
         participant_sid: Option<ParticipantSid>,
+        participant_identity: Option<ParticipantIdentity>,
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+    },
+    SipDTMF {
+        participant_identity: Option<ParticipantIdentity>,
+        code: u32,
+        digit: Option<String>,
     },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
@@ -387,13 +394,18 @@ impl EngineInner {
                     });
                 }
             }
-            SessionEvent::Data { participant_sid, payload, topic, kind } => {
+            SessionEvent::Data { participant_sid, participant_identity, payload, topic, kind } => {
                 let _ = self.engine_tx.send(EngineEvent::Data {
                     participant_sid,
+                    participant_identity,
                     payload,
                     topic,
                     kind,
                 });
+            }
+            SessionEvent::SipDTMF { participant_identity, code, digit } => {
+                let _ =
+                    self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });

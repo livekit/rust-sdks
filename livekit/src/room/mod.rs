@@ -139,6 +139,11 @@ pub enum RoomEvent {
         kind: DataPacketKind,
         participant: Option<RemoteParticipant>,
     },
+    SipDTMFReceived {
+        code: u32,
+        digit: Option<String>,
+        participant: Option<RemoteParticipant>,
+    },
     E2eeStateChanged {
         participant: Participant,
         state: EncryptionState,
@@ -176,6 +181,7 @@ pub struct DataPacket {
     pub topic: Option<String>,
     pub kind: DataPacketKind,
     pub destination_sids: Vec<ParticipantSid>,
+    pub destination_identities: Vec<ParticipantIdentity>,
 }
 
 impl Default for DataPacket {
@@ -185,6 +191,7 @@ impl Default for DataPacket {
             topic: None,
             kind: DataPacketKind::Reliable,
             destination_sids: Vec::new(),
+            destination_identities: Vec::new(),
         }
     }
 }
@@ -560,8 +567,11 @@ impl RoomSession {
                 self.handle_signal_restarted(join_response, tx)
             }
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
-            EngineEvent::Data { payload, topic, kind, participant_sid } => {
-                self.handle_data(payload, topic, kind, participant_sid);
+            EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
+                self.handle_data(payload, topic, kind, participant_sid, participant_identity);
+            }
+            EngineEvent::SipDTMF { code, digit, participant_identity } => {
+                self.handle_dtmf(code, digit, participant_identity);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
@@ -945,11 +955,21 @@ impl RoomSession {
         topic: Option<String>,
         kind: DataPacketKind,
         participant_sid: Option<ParticipantSid>,
+        participant_identity: Option<ParticipantIdentity>,
     ) {
-        let participant =
-            participant_sid.as_ref().map(|sid| self.get_participant_by_sid(sid)).unwrap_or(None);
+        let mut participant = participant_identity
+            .as_ref()
+            .map(|identity| self.get_participant_by_identity(identity))
+            .unwrap_or(None);
 
-        if participant.is_none() && participant_sid.is_some() {
+        if participant.is_none() {
+            participant = participant_sid
+                .as_ref()
+                .map(|sid| self.get_participant_by_sid(sid))
+                .unwrap_or(None);
+        }
+
+        if participant.is_none() && (participant_identity.is_some() || participant_sid.is_some()) {
             // We received a data packet from a participant that is not in the participants list
             return;
         }
@@ -960,6 +980,25 @@ impl RoomSession {
             kind,
             participant,
         });
+    }
+
+    fn handle_dtmf(
+        &self,
+        code: u32,
+        digit: Option<String>,
+        participant_identity: Option<ParticipantIdentity>,
+    ) {
+        let participant = participant_identity
+            .as_ref()
+            .map(|identity| self.get_participant_by_identity(identity))
+            .unwrap_or(None);
+
+        if participant.is_none() && participant_identity.is_some() {
+            // We received a DTMF from a participant that is not in the participants list
+            return;
+        }
+
+        self.dispatcher.dispatch(&RoomEvent::SipDTMFReceived { code, digit, participant });
     }
 
     /// Create a new participant
