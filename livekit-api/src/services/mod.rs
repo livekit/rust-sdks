@@ -14,7 +14,7 @@
 
 use std::fmt::Debug;
 
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use thiserror::Error;
 
 use crate::access_token::{AccessToken, AccessTokenError, VideoGrants};

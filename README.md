@@ -134,7 +134,7 @@ match event {
                 let rtc_track = audio_track.rtc_track();
                 let mut audio_stream = NativeAudioStream::new(rtc_track);
                 tokio::spawn(async move {
-                    // Receive the audio frames in a new task 
+                    // Receive the audio frames in a new task
                     while let Some(audio_frame) = audio_stream.next().await {
                         log::info!("received audio frame - {audio_frame:#?}");
                     }
@@ -144,7 +144,7 @@ match event {
                 let rtc_track = video_track.rtc_track();
                 let mut video_stream = NativeVideoStream::new(rtc_track);
                 tokio::spawn(async move {
-                    // Receive the video frames in a new task 
+                    // Receive the video frames in a new task
                     while let Some(video_frame) = video_stream.next().await {
                         log::info!("received video frame - {video_frame:#?}");
                     }

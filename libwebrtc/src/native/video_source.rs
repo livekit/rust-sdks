@@ -57,7 +57,7 @@ impl NativeVideoSource {
             inner: Arc::new(Mutex::new(VideoSourceInner { captured_frames: 0 })),
         };
 
-        tokio::spawn({
+        livekit_runtime::spawn({
             let source = source.clone();
             let i420 = I420Buffer::new(resolution.width, resolution.height);
             async move {

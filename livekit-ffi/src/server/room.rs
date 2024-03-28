@@ -16,10 +16,8 @@ use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
 use livekit::prelude::*;
 use parking_lot::Mutex;
-use tokio::{
-    sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex},
-    task::JoinHandle,
-};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
 use crate::{

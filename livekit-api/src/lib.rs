@@ -15,11 +15,24 @@
 #[cfg(feature = "access-token")]
 pub mod access_token;
 
-#[cfg(feature = "services")]
+#[cfg(any(feature = "services-tokio", feature = "services-async"))]
 pub mod services;
 
-#[cfg(feature = "signal-client")]
+#[cfg(any(
+    feature = "signal-client-tokio",
+    feature = "signal-client-async",
+    feature = "signal-client-dispatcher"
+))]
 pub mod signal_client;
+
+#[cfg(any(
+    feature = "signal-client-tokio",
+    feature = "signal-client-async",
+    feature = "signal-client-dispatcher",
+    feature = "services-tokio",
+    feature = "services-async"
+))]
+mod http_client;
 
 #[cfg(feature = "webhooks")]
 pub mod webhooks;

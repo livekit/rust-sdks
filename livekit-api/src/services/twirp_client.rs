@@ -14,19 +14,25 @@
 
 use std::fmt::Display;
 
-use reqwest::{
+use http::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
     StatusCode,
 };
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::http_client;
+
 pub const DEFAULT_PREFIX: &str = "/twirp";
 
 #[derive(Debug, Error)]
 pub enum TwirpError {
+    #[cfg(feature = "services-tokio")]
     #[error("failed to execute the request: {0}")]
     Request(#[from] reqwest::Error),
+    #[cfg(feature = "services-async")]
+    #[error("failed to execute the request: {0}")]
+    Request(#[from] std::io::Error),
     #[error("twirp error: {0}")]
     Twirp(TwirpErrorCode),
     #[error("url error: {0}")]
@@ -75,7 +81,7 @@ pub struct TwirpClient {
     host: String,
     pkg: String,
     prefix: String,
-    client: reqwest::Client,
+    client: http_client::Client,
 }
 
 impl TwirpClient {
@@ -84,7 +90,7 @@ impl TwirpClient {
             host: host.to_owned(),
             pkg: pkg.to_owned(),
             prefix: prefix.unwrap_or(DEFAULT_PREFIX).to_owned(),
-            client: reqwest::Client::new(),
+            client: http_client::Client::new(),
         }
     }
 

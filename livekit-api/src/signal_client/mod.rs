@@ -22,18 +22,20 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use http::StatusCode;
 use livekit_protocol as proto;
+use livekit_runtime::{interval, sleep, Instant, JoinHandle};
 use parking_lot::Mutex;
-use reqwest::StatusCode;
 use thiserror::Error;
-use tokio::{
-    sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock},
-    task::JoinHandle,
-    time::{interval, sleep, Instant},
-};
+use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
+
+#[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::tungstenite::Error as WsError;
 
-use crate::signal_client::signal_stream::SignalStream;
+#[cfg(feature = "__signal-client-async-compatible")]
+use async_tungstenite::tungstenite::Error as WsError;
+
+use crate::{http_client, signal_client::signal_stream::SignalStream};
 
 mod signal_stream;
 
@@ -118,7 +120,8 @@ impl SignalClient {
             SignalInner::connect(url, token, options).await?;
 
         let (emitter, events) = mpsc::unbounded_channel();
-        let signal_task = tokio::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
+        let signal_task =
+            livekit_runtime::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
 
         Ok((Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events))
     }
@@ -129,8 +132,11 @@ impl SignalClient {
         self.close().await;
 
         let (reconnect_response, stream_events) = self.inner.restart().await?;
-        let signal_task =
-            tokio::spawn(signal_task(self.inner.clone(), self.emitter.clone(), stream_events));
+        let signal_task = livekit_runtime::spawn(signal_task(
+            self.inner.clone(),
+            self.emitter.clone(),
+            stream_events,
+        ));
 
         *self.handle.lock() = Some(signal_task);
         Ok(reconnect_response)
@@ -220,7 +226,7 @@ impl SignalInner {
             segs.extend(&["rtc", "validate"]);
         }
 
-        if let Ok(res) = reqwest::get(ws_url.as_str()).await {
+        if let Ok(res) = http_client::get(ws_url.as_str()).await {
             let status = res.status();
             let body = res.text().await.ok().unwrap_or_default();
 
@@ -437,7 +443,7 @@ macro_rules! get_async_message {
                 Err(WsError::ConnectionClosed)?
             };
 
-            tokio::time::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
+            livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
                 SignalError::Timeout(format!("failed to receive {}", std::any::type_name::<$ty>()))
             })?
         }

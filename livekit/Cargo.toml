@@ -8,7 +8,12 @@ repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 # By default ws TLS is not enabled
-default = []
+default = ["tokio"]
+
+async = ["livekit-api/signal-client-async"]
+tokio = ["livekit-api/signal-client-tokio"]
+dispatcher = ["livekit-api/signal-client-dispatcher"]
+
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys
@@ -22,13 +27,14 @@ __rustls-tls = ["livekit-api/__rustls-tls"]
 __lk-internal = []
 
 [dependencies]
-livekit-api = { path = "../livekit-api", version = "0.3.2", default-features = false, features = ["signal-client"] }
+livekit-runtime = { path = "../livekit-runtime", version = "0.3.0", default-features = false }
+livekit-api = { path = "../livekit-api", version = "0.3.2", default-features = false }
 libwebrtc = { path = "../libwebrtc", version = "0.3.2" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.2" }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
 parking_lot = { version = "0.12" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 thiserror = "1.0"

@@ -21,8 +21,8 @@ use std::{
 
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
+use livekit_runtime::timeout;
 use parking_lot::Mutex;
-use tokio::time::timeout;
 
 use super::{ConnectionQuality, ParticipantInner, TrackKind};
 use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};
@@ -102,7 +102,7 @@ impl RemoteParticipant {
                         return publication;
                     }
 
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    livekit_runtime::sleep(Duration::from_millis(50)).await;
                 }
             }
         };
@@ -313,7 +313,7 @@ impl RemoteParticipant {
             move |publication, subscribed| {
                 let rtc_engine = rtc_engine.clone();
                 let psid = psid.clone();
-                tokio::spawn(async move {
+                livekit_runtime::spawn(async move {
                     let tsid: String = publication.sid().into();
                     let update_subscription = proto::UpdateSubscription {
                         track_sids: vec![tsid.clone()],
