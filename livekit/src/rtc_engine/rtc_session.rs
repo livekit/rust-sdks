@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
+use crate::id::ParticipantIdentity;
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -51,7 +52,6 @@ use crate::{
     track::LocalTrack,
     DataPacketKind,
 };
-use crate::id::ParticipantIdentity;
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -582,7 +582,8 @@ impl SessionInner {
                         let _ = self.emitter.send(SessionEvent::Data {
                             kind: data.kind().into(),
                             participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
-                            participant_identity: participant_identity.map(|s| s.try_into().unwrap()),
+                            participant_identity: participant_identity
+                                .map(|s| s.try_into().unwrap()),
                             payload: user.payload.clone(),
                             topic: user.topic.clone(),
                         });
@@ -593,14 +594,11 @@ impl SessionInner {
                             .is_empty()
                             .not()
                             .then_some(data.participant_identity.clone());
-                        let digit = dtmf
-                            .digit
-                            .is_empty()
-                            .not()
-                            .then_some(dtmf.digit.clone());
+                        let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
 
                         let _ = self.emitter.send(SessionEvent::SipDTMF {
-                            participant_identity: participant_identity.map(|s| s.try_into().unwrap()),
+                            participant_identity: participant_identity
+                                .map(|s| s.try_into().unwrap()),
                             digit: digit.map(|s| s.try_into().unwrap()),
                             code: dtmf.code,
                         });

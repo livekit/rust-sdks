@@ -26,6 +26,7 @@ use tokio::sync::{
 };
 
 pub use self::rtc_session::SessionStats;
+use crate::prelude::ParticipantIdentity;
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -37,7 +38,6 @@ use crate::{
     },
     DataPacketKind,
 };
-use crate::prelude::ParticipantIdentity;
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -394,7 +394,7 @@ impl EngineInner {
                     });
                 }
             }
-            SessionEvent::Data { participant_sid,participant_identity, payload, topic, kind } => {
+            SessionEvent::Data { participant_sid, participant_identity, payload, topic, kind } => {
                 let _ = self.engine_tx.send(EngineEvent::Data {
                     participant_sid,
                     participant_identity,
@@ -404,11 +404,8 @@ impl EngineInner {
                 });
             }
             SessionEvent::SipDTMF { participant_identity, code, digit } => {
-                let _ = self.engine_tx.send(EngineEvent::SipDTMF {
-                    participant_identity,
-                    code,
-                    digit,
-                });
+                let _ =
+                    self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });

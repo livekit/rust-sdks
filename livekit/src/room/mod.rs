@@ -998,11 +998,7 @@ impl RoomSession {
             return;
         }
 
-        self.dispatcher.dispatch(&RoomEvent::SipDTMFReceived {
-            code,
-            digit,
-            participant,
-        });
+        self.dispatcher.dispatch(&RoomEvent::SipDTMFReceived { code, digit, participant });
     }
 
     /// Create a new participant
