@@ -37,6 +37,7 @@ use crate::{
     },
     DataPacketKind,
 };
+use crate::prelude::ParticipantIdentity;
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -92,9 +93,15 @@ pub enum EngineEvent {
     },
     Data {
         participant_sid: Option<ParticipantSid>,
+        participant_identity: Option<ParticipantIdentity>,
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+    },
+    SipDTMF {
+        participant_identity: Option<ParticipantIdentity>,
+        code: u32,
+        digit: Option<String>,
     },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
@@ -387,12 +394,20 @@ impl EngineInner {
                     });
                 }
             }
-            SessionEvent::Data { participant_sid, payload, topic, kind } => {
+            SessionEvent::Data { participant_sid,participant_identity, payload, topic, kind } => {
                 let _ = self.engine_tx.send(EngineEvent::Data {
                     participant_sid,
+                    participant_identity,
                     payload,
                     topic,
                     kind,
+                });
+            }
+            SessionEvent::SipDTMF { participant_identity, code, digit } => {
+                let _ = self.engine_tx.send(EngineEvent::SipDTMF {
+                    participant_identity,
+                    code,
+                    digit,
                 });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
