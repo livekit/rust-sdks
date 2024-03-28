@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-PROTOCOL=protocol
+PROTOCOL=protocol/protobufs
 OUT_RUST=src
 
 protoc \
@@ -28,4 +28,5 @@ protoc \
     $PROTOCOL/livekit_rtc.proto \
     $PROTOCOL/livekit_room.proto \
     $PROTOCOL/livekit_webhook.proto \
-    $PROTOCOL/livekit_models.proto 
+    $PROTOCOL/livekit_sip.proto \
+    $PROTOCOL/livekit_models.proto
