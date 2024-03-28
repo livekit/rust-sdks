@@ -271,7 +271,8 @@ impl LocalParticipant {
     }
 
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
-        let destination_identities: Vec<String> = packet.destination_identities.into_iter().map(Into::into).collect();
+        let destination_identities: Vec<String> =
+            packet.destination_identities.into_iter().map(Into::into).collect();
         let data = proto::DataPacket {
             kind: packet.kind as i32,
             destination_identities: destination_identities.clone(),
