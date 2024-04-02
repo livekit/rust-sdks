@@ -3559,6 +3559,9 @@ pub struct CreateSipParticipantRequest {
     /// Character 'w' can be used to add a 0.5 sec delay.
     #[prost(string, tag="5")]
     pub dtmf: ::prost::alloc::string::String,
+    /// Optionally play ringtone in the room as an audible indicator for existing participants
+    #[prost(bool, tag="6")]
+    pub play_ringtone: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

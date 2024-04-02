@@ -2969,6 +2969,9 @@ impl serde::Serialize for CreateSipParticipantRequest {
         if !self.dtmf.is_empty() {
             len += 1;
         }
+        if self.play_ringtone {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.CreateSIPParticipantRequest", len)?;
         if !self.sip_trunk_id.is_empty() {
             struct_ser.serialize_field("sipTrunkId", &self.sip_trunk_id)?;
@@ -2984,6 +2987,9 @@ impl serde::Serialize for CreateSipParticipantRequest {
         }
         if !self.dtmf.is_empty() {
             struct_ser.serialize_field("dtmf", &self.dtmf)?;
+        }
+        if self.play_ringtone {
+            struct_ser.serialize_field("playRingtone", &self.play_ringtone)?;
         }
         struct_ser.end()
     }
@@ -3004,6 +3010,8 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             "participant_identity",
             "participantIdentity",
             "dtmf",
+            "play_ringtone",
+            "playRingtone",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3013,6 +3021,7 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             RoomName,
             ParticipantIdentity,
             Dtmf,
+            PlayRingtone,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3040,6 +3049,7 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                             "roomName" | "room_name" => Ok(GeneratedField::RoomName),
                             "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
                             "dtmf" => Ok(GeneratedField::Dtmf),
+                            "playRingtone" | "play_ringtone" => Ok(GeneratedField::PlayRingtone),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3064,6 +3074,7 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                 let mut room_name__ = None;
                 let mut participant_identity__ = None;
                 let mut dtmf__ = None;
+                let mut play_ringtone__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SipTrunkId => {
@@ -3096,6 +3107,12 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                             }
                             dtmf__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::PlayRingtone => {
+                            if play_ringtone__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("playRingtone"));
+                            }
+                            play_ringtone__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3107,6 +3124,7 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                     room_name: room_name__.unwrap_or_default(),
                     participant_identity: participant_identity__.unwrap_or_default(),
                     dtmf: dtmf__.unwrap_or_default(),
+                    play_ringtone: play_ringtone__.unwrap_or_default(),
                 })
             }
         }

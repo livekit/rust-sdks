@@ -22,6 +22,7 @@ use crate::access_token::{AccessToken, AccessTokenError, VideoGrants};
 pub mod egress;
 pub mod ingress;
 pub mod room;
+pub mod sip;
 
 mod twirp_client;
 
