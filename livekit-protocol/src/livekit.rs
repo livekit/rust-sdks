@@ -8,6 +8,8 @@ pub struct Room {
     pub name: ::prost::alloc::string::String,
     #[prost(uint32, tag="3")]
     pub empty_timeout: u32,
+    #[prost(uint32, tag="14")]
+    pub departure_timeout: u32,
     #[prost(uint32, tag="4")]
     pub max_participants: u32,
     #[prost(int64, tag="5")]
@@ -300,9 +302,16 @@ pub struct VideoLayer {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataPacket {
+    #[deprecated]
     #[prost(enumeration="data_packet::Kind", tag="1")]
     pub kind: i32,
-    #[prost(oneof="data_packet::Value", tags="2, 3")]
+    /// participant identity of user that sent the message
+    #[prost(string, tag="4")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// identities of participants who will receive the message (sent to all by default)
+    #[prost(string, repeated, tag="5")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(oneof="data_packet::Value", tags="2, 3, 6")]
     pub value: ::core::option::Option<data_packet::Value>,
 }
 /// Nested message and enum types in `DataPacket`.
@@ -340,6 +349,8 @@ pub mod data_packet {
         User(super::UserPacket),
         #[prost(message, tag="3")]
         Speaker(super::ActiveSpeakerUpdate),
+        #[prost(message, tag="6")]
+        SipDtmf(super::SipDtmf),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -364,22 +375,34 @@ pub struct SpeakerInfo {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UserPacket {
     /// participant ID of user that sent the message
+    #[deprecated]
     #[prost(string, tag="1")]
     pub participant_sid: ::prost::alloc::string::String,
+    #[deprecated]
     #[prost(string, tag="5")]
     pub participant_identity: ::prost::alloc::string::String,
     /// user defined payload
     #[prost(bytes="vec", tag="2")]
     pub payload: ::prost::alloc::vec::Vec<u8>,
     /// the ID of the participants who will receive the message (sent to all by default)
+    #[deprecated]
     #[prost(string, repeated, tag="3")]
     pub destination_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// identities of participants who will receive the message (sent to all by default)
+    #[deprecated]
     #[prost(string, repeated, tag="6")]
     pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// topic under which the message was published
     #[prost(string, optional, tag="4")]
     pub topic: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipDtmf {
+    #[prost(uint32, tag="3")]
+    pub code: u32,
+    #[prost(string, tag="4")]
+    pub digit: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -659,9 +682,11 @@ pub struct RtpStats {
     pub last_layer_lock_pli: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(message, optional, tag="44")]
     pub packet_drift: ::core::option::Option<RtpDrift>,
-    /// NEXT_ID: 46
     #[prost(message, optional, tag="45")]
     pub report_drift: ::core::option::Option<RtpDrift>,
+    /// NEXT_ID: 47
+    #[prost(message, optional, tag="46")]
+    pub rebased_report_drift: ::core::option::Option<RtpDrift>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1028,6 +1053,44 @@ impl SubscriptionError {
             "SE_UNKNOWN" => Some(Self::SeUnknown),
             "SE_CODEC_UNSUPPORTED" => Some(Self::SeCodecUnsupported),
             "SE_TRACK_NOTFOUND" => Some(Self::SeTrackNotfound),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AudioTrackFeature {
+    TfStereo = 0,
+    TfNoDtx = 1,
+    TfAutoGainControl = 2,
+    TfEchoCancellation = 3,
+    TfNoiseSuppression = 4,
+    TfEnhancedNoiseCancellation = 5,
+}
+impl AudioTrackFeature {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            AudioTrackFeature::TfStereo => "TF_STEREO",
+            AudioTrackFeature::TfNoDtx => "TF_NO_DTX",
+            AudioTrackFeature::TfAutoGainControl => "TF_AUTO_GAIN_CONTROL",
+            AudioTrackFeature::TfEchoCancellation => "TF_ECHO_CANCELLATION",
+            AudioTrackFeature::TfNoiseSuppression => "TF_NOISE_SUPPRESSION",
+            AudioTrackFeature::TfEnhancedNoiseCancellation => "TF_ENHANCED_NOISE_CANCELLATION",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TF_STEREO" => Some(Self::TfStereo),
+            "TF_NO_DTX" => Some(Self::TfNoDtx),
+            "TF_AUTO_GAIN_CONTROL" => Some(Self::TfAutoGainControl),
+            "TF_ECHO_CANCELLATION" => Some(Self::TfEchoCancellation),
+            "TF_NOISE_SUPPRESSION" => Some(Self::TfNoiseSuppression),
+            "TF_ENHANCED_NOISE_CANCELLATION" => Some(Self::TfEnhancedNoiseCancellation),
             _ => None,
         }
     }
@@ -1419,6 +1482,8 @@ pub struct S3Upload {
     /// Content-Disposition header
     #[prost(string, tag="9")]
     pub content_disposition: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="10")]
+    pub proxy: ::core::option::Option<ProxyConfig>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1428,6 +1493,8 @@ pub struct GcpUpload {
     pub credentials: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub bucket: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub proxy: ::core::option::Option<ProxyConfig>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1452,6 +1519,16 @@ pub struct AliOssUpload {
     pub endpoint: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub bucket: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProxyConfig {
+    #[prost(string, tag="1")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub username: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub password: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1563,6 +1640,8 @@ pub struct EgressInfo {
     pub ended_at: i64,
     #[prost(int64, tag="18")]
     pub updated_at: i64,
+    #[prost(string, tag="21")]
+    pub details: ::prost::alloc::string::String,
     #[prost(string, tag="9")]
     pub error: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="15")]
@@ -1988,7 +2067,7 @@ impl EgressStatus {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalRequest {
-    #[prost(oneof="signal_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16")]
+    #[prost(oneof="signal_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18")]
     pub message: ::core::option::Option<signal_request::Message>,
 }
 /// Nested message and enum types in `SignalRequest`.
@@ -2040,6 +2119,12 @@ pub mod signal_request {
         UpdateMetadata(super::UpdateParticipantMetadata),
         #[prost(message, tag="16")]
         PingReq(super::Ping),
+        /// Update local audio track settings
+        #[prost(message, tag="17")]
+        UpdateAudioTrack(super::UpdateLocalAudioTrack),
+        /// Update local video track settings
+        #[prost(message, tag="18")]
+        UpdateVideoTrack(super::UpdateLocalVideoTrack),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2295,6 +2380,24 @@ pub struct UpdateTrackSettings {
     ///     higher priority tracks first. lowest priority tracks can be paused
     #[prost(uint32, tag="8")]
     pub priority: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalAudioTrack {
+    #[prost(string, tag="1")]
+    pub track_sid: ::prost::alloc::string::String,
+    #[prost(enumeration="AudioTrackFeature", repeated, tag="2")]
+    pub features: ::prost::alloc::vec::Vec<i32>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalVideoTrack {
+    #[prost(string, tag="1")]
+    pub track_sid: ::prost::alloc::string::String,
+    #[prost(uint32, tag="2")]
+    pub width: u32,
+    #[prost(uint32, tag="3")]
+    pub height: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2673,6 +2776,9 @@ pub struct CreateRoomRequest {
     /// number of seconds to keep the room open if no one joins
     #[prost(uint32, tag="2")]
     pub empty_timeout: u32,
+    /// number of seconds to keep the room open after everyone leaves
+    #[prost(uint32, tag="10")]
+    pub departure_timeout: u32,
     /// limit number of participants that can be in a room
     #[prost(uint32, tag="3")]
     pub max_participants: u32,
@@ -2690,7 +2796,7 @@ pub struct CreateRoomRequest {
     pub min_playout_delay: u32,
     #[prost(uint32, tag="8")]
     pub max_playout_delay: u32,
-    /// improves A/V sync when playout_delay set to a value larger than 200ms. It will disables transceiver re-use 
+    /// improves A/V sync when playout_delay set to a value larger than 200ms. It will disables transceiver re-use
     /// so not recommended for rooms with frequent subscription changes
     #[prost(bool, tag="9")]
     pub sync_streams: bool,
@@ -3266,6 +3372,206 @@ pub struct WebhookEvent {
     pub created_at: i64,
     #[prost(int32, tag="11")]
     pub num_dropped: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateSipTrunkRequest {
+    /// CIDR or IPs that traffic is accepted from
+    /// An empty list means all inbound traffic is accepted.
+    #[prost(string, repeated, tag="1")]
+    pub inbound_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// IP that SIP INVITE is sent too
+    #[prost(string, tag="2")]
+    pub outbound_address: ::prost::alloc::string::String,
+    /// Number used to make outbound calls
+    #[prost(string, tag="3")]
+    pub outbound_number: ::prost::alloc::string::String,
+    #[deprecated]
+    #[prost(string, repeated, tag="4")]
+    pub inbound_numbers_regex: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Accepted `To` values. This Trunk will only accept a call made to
+    /// these numbers. This allows you to have distinct Trunks for different phone
+    /// numbers at the same provider.
+    #[prost(string, repeated, tag="9")]
+    pub inbound_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Username and password used to authenticate inbound and outbound SIP invites
+    /// May be empty to have no Authentication
+    #[prost(string, tag="5")]
+    pub inbound_username: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub inbound_password: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub outbound_username: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub outbound_password: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipTrunkInfo {
+    #[prost(string, tag="1")]
+    pub sip_trunk_id: ::prost::alloc::string::String,
+    /// CIDR or IPs that traffic is accepted from
+    /// An empty list means all inbound traffic is accepted.
+    #[prost(string, repeated, tag="2")]
+    pub inbound_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// IP that SIP INVITE is sent too
+    #[prost(string, tag="3")]
+    pub outbound_address: ::prost::alloc::string::String,
+    /// Number used to make outbound calls
+    #[prost(string, tag="4")]
+    pub outbound_number: ::prost::alloc::string::String,
+    #[deprecated]
+    #[prost(string, repeated, tag="5")]
+    pub inbound_numbers_regex: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Accepted `To` values. This Trunk will only accept a call made to
+    /// these numbers. This allows you to have distinct Trunks for different phone
+    /// numbers at the same provider.
+    #[prost(string, repeated, tag="10")]
+    pub inbound_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Username and password used to authenticate inbound and outbound SIP invites
+    /// May be empty to have no Authentication
+    #[prost(string, tag="6")]
+    pub inbound_username: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub inbound_password: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub outbound_username: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub outbound_password: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSipTrunkRequest {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSipTrunkResponse {
+    #[prost(message, repeated, tag="1")]
+    pub items: ::prost::alloc::vec::Vec<SipTrunkInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeleteSipTrunkRequest {
+    #[prost(string, tag="1")]
+    pub sip_trunk_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipDispatchRuleDirect {
+    /// What room should call be directed into
+    #[prost(string, tag="1")]
+    pub room_name: ::prost::alloc::string::String,
+    /// Optional pin required to enter room
+    #[prost(string, tag="2")]
+    pub pin: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipDispatchRuleIndividual {
+    /// Prefix used on new room name
+    #[prost(string, tag="1")]
+    pub room_prefix: ::prost::alloc::string::String,
+    /// Optional pin required to enter room
+    #[prost(string, tag="2")]
+    pub pin: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipDispatchRule {
+    #[prost(oneof="sip_dispatch_rule::Rule", tags="1, 2")]
+    pub rule: ::core::option::Option<sip_dispatch_rule::Rule>,
+}
+/// Nested message and enum types in `SIPDispatchRule`.
+pub mod sip_dispatch_rule {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Rule {
+        /// SIPDispatchRuleDirect is a `SIP Dispatch Rule` that puts a user directly into a room
+        /// This places users into an existing room. Optionally you can require a pin before a user can
+        /// enter the room
+        #[prost(message, tag="1")]
+        DispatchRuleDirect(super::SipDispatchRuleDirect),
+        /// SIPDispatchRuleIndividual is a `SIP Dispatch Rule` that creates a new room for each caller.
+        #[prost(message, tag="2")]
+        DispatchRuleIndividual(super::SipDispatchRuleIndividual),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateSipDispatchRuleRequest {
+    #[prost(message, optional, tag="1")]
+    pub rule: ::core::option::Option<SipDispatchRule>,
+    /// What trunks are accepted for this dispatch rule
+    /// If empty all trunks will match this dispatch rule
+    #[prost(string, repeated, tag="2")]
+    pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// By default the From value (Phone number) is used as the participant identity
+    /// If true a random value will be used instead
+    #[prost(bool, tag="3")]
+    pub hide_phone_number: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipDispatchRuleInfo {
+    #[prost(string, tag="1")]
+    pub sip_dispatch_rule_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub rule: ::core::option::Option<SipDispatchRule>,
+    #[prost(string, repeated, tag="3")]
+    pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag="4")]
+    pub hide_phone_number: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSipDispatchRuleRequest {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSipDispatchRuleResponse {
+    #[prost(message, repeated, tag="1")]
+    pub items: ::prost::alloc::vec::Vec<SipDispatchRuleInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeleteSipDispatchRuleRequest {
+    #[prost(string, tag="1")]
+    pub sip_dispatch_rule_id: ::prost::alloc::string::String,
+}
+/// A SIP Participant is a singular SIP session connected to a LiveKit room via
+/// a SIP Trunk into a SIP DispatchRule
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateSipParticipantRequest {
+    /// What SIP Trunk should be used to dial the user
+    #[prost(string, tag="1")]
+    pub sip_trunk_id: ::prost::alloc::string::String,
+    /// What number should be dialed via SIP
+    #[prost(string, tag="2")]
+    pub sip_call_to: ::prost::alloc::string::String,
+    /// What LiveKit room should this participant be connected too
+    #[prost(string, tag="3")]
+    pub room_name: ::prost::alloc::string::String,
+    /// Optional identity of the participant in LiveKit room
+    #[prost(string, tag="4")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// Optionally send following DTMF digits (extension codes) when making a call.
+    /// Character 'w' can be used to add a 0.5 sec delay.
+    #[prost(string, tag="5")]
+    pub dtmf: ::prost::alloc::string::String,
+    /// Optionally play ringtone in the room as an audible indicator for existing participants
+    #[prost(bool, tag="6")]
+    pub play_ringtone: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipParticipantInfo {
+    #[prost(string, tag="1")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub room_name: ::prost::alloc::string::String,
 }
 include!("livekit.serde.rs");
 // @@protoc_insertion_point(module)
