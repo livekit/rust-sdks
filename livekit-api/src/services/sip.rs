@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ptr::null;
 use livekit_protocol as proto;
+use std::ptr::null;
 
 use crate::access_token::VideoGrants;
 use crate::get_env_keys;
-use crate::services::{LIVEKIT_PACKAGE, ServiceBase, ServiceResult};
 use crate::services::ingress::{CreateIngressOptions, IngressListFilter};
 use crate::services::twirp_client::TwirpClient;
+use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 
 const SVC: &str = "SIP";
 
@@ -124,13 +124,12 @@ impl SIPClient {
         &self,
         filter: ListSIPTrunkFilter,
     ) -> ServiceResult<Vec<proto::SipTrunkInfo>> {
-
         let resp: proto::ListSipTrunkResponse = self
             .client
             .request(
                 SVC,
                 "ListSIPTrunk",
-                proto::ListSipTrunkRequest {  },
+                proto::ListSipTrunkRequest {},
                 self.base.auth_header(VideoGrants { ..Default::default() })?,
             )
             .await?;
@@ -162,9 +161,7 @@ impl SIPClient {
                 proto::CreateSipDispatchRuleRequest {
                     trunk_ids: options.trunk_ids.to_owned(),
                     hide_phone_number: options.hide_phone_number,
-                    rule: Some(proto::SipDispatchRule{
-                        rule: Some(rule.to_owned()),
-                    }),
+                    rule: Some(proto::SipDispatchRule { rule: Some(rule.to_owned()) }),
                 },
                 self.base.auth_header(VideoGrants { ..Default::default() })?,
             )
@@ -176,13 +173,12 @@ impl SIPClient {
         &self,
         filter: ListSIPDispatchRuleFilter,
     ) -> ServiceResult<Vec<proto::SipDispatchRuleInfo>> {
-
         let resp: proto::ListSipDispatchRuleResponse = self
             .client
             .request(
                 SVC,
                 "ListSIPDispatchRule",
-                proto::ListSipDispatchRuleRequest {  },
+                proto::ListSipDispatchRuleRequest {},
                 self.base.auth_header(VideoGrants { ..Default::default() })?,
             )
             .await?;
@@ -190,12 +186,17 @@ impl SIPClient {
         Ok(resp.items)
     }
 
-    pub async fn delete_sip_dispatch_rule(&self, sip_dispatch_rule_id: &str) -> ServiceResult<proto::SipDispatchRuleInfo> {
+    pub async fn delete_sip_dispatch_rule(
+        &self,
+        sip_dispatch_rule_id: &str,
+    ) -> ServiceResult<proto::SipDispatchRuleInfo> {
         self.client
             .request(
                 SVC,
                 "DeleteSIPDispatchRule",
-                proto::DeleteSipDispatchRuleRequest { sip_dispatch_rule_id: sip_dispatch_rule_id.to_owned() },
+                proto::DeleteSipDispatchRuleRequest {
+                    sip_dispatch_rule_id: sip_dispatch_rule_id.to_owned(),
+                },
                 self.base.auth_header(VideoGrants { ..Default::default() })?,
             )
             .await
