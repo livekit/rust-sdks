@@ -14,6 +14,7 @@
 
 use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
+use livekit::participant;
 use livekit::prelude::*;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
@@ -645,17 +646,43 @@ async fn forward_event(
                 data_ptr: payload.as_ptr() as u64,
                 data_len: payload.len() as u64,
             };
+            let (sid, identity) = match participant {
+                Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
+                None => (None, String::new()),
+            };
 
             server.store_handle(handle_id, FfiDataBuffer { handle: handle_id, data: payload });
-            let _ = send_event(proto::room_event::Message::DataReceived(proto::DataReceived {
-                data: Some(proto::OwnedBuffer {
-                    handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-                    data: Some(buffer_info),
-                }),
-                participant_sid: participant.map(|p| p.sid().to_string()),
-                kind: proto::DataPacketKind::from(kind).into(),
-                topic,
-            }));
+            let _ = send_event(proto::room_event::Message::DataPacketReceived(
+                proto::DataPacketReceived {
+                    value: Some(proto::data_packet_received::Value::User(proto::UserPacket {
+                        data: Some(proto::OwnedBuffer {
+                            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                            data: Some(buffer_info),
+                        }),
+                        topic,
+                    })),
+                    participant_identity: identity,
+                    participant_sid: sid,
+                    kind: proto::DataPacketKind::from(kind).into(),
+                },
+            ));
+        }
+        RoomEvent::SipDTMFReceived { code, digit, participant } => {
+            let (sid, identity) = match participant {
+                Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
+                None => (None, String::new()),
+            };
+            let _ = send_event(proto::room_event::Message::DataPacketReceived(
+                proto::DataPacketReceived {
+                    value: Some(proto::data_packet_received::Value::SipDtmf(proto::SipDtmf {
+                        code,
+                        digit,
+                    })),
+                    participant_identity: identity,
+                    participant_sid: sid,
+                    kind: proto::DataPacketKind::KindReliable.into(),
+                },
+            ));
         }
         RoomEvent::ConnectionStateChanged(state) => {
             let _ = send_event(proto::room_event::Message::ConnectionStateChanged(
