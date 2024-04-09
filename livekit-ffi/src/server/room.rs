@@ -652,27 +652,18 @@ async fn forward_event(
             };
 
             server.store_handle(handle_id, FfiDataBuffer { handle: handle_id, data: payload });
-            let _ = send_event(proto::room_event::Message::DataReceived(proto::DataReceived {
-                data: Some(proto::OwnedBuffer {
-                    handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-                    data: Some(buffer_info.clone()),
-                }),
-                participant_sid: sid.clone(),
-                kind: proto::DataPacketKind::from(kind).into(),
-                topic: topic.clone(),
-            }));
             let _ = send_event(proto::room_event::Message::DataPacketReceived(proto::DataPacketReceived {
                 value: Some(proto::data_packet_received::Value::User(
                     proto::UserPacket{
                         data: Some(proto::OwnedBuffer {
                             handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-                            data: Some(buffer_info.clone()),
+                            data: Some(buffer_info),
                         }),
-                        topic: topic.clone(),
+                        topic,
                     }
                 )),
                 participant_identity: identity,
-                participant_sid: sid.clone(),
+                participant_sid: sid,
                 kind: proto::DataPacketKind::from(kind).into(),
             }));
         }

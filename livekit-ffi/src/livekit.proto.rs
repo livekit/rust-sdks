@@ -2215,7 +2215,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2255,8 +2255,6 @@ pub mod room_event {
         ParticipantNameChanged(super::ParticipantNameChanged),
         #[prost(message, tag="17")]
         ConnectionQualityChanged(super::ConnectionQualityChanged),
-        #[prost(message, tag="18")]
-        DataReceived(super::DataReceived),
         #[prost(message, tag="19")]
         ConnectionStateChanged(super::ConnectionStateChanged),
         /// Connected connected = 20;
@@ -2424,19 +2422,6 @@ pub struct ConnectionQualityChanged {
     pub participant_sid: ::prost::alloc::string::String,
     #[prost(enumeration="ConnectionQuality", tag="2")]
     pub quality: i32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DataReceived {
-    #[prost(message, optional, tag="1")]
-    pub data: ::core::option::Option<OwnedBuffer>,
-    /// Can be empty if the data is sent a server SDK
-    #[prost(string, optional, tag="2")]
-    pub participant_sid: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(enumeration="DataPacketKind", tag="3")]
-    pub kind: i32,
-    #[prost(string, optional, tag="4")]
-    pub topic: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

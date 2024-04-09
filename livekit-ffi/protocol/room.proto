@@ -252,7 +252,6 @@ message RoomEvent {
     ParticipantMetadataChanged participant_metadata_changed = 15;
     ParticipantNameChanged participant_name_changed = 16;
     ConnectionQualityChanged connection_quality_changed = 17;
-    DataReceived data_received = 18;
     ConnectionStateChanged connection_state_changed = 19;
     // Connected connected = 20;
     Disconnected disconnected = 21;
@@ -354,13 +353,6 @@ message ParticipantNameChanged {
 message ConnectionQualityChanged {
   string participant_sid = 1;
   ConnectionQuality quality = 2;
-}
-
-message DataReceived {
-  OwnedBuffer data = 1;
-  optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
-  DataPacketKind kind = 3;
-  optional string topic = 4;
 }
 
 message UserPacket {
