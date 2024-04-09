@@ -260,6 +260,7 @@ message RoomEvent {
     Reconnected reconnected = 23;
     E2eeStateChanged e2ee_state_changed = 24;
     RoomEOS eos = 25; // The stream of room events has ended
+    DataPacketReceived data_packet_received = 26;
   }
 }
 
@@ -360,6 +361,26 @@ message DataReceived {
   optional string participant_sid = 2; // Can be empty if the data is sent a server SDK
   DataPacketKind kind = 3;
   optional string topic = 4;
+}
+
+message UserPacket {
+  OwnedBuffer data = 1;
+  optional string topic = 2;
+}
+
+message SipDTMF {
+  uint32 code = 1;
+  optional string digit = 2;
+}
+
+message DataPacketReceived {
+  DataPacketKind kind = 1;
+  string participant_identity = 2; // Can be empty if the data is sent a server SDK
+  optional string participant_sid = 3 [deprecated=true]; // Can be empty if the data is sent a server SDK
+  oneof value {
+    UserPacket user = 4;
+    SipDTMF sip_dtmf = 5;
+  }
 }
 
 message ConnectionStateChanged { ConnectionState state = 1; }

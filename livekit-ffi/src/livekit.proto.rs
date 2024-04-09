@@ -2215,7 +2215,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2271,6 +2271,8 @@ pub mod room_event {
         /// The stream of room events has ended
         #[prost(message, tag="25")]
         Eos(super::RoomEos),
+        #[prost(message, tag="26")]
+        DataPacketReceived(super::DataPacketReceived),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2435,6 +2437,48 @@ pub struct DataReceived {
     pub kind: i32,
     #[prost(string, optional, tag="4")]
     pub topic: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UserPacket {
+    #[prost(message, optional, tag="1")]
+    pub data: ::core::option::Option<OwnedBuffer>,
+    #[prost(string, optional, tag="2")]
+    pub topic: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipDtmf {
+    #[prost(uint32, tag="1")]
+    pub code: u32,
+    #[prost(string, optional, tag="2")]
+    pub digit: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataPacketReceived {
+    #[prost(enumeration="DataPacketKind", tag="1")]
+    pub kind: i32,
+    /// Can be empty if the data is sent a server SDK
+    #[prost(string, tag="2")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// Can be empty if the data is sent a server SDK
+    #[deprecated]
+    #[prost(string, optional, tag="3")]
+    pub participant_sid: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(oneof="data_packet_received::Value", tags="4, 5")]
+    pub value: ::core::option::Option<data_packet_received::Value>,
+}
+/// Nested message and enum types in `DataPacketReceived`.
+pub mod data_packet_received {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Value {
+        #[prost(message, tag="4")]
+        User(super::UserPacket),
+        #[prost(message, tag="5")]
+        SipDtmf(super::SipDtmf),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
