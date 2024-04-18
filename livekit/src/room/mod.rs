@@ -287,7 +287,7 @@ impl Room {
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                log::info!("local track published: {}", publication.sid());
+                log::debug!("local track published: {}", publication.sid());
                 let track = publication.track().unwrap();
                 let event = RoomEvent::LocalTrackPublished {
                     participant: participant.clone(),
@@ -303,7 +303,7 @@ impl Room {
             let dispatcher = dispatcher.clone();
             let e2ee_manager = e2ee_manager.clone();
             move |participant, publication| {
-                log::info!("local track unpublished: {}", publication.sid());
+                log::debug!("local track unpublished: {}", publication.sid());
                 let event = RoomEvent::LocalTrackUnpublished {
                     participant: participant.clone(),
                     publication: publication.clone(),
@@ -369,7 +369,6 @@ impl Room {
             move |participant_identity, state| {
                 // Forward e2ee events to the room
                 // (Ignore if the participant is not in the room anymore)
-                log::info!("e2ee state changed for {}: {:?}", participant_identity, state);
 
                 let participant = if participant_identity.as_str()
                     == inner.local_participant.identity().as_str()
@@ -605,7 +604,6 @@ impl RoomSession {
     /// It'll create, update or remove a participant
     /// It also update the participant tracks.
     fn handle_participant_update(self: &Arc<Self>, updates: Vec<proto::ParticipantInfo>) {
-        log::info!("participant update: {:?}", updates);
         for pi in updates {
             let participant_sid = pi.sid.clone().try_into().unwrap();
             let participant_identity: ParticipantIdentity = pi.identity.clone().into();
@@ -639,7 +637,6 @@ impl RoomSession {
                 remote_participant.update_info(pi.clone());
             } else {
                 // Create a new participant
-                log::info!("new participant: {}", pi.sid);
                 let remote_participant = {
                     let pi = pi.clone();
                     self.create_participant(
@@ -820,7 +817,7 @@ impl RoomSession {
             data_channels: dcs,
         };
 
-        log::info!("sending sync state {:?}", sync_state);
+        log::debug!("sending sync state {:?}", sync_state);
         self.rtc_engine.send_request(proto::signal_request::Message::SyncState(sync_state)).await;
     }
 
@@ -943,7 +940,7 @@ impl RoomSession {
     }
 
     fn handle_disconnected(&self, reason: DisconnectReason) {
-        log::info!("disconnected from room: {:?}", reason);
+        log::debug!("disconnected from room: {:?}", reason);
         if self.update_connection_state(ConnectionState::Disconnected) {
             self.dispatcher.dispatch(&RoomEvent::Disconnected { reason });
         }
@@ -1037,7 +1034,6 @@ impl RoomSession {
             let dispatcher = self.dispatcher.clone();
             let e2ee_manager = self.e2ee_manager.clone();
             move |participant, publication, track| {
-                log::info!("track subscribed: {}", track.sid());
                 let event = RoomEvent::TrackSubscribed {
                     participant: participant.clone(),
                     track: track.clone(),
@@ -1052,7 +1048,6 @@ impl RoomSession {
             let dispatcher = self.dispatcher.clone();
             let e2ee_manager = self.e2ee_manager.clone();
             move |participant, publication, track| {
-                log::info!("track unsubscribed: {}", track.sid());
                 let event = RoomEvent::TrackUnsubscribed {
                     participant: participant.clone(),
                     track: track.clone(),
@@ -1116,7 +1111,6 @@ impl RoomSession {
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     fn handle_participant_disconnect(self: Arc<Self>, remote_participant: RemoteParticipant) {
-        log::info!("handle_participant_disconnect: {}", remote_participant.sid());
         for (sid, _) in remote_participant.tracks() {
             remote_participant.unpublish_track(&sid);
         }

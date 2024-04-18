@@ -380,7 +380,7 @@ impl EngineInner {
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
             SessionEvent::Close { source, reason, can_reconnect, retry_now, full_reconnect } => {
-                log::info!("received session close: {}, {:?}", source, reason);
+                log::debug!("received session close: {}, {:?}", source, reason);
                 if can_reconnect {
                     self.reconnection_needed(retry_now, full_reconnect);
                 } else {
@@ -499,7 +499,7 @@ impl EngineInner {
 
                 tokio::select! {
                     _ = &mut close_receiver => {
-                        log::info!("reconnection cancelled");
+                        log::debug!("reconnection cancelled");
                         return;
                     }
                     res = inner.reconnect_task() => {
