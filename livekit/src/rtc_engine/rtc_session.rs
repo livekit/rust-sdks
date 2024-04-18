@@ -177,7 +177,7 @@ impl RtcSession {
         let (signal_client, join_response, signal_events) =
             SignalClient::connect(url, token, options.signal_options.clone()).await?;
         let signal_client = Arc::new(signal_client);
-        log::info!("received JoinResponse: {:?}", join_response);
+        log::debug!("received JoinResponse: {:?}", join_response);
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
         let rtc_config = make_rtc_config_join(join_response.clone(), options.rtc_config.clone());
@@ -825,7 +825,7 @@ impl SessionInner {
     /// ['RTCEngine']
     async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
         let reconnect_response = self.signal_client.restart().await?;
-        log::info!("received reconnect response: {:?}", reconnect_response);
+        log::debug!("received reconnect response: {:?}", reconnect_response);
 
         let rtc_config =
             make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());

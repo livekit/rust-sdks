@@ -14,7 +14,6 @@
 
 use libwebrtc::{self as rtc, prelude::*};
 use livekit_protocol as proto;
-use log::error;
 use tokio::sync::mpsc;
 
 use super::peer_transport::PeerTransport;
@@ -108,7 +107,7 @@ fn on_ice_candidate_error(
     _emitter: RtcEmitter,
 ) -> rtc::peer_connection::OnIceCandidateError {
     Box::new(move |ice_error| {
-        error!("{:?}", ice_error);
+        log::debug!("{:?}", ice_error);
     })
 }
 
