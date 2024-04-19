@@ -329,7 +329,7 @@ impl RoomInner {
                         break; // Event was sent
                     }
 
-                    log::info!("waiting for the LocalTrackUnpublished event to be sent");
+                    log::debug!("waiting for the LocalTrackUnpublished event to be sent");
                     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                 }
             }
@@ -512,7 +512,7 @@ async fn forward_event(
                     if inner.pending_published_tracks.lock().remove(&sid) {
                         break;
                     }
-                    log::info!("waiting for the PublishTrack callback to be sent");
+                    log::debug!("waiting for the PublishTrack callback to be sent");
                     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                 }
             }
