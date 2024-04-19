@@ -219,8 +219,10 @@ impl RemoteTrackPublication {
             }
         }
 
-        // TODO(theomonnom): Wait for the PC onRemoveTrack event instead?
-        self.set_track(None);
+        if !subscribed {
+            // TODO(theomonnom): Wait for the PC onRemoveTrack event instead?
+            self.set_track(None);
+        }
 
         // Request to send an update to the SFU
         if let Some(subscription_update_needed) =
