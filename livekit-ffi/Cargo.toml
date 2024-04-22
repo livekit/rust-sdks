@@ -7,7 +7,6 @@ description = "FFI interface for bindings in other languages"
 repository = "https://github.com/livekit/rust-sdks"
 
 [features]
-default = ["rustls-tls-webpki-roots"]
 native-tls = ["livekit/native-tls"]
 native-tls-vendored = ["livekit/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
@@ -18,7 +17,6 @@ __rustls-tls = ["livekit/__rustls-tls"]
 tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
-livekit = { path = "../livekit", version = "0.3.2" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.2" }
 tokio = { version = "1", features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
@@ -34,8 +32,12 @@ downcast-rs = "1.2"
 console-subscriber = { version = "0.1", features = ["parking_lot"], optional = true }
 imgproc = "0.3.11"
 
+[target.'cfg(not(target_os = "android"))'.dependencies]
+livekit = { path = "../livekit", version = "0.3.2", features = ["rustls-tls-native-roots"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
+livekit = { path = "../livekit", version = "0.3.2", features = ["rustls-tls-webpki-roots"] }
 
 [build-dependencies]
 webrtc-sys-build = { path = "../webrtc-sys/build", version = "0.3.2" }
