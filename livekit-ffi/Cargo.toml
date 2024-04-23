@@ -7,7 +7,7 @@ description = "FFI interface for bindings in other languages"
 repository = "https://github.com/livekit/rust-sdks"
 
 [features]
-default = ["rustls-tls-webpki-roots"]
+default = ["rustls-tls-native-roots"]
 native-tls = ["livekit/native-tls"]
 native-tls-vendored = ["livekit/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
