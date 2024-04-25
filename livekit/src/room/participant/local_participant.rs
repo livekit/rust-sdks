@@ -308,7 +308,6 @@ impl LocalParticipant {
             segments: segments,
             track_id: packet.track_id,
             language: packet.language,
-            ..Default::default()
         };
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::Transcription(transcription_packet)),
