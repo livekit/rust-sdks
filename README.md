@@ -42,6 +42,7 @@ Use this SDK to add real-time video, audio and data features to your Rust app. B
 - `livekit-api`: Server APIs and auth token generation
 - `livekit`: LiveKit real-time SDK
 - `livekit-ffi`: Internal crate, used to generate bindings for other languages
+- `livekit-protocol`: LiveKit protocol generated code
 
 When adding the SDK as a dependency to your project, make sure to add the
 [necessary `rustflags`](https://github.com/livekit/rust-sdks/blob/main/.cargo/config)

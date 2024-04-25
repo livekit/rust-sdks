@@ -197,6 +197,23 @@ impl Default for DataPacket {
 }
 
 #[derive(Clone)]
+pub struct Transcription {
+    pub participant_identity: String,
+    pub track_id: String,
+    pub segments: Vec<TranscriptionSegment>,
+    pub language: String,
+}
+
+#[derive(Clone)]
+pub struct TranscriptionSegment {
+    pub id: String,
+    pub text: String,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub r#final: bool,
+}
+
+#[derive(Clone)]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
