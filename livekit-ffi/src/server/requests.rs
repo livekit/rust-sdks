@@ -578,7 +578,9 @@ pub fn handle_request(
             proto::ffi_response::Message::PublishData(on_publish_data(server, publish)?)
         }
         proto::ffi_request::Message::PublishTranscription(publish) => {
-            proto::ffi_response::Message::PublishTranscription(on_publish_transcription(server, publish)?)
+            proto::ffi_response::Message::PublishTranscription(on_publish_transcription(
+                server, publish,
+            )?)
         }
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)

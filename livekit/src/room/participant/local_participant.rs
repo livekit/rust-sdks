@@ -25,9 +25,7 @@ use crate::{
     options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     rtc_engine::RtcEngine,
-    DataPacket,
-    Transcription,
-    TranscriptionSegment,
+    DataPacket, Transcription, TranscriptionSegment,
 };
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -292,16 +290,19 @@ impl LocalParticipant {
     }
 
     pub async fn publish_transcription(&self, packet: Transcription) -> RoomResult<()> {
-        let segments: Vec<proto::TranscriptionSegment> = 
-            packet.segments.into_iter().map(
-                (|segment| proto::TranscriptionSegment{
+        let segments: Vec<proto::TranscriptionSegment> = packet
+            .segments
+            .into_iter()
+            .map(
+                (|segment| proto::TranscriptionSegment {
                     id: segment.id,
                     start_time: segment.start_time,
                     end_time: segment.end_time,
                     text: segment.text,
                     r#final: segment.r#final,
-                })
-            ).collect();
+                }),
+            )
+            .collect();
         let transcription_packet = proto::Transcription {
             participant_identity: packet.participant_identity,
             segments: segments,
@@ -313,7 +314,11 @@ impl LocalParticipant {
             value: Some(proto::data_packet::Value::Transcription(transcription_packet)),
             ..Default::default()
         };
-        self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(&data, DataPacketKind::Reliable)
+            .await
+            .map_err(Into::into)
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {

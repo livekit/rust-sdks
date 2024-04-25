@@ -187,16 +187,12 @@ impl FfiRoom {
                         ))
                     }); // Publish data
 
-                    let transcription_handle = server.watch_panic(
-                server.async_runtime.spawn(transcription_task(
-                            server,
-                            inner.clone(),
-                            transcription_rx, 
-                            close_rx
-                        ))
-                    ); // Publish transcription
+                    let transcription_handle = server.watch_panic(server.async_runtime.spawn(
+                        transcription_task(server, inner.clone(), transcription_rx, close_rx),
+                    )); // Publish transcription
 
-                    *handle = Some(Handle { event_handle, data_handle, transcription_handle, close_tx });
+                    *handle =
+                        Some(Handle { event_handle, data_handle, transcription_handle, close_tx });
                 }
                 Err(e) => {
                     // Failed to connect to the room, send an error message to the FfiClient
