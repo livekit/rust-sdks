@@ -108,6 +108,7 @@ message TranscriptionSegment {
   uint64 end_time = 4;
   bool final = 5;
 }
+
 message PublishTranscriptionRequest {
   uint64 local_participant_handle = 1;
   string participant_identity = 2;
@@ -119,6 +120,7 @@ message PublishTranscriptionRequest {
 message PublishTranscriptionResponse {
   uint64 async_id = 1;
 }
+
 message PublishTranscriptionCallback {
   uint64 async_id = 1;
   optional string error = 2;
