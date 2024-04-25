@@ -61,6 +61,7 @@ pub struct RoomInner {
     pub room: Room,
     handle_id: FfiHandleId,
     data_tx: mpsc::UnboundedSender<FfiDataPacket>,
+    transcription_tx: mpsc::UnboundedSender<FfiTranscription>,
 
     // local tracks just published, it is used to synchronize the publish events:
     // - make sure LocalTrackPublised is sent *after* the PublishTrack callback)
@@ -72,12 +73,29 @@ pub struct RoomInner {
 struct Handle {
     event_handle: JoinHandle<()>,
     data_handle: JoinHandle<()>,
+    transcription_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
 }
 
 struct FfiDataPacket {
     payload: DataPacket,
     async_id: u64,
+}
+
+struct FfiTranscription {
+    participant_identity: String,
+    segments: Vec<FfiTranscriptionSegment>,
+    track_id: String,
+    language: String,
+    async_id: u64,
+}
+
+struct FfiTranscriptionSegment {
+    id: String,
+    text: String,
+    start_time: u64,
+    end_time: u64,
+    r#final: bool,
 }
 
 impl FfiRoom {
@@ -105,6 +123,7 @@ impl FfiRoom {
                     };
 
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
+                    let (transcription_tx, transcription_rx) = mpsc::unbounded_channel();
                     let (close_tx, close_rx) = broadcast::channel(1);
 
                     let handle_id = server.next_id();
@@ -112,6 +131,7 @@ impl FfiRoom {
                         room,
                         handle_id,
                         data_tx,
+                        transcription_tx,
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
                     });
@@ -157,14 +177,26 @@ impl FfiRoom {
                         ))
                     });
 
-                    let data_handle = server.watch_panic(server.async_runtime.spawn(data_task(
-                        server,
-                        inner.clone(),
-                        data_rx,
-                        close_rx,
-                    ))); // Publish data
+                    let data_handle = server.watch_panic({
+                        let close_rx = close_rx.resubscribe();
+                        server.async_runtime.spawn(data_task(
+                            server,
+                            inner.clone(),
+                            data_rx,
+                            close_rx,
+                        ))
+                    }); // Publish data
 
-                    *handle = Some(Handle { event_handle, data_handle, close_tx });
+                    let transcription_handle = server.watch_panic(
+                server.async_runtime.spawn(transcription_task(
+                            server,
+                            inner.clone(),
+                            transcription_rx, 
+                            close_rx
+                        ))
+                    ); // Publish transcription
+
+                    *handle = Some(Handle { event_handle, data_handle, transcription_handle, close_tx });
                 }
                 Err(e) => {
                     // Failed to connect to the room, send an error message to the FfiClient
@@ -238,6 +270,44 @@ impl RoomInner {
         }
 
         Ok(proto::PublishDataResponse { async_id })
+    }
+
+    pub fn publish_transcription(
+        &self,
+        server: &'static FfiServer,
+        publish: proto::PublishTranscriptionRequest,
+    ) -> FfiResult<proto::PublishTranscriptionResponse> {
+        let async_id = server.next_id();
+
+        if let Err(err) = self.transcription_tx.send(FfiTranscription {
+            participant_identity: publish.participant_identity,
+            segments: publish
+                .segments
+                .into_iter()
+                .map(|segment| FfiTranscriptionSegment {
+                    id: segment.id,
+                    text: segment.text,
+                    start_time: segment.start_time,
+                    end_time: segment.end_time,
+                    r#final: segment.r#final,
+                })
+                .collect(),
+            track_id: publish.track_id,
+            language: publish.language,
+            async_id,
+        }) {
+            let handle = server.async_runtime.spawn(async move {
+                let cb = proto::PublishTranscriptionCallback {
+                    async_id,
+                    error: Some(format!("failed to send transcription, room closed: {}", err)),
+                };
+
+                let _ = server.send_event(proto::ffi_event::Message::PublishTranscription(cb));
+            });
+            server.watch_panic(handle);
+        }
+
+        Ok(proto::PublishTranscriptionResponse { async_id })
     }
 
     /// Publish a track and make sure to sync the async callback
@@ -404,6 +474,46 @@ async fn data_task(
                 };
 
                 let _ = server.send_event(proto::ffi_event::Message::PublishData(cb));
+            },
+            _ = close_rx.recv() => {
+                break;
+            }
+        }
+    }
+}
+
+// Task used to publish transcriptions without blocking the client thread
+async fn transcription_task(
+    server: &'static FfiServer,
+    inner: Arc<RoomInner>,
+    mut transcription_rx: mpsc::UnboundedReceiver<FfiTranscription>,
+    mut close_rx: broadcast::Receiver<()>,
+) {
+    loop {
+        tokio::select! {
+            Some(event) = transcription_rx.recv() => {
+                let segments = event.segments.into_iter().map(|segment| TranscriptionSegment {
+                    id: segment.id,
+                    text: segment.text,
+                    start_time: segment.start_time,
+                    end_time: segment.end_time,
+                    r#final: segment.r#final,
+                }).collect();
+
+                let transcription = Transcription {
+                    participant_identity: event.participant_identity,
+                    segments,
+                    track_id: event.track_id,
+                    language: event.language,
+                };
+                let res = inner.room.local_participant().publish_transcription(transcription).await;
+
+                let cb = proto::PublishTranscriptionCallback {
+                    async_id: event.async_id,
+                    error: res.err().map(|e| e.to_string()),
+                };
+
+                let _ = server.send_event(proto::ffi_event::Message::PublishTranscription(cb));
             },
             _ = close_rx.recv() => {
                 break;
