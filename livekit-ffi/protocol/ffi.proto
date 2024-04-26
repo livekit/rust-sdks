@@ -66,11 +66,12 @@ message FfiRequest {
     UpdateLocalMetadataRequest update_local_metadata = 9;
     UpdateLocalNameRequest update_local_name = 10;
     GetSessionStatsRequest get_session_stats = 11;
+    PublishTranscriptionRequest publish_transcription = 12;
 
     // Track
-    CreateVideoTrackRequest create_video_track = 12;
-    CreateAudioTrackRequest create_audio_track = 13;
-    GetStatsRequest get_stats = 14;
+    CreateVideoTrackRequest create_video_track = 13;
+    CreateAudioTrackRequest create_audio_track = 14;
+    GetStatsRequest get_stats = 15;
 
     // Video
     NewVideoStreamRequest new_video_stream = 16;
@@ -103,11 +104,12 @@ message FfiResponse {
     UpdateLocalMetadataResponse update_local_metadata = 9;
     UpdateLocalNameResponse update_local_name = 10;
     GetSessionStatsResponse get_session_stats = 11;
+    PublishTranscriptionResponse publish_transcription = 12;
 
     // Track
-    CreateVideoTrackResponse create_video_track = 12;
-    CreateAudioTrackResponse create_audio_track = 13;
-    GetStatsResponse get_stats = 14;
+    CreateVideoTrackResponse create_video_track = 13;
+    CreateAudioTrackResponse create_audio_track = 14;
+    GetStatsResponse get_stats = 15;
 
     // Video
     NewVideoStreamResponse new_video_stream = 16;
@@ -140,13 +142,14 @@ message FfiEvent {
     PublishTrackCallback publish_track = 8;
     UnpublishTrackCallback unpublish_track = 9;
     PublishDataCallback publish_data = 10;
-    CaptureAudioFrameCallback capture_audio_frame = 11;
-    UpdateLocalMetadataCallback update_local_metadata = 12;
-    UpdateLocalNameCallback update_local_name = 13;
-    GetStatsCallback get_stats = 14;
-    LogBatch logs = 15;
-    GetSessionStatsCallback get_session_stats = 16;
-    Panic panic = 17;
+    PublishTranscriptionCallback publish_transcription = 11;
+    CaptureAudioFrameCallback capture_audio_frame = 12;
+    UpdateLocalMetadataCallback update_local_metadata = 13;
+    UpdateLocalNameCallback update_local_name = 14;
+    GetStatsCallback get_stats = 15;
+    LogBatch logs = 16;
+    GetSessionStatsCallback get_session_stats = 17;
+    Panic panic = 18;
   }
 }
 

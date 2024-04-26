@@ -604,6 +604,7 @@ impl SessionInner {
                         });
                     }
                     proto::data_packet::Value::Speaker(_) => {}
+                    proto::data_packet::Value::Transcription(_) => {}
                 }
             }
         }

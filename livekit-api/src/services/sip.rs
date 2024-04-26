@@ -73,6 +73,8 @@ pub enum ListSIPDispatchRuleFilter {
 pub struct CreateSIPParticipantOptions {
     /// Optional identity of the participant in LiveKit room
     pub participant_identity: String,
+    // Optionally set the name of the participant in a LiveKit room
+    pub participant_name: String,
     /// Optionally send following DTMF digits (extension codes) when making a call.
     /// Character 'w' can be used to add a 0.5 sec delay.
     pub dtmf: String,
@@ -219,6 +221,7 @@ impl SIPClient {
                     sip_call_to: call_to.to_owned(),
                     room_name: room_name.to_owned(),
                     participant_identity: options.participant_identity.to_owned(),
+                    participant_name: options.participant_name.to_owned(),
                     dtmf: options.dtmf.to_owned(),
                     play_ringtone: options.play_ringtone,
                 },
