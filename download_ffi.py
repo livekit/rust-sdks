@@ -95,27 +95,23 @@ def download_ffi(platform, arch, version, output):
 
 
 if __name__ == "__main__":
-    target_os = target_os()
-    target_arch = target_arch()
-    ffi_version = ffi_version()
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--platform",
         help="target platform",
-        default=target_os,
+        default=target_os(),
         choices=["macos", "linux", "windows", "ios", "android"],
     )
     parser.add_argument(
         "--arch",
         help="target architecture",
-        default=target_arch,
+        default=target_arch(),
         choices=["x86_64", "arm64", "armv7"],
     )
     parser.add_argument(
         "--version",
         help="version to download",
-        default=ffi_version,
+        default=ffi_version(),
     )
     parser.add_argument("--output", help="output path", required=True)
     args = parser.parse_args()
