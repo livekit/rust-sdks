@@ -56,7 +56,7 @@ def target_arch():
     if os.environ.get("CIBUILDWHEEL"):
         archflags = os.environ.get("ARCHFLAGS", "")
         print("cibuildwheel is being used, archflags: %s" % archflags)
-        if "arm64" in arachflags:
+        if "arm64" in archflags:
             return "arm64"
 
     return arch_mapping.get(arch)
