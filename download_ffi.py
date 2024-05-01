@@ -53,10 +53,11 @@ def target_arch():
 
     # make sure cibuildwheel download the right binary when cross-compiling to arm64
     # TODO: Make this more generic
-    if os.environ.get("CIBUILDWHEEL") == "1" and "arm64" in os.environ.get(
-        "ARCHFLAGS", ""
-    ):
-        return "arm64"
+    if os.environ.get("CIBUILDWHEEL"):
+        archflags = os.environ.get("ARCHFLAGS", "")
+        print("cibuildwheel is being used, archflags: %s" % archflags)
+        if "arm64" in arachflags:
+            return "arm64"
 
     return arch_mapping.get(arch)
 
