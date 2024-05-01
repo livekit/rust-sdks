@@ -59,7 +59,7 @@ def target_arch():
         print("cibuildwheel is being used, archflags: %s" % archflags)
         if "arm64" in archflags:
             return "arm64"
-        else :
+        else:
             return "x86_64"
 
     return arch_mapping.get(arch)
