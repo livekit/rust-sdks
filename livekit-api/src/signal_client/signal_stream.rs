@@ -23,11 +23,19 @@ use prost::Message as ProtoMessage;
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "signal-client-tokio")]
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::error::ProtocolError,
+    tungstenite::{Error as WsError, Message},
+    MaybeTlsStream, WebSocketStream,
+};
 
 #[cfg(feature = "__signal-client-async-compatible")]
 use async_tungstenite::{
-    async_std::connect_async, async_std::ClientStream as MaybeTlsStream, tungstenite::Message,
+    async_std::connect_async,
+    async_std::ClientStream as MaybeTlsStream,
+    tungstenite::error::ProtocolError,
+    tungstenite::{Error as WsError, Message},
     WebSocketStream,
 };
 
@@ -174,6 +182,9 @@ impl SignalStream {
                     break;
                 }
                 Ok(Message::Frame(_)) => {}
+                Err(WsError::Protocol(ProtocolError::ResetWithoutClosingHandshake)) => {
+                    break; // Ignore
+                }
                 _ => {
                     log::error!("unhandled websocket message {:?}", msg);
                     break;
