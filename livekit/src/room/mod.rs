@@ -951,20 +951,20 @@ impl RoomSession {
     }
 
     fn handle_disconnected(self: &Arc<Self>, reason: DisconnectReason) {
-        if reason != DisconnectReason::ClientInitiated {
-            log::error!("unexpectedly disconnected from room: {:?}", reason);
-        }
-
         if self.update_connection_state(ConnectionState::Disconnected) {
             self.dispatcher.dispatch(&RoomEvent::Disconnected { reason });
         }
 
-        livekit_runtime::spawn({
-            let inner = self.clone();
-            async move {
-                let _ = inner.close(reason).await;
-            }
-        });
+        if reason != DisconnectReason::ClientInitiated {
+            log::error!("unexpectedly disconnected from room: {:?}", reason);
+
+            livekit_runtime::spawn({
+                let inner = self.clone();
+                async move {
+                    let _ = inner.close(reason).await;
+                }
+            });
+        }
     }
 
     fn handle_data(
