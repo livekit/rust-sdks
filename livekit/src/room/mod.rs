@@ -951,8 +951,7 @@ impl RoomSession {
     }
 
     fn handle_disconnected(self: &Arc<Self>, reason: DisconnectReason) {
-        if reason != DisconnectReason::ClientInitiated && reason != DisconnectReason::UnknownReason
-        {
+        if reason != DisconnectReason::ClientInitiated {
             log::error!("unexpectedly disconnected from room: {:?}", reason);
         }
 

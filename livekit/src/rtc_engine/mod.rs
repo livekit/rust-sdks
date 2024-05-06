@@ -442,8 +442,8 @@ impl EngineInner {
             session.close().await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
+            let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
         }
-        let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
     }
 
     /// When waiting for reconnection, it ensures we're always using the latest session.
@@ -504,7 +504,7 @@ impl EngineInner {
                     }
                     res = inner.reconnect_task() => {
                         if res.is_err() {
-                            log::error!("failed to reconnect");
+                            log::error!("failed to reconnect to the livekit room");
                             inner.close(DisconnectReason::UnknownReason).await;
                         } else {
                             log::info!("RtcEngine successfully recovered")
