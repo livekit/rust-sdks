@@ -467,7 +467,7 @@ impl Room {
     }
 
     pub async fn close(&self) -> RoomResult<()> {
-        self.inner.close().await
+        self.inner.close(DisconnectReason::ClientInitiated).await
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
@@ -582,9 +582,9 @@ impl RoomSession {
         Ok(())
     }
 
-    async fn close(&self) -> RoomResult<()> {
+    async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
         if let Some((room_task, close_tx)) = self.room_task.lock().await.take() {
-            self.rtc_engine.close().await;
+            self.rtc_engine.close(reason).await;
             self.e2ee_manager.cleanup();
 
             let _ = close_tx.send(());
@@ -951,7 +951,7 @@ impl RoomSession {
     }
 
     fn handle_disconnected(self: &Arc<Self>, reason: DisconnectReason) {
-        if reason != DisconnectReason::ClientInitiated || reason != DisconnectReason::UnknownReason
+        if reason != DisconnectReason::ClientInitiated && reason != DisconnectReason::UnknownReason
         {
             log::error!("unexpectedly disconnected from room: {:?}", reason);
         }
@@ -963,7 +963,7 @@ impl RoomSession {
         livekit_runtime::spawn({
             let inner = self.clone();
             async move {
-                let _ = inner.close().await;
+                let _ = inner.close(reason).await;
             }
         });
     }

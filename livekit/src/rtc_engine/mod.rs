@@ -185,8 +185,8 @@ impl RtcEngine {
         Ok((Self { inner }, join_response, engine_events))
     }
 
-    pub async fn close(&self) {
-        self.inner.close(DisconnectReason::ClientInitiated).await
+    pub async fn close(&self, reason: DisconnectReason) {
+        self.inner.close(reason).await
     }
 
     pub async fn publish_data(
