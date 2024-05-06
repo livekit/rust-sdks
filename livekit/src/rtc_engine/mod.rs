@@ -343,7 +343,7 @@ impl EngineInner {
     async fn engine_task(
         self: Arc<Self>,
         mut session_events: SessionEvents,
-        mut close_receiver: oneshot::Receiver<()>,
+        mut close_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
@@ -368,7 +368,7 @@ impl EngineInner {
 
                     task.await;
                 },
-                 _ = &mut close_receiver => {
+                 _ = &mut close_rx => {
                     break;
                 }
             }

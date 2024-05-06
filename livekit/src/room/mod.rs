@@ -196,7 +196,7 @@ impl Default for DataPacket {
     }
 }
 
-#[derive(Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Transcription {
     pub participant_identity: String,
     pub track_id: String,
@@ -204,7 +204,7 @@ pub struct Transcription {
     pub language: String,
 }
 
-#[derive(Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct TranscriptionSegment {
     pub id: String,
     pub text: String,
@@ -213,7 +213,7 @@ pub struct TranscriptionSegment {
     pub r#final: bool,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
@@ -243,14 +243,8 @@ impl Default for RoomOptions {
     }
 }
 
-struct RoomHandle {
-    session_task: JoinHandle<()>,
-    close_emitter: oneshot::Sender<()>,
-}
-
 pub struct Room {
     inner: Arc<RoomSession>,
-    handle: AsyncMutex<Option<RoomHandle>>,
 }
 
 impl Debug for Room {
@@ -263,12 +257,46 @@ impl Debug for Room {
     }
 }
 
+struct RoomInfo {
+    metadata: String,
+    state: ConnectionState,
+}
+
+pub(crate) struct RoomSession {
+    rtc_engine: Arc<RtcEngine>,
+    sid: RoomSid,
+    name: String,
+    info: RwLock<RoomInfo>,
+    dispatcher: Dispatcher<RoomEvent>,
+    options: RoomOptions,
+    active_speakers: RwLock<Vec<Participant>>,
+    local_participant: LocalParticipant,
+    participants: RwLock<(
+        // Keep track of participants by sid and identity
+        HashMap<ParticipantSid, RemoteParticipant>,
+        HashMap<ParticipantIdentity, RemoteParticipant>,
+    )>,
+    e2ee_manager: E2eeManager,
+    room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
+}
+
+impl Debug for RoomSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionInner")
+            .field("sid", &self.sid)
+            .field("name", &self.name)
+            .field("rtc_engine", &self.rtc_engine)
+            .finish()
+    }
+}
+
 impl Room {
     pub async fn connect(
         url: &str,
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
+        // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
@@ -378,6 +406,7 @@ impl Room {
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
+            room_task: Default::default(),
         });
 
         e2ee_manager.on_state_changed({
@@ -430,28 +459,15 @@ impl Room {
         inner.dispatcher.dispatch(&RoomEvent::Connected { participants_with_tracks });
         inner.update_connection_state(ConnectionState::Connected);
 
-        let (close_emitter, close_receiver) = oneshot::channel();
-        let session_task =
-            livekit_runtime::spawn(inner.clone().room_task(engine_events, close_receiver));
+        let (close_tx, close_rx) = oneshot::channel();
+        let room_task = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+        inner.room_task.lock().await.replace((room_task, close_tx));
 
-        Ok((
-            Self {
-                inner,
-                handle: AsyncMutex::new(Some(RoomHandle { session_task, close_emitter })),
-            },
-            events,
-        ))
+        Ok((Self { inner }, events))
     }
 
     pub async fn close(&self) -> RoomResult<()> {
-        if let Some(handle) = self.handle.lock().await.take() {
-            self.inner.close().await;
-            let _ = handle.close_emitter.send(());
-            let _ = handle.session_task.await;
-            Ok(())
-        } else {
-            Err(RoomError::AlreadyClosed)
-        }
+        self.inner.close().await
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
@@ -492,38 +508,6 @@ impl Room {
 
     pub fn e2ee_manager(&self) -> &E2eeManager {
         &self.inner.e2ee_manager
-    }
-}
-
-struct RoomInfo {
-    metadata: String,
-    state: ConnectionState,
-}
-
-pub(crate) struct RoomSession {
-    rtc_engine: Arc<RtcEngine>,
-    sid: RoomSid,
-    name: String,
-    info: RwLock<RoomInfo>,
-    dispatcher: Dispatcher<RoomEvent>,
-    options: RoomOptions,
-    active_speakers: RwLock<Vec<Participant>>,
-    local_participant: LocalParticipant,
-    participants: RwLock<(
-        // Keep track of participants by sid and identity
-        HashMap<ParticipantSid, RemoteParticipant>,
-        HashMap<ParticipantIdentity, RemoteParticipant>,
-    )>,
-    e2ee_manager: E2eeManager,
-}
-
-impl Debug for RoomSession {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SessionInner")
-            .field("sid", &self.sid)
-            .field("name", &self.name)
-            .field("rtc_engine", &self.rtc_engine)
-            .finish()
     }
 }
 
@@ -598,9 +582,19 @@ impl RoomSession {
         Ok(())
     }
 
-    async fn close(&self) {
-        self.rtc_engine.close().await;
-        self.e2ee_manager.cleanup();
+    async fn close(&self) -> RoomResult<()> {
+        if let Some((room_task, close_tx)) = self.room_task.lock().await.take() {
+            self.rtc_engine.close().await;
+            self.e2ee_manager.cleanup();
+
+            let _ = close_tx.send(());
+            let _ = room_task.await;
+
+            self.dispatcher.clear();
+            Ok(())
+        } else {
+            Err(RoomError::AlreadyClosed)
+        }
     }
 
     /// Change the connection state and emit an event
@@ -956,11 +950,22 @@ impl RoomSession {
         let _ = tx.send(());
     }
 
-    fn handle_disconnected(&self, reason: DisconnectReason) {
-        log::debug!("disconnected from room: {:?}", reason);
+    fn handle_disconnected(self: &Arc<Self>, reason: DisconnectReason) {
+        if reason != DisconnectReason::ClientInitiated || reason != DisconnectReason::UnknownReason
+        {
+            log::error!("unexpectedly disconnected from room: {:?}", reason);
+        }
+
         if self.update_connection_state(ConnectionState::Disconnected) {
             self.dispatcher.dispatch(&RoomEvent::Disconnected { reason });
         }
+
+        livekit_runtime::spawn({
+            let inner = self.clone();
+            async move {
+                let _ = inner.close().await;
+            }
+        });
     }
 
     fn handle_data(
