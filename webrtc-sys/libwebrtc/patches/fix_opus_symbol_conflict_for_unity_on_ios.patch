@@ -1,0 +1,1654 @@
+diff --git a/opus/src/celt/bands.c b/opus/src/celt/bands.c
+index 5320ffab07..2ee562a83f 100644
+--- a/opus/src/celt/bands.c
++++ b/opus/src/celt/bands.c
+@@ -92,7 +92,7 @@ int bitexact_log2tan(int isin,int icos)
+ 
+ #ifdef FIXED_POINT
+ /* Compute the amplitude (sqrt energy) in each of the bands */
+-void compute_band_energies(const CELTMode *m, const celt_sig *X, celt_ener *bandE, int end, int C, int LM, int arch)
++void compute_band_energies_(const CELTMode *m, const celt_sig *X, celt_ener *bandE, int end, int C, int LM, int arch)
+ {
+    int i, c, N;
+    const opus_int16 *eBands = m->eBands;
+@@ -134,7 +134,7 @@ void compute_band_energies(const CELTMode *m, const celt_sig *X, celt_ener *band
+ }
+ 
+ /* Normalise each band such that the energy is one. */
+-void normalise_bands(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, celt_norm * OPUS_RESTRICT X, const celt_ener *bandE, int end, int C, int M)
++void normalise_bands_(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, celt_norm * OPUS_RESTRICT X, const celt_ener *bandE, int end, int C, int M)
+ {
+    int i, c, N;
+    const opus_int16 *eBands = m->eBands;
+@@ -156,7 +156,7 @@ void normalise_bands(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, cel
+ 
+ #else /* FIXED_POINT */
+ /* Compute the amplitude (sqrt energy) in each of the bands */
+-void compute_band_energies(const CELTMode *m, const celt_sig *X, celt_ener *bandE, int end, int C, int LM, int arch)
++void compute_band_energies_(const CELTMode *m, const celt_sig *X, celt_ener *bandE, int end, int C, int LM, int arch)
+ {
+    int i, c, N;
+    const opus_int16 *eBands = m->eBands;
+@@ -174,7 +174,7 @@ void compute_band_energies(const CELTMode *m, const celt_sig *X, celt_ener *band
+ }
+ 
+ /* Normalise each band such that the energy is one. */
+-void normalise_bands(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, celt_norm * OPUS_RESTRICT X, const celt_ener *bandE, int end, int C, int M)
++void normalise_bands_(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, celt_norm * OPUS_RESTRICT X, const celt_ener *bandE, int end, int C, int M)
+ {
+    int i, c, N;
+    const opus_int16 *eBands = m->eBands;
+@@ -193,7 +193,7 @@ void normalise_bands(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, cel
+ #endif /* FIXED_POINT */
+ 
+ /* De-normalise the energy to produce the synthesis from the unit-energy bands */
+-void denormalise_bands(const CELTMode *m, const celt_norm * OPUS_RESTRICT X,
++void denormalise_bands_(const CELTMode *m, const celt_norm * OPUS_RESTRICT X,
+       celt_sig * OPUS_RESTRICT freq, const opus_val16 *bandLogE, int start,
+       int end, int M, int downsample, int silence)
+ {
+@@ -265,7 +265,7 @@ void denormalise_bands(const CELTMode *m, const celt_norm * OPUS_RESTRICT X,
+ }
+ 
+ /* This prevents energy collapse for transients with multiple short MDCTs */
+-void anti_collapse(const CELTMode *m, celt_norm *X_, unsigned char *collapse_masks, int LM, int C, int size,
++void anti_collapse_(const CELTMode *m, celt_norm *X_, unsigned char *collapse_masks, int LM, int C, int size,
+       int start, int end, const opus_val16 *logE, const opus_val16 *prev1logE,
+       const opus_val16 *prev2logE, const int *pulses, opus_uint32 seed, int arch)
+ {
+@@ -356,7 +356,7 @@ void anti_collapse(const CELTMode *m, celt_norm *X_, unsigned char *collapse_mas
+          }
+          /* We just added some energy, so we need to renormalise */
+          if (renormalize)
+-            renormalise_vector(X, N0<<LM, Q15ONE, arch);
++            renormalise_vector_(X, N0<<LM, Q15ONE, arch);
+       } while (++c<C);
+    }
+ }
+@@ -476,7 +476,7 @@ static void stereo_merge(celt_norm * OPUS_RESTRICT X, celt_norm * OPUS_RESTRICT
+ }
+ 
+ /* Decide whether we should spread the pulses in the current frame */
+-int spreading_decision(const CELTMode *m, const celt_norm *X, int *average,
++int spreading_decision_(const CELTMode *m, const celt_norm *X, int *average,
+       int last_decision, int *hf_average, int *tapset_decision, int update_hf,
+       int end, int C, int M, const int *spread_weight)
+ {
+@@ -629,7 +629,7 @@ static void interleave_hadamard(celt_norm *X, int N0, int stride, int hadamard)
+    RESTORE_STACK;
+ }
+ 
+-void haar1(celt_norm *X, int N0, int stride)
++void haar1_(celt_norm *X, int N0, int stride)
+ {
+    int i, j;
+    N0 >>= 1;
+@@ -783,7 +783,7 @@ static void compute_theta(struct band_ctx *ctx, struct split_ctx *sctx,
+          /* Use a probability of p0 up to itheta=8192 and then use 1 after */
+          if (encode)
+          {
+-            ec_encode(ec,x<=x0?p0*x:(x-1-x0)+(x0+1)*p0,x<=x0?p0*(x+1):(x-x0)+(x0+1)*p0,ft);
++            ec_encode_(ec,x<=x0?p0*x:(x-1-x0)+(x0+1)*p0,x<=x0?p0*(x+1):(x-x0)+(x0+1)*p0,ft);
+          } else {
+             int fs;
+             fs=ec_decode(ec,ft);
+@@ -797,7 +797,7 @@ static void compute_theta(struct band_ctx *ctx, struct split_ctx *sctx,
+       } else if (B0>1 || stereo) {
+          /* Uniform pdf */
+          if (encode)
+-            ec_enc_uint(ec, itheta, qn+1);
++            ec_enc_uint_(ec, itheta, qn+1);
+          else
+             itheta = ec_dec_uint(ec, qn+1);
+       } else {
+@@ -811,7 +811,7 @@ static void compute_theta(struct band_ctx *ctx, struct split_ctx *sctx,
+             fl = itheta <= (qn>>1) ? itheta*(itheta + 1)>>1 :
+              ft - ((qn + 1 - itheta)*(qn + 2 - itheta)>>1);
+ 
+-            ec_encode(ec, fl, fl+fs, ft);
++            ec_encode_(ec, fl, fl+fs, ft);
+          } else {
+             /* Triangular pdf */
+             int fl=0;
+@@ -861,7 +861,7 @@ static void compute_theta(struct band_ctx *ctx, struct split_ctx *sctx,
+       if (*b>2<<BITRES && ctx->remaining_bits > 2<<BITRES)
+       {
+          if (encode)
+-            ec_enc_bit_logp(ec, inv, 2);
++            ec_enc_bit_logp_(ec, inv, 2);
+          else
+             inv = ec_dec_bit_logp(ec, 2);
+       } else
+@@ -921,7 +921,7 @@ static unsigned quant_band_n1(struct band_ctx *ctx, celt_norm *X, celt_norm *Y,
+          if (encode)
+          {
+             sign = x[0]<0;
+-            ec_enc_bits(ec, sign, 1);
++            ec_enc_bits_(ec, sign, 1);
+          } else {
+             sign = ec_dec_bits(ec, 1);
+          }
+@@ -1057,7 +1057,7 @@ static unsigned quant_partition(struct band_ctx *ctx, celt_norm *X,
+          {
+             cm = alg_quant(X, N, K, spread, B, ec, gain, ctx->resynth, ctx->arch);
+          } else {
+-            cm = alg_unquant(X, N, K, spread, B, ec, gain);
++            cm = alg_unquant_(X, N, K, spread, B, ec, gain);
+          }
+       } else {
+          /* If there's no pulse, fill the band anyway */
+@@ -1095,7 +1095,7 @@ static unsigned quant_partition(struct band_ctx *ctx, celt_norm *X,
+                   }
+                   cm = fill;
+                }
+-               renormalise_vector(X, N, gain, ctx->arch);
++               renormalise_vector_(X, N, gain, ctx->arch);
+             }
+          }
+       }
+@@ -1152,9 +1152,9 @@ static unsigned quant_band(struct band_ctx *ctx, celt_norm *X,
+             0,1,1,1,2,3,3,3,2,3,3,3,2,3,3,3
+       };
+       if (encode)
+-         haar1(X, N>>k, 1<<k);
++         haar1_(X, N>>k, 1<<k);
+       if (lowband)
+-         haar1(lowband, N>>k, 1<<k);
++         haar1_(lowband, N>>k, 1<<k);
+       fill = bit_interleave_table[fill&0xF]|bit_interleave_table[fill>>4]<<2;
+    }
+    B>>=recombine;
+@@ -1164,9 +1164,9 @@ static unsigned quant_band(struct band_ctx *ctx, celt_norm *X,
+    while ((N_B&1) == 0 && tf_change<0)
+    {
+       if (encode)
+-         haar1(X, N_B, B);
++         haar1_(X, N_B, B);
+       if (lowband)
+-         haar1(lowband, N_B, B);
++         haar1_(lowband, N_B, B);
+       fill |= fill<<B;
+       B <<= 1;
+       N_B >>= 1;
+@@ -1202,7 +1202,7 @@ static unsigned quant_band(struct band_ctx *ctx, celt_norm *X,
+          B >>= 1;
+          N_B <<= 1;
+          cm |= cm>>B;
+-         haar1(X, N_B, B);
++         haar1_(X, N_B, B);
+       }
+ 
+       for (k=0;k<recombine;k++)
+@@ -1212,7 +1212,7 @@ static unsigned quant_band(struct band_ctx *ctx, celt_norm *X,
+                0xC0,0xC3,0xCC,0xCF,0xF0,0xF3,0xFC,0xFF
+          };
+          cm = bit_deinterleave_table[cm];
+-         haar1(X, N0>>k, 1<<k);
++         haar1_(X, N0>>k, 1<<k);
+       }
+       B<<=recombine;
+ 
+@@ -1300,7 +1300,7 @@ static unsigned quant_band_stereo(struct band_ctx *ctx, celt_norm *X, celt_norm
+          {
+             /* Here we only need to encode a sign for the side. */
+             sign = x2[0]*y2[1] - x2[1]*y2[0] < 0;
+-            ec_enc_bits(ec, sign, 1);
++            ec_enc_bits_(ec, sign, 1);
+          } else {
+             sign = ec_dec_bits(ec, 1);
+          }
+@@ -1395,7 +1395,7 @@ static void special_hybrid_folding(const CELTMode *m, celt_norm *norm, celt_norm
+ }
+ #endif
+ 
+-void quant_all_bands(int encode, const CELTMode *m, int start, int end,
++void quant_all_bands_(int encode, const CELTMode *m, int start, int end,
+       celt_norm *X_, celt_norm *Y_, unsigned char *collapse_masks,
+       const celt_ener *bandE, int *pulses, int shortBlocks, int spread,
+       int dual_stereo, int intensity, int *tf_res, opus_int32 total_bits,
+diff --git a/opus/src/celt/bands.h b/opus/src/celt/bands.h
+index 422b32cf75..6c2ca36474 100644
+--- a/opus/src/celt/bands.h
++++ b/opus/src/celt/bands.h
+@@ -44,7 +44,7 @@ int bitexact_log2tan(int isin,int icos);
+  * @param X Spectrum
+  * @param bandE Square root of the energy for each band (returned)
+  */
+-void compute_band_energies(const CELTMode *m, const celt_sig *X, celt_ener *bandE, int end, int C, int LM, int arch);
++void compute_band_energies_(const CELTMode *m, const celt_sig *X, celt_ener *bandE, int end, int C, int LM, int arch);
+ 
+ /*void compute_noise_energies(const CELTMode *m, const celt_sig *X, const opus_val16 *tonality, celt_ener *bandE);*/
+ 
+@@ -54,14 +54,14 @@ void compute_band_energies(const CELTMode *m, const celt_sig *X, celt_ener *band
+  * @param X Spectrum (returned normalised)
+  * @param bandE Square root of the energy for each band
+  */
+-void normalise_bands(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, celt_norm * OPUS_RESTRICT X, const celt_ener *bandE, int end, int C, int M);
++void normalise_bands_(const CELTMode *m, const celt_sig * OPUS_RESTRICT freq, celt_norm * OPUS_RESTRICT X, const celt_ener *bandE, int end, int C, int M);
+ 
+ /** Denormalise each band of X to restore full amplitude
+  * @param m Mode data
+  * @param X Spectrum (returned de-normalised)
+  * @param bandE Square root of the energy for each band
+  */
+-void denormalise_bands(const CELTMode *m, const celt_norm * OPUS_RESTRICT X,
++void denormalise_bands_(const CELTMode *m, const celt_norm * OPUS_RESTRICT X,
+       celt_sig * OPUS_RESTRICT freq, const opus_val16 *bandE, int start,
+       int end, int M, int downsample, int silence);
+ 
+@@ -70,7 +70,7 @@ void denormalise_bands(const CELTMode *m, const celt_norm * OPUS_RESTRICT X,
+ #define SPREAD_NORMAL     (2)
+ #define SPREAD_AGGRESSIVE (3)
+ 
+-int spreading_decision(const CELTMode *m, const celt_norm *X, int *average,
++int spreading_decision_(const CELTMode *m, const celt_norm *X, int *average,
+       int last_decision, int *hf_average, int *tapset_decision, int update_hf,
+       int end, int C, int M, const int *spread_weight);
+ 
+@@ -78,7 +78,7 @@ int spreading_decision(const CELTMode *m, const celt_norm *X, int *average,
+ void measure_norm_mse(const CELTMode *m, float *X, float *X0, float *bandE, float *bandE0, int M, int N, int C);
+ #endif
+ 
+-void haar1(celt_norm *X, int N0, int stride);
++void haar1_(celt_norm *X, int N0, int stride);
+ 
+ /** Quantisation/encoding of the residual spectrum
+  * @param encode flag that indicates whether we're encoding (1) or decoding (0)
+@@ -103,14 +103,14 @@ void haar1(celt_norm *X, int N0, int stride);
+  * @param seed Random generator seed
+  * @param arch Run-time architecture (see opus_select_arch())
+  */
+-void quant_all_bands(int encode, const CELTMode *m, int start, int end,
++void quant_all_bands_(int encode, const CELTMode *m, int start, int end,
+       celt_norm * X, celt_norm * Y, unsigned char *collapse_masks,
+       const celt_ener *bandE, int *pulses, int shortBlocks, int spread,
+       int dual_stereo, int intensity, int *tf_res, opus_int32 total_bits,
+       opus_int32 balance, ec_ctx *ec, int M, int codedBands, opus_uint32 *seed,
+       int complexity, int arch, int disable_inv);
+ 
+-void anti_collapse(const CELTMode *m, celt_norm *X_,
++void anti_collapse_(const CELTMode *m, celt_norm *X_,
+       unsigned char *collapse_masks, int LM, int C, int size, int start,
+       int end, const opus_val16 *logE, const opus_val16 *prev1logE,
+       const opus_val16 *prev2logE, const int *pulses, opus_uint32 seed,
+diff --git a/opus/src/celt/celt_decoder.c b/opus/src/celt/celt_decoder.c
+index 883dae15d2..ac58826edf 100644
+--- a/opus/src/celt/celt_decoder.c
++++ b/opus/src/celt/celt_decoder.c
+@@ -403,7 +403,7 @@ void celt_synthesis(const CELTMode *mode, celt_norm *X, celt_sig * out_syn[],
+    {
+       /* Copying a mono streams to two channels */
+       celt_sig *freq2;
+-      denormalise_bands(mode, X, freq, oldBandE, start, effEnd, M,
++      denormalise_bands_(mode, X, freq, oldBandE, start, effEnd, M,
+             downsample, silence);
+       /* Store a temporary copy in the output buffer because the IMDCT destroys its input. */
+       freq2 = out_syn[1]+overlap/2;
+@@ -417,10 +417,10 @@ void celt_synthesis(const CELTMode *mode, celt_norm *X, celt_sig * out_syn[],
+       /* Downmixing a stereo stream to mono */
+       celt_sig *freq2;
+       freq2 = out_syn[0]+overlap/2;
+-      denormalise_bands(mode, X, freq, oldBandE, start, effEnd, M,
++      denormalise_bands_(mode, X, freq, oldBandE, start, effEnd, M,
+             downsample, silence);
+       /* Use the output buffer as temp array before downmixing. */
+-      denormalise_bands(mode, X+N, freq2, oldBandE+nbEBands, start, effEnd, M,
++      denormalise_bands_(mode, X+N, freq2, oldBandE+nbEBands, start, effEnd, M,
+             downsample, silence);
+       for (i=0;i<N;i++)
+          freq[i] = ADD32(HALF32(freq[i]), HALF32(freq2[i]));
+@@ -429,7 +429,7 @@ void celt_synthesis(const CELTMode *mode, celt_norm *X, celt_sig * out_syn[],
+    } else {
+       /* Normal case (mono or stereo) */
+       c=0; do {
+-         denormalise_bands(mode, X+c*N, freq, oldBandE+c*nbEBands, start, effEnd, M,
++         denormalise_bands_(mode, X+c*N, freq, oldBandE+c*nbEBands, start, effEnd, M,
+                downsample, silence);
+          for (b=0;b<B;b++)
+             clt_mdct_backward(&mode->mdct, &freq[b], out_syn[c]+NB*b, mode->window, overlap, shift, B, arch);
+@@ -489,9 +489,9 @@ static int celt_plc_pitch_search(celt_sig *decode_mem[2], int C, int arch)
+    VARDECL( opus_val16, lp_pitch_buf );
+    SAVE_STACK;
+    ALLOC( lp_pitch_buf, DECODE_BUFFER_SIZE>>1, opus_val16 );
+-   pitch_downsample(decode_mem, lp_pitch_buf,
++   pitch_downsample_(decode_mem, lp_pitch_buf,
+          DECODE_BUFFER_SIZE, C, arch);
+-   pitch_search(lp_pitch_buf+(PLC_PITCH_LAG_MAX>>1), lp_pitch_buf,
++   pitch_search_(lp_pitch_buf+(PLC_PITCH_LAG_MAX>>1), lp_pitch_buf,
+          DECODE_BUFFER_SIZE-PLC_PITCH_LAG_MAX,
+          PLC_PITCH_LAG_MAX-PLC_PITCH_LAG_MIN, &pitch_index, arch);
+    pitch_index = PLC_PITCH_LAG_MAX-pitch_index;
+@@ -584,7 +584,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM)
+                seed = celt_lcg_rand(seed);
+                X[boffs+j] = (celt_norm)((opus_int32)seed>>20);
+             }
+-            renormalise_vector(X+boffs, blen, Q15ONE, st->arch);
++            renormalise_vector_(X+boffs, blen, Q15ONE, st->arch);
+          }
+       }
+       st->rng = seed;
+@@ -636,7 +636,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM)
+             opus_val32 ac[LPC_ORDER+1];
+             /* Compute LPC coefficients for the last MAX_PERIOD samples before
+                the first loss so we can work in the excitation-filter domain. */
+-            _celt_autocorr(exc, ac, window, overlap,
++            _celt_autocorr_(exc, ac, window, overlap,
+                    LPC_ORDER, MAX_PERIOD, st->arch);
+             /* Add a noise floor of -40 dB. */
+ #ifdef FIXED_POINT
+@@ -654,7 +654,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM)
+                ac[i] -= ac[i]*(0.008f*0.008f)*i*i;
+ #endif
+             }
+-            _celt_lpc(lpc+c*LPC_ORDER, ac, LPC_ORDER);
++            _celt_lpc_(lpc+c*LPC_ORDER, ac, LPC_ORDER);
+ #ifdef FIXED_POINT
+          /* For fixed-point, apply bandwidth expansion until we can guarantee that
+             no overflow can happen in the IIR filter. This means:
+@@ -1007,7 +1007,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
+    /* Decode the global flags (first symbols in the stream) */
+    intra_ener = tell+3<=total_bits ? ec_dec_bit_logp(dec, 3) : 0;
+    /* Get band energies */
+-   unquant_coarse_energy(mode, start, end, oldBandE,
++   unquant_coarse_energy_(mode, start, end, oldBandE,
+          intra_ener, dec, C, LM);
+ 
+    ALLOC(tf_res, nbEBands, int);
+@@ -1070,7 +1070,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
+          alloc_trim, &intensity, &dual_stereo, bits, &balance, pulses,
+          fine_quant, fine_priority, C, LM, dec, 0, 0, 0);
+ 
+-   unquant_fine_energy(mode, start, end, oldBandE, fine_quant, dec, C);
++   unquant_fine_energy_(mode, start, end, oldBandE, fine_quant, dec, C);
+ 
+    c=0; do {
+       OPUS_MOVE(decode_mem[c], decode_mem[c]+N, DECODE_BUFFER_SIZE-N+overlap/2);
+@@ -1087,7 +1087,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
+    ALLOC(X, C*N, celt_norm);   /**< Interleaved normalised MDCTs */
+ #endif
+ 
+-   quant_all_bands(0, mode, start, end, X, C==2 ? X+N : NULL, collapse_masks,
++   quant_all_bands_(0, mode, start, end, X, C==2 ? X+N : NULL, collapse_masks,
+          NULL, pulses, shortBlocks, spread_decision, dual_stereo, intensity, tf_res,
+          len*(8<<BITRES)-anti_collapse_rsv, balance, dec, LM, codedBands, &st->rng, 0,
+          st->arch, st->disable_inv);
+@@ -1097,11 +1097,11 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
+       anti_collapse_on = ec_dec_bits(dec, 1);
+    }
+ 
+-   unquant_energy_finalise(mode, start, end, oldBandE,
++   unquant_energy_finalise_(mode, start, end, oldBandE,
+          fine_quant, fine_priority, len*8-ec_tell(dec), dec, C);
+ 
+    if (anti_collapse_on)
+-      anti_collapse(mode, X, collapse_masks, LM, C, N,
++      anti_collapse_(mode, X, collapse_masks, LM, C, N,
+             start, end, oldBandE, oldLogE, oldLogE2, pulses, st->rng, st->arch);
+ 
+    if (silence)
+diff --git a/opus/src/celt/celt_encoder.c b/opus/src/celt/celt_encoder.c
+index 637d442cf7..6adc37ce5f 100644
+--- a/opus/src/celt/celt_encoder.c
++++ b/opus/src/celt/celt_encoder.c
+@@ -628,7 +628,7 @@ static int tf_analysis(const CELTMode *m, int len, int isTransient,
+       if (isTransient && !narrow)
+       {
+          OPUS_COPY(tmp_1, tmp, N);
+-         haar1(tmp_1, N>>LM, 1<<LM);
++         haar1_(tmp_1, N>>LM, 1<<LM);
+          L1 = l1_metric(tmp_1, N, LM+1, bias);
+          if (L1<best_L1)
+          {
+@@ -646,7 +646,7 @@ static int tf_analysis(const CELTMode *m, int len, int isTransient,
+          else
+             B = k+1;
+ 
+-         haar1(tmp, N>>k, 1<<k);
++         haar1_(tmp, N>>k, 1<<k);
+ 
+          L1 = l1_metric(tmp, N, B, bias);
+ 
+@@ -761,7 +761,7 @@ static void tf_encode(int start, int end, int isTransient, int *tf_res, int LM,
+    {
+       if (tell+logp<=budget)
+       {
+-         ec_enc_bit_logp(enc, tf_res[i] ^ curr, logp);
++         ec_enc_bit_logp_(enc, tf_res[i] ^ curr, logp);
+          tell = ec_tell(enc);
+          curr = tf_res[i];
+          tf_changed |= curr;
+@@ -774,7 +774,7 @@ static void tf_encode(int start, int end, int isTransient, int *tf_res, int LM,
+    if (tf_select_rsv &&
+          tf_select_table[LM][4*isTransient+0+tf_changed]!=
+          tf_select_table[LM][4*isTransient+2+tf_changed])
+-      ec_enc_bit_logp(enc, tf_select, 1);
++      ec_enc_bit_logp_(enc, tf_select, 1);
+    else
+       tf_select = 0;
+    for (i=start;i<end;i++)
+@@ -1195,10 +1195,10 @@ static int run_prefilter(CELTEncoder *st, celt_sig *in, celt_sig *prefilter_mem,
+       VARDECL(opus_val16, pitch_buf);
+       ALLOC(pitch_buf, (COMBFILTER_MAXPERIOD+N)>>1, opus_val16);
+ 
+-      pitch_downsample(pre, pitch_buf, COMBFILTER_MAXPERIOD+N, CC, st->arch);
++      pitch_downsample_(pre, pitch_buf, COMBFILTER_MAXPERIOD+N, CC, st->arch);
+       /* Don't search for the fir last 1.5 octave of the range because
+          there's too many false-positives due to short-term correlation */
+-      pitch_search(pitch_buf+(COMBFILTER_MAXPERIOD>>1), pitch_buf, N,
++      pitch_search_(pitch_buf+(COMBFILTER_MAXPERIOD>>1), pitch_buf, N,
+             COMBFILTER_MAXPERIOD-3*COMBFILTER_MINPERIOD, &pitch_index,
+             st->arch);
+       pitch_index = COMBFILTER_MAXPERIOD-pitch_index;
+@@ -1577,7 +1577,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+ 
+    if (enc==NULL)
+    {
+-      ec_enc_init(&_enc, compressed, nbCompressedBytes);
++      ec_enc_init_(&_enc, compressed, nbCompressedBytes);
+       enc = &_enc;
+    }
+ 
+@@ -1603,7 +1603,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+          {
+             nbCompressedBytes = nbFilledBytes+max_allowed;
+             nbAvailableBytes = max_allowed;
+-            ec_enc_shrink(enc, nbCompressedBytes);
++            ec_enc_shrink_(enc, nbCompressedBytes);
+          }
+       }
+    }
+@@ -1628,7 +1628,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+       silence = 1;
+ #endif
+    if (tell==1)
+-      ec_enc_bit_logp(enc, silence, 15);
++      ec_enc_bit_logp_(enc, silence, 15);
+    else
+       silence=0;
+    if (silence)
+@@ -1639,7 +1639,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+          effectiveBytes=nbCompressedBytes=IMIN(nbCompressedBytes, nbFilledBytes+2);
+          total_bits=nbCompressedBytes*8;
+          nbAvailableBytes=2;
+-         ec_enc_shrink(enc, nbCompressedBytes);
++         ec_enc_shrink_(enc, nbCompressedBytes);
+       }
+       /* Pretend we've filled all the remaining bits with zeros
+             (that's what the initialiser did anyway) */
+@@ -1672,19 +1672,19 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+       if (pf_on==0)
+       {
+          if(!hybrid && tell+16<=total_bits)
+-            ec_enc_bit_logp(enc, 0, 1);
++            ec_enc_bit_logp_(enc, 0, 1);
+       } else {
+          /*This block is not gated by a total bits check only because
+            of the nbAvailableBytes check above.*/
+          int octave;
+-         ec_enc_bit_logp(enc, 1, 1);
++         ec_enc_bit_logp_(enc, 1, 1);
+          pitch_index += 1;
+          octave = EC_ILOG(pitch_index)-5;
+-         ec_enc_uint(enc, octave, 6);
+-         ec_enc_bits(enc, pitch_index-(16<<octave), 4+octave);
++         ec_enc_uint_(enc, octave, 6);
++         ec_enc_bits_(enc, pitch_index-(16<<octave), 4+octave);
+          pitch_index -= 1;
+-         ec_enc_bits(enc, qg, 3);
+-         ec_enc_icdf(enc, prefilter_tapset, tapset_icdf, 2);
++         ec_enc_bits_(enc, qg, 3);
++         ec_enc_icdf_(enc, prefilter_tapset, tapset_icdf, 2);
+       }
+    }
+ 
+@@ -1717,8 +1717,8 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+    if (secondMdct)
+    {
+       compute_mdcts(mode, 0, in, freq, C, CC, LM, st->upsample, st->arch);
+-      compute_band_energies(mode, freq, bandE, effEnd, C, LM, st->arch);
+-      amp2Log2(mode, effEnd, end, bandE, bandLogE2, C);
++      compute_band_energies_(mode, freq, bandE, effEnd, C, LM, st->arch);
++      amp2Log2_(mode, effEnd, end, bandE, bandLogE2, C);
+       for (c=0;c<C;c++)
+       {
+          for (i=0;i<end;i++)
+@@ -1732,7 +1732,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+    celt_assert(!celt_isnan(freq[0]) && (C==1 || !celt_isnan(freq[N])));
+    if (CC==2&&C==1)
+       tf_chan = 0;
+-   compute_band_energies(mode, freq, bandE, effEnd, C, LM, st->arch);
++   compute_band_energies_(mode, freq, bandE, effEnd, C, LM, st->arch);
+ 
+    if (st->lfe)
+    {
+@@ -1742,7 +1742,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+          bandE[i] = MAX32(bandE[i], EPSILON);
+       }
+    }
+-   amp2Log2(mode, effEnd, end, bandE, bandLogE, C);
++   amp2Log2_(mode, effEnd, end, bandE, bandLogE, C);
+ 
+    ALLOC(surround_dynalloc, C*nbEBands, opus_val16);
+    OPUS_CLEAR(surround_dynalloc, end);
+@@ -1856,8 +1856,8 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+          isTransient = 1;
+          shortBlocks = M;
+          compute_mdcts(mode, shortBlocks, in, freq, C, CC, LM, st->upsample, st->arch);
+-         compute_band_energies(mode, freq, bandE, effEnd, C, LM, st->arch);
+-         amp2Log2(mode, effEnd, end, bandE, bandLogE, C);
++         compute_band_energies_(mode, freq, bandE, effEnd, C, LM, st->arch);
++         amp2Log2_(mode, effEnd, end, bandE, bandLogE, C);
+          /* Compensate for the scaling of short vs long mdcts */
+          for (c=0;c<C;c++)
+          {
+@@ -1869,12 +1869,12 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+    }
+ 
+    if (LM>0 && ec_tell(enc)+3<=total_bits)
+-      ec_enc_bit_logp(enc, isTransient, 3);
++      ec_enc_bit_logp_(enc, isTransient, 3);
+ 
+    ALLOC(X, C*N, celt_norm);         /**< Interleaved normalised MDCTs */
+ 
+    /* Band normalisation */
+-   normalise_bands(mode, freq, X, bandE, effEnd, C, M);
++   normalise_bands_(mode, freq, X, bandE, effEnd, C, M);
+ 
+    enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe;
+ 
+@@ -1958,7 +1958,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+             st->spread_decision = SPREAD_NORMAL;
+       } else {
+          /* Disable new spreading+tapset estimator until we can show it works
+-            better than the old one. So far it seems like spreading_decision()
++            better than the old one. So far it seems like spreading_decision_()
+             works best. */
+ #if 0
+          if (st->analysis.valid)
+@@ -1972,14 +1972,14 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+          } else
+ #endif
+          {
+-            st->spread_decision = spreading_decision(mode, X,
++            st->spread_decision = spreading_decision_(mode, X,
+                   &st->tonal_average, st->spread_decision, &st->hf_average,
+                   &st->tapset_decision, pf_on&&!shortBlocks, effEnd, C, M, spread_weight);
+          }
+          /*printf("%d %d\n", st->tapset_decision, st->spread_decision);*/
+          /*printf("%f %d %f %d\n\n", st->analysis.tonality, st->spread_decision, st->analysis.tonality_slope, st->tapset_decision);*/
+       }
+-      ec_enc_icdf(enc, st->spread_decision, spread_icdf, 5);
++      ec_enc_icdf_(enc, st->spread_decision, spread_icdf, 5);
+    }
+ 
+    /* For LFE, everything interesting is in the first band */
+@@ -2009,7 +2009,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+       {
+          int flag;
+          flag = j<offsets[i];
+-         ec_enc_bit_logp(enc, flag, dynalloc_loop_logp);
++         ec_enc_bit_logp_(enc, flag, dynalloc_loop_logp);
+          tell = ec_tell_frac(enc);
+          if (!flag)
+             break;
+@@ -2052,7 +2052,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+             end, LM, C, N, &st->analysis, &st->stereo_saving, tf_estimate,
+             st->intensity, surround_trim, equiv_rate, st->arch);
+       }
+-      ec_enc_icdf(enc, alloc_trim, trim_icdf, 7);
++      ec_enc_icdf_(enc, alloc_trim, trim_icdf, 7);
+       tell = ec_tell_frac(enc);
+    }
+ 
+@@ -2165,7 +2165,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+      nbCompressedBytes = IMIN(nbCompressedBytes,nbAvailableBytes);
+      /*printf("%d\n", nbCompressedBytes*50*8);*/
+      /* This moves the raw bits to take into account the new compressed size */
+-     ec_enc_shrink(enc, nbCompressedBytes);
++     ec_enc_shrink_(enc, nbCompressedBytes);
+    }
+ 
+    /* Bit allocation */
+@@ -2209,7 +2209,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+ 
+    /* Residual quantisation */
+    ALLOC(collapse_masks, C*nbEBands, unsigned char);
+-   quant_all_bands(1, mode, start, end, X, C==2 ? X+N : NULL, collapse_masks,
++   quant_all_bands_(1, mode, start, end, X, C==2 ? X+N : NULL, collapse_masks,
+          bandE, pulses, shortBlocks, st->spread_decision,
+          dual_stereo, st->intensity, tf_res, nbCompressedBytes*(8<<BITRES)-anti_collapse_rsv,
+          balance, enc, LM, codedBands, &st->rng, st->complexity, st->arch, st->disable_inv);
+@@ -2220,7 +2220,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+ #ifdef FUZZING
+       anti_collapse_on = rand()&0x1;
+ #endif
+-      ec_enc_bits(enc, anti_collapse_on, 1);
++      ec_enc_bits_(enc, anti_collapse_on, 1);
+    }
+    quant_energy_finalise(mode, start, end, oldBandE, error, fine_quant, fine_priority, nbCompressedBytes*8-ec_tell(enc), enc, C);
+    OPUS_CLEAR(energyError, nbEBands*CC);
+@@ -2245,7 +2245,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+ 
+       if (anti_collapse_on)
+       {
+-         anti_collapse(mode, X, collapse_masks, LM, C, N,
++         anti_collapse_(mode, X, collapse_masks, LM, C, N,
+                start, end, oldBandE, oldLogE, oldLogE2, pulses, st->rng);
+       }
+ 
+@@ -2327,7 +2327,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_val16 * pcm,
+ 
+    /* If there's any room left (can only happen for very high rates),
+       it's already filled with zeros */
+-   ec_enc_done(enc);
++   ec_enc_done_(enc);
+ 
+ #ifdef CUSTOM_MODES
+    if (st->signalling)
+diff --git a/opus/src/celt/celt_lpc.c b/opus/src/celt/celt_lpc.c
+index f91721bcab..e10cf199a8 100644
+--- a/opus/src/celt/celt_lpc.c
++++ b/opus/src/celt/celt_lpc.c
+@@ -34,7 +34,7 @@
+ #include "mathops.h"
+ #include "pitch.h"
+ 
+-void _celt_lpc(
++void _celt_lpc_(
+       opus_val16       *_lpc, /* out: [0...p-1] LPC coefficients      */
+ const opus_val32 *ac,  /* in:  [0...p] autocorrelation values  */
+ int          p
+@@ -255,7 +255,7 @@ void celt_iir(const opus_val32 *_x,
+ #endif
+ }
+ 
+-int _celt_autocorr(
++int _celt_autocorr_(
+                    const opus_val16 *x,   /*  in: [0...n-1] samples x   */
+                    opus_val32       *ac,  /* out: [0...lag-1] ac values */
+                    const opus_val16       *window,
+diff --git a/opus/src/celt/celt_lpc.h b/opus/src/celt/celt_lpc.h
+index a4c5fd6ea5..0f53b5d5e5 100644
+--- a/opus/src/celt/celt_lpc.h
++++ b/opus/src/celt/celt_lpc.h
+@@ -37,7 +37,7 @@
+ 
+ #define LPC_ORDER 24
+ 
+-void _celt_lpc(opus_val16 *_lpc, const opus_val32 *ac, int p);
++void _celt_lpc_(opus_val16 *_lpc, const opus_val32 *ac, int p);
+ 
+ void celt_fir_c(
+          const opus_val16 *x,
+@@ -60,7 +60,7 @@ void celt_iir(const opus_val32 *x,
+          opus_val16 *mem,
+          int arch);
+ 
+-int _celt_autocorr(const opus_val16 *x, opus_val32 *ac,
++int _celt_autocorr_(const opus_val16 *x, opus_val32 *ac,
+          const opus_val16 *window, int overlap, int lag, int n, int arch);
+ 
+ #endif /* PLC_H */
+diff --git a/opus/src/celt/cwrs.c b/opus/src/celt/cwrs.c
+index a552e4f0fb..cbcae9b34c 100644
+--- a/opus/src/celt/cwrs.c
++++ b/opus/src/celt/cwrs.c
+@@ -457,7 +457,7 @@ static opus_uint32 icwrs(int _n,const int *_y){
+ 
+ void encode_pulses(const int *_y,int _n,int _k,ec_enc *_enc){
+   celt_assert(_k>0);
+-  ec_enc_uint(_enc,icwrs(_n,_y),CELT_PVQ_V(_n,_k));
++  ec_enc_uint_(_enc,icwrs(_n,_y),CELT_PVQ_V(_n,_k));
+ }
+ 
+ static opus_val32 cwrsi(int _n,int _k,opus_uint32 _i,int *_y){
+@@ -536,7 +536,7 @@ static opus_val32 cwrsi(int _n,int _k,opus_uint32 _i,int *_y){
+   return yy;
+ }
+ 
+-opus_val32 decode_pulses(int *_y,int _n,int _k,ec_dec *_dec){
++opus_val32 decode_pulses_(int *_y,int _n,int _k,ec_dec *_dec){
+   return cwrsi(_n,_k,ec_dec_uint(_dec,CELT_PVQ_V(_n,_k)),_y);
+ }
+ 
+@@ -697,11 +697,11 @@ void encode_pulses(const int *_y,int _n,int _k,ec_enc *_enc){
+   celt_assert(_k>0);
+   ALLOC(u,_k+2U,opus_uint32);
+   i=icwrs(_n,_k,&nc,_y,u);
+-  ec_enc_uint(_enc,i,nc);
++  ec_enc_uint_(_enc,i,nc);
+   RESTORE_STACK;
+ }
+ 
+-opus_val32 decode_pulses(int *_y,int _n,int _k,ec_dec *_dec){
++opus_val32 decode_pulses_(int *_y,int _n,int _k,ec_dec *_dec){
+   VARDECL(opus_uint32,u);
+   int ret;
+   SAVE_STACK;
+diff --git a/opus/src/celt/cwrs.h b/opus/src/celt/cwrs.h
+index 7cd4717459..13ea85c2be 100644
+--- a/opus/src/celt/cwrs.h
++++ b/opus/src/celt/cwrs.h
+@@ -43,6 +43,6 @@ void get_required_bits(opus_int16 *bits, int N, int K, int frac);
+ 
+ void encode_pulses(const int *_y, int N, int K, ec_enc *enc);
+ 
+-opus_val32 decode_pulses(int *_y, int N, int K, ec_dec *dec);
++opus_val32 decode_pulses_(int *_y, int N, int K, ec_dec *dec);
+ 
+ #endif /* CWRS_H */
+diff --git a/opus/src/celt/entcode.c b/opus/src/celt/entcode.c
+index 70f32016ec..e29faa4d09 100644
+--- a/opus/src/celt/entcode.c
++++ b/opus/src/celt/entcode.c
+@@ -94,7 +94,7 @@ opus_uint32 ec_tell_frac(ec_ctx *_this){
+      subsequent bits.
+     The computation here is independent of val itself (the decoder does not
+      even track that value), even though the real number of bits used after
+-     ec_enc_done() may be 1 smaller if rng is a power of two and the
++     ec_enc_done_() may be 1 smaller if rng is a power of two and the
+      corresponding trailing bits of val are all zeros.
+     If we did try to track that special case, then coding a value with a
+      probability of 1/(1<<n) might sometimes appear to use more than n bits.
+diff --git a/opus/src/celt/entdec.h b/opus/src/celt/entdec.h
+index 025fc1870d..6b6f630594 100644
+--- a/opus/src/celt/entdec.h
++++ b/opus/src/celt/entdec.h
+@@ -82,7 +82,7 @@ int ec_dec_bit_logp(ec_dec *_this,unsigned _logp);
+ int ec_dec_icdf(ec_dec *_this,const unsigned char *_icdf,unsigned _ftb);
+ 
+ /*Extracts a raw unsigned integer with a non-power-of-2 range from the stream.
+-  The bits must have been encoded with ec_enc_uint().
++  The bits must have been encoded with ec_enc_uint_().
+   No call to ec_dec_update() is necessary after this call.
+   _ft: The number of integers that can be decoded (one more than the max).
+        This must be at least 2, and no more than 2**32-1.
+@@ -90,7 +90,7 @@ int ec_dec_icdf(ec_dec *_this,const unsigned char *_icdf,unsigned _ftb);
+ opus_uint32 ec_dec_uint(ec_dec *_this,opus_uint32 _ft);
+ 
+ /*Extracts a sequence of raw bits from the stream.
+-  The bits must have been encoded with ec_enc_bits().
++  The bits must have been encoded with ec_enc_bits_().
+   No call to ec_dec_update() is necessary after this call.
+   _ftb: The number of bits to extract.
+         This must be between 0 and 25, inclusive.
+diff --git a/opus/src/celt/entenc.c b/opus/src/celt/entenc.c
+index f1750d25b8..de11dcceb7 100644
+--- a/opus/src/celt/entenc.c
++++ b/opus/src/celt/entenc.c
+@@ -109,7 +109,7 @@ static OPUS_INLINE void ec_enc_normalize(ec_enc *_this){
+   }
+ }
+ 
+-void ec_enc_init(ec_enc *_this,unsigned char *_buf,opus_uint32 _size){
++void ec_enc_init_(ec_enc *_this,unsigned char *_buf,opus_uint32 _size){
+   _this->buf=_buf;
+   _this->end_offs=0;
+   _this->end_window=0;
+@@ -125,7 +125,7 @@ void ec_enc_init(ec_enc *_this,unsigned char *_buf,opus_uint32 _size){
+   _this->error=0;
+ }
+ 
+-void ec_encode(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _ft){
++void ec_encode_(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _ft){
+   opus_uint32 r;
+   r=celt_udiv(_this->rng,_ft);
+   if(_fl>0){
+@@ -136,7 +136,7 @@ void ec_encode(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _ft){
+   ec_enc_normalize(_this);
+ }
+ 
+-void ec_encode_bin(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _bits){
++void ec_encode_bin_(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _bits){
+   opus_uint32 r;
+   r=_this->rng>>_bits;
+   if(_fl>0){
+@@ -148,7 +148,7 @@ void ec_encode_bin(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _bits){
+ }
+ 
+ /*The probability of having a "one" is 1/(1<<_logp).*/
+-void ec_enc_bit_logp(ec_enc *_this,int _val,unsigned _logp){
++void ec_enc_bit_logp_(ec_enc *_this,int _val,unsigned _logp){
+   opus_uint32 r;
+   opus_uint32 s;
+   opus_uint32 l;
+@@ -161,7 +161,7 @@ void ec_enc_bit_logp(ec_enc *_this,int _val,unsigned _logp){
+   ec_enc_normalize(_this);
+ }
+ 
+-void ec_enc_icdf(ec_enc *_this,int _s,const unsigned char *_icdf,unsigned _ftb){
++void ec_enc_icdf_(ec_enc *_this,int _s,const unsigned char *_icdf,unsigned _ftb){
+   opus_uint32 r;
+   r=_this->rng>>_ftb;
+   if(_s>0){
+@@ -172,7 +172,7 @@ void ec_enc_icdf(ec_enc *_this,int _s,const unsigned char *_icdf,unsigned _ftb){
+   ec_enc_normalize(_this);
+ }
+ 
+-void ec_enc_uint(ec_enc *_this,opus_uint32 _fl,opus_uint32 _ft){
++void ec_enc_uint_(ec_enc *_this,opus_uint32 _fl,opus_uint32 _ft){
+   unsigned  ft;
+   unsigned  fl;
+   int       ftb;
+@@ -184,13 +184,13 @@ void ec_enc_uint(ec_enc *_this,opus_uint32 _fl,opus_uint32 _ft){
+     ftb-=EC_UINT_BITS;
+     ft=(_ft>>ftb)+1;
+     fl=(unsigned)(_fl>>ftb);
+-    ec_encode(_this,fl,fl+1,ft);
+-    ec_enc_bits(_this,_fl&(((opus_uint32)1<<ftb)-1U),ftb);
++    ec_encode_(_this,fl,fl+1,ft);
++    ec_enc_bits_(_this,_fl&(((opus_uint32)1<<ftb)-1U),ftb);
+   }
+-  else ec_encode(_this,_fl,_fl+1,_ft+1);
++  else ec_encode_(_this,_fl,_fl+1,_ft+1);
+ }
+ 
+-void ec_enc_bits(ec_enc *_this,opus_uint32 _fl,unsigned _bits){
++void ec_enc_bits_(ec_enc *_this,opus_uint32 _fl,unsigned _bits){
+   ec_window window;
+   int       used;
+   window=_this->end_window;
+@@ -234,14 +234,14 @@ void ec_enc_patch_initial_bits(ec_enc *_this,unsigned _val,unsigned _nbits){
+   else _this->error=-1;
+ }
+ 
+-void ec_enc_shrink(ec_enc *_this,opus_uint32 _size){
++void ec_enc_shrink_(ec_enc *_this,opus_uint32 _size){
+   celt_assert(_this->offs+_this->end_offs<=_size);
+   OPUS_MOVE(_this->buf+_size-_this->end_offs,
+    _this->buf+_this->storage-_this->end_offs,_this->end_offs);
+   _this->storage=_size;
+ }
+ 
+-void ec_enc_done(ec_enc *_this){
++void ec_enc_done_(ec_enc *_this){
+   ec_window   window;
+   int         used;
+   opus_uint32 msk;
+diff --git a/opus/src/celt/entenc.h b/opus/src/celt/entenc.h
+index f502eaf662..c6d5740634 100644
+--- a/opus/src/celt/entenc.h
++++ b/opus/src/celt/entenc.h
+@@ -33,7 +33,7 @@
+ /*Initializes the encoder.
+   _buf:  The buffer to store output bytes in.
+   _size: The size of the buffer, in chars.*/
+-void ec_enc_init(ec_enc *_this,unsigned char *_buf,opus_uint32 _size);
++void ec_enc_init_(ec_enc *_this,unsigned char *_buf,opus_uint32 _size);
+ /*Encodes a symbol given its frequency information.
+   The frequency information must be discernable by the decoder, assuming it
+    has read only the previous symbols from the stream.
+@@ -47,13 +47,13 @@ void ec_enc_init(ec_enc *_this,unsigned char *_buf,opus_uint32 _size);
+        Together with _fl, this defines the range [_fl,_fh) in which the
+         decoded value will fall.
+   _ft: The sum of the frequencies of all the symbols*/
+-void ec_encode(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _ft);
++void ec_encode_(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _ft);
+ 
+-/*Equivalent to ec_encode() with _ft==1<<_bits.*/
+-void ec_encode_bin(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _bits);
++/*Equivalent to ec_encode_() with _ft==1<<_bits.*/
++void ec_encode_bin_(ec_enc *_this,unsigned _fl,unsigned _fh,unsigned _bits);
+ 
+ /* Encode a bit that has a 1/(1<<_logp) probability of being a one */
+-void ec_enc_bit_logp(ec_enc *_this,int _val,unsigned _logp);
++void ec_enc_bit_logp_(ec_enc *_this,int _val,unsigned _logp);
+ 
+ /*Encodes a symbol given an "inverse" CDF table.
+   _s:    The index of the symbol to encode.
+@@ -62,19 +62,19 @@ void ec_enc_bit_logp(ec_enc *_this,int _val,unsigned _logp);
+          The values must be monotonically non-increasing, and the last value
+           must be 0.
+   _ftb: The number of bits of precision in the cumulative distribution.*/
+-void ec_enc_icdf(ec_enc *_this,int _s,const unsigned char *_icdf,unsigned _ftb);
++void ec_enc_icdf_(ec_enc *_this,int _s,const unsigned char *_icdf,unsigned _ftb);
+ 
+ /*Encodes a raw unsigned integer in the stream.
+   _fl: The integer to encode.
+   _ft: The number of integers that can be encoded (one more than the max).
+        This must be at least 2, and no more than 2**32-1.*/
+-void ec_enc_uint(ec_enc *_this,opus_uint32 _fl,opus_uint32 _ft);
++void ec_enc_uint_(ec_enc *_this,opus_uint32 _fl,opus_uint32 _ft);
+ 
+ /*Encodes a sequence of raw bits in the stream.
+   _fl:  The bits to encode.
+   _ftb: The number of bits to encode.
+         This must be between 1 and 25, inclusive.*/
+-void ec_enc_bits(ec_enc *_this,opus_uint32 _fl,unsigned _ftb);
++void ec_enc_bits_(ec_enc *_this,opus_uint32 _fl,unsigned _ftb);
+ 
+ /*Overwrites a few bits at the very start of an existing stream, after they
+    have already been encoded.
+@@ -100,11 +100,11 @@ void ec_enc_patch_initial_bits(ec_enc *_this,unsigned _val,unsigned _nbits);
+   _size: The number of bytes in the new buffer.
+          This must be large enough to contain the bits already written, and
+           must be no larger than the existing size.*/
+-void ec_enc_shrink(ec_enc *_this,opus_uint32 _size);
++void ec_enc_shrink_(ec_enc *_this,opus_uint32 _size);
+ 
+ /*Indicates that there are no more symbols to encode.
+   All reamining output bytes are flushed to the output buffer.
+-  ec_enc_init() must be called before the encoder can be used again.*/
+-void ec_enc_done(ec_enc *_this);
++  ec_enc_init_() must be called before the encoder can be used again.*/
++void ec_enc_done_(ec_enc *_this);
+ 
+ #endif
+diff --git a/opus/src/celt/laplace.c b/opus/src/celt/laplace.c
+index a7bca874b6..20fad6c843 100644
+--- a/opus/src/celt/laplace.c
++++ b/opus/src/celt/laplace.c
+@@ -88,10 +88,10 @@ void ec_laplace_encode(ec_enc *enc, int *value, unsigned fs, int decay)
+       celt_assert(fl+fs<=32768);
+       celt_assert(fs>0);
+    }
+-   ec_encode_bin(enc, fl, fl+fs, 15);
++   ec_encode_bin_(enc, fl, fl+fs, 15);
+ }
+ 
+-int ec_laplace_decode(ec_dec *dec, unsigned fs, int decay)
++int ec_laplace_decode_(ec_dec *dec, unsigned fs, int decay)
+ {
+    int val=0;
+    unsigned fl;
+diff --git a/opus/src/celt/laplace.h b/opus/src/celt/laplace.h
+index 46c14b5da5..4c005d1605 100644
+--- a/opus/src/celt/laplace.h
++++ b/opus/src/celt/laplace.h
+@@ -45,4 +45,4 @@ void ec_laplace_encode(ec_enc *enc, int *value, unsigned fs, int decay);
+  @param decay Probability of the value +/- 1, multiplied by 16384
+  @return Value decoded
+  */
+-int ec_laplace_decode(ec_dec *dec, unsigned fs, int decay);
++int ec_laplace_decode_(ec_dec *dec, unsigned fs, int decay);
+diff --git a/opus/src/celt/pitch.c b/opus/src/celt/pitch.c
+index 7998db4164..cfc02ede7a 100644
+--- a/opus/src/celt/pitch.c
++++ b/opus/src/celt/pitch.c
+@@ -137,7 +137,7 @@ static void celt_fir5(opus_val16 *x,
+ }
+ 
+ 
+-void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
++void pitch_downsample_(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
+       int len, int C, int arch)
+ {
+    int i;
+@@ -181,7 +181,7 @@ void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x
+       x_lp[0] += .25f*x[1][1] + .5f*x[1][0];
+    }
+ #endif
+-   _celt_autocorr(x_lp, ac, NULL, 0,
++   _celt_autocorr_(x_lp, ac, NULL, 0,
+                   4, len>>1, arch);
+ 
+    /* Noise floor -40 dB */
+@@ -201,7 +201,7 @@ void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x
+ #endif
+    }
+ 
+-   _celt_lpc(lpc, ac, 4);
++   _celt_lpc_(lpc, ac, 4);
+    for (i=0;i<4;i++)
+    {
+       tmp = MULT16_16_Q15(QCONST16(.9f,15), tmp);
+@@ -290,7 +290,7 @@ celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
+ #endif
+ }
+ 
+-void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
++void pitch_search_(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
+                   int len, int max_pitch, int *pitch, int arch)
+ {
+    int i, j;
+diff --git a/opus/src/celt/pitch.h b/opus/src/celt/pitch.h
+index e425f56aea..c089bbe671 100644
+--- a/opus/src/celt/pitch.h
++++ b/opus/src/celt/pitch.h
+@@ -50,10 +50,10 @@
+ # include "arm/pitch_arm.h"
+ #endif
+ 
+-void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
++void pitch_downsample_(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
+       int len, int C, int arch);
+ 
+-void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
++void pitch_search_(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
+                   int len, int max_pitch, int *pitch, int arch);
+ 
+ opus_val16 remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
+diff --git a/opus/src/celt/quant_bands.c b/opus/src/celt/quant_bands.c
+index 39a221eda5..3ea5519841 100644
+--- a/opus/src/celt/quant_bands.c
++++ b/opus/src/celt/quant_bands.c
+@@ -166,7 +166,7 @@ static int quant_coarse_energy_impl(const CELTMode *m, int start, int end,
+    opus_val16 beta;
+ 
+    if (tell+3 <= budget)
+-      ec_enc_bit_logp(enc, intra, 3);
++      ec_enc_bit_logp_(enc, intra, 3);
+    if (intra)
+    {
+       coef = 0;
+@@ -234,12 +234,12 @@ static int quant_coarse_energy_impl(const CELTMode *m, int start, int end,
+          else if(budget-tell >= 2)
+          {
+             qi = IMAX(-1, IMIN(qi, 1));
+-            ec_enc_icdf(enc, 2*qi^-(qi<0), small_energy_icdf, 2);
++            ec_enc_icdf_(enc, 2*qi^-(qi<0), small_energy_icdf, 2);
+          }
+          else if(budget-tell >= 1)
+          {
+             qi = IMIN(0, qi);
+-            ec_enc_bit_logp(enc, -qi, 1);
++            ec_enc_bit_logp_(enc, -qi, 1);
+          }
+          else
+             qi = -1;
+@@ -382,7 +382,7 @@ void quant_fine_energy(const CELTMode *m, int start, int end, opus_val16 *oldEBa
+             q2 = frac-1;
+          if (q2<0)
+             q2 = 0;
+-         ec_enc_bits(enc, q2, fine_quant[i]);
++         ec_enc_bits_(enc, q2, fine_quant[i]);
+ #ifdef FIXED_POINT
+          offset = SUB16(SHR32(SHL32(EXTEND32(q2),DB_SHIFT)+QCONST16(.5f,DB_SHIFT),fine_quant[i]),QCONST16(.5f,DB_SHIFT));
+ #else
+@@ -411,7 +411,7 @@ void quant_energy_finalise(const CELTMode *m, int start, int end, opus_val16 *ol
+             int q2;
+             opus_val16 offset;
+             q2 = error[i+c*m->nbEBands]<0 ? 0 : 1;
+-            ec_enc_bits(enc, q2, 1);
++            ec_enc_bits_(enc, q2, 1);
+ #ifdef FIXED_POINT
+             offset = SHR16(SHL16(q2,DB_SHIFT)-QCONST16(.5f,DB_SHIFT),fine_quant[i]+1);
+ #else
+@@ -425,7 +425,7 @@ void quant_energy_finalise(const CELTMode *m, int start, int end, opus_val16 *ol
+    }
+ }
+ 
+-void unquant_coarse_energy(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int intra, ec_dec *dec, int C, int LM)
++void unquant_coarse_energy_(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int intra, ec_dec *dec, int C, int LM)
+ {
+    const unsigned char *prob_model = e_prob_model[LM][intra];
+    int i, c;
+@@ -463,7 +463,7 @@ void unquant_coarse_energy(const CELTMode *m, int start, int end, opus_val16 *ol
+          {
+             int pi;
+             pi = 2*IMIN(i,20);
+-            qi = ec_laplace_decode(dec,
++            qi = ec_laplace_decode_(dec,
+                   prob_model[pi]<<7, prob_model[pi+1]<<6);
+          }
+          else if(budget-tell>=2)
+@@ -490,7 +490,7 @@ void unquant_coarse_energy(const CELTMode *m, int start, int end, opus_val16 *ol
+    }
+ }
+ 
+-void unquant_fine_energy(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int *fine_quant, ec_dec *dec, int C)
++void unquant_fine_energy_(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int *fine_quant, ec_dec *dec, int C)
+ {
+    int i, c;
+    /* Decode finer resolution */
+@@ -513,7 +513,7 @@ void unquant_fine_energy(const CELTMode *m, int start, int end, opus_val16 *oldE
+    }
+ }
+ 
+-void unquant_energy_finalise(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int *fine_quant,  int *fine_priority, int bits_left, ec_dec *dec, int C)
++void unquant_energy_finalise_(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int *fine_quant,  int *fine_priority, int bits_left, ec_dec *dec, int C)
+ {
+    int i, prio, c;
+ 
+@@ -541,7 +541,7 @@ void unquant_energy_finalise(const CELTMode *m, int start, int end, opus_val16 *
+    }
+ }
+ 
+-void amp2Log2(const CELTMode *m, int effEnd, int end,
++void amp2Log2_(const CELTMode *m, int effEnd, int end,
+       celt_ener *bandE, opus_val16 *bandLogE, int C)
+ {
+    int c, i;
+diff --git a/opus/src/celt/quant_bands.h b/opus/src/celt/quant_bands.h
+index 0490bca4b4..22632e8d92 100644
+--- a/opus/src/celt/quant_bands.h
++++ b/opus/src/celt/quant_bands.h
+@@ -41,7 +41,7 @@ extern const signed char eMeans[25];
+ extern const opus_val16 eMeans[25];
+ #endif
+ 
+-void amp2Log2(const CELTMode *m, int effEnd, int end,
++void amp2Log2_(const CELTMode *m, int effEnd, int end,
+       celt_ener *bandE, opus_val16 *bandLogE, int C);
+ 
+ void log2Amp(const CELTMode *m, int start, int end,
+@@ -57,10 +57,10 @@ void quant_fine_energy(const CELTMode *m, int start, int end, opus_val16 *oldEBa
+ 
+ void quant_energy_finalise(const CELTMode *m, int start, int end, opus_val16 *oldEBands, opus_val16 *error, int *fine_quant, int *fine_priority, int bits_left, ec_enc *enc, int C);
+ 
+-void unquant_coarse_energy(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int intra, ec_dec *dec, int C, int LM);
++void unquant_coarse_energy_(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int intra, ec_dec *dec, int C, int LM);
+ 
+-void unquant_fine_energy(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int *fine_quant, ec_dec *dec, int C);
++void unquant_fine_energy_(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int *fine_quant, ec_dec *dec, int C);
+ 
+-void unquant_energy_finalise(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int *fine_quant, int *fine_priority, int bits_left, ec_dec *dec, int C);
++void unquant_energy_finalise_(const CELTMode *m, int start, int end, opus_val16 *oldEBands, int *fine_quant, int *fine_priority, int bits_left, ec_dec *dec, int C);
+ 
+ #endif /* QUANT_BANDS */
+diff --git a/opus/src/celt/rate.c b/opus/src/celt/rate.c
+index 7f7ad3fa0f..5606cc4923 100644
+--- a/opus/src/celt/rate.c
++++ b/opus/src/celt/rate.c
+@@ -363,10 +363,10 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
+             if (codedBands<=start+2 || (band_bits > (depth_threshold*band_width<<LM<<BITRES)>>4 && j<=signalBandwidth))
+ #endif
+             {
+-               ec_enc_bit_logp(ec, 1, 1);
++               ec_enc_bit_logp_(ec, 1, 1);
+                break;
+             }
+-            ec_enc_bit_logp(ec, 0, 1);
++            ec_enc_bit_logp_(ec, 0, 1);
+          } else if (ec_dec_bit_logp(ec, 1)) {
+             break;
+          }
+@@ -397,7 +397,7 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
+       if (encode)
+       {
+          *intensity = IMIN(*intensity, codedBands);
+-         ec_enc_uint(ec, *intensity-start, codedBands+1-start);
++         ec_enc_uint_(ec, *intensity-start, codedBands+1-start);
+       }
+       else
+          *intensity = start+ec_dec_uint(ec, codedBands+1-start);
+@@ -412,7 +412,7 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
+    if (dual_stereo_rsv > 0)
+    {
+       if (encode)
+-         ec_enc_bit_logp(ec, *dual_stereo, 1);
++         ec_enc_bit_logp_(ec, *dual_stereo, 1);
+       else
+          *dual_stereo = ec_dec_bit_logp(ec, 1);
+    }
+@@ -498,7 +498,7 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
+       }
+ 
+       /* Fine energy can't take advantage of the re-balancing in
+-          quant_all_bands().
++          quant_all_bands_().
+          Instead, do the re-balancing here.*/
+       if(excess > 0)
+       {
+@@ -516,7 +516,7 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
+       celt_assert(ebits[j] >= 0);
+    }
+    /* Save any remaining bits over the cap for the rebalancing in
+-       quant_all_bands(). */
++       quant_all_bands_(). */
+    *_balance = balance;
+ 
+    /* The skipped bands use all their bits for fine energy. */
+diff --git a/opus/src/celt/vq.c b/opus/src/celt/vq.c
+index 8011e22548..e22562df5d 100644
+--- a/opus/src/celt/vq.c
++++ b/opus/src/celt/vq.c
+@@ -71,7 +71,7 @@ static void exp_rotation1(celt_norm *X, int len, int stride, opus_val16 c, opus_
+ }
+ #endif /* OVERRIDE_vq_exp_rotation1 */
+ 
+-void exp_rotation(celt_norm *X, int len, int dir, int stride, int K, int spread)
++void exp_rotation_(celt_norm *X, int len, int dir, int stride, int K, int spread)
+ {
+    static const int SPREAD_FACTOR[3]={15,10,5};
+    int i;
+@@ -148,7 +148,7 @@ static unsigned extract_collapse_mask(int *iy, int N, int B)
+    if (B<=1)
+       return 1;
+    /*NOTE: As a minor optimization, we could be passing around log2(B), not B, for both this and for
+-      exp_rotation().*/
++      exp_rotation_().*/
+    N0 = celt_udiv(N, B);
+    collapse_mask = 0;
+    i=0; do {
+@@ -341,7 +341,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
+    /* Covers vectorization by up to 4. */
+    ALLOC(iy, N+3, int);
+ 
+-   exp_rotation(X, N, 1, B, K, spread);
++   exp_rotation_(X, N, 1, B, K, spread);
+ 
+    yy = op_pvq_search(X, iy, K, N, arch);
+ 
+@@ -350,7 +350,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
+    if (resynth)
+    {
+       normalise_residual(iy, X, N, yy, gain);
+-      exp_rotation(X, N, -1, B, K, spread);
++      exp_rotation_(X, N, -1, B, K, spread);
+    }
+ 
+    collapse_mask = extract_collapse_mask(iy, N, B);
+@@ -360,7 +360,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
+ 
+ /** Decode pulse vector and combine the result with the pitch vector to produce
+     the final normalised signal in the current band. */
+-unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
++unsigned alg_unquant_(celt_norm *X, int N, int K, int spread, int B,
+       ec_dec *dec, opus_val16 gain)
+ {
+    opus_val32 Ryy;
+@@ -368,19 +368,19 @@ unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
+    VARDECL(int, iy);
+    SAVE_STACK;
+ 
+-   celt_assert2(K>0, "alg_unquant() needs at least one pulse");
+-   celt_assert2(N>1, "alg_unquant() needs at least two dimensions");
++   celt_assert2(K>0, "alg_unquant_() needs at least one pulse");
++   celt_assert2(N>1, "alg_unquant_() needs at least two dimensions");
+    ALLOC(iy, N, int);
+-   Ryy = decode_pulses(iy, N, K, dec);
++   Ryy = decode_pulses_(iy, N, K, dec);
+    normalise_residual(iy, X, N, Ryy, gain);
+-   exp_rotation(X, N, -1, B, K, spread);
++   exp_rotation_(X, N, -1, B, K, spread);
+    collapse_mask = extract_collapse_mask(iy, N, B);
+    RESTORE_STACK;
+    return collapse_mask;
+ }
+ 
+ #ifndef OVERRIDE_renormalise_vector
+-void renormalise_vector(celt_norm *X, int N, opus_val16 gain, int arch)
++void renormalise_vector_(celt_norm *X, int N, opus_val16 gain, int arch)
+ {
+    int i;
+ #ifdef FIXED_POINT
+diff --git a/opus/src/celt/vq.h b/opus/src/celt/vq.h
+index 45ec55918e..b4b557df7c 100644
+--- a/opus/src/celt/vq.h
++++ b/opus/src/celt/vq.h
+@@ -41,7 +41,7 @@
+ #include "x86/vq_sse.h"
+ #endif
+ 
+-void exp_rotation(celt_norm *X, int len, int dir, int stride, int K, int spread);
++void exp_rotation_(celt_norm *X, int len, int dir, int stride, int K, int spread);
+ 
+ opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch);
+ 
+@@ -69,10 +69,10 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
+  * @param dec Entropy decoder state
+  * @ret A mask indicating which blocks in the band received pulses
+  */
+-unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
++unsigned alg_unquant_(celt_norm *X, int N, int K, int spread, int B,
+       ec_dec *dec, opus_val16 gain);
+ 
+-void renormalise_vector(celt_norm *X, int N, opus_val16 gain, int arch);
++void renormalise_vector_(celt_norm *X, int N, opus_val16 gain, int arch);
+ 
+ int stereo_itheta(const celt_norm *X, const celt_norm *Y, int stereo, int N, int arch);
+ 
+diff --git a/opus/src/silk/LPC_fit.c b/opus/src/silk/LPC_fit.c
+index c0690a1fc9..d797509a28 100644
+--- a/opus/src/silk/LPC_fit.c
++++ b/opus/src/silk/LPC_fit.c
+@@ -32,7 +32,7 @@ POSSIBILITY OF SUCH DAMAGE.
+ #include "SigProc_FIX.h"
+ 
+ /* Convert int32 coefficients to int16 coefs and make sure there's no wrap-around.
+-   This logic is reused in _celt_lpc(). Any bug fixes should also be applied there. */
++   This logic is reused in _celt_lpc_(). Any bug fixes should also be applied there. */
+ void silk_LPC_fit(
+     opus_int16                  *a_QOUT,            /* O    Output signal                                               */
+     opus_int32                    *a_QIN,             /* I/O  Input signal                                                */
+diff --git a/opus/src/silk/bwexpander_32.c b/opus/src/silk/bwexpander_32.c
+index 0f32b9df1a..667b859a3e 100644
+--- a/opus/src/silk/bwexpander_32.c
++++ b/opus/src/silk/bwexpander_32.c
+@@ -32,7 +32,7 @@ POSSIBILITY OF SUCH DAMAGE.
+ #include "SigProc_FIX.h"
+ 
+ /* Chirp (bandwidth expand) LP AR filter.
+-   This logic is reused in _celt_lpc(). Any bug fixes should also be applied there. */
++   This logic is reused in _celt_lpc_(). Any bug fixes should also be applied there. */
+ void silk_bwexpander_32(
+     opus_int32                  *ar,                /* I/O  AR filter to be expanded (without leading 1)                */
+     const opus_int              d,                  /* I    Length of ar                                                */
+diff --git a/opus/src/silk/code_signs.c b/opus/src/silk/code_signs.c
+index dfd1dca9a1..82ebca7640 100644
+--- a/opus/src/silk/code_signs.c
++++ b/opus/src/silk/code_signs.c
+@@ -63,7 +63,7 @@ void silk_encode_signs(
+             icdf[ 0 ] = icdf_ptr[ silk_min( p & 0x1F, 6 ) ];
+             for( j = 0; j < SHELL_CODEC_FRAME_LENGTH; j++ ) {
+                 if( q_ptr[ j ] != 0 ) {
+-                    ec_enc_icdf( psRangeEnc, silk_enc_map( q_ptr[ j ]), icdf, 8 );
++                    ec_enc_icdf_( psRangeEnc, silk_enc_map( q_ptr[ j ]), icdf, 8 );
+                 }
+             }
+         }
+diff --git a/opus/src/silk/enc_API.c b/opus/src/silk/enc_API.c
+index 548e07364d..74fdad330e 100644
+--- a/opus/src/silk/enc_API.c
++++ b/opus/src/silk/enc_API.c
+@@ -342,7 +342,7 @@ opus_int silk_Encode(                                   /* O    Returns error co
+                 /* Create space at start of payload for VAD and FEC flags */
+                 opus_uint8 iCDF[ 2 ] = { 0, 0 };
+                 iCDF[ 0 ] = 256 - silk_RSHIFT( 256, ( psEnc->state_Fxx[ 0 ].sCmn.nFramesPerPacket + 1 ) * encControl->nChannelsInternal );
+-                ec_enc_icdf( psRangeEnc, 0, iCDF, 8 );
++                ec_enc_icdf_( psRangeEnc, 0, iCDF, 8 );
+                 curr_nBitsUsedLBRR = ec_tell( psRangeEnc );
+ 
+                 /* Encode any LBRR data from previous packet */
+@@ -354,7 +354,7 @@ opus_int silk_Encode(                                   /* O    Returns error co
+                     }
+                     psEnc->state_Fxx[ n ].sCmn.LBRR_flag = LBRR_symbol > 0 ? 1 : 0;
+                     if( LBRR_symbol && psEnc->state_Fxx[ n ].sCmn.nFramesPerPacket > 1 ) {
+-                        ec_enc_icdf( psRangeEnc, LBRR_symbol - 1, silk_LBRR_flags_iCDF_ptr[ psEnc->state_Fxx[ n ].sCmn.nFramesPerPacket - 2 ], 8 );
++                        ec_enc_icdf_( psRangeEnc, LBRR_symbol - 1, silk_LBRR_flags_iCDF_ptr[ psEnc->state_Fxx[ n ].sCmn.nFramesPerPacket - 2 ], 8 );
+                     }
+                 }
+ 
+diff --git a/opus/src/silk/encode_indices.c b/opus/src/silk/encode_indices.c
+index 4bcbc3347b..ebe46e8d80 100644
+--- a/opus/src/silk/encode_indices.c
++++ b/opus/src/silk/encode_indices.c
+@@ -59,9 +59,9 @@ void silk_encode_indices(
+     celt_assert( typeOffset >= 0 && typeOffset < 6 );
+     celt_assert( encode_LBRR == 0 || typeOffset >= 2 );
+     if( encode_LBRR || typeOffset >= 2 ) {
+-        ec_enc_icdf( psRangeEnc, typeOffset - 2, silk_type_offset_VAD_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, typeOffset - 2, silk_type_offset_VAD_iCDF, 8 );
+     } else {
+-        ec_enc_icdf( psRangeEnc, typeOffset, silk_type_offset_no_VAD_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, typeOffset, silk_type_offset_no_VAD_iCDF, 8 );
+     }
+ 
+     /****************/
+@@ -71,42 +71,42 @@ void silk_encode_indices(
+     if( condCoding == CODE_CONDITIONALLY ) {
+         /* conditional coding */
+         silk_assert( psIndices->GainsIndices[ 0 ] >= 0 && psIndices->GainsIndices[ 0 ] < MAX_DELTA_GAIN_QUANT - MIN_DELTA_GAIN_QUANT + 1 );
+-        ec_enc_icdf( psRangeEnc, psIndices->GainsIndices[ 0 ], silk_delta_gain_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, psIndices->GainsIndices[ 0 ], silk_delta_gain_iCDF, 8 );
+     } else {
+         /* independent coding, in two stages: MSB bits followed by 3 LSBs */
+         silk_assert( psIndices->GainsIndices[ 0 ] >= 0 && psIndices->GainsIndices[ 0 ] < N_LEVELS_QGAIN );
+-        ec_enc_icdf( psRangeEnc, silk_RSHIFT( psIndices->GainsIndices[ 0 ], 3 ), silk_gain_iCDF[ psIndices->signalType ], 8 );
+-        ec_enc_icdf( psRangeEnc, psIndices->GainsIndices[ 0 ] & 7, silk_uniform8_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, silk_RSHIFT( psIndices->GainsIndices[ 0 ], 3 ), silk_gain_iCDF[ psIndices->signalType ], 8 );
++        ec_enc_icdf_( psRangeEnc, psIndices->GainsIndices[ 0 ] & 7, silk_uniform8_iCDF, 8 );
+     }
+ 
+     /* remaining subframes */
+     for( i = 1; i < psEncC->nb_subfr; i++ ) {
+         silk_assert( psIndices->GainsIndices[ i ] >= 0 && psIndices->GainsIndices[ i ] < MAX_DELTA_GAIN_QUANT - MIN_DELTA_GAIN_QUANT + 1 );
+-        ec_enc_icdf( psRangeEnc, psIndices->GainsIndices[ i ], silk_delta_gain_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, psIndices->GainsIndices[ i ], silk_delta_gain_iCDF, 8 );
+     }
+ 
+     /****************/
+     /* Encode NLSFs */
+     /****************/
+-    ec_enc_icdf( psRangeEnc, psIndices->NLSFIndices[ 0 ], &psEncC->psNLSF_CB->CB1_iCDF[ ( psIndices->signalType >> 1 ) * psEncC->psNLSF_CB->nVectors ], 8 );
++    ec_enc_icdf_( psRangeEnc, psIndices->NLSFIndices[ 0 ], &psEncC->psNLSF_CB->CB1_iCDF[ ( psIndices->signalType >> 1 ) * psEncC->psNLSF_CB->nVectors ], 8 );
+     silk_NLSF_unpack( ec_ix, pred_Q8, psEncC->psNLSF_CB, psIndices->NLSFIndices[ 0 ] );
+     celt_assert( psEncC->psNLSF_CB->order == psEncC->predictLPCOrder );
+     for( i = 0; i < psEncC->psNLSF_CB->order; i++ ) {
+         if( psIndices->NLSFIndices[ i+1 ] >= NLSF_QUANT_MAX_AMPLITUDE ) {
+-            ec_enc_icdf( psRangeEnc, 2 * NLSF_QUANT_MAX_AMPLITUDE, &psEncC->psNLSF_CB->ec_iCDF[ ec_ix[ i ] ], 8 );
+-            ec_enc_icdf( psRangeEnc, psIndices->NLSFIndices[ i+1 ] - NLSF_QUANT_MAX_AMPLITUDE, silk_NLSF_EXT_iCDF, 8 );
++            ec_enc_icdf_( psRangeEnc, 2 * NLSF_QUANT_MAX_AMPLITUDE, &psEncC->psNLSF_CB->ec_iCDF[ ec_ix[ i ] ], 8 );
++            ec_enc_icdf_( psRangeEnc, psIndices->NLSFIndices[ i+1 ] - NLSF_QUANT_MAX_AMPLITUDE, silk_NLSF_EXT_iCDF, 8 );
+         } else if( psIndices->NLSFIndices[ i+1 ] <= -NLSF_QUANT_MAX_AMPLITUDE ) {
+-            ec_enc_icdf( psRangeEnc, 0, &psEncC->psNLSF_CB->ec_iCDF[ ec_ix[ i ] ], 8 );
+-            ec_enc_icdf( psRangeEnc, -psIndices->NLSFIndices[ i+1 ] - NLSF_QUANT_MAX_AMPLITUDE, silk_NLSF_EXT_iCDF, 8 );
++            ec_enc_icdf_( psRangeEnc, 0, &psEncC->psNLSF_CB->ec_iCDF[ ec_ix[ i ] ], 8 );
++            ec_enc_icdf_( psRangeEnc, -psIndices->NLSFIndices[ i+1 ] - NLSF_QUANT_MAX_AMPLITUDE, silk_NLSF_EXT_iCDF, 8 );
+         } else {
+-            ec_enc_icdf( psRangeEnc, psIndices->NLSFIndices[ i+1 ] + NLSF_QUANT_MAX_AMPLITUDE, &psEncC->psNLSF_CB->ec_iCDF[ ec_ix[ i ] ], 8 );
++            ec_enc_icdf_( psRangeEnc, psIndices->NLSFIndices[ i+1 ] + NLSF_QUANT_MAX_AMPLITUDE, &psEncC->psNLSF_CB->ec_iCDF[ ec_ix[ i ] ], 8 );
+         }
+     }
+ 
+     /* Encode NLSF interpolation factor */
+     if( psEncC->nb_subfr == MAX_NB_SUBFR ) {
+         silk_assert( psIndices->NLSFInterpCoef_Q2 >= 0 && psIndices->NLSFInterpCoef_Q2 < 5 );
+-        ec_enc_icdf( psRangeEnc, psIndices->NLSFInterpCoef_Q2, silk_NLSF_interpolation_factor_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, psIndices->NLSFInterpCoef_Q2, silk_NLSF_interpolation_factor_iCDF, 8 );
+     }
+ 
+     if( psIndices->signalType == TYPE_VOICED )
+@@ -126,7 +126,7 @@ void silk_encode_indices(
+                 encode_absolute_lagIndex = 0; /* Only use delta */
+             }
+             silk_assert( delta_lagIndex >= 0 && delta_lagIndex < 21 );
+-            ec_enc_icdf( psRangeEnc, delta_lagIndex, silk_pitch_delta_iCDF, 8 );
++            ec_enc_icdf_( psRangeEnc, delta_lagIndex, silk_pitch_delta_iCDF, 8 );
+         }
+         if( encode_absolute_lagIndex ) {
+             /* Absolute encoding */
+@@ -135,8 +135,8 @@ void silk_encode_indices(
+             pitch_low_bits = psIndices->lagIndex - silk_SMULBB( pitch_high_bits, silk_RSHIFT( psEncC->fs_kHz, 1 ) );
+             silk_assert( pitch_low_bits < psEncC->fs_kHz / 2 );
+             silk_assert( pitch_high_bits < 32 );
+-            ec_enc_icdf( psRangeEnc, pitch_high_bits, silk_pitch_lag_iCDF, 8 );
+-            ec_enc_icdf( psRangeEnc, pitch_low_bits, psEncC->pitch_lag_low_bits_iCDF, 8 );
++            ec_enc_icdf_( psRangeEnc, pitch_high_bits, silk_pitch_lag_iCDF, 8 );
++            ec_enc_icdf_( psRangeEnc, pitch_low_bits, psEncC->pitch_lag_low_bits_iCDF, 8 );
+         }
+         psEncC->ec_prevLagIndex = psIndices->lagIndex;
+ 
+@@ -146,19 +146,19 @@ void silk_encode_indices(
+                     ( psIndices->contourIndex < 11 && psEncC->fs_kHz == 8 && psEncC->nb_subfr == 4 ) ||
+                     ( psIndices->contourIndex < 12 && psEncC->fs_kHz  > 8 && psEncC->nb_subfr == 2 ) ||
+                     ( psIndices->contourIndex <  3 && psEncC->fs_kHz == 8 && psEncC->nb_subfr == 2 ) );
+-        ec_enc_icdf( psRangeEnc, psIndices->contourIndex, psEncC->pitch_contour_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, psIndices->contourIndex, psEncC->pitch_contour_iCDF, 8 );
+ 
+         /********************/
+         /* Encode LTP gains */
+         /********************/
+         /* PERIndex value */
+         silk_assert( psIndices->PERIndex >= 0 && psIndices->PERIndex < 3 );
+-        ec_enc_icdf( psRangeEnc, psIndices->PERIndex, silk_LTP_per_index_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, psIndices->PERIndex, silk_LTP_per_index_iCDF, 8 );
+ 
+         /* Codebook Indices */
+         for( k = 0; k < psEncC->nb_subfr; k++ ) {
+             silk_assert( psIndices->LTPIndex[ k ] >= 0 && psIndices->LTPIndex[ k ] < ( 8 << psIndices->PERIndex ) );
+-            ec_enc_icdf( psRangeEnc, psIndices->LTPIndex[ k ], silk_LTP_gain_iCDF_ptrs[ psIndices->PERIndex ], 8 );
++            ec_enc_icdf_( psRangeEnc, psIndices->LTPIndex[ k ], silk_LTP_gain_iCDF_ptrs[ psIndices->PERIndex ], 8 );
+         }
+ 
+         /**********************/
+@@ -166,7 +166,7 @@ void silk_encode_indices(
+         /**********************/
+         if( condCoding == CODE_INDEPENDENTLY ) {
+             silk_assert( psIndices->LTP_scaleIndex >= 0 && psIndices->LTP_scaleIndex < 3 );
+-            ec_enc_icdf( psRangeEnc, psIndices->LTP_scaleIndex, silk_LTPscale_iCDF, 8 );
++            ec_enc_icdf_( psRangeEnc, psIndices->LTP_scaleIndex, silk_LTPscale_iCDF, 8 );
+         }
+         silk_assert( !condCoding || psIndices->LTP_scaleIndex == 0 );
+     }
+@@ -177,5 +177,5 @@ void silk_encode_indices(
+     /* Encode seed */
+     /***************/
+     silk_assert( psIndices->Seed >= 0 && psIndices->Seed < 4 );
+-    ec_enc_icdf( psRangeEnc, psIndices->Seed, silk_uniform4_iCDF, 8 );
++    ec_enc_icdf_( psRangeEnc, psIndices->Seed, silk_uniform4_iCDF, 8 );
+ }
+diff --git a/opus/src/silk/encode_pulses.c b/opus/src/silk/encode_pulses.c
+index 8a1999138b..2f0f918867 100644
+--- a/opus/src/silk/encode_pulses.c
++++ b/opus/src/silk/encode_pulses.c
+@@ -152,7 +152,7 @@ void silk_encode_pulses(
+             RateLevelIndex = k;
+         }
+     }
+-    ec_enc_icdf( psRangeEnc, RateLevelIndex, silk_rate_levels_iCDF[ signalType >> 1 ], 8 );
++    ec_enc_icdf_( psRangeEnc, RateLevelIndex, silk_rate_levels_iCDF[ signalType >> 1 ], 8 );
+ 
+     /***************************************************/
+     /* Sum-Weighted-Pulses Encoding                    */
+@@ -160,13 +160,13 @@ void silk_encode_pulses(
+     cdf_ptr = silk_pulses_per_block_iCDF[ RateLevelIndex ];
+     for( i = 0; i < iter; i++ ) {
+         if( nRshifts[ i ] == 0 ) {
+-            ec_enc_icdf( psRangeEnc, sum_pulses[ i ], cdf_ptr, 8 );
++            ec_enc_icdf_( psRangeEnc, sum_pulses[ i ], cdf_ptr, 8 );
+         } else {
+-            ec_enc_icdf( psRangeEnc, SILK_MAX_PULSES + 1, cdf_ptr, 8 );
++            ec_enc_icdf_( psRangeEnc, SILK_MAX_PULSES + 1, cdf_ptr, 8 );
+             for( k = 0; k < nRshifts[ i ] - 1; k++ ) {
+-                ec_enc_icdf( psRangeEnc, SILK_MAX_PULSES + 1, silk_pulses_per_block_iCDF[ N_RATE_LEVELS - 1 ], 8 );
++                ec_enc_icdf_( psRangeEnc, SILK_MAX_PULSES + 1, silk_pulses_per_block_iCDF[ N_RATE_LEVELS - 1 ], 8 );
+             }
+-            ec_enc_icdf( psRangeEnc, sum_pulses[ i ], silk_pulses_per_block_iCDF[ N_RATE_LEVELS - 1 ], 8 );
++            ec_enc_icdf_( psRangeEnc, sum_pulses[ i ], silk_pulses_per_block_iCDF[ N_RATE_LEVELS - 1 ], 8 );
+         }
+     }
+ 
+@@ -190,10 +190,10 @@ void silk_encode_pulses(
+                 abs_q = (opus_int8)silk_abs( pulses_ptr[ k ] );
+                 for( j = nLS; j > 0; j-- ) {
+                     bit = silk_RSHIFT( abs_q, j ) & 1;
+-                    ec_enc_icdf( psRangeEnc, bit, silk_lsb_iCDF, 8 );
++                    ec_enc_icdf_( psRangeEnc, bit, silk_lsb_iCDF, 8 );
+                 }
+                 bit = abs_q & 1;
+-                ec_enc_icdf( psRangeEnc, bit, silk_lsb_iCDF, 8 );
++                ec_enc_icdf_( psRangeEnc, bit, silk_lsb_iCDF, 8 );
+             }
+         }
+     }
+diff --git a/opus/src/silk/fixed/autocorr_FIX.c b/opus/src/silk/fixed/autocorr_FIX.c
+index de95c98693..888dae4eb5 100644
+--- a/opus/src/silk/fixed/autocorr_FIX.c
++++ b/opus/src/silk/fixed/autocorr_FIX.c
+@@ -44,5 +44,5 @@ void silk_autocorr(
+ {
+     opus_int   corrCount;
+     corrCount = silk_min_int( inputDataSize, correlationCount );
+-    *scale = _celt_autocorr(inputData, results, NULL, 0, corrCount-1, inputDataSize, arch);
++    *scale = _celt_autocorr_(inputData, results, NULL, 0, corrCount-1, inputDataSize, arch);
+ }
+diff --git a/opus/src/silk/shell_coder.c b/opus/src/silk/shell_coder.c
+index 4af341474b..3675fcdd61 100644
+--- a/opus/src/silk/shell_coder.c
++++ b/opus/src/silk/shell_coder.c
+@@ -53,7 +53,7 @@ static OPUS_INLINE void encode_split(
+ )
+ {
+     if( p > 0 ) {
+-        ec_enc_icdf( psRangeEnc, p_child1, &shell_table[ silk_shell_code_table_offsets[ p ] ], 8 );
++        ec_enc_icdf_( psRangeEnc, p_child1, &shell_table[ silk_shell_code_table_offsets[ p ] ], 8 );
+     }
+ }
+ 
+diff --git a/opus/src/silk/stereo_encode_pred.c b/opus/src/silk/stereo_encode_pred.c
+index 03becb6736..6348d9fd20 100644
+--- a/opus/src/silk/stereo_encode_pred.c
++++ b/opus/src/silk/stereo_encode_pred.c
+@@ -42,12 +42,12 @@ void silk_stereo_encode_pred(
+     /* Entropy coding */
+     n = 5 * ix[ 0 ][ 2 ] + ix[ 1 ][ 2 ];
+     celt_assert( n < 25 );
+-    ec_enc_icdf( psRangeEnc, n, silk_stereo_pred_joint_iCDF, 8 );
++    ec_enc_icdf_( psRangeEnc, n, silk_stereo_pred_joint_iCDF, 8 );
+     for( n = 0; n < 2; n++ ) {
+         celt_assert( ix[ n ][ 0 ] < 3 );
+         celt_assert( ix[ n ][ 1 ] < STEREO_QUANT_SUB_STEPS );
+-        ec_enc_icdf( psRangeEnc, ix[ n ][ 0 ], silk_uniform3_iCDF, 8 );
+-        ec_enc_icdf( psRangeEnc, ix[ n ][ 1 ], silk_uniform5_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, ix[ n ][ 0 ], silk_uniform3_iCDF, 8 );
++        ec_enc_icdf_( psRangeEnc, ix[ n ][ 1 ], silk_uniform5_iCDF, 8 );
+     }
+ }
+ 
+@@ -58,5 +58,5 @@ void silk_stereo_encode_mid_only(
+ )
+ {
+     /* Encode flag that only mid channel is coded */
+-    ec_enc_icdf( psRangeEnc, mid_only_flag, silk_stereo_only_code_mid_iCDF, 8 );
++    ec_enc_icdf_( psRangeEnc, mid_only_flag, silk_stereo_only_code_mid_iCDF, 8 );
+ }
+diff --git a/opus/src/src/opus_encoder.c b/opus/src/src/opus_encoder.c
+index 8c8db5a546..30867cb524 100644
+--- a/opus/src/src/opus_encoder.c
++++ b/opus/src/src/opus_encoder.c
+@@ -1632,7 +1632,7 @@ opus_int32 opus_encode_native(OpusEncoder *st, const opus_val16 *pcm, int frame_
+ 
+     data += 1;
+ 
+-    ec_enc_init(&enc, data, max_data_bytes-1);
++    ec_enc_init_(&enc, data, max_data_bytes-1);
+ 
+     ALLOC(pcm_buf, (total_buffer+frame_size)*st->channels, opus_val16);
+     OPUS_COPY(pcm_buf, &st->delay_buffer[(st->encoder_buffer-total_buffer)*st->channels], total_buffer*st->channels);
+@@ -1984,11 +1984,11 @@ opus_int32 opus_encode_native(OpusEncoder *st, const opus_val16 *pcm, int frame_
+     {
+         /* For SILK mode, the redundancy is inferred from the length */
+         if (st->mode == MODE_HYBRID)
+-           ec_enc_bit_logp(&enc, redundancy, 12);
++           ec_enc_bit_logp_(&enc, redundancy, 12);
+         if (redundancy)
+         {
+             int max_redundancy;
+-            ec_enc_bit_logp(&enc, celt_to_silk, 1);
++            ec_enc_bit_logp_(&enc, celt_to_silk, 1);
+             if (st->mode == MODE_HYBRID)
+             {
+                /* Reserve the 8 bits needed for the redundancy length,
+@@ -2002,7 +2002,7 @@ opus_int32 opus_encode_native(OpusEncoder *st, const opus_val16 *pcm, int frame_
+             redundancy_bytes = IMIN(max_redundancy, redundancy_bytes);
+             redundancy_bytes = IMIN(257, IMAX(2, redundancy_bytes));
+             if (st->mode == MODE_HYBRID)
+-                ec_enc_uint(&enc, redundancy_bytes-2, 256);
++                ec_enc_uint_(&enc, redundancy_bytes-2, 256);
+         }
+     } else {
+         redundancy = 0;
+@@ -2018,11 +2018,11 @@ opus_int32 opus_encode_native(OpusEncoder *st, const opus_val16 *pcm, int frame_
+     if (st->mode == MODE_SILK_ONLY)
+     {
+         ret = (ec_tell(&enc)+7)>>3;
+-        ec_enc_done(&enc);
++        ec_enc_done_(&enc);
+         nb_compr_bytes = ret;
+     } else {
+        nb_compr_bytes = (max_data_bytes-1)-redundancy_bytes;
+-       ec_enc_shrink(&enc, nb_compr_bytes);
++       ec_enc_shrink_(&enc, nb_compr_bytes);
+     }
+ 
+ #ifndef DISABLE_FLOAT_API
+@@ -2107,7 +2107,7 @@ opus_int32 opus_encode_native(OpusEncoder *st, const opus_val16 *pcm, int frame_
+         {
+            /* Shrink packet to what the encoder actually used. */
+            nb_compr_bytes = ret;
+-           ec_enc_shrink(&enc, nb_compr_bytes);
++           ec_enc_shrink_(&enc, nb_compr_bytes);
+         }
+         /* NOTE: We could speed this up slightly (at the expense of code size) by just adding a function that prefills the buffer */
+         celt_encode_with_ec(celt_enc, pcm_buf+st->channels*(frame_size-N2-N4), N4, dummy, 2, NULL);
+diff --git a/opus/src/src/opus_multistream_encoder.c b/opus/src/src/opus_multistream_encoder.c
+index 213e3eb2c2..547795906b 100644
+--- a/opus/src/src/opus_multistream_encoder.c
++++ b/opus/src/src/opus_multistream_encoder.c
+@@ -295,12 +295,12 @@ void surround_analysis(const CELTMode *celt_mode, const void *pcm, opus_val16 *b
+                freq[i] = 0;
+          }
+ 
+-         compute_band_energies(celt_mode, freq, tmpE, 21, 1, LM, arch);
++         compute_band_energies_(celt_mode, freq, tmpE, 21, 1, LM, arch);
+          /* If we have multiple frames, take the max energy. */
+          for (i=0;i<21;i++)
+             bandE[i] = MAX32(bandE[i], tmpE[i]);
+       }
+-      amp2Log2(celt_mode, 21, 21, bandE, bandLogE+21*c, 1);
++      amp2Log2_(celt_mode, 21, 21, bandE, bandLogE+21*c, 1);
+       /* Apply spreading function with -6 dB/band going up and -12 dB/band going down. */
+       for (i=1;i<21;i++)
+          bandLogE[21*c+i] = MAX16(bandLogE[21*c+i], bandLogE[21*c+i-1]-QCONST16(1.f, DB_SHIFT));

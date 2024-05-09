@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// # SAFTEY: The "C" callback must be threadsafe and not block
-pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
+pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, u32);
 
 /// # Safety
 ///
@@ -19,7 +19,7 @@ pub unsafe extern "C" fn livekit_ffi_initialize(cb: FfiCallbackFn, capture_logs:
     FFI_SERVER.setup(FfiConfig {
         callback_fn: Arc::new(move |event| {
             let data = event.encode_to_vec();
-            cb(data.as_ptr(), data.len());
+            cb(data.as_ptr(), data.len() as u32);
         }),
         capture_logs,
     });
@@ -33,12 +33,12 @@ pub unsafe extern "C" fn livekit_ffi_initialize(cb: FfiCallbackFn, capture_logs:
 #[no_mangle]
 pub unsafe extern "C" fn livekit_ffi_request(
     data: *const u8,
-    len: usize,
+    len: u32,
     res_ptr: *mut *const u8,
-    res_len: *mut usize,
+    res_len: *mut u32,
 ) -> FfiHandleId {
     let res = panic::catch_unwind(|| {
-        let data = unsafe { std::slice::from_raw_parts(data, len) };
+        let data = unsafe { std::slice::from_raw_parts(data, len as usize) };
         let req = match proto::FfiRequest::decode(data) {
             Ok(req) => req,
             Err(err) => {
@@ -58,7 +58,7 @@ pub unsafe extern "C" fn livekit_ffi_request(
 
         unsafe {
             *res_ptr = res.as_ptr();
-            *res_len = res.len();
+            *res_len = res.len() as u32;
         }
 
         let handle_id = FFI_SERVER.next_id();
