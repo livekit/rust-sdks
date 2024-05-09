@@ -81,16 +81,19 @@ jobs:
             dylib: liblivekit_ffi.so
             target: aarch64-linux-android
             name: ffi-android-arm64
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
             target: armv7-linux-androideabi
             name: ffi-android-armv7
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
             target: x86_64-linux-android
             name: ffi-android-x86_64
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::{self, Debug, Formatter};
+
 use self::key_provider::KeyProvider;
 
 pub mod key_provider;
@@ -29,4 +31,10 @@ pub enum EncryptionType {
 pub struct E2eeOptions {
     pub encryption_type: EncryptionType,
     pub key_provider: KeyProvider,
+}
+
+impl Debug for E2eeOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("E2eeOptions").field("encryption_type", &self.encryption_type).finish()
+    }
 }

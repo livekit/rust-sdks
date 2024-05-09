@@ -185,8 +185,8 @@ impl RtcEngine {
         Ok((Self { inner }, join_response, engine_events))
     }
 
-    pub async fn close(&self) {
-        self.inner.close(DisconnectReason::ClientInitiated).await
+    pub async fn close(&self, reason: DisconnectReason) {
+        self.inner.close(reason).await
     }
 
     pub async fn publish_data(
@@ -343,7 +343,7 @@ impl EngineInner {
     async fn engine_task(
         self: Arc<Self>,
         mut session_events: SessionEvents,
-        mut close_receiver: oneshot::Receiver<()>,
+        mut close_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
@@ -368,7 +368,7 @@ impl EngineInner {
 
                     task.await;
                 },
-                 _ = &mut close_receiver => {
+                 _ = &mut close_rx => {
                     break;
                 }
             }
@@ -442,8 +442,8 @@ impl EngineInner {
             session.close().await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
+            let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
         }
-        let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
     }
 
     /// When waiting for reconnection, it ensures we're always using the latest session.
@@ -504,7 +504,7 @@ impl EngineInner {
                     }
                     res = inner.reconnect_task() => {
                         if res.is_err() {
-                            log::error!("failed to reconnect");
+                            log::error!("failed to reconnect to the livekit room");
                             inner.close(DisconnectReason::UnknownReason).await;
                         } else {
                             log::info!("RtcEngine successfully recovered")
