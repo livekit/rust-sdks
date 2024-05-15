@@ -281,6 +281,8 @@ pub struct TrackInfo {
     pub stream: ::prost::alloc::string::String,
     #[prost(message, optional, tag="18")]
     pub version: ::core::option::Option<TimedVersion>,
+    #[prost(enumeration="AudioTrackFeature", repeated, tag="19")]
+    pub audio_features: ::prost::alloc::vec::Vec<i32>,
 }
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -424,8 +426,6 @@ pub struct Transcription {
     pub track_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="4")]
     pub segments: ::prost::alloc::vec::Vec<TranscriptionSegment>,
-    #[prost(string, tag="5")]
-    pub language: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -440,6 +440,8 @@ pub struct TranscriptionSegment {
     pub end_time: u64,
     #[prost(bool, tag="5")]
     pub r#final: bool,
+    #[prost(string, tag="6")]
+    pub language: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1859,7 +1861,7 @@ pub struct AutoTrackEgress {
     /// disables upload of json manifest file (default false)
     #[prost(bool, tag="5")]
     pub disable_manifest: bool,
-    #[prost(oneof="auto_track_egress::Output", tags="2, 3, 4")]
+    #[prost(oneof="auto_track_egress::Output", tags="2, 3, 4, 6")]
     pub output: ::core::option::Option<auto_track_egress::Output>,
 }
 /// Nested message and enum types in `AutoTrackEgress`.
@@ -1873,6 +1875,8 @@ pub mod auto_track_egress {
         Gcp(super::GcpUpload),
         #[prost(message, tag="4")]
         Azure(super::AzureBlobUpload),
+        #[prost(message, tag="6")]
+        AliOss(super::AliOssUpload),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -2648,7 +2652,7 @@ pub struct DataChannelInfo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SimulateScenario {
-    #[prost(oneof="simulate_scenario::Scenario", tags="1, 2, 3, 4, 5, 6, 7, 8")]
+    #[prost(oneof="simulate_scenario::Scenario", tags="1, 2, 3, 4, 5, 6, 7, 8, 9")]
     pub scenario: ::core::option::Option<simulate_scenario::Scenario>,
 }
 /// Nested message and enum types in `SimulateScenario`.
@@ -2681,6 +2685,9 @@ pub mod simulate_scenario {
         /// disconnect signal on resume before sending any messages from server
         #[prost(bool, tag="8")]
         DisconnectSignalOnResumeNoMessages(bool),
+        /// full reconnect leave request
+        #[prost(bool, tag="9")]
+        LeaveRequestFullReconnect(bool),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3017,9 +3024,13 @@ pub struct CreateIngressRequest {
     /// metadata associated with the publishing participant
     #[prost(string, tag="10")]
     pub participant_metadata: ::prost::alloc::string::String,
-    /// whether to pass through the incoming media without transcoding, only compatible with some input types
+    /// \[depreacted \] whether to pass through the incoming media without transcoding, only compatible with some input types. Use `enable_transcoding` instead.
+    #[deprecated]
     #[prost(bool, tag="8")]
     pub bypass_transcoding: bool,
+    /// Whether to transcode the ingested media. Only WHIP supports disabling transcoding currently. WHIP will default to transcoding disabled. Replaces `bypass_transcoding. 
+    #[prost(bool, optional, tag="11")]
+    pub enable_transcoding: ::core::option::Option<bool>,
     #[prost(message, optional, tag="6")]
     pub audio: ::core::option::Option<IngressAudioOptions>,
     #[prost(message, optional, tag="7")]
@@ -3109,8 +3120,11 @@ pub struct IngressInfo {
     /// for SRT input, it'll be a srt:// URL
     #[prost(enumeration="IngressInput", tag="5")]
     pub input_type: i32,
+    #[deprecated]
     #[prost(bool, tag="13")]
     pub bypass_transcoding: bool,
+    #[prost(bool, optional, tag="15")]
+    pub enable_transcoding: ::core::option::Option<bool>,
     #[prost(message, optional, tag="6")]
     pub audio: ::core::option::Option<IngressAudioOptions>,
     #[prost(message, optional, tag="7")]
@@ -3234,8 +3248,11 @@ pub struct UpdateIngressRequest {
     pub participant_name: ::prost::alloc::string::String,
     #[prost(string, tag="9")]
     pub participant_metadata: ::prost::alloc::string::String,
+    #[deprecated]
     #[prost(bool, optional, tag="8")]
     pub bypass_transcoding: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="10")]
+    pub enable_transcoding: ::core::option::Option<bool>,
     #[prost(message, optional, tag="6")]
     pub audio: ::core::option::Option<IngressAudioOptions>,
     #[prost(message, optional, tag="7")]
@@ -3445,6 +3462,12 @@ pub struct CreateSipTrunkRequest {
     pub outbound_username: ::prost::alloc::string::String,
     #[prost(string, tag="8")]
     pub outbound_password: ::prost::alloc::string::String,
+    /// Optional human-readable name for the Trunk.
+    #[prost(string, tag="10")]
+    pub name: ::prost::alloc::string::String,
+    /// Optional user-defined metadata for the Trunk.
+    #[prost(string, tag="11")]
+    pub metadata: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3479,6 +3502,12 @@ pub struct SipTrunkInfo {
     pub outbound_username: ::prost::alloc::string::String,
     #[prost(string, tag="9")]
     pub outbound_password: ::prost::alloc::string::String,
+    /// Human-readable name for the Trunk.
+    #[prost(string, tag="11")]
+    pub name: ::prost::alloc::string::String,
+    /// User-defined metadata for the Trunk.
+    #[prost(string, tag="12")]
+    pub metadata: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3550,6 +3579,15 @@ pub struct CreateSipDispatchRuleRequest {
     /// If true a random value will be used instead
     #[prost(bool, tag="3")]
     pub hide_phone_number: bool,
+    /// Dispatch Rule will only accept a call made to these numbers (if set).
+    #[prost(string, repeated, tag="6")]
+    pub inbound_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Optional human-readable name for the Dispatch Rule.
+    #[prost(string, tag="4")]
+    pub name: ::prost::alloc::string::String,
+    /// Optional user-defined metadata for the Dispatch Rule.
+    #[prost(string, tag="5")]
+    pub metadata: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3562,6 +3600,16 @@ pub struct SipDispatchRuleInfo {
     pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(bool, tag="4")]
     pub hide_phone_number: bool,
+    /// Dispatch Rule will only accept a call made to these numbers (if set).
+    #[prost(string, repeated, tag="7")]
+    pub inbound_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Human-readable name for the Dispatch Rule.
+    #[prost(string, tag="5")]
+    pub name: ::prost::alloc::string::String,
+    /// User-defined metadata for the Dispatch Rule.
+    /// Participants created by this rule will inherit this metadata.
+    #[prost(string, tag="6")]
+    pub metadata: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3599,6 +3647,9 @@ pub struct CreateSipParticipantRequest {
     /// Optional name of the participant in LiveKit room
     #[prost(string, tag="7")]
     pub participant_name: ::prost::alloc::string::String,
+    /// Optional user-defined metadata. Will be attached to a created Participant in the room.
+    #[prost(string, tag="8")]
+    pub participant_metadata: ::prost::alloc::string::String,
     /// Optionally send following DTMF digits (extension codes) when making a call.
     /// Character 'w' can be used to add a 0.5 sec delay.
     #[prost(string, tag="5")]
@@ -3616,6 +3667,8 @@ pub struct SipParticipantInfo {
     pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub sip_call_id: ::prost::alloc::string::String,
 }
 include!("livekit.serde.rs");
 // @@protoc_insertion_point(module)
