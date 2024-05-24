@@ -756,7 +756,7 @@ checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "cxx",
  "jni",
@@ -794,7 +794,7 @@ checksum = "01cda141df6706de531b6c46c3a33ecca755538219bd484262fa09410c13539c"
 
 [[package]]
 name = "livekit"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "futures-util",
  "lazy_static",
@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "futures-util",
  "http",
@@ -834,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "futures-util",
  "livekit-runtime",
@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "cc",
  "cxx",
@@ -1966,7 +1966,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys-build"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "fs2",
  "regex",

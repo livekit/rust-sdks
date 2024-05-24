@@ -177,6 +177,7 @@ impl From<sys_at::ffi::AudioSourceOptions> for AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
+            pre_encoded: options.pre_encoded,
         }
     }
 }
@@ -187,6 +188,7 @@ impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
+            pre_encoded: options.pre_encoded,
         }
     }
 }

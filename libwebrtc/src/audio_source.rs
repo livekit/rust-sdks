@@ -21,6 +21,7 @@ pub struct AudioSourceOptions {
     pub echo_cancellation: bool,
     pub noise_suppression: bool,
     pub auto_gain_control: bool,
+    pub pre_encoded: bool,
 }
 
 #[non_exhaustive]
@@ -33,10 +34,10 @@ pub enum RtcAudioSource {
 impl RtcAudioSource {
     enum_dispatch!(
         [Native];
-        fn set_audio_options(self: &Self, options: AudioSourceOptions) -> ();
-        fn audio_options(self: &Self) -> AudioSourceOptions;
-        fn sample_rate(self: &Self) -> u32;
-        fn num_channels(self: &Self) -> u32;
+        pub fn set_audio_options(self: &Self, options: AudioSourceOptions) -> ();
+        pub fn audio_options(self: &Self) -> AudioSourceOptions;
+        pub fn sample_rate(self: &Self) -> u32;
+        pub fn num_channels(self: &Self) -> u32;
     );
 }
 
