@@ -21,6 +21,7 @@ pub struct AudioSourceOptions {
     pub echo_cancellation: bool,
     pub noise_suppression: bool,
     pub auto_gain_control: bool,
+    pub pre_encoded: bool,
 }
 
 #[non_exhaustive]
@@ -28,15 +29,16 @@ pub struct AudioSourceOptions {
 pub enum RtcAudioSource {
     #[cfg(not(target_arch = "wasm32"))]
     Native(native::NativeAudioSource),
+    Encoded(native::EncodedAudioSource),
 }
 
 impl RtcAudioSource {
     enum_dispatch!(
-        [Native];
-        fn set_audio_options(self: &Self, options: AudioSourceOptions) -> ();
-        fn audio_options(self: &Self) -> AudioSourceOptions;
-        fn sample_rate(self: &Self) -> u32;
-        fn num_channels(self: &Self) -> u32;
+        [Native, Encoded];
+        pub fn set_audio_options(self: &Self, options: AudioSourceOptions) -> ();
+        pub fn audio_options(self: &Self) -> AudioSourceOptions;
+        pub fn sample_rate(self: &Self) -> u32;
+        pub fn num_channels(self: &Self) -> u32;
     );
 }
 
@@ -45,7 +47,7 @@ pub mod native {
     use std::fmt::{Debug, Formatter};
 
     use super::*;
-    use crate::{audio_frame::AudioFrame, RtcError};
+    use crate::{audio_frame::AudioFrame, audio_frame::AudioFrame_u8, RtcError};
 
     #[derive(Clone)]
     pub struct NativeAudioSource {
@@ -87,4 +89,46 @@ pub mod native {
             self.handle.num_channels()
         }
     }
+
+    #[derive(Clone)]
+    pub struct EncodedAudioSource {
+        pub(crate) handle: imp_as::EncodedAudioSource,
+    }
+
+    impl Debug for EncodedAudioSource {
+        fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+            f.debug_struct("EncodedAudioSource").finish()
+        }
+    }
+
+    impl EncodedAudioSource {
+        pub fn new(
+            options: AudioSourceOptions,
+            sample_rate: u32,
+            num_channels: u32,
+        ) -> EncodedAudioSource {
+            Self { handle: imp_as::EncodedAudioSource::new(options, sample_rate, num_channels) }
+        }
+
+        pub async fn capture_frame(&self, frame: &AudioFrame_u8) -> Result<(), RtcError> {
+            self.handle.capture_frame(frame).await
+        }
+
+        pub fn set_audio_options(&self, options: AudioSourceOptions) {
+            self.handle.set_audio_options(options)
+        }
+
+        pub fn audio_options(&self) -> AudioSourceOptions {
+            self.handle.audio_options()
+        }
+
+        pub fn sample_rate(&self) -> u32 {
+            self.handle.sample_rate()
+        }
+
+        pub fn num_channels(&self) -> u32 {
+            self.handle.num_channels()
+        }
+    }
+
 }

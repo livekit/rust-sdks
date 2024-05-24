@@ -36,9 +36,9 @@ message NewAudioSourceRequest {
 }
 message NewAudioSourceResponse { OwnedAudioSource source = 1; }
 
-// Push a frame to an AudioSource 
+// Push a frame to an AudioSource
 // The data provided must be available as long as the client receive the callback.
-message CaptureAudioFrameRequest { 
+message CaptureAudioFrameRequest {
   uint64 source_handle = 1;
   AudioFrameBufferInfo buffer = 2;
 }
@@ -104,7 +104,7 @@ message OwnedAudioStream {
 
 message AudioStreamEvent {
   uint64 stream_handle = 1;
-  oneof message { 
+  oneof message {
     AudioFrameReceived frame_received = 2;
     AudioStreamEOS eos = 3;
   }
@@ -124,6 +124,7 @@ message AudioSourceOptions {
   bool echo_cancellation = 1;
   bool noise_suppression = 2;
   bool auto_gain_control = 3;
+  bool pre_encoded = 4;
 }
 
 enum AudioSourceType {

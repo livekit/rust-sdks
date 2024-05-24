@@ -39,6 +39,7 @@ inline cricket::AudioOptions to_native_audio_options(
   rtc_options.echo_cancellation = options.echo_cancellation;
   rtc_options.noise_suppression = options.noise_suppression;
   rtc_options.auto_gain_control = options.auto_gain_control;
+  rtc_options.pre_encoded = options.pre_encoded;
   return rtc_options;
 }
 
@@ -48,6 +49,7 @@ inline AudioSourceOptions to_rust_audio_options(
   options.echo_cancellation = rtc_options.echo_cancellation.value_or(false);
   options.noise_suppression = rtc_options.noise_suppression.value_or(false);
   options.auto_gain_control = rtc_options.auto_gain_control.value_or(false);
+  options.pre_encoded = rtc_options.pre_encoded.value_or(false);
   return options;
 }
 
@@ -83,7 +85,7 @@ void NativeAudioSink::OnData(const void* audio_data,
                              int sample_rate,
                              size_t number_of_channels,
                              size_t number_of_frames) {
-  RTC_CHECK_EQ(16, bits_per_sample);
+  // RTC_CHECK_EQ(16, bits_per_sample);
   rust::Slice<const int16_t> data(static_cast<const int16_t*>(audio_data),
                                   number_of_channels * number_of_frames);
   observer_->on_data(data, sample_rate, number_of_channels, number_of_frames);
@@ -141,6 +143,18 @@ void AudioTrackSource::InternalSource::on_captured_frame(
   }
 }
 
+void AudioTrackSource::InternalSource::on_captured_frame_u8(
+    rust::Slice<const uint8_t> data,
+    uint32_t sample_rate,
+    uint32_t number_of_channels,
+    size_t number_of_frames) {
+  webrtc::MutexLock lock(&mutex_);
+  for (auto sink : sinks_) {
+    sink->OnData(data.data(), 16,  sample_rate, number_of_channels,
+                 number_of_frames);
+  }
+}
+
 AudioTrackSource::AudioTrackSource(AudioSourceOptions options) {
   source_ =
       rtc::make_ref_counted<InternalSource>(to_native_audio_options(options));
@@ -160,6 +174,15 @@ void AudioTrackSource::on_captured_frame(rust::Slice<const int16_t> audio_data,
                                          uint32_t number_of_channels,
                                          size_t number_of_frames) const {
   source_->on_captured_frame(audio_data, sample_rate, number_of_channels,
+                             number_of_frames);
+}
+
+
+void AudioTrackSource::on_captured_frame_u8(rust::Slice<const uint8_t> audio_data,
+                                         uint32_t sample_rate,
+                                         uint32_t number_of_channels,
+                                         size_t number_of_frames) const {
+  source_->on_captured_frame_u8(audio_data, sample_rate, number_of_channels,
                              number_of_frames);
 }
 

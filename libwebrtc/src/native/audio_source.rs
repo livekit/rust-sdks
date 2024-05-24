@@ -22,22 +22,22 @@ use tokio::sync::{
 };
 use webrtc_sys::audio_track as sys_at;
 
-use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
+use crate::{audio_frame::AudioFrame, audio_frame::AudioFrame_u8, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
 
 const BUFFER_SIZE_MS: usize = 50;
 
 #[derive(Clone)]
 pub struct NativeAudioSource {
     sys_handle: SharedPtr<sys_at::ffi::AudioTrackSource>,
-    inner: Arc<AsyncMutex<AudioSourceInner>>,
+    inner: Arc<AsyncMutex<AudioSourceInner<i16>>>,
     sample_rate: u32,
     num_channels: u32,
     samples_10ms: usize,
     po_tx: mpsc::Sender<Vec<i16>>,
 }
 
-struct AudioSourceInner {
-    buf: Box<[i16]>,
+struct AudioSourceInner<T> {
+    buf: Box<[T]>,
 
     // Amount of data from the previous frame that hasn't been sent to the libwebrtc source
     // (because it requires 10ms of data)
@@ -171,12 +171,115 @@ impl NativeAudioSource {
     }
 }
 
+
+#[derive(Clone)]
+pub struct EncodedAudioSource {
+    sys_handle: SharedPtr<sys_at::ffi::AudioTrackSource>,
+    sample_rate: u32,
+    num_channels: u32,
+    samples_10ms: usize,
+    po_tx: mpsc::Sender<Vec<u8>>,
+
+}
+
+impl EncodedAudioSource {
+    pub fn new(
+        options: AudioSourceOptions,
+        sample_rate: u32,
+        num_channels: u32,
+    ) -> EncodedAudioSource {
+        let samples_10ms = (sample_rate / 100 * num_channels) as usize;
+        let (po_tx, mut po_rx) = mpsc::channel(BUFFER_SIZE_MS / 10);
+
+        let source = Self {
+            sys_handle: sys_at::ffi::new_audio_track_source(options.into()),
+            sample_rate,
+            num_channels,
+            samples_10ms,
+            po_tx,
+        };
+
+        livekit_runtime::spawn({
+            let source = source.clone();
+            async move {
+                let mut interval = interval(Duration::from_millis(10));
+                interval.set_missed_tick_behavior(livekit_runtime::MissedTickBehavior::Delay);
+                let blank_data = vec![0u8; samples_10ms];
+
+                loop {
+                    interval.tick().await;
+
+                    let frame = po_rx.try_recv();
+                    if let Err(TryRecvError::Disconnected) = frame {
+                        break;
+                    }
+
+                    if let Err(TryRecvError::Empty) = frame {
+                        source.sys_handle.on_captured_frame_u8(
+                            &blank_data,
+                            sample_rate,
+                            num_channels,
+                            blank_data.len() / num_channels as usize,
+                        );
+                        continue;
+                    }
+
+                    let frame = frame.unwrap();
+                    source.sys_handle.on_captured_frame_u8(
+                        &frame,
+                        sample_rate,
+                        num_channels,
+                        frame.len() / num_channels as usize,
+                    );
+                }
+            }
+        });
+
+        source
+    }
+
+
+    pub fn sys_handle(&self) -> SharedPtr<sys_at::ffi::AudioTrackSource> {
+        self.sys_handle.clone()
+    }
+
+    pub fn set_audio_options(&self, options: AudioSourceOptions) {
+        self.sys_handle.set_audio_options(&sys_at::ffi::AudioSourceOptions::from(options))
+    }
+
+    pub fn audio_options(&self) -> AudioSourceOptions {
+        self.sys_handle.audio_options().into()
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    pub fn num_channels(&self) -> u32 {
+        self.num_channels
+    }
+
+    pub async fn capture_frame(&self, frame: &AudioFrame_u8) -> Result<(), RtcError> {
+        if self.sample_rate != frame.sample_rate || self.num_channels != frame.num_channels {
+            return Err(RtcError {
+                error_type: RtcErrorType::InvalidState,
+                message: "sample_rate and num_channels don't match".to_owned(),
+            });
+        }
+
+        let _ = self.po_tx.send(frame.data.to_vec()).await;
+
+        Ok(())
+    }
+}
+
 impl From<sys_at::ffi::AudioSourceOptions> for AudioSourceOptions {
     fn from(options: sys_at::ffi::AudioSourceOptions) -> Self {
         Self {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
+            pre_encoded: options.pre_encoded,
         }
     }
 }
@@ -187,6 +290,8 @@ impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
+            pre_encoded: options.pre_encoded,
         }
     }
 }
+
