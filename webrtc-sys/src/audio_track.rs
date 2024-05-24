@@ -23,6 +23,7 @@ pub mod ffi {
         pub echo_cancellation: bool,
         pub noise_suppression: bool,
         pub auto_gain_control: bool,
+        pub pre_encoded: bool,
     }
 
     extern "C++" {

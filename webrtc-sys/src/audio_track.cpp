@@ -39,6 +39,7 @@ inline cricket::AudioOptions to_native_audio_options(
   rtc_options.echo_cancellation = options.echo_cancellation;
   rtc_options.noise_suppression = options.noise_suppression;
   rtc_options.auto_gain_control = options.auto_gain_control;
+  rtc_options.pre_encoded = options.pre_encoded;
   return rtc_options;
 }
 
@@ -48,6 +49,7 @@ inline AudioSourceOptions to_rust_audio_options(
   options.echo_cancellation = rtc_options.echo_cancellation.value_or(false);
   options.noise_suppression = rtc_options.noise_suppression.value_or(false);
   options.auto_gain_control = rtc_options.auto_gain_control.value_or(false);
+  options.pre_encoded = rtc_options.pre_encoded.value_or(false);
   return options;
 }
 

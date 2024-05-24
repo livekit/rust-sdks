@@ -303,11 +303,11 @@ impl EncryptionState {
 /// # Safety
 /// The foreign language is responsable for disposing handles
 /// Forgetting to dispose the handle may lead to memory leaks
-/// 
+///
 /// Dropping a handle doesn't necessarily mean that the object is destroyed if it is still used
 /// on the FfiServer (Atomic reference counting)
-/// 
-/// When refering to a handle without owning it, we just use a uint32 without this message. 
+///
+/// When refering to a handle without owning it, we just use a uint32 without this message.
 /// (the variable name is suffixed with "_handle")
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1549,7 +1549,7 @@ pub struct NewVideoSourceRequest {
     #[prost(enumeration="VideoSourceType", tag="1")]
     pub r#type: i32,
     /// Used to determine which encodings to use + simulcast layers
-    /// Most of the time it corresponds to the source resolution 
+    /// Most of the time it corresponds to the source resolution
     #[prost(message, optional, tag="2")]
     pub resolution: ::core::option::Option<VideoSourceResolution>,
 }
@@ -2716,7 +2716,7 @@ pub struct NewAudioSourceResponse {
     #[prost(message, optional, tag="1")]
     pub source: ::core::option::Option<OwnedAudioSource>,
 }
-/// Push a frame to an AudioSource 
+/// Push a frame to an AudioSource
 /// The data provided must be available as long as the client receive the callback.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2851,6 +2851,8 @@ pub struct AudioSourceOptions {
     pub noise_suppression: bool,
     #[prost(bool, tag="3")]
     pub auto_gain_control: bool,
+    #[prost(bool, tag="4")]
+    pub pre_encoded: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2955,7 +2957,7 @@ impl AudioSourceType {
 //    that it receives from the server.
 //
 // Therefore, the ffi client is easier to implement if there is less handles to manage.
-// 
+//
 // - We are mainly using FfiHandle on info messages (e.g: RoomInfo, TrackInfo, etc...)
 //    For this reason, info are only sent once, at creation (We're not using them for updates, we can infer them from
 //    events on the client implementation).
