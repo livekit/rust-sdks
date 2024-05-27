@@ -89,8 +89,9 @@ message PublishDataRequest {
   uint64 data_ptr = 2;
   uint64 data_len = 3;
   DataPacketKind kind = 4;
-  repeated string destination_sids = 5; // destination
+  repeated string destination_sids = 5 [deprecated=true];
   optional string topic = 6;
+  repeated string destination_identities = 7;
 }
 message PublishDataResponse {
   uint64 async_id = 1;

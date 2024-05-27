@@ -238,19 +238,21 @@ impl RoomInner {
         .to_vec();
 
         let kind = publish.kind();
-        let destination_sids = publish.destination_sids;
+        let destination_identities = publish.destination_identities;
         let async_id = server.next_id();
 
         if let Err(err) = self.data_tx.send(FfiDataPacket {
             payload: DataPacket {
                 payload: data.to_vec(), // Avoid copy?
-                kind: kind.into(),
+                reliable: match kind {
+                    proto::DataPacketKind::KindLossy => false,
+                    proto::DataPacketKind::KindReliable => true,
+                },
                 topic: publish.topic,
-                destination_sids: destination_sids
+                destination_identities: destination_identities
                     .into_iter()
                     .map(|str| str.try_into().unwrap())
                     .collect(),
-                destination_identities: Vec::new(), // TODO
             },
             async_id,
         }) {
