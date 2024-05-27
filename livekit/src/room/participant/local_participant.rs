@@ -73,8 +73,8 @@ impl LocalParticipant {
         }
     }
 
-    pub(crate) fn internal_tracks(&self) -> HashMap<TrackSid, TrackPublication> {
-        self.inner.tracks.read().clone()
+    pub(crate) fn internal_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.inner.track_publications.read().clone()
     }
 
     pub(crate) fn update_info(&self, info: proto::ParticipantInfo) {
@@ -144,7 +144,7 @@ impl LocalParticipant {
     }
 
     pub(crate) fn published_tracks_info(&self) -> Vec<proto::TrackPublishedResponse> {
-        let tracks = self.tracks();
+        let tracks = self.track_publications();
         let mut vec = Vec::with_capacity(tracks.len());
 
         for p in tracks.values() {
@@ -323,7 +323,7 @@ impl LocalParticipant {
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
-        self.inner.tracks.read().get(sid).map(|track| {
+        self.inner.track_publications.read().get(sid).map(|track| {
             if let TrackPublication::Local(local) = track {
                 return local.clone();
             }
@@ -352,9 +352,9 @@ impl LocalParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> HashMap<TrackSid, LocalTrackPublication> {
+    pub fn track_publications(&self) -> HashMap<TrackSid, LocalTrackPublication> {
         self.inner
-            .tracks
+            .track_publications
             .read()
             .clone()
             .into_iter()

@@ -82,8 +82,8 @@ impl RemoteParticipant {
         }
     }
 
-    pub(crate) fn internal_tracks(&self) -> HashMap<TrackSid, TrackPublication> {
-        self.inner.tracks.read().clone()
+    pub(crate) fn internal_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.inner.track_publications.read().clone()
     }
 
     pub(crate) async fn add_subscribed_media_track(
@@ -206,7 +206,7 @@ impl RemoteParticipant {
         }
 
         // remove tracks that are no longer valid
-        let tracks = self.inner.tracks.read().clone();
+        let tracks = self.inner.track_publications.read().clone();
         for sid in tracks.keys() {
             if valid_tracks.contains(sid) {
                 continue;
@@ -372,7 +372,7 @@ impl RemoteParticipant {
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
-        self.inner.tracks.read().get(sid).map(|track| {
+        self.inner.track_publications.read().get(sid).map(|track| {
             if let TrackPublication::Remote(remote) = track {
                 return remote.clone();
             }
@@ -400,9 +400,9 @@ impl RemoteParticipant {
         self.inner.info.read().speaking
     }
 
-    pub fn tracks(&self) -> HashMap<TrackSid, RemoteTrackPublication> {
+    pub fn track_publications(&self) -> HashMap<TrackSid, RemoteTrackPublication> {
         self.inner
-            .tracks
+            .track_publications
             .read()
             .clone()
             .into_iter()

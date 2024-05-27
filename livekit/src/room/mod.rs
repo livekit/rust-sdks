@@ -446,7 +446,7 @@ impl Room {
         let participants = inner.remote_participants.read().clone();
         let participants_with_tracks = participants
             .into_values()
-            .map(|p| (p.clone(), p.tracks().into_values().collect()))
+            .map(|p| (p.clone(), p.track_publications().into_values().collect()))
             .collect();
 
         let events = inner.dispatcher.register();
@@ -753,7 +753,7 @@ impl RoomSession {
 
         let mut track_sids = Vec::new();
         for (_, participant) in self.remote_participants.read().clone() {
-            for (track_sid, track) in participant.tracks() {
+            for (track_sid, track) in participant.track_publications() {
                 if track.is_desired() != auto_subscribe {
                     track_sids.push(track_sid.to_string());
                 }
@@ -889,7 +889,7 @@ impl RoomSession {
 
         // Unpublish and republish every track
         // At this time we know that the RtcSession is successfully restarted
-        let published_tracks = self.local_participant.tracks();
+        let published_tracks = self.local_participant.track_publications();
 
         // Spawining a new task because we need to wait for the RtcEngine to close the reconnection
         // lock.
@@ -1126,7 +1126,7 @@ impl RoomSession {
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     fn handle_participant_disconnect(self: Arc<Self>, remote_participant: RemoteParticipant) {
-        for (sid, _) in remote_participant.tracks() {
+        for (sid, _) in remote_participant.track_publications() {
             remote_participant.unpublish_track(&sid);
         }
 
