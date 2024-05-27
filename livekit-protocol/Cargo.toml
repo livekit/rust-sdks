@@ -7,8 +7,8 @@ description = "Livekit protocol and utilities for the Rust SDK"
 repository = "https://github.com/livekit/rust-sdks"
 
 [dependencies]
-livekit-runtime = { path = "../livekit-runtime", version = "0.3.0" }
-tokio = { version = "1", default-features = false, features = [ "sync", "macros" ] }
+livekit-runtime = { path = "../livekit-runtime", version = "0.3.0", features = [ "tokio" ] }
+tokio = { version = "1", default-features = false, features = [ "sync", "macros", "time", "net" ] }
 futures-util = { version = "0.3", features = ["sink"] }
 parking_lot = "0.12"
 prost = "0.12"
