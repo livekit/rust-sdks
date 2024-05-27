@@ -179,8 +179,7 @@ pub enum DataPacketKind {
 pub struct DataPacket {
     pub payload: Vec<u8>,
     pub topic: Option<String>,
-    pub kind: DataPacketKind,
-    pub destination_sids: Vec<ParticipantSid>,
+    pub reliable: bool,
     pub destination_identities: Vec<ParticipantIdentity>,
 }
 
@@ -189,8 +188,7 @@ impl Default for DataPacket {
         Self {
             payload: Vec::new(),
             topic: None,
-            kind: DataPacketKind::Reliable,
-            destination_sids: Vec::new(),
+            reliable: false,
             destination_identities: Vec::new(),
         }
     }

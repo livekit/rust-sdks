@@ -271,22 +271,24 @@ impl LocalParticipant {
     }
 
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
+        let kind = match packet.reliable {
+            true => DataPacketKind::Reliable,
+            false => DataPacketKind::Lossy,
+        };
         let destination_identities: Vec<String> =
             packet.destination_identities.into_iter().map(Into::into).collect();
         let data = proto::DataPacket {
-            kind: packet.kind as i32,
+            kind: kind as i32,
             destination_identities: destination_identities.clone(),
             value: Some(proto::data_packet::Value::User(proto::UserPacket {
                 payload: packet.payload,
                 topic: packet.topic,
-                destination_sids: packet.destination_sids.into_iter().map(Into::into).collect(),
-                destination_identities: destination_identities.clone(),
                 ..Default::default()
             })),
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(&data, packet.kind).await.map_err(Into::into)
+        self.inner.rtc_engine.publish_data(&data, kind).await.map_err(Into::into)
     }
 
     pub async fn publish_transcription(&self, packet: Transcription) -> RoomResult<()> {
