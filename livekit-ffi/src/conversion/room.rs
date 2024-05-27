@@ -213,8 +213,9 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 }
 
 impl From<&FfiRoom> for proto::RoomInfo {
-    fn from(value: &FfiRoom) -> Self {
+    #[tokio::main]
+    async fn from(value: &FfiRoom) -> Self {
         let room = &value.inner.room;
-        Self { sid: room.sid().into(), name: room.name(), metadata: room.metadata() }
+        Self { sid: room.sid().await.into(), name: room.name(), metadata: room.metadata() }
     }
 }
