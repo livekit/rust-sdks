@@ -2018,8 +2018,9 @@ pub struct PublishDataRequest {
     pub data_ptr: u64,
     #[prost(uint64, tag="3")]
     pub data_len: u64,
-    #[prost(enumeration="DataPacketKind", tag="4")]
-    pub kind: i32,
+    #[prost(bool, tag="4")]
+    pub reliable: bool,
+    #[deprecated]
     #[prost(string, repeated, tag="5")]
     pub destination_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, optional, tag="6")]

@@ -88,7 +88,7 @@ message PublishDataRequest {
   uint64 local_participant_handle = 1;
   uint64 data_ptr = 2;
   uint64 data_len = 3;
-  DataPacketKind kind = 4;
+  bool reliable = 4;
   repeated string destination_sids = 5 [deprecated=true];
   optional string topic = 6;
   repeated string destination_identities = 7;

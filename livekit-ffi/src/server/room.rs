@@ -237,18 +237,16 @@ impl RoomInner {
         }
         .to_vec();
 
-        let kind = publish.kind();
+        let reliable = publish.reliable;
+        let topic = publish.topic;
         let destination_identities = publish.destination_identities;
         let async_id = server.next_id();
 
         if let Err(err) = self.data_tx.send(FfiDataPacket {
             payload: DataPacket {
                 payload: data.to_vec(), // Avoid copy?
-                reliable: match kind {
-                    proto::DataPacketKind::KindLossy => false,
-                    proto::DataPacketKind::KindReliable => true,
-                },
-                topic: publish.topic,
+                reliable,
+                topic,
                 destination_identities: destination_identities
                     .into_iter()
                     .map(|str| str.try_into().unwrap())
