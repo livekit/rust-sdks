@@ -246,10 +246,9 @@ pub struct Room {
 }
 
 impl Debug for Room {
-    #[tokio::main]
-    async fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Room")
-            .field("sid", &self.sid().await)
+            .field("sid", &self.inner.sid)
             .field("name", &self.name())
             .field("connection_state", &self.connection_state())
             .finish()
