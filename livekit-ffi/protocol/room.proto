@@ -161,6 +161,16 @@ message GetSessionStatsCallback {
   repeated RtcStats subscriber_stats = 4;
 }
 
+message GetRoomSidRequest {
+  uint64 room_handle = 1;
+}
+message GetRoomSidResponse {
+  uint64 async_id = 1;
+}
+message GetRoomSidCallback {
+  uint64 async_id = 1;
+  string sid = 2;
+}
 
 //
 // Options

@@ -264,7 +264,7 @@ pub(crate) struct RoomSession {
     rtc_engine: Arc<RtcEngine>,
     sid_tx: AsyncMutex<Option<oneshot::Sender<()>>>,
     sid_rx: AsyncMutex<oneshot::Receiver<()>>,
-    sid: RwLock<RoomSid>,
+    sid: RwLock<Option<RoomSid>>,
     name: String,
     info: RwLock<RoomInfo>,
     dispatcher: Dispatcher<RoomEvent>,
@@ -408,8 +408,6 @@ impl Room {
             room_task: Default::default(),
         });
 
-        inner.set_sid(room_info.sid.try_into().unwrap());
-
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
             let inner = inner.clone();
@@ -485,6 +483,10 @@ impl Room {
 
     pub async fn sid(&self) -> RoomSid {
         let _ = self.inner.sid_rx.lock().await;
+        self.inner.sid.read().clone().unwrap()
+    }
+
+    pub fn maybe_sid(&self) -> Option<RoomSid> {
         self.inner.sid.read().clone()
     }
 
@@ -849,7 +851,13 @@ impl RoomSession {
                 metadata: info.metadata.clone(),
             });
         }
-        self.set_sid(room.sid.try_into().unwrap());
+        if self.sid.read().is_none() && !room.sid.is_empty() {
+            let mut sid = self.sid.write();
+            *sid = Some(room.sid.try_into().unwrap());
+            if let Ok(mut tx) = self.sid_tx.try_lock() {
+                let _ = tx.take().unwrap().send(());
+            }
+        }
     }
 
     fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
@@ -1158,22 +1166,6 @@ impl RoomSession {
         identity: &ParticipantIdentity,
     ) -> Option<RemoteParticipant> {
         self.remote_participants.read().get(identity).cloned()
-    }
-
-    fn set_sid(&self, sid: RoomSid) {
-        let mut guard = self.sid_tx.blocking_lock();
-        let maybe_tx = guard.take();
-        if let Some(tx) = maybe_tx {
-            if !tx.is_closed() && sid != "".to_string().try_into().unwrap() {
-                let mut s = self.sid.write();
-                *s = sid;
-                let _ = tx.send(());
-                // self.sid_tx isn't replaced, remains None
-            } else {
-                // Sender isn't fired, gets put back in place
-                guard.replace(tx);
-            }
-        }
     }
 }
 
