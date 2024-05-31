@@ -166,6 +166,21 @@ impl FfiRoom {
                         },
                     ));
 
+                    // Update Room SID on promise resolve
+                    let room_handle = inner.handle_id.clone();
+                    server.async_runtime.spawn(async move {
+                        let _ = server.send_event(proto::ffi_event::Message::RoomEvent(
+                            proto::RoomEvent {
+                                room_handle,
+                                message: Some(proto::room_event::Message::RoomSidChanged(
+                                    proto::RoomSidChanged {
+                                        sid: ffi_room.inner.room.sid().await.into(),
+                                    },
+                                )),
+                            },
+                        ));
+                    });
+
                     // Forward events
                     let event_handle = server.watch_panic({
                         let close_rx = close_rx.resubscribe();
@@ -714,11 +729,6 @@ async fn forward_event(
             let _ = send_event(proto::room_event::Message::RoomMetadataChanged(
                 proto::RoomMetadataChanged { metadata },
             ));
-        }
-        RoomEvent::RoomSidChanged { sid } => {
-            let _ = send_event(proto::room_event::Message::RoomSidChanged(proto::RoomSidChanged {
-                sid,
-            }));
         }
         RoomEvent::ParticipantMetadataChanged { participant, old_metadata: _, metadata } => {
             let _ = send_event(proto::room_event::Message::ParticipantMetadataChanged(
