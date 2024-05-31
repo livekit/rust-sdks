@@ -1,10 +1,7 @@
 .cipd
-src
 .gclient_*
 depot_tools
 ninja
-
-!src/livekit_rtc/**/*
 
 # builds
 win-*
@@ -12,3 +9,8 @@ mac-*
 linux-*
 android-*
 ios-*
+
+src/*
+!src/livekit_rtc/*
+
+
