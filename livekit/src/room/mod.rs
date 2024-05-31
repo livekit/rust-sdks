@@ -29,7 +29,7 @@ use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
-use proto::SignalTarget;
+use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
@@ -262,9 +262,8 @@ struct RoomInfo {
 
 pub(crate) struct RoomSession {
     rtc_engine: Arc<RtcEngine>,
-    sid_tx: AsyncMutex<Option<oneshot::Sender<()>>>,
-    sid_rx: AsyncMutex<oneshot::Receiver<()>>,
-    sid: RwLock<Option<RoomSid>>,
+    sid_promise: Promise<RoomSid>,
+    sid: AsyncMutex<Option<RoomSid>>,
     name: String,
     info: RwLock<RoomInfo>,
     dispatcher: Dispatcher<RoomEvent>,
@@ -388,10 +387,8 @@ impl Room {
         });
 
         let room_info = join_response.room.unwrap();
-        let (send, recv) = oneshot::channel();
         let inner = Arc::new(RoomSession {
-            sid_tx: AsyncMutex::new(Some(send)),
-            sid_rx: AsyncMutex::new(recv),
+            sid_promise: Promise::new(),
             sid: Default::default(),
             name: room_info.name,
             info: RwLock::new(RoomInfo {
@@ -482,12 +479,15 @@ impl Room {
     }
 
     pub async fn sid(&self) -> RoomSid {
-        let _ = self.inner.sid_rx.lock().await;
-        self.inner.sid.read().clone().unwrap()
+        let mut sid = self.inner.sid.lock().await;
+        if sid.is_none() {
+            sid.replace(self.inner.sid_promise.result().await.unwrap());
+        }
+        sid.clone().unwrap()
     }
 
     pub fn maybe_sid(&self) -> Option<RoomSid> {
-        self.inner.sid.read().clone()
+        self.inner.sid.try_lock().unwrap().clone()
     }
 
     pub fn name(&self) -> String {
@@ -851,12 +851,8 @@ impl RoomSession {
                 metadata: info.metadata.clone(),
             });
         }
-        if self.sid.read().is_none() && !room.sid.is_empty() {
-            let mut sid = self.sid.write();
-            *sid = Some(room.sid.try_into().unwrap());
-            if let Ok(mut tx) = self.sid_tx.try_lock() {
-                let _ = tx.take().unwrap().send(());
-            }
+        if !room.sid.is_empty() {
+            let _ = self.sid_promise.resolve(room.sid.try_into().unwrap());
         }
     }
 

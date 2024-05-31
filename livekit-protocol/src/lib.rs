@@ -18,6 +18,7 @@
 pub mod debouncer;
 pub mod enum_dispatch;
 pub mod observer;
+pub mod promise;
 
 include!("livekit.rs");
 
