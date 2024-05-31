@@ -161,17 +161,6 @@ message GetSessionStatsCallback {
   repeated RtcStats subscriber_stats = 4;
 }
 
-message GetRoomSidRequest {
-  uint64 room_handle = 1;
-}
-message GetRoomSidResponse {
-  uint64 async_id = 1;
-}
-message GetRoomSidCallback {
-  uint64 async_id = 1;
-  string sid = 2;
-}
-
 //
 // Options
 //
@@ -284,9 +273,10 @@ message RoomEvent {
     TrackUnmuted track_unmuted = 12;
     ActiveSpeakersChanged active_speakers_changed = 13;
     RoomMetadataChanged room_metadata_changed = 14;
-    ParticipantMetadataChanged participant_metadata_changed = 15;
-    ParticipantNameChanged participant_name_changed = 16;
-    ConnectionQualityChanged connection_quality_changed = 17;
+    RoomSidChanged room_sid_changed = 15;
+    ParticipantMetadataChanged participant_metadata_changed = 16;
+    ParticipantNameChanged participant_name_changed = 17;
+    ConnectionQualityChanged connection_quality_changed = 18;
     ConnectionStateChanged connection_state_changed = 19;
     // Connected connected = 20;
     Disconnected disconnected = 21;
@@ -373,6 +363,10 @@ message ActiveSpeakersChanged { repeated string participant_sids = 1; }
 
 message RoomMetadataChanged { 
   string metadata = 1;
+}
+
+message RoomSidChanged {
+  string sid = 1;
 }
 
 message ParticipantMetadataChanged { 

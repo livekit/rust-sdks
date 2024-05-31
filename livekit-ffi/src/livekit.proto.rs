@@ -2150,26 +2150,6 @@ pub struct GetSessionStatsCallback {
     #[prost(message, repeated, tag="4")]
     pub subscriber_stats: ::prost::alloc::vec::Vec<RtcStats>,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoomSidRequest {
-    #[prost(uint64, tag="1")]
-    pub room_handle: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoomSidResponse {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoomSidCallback {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-    #[prost(string, tag="2")]
-    pub sid: ::prost::alloc::string::String,
-}
 //
 // Options
 //
@@ -2280,7 +2260,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2315,10 +2295,12 @@ pub mod room_event {
         #[prost(message, tag="14")]
         RoomMetadataChanged(super::RoomMetadataChanged),
         #[prost(message, tag="15")]
-        ParticipantMetadataChanged(super::ParticipantMetadataChanged),
+        RoomSidChanged(super::RoomSidChanged),
         #[prost(message, tag="16")]
-        ParticipantNameChanged(super::ParticipantNameChanged),
+        ParticipantMetadataChanged(super::ParticipantMetadataChanged),
         #[prost(message, tag="17")]
+        ParticipantNameChanged(super::ParticipantNameChanged),
+        #[prost(message, tag="18")]
         ConnectionQualityChanged(super::ConnectionQualityChanged),
         #[prost(message, tag="19")]
         ConnectionStateChanged(super::ConnectionStateChanged),
@@ -2463,6 +2445,12 @@ pub struct ActiveSpeakersChanged {
 pub struct RoomMetadataChanged {
     #[prost(string, tag="1")]
     pub metadata: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RoomSidChanged {
+    #[prost(string, tag="1")]
+    pub sid: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2987,7 +2975,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3018,23 +3006,21 @@ pub mod ffi_request {
         GetSessionStats(super::GetSessionStatsRequest),
         #[prost(message, tag="12")]
         PublishTranscription(super::PublishTranscriptionRequest),
-        #[prost(message, tag="13")]
-        GetRoomSid(super::GetRoomSidRequest),
         /// Track
-        #[prost(message, tag="14")]
+        #[prost(message, tag="13")]
         CreateVideoTrack(super::CreateVideoTrackRequest),
-        #[prost(message, tag="15")]
+        #[prost(message, tag="14")]
         CreateAudioTrack(super::CreateAudioTrackRequest),
-        #[prost(message, tag="16")]
+        #[prost(message, tag="15")]
         GetStats(super::GetStatsRequest),
         /// Video
-        #[prost(message, tag="17")]
+        #[prost(message, tag="16")]
         NewVideoStream(super::NewVideoStreamRequest),
-        #[prost(message, tag="18")]
+        #[prost(message, tag="17")]
         NewVideoSource(super::NewVideoSourceRequest),
-        #[prost(message, tag="19")]
+        #[prost(message, tag="18")]
         CaptureVideoFrame(super::CaptureVideoFrameRequest),
-        #[prost(message, tag="20")]
+        #[prost(message, tag="19")]
         VideoConvert(super::VideoConvertRequest),
         /// Audio
         #[prost(message, tag="22")]
@@ -3055,7 +3041,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3086,23 +3072,21 @@ pub mod ffi_response {
         GetSessionStats(super::GetSessionStatsResponse),
         #[prost(message, tag="12")]
         PublishTranscription(super::PublishTranscriptionResponse),
-        #[prost(message, tag="13")]
-        GetRoomSid(super::GetRoomSidResponse),
         /// Track
-        #[prost(message, tag="14")]
+        #[prost(message, tag="13")]
         CreateVideoTrack(super::CreateVideoTrackResponse),
-        #[prost(message, tag="15")]
+        #[prost(message, tag="14")]
         CreateAudioTrack(super::CreateAudioTrackResponse),
-        #[prost(message, tag="16")]
+        #[prost(message, tag="15")]
         GetStats(super::GetStatsResponse),
         /// Video
-        #[prost(message, tag="17")]
+        #[prost(message, tag="16")]
         NewVideoStream(super::NewVideoStreamResponse),
-        #[prost(message, tag="18")]
+        #[prost(message, tag="17")]
         NewVideoSource(super::NewVideoSourceResponse),
-        #[prost(message, tag="19")]
+        #[prost(message, tag="18")]
         CaptureVideoFrame(super::CaptureVideoFrameResponse),
-        #[prost(message, tag="20")]
+        #[prost(message, tag="19")]
         VideoConvert(super::VideoConvertResponse),
         /// Audio
         #[prost(message, tag="22")]
@@ -3125,7 +3109,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3169,8 +3153,6 @@ pub mod ffi_event {
         GetSessionStats(super::GetSessionStatsCallback),
         #[prost(message, tag="18")]
         Panic(super::Panic),
-        #[prost(message, tag="19")]
-        GetRoomSid(super::GetRoomSidCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

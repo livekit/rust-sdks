@@ -116,6 +116,9 @@ pub enum RoomEvent {
         old_metadata: String,
         metadata: String,
     },
+    RoomSidChanged {
+        sid: String,
+    },
     ParticipantMetadataChanged {
         participant: Participant,
         old_metadata: String,
@@ -846,7 +849,8 @@ impl RoomSession {
             });
         }
         if !room.sid.is_empty() {
-            let _ = self.sid.resolve(room.sid.try_into().unwrap());
+            let _ = self.sid.resolve(room.sid.clone().try_into().unwrap());
+            self.dispatcher.dispatch(&RoomEvent::RoomSidChanged { sid: room.sid });
         }
     }
 

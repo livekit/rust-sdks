@@ -715,6 +715,11 @@ async fn forward_event(
                 proto::RoomMetadataChanged { metadata },
             ));
         }
+        RoomEvent::RoomSidChanged { sid } => {
+            let _ = send_event(proto::room_event::Message::RoomSidChanged(proto::RoomSidChanged {
+                sid,
+            }));
+        }
         RoomEvent::ParticipantMetadataChanged { participant, old_metadata: _, metadata } => {
             let _ = send_event(proto::room_event::Message::ParticipantMetadataChanged(
                 proto::ParticipantMetadataChanged {

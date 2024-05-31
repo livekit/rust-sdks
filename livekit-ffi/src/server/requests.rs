@@ -548,25 +548,6 @@ fn on_get_session_stats(
     Ok(proto::GetSessionStatsResponse { async_id })
 }
 
-fn on_get_room_sid(
-    server: &'static FfiServer,
-    get_room_sid: proto::GetRoomSidRequest,
-) -> FfiResult<proto::GetRoomSidResponse> {
-    let ffi_room = server.retrieve_handle::<room::FfiRoom>(get_room_sid.room_handle)?.clone();
-    let async_id = server.next_id();
-
-    let handle =
-        server.async_runtime.spawn(async move {
-            let sid = ffi_room.inner.room.sid().await;
-            let _ = server.send_event(proto::ffi_event::Message::GetRoomSid(
-                proto::GetRoomSidCallback { async_id, sid: sid.into() },
-            ));
-        });
-
-    server.watch_panic(handle);
-    Ok(proto::GetRoomSidResponse { async_id })
-}
-
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -654,9 +635,6 @@ pub fn handle_request(
                 server,
                 get_session_stats,
             )?)
-        }
-        proto::ffi_request::Message::GetRoomSid(get_room_sid) => {
-            proto::ffi_response::Message::GetRoomSid(on_get_room_sid(server, get_room_sid)?)
         }
     });
 
