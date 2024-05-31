@@ -4,6 +4,8 @@ src
 depot_tools
 ninja
 
+!src/livekit_rtc/**/*
+
 # builds
 win-*
 mac-*
