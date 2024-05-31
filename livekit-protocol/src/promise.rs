@@ -12,38 +12,39 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use parking_lot::RwLock;
 use tokio::sync::{oneshot, Mutex};
 
 pub struct Promise<T> {
     tx: Mutex<Option<oneshot::Sender<T>>>,
     rx: Mutex<Option<oneshot::Receiver<T>>>,
-    done: RwLock<bool>,
+    result: Mutex<Option<T>>,
 }
 
-impl<T> Promise<T> {
+impl<T: Clone> Promise<T> {
     pub fn new() -> Self {
         let (tx, rx) = oneshot::channel();
-        Self { tx: Mutex::new(Some(tx)), rx: Mutex::new(Some(rx)), done: Default::default() }
+        Self { tx: Mutex::new(Some(tx)), rx: Mutex::new(Some(rx)), result: Default::default() }
     }
 
     pub fn resolve(&self, result: T) -> Result<(), &'static str> {
-        let done = self.done.read().clone();
-        if !done {
-            let _ = self.tx.try_lock().unwrap().take().unwrap().send(result);
-            let mut done = self.done.write();
-            *done = true;
+        let mut tx = self.tx.try_lock().unwrap();
+        if tx.is_some() {
+            let _ = tx.take().unwrap().send(result);
             Ok(())
         } else {
             Err("promise already used")
         }
     }
 
-    pub async fn result(&self) -> Result<T, &'static str> {
-        if !self.done.read().clone() {
-            Ok(self.rx.lock().await.take().unwrap().await.unwrap())
-        } else {
-            Err("promise already used")
+    pub async fn result(&self) -> T {
+        let mut rx = self.rx.lock().await;
+        if rx.is_some() {
+            self.result.lock().await.replace(rx.take().unwrap().await.unwrap());
         }
+        self.result.lock().await.clone().unwrap()
+    }
+
+    pub fn try_result(&self) -> Option<T> {
+        self.result.try_lock().unwrap().clone()
     }
 }

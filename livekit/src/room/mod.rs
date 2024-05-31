@@ -248,7 +248,7 @@ pub struct Room {
 impl Debug for Room {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Room")
-            .field("sid", &self.inner.sid)
+            .field("sid", &self.maybe_sid())
             .field("name", &self.name())
             .field("connection_state", &self.connection_state())
             .finish()
@@ -262,8 +262,7 @@ struct RoomInfo {
 
 pub(crate) struct RoomSession {
     rtc_engine: Arc<RtcEngine>,
-    sid_promise: Promise<RoomSid>,
-    sid: AsyncMutex<Option<RoomSid>>,
+    sid: Promise<RoomSid>,
     name: String,
     info: RwLock<RoomInfo>,
     dispatcher: Dispatcher<RoomEvent>,
@@ -278,7 +277,7 @@ pub(crate) struct RoomSession {
 impl Debug for RoomSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionInner")
-            .field("sid", &self.sid)
+            .field("sid", &self.sid.try_result())
             .field("name", &self.name)
             .field("rtc_engine", &self.rtc_engine)
             .finish()
@@ -388,8 +387,7 @@ impl Room {
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
-            sid_promise: Promise::new(),
-            sid: Default::default(),
+            sid: Promise::new(),
             name: room_info.name,
             info: RwLock::new(RoomInfo {
                 state: ConnectionState::Disconnected,
@@ -479,15 +477,11 @@ impl Room {
     }
 
     pub async fn sid(&self) -> RoomSid {
-        let mut sid = self.inner.sid.lock().await;
-        if sid.is_none() {
-            sid.replace(self.inner.sid_promise.result().await.unwrap());
-        }
-        sid.clone().unwrap()
+        self.inner.sid.result().await
     }
 
     pub fn maybe_sid(&self) -> Option<RoomSid> {
-        self.inner.sid.try_lock().unwrap().clone()
+        self.inner.sid.try_result()
     }
 
     pub fn name(&self) -> String {
@@ -852,7 +846,7 @@ impl RoomSession {
             });
         }
         if !room.sid.is_empty() {
-            let _ = self.sid_promise.resolve(room.sid.try_into().unwrap());
+            let _ = self.sid.resolve(room.sid.try_into().unwrap());
         }
     }
 
