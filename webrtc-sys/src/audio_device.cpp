@@ -16,9 +16,9 @@
 
 #include "livekit/audio_device.h"
 
-const int kBytesPerSample = 2;
 const int kSampleRate = 48000;
 const int kChannels = 2;
+const int kBytesPerSample = kChannels * sizeof(int16_t);
 const int kSamplesPer10Ms = kSampleRate / 100;
 
 namespace livekit {
