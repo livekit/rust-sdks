@@ -13,11 +13,9 @@
 // limitations under the License.
 
 use livekit_protocol as proto;
-use std::ptr::null;
 
 use crate::access_token::VideoGrants;
 use crate::get_env_keys;
-use crate::services::ingress::{CreateIngressOptions, IngressListFilter};
 use crate::services::twirp_client::TwirpClient;
 use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 
@@ -31,6 +29,8 @@ pub struct SIPClient {
 
 #[derive(Default, Clone, Debug)]
 pub struct CreateSIPTrunkOptions {
+    pub name: String,
+    pub metadata: String,
     /// CIDR or IPs that traffic is accepted from
     /// An empty list means all inbound traffic is accepted.
     pub inbound_addresses: Vec<String>,
@@ -58,9 +58,12 @@ pub enum ListSIPTrunkFilter {
 
 #[derive(Default, Clone, Debug)]
 pub struct CreateSIPDispatchRuleOptions {
+    pub name: String,
+    pub metadata: String,
     /// What trunks are accepted for this dispatch rule
     /// If empty all trunks will match this dispatch rule
     pub trunk_ids: Vec<String>,
+    pub inbound_numbers: Vec<String>,
     pub hide_phone_number: bool,
 }
 
@@ -73,8 +76,10 @@ pub enum ListSIPDispatchRuleFilter {
 pub struct CreateSIPParticipantOptions {
     /// Optional identity of the participant in LiveKit room
     pub participant_identity: String,
-    // Optionally set the name of the participant in a LiveKit room
+    /// Optionally set the name of the participant in a LiveKit room
     pub participant_name: String,
+    /// Optionally send metadata to the participant in LiveKit room
+    pub participant_metadata: String,
     /// Optionally send following DTMF digits (extension codes) when making a call.
     /// Character 'w' can be used to add a 0.5 sec delay.
     pub dtmf: String,
@@ -105,16 +110,18 @@ impl SIPClient {
                 SVC,
                 "CreateSIPTrunk",
                 proto::CreateSipTrunkRequest {
-                    outbound_number: number.to_owned(),
-                    outbound_address: options.outbound_address.to_owned(),
-                    outbound_username: options.outbound_username.to_owned(),
-                    outbound_password: options.outbound_password.to_owned(),
+                    name: options.name,
+                    metadata: options.metadata,
+                    outbound_number: number,
+                    outbound_address: options.outbound_address,
+                    outbound_username: options.outbound_username,
+                    outbound_password: options.outbound_password,
 
-                    inbound_numbers: options.inbound_numbers.to_owned(),
+                    inbound_numbers: options.inbound_numbers,
                     inbound_numbers_regex: Vec::new(),
-                    inbound_addresses: options.inbound_addresses.to_owned(),
-                    inbound_username: options.inbound_username.to_owned(),
-                    inbound_password: options.inbound_password.to_owned(),
+                    inbound_addresses: options.inbound_addresses,
+                    inbound_username: options.inbound_username,
+                    inbound_password: options.inbound_password,
                 },
                 self.base.auth_header(VideoGrants { ..Default::default() })?,
             )
@@ -161,7 +168,10 @@ impl SIPClient {
                 SVC,
                 "CreateSIPDispatchRule",
                 proto::CreateSipDispatchRuleRequest {
-                    trunk_ids: options.trunk_ids.to_owned(),
+                    name: options.name,
+                    metadata: options.metadata,
+                    trunk_ids: options.trunk_ids,
+                    inbound_numbers: options.inbound_numbers,
                     hide_phone_number: options.hide_phone_number,
                     rule: Some(proto::SipDispatchRule { rule: Some(rule.to_owned()) }),
                 },
@@ -217,12 +227,13 @@ impl SIPClient {
                 SVC,
                 "CreateSIPParticipant",
                 proto::CreateSipParticipantRequest {
-                    sip_trunk_id: sip_trunk_id.to_owned(),
-                    sip_call_to: call_to.to_owned(),
-                    room_name: room_name.to_owned(),
-                    participant_identity: options.participant_identity.to_owned(),
-                    participant_name: options.participant_name.to_owned(),
-                    dtmf: options.dtmf.to_owned(),
+                    sip_trunk_id,
+                    sip_call_to: call_to,
+                    room_name,
+                    participant_identity: options.participant_identity,
+                    participant_metadata: options.participant_metadata,
+                    participant_name: options.participant_name,
+                    dtmf: options.dtmf,
                     play_ringtone: options.play_ringtone,
                 },
                 self.base.auth_header(VideoGrants { ..Default::default() })?,

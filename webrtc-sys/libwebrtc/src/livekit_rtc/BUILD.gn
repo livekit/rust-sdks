@@ -1,0 +1,84 @@
+import("../webrtc.gni")
+
+if (is_android) {
+  import("//build/config/android/config.gni")
+  import("//build/config/android/rules.gni")
+} else if (is_mac) {
+  import("//build/config/mac/rules.gni")
+} else if (is_ios) {
+  import("//build/config/ios/rules.gni")
+} else if (is_linux) {
+  import("//build/config/linux/pkg_config.gni")
+}
+
+
+
+lk_sources = [
+  "src/peer.cc",
+  "src/audio_device.cc",
+  "src/transceiver.cc",
+  "src/utils.cc",
+  "src/data_channel.cc",
+  "src/capi.cc",
+  "src/video_encoder.cc",
+  "src/video_decoder.cc",
+  #"src/android.cc",
+]
+
+if (is_mac) {
+  lk_sources += [
+    "src/objc_video_factory.mm",
+  ]
+}
+
+config("livekit_config") {
+  include_dirs = [ "." ]
+}
+
+
+rtc_shared_library("livekit_rtc") {
+  libs = []
+
+  sources = lk_sources
+
+  defines = [
+    "USE_LIBYUV",
+    "WEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE",
+  ]
+
+  public_configs = [ ":livekit_config" ]
+
+  deps = [
+    "../api:create_peerconnection_factory",
+    "../api:libjingle_peerconnection_api",
+    "../api/audio_codecs:builtin_audio_decoder_factory",
+    "../api/audio_codecs:builtin_audio_encoder_factory",
+    "../api/crypto:frame_crypto_transformer",
+    "../api/video:video_frame",
+    "../api/video_codecs:builtin_video_decoder_factory",
+    "../api/video_codecs:builtin_video_encoder_factory",
+    "../media:rtc_audio_video",
+    "../media:rtc_internal_video_codecs",
+    "../media:rtc_media",
+    "../media:rtc_media_base",
+    "../modules/audio_device:audio_device",
+    "../modules/audio_processing:api",
+    "../modules/audio_processing:audio_processing",
+    "../modules/video_capture:video_capture_module",
+    "../pc:libjingle_peerconnection",
+    "../rtc_base:threading",
+    "../sdk:media_constraints",
+    "//third_party/abseil-cpp/absl/memory",
+    "//third_party/boringssl:boringssl",
+    "//third_party/libyuv",
+  ]
+
+
+  if (is_mac) {
+
+    deps += [
+      "../sdk:peerconnectionfactory_base_objc",
+    ]
+  }
+
+}

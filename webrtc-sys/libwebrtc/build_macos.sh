@@ -97,7 +97,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   enable_stripping=true \
   rtc_enable_symbol_export=true \
   rtc_enable_objc_symbol_export=false \
-  rtc_include_dav1d_in_internal_decoder_factory = true \
+  rtc_include_dav1d_in_internal_decoder_factory=true \
   rtc_use_h264=true \
   use_custom_libcxx=false \
   clang_use_chrome_plugins=false \
@@ -105,26 +105,19 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_lld=false"
 
 # build static library
-ninja -C "$OUTPUT_DIR" :default \
-  api/audio_codecs:builtin_audio_decoder_factory \
-  api/task_queue:default_task_queue_factory \
-  sdk:native_api \
-  sdk:default_codec_factory_objc \
-  pc:peerconnection \
-  sdk:videocapture_objc \
-  sdk:mac_framework_objc
+ninja -C "$OUTPUT_DIR" livekit_rtc
 
 # make libwebrtc.a
 # don't include nasm
-ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+#ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
-python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
+#python3 "./src/tools_webrtc/libs/generate_licenses.py" \
+#  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/liblivekit_rtc.dylib" "$ARTIFACTS_DIR/lib"
 
-cd src
-find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-
+#cd src
+# find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"

@@ -3,8 +3,8 @@ members = [
     "livekit",
     "livekit-api",
     "livekit-protocol",
-    "livekit-ffi",
+    #"livekit-ffi",
     "libwebrtc",
     "webrtc-sys",
-    "webrtc-sys/build",
+    "webrtc-sys/libwebrtc/build-utils",
 ]

@@ -7,15 +7,15 @@ license = "Apache-2.0"
 description = "Unsafe bindings to libwebrtc"
 repository = "https://github.com/livekit/client-sdk-rust"
 
+[features]
+default = []
+static = []
+
 [dependencies]
-cxx = "1.0"
 log = "0.4"
 
 [build-dependencies]
-webrtc-sys-build = { version = "0.3.2", path = "./build" }
-cxx-build = "1.0"
-glob = "0.3"
-cc = "1.0"
+libwebrtc-build = { version="0.3.2", path="./libwebrtc/build-utils"}
 
 [dev-dependencies]
 env_logger = "0.10"

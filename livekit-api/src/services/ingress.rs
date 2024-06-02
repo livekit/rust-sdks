@@ -26,7 +26,9 @@ pub struct CreateIngressOptions {
     pub participant_name: String,
     pub audio: proto::IngressAudioOptions,
     pub video: proto::IngressVideoOptions,
+    #[deprecated(note = "use enable_transcoding instead")]
     pub bypass_transcoding: bool,
+    pub enable_transcoding: bool,
     pub url: String,
 }
 
@@ -39,7 +41,9 @@ pub struct UpdateIngressOptions {
     pub participant_name: String,
     pub audio: proto::IngressAudioOptions,
     pub video: proto::IngressVideoOptions,
+    #[deprecated(note = "use enable_transcoding instead")]
     pub bypass_transcoding: Option<bool>,
+    pub enable_transcoding: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +93,7 @@ impl IngressClient {
                     audio: Some(options.audio),
                     video: Some(options.video),
                     bypass_transcoding: options.bypass_transcoding,
+                    enable_transcoding: Some(options.enable_transcoding),
                     url: options.url,
                 },
                 self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
@@ -116,6 +121,7 @@ impl IngressClient {
                     audio: Some(options.audio),
                     video: Some(options.video),
                     bypass_transcoding: options.bypass_transcoding,
+                    enable_transcoding: options.enable_transcoding,
                 },
                 self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
             )
