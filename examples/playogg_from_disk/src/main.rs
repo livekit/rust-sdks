@@ -15,8 +15,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::Cursor;
 
 
-const OGG_PAGE_DURATION: Duration = Duration::from_millis(20);
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -76,34 +74,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn({
         let room = room.clone();
         async move {
-            // It is important to use a time.Ticker instead of time.Sleep because
-            // * avoids accumulating skew, just calling time.Sleep didn't compensate for the time spent parsing the data
-            // * works around latency issues with Sleep
-            let mut ticker = tokio::time::interval(OGG_PAGE_DURATION);
 
-            // Keep track of last granule, the difference is the amount of samples in the buffer
-            let mut last_granule: u64 = 0;
+            log::info!("sample_rate: {}", header.sample_rate);
+            log::info!("num_channels: {}", header.channels);
 
             while let Ok((page_data, page_header)) = reader.parse_next_page() {
-                // The amount of samples is the difference between the last and current timestamp
-                let sample_count = page_header.granule_position - last_granule;
-                last_granule = page_header.granule_position;
+                let frame_size = page_data.len() / 2;
 
                 let mut audio_frame = AudioFrame {
                     data: vec![0i16; 0].into(),
                     sample_rate: header.sample_rate,
                     num_channels: header.channels as u32,
-                    samples_per_channel: (sample_count / header.channels as u64) as u32
+                    samples_per_channel: (frame_size / header.channels as usize) as u32
                 };
 
-                let mut rdr = Cursor::new(page_data.freeze());
+                let mut rdr = Cursor::new(page_data);
                 while let Ok(d) = rdr.read_i16::<LittleEndian>() {
                     audio_frame.data.to_mut().push(d);
                 }
 
-                source.capture_frame(&audio_frame).await.unwrap();
+                log::info!("sample_rate: {}, num_channels: {}, frame_size: {}, audio_frame.data.len: {}, samples_per_channel: {}",
+                audio_frame.sample_rate, audio_frame.num_channels, frame_size, audio_frame.data.len(), audio_frame.samples_per_channel);
 
-                let _ = ticker.tick().await;
+                source.capture_frame(&audio_frame).await.unwrap();
             }
 
             room.close().await.unwrap();
