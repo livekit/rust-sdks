@@ -1,6 +1,6 @@
 [package]
 name = "livekit-protocol"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 license = "Apache-2.0"
 description = "Livekit protocol and utilities for the Rust SDK"
@@ -8,7 +8,7 @@ repository = "https://github.com/livekit/rust-sdks"
 
 [dependencies]
 livekit-runtime = { path = "../livekit-runtime", version = "0.3.0", features = [ "tokio" ] }
-tokio = { version = "1", default-features = false, features = [ "sync", "macros", "time", "net" ] }
+tokio = { version = "1", default-features = false, features = [ "sync", "macros", "time", "net", "rt"  ] }
 futures-util = { version = "0.3", features = ["sink"] }
 parking_lot = "0.12"
 prost = "0.12"
