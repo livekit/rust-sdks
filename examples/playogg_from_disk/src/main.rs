@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     let room = Arc::new(room);
-    log::info!("Connected to room: {} - {}", room.name(), room.sid());
+    log::info!("Connected to room: {}", room.name());
 
     let source = EncodedAudioSource::new(
         AudioSourceOptions::default(),

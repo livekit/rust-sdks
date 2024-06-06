@@ -812,7 +812,7 @@ checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
 
 [[package]]
 name = "livekit"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "futures-util",
  "lazy_static",
@@ -852,7 +852,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "futures-util",
  "livekit-runtime",
