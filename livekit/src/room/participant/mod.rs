@@ -61,10 +61,10 @@ impl Participant {
         pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> Option<TrackPublication>;
     );
 
-    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+    pub fn track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
         match self {
-            Participant::Local(p) => p.internal_tracks(),
-            Participant::Remote(p) => p.internal_tracks(),
+            Participant::Local(p) => p.internal_track_publications(),
+            Participant::Remote(p) => p.internal_track_publications(),
         }
     }
 }
@@ -95,7 +95,7 @@ struct ParticipantEvents {
 pub(super) struct ParticipantInner {
     rtc_engine: Arc<RtcEngine>,
     info: RwLock<ParticipantInfo>,
-    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    track_publications: RwLock<HashMap<TrackSid, TrackPublication>>,
     events: Arc<ParticipantEvents>,
 }
 
@@ -117,7 +117,7 @@ pub(super) fn new_inner(
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
         }),
-        tracks: Default::default(),
+        track_publications: Default::default(),
         events: Default::default(),
     })
 }
@@ -203,7 +203,7 @@ pub(super) fn remove_publication(
     _participant: &Participant,
     sid: &TrackSid,
 ) -> Option<TrackPublication> {
-    let mut tracks = inner.tracks.write();
+    let mut tracks = inner.track_publications.write();
     let publication = tracks.remove(sid);
     if let Some(publication) = publication.clone() {
         // remove events
@@ -222,7 +222,7 @@ pub(super) fn add_publication(
     participant: &Participant,
     publication: TrackPublication,
 ) {
-    let mut tracks = inner.tracks.write();
+    let mut tracks = inner.track_publications.write();
     tracks.insert(publication.sid(), publication.clone());
 
     publication.on_muted({

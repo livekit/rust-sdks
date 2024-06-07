@@ -15,7 +15,7 @@ pub struct ParticipantIdentity(pub String);
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct TrackSid(String);
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct RoomSid(String);
 
 impl From<String> for ParticipantIdentity {

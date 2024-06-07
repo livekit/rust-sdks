@@ -166,6 +166,21 @@ impl FfiRoom {
                         },
                     ));
 
+                    // Update Room SID on promise resolve
+                    let room_handle = inner.handle_id.clone();
+                    server.async_runtime.spawn(async move {
+                        let _ = server.send_event(proto::ffi_event::Message::RoomEvent(
+                            proto::RoomEvent {
+                                room_handle,
+                                message: Some(proto::room_event::Message::RoomSidChanged(
+                                    proto::RoomSidChanged {
+                                        sid: ffi_room.inner.room.sid().await.into(),
+                                    },
+                                )),
+                            },
+                        ));
+                    });
+
                     // Forward events
                     let event_handle = server.watch_panic({
                         let close_rx = close_rx.resubscribe();
@@ -237,20 +252,20 @@ impl RoomInner {
         }
         .to_vec();
 
-        let kind = publish.kind();
-        let destination_sids = publish.destination_sids;
+        let reliable = publish.reliable;
+        let topic = publish.topic;
+        let destination_identities = publish.destination_identities;
         let async_id = server.next_id();
 
         if let Err(err) = self.data_tx.send(FfiDataPacket {
             payload: DataPacket {
                 payload: data.to_vec(), // Avoid copy?
-                kind: kind.into(),
-                topic: publish.topic,
-                destination_sids: destination_sids
+                reliable,
+                topic,
+                destination_identities: destination_identities
                     .into_iter()
                     .map(|str| str.try_into().unwrap())
                     .collect(),
-                destination_identities: Vec::new(), // TODO
             },
             async_id,
         }) {
