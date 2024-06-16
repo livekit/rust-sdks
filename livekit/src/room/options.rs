@@ -123,7 +123,9 @@ pub fn compute_video_encodings(
     options: &TrackPublishOptions,
 ) -> Vec<RtpEncodingParameters> {
     let screenshare = options.source == TrackSource::Screenshare;
-    let encoding = compute_appropriate_encoding(screenshare, width, height, options.video_codec);
+    let video_encoding = options.video_encoding.clone();
+
+    let encoding = compute_appropriate_encoding(screenshare, width, height, options.video_codec, video_encoding);
 
     let initial_preset = VideoPreset {
         width,
@@ -166,6 +168,7 @@ pub fn compute_appropriate_encoding(
     width: u32,
     height: u32,
     codec: VideoCodec,
+    override_encoding: Option<VideoEncoding>,
 ) -> VideoEncoding {
     let presets = compute_presets_for_resolution(is_screenshare, width, height);
     let size = u32::max(width, height);
@@ -183,6 +186,18 @@ pub fn compute_appropriate_encoding(
         VideoCodec::VP9 => encoding.max_bitrate = (encoding.max_bitrate as f32 * 0.85) as u64,
         VideoCodec::AV1 => encoding.max_bitrate = (encoding.max_bitrate as f32 * 0.7) as u64,
         _ => {}
+    }
+
+    if override_encoding.is_some() {
+        let override_enc = override_encoding.unwrap();
+        
+        if override_enc.max_bitrate > 0 {
+            encoding.max_bitrate = override_enc.max_bitrate;
+        }
+
+        if override_enc.max_framerate > 0.0 {
+            encoding.max_framerate = override_enc.max_framerate;
+        }
     }
 
     encoding
