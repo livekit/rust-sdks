@@ -125,7 +125,13 @@ pub fn compute_video_encodings(
     let screenshare = options.source == TrackSource::Screenshare;
     let video_encoding = options.video_encoding.clone();
 
-    let encoding = compute_appropriate_encoding(screenshare, width, height, options.video_codec, video_encoding);
+    let encoding = compute_appropriate_encoding(
+        screenshare,
+        width,
+        height,
+        options.video_codec,
+        video_encoding
+    );
 
     let initial_preset = VideoPreset {
         width,
@@ -190,7 +196,7 @@ pub fn compute_appropriate_encoding(
 
     if override_encoding.is_some() {
         let override_enc = override_encoding.unwrap();
-        
+
         if override_enc.max_bitrate > 0 {
             encoding.max_bitrate = override_enc.max_bitrate;
         }
