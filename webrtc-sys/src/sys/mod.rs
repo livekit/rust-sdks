@@ -3,8 +3,12 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
+mod conv;
 mod ffi;
+mod refcounted;
+
 pub use ffi::*;
+pub use refcounted::*;
 
 #[cfg(test)]
 mod tests {
