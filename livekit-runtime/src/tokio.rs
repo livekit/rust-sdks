@@ -7,6 +7,7 @@ pub use tokio::time::sleep;
 pub use tokio::time::timeout;
 pub use tokio::time::Instant;
 pub use tokio::time::MissedTickBehavior;
+pub use tokio_stream::Stream;
 
 pub type JoinHandle<T> = TokioJoinHandle<T>;
 pub type Interval = tokio::time::Interval;

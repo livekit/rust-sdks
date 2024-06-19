@@ -23,7 +23,6 @@ livekit-runtime = { path = "../livekit-runtime", version = "0.3.0" }
 lazy_static = "1.4"
 parking_lot = { version = "0.12" }
 tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
-tokio-stream = "0.1.14"
 cxx = "1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

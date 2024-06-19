@@ -1505,7 +1505,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-stream",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -1639,6 +1638,7 @@ dependencies = [
  "async-task",
  "futures",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]

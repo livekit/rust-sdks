@@ -3,6 +3,7 @@ use std::{sync::OnceLock, task::Poll, time::Duration};
 
 pub use async_std::net::TcpStream;
 pub use async_task::Runnable;
+pub use futures::Stream;
 pub use std::time::Instant;
 
 /// This is semantically equivalent to Tokio's MissedTickBehavior:
