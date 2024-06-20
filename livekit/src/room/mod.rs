@@ -199,7 +199,6 @@ pub struct Transcription {
     pub participant_identity: String,
     pub track_id: String,
     pub segments: Vec<TranscriptionSegment>,
-    pub language: String,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -209,6 +208,7 @@ pub struct TranscriptionSegment {
     pub start_time: u64,
     pub end_time: u64,
     pub r#final: bool,
+    pub language: String,
 }
 
 #[derive(Debug, Clone)]
@@ -318,6 +318,7 @@ impl Room {
             pi.identity.into(),
             pi.name,
             pi.metadata,
+            pi.attributes,
             e2ee_manager.encryption_type(),
         );
 
@@ -435,6 +436,7 @@ impl Room {
                     pi.identity.into(),
                     pi.name,
                     pi.metadata,
+                    pi.attributes,
                 )
             };
             participant.update_info(pi.clone());
@@ -653,6 +655,7 @@ impl RoomSession {
                         pi.identity.into(),
                         pi.name,
                         pi.metadata,
+                        pi.attributes,
                     )
                 };
 
@@ -1034,6 +1037,7 @@ impl RoomSession {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        attributes: HashMap<String, String>,
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
@@ -1041,6 +1045,7 @@ impl RoomSession {
             identity.clone(),
             name,
             metadata,
+            attributes,
             self.options.auto_subscribe,
         );
 

@@ -74,6 +74,7 @@ struct ParticipantInfo {
     pub identity: ParticipantIdentity,
     pub name: String,
     pub metadata: String,
+    pub attributes: HashMap<String, String>,
     pub speaking: bool,
     pub audio_level: f32,
     pub connection_quality: ConnectionQuality,
@@ -105,6 +106,7 @@ pub(super) fn new_inner(
     identity: ParticipantIdentity,
     name: String,
     metadata: String,
+    attributes: HashMap<String, String>,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -113,6 +115,7 @@ pub(super) fn new_inner(
             identity,
             name,
             metadata,
+            attributes,
             speaking: false,
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,

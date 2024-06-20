@@ -74,10 +74,11 @@ impl RemoteParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        attributes: HashMap<String, String>,
         auto_subscribe: bool,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
+            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
     }

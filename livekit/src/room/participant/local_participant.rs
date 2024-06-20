@@ -65,10 +65,11 @@ impl LocalParticipant {
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
+        attributes: HashMap<String, String>,
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata),
+            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes),
             local: Arc::new(LocalInfo { events: LocalEvents::default(), encryption_type }),
         }
     }
@@ -226,7 +227,25 @@ impl LocalParticipant {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata { metadata, name: self.name() },
+                proto::UpdateParticipantMetadata {
+                    metadata,
+                    name: self.name(),
+                    attributes: Default::default(),
+                },
+            ))
+            .await;
+        Ok(())
+    }
+
+    pub async fn update_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::UpdateMetadata(
+                proto::UpdateParticipantMetadata {
+                    attributes,
+                    metadata: self.metadata(),
+                    name: self.name(),
+                },
             ))
             .await;
         Ok(())
@@ -236,7 +255,11 @@ impl LocalParticipant {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata { metadata: self.metadata(), name },
+                proto::UpdateParticipantMetadata {
+                    name,
+                    metadata: self.metadata(),
+                    attributes: Default::default(),
+                },
             ))
             .await;
         Ok(())
@@ -302,14 +325,14 @@ impl LocalParticipant {
                     end_time: segment.end_time,
                     text: segment.text,
                     r#final: segment.r#final,
+                    language: segment.language,
                 }),
             )
             .collect();
         let transcription_packet = proto::Transcription {
-            participant_identity: packet.participant_identity,
+            transcribed_participant_identity: packet.participant_identity,
             segments: segments,
             track_id: packet.track_id,
-            language: packet.language,
         };
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::Transcription(transcription_packet)),
@@ -346,6 +369,10 @@ impl LocalParticipant {
 
     pub fn metadata(&self) -> String {
         self.inner.info.read().metadata.clone()
+    }
+
+    pub fn attributes(&self) -> HashMap<String, String> {
+        self.inner.info.read().attributes.clone()
     }
 
     pub fn is_speaking(&self) -> bool {
