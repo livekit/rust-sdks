@@ -7,7 +7,7 @@ edition = "2021"
 repository = "https://github.com/livekit/rust-sdks"
 
 [features]
-tokio = ["dep:tokio"]
+tokio = ["dep:tokio", "dep:tokio-stream"]
 async = [
     "dep:async-std",
     "dep:futures",
@@ -21,6 +21,7 @@ tokio = { version = "1", default-features = false, optional = true, features = [
     "rt",
     "rt-multi-thread",
 ] }
+tokio-stream = { version = "0.1.14", optional = true }
 
 # dispatcher and async-std
 async-std = { version = "1", optional = true }

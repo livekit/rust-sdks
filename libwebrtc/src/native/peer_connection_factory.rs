@@ -107,8 +107,8 @@ impl PeerConnectionFactory {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_peer_connection_factory() {
+    #[tokio::test]
+    async fn test_peer_connection_factory() {
         let _ = env_logger::builder().is_test(true).try_init();
 
         let factory = PeerConnectionFactory::default();
