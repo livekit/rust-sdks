@@ -79,18 +79,21 @@ jobs:
           - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
             target: aarch64-linux-android
             name: ffi-android-arm64
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
             target: armv7-linux-androideabi
             name: ffi-android-armv7
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
             target: x86_64-linux-android
             name: ffi-android-x86_64
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
@@ -165,11 +168,18 @@ jobs:
 
       # zip the files
       - name: Zip artifact (Unix)
-        if: ${{ matrix.os != 'windows-2019' }}
+        if: ${{ matrix.os != 'windows-2019' && matrix.platform != 'android'}}
         run: |
           cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
           cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h LICENSE.md
+
+      - name: Zip artifact (Unix for Android)
+        if: ${{ matrix.os != 'windows-2019' && matrix.platform == 'android'}}
+        run: |
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
+          cd target/${{ matrix.target }}/release/
+          zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} ${{ matrix.jar }} livekit_ffi.h LICENSE.md
 
       - name: Zip artifact (Windows)
         if: ${{ matrix.os == 'windows-2019' }}
