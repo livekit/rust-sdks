@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use std::{env, path, process::Command};
+use std::path::Path;
+use std::path::PathBuf;
 
 fn main() {
     if env::var("DOCS_RS").is_ok() {
@@ -206,6 +208,26 @@ fn main() {
     for entry in glob::glob("./include/**/*.h").unwrap() {
         println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
+
+    if target_os.as_str() == "android" {
+        copy_libwebrtc_jar(&PathBuf::from(Path::new(&webrtc_dir)));
+    }
+}
+
+fn copy_libwebrtc_jar(webrtc_dir: &PathBuf) {
+    let jar_path = webrtc_dir.join("libwebrtc.jar");
+    let output_path = get_output_path();
+    let output_jar_path = output_path.join("libwebrtc.jar");
+    let res = std::fs::copy(jar_path, output_jar_path);
+    println!("cargo:warning={:#?}",res);
+}
+
+fn get_output_path() -> PathBuf {
+    let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let build_type = env::var("PROFILE").unwrap();
+    let build_target = env::var("TARGET").unwrap();
+    let path = Path::new(&manifest_dir_string).join("../target").join( build_target).join(build_type);
+    return PathBuf::from(path);
 }
 
 fn configure_darwin_sysroot(builder: &mut cc::Build) {
