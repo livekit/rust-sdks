@@ -171,7 +171,7 @@ impl SIPClient {
                     inbound_password: options.inbound_password.to_owned(),
                 },
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -203,7 +203,7 @@ impl SIPClient {
                     }),
                 },
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -236,7 +236,7 @@ impl SIPClient {
                     }),
                 },
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -256,7 +256,7 @@ impl SIPClient {
                 "ListSIPTrunk",
                 proto::ListSipTrunkRequest {},
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -276,7 +276,7 @@ impl SIPClient {
                 "ListSIPInboundTrunk",
                 proto::ListSipInboundTrunkRequest {},
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -296,7 +296,7 @@ impl SIPClient {
                 "ListSIPOutboundTrunk",
                 proto::ListSipOutboundTrunkRequest {},
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -312,7 +312,7 @@ impl SIPClient {
                 "DeleteSIPTrunk",
                 proto::DeleteSipTrunkRequest { sip_trunk_id: sip_trunk_id.to_owned() },
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -339,7 +339,7 @@ impl SIPClient {
                     rule: Some(proto::SipDispatchRule { rule: Some(rule.to_owned()) }),
                 },
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -358,7 +358,7 @@ impl SIPClient {
                 "ListSIPDispatchRule",
                 proto::ListSipDispatchRuleRequest {},
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -379,7 +379,7 @@ impl SIPClient {
                     sip_dispatch_rule_id: sip_dispatch_rule_id.to_owned(),
                 },
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
                 )?,
             )
@@ -411,7 +411,7 @@ impl SIPClient {
                     hide_phone_number: options.hide_phone_number,
                 },
                 self.base.auth_header(
-                    VideoGrants { ..Default::default() },
+                    Default::default(),
                     Some(SIPGrants { call: true, ..Default::default() }),
                 )?,
             )

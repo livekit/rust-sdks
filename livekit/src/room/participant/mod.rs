@@ -83,6 +83,8 @@ struct ParticipantInfo {
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type MetadataChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
+type AttributesChangedHandler =
+    Box<dyn Fn(Participant, HashMap<String, String>, HashMap<String, String>) + Send>;
 type NameChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
 
 #[derive(Default)]
@@ -90,6 +92,7 @@ struct ParticipantEvents {
     track_muted: Mutex<Option<TrackMutedHandler>>,
     track_unmuted: Mutex<Option<TrackUnmutedHandler>>,
     metadata_changed: Mutex<Option<MetadataChangedHandler>>,
+    attributes_changed: Mutex<Option<AttributesChangedHandler>>,
     name_changed: Mutex<Option<NameChangedHandler>>,
 }
 
@@ -145,6 +148,20 @@ pub(super) fn update_info(
     if old_metadata != new_info.metadata {
         if let Some(cb) = inner.events.metadata_changed.lock().as_ref() {
             cb(participant.clone(), old_metadata, new_info.metadata);
+        }
+    }
+
+    if new_info.attributes.len() != 0 {
+        let old_attributes = info.attributes.clone();
+        for (key, value) in new_info.attributes {
+            if value.is_empty() {
+                info.attributes.remove(&key);
+            } else {
+                info.attributes.insert(key, value);
+            }
+        }
+        if let Some(cb) = inner.events.attributes_changed.lock().as_ref() {
+            cb(participant.clone(), old_attributes, info.attributes.clone());
         }
     }
 }
