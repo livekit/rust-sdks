@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, path, process::Command};
 use std::path::Path;
 use std::path::PathBuf;
+use std::{env, path, process::Command};
 
 fn main() {
     if env::var("DOCS_RS").is_ok() {
@@ -219,14 +219,15 @@ fn copy_libwebrtc_jar(webrtc_dir: &PathBuf) {
     let output_path = get_output_path();
     let output_jar_path = output_path.join("libwebrtc.jar");
     let res = std::fs::copy(jar_path, output_jar_path);
-    println!("cargo:warning={:#?}",res);
+    println!("cargo:warning={:#?}", res);
 }
 
 fn get_output_path() -> PathBuf {
     let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
     let build_type = env::var("PROFILE").unwrap();
     let build_target = env::var("TARGET").unwrap();
-    let path = Path::new(&manifest_dir_string).join("../target").join( build_target).join(build_type);
+    let path =
+        Path::new(&manifest_dir_string).join("../target").join(build_target).join(build_type);
     return PathBuf::from(path);
 }
 
