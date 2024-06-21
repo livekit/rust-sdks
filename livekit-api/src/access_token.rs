@@ -95,6 +95,21 @@ impl Default for VideoGrants {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SIPGrants {
+    // manage sip resources
+    pub admin: bool,
+    // make outbound calls
+    pub call: bool,
+}
+
+impl Default for SIPGrants {
+    fn default() -> Self {
+        Self { admin: false, call: false }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Default, Deserialize)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -106,6 +121,7 @@ pub struct Claims {
 
     pub name: String,
     pub video: VideoGrants,
+    pub sip: SIPGrants,
     pub sha256: String, // Used to verify the integrity of the message body
     pub metadata: String,
 }
@@ -140,6 +156,7 @@ impl AccessToken {
                 sub: Default::default(),
                 name: Default::default(),
                 video: VideoGrants::default(),
+                sip: SIPGrants::default(),
                 sha256: Default::default(),
                 metadata: Default::default(),
             },
@@ -159,6 +176,11 @@ impl AccessToken {
 
     pub fn with_grants(mut self, grants: VideoGrants) -> Self {
         self.claims.video = grants;
+        self
+    }
+
+    pub fn with_sip_grants(mut self, grants: SIPGrants) -> Self {
+        self.claims.sip = grants;
         self
     }
 
