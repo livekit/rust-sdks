@@ -95,17 +95,16 @@ impl NativeAudioSource {
                                             num_channels,
                                             blank_data.len() / num_channels as usize,
                                         );
+
+                                        interval.tick().await;
                                     }
-                                    
-                                    interval.tick().await;
+                                    continue;
                                 }
                                 TryRecvError::Disconnected => {
                                     // channel disconnected, break out of loop
                                     break;
                                 }
                             }
-
-                            break;
                         }
                     }
                 }
