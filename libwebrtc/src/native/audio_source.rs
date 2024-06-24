@@ -71,32 +71,43 @@ impl NativeAudioSource {
                 let mut interval = interval(Duration::from_millis(10));
                 interval.set_missed_tick_behavior(livekit_runtime::MissedTickBehavior::Delay);
                 let blank_data = vec![0; samples_10ms];
+                let send_silent_frames = !source.sys_handle.audio_options().disable_silent_frames;
 
                 loop {
-                    interval.tick().await;
-
                     let frame = po_rx.try_recv();
-                    if let Err(TryRecvError::Disconnected) = frame {
-                        break;
-                    }
+                    match frame {
+                        Ok(frame) => {
+                            source.sys_handle.on_captured_frame(
+                                &frame,
+                                sample_rate,
+                                num_channels,
+                                frame.len() / num_channels as usize,
+                            );
+                        }
+                        Err(e) => {
+                            match e {
+                                TryRecvError::Empty => {
+                                    // send silent frames if needed
+                                    if send_silent_frames {
+                                        source.sys_handle.on_captured_frame(
+                                            &blank_data,
+                                            sample_rate,
+                                            num_channels,
+                                            blank_data.len() / num_channels as usize,
+                                        );
+                                    }
+                                    
+                                    interval.tick().await;
+                                }
+                                TryRecvError::Disconnected => {
+                                    // channel disconnected, break out of loop
+                                    break;
+                                }
+                            }
 
-                    if let Err(TryRecvError::Empty) = frame {
-                        source.sys_handle.on_captured_frame(
-                            &blank_data,
-                            sample_rate,
-                            num_channels,
-                            blank_data.len() / num_channels as usize,
-                        );
-                        continue;
+                            break;
+                        }
                     }
-
-                    let frame = frame.unwrap();
-                    source.sys_handle.on_captured_frame(
-                        &frame,
-                        sample_rate,
-                        num_channels,
-                        frame.len() / num_channels as usize,
-                    );
                 }
             }
         });
@@ -177,6 +188,7 @@ impl From<sys_at::ffi::AudioSourceOptions> for AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
+            disable_silent_frames: options.disable_silent_frames,
         }
     }
 }
@@ -187,6 +199,7 @@ impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
+            disable_silent_frames: options.disable_silent_frames,
         }
     }
 }

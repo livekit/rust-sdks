@@ -25,6 +25,7 @@ impl From<proto::AudioSourceOptions> for AudioSourceOptions {
             echo_cancellation: opts.echo_cancellation,
             auto_gain_control: opts.auto_gain_control,
             noise_suppression: opts.noise_suppression,
+            disable_silent_frames: opts.disable_silent_frames,
         }
     }
 }
