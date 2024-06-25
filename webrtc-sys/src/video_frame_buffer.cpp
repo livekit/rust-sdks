@@ -271,7 +271,15 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width,
 
 #ifndef __APPLE__
 
-std::unique_ptr<VideoFrameBuffer> new_native_buffer(PlatformNativeBuffer *platform_buffer) {
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(
+    PlatformImageBuffer *buffer
+) {
+  return nullptr;
+}
+
+PlatformImageBuffer* native_buffer_to_platform_image_buffer(
+    const std::unique_ptr<VideoFrameBuffer> &buffer
+) {
   return nullptr
 }
 

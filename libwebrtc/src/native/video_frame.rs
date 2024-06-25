@@ -154,8 +154,17 @@ impl NativeBuffer {
     ) -> vf::native::NativeBuffer {
         vf::native::NativeBuffer {
             handle: NativeBuffer {
-                sys_handle: vfb_sys::ffi::new_native_buffer(cv_pixel_buffer as *mut _),
+                sys_handle: vfb_sys::ffi::new_native_buffer_from_platform_image_buffer(
+                    cv_pixel_buffer as *mut _,
+                ),
             },
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
+        unsafe {
+            vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _
         }
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 LiveKit
+ * Copyright 2024 LiveKit
  *
  * Licensed under the Apache License, Version 2.0 (the “License”);
  * you may not use this file except in compliance with the License.
@@ -22,14 +22,27 @@
 
 namespace livekit {
 
-std::unique_ptr<VideoFrameBuffer> new_native_buffer(
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(
     CVPixelBufferRef pixelBuffer
 ) {
     RTCCVPixelBuffer *buffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:pixelBuffer];
     rtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer = webrtc::ObjCToNativeVideoFrameBuffer(buffer);
     [buffer release];
-    [pixelBuffer release];
+    CVPixelBufferRelease(pixelBuffer);
     return std::make_unique<VideoFrameBuffer>(frame_buffer);
+}
+
+CVPixelBufferRef native_buffer_to_platform_image_buffer(
+    const std::unique_ptr<VideoFrameBuffer> &buffer
+) {
+    id<RTC_OBJC_TYPE(RTCVideoFrameBuffer)> rtc_pixel_buffer = webrtc::NativeToObjCVideoFrameBuffer(buffer->get());
+
+    if ([rtc_pixel_buffer isKindOfClass:[RTCCVPixelBuffer class]]) {
+        RTCCVPixelBuffer *cv_pixel_buffer = (RTCCVPixelBuffer *)rtc_pixel_buffer;
+        return [cv_pixel_buffer pixelBuffer];
+    } else {
+        return nullptr;
+    }
 }
 
 }  // namespace livekit
