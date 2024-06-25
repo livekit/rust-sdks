@@ -2860,6 +2860,8 @@ pub struct AudioSourceOptions {
     pub noise_suppression: bool,
     #[prost(bool, tag="3")]
     pub auto_gain_control: bool,
+    #[prost(bool, tag="4")]
+    pub disable_silent_frames: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
