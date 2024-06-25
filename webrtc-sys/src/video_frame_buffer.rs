@@ -43,6 +43,7 @@ pub mod ffi {
         type I444Buffer;
         type I010Buffer;
         type NV12Buffer;
+        type PlatformNativeBuffer;
 
         fn buffer_type(self: &VideoFrameBuffer) -> VideoFrameBufferType;
         fn width(self: &VideoFrameBuffer) -> u32;
@@ -125,6 +126,10 @@ pub mod ffi {
             stride_y: i32,
             stride_uv: i32,
         ) -> UniquePtr<NV12Buffer>;
+
+        unsafe fn new_native_buffer(
+            platform_native_buffer: *mut PlatformNativeBuffer,
+        ) -> UniquePtr<VideoFrameBuffer>;
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;

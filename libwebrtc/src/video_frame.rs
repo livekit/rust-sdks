@@ -449,6 +449,12 @@ pub mod native {
 
     new_buffer_type!(NativeBuffer, Native, as_native);
 
+    impl NativeBuffer {
+        pub unsafe fn from_cv_pixel_buffer(cv_pixel_buffer: *mut std::ffi::c_void) -> NativeBuffer {
+            vf_imp::NativeBuffer::from_cv_pixel_buffer(cv_pixel_buffer)
+        }
+    }
+
     pub trait VideoFrameBufferExt: VideoBuffer {
         fn to_i420(&self) -> I420Buffer;
         fn to_argb(

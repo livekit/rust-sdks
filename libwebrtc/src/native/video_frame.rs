@@ -148,6 +148,17 @@ macro_rules! impl_to_argb {
 
 #[allow(unused_unsafe)]
 impl NativeBuffer {
+    #[cfg(target_os = "macos")]
+    pub unsafe fn from_cv_pixel_buffer(
+        cv_pixel_buffer: *mut std::ffi::c_void,
+    ) -> vf::native::NativeBuffer {
+        vf::native::NativeBuffer {
+            handle: NativeBuffer {
+                sys_handle: vfb_sys::ffi::new_native_buffer(cv_pixel_buffer as *mut _),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         &self.sys_handle
     }
