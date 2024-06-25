@@ -219,7 +219,9 @@ fn copy_libwebrtc_jar(webrtc_dir: &PathBuf) {
     let output_path = get_output_path();
     let output_jar_path = output_path.join("libwebrtc.jar");
     let res = std::fs::copy(jar_path, output_jar_path);
-    println!("cargo:warning={:#?}", res);
+    if let Err(e) = res {
+        println!("Failed to copy libwebrtc.jar: {}", e);
+    }
 }
 
 fn get_output_path() -> PathBuf {
