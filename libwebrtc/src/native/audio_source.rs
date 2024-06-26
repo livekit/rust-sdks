@@ -71,42 +71,32 @@ impl NativeAudioSource {
                 let mut interval = interval(Duration::from_millis(10));
                 interval.set_missed_tick_behavior(livekit_runtime::MissedTickBehavior::Delay);
                 let blank_data = vec![0; samples_10ms];
-                let send_silent_frames = !source.sys_handle.audio_options().disable_silent_frames;
 
                 loop {
-                    let frame = po_rx.try_recv();
-                    match frame {
-                        Ok(frame) => {
-                            source.sys_handle.on_captured_frame(
-                                &frame,
-                                sample_rate,
-                                num_channels,
-                                frame.len() / num_channels as usize,
-                            );
-                        }
-                        Err(e) => {
-                            match e {
-                                TryRecvError::Empty => {
-                                    // send silent frames if needed
-                                    if send_silent_frames {
-                                        source.sys_handle.on_captured_frame(
-                                            &blank_data,
-                                            sample_rate,
-                                            num_channels,
-                                            blank_data.len() / num_channels as usize,
-                                        );
+                    interval.tick().await;
 
-                                        interval.tick().await;
-                                    }
-                                    continue;
-                                }
-                                TryRecvError::Disconnected => {
-                                    // channel disconnected, break out of loop
-                                    break;
-                                }
-                            }
-                        }
+                    let frame = po_rx.try_recv();
+                    if let Err(TryRecvError::Disconnected) = frame {
+                        break;
                     }
+
+                    if let Err(TryRecvError::Empty) = frame {
+                        source.sys_handle.on_captured_frame(
+                            &blank_data,
+                            sample_rate,
+                            num_channels,
+                            blank_data.len() / num_channels as usize,
+                        );
+                        continue;
+                    }
+
+                    let frame = frame.unwrap();
+                    source.sys_handle.on_captured_frame(
+                        &frame,
+                        sample_rate,
+                        num_channels,
+                        frame.len() / num_channels as usize,
+                    );
                 }
             }
         });
@@ -144,6 +134,7 @@ impl NativeAudioSource {
 
         let mut inner = self.inner.lock().await;
         let mut samples = 0;
+        let enable_queue  = self.sys_handle.audio_options().enable_queue;
 
         // split frames into 10ms chunks
         loop {
@@ -163,7 +154,16 @@ impl NativeAudioSource {
 
                 if inner.len == self.samples_10ms {
                     let data = inner.buf.clone().to_vec();
-                    let _ = self.po_tx.send(data).await;
+                    if enable_queue {
+                        let _ = self.po_tx.send(data).await;
+                    } else {
+                        self.sys_handle.on_captured_frame(
+                            &data,
+                            frame.sample_rate,
+                            frame.num_channels,
+                            data.len() / frame.num_channels as usize,
+                        );
+                    }
                     inner.len = 0;
                 }
                 continue;
@@ -172,7 +172,16 @@ impl NativeAudioSource {
             if remaining_samples >= self.samples_10ms {
                 // TODO(theomonnom): avoid copying
                 let data = frame.data[samples..samples + self.samples_10ms].to_vec();
-                let _ = self.po_tx.send(data).await;
+                if enable_queue {
+                    let _ = self.po_tx.send(data).await;
+                } else {
+                    self.sys_handle.on_captured_frame(
+                        &data,
+                        frame.sample_rate,
+                        frame.num_channels,
+                        data.len() / frame.num_channels as usize,
+                    );
+                }
                 samples += self.samples_10ms;
             }
         }
@@ -187,7 +196,7 @@ impl From<sys_at::ffi::AudioSourceOptions> for AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
-            disable_silent_frames: options.disable_silent_frames,
+            enable_queue: options.enable_queue,
         }
     }
 }
@@ -198,7 +207,7 @@ impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
-            disable_silent_frames: options.disable_silent_frames,
+            enable_queue: options.enable_queue,
         }
     }
 }
