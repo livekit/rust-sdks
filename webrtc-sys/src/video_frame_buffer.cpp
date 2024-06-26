@@ -280,7 +280,7 @@ std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(
 PlatformImageBuffer* native_buffer_to_platform_image_buffer(
     const std::unique_ptr<VideoFrameBuffer> &buffer
 ) {
-  return nullptr
+  return nullptr;
 }
 
 #endif

@@ -45,6 +45,10 @@ class NV12Buffer;
 namespace livekit {
 typedef __CVBuffer PlatformImageBuffer;
 }  // namespace livekit
+#else
+namespace livekit {
+typedef void PlatformImageBuffer;
+}  // namespace livekit
 #endif
 
 #include "webrtc-sys/src/video_frame_buffer.rs.h"
