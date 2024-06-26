@@ -154,7 +154,11 @@ fn main() {
 
             configure_darwin_sysroot(&mut builder);
 
-            builder.file("src/objc_video_factory.mm").flag("-stdlib=libc++").flag("-std=c++20");
+            builder
+                .file("src/objc_video_factory.mm")
+                .file("src/objc_video_frame_buffer.mm")
+                .flag("-stdlib=libc++")
+                .flag("-std=c++20");
         }
         "ios" => {
             println!("cargo:rustc-link-lib=framework=CoreFoundation");

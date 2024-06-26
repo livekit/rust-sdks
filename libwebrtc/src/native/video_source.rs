@@ -18,6 +18,7 @@ use std::{
 };
 
 use cxx::SharedPtr;
+use livekit_runtime::interval;
 use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
@@ -61,7 +62,7 @@ impl NativeVideoSource {
             let source = source.clone();
             let i420 = I420Buffer::new(resolution.width, resolution.height);
             async move {
-                let mut interval = tokio::time::interval(Duration::from_millis(100)); // 10 fps
+                let mut interval = interval(Duration::from_millis(100)); // 10 fps
 
                 loop {
                     interval.tick().await;
