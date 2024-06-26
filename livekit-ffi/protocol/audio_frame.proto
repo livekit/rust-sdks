@@ -124,6 +124,7 @@ message AudioSourceOptions {
   bool echo_cancellation = 1;
   bool noise_suppression = 2;
   bool auto_gain_control = 3;
+  bool enable_queue = 4;
 }
 
 enum AudioSourceType {
