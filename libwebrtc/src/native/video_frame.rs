@@ -163,9 +163,7 @@ impl NativeBuffer {
 
     #[cfg(target_os = "macos")]
     pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
-        unsafe {
-            vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _
-        }
+        unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }
 
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
