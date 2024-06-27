@@ -1,6 +1,6 @@
 [package]
 name = "libwebrtc"
-version = "0.3.2"
+version = "0.3.4"
 edition = "2021"
 homepage = "https://livekit.io"
 license = "Apache-2.0"
@@ -8,7 +8,7 @@ description = "Livekit safe bindings to libwebrtc"
 repository = "https://github.com/livekit/rust-sdks"
 
 [dependencies]
-livekit-protocol = { path = "../livekit-protocol", version = "0.3.3" }
+livekit-protocol = { path = "../livekit-protocol", version = "0.3.4" }
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -23,7 +23,6 @@ livekit-runtime = { path = "../livekit-runtime", version = "0.3.0" }
 lazy_static = "1.4"
 parking_lot = { version = "0.12" }
 tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
-tokio-stream = "0.1.14"
 cxx = "1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

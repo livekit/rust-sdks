@@ -27,6 +27,7 @@ pub struct CreateIngressOptions {
     pub audio: proto::IngressAudioOptions,
     pub video: proto::IngressVideoOptions,
     pub bypass_transcoding: bool,
+    pub enable_transcoding: Option<bool>,
     pub url: String,
 }
 
@@ -40,6 +41,7 @@ pub struct UpdateIngressOptions {
     pub audio: proto::IngressAudioOptions,
     pub video: proto::IngressVideoOptions,
     pub bypass_transcoding: Option<bool>,
+    pub enable_transcoding: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,9 +91,11 @@ impl IngressClient {
                     audio: Some(options.audio),
                     video: Some(options.video),
                     bypass_transcoding: options.bypass_transcoding,
+                    enable_transcoding: options.enable_transcoding,
                     url: options.url,
                 },
-                self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -116,8 +120,10 @@ impl IngressClient {
                     audio: Some(options.audio),
                     video: Some(options.video),
                     bypass_transcoding: options.bypass_transcoding,
+                    enable_transcoding: options.enable_transcoding,
                 },
-                self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -142,7 +148,8 @@ impl IngressClient {
                         _ => Default::default(),
                     },
                 },
-                self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
             )
             .await?;
 
@@ -155,7 +162,8 @@ impl IngressClient {
                 SVC,
                 "DeleteIngress",
                 proto::DeleteIngressRequest { ingress_id: ingress_id.to_owned() },
-                self.base.auth_header(VideoGrants { ingress_admin: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)

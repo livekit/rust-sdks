@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::path::Path;
+use std::path::PathBuf;
 use std::{env, path, process::Command};
 
 fn main() {
@@ -152,7 +154,11 @@ fn main() {
 
             configure_darwin_sysroot(&mut builder);
 
-            builder.file("src/objc_video_factory.mm").flag("-stdlib=libc++").flag("-std=c++20");
+            builder
+                .file("src/objc_video_factory.mm")
+                .file("src/objc_video_frame_buffer.mm")
+                .flag("-stdlib=libc++")
+                .flag("-std=c++20");
         }
         "ios" => {
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
@@ -206,6 +212,29 @@ fn main() {
     for entry in glob::glob("./include/**/*.h").unwrap() {
         println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
+
+    if target_os.as_str() == "android" {
+        copy_libwebrtc_jar(&PathBuf::from(Path::new(&webrtc_dir)));
+    }
+}
+
+fn copy_libwebrtc_jar(webrtc_dir: &PathBuf) {
+    let jar_path = webrtc_dir.join("libwebrtc.jar");
+    let output_path = get_output_path();
+    let output_jar_path = output_path.join("libwebrtc.jar");
+    let res = std::fs::copy(jar_path, output_jar_path);
+    if let Err(e) = res {
+        println!("Failed to copy libwebrtc.jar: {}", e);
+    }
+}
+
+fn get_output_path() -> PathBuf {
+    let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let build_type = env::var("PROFILE").unwrap();
+    let build_target = env::var("TARGET").unwrap();
+    let path =
+        Path::new(&manifest_dir_string).join("../target").join(build_target).join(build_type);
+    return PathBuf::from(path);
 }
 
 fn configure_darwin_sysroot(builder: &mut cc::Build) {

@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use thiserror::Error;
 
-use crate::access_token::{AccessToken, AccessTokenError, VideoGrants};
+use crate::access_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
 
 pub mod egress;
 pub mod ingress;
@@ -56,10 +56,17 @@ impl ServiceBase {
         Self { api_key: api_key.to_owned(), api_secret: api_secret.to_owned() }
     }
 
-    pub fn auth_header(&self, grants: VideoGrants) -> Result<HeaderMap, AccessTokenError> {
-        let token = AccessToken::with_api_key(&self.api_key, &self.api_secret)
-            .with_grants(grants)
-            .to_jwt()?;
+    pub fn auth_header(
+        &self,
+        grants: VideoGrants,
+        sip: Option<SIPGrants>,
+    ) -> Result<HeaderMap, AccessTokenError> {
+        let mut tok =
+            AccessToken::with_api_key(&self.api_key, &self.api_secret).with_grants(grants);
+        if sip.is_some() {
+            tok = tok.with_sip_grants(sip.unwrap())
+        }
+        let token = tok.to_jwt()?;
 
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());

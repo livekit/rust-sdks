@@ -21,6 +21,7 @@ pub struct AudioSourceOptions {
     pub echo_cancellation: bool,
     pub noise_suppression: bool,
     pub auto_gain_control: bool,
+    pub enable_queue: bool,
 }
 
 #[non_exhaustive]

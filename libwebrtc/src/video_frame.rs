@@ -449,6 +449,27 @@ pub mod native {
 
     new_buffer_type!(NativeBuffer, Native, as_native);
 
+    impl NativeBuffer {
+        /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
+        ///
+        /// This function does not bump the reference count of the pixel buffer.
+        ///
+        /// Safety: The given pointer must be a valid `CVPixelBufferRef`.
+        #[cfg(target_os = "macos")]
+        pub unsafe fn from_cv_pixel_buffer(cv_pixel_buffer: *mut std::ffi::c_void) -> Self {
+            vf_imp::NativeBuffer::from_cv_pixel_buffer(cv_pixel_buffer)
+        }
+
+        /// Returns the `CVPixelBufferRef` that backs this buffer, or `null` if
+        /// this buffer is not currently backed by a `CVPixelBufferRef`.
+        ///
+        /// This function does not bump the reference count of the pixel buffer.
+        #[cfg(target_os = "macos")]
+        pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
+            self.handle.get_cv_pixel_buffer()
+        }
+    }
+
     pub trait VideoFrameBufferExt: VideoBuffer {
         fn to_i420(&self) -> I420Buffer;
         fn to_argb(

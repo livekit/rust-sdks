@@ -22,7 +22,7 @@ pub mod native {
         task::{Context, Poll},
     };
 
-    use tokio_stream::Stream;
+    use livekit_runtime::Stream;
 
     use super::stream_imp;
     use crate::{audio_frame::AudioFrame, audio_track::RtcAudioTrack};

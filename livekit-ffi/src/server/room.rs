@@ -86,7 +86,6 @@ struct FfiTranscription {
     participant_identity: String,
     segments: Vec<FfiTranscriptionSegment>,
     track_id: String,
-    language: String,
     async_id: u64,
 }
 
@@ -96,6 +95,7 @@ struct FfiTranscriptionSegment {
     start_time: u64,
     end_time: u64,
     r#final: bool,
+    language: String,
 }
 
 impl FfiRoom {
@@ -301,10 +301,10 @@ impl RoomInner {
                     start_time: segment.start_time,
                     end_time: segment.end_time,
                     r#final: segment.r#final,
+                    language: segment.language,
                 })
                 .collect(),
             track_id: publish.track_id,
-            language: publish.language,
             async_id,
         }) {
             let handle = server.async_runtime.spawn(async move {
@@ -506,6 +506,7 @@ async fn transcription_task(
                 let segments = event.segments.into_iter().map(|segment| TranscriptionSegment {
                     id: segment.id,
                     text: segment.text,
+                    language: segment.language,
                     start_time: segment.start_time,
                     end_time: segment.end_time,
                     r#final: segment.r#final,
@@ -515,7 +516,6 @@ async fn transcription_task(
                     participant_identity: event.participant_identity,
                     segments,
                     track_id: event.track_id,
-                    language: event.language,
                 };
                 let res = inner.room.local_participant().publish_transcription(transcription).await;
 

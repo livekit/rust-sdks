@@ -67,12 +67,16 @@ pub struct ParticipantPermission {
     #[prost(bool, tag="7")]
     pub hidden: bool,
     /// indicates it's a recorder instance
+    /// deprecated: use ParticipantInfo.kind instead
+    #[deprecated]
     #[prost(bool, tag="8")]
     pub recorder: bool,
-    /// indicates that participant can update own metadata
+    /// indicates that participant can update own metadata and attributes
     #[prost(bool, tag="10")]
     pub can_update_metadata: bool,
     /// indicates that participant is an agent
+    /// deprecated: use ParticipantInfo.kind instead
+    #[deprecated]
     #[prost(bool, tag="11")]
     pub agent: bool,
 }
@@ -106,6 +110,8 @@ pub struct ParticipantInfo {
     pub is_publisher: bool,
     #[prost(enumeration="participant_info::Kind", tag="14")]
     pub kind: i32,
+    #[prost(map="string, string", tag="15")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// Nested message and enum types in `ParticipantInfo`.
 pub mod participant_info {
@@ -281,6 +287,8 @@ pub struct TrackInfo {
     pub stream: ::prost::alloc::string::String,
     #[prost(message, optional, tag="18")]
     pub version: ::core::option::Option<TimedVersion>,
+    #[prost(enumeration="AudioTrackFeature", repeated, tag="19")]
+    pub audio_features: ::prost::alloc::vec::Vec<i32>,
 }
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -418,14 +426,13 @@ pub struct SipDtmf {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Transcription {
+    /// Participant that got its speech transcribed
     #[prost(string, tag="2")]
-    pub participant_identity: ::prost::alloc::string::String,
+    pub transcribed_participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub track_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="4")]
     pub segments: ::prost::alloc::vec::Vec<TranscriptionSegment>,
-    #[prost(string, tag="5")]
-    pub language: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -440,6 +447,8 @@ pub struct TranscriptionSegment {
     pub end_time: u64,
     #[prost(bool, tag="5")]
     pub r#final: bool,
+    #[prost(string, tag="6")]
+    pub language: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1506,6 +1515,8 @@ pub struct S3Upload {
     pub access_key: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub secret: ::prost::alloc::string::String,
+    #[prost(string, tag="11")]
+    pub session_token: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub region: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
@@ -1683,6 +1694,8 @@ pub struct EgressInfo {
     pub details: ::prost::alloc::string::String,
     #[prost(string, tag="9")]
     pub error: ::prost::alloc::string::String,
+    #[prost(int32, tag="22")]
+    pub error_code: i32,
     #[prost(message, repeated, tag="15")]
     pub stream_results: ::prost::alloc::vec::Vec<StreamInfo>,
     #[prost(message, repeated, tag="16")]
@@ -1859,7 +1872,7 @@ pub struct AutoTrackEgress {
     /// disables upload of json manifest file (default false)
     #[prost(bool, tag="5")]
     pub disable_manifest: bool,
-    #[prost(oneof="auto_track_egress::Output", tags="2, 3, 4")]
+    #[prost(oneof="auto_track_egress::Output", tags="2, 3, 4, 6")]
     pub output: ::core::option::Option<auto_track_egress::Output>,
 }
 /// Nested message and enum types in `AutoTrackEgress`.
@@ -1873,6 +1886,8 @@ pub mod auto_track_egress {
         Gcp(super::GcpUpload),
         #[prost(message, tag="4")]
         Azure(super::AzureBlobUpload),
+        #[prost(message, tag="6")]
+        AliOss(super::AliOssUpload),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -2153,7 +2168,8 @@ pub mod signal_request {
         /// deprecated by ping_req (message Ping)
         #[prost(int64, tag="14")]
         Ping(i64),
-        /// update a participant's own metadata and/or name
+        /// update a participant's own metadata, name, or attributes
+        /// requires canUpdateOwnParticipantMetadata permission
         #[prost(message, tag="15")]
         UpdateMetadata(super::UpdateParticipantMetadata),
         #[prost(message, tag="16")]
@@ -2505,6 +2521,10 @@ pub struct UpdateParticipantMetadata {
     pub metadata: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub name: ::prost::alloc::string::String,
+    /// attributes to update. it only updates attributes that have been set
+    /// to delete attributes, set the value to an empty string
+    #[prost(map="string, string", tag="3")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2648,7 +2668,7 @@ pub struct DataChannelInfo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SimulateScenario {
-    #[prost(oneof="simulate_scenario::Scenario", tags="1, 2, 3, 4, 5, 6, 7, 8")]
+    #[prost(oneof="simulate_scenario::Scenario", tags="1, 2, 3, 4, 5, 6, 7, 8, 9")]
     pub scenario: ::core::option::Option<simulate_scenario::Scenario>,
 }
 /// Nested message and enum types in `SimulateScenario`.
@@ -2681,6 +2701,9 @@ pub mod simulate_scenario {
         /// disconnect signal on resume before sending any messages from server
         #[prost(bool, tag="8")]
         DisconnectSignalOnResumeNoMessages(bool),
+        /// full reconnect leave request
+        #[prost(bool, tag="9")]
+        LeaveRequestFullReconnect(bool),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2938,6 +2961,10 @@ pub struct UpdateParticipantRequest {
     /// display name to update
     #[prost(string, tag="5")]
     pub name: ::prost::alloc::string::String,
+    /// attributes to update. it only updates attributes that have been set
+    /// to delete attributes, set the value to an empty string
+    #[prost(map="string, string", tag="6")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3017,9 +3044,13 @@ pub struct CreateIngressRequest {
     /// metadata associated with the publishing participant
     #[prost(string, tag="10")]
     pub participant_metadata: ::prost::alloc::string::String,
-    /// whether to pass through the incoming media without transcoding, only compatible with some input types
+    /// \[depreacted \] whether to pass through the incoming media without transcoding, only compatible with some input types. Use `enable_transcoding` instead.
+    #[deprecated]
     #[prost(bool, tag="8")]
     pub bypass_transcoding: bool,
+    /// Whether to transcode the ingested media. Only WHIP supports disabling transcoding currently. WHIP will default to transcoding disabled. Replaces `bypass_transcoding. 
+    #[prost(bool, optional, tag="11")]
+    pub enable_transcoding: ::core::option::Option<bool>,
     #[prost(message, optional, tag="6")]
     pub audio: ::core::option::Option<IngressAudioOptions>,
     #[prost(message, optional, tag="7")]
@@ -3109,8 +3140,11 @@ pub struct IngressInfo {
     /// for SRT input, it'll be a srt:// URL
     #[prost(enumeration="IngressInput", tag="5")]
     pub input_type: i32,
+    #[deprecated]
     #[prost(bool, tag="13")]
     pub bypass_transcoding: bool,
+    #[prost(bool, optional, tag="15")]
+    pub enable_transcoding: ::core::option::Option<bool>,
     #[prost(message, optional, tag="6")]
     pub audio: ::core::option::Option<IngressAudioOptions>,
     #[prost(message, optional, tag="7")]
@@ -3234,8 +3268,11 @@ pub struct UpdateIngressRequest {
     pub participant_name: ::prost::alloc::string::String,
     #[prost(string, tag="9")]
     pub participant_metadata: ::prost::alloc::string::String,
+    #[deprecated]
     #[prost(bool, optional, tag="8")]
     pub bypass_transcoding: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="10")]
+    pub enable_transcoding: ::core::option::Option<bool>,
     #[prost(message, optional, tag="6")]
     pub audio: ::core::option::Option<IngressAudioOptions>,
     #[prost(message, optional, tag="7")]
@@ -3445,12 +3482,20 @@ pub struct CreateSipTrunkRequest {
     pub outbound_username: ::prost::alloc::string::String,
     #[prost(string, tag="8")]
     pub outbound_password: ::prost::alloc::string::String,
+    /// Optional human-readable name for the Trunk.
+    #[prost(string, tag="10")]
+    pub name: ::prost::alloc::string::String,
+    /// Optional user-defined metadata for the Trunk.
+    #[prost(string, tag="11")]
+    pub metadata: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SipTrunkInfo {
     #[prost(string, tag="1")]
     pub sip_trunk_id: ::prost::alloc::string::String,
+    #[prost(enumeration="sip_trunk_info::TrunkKind", tag="14")]
+    pub kind: i32,
     /// CIDR or IPs that traffic is accepted from
     /// An empty list means all inbound traffic is accepted.
     #[prost(string, repeated, tag="2")]
@@ -3461,6 +3506,9 @@ pub struct SipTrunkInfo {
     /// Number used to make outbound calls
     #[prost(string, tag="4")]
     pub outbound_number: ::prost::alloc::string::String,
+    /// Transport used for inbound and outbound calls.
+    #[prost(enumeration="SipTransport", tag="13")]
+    pub transport: i32,
     #[deprecated]
     #[prost(string, repeated, tag="5")]
     pub inbound_numbers_regex: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -3479,6 +3527,116 @@ pub struct SipTrunkInfo {
     pub outbound_username: ::prost::alloc::string::String,
     #[prost(string, tag="9")]
     pub outbound_password: ::prost::alloc::string::String,
+    /// Human-readable name for the Trunk.
+    #[prost(string, tag="11")]
+    pub name: ::prost::alloc::string::String,
+    /// User-defined metadata for the Trunk.
+    #[prost(string, tag="12")]
+    pub metadata: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `SIPTrunkInfo`.
+pub mod sip_trunk_info {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum TrunkKind {
+        TrunkLegacy = 0,
+        TrunkInbound = 1,
+        TrunkOutbound = 2,
+    }
+    impl TrunkKind {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                TrunkKind::TrunkLegacy => "TRUNK_LEGACY",
+                TrunkKind::TrunkInbound => "TRUNK_INBOUND",
+                TrunkKind::TrunkOutbound => "TRUNK_OUTBOUND",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "TRUNK_LEGACY" => Some(Self::TrunkLegacy),
+                "TRUNK_INBOUND" => Some(Self::TrunkInbound),
+                "TRUNK_OUTBOUND" => Some(Self::TrunkOutbound),
+                _ => None,
+            }
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateSipInboundTrunkRequest {
+    /// Trunk ID is ignored
+    #[prost(message, optional, tag="1")]
+    pub trunk: ::core::option::Option<SipInboundTrunkInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipInboundTrunkInfo {
+    #[prost(string, tag="1")]
+    pub sip_trunk_id: ::prost::alloc::string::String,
+    /// Human-readable name for the Trunk.
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    /// User-defined metadata for the Trunk.
+    #[prost(string, tag="3")]
+    pub metadata: ::prost::alloc::string::String,
+    /// Numbers associated with LiveKit SIP. The Trunk will only accept calls made to these numbers.
+    /// Creating multiple Trunks with different phone numbers allows having different rules for a single provider.
+    #[prost(string, repeated, tag="4")]
+    pub numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// CIDR or IPs that traffic is accepted from.
+    /// An empty list means all inbound traffic is accepted.
+    #[prost(string, repeated, tag="5")]
+    pub allowed_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Numbers that are allowed to make calls to this Trunk.
+    /// An empty list means calls from any phone number is accepted.
+    #[prost(string, repeated, tag="6")]
+    pub allowed_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Username and password used to authenticate inbound SIP invites.
+    /// May be empty to have no authentication.
+    #[prost(string, tag="7")]
+    pub auth_username: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub auth_password: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateSipOutboundTrunkRequest {
+    /// Trunk ID is ignored
+    #[prost(message, optional, tag="1")]
+    pub trunk: ::core::option::Option<SipOutboundTrunkInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipOutboundTrunkInfo {
+    #[prost(string, tag="1")]
+    pub sip_trunk_id: ::prost::alloc::string::String,
+    /// Human-readable name for the Trunk.
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    /// User-defined metadata for the Trunk.
+    #[prost(string, tag="3")]
+    pub metadata: ::prost::alloc::string::String,
+    /// Hostname or IP that SIP INVITE is sent too.
+    /// Note that this is not a SIP URI and should not contain the 'sip:' protocol prefix.
+    #[prost(string, tag="4")]
+    pub address: ::prost::alloc::string::String,
+    /// SIP Transport used for outbound call.
+    #[prost(enumeration="SipTransport", tag="5")]
+    pub transport: i32,
+    /// Numbers used to make the calls. Random one from this list will be selected.
+    #[prost(string, repeated, tag="6")]
+    pub numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Username and password used to authenticate with SIP server.
+    /// May be empty to have no authentication.
+    #[prost(string, tag="7")]
+    pub auth_username: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub auth_password: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3489,6 +3647,26 @@ pub struct ListSipTrunkRequest {
 pub struct ListSipTrunkResponse {
     #[prost(message, repeated, tag="1")]
     pub items: ::prost::alloc::vec::Vec<SipTrunkInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSipInboundTrunkRequest {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSipInboundTrunkResponse {
+    #[prost(message, repeated, tag="1")]
+    pub items: ::prost::alloc::vec::Vec<SipInboundTrunkInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSipOutboundTrunkRequest {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSipOutboundTrunkResponse {
+    #[prost(message, repeated, tag="1")]
+    pub items: ::prost::alloc::vec::Vec<SipOutboundTrunkInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3546,10 +3724,24 @@ pub struct CreateSipDispatchRuleRequest {
     /// If empty all trunks will match this dispatch rule
     #[prost(string, repeated, tag="2")]
     pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// By default the From value (Phone number) is used as the participant identity
-    /// If true a random value will be used instead
+    /// By default the From value (Phone number) is used for participant name/identity and added to attributes.
+    /// If true, a random value for identity will be used and numbers will be omitted from attributes.
     #[prost(bool, tag="3")]
     pub hide_phone_number: bool,
+    /// Dispatch Rule will only accept a call made to these numbers (if set).
+    #[prost(string, repeated, tag="6")]
+    pub inbound_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Optional human-readable name for the Dispatch Rule.
+    #[prost(string, tag="4")]
+    pub name: ::prost::alloc::string::String,
+    /// User-defined metadata for the Dispatch Rule.
+    /// Participants created by this rule will inherit this metadata.
+    #[prost(string, tag="5")]
+    pub metadata: ::prost::alloc::string::String,
+    /// User-defined attributes for the Dispatch Rule.
+    /// Participants created by this rule will inherit these attributes.
+    #[prost(map="string, string", tag="7")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3562,6 +3754,20 @@ pub struct SipDispatchRuleInfo {
     pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(bool, tag="4")]
     pub hide_phone_number: bool,
+    /// Dispatch Rule will only accept a call made to these numbers (if set).
+    #[prost(string, repeated, tag="7")]
+    pub inbound_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Human-readable name for the Dispatch Rule.
+    #[prost(string, tag="5")]
+    pub name: ::prost::alloc::string::String,
+    /// User-defined metadata for the Dispatch Rule.
+    /// Participants created by this rule will inherit this metadata.
+    #[prost(string, tag="6")]
+    pub metadata: ::prost::alloc::string::String,
+    /// User-defined attributes for the Dispatch Rule.
+    /// Participants created by this rule will inherit these attributes.
+    #[prost(map="string, string", tag="8")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3599,6 +3805,12 @@ pub struct CreateSipParticipantRequest {
     /// Optional name of the participant in LiveKit room
     #[prost(string, tag="7")]
     pub participant_name: ::prost::alloc::string::String,
+    /// Optional user-defined metadata. Will be attached to a created Participant in the room.
+    #[prost(string, tag="8")]
+    pub participant_metadata: ::prost::alloc::string::String,
+    /// Optional user-defined attributes. Will be attached to a created Participant in the room.
+    #[prost(map="string, string", tag="9")]
+    pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// Optionally send following DTMF digits (extension codes) when making a call.
     /// Character 'w' can be used to add a 0.5 sec delay.
     #[prost(string, tag="5")]
@@ -3606,6 +3818,10 @@ pub struct CreateSipParticipantRequest {
     /// Optionally play ringtone in the room as an audible indicator for existing participants
     #[prost(bool, tag="6")]
     pub play_ringtone: bool,
+    /// By default the From value (Phone number) is used for participant name/identity (if not set) and added to attributes.
+    /// If true, a random value for identity will be used and numbers will be omitted from attributes.
+    #[prost(bool, tag="10")]
+    pub hide_phone_number: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3616,6 +3832,40 @@ pub struct SipParticipantInfo {
     pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub sip_call_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipTransport {
+    Auto = 0,
+    Udp = 1,
+    Tcp = 2,
+    Tls = 3,
+}
+impl SipTransport {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipTransport::Auto => "SIP_TRANSPORT_AUTO",
+            SipTransport::Udp => "SIP_TRANSPORT_UDP",
+            SipTransport::Tcp => "SIP_TRANSPORT_TCP",
+            SipTransport::Tls => "SIP_TRANSPORT_TLS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SIP_TRANSPORT_AUTO" => Some(Self::Auto),
+            "SIP_TRANSPORT_UDP" => Some(Self::Udp),
+            "SIP_TRANSPORT_TCP" => Some(Self::Tcp),
+            "SIP_TRANSPORT_TLS" => Some(Self::Tls),
+            _ => None,
+        }
+    }
 }
 include!("livekit.serde.rs");
 // @@protoc_insertion_point(module)

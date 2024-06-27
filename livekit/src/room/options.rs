@@ -123,7 +123,10 @@ pub fn compute_video_encodings(
     options: &TrackPublishOptions,
 ) -> Vec<RtpEncodingParameters> {
     let screenshare = options.source == TrackSource::Screenshare;
-    let encoding = compute_appropriate_encoding(screenshare, width, height, options.video_codec);
+    let encoding = match options.video_encoding.clone() {
+        Some(encoding) => encoding,
+        None => compute_appropriate_encoding(screenshare, width, height, options.video_codec),
+    };
 
     let initial_preset = VideoPreset {
         width,

@@ -39,6 +39,18 @@ class I444Buffer;
 class I010Buffer;
 class NV12Buffer;
 }  // namespace livekit
+
+#ifdef __APPLE__
+#include <CoreVideo/CoreVideo.h>
+namespace livekit {
+typedef __CVBuffer PlatformImageBuffer;
+}  // namespace livekit
+#else
+namespace livekit {
+typedef void PlatformImageBuffer;
+}  // namespace livekit
+#endif
+
 #include "webrtc-sys/src/video_frame_buffer.rs.h"
 
 namespace livekit {
@@ -179,6 +191,9 @@ std::unique_ptr<I422Buffer> new_i422_buffer(int width, int height, int stride_y,
 std::unique_ptr<I444Buffer> new_i444_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
 std::unique_ptr<I010Buffer> new_i010_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
 std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y, int stride_uv);
+
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(PlatformImageBuffer *buffer);
+PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_ptr<VideoFrameBuffer> &);
 
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;

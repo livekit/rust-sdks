@@ -2054,8 +2054,6 @@ pub struct PublishTranscriptionRequest {
     pub track_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="4")]
     pub segments: ::prost::alloc::vec::Vec<TranscriptionSegment>,
-    #[prost(string, tag="5")]
-    pub language: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2238,6 +2236,8 @@ pub struct TranscriptionSegment {
     pub end_time: u64,
     #[prost(bool, tag="5")]
     pub r#final: bool,
+    #[prost(string, tag="6")]
+    pub language: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2860,6 +2860,8 @@ pub struct AudioSourceOptions {
     pub noise_suppression: bool,
     #[prost(bool, tag="3")]
     pub auto_gain_control: bool,
+    #[prost(bool, tag="4")]
+    pub enable_queue: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
