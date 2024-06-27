@@ -134,7 +134,7 @@ impl NativeAudioSource {
 
         let mut inner = self.inner.lock().await;
         let mut samples = 0;
-        let enable_queue  = self.sys_handle.audio_options().enable_queue;
+        let enable_queue = self.sys_handle.audio_options().enable_queue;
 
         // split frames into 10ms chunks
         loop {
