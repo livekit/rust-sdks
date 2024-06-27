@@ -54,13 +54,13 @@ jobs:
             name: ffi-macos-arm64
           - os: macos-11
             platform: ios
-            dylib: liblivekit_ffi.dylib
+            dylib: liblivekit_ffi.a
             target: aarch64-apple-ios
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-arm64
           - os: macos-11
             platform: ios
-            dylib: liblivekit_ffi.dylib
+            dylib: liblivekit_ffi.a
             target: aarch64-apple-ios-sim
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-sim-arm64
@@ -125,7 +125,8 @@ jobs:
         # TODO(theomonnom): Seems like this is causing issues with the linker (let’s ignore for now)
         #env:
         #  IPHONEOS_DEPLOYMENT_TARGET: ${{ matrix.iphoneos_deployment_target }}
-        run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+        # run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+        run: cd livekit-ffi && cargo rustc --crate-type staticlib --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       - name: Build (Windows)
         if: ${{ matrix.platform == 'windows' }}
