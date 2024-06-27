@@ -81,9 +81,7 @@ cd src
 # git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-cd third_party
-git apply "$COMMAND_DIR/patches/fix_opus_symbol_conflict_for_unity_on_ios.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-cd ../..
+cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
@@ -114,7 +112,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_custom_libcxx=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
-  use_lld=false" --ide=xcode
+  use_lld=false"
 
 # build static library
 ninja -C "$OUTPUT_DIR" :default \
