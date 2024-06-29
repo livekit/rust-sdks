@@ -66,8 +66,7 @@ impl NativeAudioSource {
             sample_rate,
             num_channels,
             samples_10ms,
-            enable_queue: enable_queue.
-                unwrap_or(true),
+            enable_queue: enable_queue.unwrap_or(true),
             po_tx,
         };
 
