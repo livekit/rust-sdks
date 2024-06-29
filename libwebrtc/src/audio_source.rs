@@ -21,7 +21,6 @@ pub struct AudioSourceOptions {
     pub echo_cancellation: bool,
     pub noise_suppression: bool,
     pub auto_gain_control: bool,
-    pub enable_queue: bool,
 }
 
 #[non_exhaustive]
@@ -64,8 +63,16 @@ pub mod native {
             options: AudioSourceOptions,
             sample_rate: u32,
             num_channels: u32,
+            enable_queue: bool,
         ) -> NativeAudioSource {
-            Self { handle: imp_as::NativeAudioSource::new(options, sample_rate, num_channels) }
+            Self {
+                handle: imp_as::NativeAudioSource::new(
+                    options,
+                    sample_rate,
+                    num_channels,
+                    enable_queue,
+                ),
+            }
         }
 
         pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
@@ -86,6 +93,10 @@ pub mod native {
 
         pub fn num_channels(&self) -> u32 {
             self.handle.num_channels()
+        }
+
+        pub fn enable_queue(&self) -> bool {
+            self.handle.enable_queue()
         }
     }
 }
