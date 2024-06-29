@@ -43,7 +43,7 @@ impl FfiAudioSource {
                     new_source.options.map(Into::into).unwrap_or_default(),
                     new_source.sample_rate,
                     new_source.num_channels,
-                    new_source.enable_queue.unwrap_or(true),
+                    new_source.enable_queue,
                 );
                 RtcAudioSource::Native(audio_source)
             }

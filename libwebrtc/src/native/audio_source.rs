@@ -33,6 +33,8 @@ pub struct NativeAudioSource {
     sample_rate: u32,
     num_channels: u32,
     samples_10ms: usize,
+    // whether to queue audio frames or send them immediately
+    // defaults to true
     enable_queue: bool,
     po_tx: mpsc::Sender<Vec<i16>>,
 }
@@ -50,7 +52,7 @@ impl NativeAudioSource {
         options: AudioSourceOptions,
         sample_rate: u32,
         num_channels: u32,
-        enable_queue: bool,
+        enable_queue: Option<bool>,
     ) -> NativeAudioSource {
         let samples_10ms = (sample_rate / 100 * num_channels) as usize;
         let (po_tx, mut po_rx) = mpsc::channel(BUFFER_SIZE_MS / 10);
@@ -64,7 +66,8 @@ impl NativeAudioSource {
             sample_rate,
             num_channels,
             samples_10ms,
-            enable_queue,
+            enable_queue: enable_queue.
+                unwrap_or(true),
             po_tx,
         };
 
