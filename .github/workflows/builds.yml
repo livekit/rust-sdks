@@ -40,13 +40,13 @@ jobs:
           - os: windows-2019
             target: aarch64-pc-windows-msvc
             #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
-          - os: macos-11
+          - os: macos-13
             target: x86_64-apple-darwin
-          - os: macos-11
+          - os: macos-13
             target: aarch64-apple-darwin
-          - os: macos-11
+          - os: macos-13
             target: aarch64-apple-ios
-          - os: macos-11
+          - os: macos-13
             target: aarch64-apple-ios-sim
           - os: ubuntu-20.04
             target: x86_64-unknown-linux-gnu
