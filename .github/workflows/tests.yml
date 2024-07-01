@@ -33,7 +33,7 @@ jobs:
           # Platform supports is limited for tests (no aarch64)
           - os: windows-2019
             target: x86_64-pc-windows-msvc
-          - os: macos-11
+          - os: macos-13
             target: x86_64-apple-darwin
           - os: ubuntu-20.04
             target: x86_64-unknown-linux-gnu
