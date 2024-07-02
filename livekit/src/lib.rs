@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod audio;
 pub mod proto;
 mod room;
 mod rtc_engine;
