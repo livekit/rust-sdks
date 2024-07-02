@@ -76,9 +76,12 @@ impl NativeAudioSource {
                 let mut interval = interval(Duration::from_millis(10));
                 interval.set_missed_tick_behavior(livekit_runtime::MissedTickBehavior::Delay);
                 let blank_data = vec![0; samples_10ms];
+                let enable_queue = source.enable_queue;
 
                 loop {
-                    interval.tick().await;
+                    if enable_queue {
+                        interval.tick().await;
+                    }
 
                     let frame = po_rx.try_recv();
                     if let Err(TryRecvError::Disconnected) = frame {
@@ -86,12 +89,14 @@ impl NativeAudioSource {
                     }
 
                     if let Err(TryRecvError::Empty) = frame {
-                        source.sys_handle.on_captured_frame(
-                            &blank_data,
-                            sample_rate,
-                            num_channels,
-                            blank_data.len() / num_channels as usize,
-                        );
+                        if enable_queue {
+                            source.sys_handle.on_captured_frame(
+                                &blank_data,
+                                sample_rate,
+                                num_channels,
+                                blank_data.len() / num_channels as usize,
+                            );
+                        }
                         continue;
                     }
 
@@ -143,20 +148,6 @@ impl NativeAudioSource {
 
         let mut inner = self.inner.lock().await;
         let mut samples = 0;
-        let _send_frame = |data: &[i16]| {
-            let data = data.to_vec();
-            if self.enable_queue {
-                let _ = self.po_tx.send(data);
-            } else {
-                self.sys_handle.on_captured_frame(
-                    &data,
-                    frame.sample_rate,
-                    frame.num_channels,
-                    data.len() / frame.num_channels as usize,
-                );
-            }
-        };
-
         // split frames into 10ms chunks
         loop {
             let remaining_samples = frame.data.len() - samples;
@@ -175,7 +166,7 @@ impl NativeAudioSource {
 
                 if inner.len == self.samples_10ms {
                     let data = inner.buf.clone().to_vec();
-                    _send_frame(&data);
+                    let _ = self.po_tx.send(data).await;
                     inner.len = 0;
                 }
                 continue;
@@ -184,7 +175,7 @@ impl NativeAudioSource {
             if remaining_samples >= self.samples_10ms {
                 // TODO(theomonnom): avoid copying
                 let data = frame.data[samples..samples + self.samples_10ms].to_vec();
-                _send_frame(&data);
+                let _ = self.po_tx.send(data).await;
                 samples += self.samples_10ms;
             }
         }
