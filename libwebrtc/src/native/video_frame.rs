@@ -148,7 +148,7 @@ macro_rules! impl_to_argb {
 
 #[allow(unused_unsafe)]
 impl NativeBuffer {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub unsafe fn from_cv_pixel_buffer(
         cv_pixel_buffer: *mut std::ffi::c_void,
     ) -> vf::native::NativeBuffer {
@@ -161,7 +161,7 @@ impl NativeBuffer {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }

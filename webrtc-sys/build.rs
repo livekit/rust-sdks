@@ -179,7 +179,10 @@ fn main() {
 
             configure_darwin_sysroot(&mut builder);
 
-            builder.file("src/objc_video_factory.mm").flag("-std=c++20");
+            builder
+            .file("src/objc_video_factory.mm")
+            .file("src/objc_video_frame_buffer.mm")
+            .flag("-std=c++20");
         }
         "android" => {
             webrtc_sys_build::configure_jni_symbols().unwrap();
