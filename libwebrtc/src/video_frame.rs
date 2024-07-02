@@ -455,7 +455,7 @@ pub mod native {
         /// This function does not bump the reference count of the pixel buffer.
         ///
         /// Safety: The given pointer must be a valid `CVPixelBufferRef`.
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub unsafe fn from_cv_pixel_buffer(cv_pixel_buffer: *mut std::ffi::c_void) -> Self {
             vf_imp::NativeBuffer::from_cv_pixel_buffer(cv_pixel_buffer)
         }
@@ -464,7 +464,7 @@ pub mod native {
         /// this buffer is not currently backed by a `CVPixelBufferRef`.
         ///
         /// This function does not bump the reference count of the pixel buffer.
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
         }
