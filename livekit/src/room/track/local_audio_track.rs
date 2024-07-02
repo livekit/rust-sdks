@@ -64,6 +64,21 @@ impl LocalAudioTrack {
         Self::new(name.to_string(), rtc_track, source)
     }
 
+
+    pub fn create_encoded_audio_track(name: &str, source: RtcAudioSource) -> LocalAudioTrack {
+        let rtc_track = match source.clone() {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcAudioSource::Encoded(encoded_source) => {
+                use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+                LkRuntime::instance()
+                    .pc_factory()
+                    .create_encoded_audio_track(&libwebrtc::native::create_random_uuid(), encoded_source)
+            }
+            _ => panic!("unsupported audio source"),
+        };
+        Self::new(name.to_string(), rtc_track, source)
+    }
+
     pub fn sid(&self) -> TrackSid {
         self.inner.info.read().sid.clone()
     }
