@@ -36,12 +36,12 @@ jobs:
             arch: arm64
 
           - name: mac
-            os: macos-11
+            os: macos-13
             cmd: ./build_macos.sh
             arch: x64
 
           - name: mac
-            os: macos-11
+            os: macos-13
             cmd: ./build_macos.sh
             arch: arm64
 
@@ -72,13 +72,13 @@ jobs:
 
           - name: ios
             out: ios-device-arm64
-            os: macos-11
+            os: macos-13
             cmd: ./build_ios.sh
             arch: arm64
 
           - name: ios
             out: ios-simulator-arm64
-            os: macos-11
+            os: macos-13
             cmd: ./build_ios.sh
             arch: arm64
             buildargs: --environment simulator 
@@ -118,7 +118,7 @@ jobs:
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
       - name: Install macos dependencies
-        if: ${{ matrix.target.os == 'macos-11' }}
+        if: ${{ matrix.target.os == 'macos-13' }}
         run: brew install ninja
 
       - name: Install windows dependencies
