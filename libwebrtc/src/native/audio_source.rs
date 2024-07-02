@@ -33,6 +33,9 @@ pub struct NativeAudioSource {
     sample_rate: u32,
     num_channels: u32,
     samples_10ms: usize,
+    // whether to queue audio frames or send them immediately
+    // defaults to true
+    enable_queue: bool,
     po_tx: mpsc::Sender<Vec<i16>>,
 }
 
@@ -49,6 +52,7 @@ impl NativeAudioSource {
         options: AudioSourceOptions,
         sample_rate: u32,
         num_channels: u32,
+        enable_queue: Option<bool>,
     ) -> NativeAudioSource {
         let samples_10ms = (sample_rate / 100 * num_channels) as usize;
         let (po_tx, mut po_rx) = mpsc::channel(BUFFER_SIZE_MS / 10);
@@ -62,6 +66,7 @@ impl NativeAudioSource {
             sample_rate,
             num_channels,
             samples_10ms,
+            enable_queue: enable_queue.unwrap_or(true),
             po_tx,
         };
 
@@ -71,9 +76,12 @@ impl NativeAudioSource {
                 let mut interval = interval(Duration::from_millis(10));
                 interval.set_missed_tick_behavior(livekit_runtime::MissedTickBehavior::Delay);
                 let blank_data = vec![0; samples_10ms];
+                let enable_queue = source.enable_queue;
 
                 loop {
-                    interval.tick().await;
+                    if enable_queue {
+                        interval.tick().await;
+                    }
 
                     let frame = po_rx.try_recv();
                     if let Err(TryRecvError::Disconnected) = frame {
@@ -81,12 +89,14 @@ impl NativeAudioSource {
                     }
 
                     if let Err(TryRecvError::Empty) = frame {
-                        source.sys_handle.on_captured_frame(
-                            &blank_data,
-                            sample_rate,
-                            num_channels,
-                            blank_data.len() / num_channels as usize,
-                        );
+                        if enable_queue {
+                            source.sys_handle.on_captured_frame(
+                                &blank_data,
+                                sample_rate,
+                                num_channels,
+                                blank_data.len() / num_channels as usize,
+                            );
+                        }
                         continue;
                     }
 
@@ -124,6 +134,10 @@ impl NativeAudioSource {
         self.num_channels
     }
 
+    pub fn enable_queue(&self) -> bool {
+        self.enable_queue
+    }
+
     pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
         if self.sample_rate != frame.sample_rate || self.num_channels != frame.num_channels {
             return Err(RtcError {
@@ -134,8 +148,6 @@ impl NativeAudioSource {
 
         let mut inner = self.inner.lock().await;
         let mut samples = 0;
-        let enable_queue = self.sys_handle.audio_options().enable_queue;
-
         // split frames into 10ms chunks
         loop {
             let remaining_samples = frame.data.len() - samples;
@@ -154,16 +166,7 @@ impl NativeAudioSource {
 
                 if inner.len == self.samples_10ms {
                     let data = inner.buf.clone().to_vec();
-                    if enable_queue {
-                        let _ = self.po_tx.send(data).await;
-                    } else {
-                        self.sys_handle.on_captured_frame(
-                            &data,
-                            frame.sample_rate,
-                            frame.num_channels,
-                            data.len() / frame.num_channels as usize,
-                        );
-                    }
+                    let _ = self.po_tx.send(data).await;
                     inner.len = 0;
                 }
                 continue;
@@ -172,16 +175,7 @@ impl NativeAudioSource {
             if remaining_samples >= self.samples_10ms {
                 // TODO(theomonnom): avoid copying
                 let data = frame.data[samples..samples + self.samples_10ms].to_vec();
-                if enable_queue {
-                    let _ = self.po_tx.send(data).await;
-                } else {
-                    self.sys_handle.on_captured_frame(
-                        &data,
-                        frame.sample_rate,
-                        frame.num_channels,
-                        data.len() / frame.num_channels as usize,
-                    );
-                }
+                let _ = self.po_tx.send(data).await;
                 samples += self.samples_10ms;
             }
         }
@@ -196,7 +190,6 @@ impl From<sys_at::ffi::AudioSourceOptions> for AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
-            enable_queue: options.enable_queue,
         }
     }
 }
@@ -207,7 +200,6 @@ impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
             echo_cancellation: options.echo_cancellation,
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
-            enable_queue: options.enable_queue,
         }
     }
 }

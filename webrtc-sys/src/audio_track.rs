@@ -23,7 +23,6 @@ pub mod ffi {
         pub echo_cancellation: bool,
         pub noise_suppression: bool,
         pub auto_gain_control: bool,
-        pub enable_queue: bool,
     }
 
     extern "C++" {
