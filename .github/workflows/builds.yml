@@ -85,6 +85,5 @@ jobs:
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
         run: |
-          rustup target install  ${{ matrix.target }}
           cargo install cargo-ndk
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
