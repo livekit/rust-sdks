@@ -251,16 +251,18 @@ pub(super) fn add_publication(
         let rtc_engine = inner.rtc_engine.clone();
         move |publication| {
             if let Some(cb) = events.track_muted.lock().as_ref() {
-                let rtc_engine = rtc_engine.clone();
-                let publication_cloned = publication.clone();
-                livekit_runtime::spawn(async move {
-                    let _ = rtc_engine
-                        .mute_track(proto::MuteTrackRequest {
-                            sid: publication_cloned.sid().to_string(),
-                            muted: true,
-                        })
-                        .await;
-                });
+                if !publication.is_remote() {
+                    let rtc_engine = rtc_engine.clone();
+                    let publication_cloned = publication.clone();
+                    livekit_runtime::spawn(async move {
+                        let _ = rtc_engine
+                            .mute_track(proto::MuteTrackRequest {
+                                sid: publication_cloned.sid().to_string(),
+                                muted: true,
+                            })
+                            .await;
+                    });
+                }
                 cb(participant.clone(), publication);
             }
         }
@@ -272,16 +274,18 @@ pub(super) fn add_publication(
         let rtc_engine = inner.rtc_engine.clone();
         move |publication| {
             if let Some(cb) = events.track_unmuted.lock().as_ref() {
-                let rtc_engine = rtc_engine.clone();
-                let publication_cloned = publication.clone();
-                livekit_runtime::spawn(async move {
-                    let _ = rtc_engine
-                        .mute_track(proto::MuteTrackRequest {
-                            sid: publication_cloned.sid().to_string(),
-                            muted: false,
-                        })
-                        .await;
-                });
+                if !publication.is_remote() {
+                    let rtc_engine = rtc_engine.clone();
+                    let publication_cloned = publication.clone();
+                    livekit_runtime::spawn(async move {
+                        let _ = rtc_engine
+                            .mute_track(proto::MuteTrackRequest {
+                                sid: publication_cloned.sid().to_string(),
+                                muted: false,
+                            })
+                            .await;
+                    });
+                }
                 cb(participant.clone(), publication);
             }
         }
