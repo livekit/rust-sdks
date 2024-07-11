@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+shopt -s nullglob
 
 arch=""
 profile="release"
@@ -70,6 +71,10 @@ cd src
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+for file in third_party/boringssl/src/**/*.{cc,h}; do
+  cat "$COMMAND_DIR/bssl_symbols.txt" | tr '\n' ' ' | sed 's/ /\\\\|/g' | sed 's/..$//' | xargs -I {} sed 's/\([\n: ]\)\({}\)/\1lk_\2/g'
+done
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
