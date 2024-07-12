@@ -353,6 +353,32 @@ impl RemoteParticipant {
                 }
             }
         });
+
+        publication.on_enabled_status_changed({
+            let rtc_engine = self.inner.rtc_engine.clone();
+            move |publication, enabled| {
+                let rtc_engine = rtc_engine.clone();
+                livekit_runtime::spawn(async move {
+                    let tsid: String = publication.sid().into();
+                    let TrackDimension(width, height) = publication.dimension();
+                    let update_track_settings = proto::UpdateTrackSettings {
+                        track_sids: vec![tsid.clone()],
+                        disabled: !enabled,
+                        width,
+                        height,
+                        quality: proto::VideoQuality::High.into(), // deprecated, but not marked in proto
+                        priority: 0,
+                        fps: 0,
+                    };
+
+                    let _ = rtc_engine
+                        .send_request(proto::signal_request::Message::TrackSetting(
+                            update_track_settings,
+                        ))
+                        .await;
+                });
+            }
+        })
     }
 
     pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {

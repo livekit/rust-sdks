@@ -67,6 +67,10 @@ impl RemoteAudioTrack {
         self.inner.info.read().stream_state
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.inner.rtc_track.enabled()
+    }
+
     pub fn enable(&self) {
         self.inner.rtc_track.set_enabled(true);
     }
