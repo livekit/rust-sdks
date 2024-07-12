@@ -1510,6 +1510,8 @@ pub struct ParticipantInfo {
     pub identity: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
     pub metadata: ::prost::alloc::string::String,
+    #[prost(map="string, string", tag="5")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2261,7 +2263,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2319,6 +2321,8 @@ pub mod room_event {
         Eos(super::RoomEos),
         #[prost(message, tag="26")]
         DataPacketReceived(super::DataPacketReceived),
+        #[prost(message, tag="27")]
+        ParticipantAttributesChanged(super::ParticipantAttributesChanged),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2460,6 +2464,16 @@ pub struct ParticipantMetadataChanged {
     pub participant_sid: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub metadata: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantAttributesChanged {
+    #[prost(string, tag="1")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(map="string, string", tag="2")]
+    pub old_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(map="string, string", tag="3")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

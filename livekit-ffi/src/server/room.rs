@@ -746,6 +746,15 @@ async fn forward_event(
                 },
             ));
         }
+        RoomEvent::ParticipantAttributesChanged { participant, old_attributes, attributes } => {
+            let _ = send_event(proto::room_event::Message::ParticipantAttributesChanged(
+                proto::ParticipantAttributesChanged {
+                    participant_sid: participant.sid().to_string(),
+                    old_attributes,
+                    attributes,
+                },
+            ));
+        }
         RoomEvent::ActiveSpeakersChanged { speakers } => {
             let participant_sids = speakers.iter().map(|p| p.sid().to_string()).collect::<Vec<_>>();
 

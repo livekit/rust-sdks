@@ -285,6 +285,7 @@ message RoomEvent {
     E2eeStateChanged e2ee_state_changed = 24;
     RoomEOS eos = 25; // The stream of room events has ended
     DataPacketReceived data_packet_received = 26;
+    ParticipantAttributesChanged participant_attributes_changed = 27;
   }
 }
 
@@ -372,6 +373,12 @@ message RoomSidChanged {
 message ParticipantMetadataChanged { 
   string participant_sid = 1;
   string metadata = 2;
+}
+
+message ParticipantAttributesChanged {
+  string participant_sid = 1;
+  map<string, string> old_attributes = 2;
+  map<string, string> attributes = 3;
 }
 
 message ParticipantNameChanged { 

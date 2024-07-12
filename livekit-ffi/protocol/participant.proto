@@ -24,6 +24,7 @@ message ParticipantInfo {
   string name = 2;
   string identity = 3;
   string metadata = 4;
+  map<string, string> attributes = 5;
 }
 
 message OwnedParticipant {
