@@ -397,6 +397,10 @@ impl RemoteParticipant {
         self.inner.info.read().metadata.clone()
     }
 
+    pub fn attributes(&self) -> HashMap<String, String> {
+        self.inner.info.read().attributes.clone()
+    }
+
     pub fn is_speaking(&self) -> bool {
         self.inner.info.read().speaking
     }

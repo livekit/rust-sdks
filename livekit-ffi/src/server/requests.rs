@@ -160,6 +160,17 @@ fn on_update_local_name(
     Ok(ffi_participant.room.update_local_name(server, update_local_name))
 }
 
+fn on_update_local_attributes(
+    server: &'static FfiServer,
+    update_local_attributes: proto::UpdateLocalAttributesRequest,
+) -> FfiResult<proto::UpdateLocalAttributesResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(update_local_attributes.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant.room.update_local_attributes(server, update_local_attributes))
+}
+
 /// Create a new video track from a source
 fn on_create_video_track(
     server: &'static FfiServer,
@@ -590,6 +601,11 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::UpdateLocalName(update) => {
             proto::ffi_response::Message::UpdateLocalName(on_update_local_name(server, update)?)
+        }
+        proto::ffi_request::Message::UpdateLocalAttributes(update) => {
+            proto::ffi_response::Message::UpdateLocalAttributes(on_update_local_attributes(
+                server, update,
+            )?)
         }
         proto::ffi_request::Message::CreateVideoTrack(create) => {
             proto::ffi_response::Message::CreateVideoTrack(on_create_video_track(server, create)?)
