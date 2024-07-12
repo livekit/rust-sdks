@@ -95,11 +95,11 @@ impl RemoteVideoTrack {
     }
 
     pub(crate) fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
-        *self.inner.events.muted.lock() = Some(Box::new(f));
+        self.inner.events.lock().muted.replace(Box::new(f));
     }
 
     pub(crate) fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
-        *self.inner.events.unmuted.lock() = Some(Box::new(f));
+        self.inner.events.lock().unmuted.replace(Box::new(f));
     }
 
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {

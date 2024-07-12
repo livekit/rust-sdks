@@ -131,8 +131,8 @@ type UnmutedHandler = Box<dyn Fn(Track) + Send>;
 #[derive(Default)]
 struct TrackEvents {
     // These mute handlers are only called for local tracks
-    pub muted: Mutex<Option<MutedHandler>>,
-    pub unmuted: Mutex<Option<UnmutedHandler>>,
+    pub muted: Option<MutedHandler>,
+    pub unmuted: Option<UnmutedHandler>,
 }
 
 #[derive(Debug)]
@@ -149,7 +149,7 @@ struct TrackInfo {
 pub(super) struct TrackInner {
     info: RwLock<TrackInfo>,
     rtc_track: MediaStreamTrack,
-    events: TrackEvents,
+    events: Mutex<TrackEvents>,
 }
 
 pub(super) fn new_inner(
@@ -190,10 +190,10 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     inner.info.write().muted = muted;
 
     if muted {
-        if let Some(on_mute) = inner.events.muted.lock().as_ref() {
+        if let Some(on_mute) = inner.events.lock().muted.as_ref() {
             on_mute(track.clone());
         }
-    } else if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
+    } else if let Some(on_unmute) = inner.events.lock().muted.as_ref() {
         on_unmute(track.clone());
     }
 }
