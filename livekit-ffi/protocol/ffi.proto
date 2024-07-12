@@ -65,19 +65,20 @@ message FfiRequest {
     SetSubscribedRequest set_subscribed = 8;
     UpdateLocalMetadataRequest update_local_metadata = 9;
     UpdateLocalNameRequest update_local_name = 10;
-    GetSessionStatsRequest get_session_stats = 11;
-    PublishTranscriptionRequest publish_transcription = 12;
+    UpdateLocalAttributesRequest update_local_attributes = 11;
+    GetSessionStatsRequest get_session_stats = 12;
+    PublishTranscriptionRequest publish_transcription = 13;
 
     // Track
-    CreateVideoTrackRequest create_video_track = 13;
-    CreateAudioTrackRequest create_audio_track = 14;
-    GetStatsRequest get_stats = 15;
+    CreateVideoTrackRequest create_video_track = 14;
+    CreateAudioTrackRequest create_audio_track = 15;
+    GetStatsRequest get_stats = 16;
 
     // Video
-    NewVideoStreamRequest new_video_stream = 16;
-    NewVideoSourceRequest new_video_source = 17;
-    CaptureVideoFrameRequest capture_video_frame = 18;
-    VideoConvertRequest video_convert = 19;
+    NewVideoStreamRequest new_video_stream = 17;
+    NewVideoSourceRequest new_video_source = 18;
+    CaptureVideoFrameRequest capture_video_frame = 19;
+    VideoConvertRequest video_convert = 20;
 
     // Audio
     NewAudioStreamRequest new_audio_stream = 22;
@@ -103,19 +104,20 @@ message FfiResponse {
     SetSubscribedResponse set_subscribed = 8;
     UpdateLocalMetadataResponse update_local_metadata = 9;
     UpdateLocalNameResponse update_local_name = 10;
-    GetSessionStatsResponse get_session_stats = 11;
-    PublishTranscriptionResponse publish_transcription = 12;
+    UpdateLocalAttributesResponse update_local_attributes = 11;
+    GetSessionStatsResponse get_session_stats = 12;
+    PublishTranscriptionResponse publish_transcription = 13;
 
     // Track
-    CreateVideoTrackResponse create_video_track = 13;
-    CreateAudioTrackResponse create_audio_track = 14;
-    GetStatsResponse get_stats = 15;
+    CreateVideoTrackResponse create_video_track = 14;
+    CreateAudioTrackResponse create_audio_track = 15;
+    GetStatsResponse get_stats = 16;
 
     // Video
-    NewVideoStreamResponse new_video_stream = 16;
-    NewVideoSourceResponse new_video_source = 17;
-    CaptureVideoFrameResponse capture_video_frame = 18;
-    VideoConvertResponse video_convert = 19;
+    NewVideoStreamResponse new_video_stream = 17;
+    NewVideoSourceResponse new_video_source = 18;
+    CaptureVideoFrameResponse capture_video_frame = 19;
+    VideoConvertResponse video_convert = 20;
 
     // Audio
     NewAudioStreamResponse new_audio_stream = 22;
@@ -146,10 +148,11 @@ message FfiEvent {
     CaptureAudioFrameCallback capture_audio_frame = 12;
     UpdateLocalMetadataCallback update_local_metadata = 13;
     UpdateLocalNameCallback update_local_name = 14;
-    GetStatsCallback get_stats = 15;
-    LogBatch logs = 16;
-    GetSessionStatsCallback get_session_stats = 17;
-    Panic panic = 18;
+    UpdateLocalAttributesCallback update_local_attributes = 15;
+    GetStatsCallback get_stats = 16;
+    LogBatch logs = 17;
+    GetSessionStatsCallback get_session_stats = 18;
+    Panic panic = 19;
   }
 }
 

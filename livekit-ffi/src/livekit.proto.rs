@@ -2093,6 +2093,27 @@ pub struct UpdateLocalMetadataCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
+/// Change the local participant's attributes
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalAttributesRequest {
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(map="string, string", tag="2")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalAttributesResponse {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLocalAttributesCallback {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
 /// Change the local participant's name
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2263,7 +2284,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2304,25 +2325,25 @@ pub mod room_event {
         #[prost(message, tag="17")]
         ParticipantNameChanged(super::ParticipantNameChanged),
         #[prost(message, tag="18")]
-        ConnectionQualityChanged(super::ConnectionQualityChanged),
+        ParticipantAttributesChanged(super::ParticipantAttributesChanged),
         #[prost(message, tag="19")]
+        ConnectionQualityChanged(super::ConnectionQualityChanged),
+        #[prost(message, tag="20")]
         ConnectionStateChanged(super::ConnectionStateChanged),
-        /// Connected connected = 20;
-        #[prost(message, tag="21")]
-        Disconnected(super::Disconnected),
+        /// Connected connected = 21;
         #[prost(message, tag="22")]
-        Reconnecting(super::Reconnecting),
+        Disconnected(super::Disconnected),
         #[prost(message, tag="23")]
-        Reconnected(super::Reconnected),
+        Reconnecting(super::Reconnecting),
         #[prost(message, tag="24")]
+        Reconnected(super::Reconnected),
+        #[prost(message, tag="25")]
         E2eeStateChanged(super::E2eeStateChanged),
         /// The stream of room events has ended
-        #[prost(message, tag="25")]
-        Eos(super::RoomEos),
         #[prost(message, tag="26")]
-        DataPacketReceived(super::DataPacketReceived),
+        Eos(super::RoomEos),
         #[prost(message, tag="27")]
-        ParticipantAttributesChanged(super::ParticipantAttributesChanged),
+        DataPacketReceived(super::DataPacketReceived),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2992,7 +3013,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3020,24 +3041,26 @@ pub mod ffi_request {
         #[prost(message, tag="10")]
         UpdateLocalName(super::UpdateLocalNameRequest),
         #[prost(message, tag="11")]
-        GetSessionStats(super::GetSessionStatsRequest),
+        UpdateLocalAttributes(super::UpdateLocalAttributesRequest),
         #[prost(message, tag="12")]
+        GetSessionStats(super::GetSessionStatsRequest),
+        #[prost(message, tag="13")]
         PublishTranscription(super::PublishTranscriptionRequest),
         /// Track
-        #[prost(message, tag="13")]
-        CreateVideoTrack(super::CreateVideoTrackRequest),
         #[prost(message, tag="14")]
-        CreateAudioTrack(super::CreateAudioTrackRequest),
+        CreateVideoTrack(super::CreateVideoTrackRequest),
         #[prost(message, tag="15")]
+        CreateAudioTrack(super::CreateAudioTrackRequest),
+        #[prost(message, tag="16")]
         GetStats(super::GetStatsRequest),
         /// Video
-        #[prost(message, tag="16")]
-        NewVideoStream(super::NewVideoStreamRequest),
         #[prost(message, tag="17")]
-        NewVideoSource(super::NewVideoSourceRequest),
+        NewVideoStream(super::NewVideoStreamRequest),
         #[prost(message, tag="18")]
-        CaptureVideoFrame(super::CaptureVideoFrameRequest),
+        NewVideoSource(super::NewVideoSourceRequest),
         #[prost(message, tag="19")]
+        CaptureVideoFrame(super::CaptureVideoFrameRequest),
+        #[prost(message, tag="20")]
         VideoConvert(super::VideoConvertRequest),
         /// Audio
         #[prost(message, tag="22")]
@@ -3058,7 +3081,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3086,24 +3109,26 @@ pub mod ffi_response {
         #[prost(message, tag="10")]
         UpdateLocalName(super::UpdateLocalNameResponse),
         #[prost(message, tag="11")]
-        GetSessionStats(super::GetSessionStatsResponse),
+        UpdateLocalAttributes(super::UpdateLocalAttributesResponse),
         #[prost(message, tag="12")]
+        GetSessionStats(super::GetSessionStatsResponse),
+        #[prost(message, tag="13")]
         PublishTranscription(super::PublishTranscriptionResponse),
         /// Track
-        #[prost(message, tag="13")]
-        CreateVideoTrack(super::CreateVideoTrackResponse),
         #[prost(message, tag="14")]
-        CreateAudioTrack(super::CreateAudioTrackResponse),
+        CreateVideoTrack(super::CreateVideoTrackResponse),
         #[prost(message, tag="15")]
+        CreateAudioTrack(super::CreateAudioTrackResponse),
+        #[prost(message, tag="16")]
         GetStats(super::GetStatsResponse),
         /// Video
-        #[prost(message, tag="16")]
-        NewVideoStream(super::NewVideoStreamResponse),
         #[prost(message, tag="17")]
-        NewVideoSource(super::NewVideoSourceResponse),
+        NewVideoStream(super::NewVideoStreamResponse),
         #[prost(message, tag="18")]
-        CaptureVideoFrame(super::CaptureVideoFrameResponse),
+        NewVideoSource(super::NewVideoSourceResponse),
         #[prost(message, tag="19")]
+        CaptureVideoFrame(super::CaptureVideoFrameResponse),
+        #[prost(message, tag="20")]
         VideoConvert(super::VideoConvertResponse),
         /// Audio
         #[prost(message, tag="22")]
@@ -3126,7 +3151,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3163,12 +3188,14 @@ pub mod ffi_event {
         #[prost(message, tag="14")]
         UpdateLocalName(super::UpdateLocalNameCallback),
         #[prost(message, tag="15")]
-        GetStats(super::GetStatsCallback),
+        UpdateLocalAttributes(super::UpdateLocalAttributesCallback),
         #[prost(message, tag="16")]
-        Logs(super::LogBatch),
+        GetStats(super::GetStatsCallback),
         #[prost(message, tag="17")]
-        GetSessionStats(super::GetSessionStatsCallback),
+        Logs(super::LogBatch),
         #[prost(message, tag="18")]
+        GetSessionStats(super::GetSessionStatsCallback),
+        #[prost(message, tag="19")]
         Panic(super::Panic),
     }
 }

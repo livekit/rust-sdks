@@ -465,6 +465,28 @@ impl RoomInner {
         server.watch_panic(handle);
         proto::UpdateLocalNameResponse { async_id }
     }
+
+    pub fn update_local_attributes(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        update_local_attributes: proto::UpdateLocalAttributesRequest,
+    ) -> proto::UpdateLocalAttributesResponse {
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let _ = inner
+                .room
+                .local_participant()
+                .update_attributes(update_local_attributes.attributes)
+                .await;
+
+            let _ = server.send_event(proto::ffi_event::Message::UpdateLocalAttributes(
+                proto::UpdateLocalAttributesCallback { async_id },
+            ));
+        });
+        server.watch_panic(handle);
+        proto::UpdateLocalAttributesResponse { async_id }
+    }
 }
 
 // Task used to publish data without blocking the client thread
