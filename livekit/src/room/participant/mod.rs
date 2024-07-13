@@ -255,12 +255,12 @@ pub(super) fn add_publication(
                     let rtc_engine = rtc_engine.clone();
                     let publication_cloned = publication.clone();
                     livekit_runtime::spawn(async move {
-                        let _ = rtc_engine
+                        rtc_engine
                             .mute_track(proto::MuteTrackRequest {
                                 sid: publication_cloned.sid().to_string(),
                                 muted: true,
                             })
-                            .await;
+                            .await
                     });
                 }
                 cb(participant.clone(), publication);
@@ -278,12 +278,12 @@ pub(super) fn add_publication(
                     let rtc_engine = rtc_engine.clone();
                     let publication_cloned = publication.clone();
                     livekit_runtime::spawn(async move {
-                        let _ = rtc_engine
+                        rtc_engine
                             .mute_track(proto::MuteTrackRequest {
                                 sid: publication_cloned.sid().to_string(),
                                 muted: false,
                             })
-                            .await;
+                            .await
                     });
                 }
                 cb(participant.clone(), publication);
