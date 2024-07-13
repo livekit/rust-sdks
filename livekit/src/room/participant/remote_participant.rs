@@ -371,11 +371,11 @@ impl RemoteParticipant {
                         fps: 0,
                     };
 
-                    let _ = rtc_engine
+                    rtc_engine
                         .send_request(proto::signal_request::Message::TrackSetting(
                             update_track_settings,
                         ))
-                        .await;
+                        .await
                 });
             }
         })
