@@ -226,6 +226,14 @@ impl RtcEngine {
                                      // happen on bad timing and it is safe to ignore)
     }
 
+    pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
+        let (session, _r_lock) = {
+            let (handle, _r_lock) = self.inner.wait_reconnection().await?;
+            (handle.session.clone(), _r_lock)
+        };
+        session.mute_track(req).await
+    }
+
     pub async fn create_sender(
         &self,
         track: LocalTrack,

@@ -256,6 +256,10 @@ impl RtcSession {
         self.inner.add_track(req).await
     }
 
+    pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
+        self.inner.mute_track(req).await
+    }
+
     pub async fn create_sender(
         &self,
         track: LocalTrack,
@@ -646,6 +650,12 @@ impl SessionInner {
         }
 
         self.publisher_pc.peer_connection().remove_track(sender)?;
+
+        Ok(())
+    }
+
+    async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
+        self.signal_client.send(proto::signal_request::Message::Mute(req)).await;
 
         Ok(())
     }

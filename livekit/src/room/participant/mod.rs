@@ -248,8 +248,24 @@ pub(super) fn add_publication(
     publication.on_muted({
         let events = inner.events.clone();
         let participant = participant.clone();
+        let rtc_engine = inner.rtc_engine.clone();
         move |publication| {
             if let Some(cb) = events.track_muted.lock().as_ref() {
+                if !publication.is_remote() {
+                    let rtc_engine = rtc_engine.clone();
+                    let publication_cloned = publication.clone();
+                    livekit_runtime::spawn(async move {
+                        let engine_request = rtc_engine
+                            .mute_track(proto::MuteTrackRequest {
+                                sid: publication_cloned.sid().to_string(),
+                                muted: true,
+                            })
+                            .await;
+                        if let Err(e) = engine_request {
+                            log::error!("could not mute track: {e:?}");
+                        }
+                    });
+                }
                 cb(participant.clone(), publication);
             }
         }
@@ -258,8 +274,24 @@ pub(super) fn add_publication(
     publication.on_unmuted({
         let events = inner.events.clone();
         let participant = participant.clone();
+        let rtc_engine = inner.rtc_engine.clone();
         move |publication| {
             if let Some(cb) = events.track_unmuted.lock().as_ref() {
+                if !publication.is_remote() {
+                    let rtc_engine = rtc_engine.clone();
+                    let publication_cloned = publication.clone();
+                    livekit_runtime::spawn(async move {
+                        let engine_request = rtc_engine
+                            .mute_track(proto::MuteTrackRequest {
+                                sid: publication_cloned.sid().to_string(),
+                                muted: false,
+                            })
+                            .await;
+                        if let Err(e) = engine_request {
+                            log::error!("could not unmute track: {e:?}");
+                        }
+                    });
+                }
                 cb(participant.clone(), publication);
             }
         }
