@@ -255,12 +255,15 @@ pub(super) fn add_publication(
                     let rtc_engine = rtc_engine.clone();
                     let publication_cloned = publication.clone();
                     livekit_runtime::spawn(async move {
-                        rtc_engine
+                        let engine_request = rtc_engine
                             .mute_track(proto::MuteTrackRequest {
                                 sid: publication_cloned.sid().to_string(),
                                 muted: true,
                             })
-                            .await
+                            .await;
+                        if let Err(e) = engine_request {
+                            log::error!("could not mute track: {e:?}");
+                        }
                     });
                 }
                 cb(participant.clone(), publication);
@@ -278,12 +281,15 @@ pub(super) fn add_publication(
                     let rtc_engine = rtc_engine.clone();
                     let publication_cloned = publication.clone();
                     livekit_runtime::spawn(async move {
-                        rtc_engine
+                        let engine_request = rtc_engine
                             .mute_track(proto::MuteTrackRequest {
                                 sid: publication_cloned.sid().to_string(),
                                 muted: false,
                             })
-                            .await
+                            .await;
+                        if let Err(e) = engine_request {
+                            log::error!("could not unmute track: {e:?}");
+                        }
                     });
                 }
                 cb(participant.clone(), publication);
