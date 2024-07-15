@@ -22,7 +22,8 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, room::{self, FfiParticipant, FfiPublication, FfiTrack},
+    audio_source, audio_stream, colorcvt,
+    room::{self, FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;

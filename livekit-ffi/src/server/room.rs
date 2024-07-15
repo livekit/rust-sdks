@@ -434,14 +434,14 @@ impl RoomInner {
         let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
-            let res = inner
-                .room
-                .local_participant()
-                .set_metadata(update_local_metadata.metadata)
-                .await;
+            let res =
+                inner.room.local_participant().set_metadata(update_local_metadata.metadata).await;
 
             let _ = server.send_event(proto::ffi_event::Message::UpdateLocalMetadata(
-                proto::SetLocalMetadataCallback { async_id, error: res.err().map(|e| e.to_string()) },
+                proto::SetLocalMetadataCallback {
+                    async_id,
+                    error: res.err().map(|e| e.to_string()),
+                },
             ));
         });
         server.watch_panic(handle);
@@ -481,7 +481,10 @@ impl RoomInner {
                 .await;
 
             let _ = server.send_event(proto::ffi_event::Message::UpdateLocalAttributes(
-                proto::SetLocalAttributesCallback { async_id, error: res.err().map(|e| e.to_string()) },
+                proto::SetLocalAttributesCallback {
+                    async_id,
+                    error: res.err().map(|e| e.to_string()),
+                },
             ));
         });
         server.watch_panic(handle);
