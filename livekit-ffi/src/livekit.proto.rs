@@ -2380,7 +2380,7 @@ pub struct ParticipantConnected {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantDisconnected {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2400,7 +2400,7 @@ pub struct LocalTrackUnpublished {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackPublished {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(message, optional, tag="2")]
     pub publication: ::core::option::Option<OwnedTrackPublication>,
 }
@@ -2408,7 +2408,7 @@ pub struct TrackPublished {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackUnpublished {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub publication_sid: ::prost::alloc::string::String,
 }
@@ -2418,7 +2418,7 @@ pub struct TrackUnpublished {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackSubscribed {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(message, optional, tag="2")]
     pub track: ::core::option::Option<OwnedTrack>,
 }
@@ -2427,7 +2427,7 @@ pub struct TrackSubscribed {
 pub struct TrackUnsubscribed {
     /// The FFI language can dispose/remove the VideoSink here
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub track_sid: ::prost::alloc::string::String,
 }
@@ -2435,7 +2435,7 @@ pub struct TrackUnsubscribed {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackSubscriptionFailed {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub track_sid: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
@@ -2445,7 +2445,7 @@ pub struct TrackSubscriptionFailed {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackMuted {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub track_sid: ::prost::alloc::string::String,
 }
@@ -2453,7 +2453,7 @@ pub struct TrackMuted {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackUnmuted {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub track_sid: ::prost::alloc::string::String,
 }
@@ -2462,7 +2462,7 @@ pub struct TrackUnmuted {
 pub struct E2eeStateChanged {
     /// Using sid instead of identity for ffi communication
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(enumeration="EncryptionState", tag="2")]
     pub state: i32,
 }
@@ -2470,7 +2470,7 @@ pub struct E2eeStateChanged {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ActiveSpeakersChanged {
     #[prost(string, repeated, tag="1")]
-    pub participant_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub participant_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2488,7 +2488,7 @@ pub struct RoomSidChanged {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantMetadataChanged {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub metadata: ::prost::alloc::string::String,
 }
@@ -2496,7 +2496,7 @@ pub struct ParticipantMetadataChanged {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantAttributesChanged {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(map="string, string", tag="2")]
     pub old_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(map="string, string", tag="3")]
@@ -2506,7 +2506,7 @@ pub struct ParticipantAttributesChanged {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantNameChanged {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub name: ::prost::alloc::string::String,
 }
@@ -2514,7 +2514,7 @@ pub struct ParticipantNameChanged {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionQualityChanged {
     #[prost(string, tag="1")]
-    pub participant_sid: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(enumeration="ConnectionQuality", tag="2")]
     pub quality: i32,
 }
@@ -2542,10 +2542,6 @@ pub struct DataPacketReceived {
     /// Can be empty if the data is sent a server SDK
     #[prost(string, tag="2")]
     pub participant_identity: ::prost::alloc::string::String,
-    /// Can be empty if the data is sent a server SDK
-    #[deprecated]
-    #[prost(string, optional, tag="3")]
-    pub participant_sid: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(oneof="data_packet_received::Value", tags="4, 5")]
     pub value: ::core::option::Option<data_packet_received::Value>,
 }
