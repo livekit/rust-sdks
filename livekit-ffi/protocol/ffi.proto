@@ -68,7 +68,6 @@ message FfiRequest {
     SetLocalAttributesRequest update_local_attributes = 11;
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
-    GetRoomSidRequest get_room_sid = 14;
 
     // Track
     CreateVideoTrackRequest create_video_track = 15;
@@ -108,7 +107,6 @@ message FfiResponse {
     SetLocalAttributesResponse update_local_attributes = 11;
     GetSessionStatsResponse get_session_stats = 12;
     PublishTranscriptionResponse publish_transcription = 13;
-    GetRoomSidResponse get_room_sid = 14;
 
     // Track
     CreateVideoTrackResponse create_video_track = 15;
@@ -141,7 +139,6 @@ message FfiEvent {
     VideoStreamEvent video_stream_event = 3;
     AudioStreamEvent audio_stream_event = 4;
     ConnectCallback connect = 5;
-    GetRoomSidCallback get_room_sid = 6;
     DisconnectCallback disconnect = 7;
     DisposeCallback dispose = 8;
     PublishTrackCallback publish_track = 9;

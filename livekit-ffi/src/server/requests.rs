@@ -22,7 +22,7 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, room::{self, FfiParticipant, FfiPublication, FfiRoom, FfiTrack},
+    audio_source, audio_stream, colorcvt, room::{self, FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
@@ -51,26 +51,6 @@ fn on_connect(
     connect: proto::ConnectRequest,
 ) -> FfiResult<proto::ConnectResponse> {
     Ok(room::FfiRoom::connect(server, connect))
-}
-
-/// Retrieve the room sid
-fn on_room_sid(
-    server: &'static FfiServer,
-    req: proto::GetRoomSidRequest,
-) -> FfiResult<proto::GetRoomSidResponse> {
-    let async_id = server.next_id();
-    let handle = server.async_runtime.spawn(async move {
-        let ffi_room = server
-        .retrieve_handle::<FfiRoom>(req.room_handle)
-        .unwrap()
-        .clone();
-        let sid = ffi_room.inner.room.sid().await;
-        let _ = server.send_event(proto::ffi_event::Message::GetRoomSid(
-            proto::GetRoomSidCallback { async_id, sid: sid.to_string(), error: None },
-        ));
-    });
-
-    Ok(proto::GetRoomSidResponse { async_id })
 }
 
 /// Disconnect to a room
@@ -594,9 +574,6 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::Connect(connect) => {
             proto::ffi_response::Message::Connect(on_connect(server, connect)?)
-        }
-        proto::ffi_request::Message::GetRoomSid(req) => {
-            proto::ffi_response::Message::GetRoomSid(on_room_sid(server, req)?)
         }
         proto::ffi_request::Message::Disconnect(disconnect) => {
             proto::ffi_response::Message::Disconnect(on_disconnect(server, disconnect)?)

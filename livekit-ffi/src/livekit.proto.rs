@@ -1940,30 +1940,6 @@ pub mod connect_callback {
         pub publications: ::prost::alloc::vec::Vec<super::OwnedTrackPublication>,
     }
 }
-// Get Room Sid
-
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoomSidRequest {
-    #[prost(uint64, tag="1")]
-    pub room_handle: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoomSidResponse {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoomSidCallback {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-    #[prost(string, tag="2")]
-    pub sid: ::prost::alloc::string::String,
-    #[prost(string, optional, tag="3")]
-    pub error: ::core::option::Option<::prost::alloc::string::String>,
-}
 /// Disconnect from the a room
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3043,7 +3019,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3076,8 +3052,6 @@ pub mod ffi_request {
         GetSessionStats(super::GetSessionStatsRequest),
         #[prost(message, tag="13")]
         PublishTranscription(super::PublishTranscriptionRequest),
-        #[prost(message, tag="14")]
-        GetRoomSid(super::GetRoomSidRequest),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackRequest),
@@ -3113,7 +3087,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3146,8 +3120,6 @@ pub mod ffi_response {
         GetSessionStats(super::GetSessionStatsResponse),
         #[prost(message, tag="13")]
         PublishTranscription(super::PublishTranscriptionResponse),
-        #[prost(message, tag="14")]
-        GetRoomSid(super::GetRoomSidResponse),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackResponse),
@@ -3185,7 +3157,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3203,8 +3175,6 @@ pub mod ffi_event {
         AudioStreamEvent(super::AudioStreamEvent),
         #[prost(message, tag="5")]
         Connect(super::ConnectCallback),
-        #[prost(message, tag="6")]
-        GetRoomSid(super::GetRoomSidCallback),
         #[prost(message, tag="7")]
         Disconnect(super::DisconnectCallback),
         #[prost(message, tag="8")]
