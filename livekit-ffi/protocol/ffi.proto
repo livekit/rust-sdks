@@ -102,9 +102,9 @@ message FfiResponse {
     UnpublishTrackResponse unpublish_track = 6;
     PublishDataResponse publish_data = 7;
     SetSubscribedResponse set_subscribed = 8;
-    SetLocalMetadataResponse update_local_metadata = 9;
-    SetLocalNameResponse update_local_name = 10;
-    SetLocalAttributesResponse update_local_attributes = 11;
+    SetLocalMetadataResponse set_local_metadata = 9;
+    SetLocalNameResponse set_local_name = 10;
+    SetLocalAttributesResponse set_local_attributes = 11;
     GetSessionStatsResponse get_session_stats = 12;
     PublishTranscriptionResponse publish_transcription = 13;
 
