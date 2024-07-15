@@ -63,9 +63,9 @@ message FfiRequest {
     UnpublishTrackRequest unpublish_track = 6;
     PublishDataRequest publish_data = 7;
     SetSubscribedRequest set_subscribed = 8;
-    SetLocalMetadataRequest update_local_metadata = 9;
-    SetLocalNameRequest update_local_name = 10;
-    SetLocalAttributesRequest update_local_attributes = 11;
+    SetLocalMetadataRequest set_local_metadata = 9;
+    SetLocalNameRequest set_local_name = 10;
+    SetLocalAttributesRequest set_local_attributes = 11;
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
 
@@ -146,9 +146,9 @@ message FfiEvent {
     PublishDataCallback publish_data = 11;
     PublishTranscriptionCallback publish_transcription = 12;
     CaptureAudioFrameCallback capture_audio_frame = 13;
-    SetLocalMetadataCallback update_local_metadata = 14;
-    SetLocalNameCallback update_local_name = 15;
-    SetLocalAttributesCallback update_local_attributes = 16;
+    SetLocalMetadataCallback set_local_metadata = 14;
+    SetLocalNameCallback set_local_name = 15;
+    SetLocalAttributesCallback set_local_attributes = 16;
     GetStatsCallback get_stats = 17;
     LogBatch logs = 18;
     GetSessionStatsCallback get_session_stats = 19;

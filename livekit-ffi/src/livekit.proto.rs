@@ -3043,11 +3043,11 @@ pub mod ffi_request {
         #[prost(message, tag="8")]
         SetSubscribed(super::SetSubscribedRequest),
         #[prost(message, tag="9")]
-        UpdateLocalMetadata(super::SetLocalMetadataRequest),
+        SetLocalMetadata(super::SetLocalMetadataRequest),
         #[prost(message, tag="10")]
-        UpdateLocalName(super::SetLocalNameRequest),
+        SetLocalName(super::SetLocalNameRequest),
         #[prost(message, tag="11")]
-        UpdateLocalAttributes(super::SetLocalAttributesRequest),
+        SetLocalAttributes(super::SetLocalAttributesRequest),
         #[prost(message, tag="12")]
         GetSessionStats(super::GetSessionStatsRequest),
         #[prost(message, tag="13")]
@@ -3190,11 +3190,11 @@ pub mod ffi_event {
         #[prost(message, tag="13")]
         CaptureAudioFrame(super::CaptureAudioFrameCallback),
         #[prost(message, tag="14")]
-        UpdateLocalMetadata(super::SetLocalMetadataCallback),
+        SetLocalMetadata(super::SetLocalMetadataCallback),
         #[prost(message, tag="15")]
-        UpdateLocalName(super::SetLocalNameCallback),
+        SetLocalName(super::SetLocalNameCallback),
         #[prost(message, tag="16")]
-        UpdateLocalAttributes(super::SetLocalAttributesCallback),
+        SetLocalAttributes(super::SetLocalAttributesCallback),
         #[prost(message, tag="17")]
         GetStats(super::GetStatsCallback),
         #[prost(message, tag="18")]
