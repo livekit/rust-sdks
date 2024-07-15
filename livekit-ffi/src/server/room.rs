@@ -429,63 +429,63 @@ impl RoomInner {
     pub fn update_local_metadata(
         self: &Arc<Self>,
         server: &'static FfiServer,
-        update_local_metadata: proto::UpdateLocalMetadataRequest,
-    ) -> proto::UpdateLocalMetadataResponse {
+        update_local_metadata: proto::SetLocalMetadataRequest,
+    ) -> proto::SetLocalMetadataResponse {
         let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
-            let _ = inner
+            let res = inner
                 .room
                 .local_participant()
                 .update_metadata(update_local_metadata.metadata)
                 .await;
 
             let _ = server.send_event(proto::ffi_event::Message::UpdateLocalMetadata(
-                proto::UpdateLocalMetadataCallback { async_id },
+                proto::SetLocalMetadataCallback { async_id, error: res.err().map(|e| e.to_string()) },
             ));
         });
         server.watch_panic(handle);
-        proto::UpdateLocalMetadataResponse { async_id }
+        proto::SetLocalMetadataResponse { async_id }
     }
 
     pub fn update_local_name(
         self: &Arc<Self>,
         server: &'static FfiServer,
-        update_local_name: proto::UpdateLocalNameRequest,
-    ) -> proto::UpdateLocalNameResponse {
+        update_local_name: proto::SetLocalNameRequest,
+    ) -> proto::SetLocalNameResponse {
         let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
-            let _ = inner.room.local_participant().update_name(update_local_name.name).await;
+            let res = inner.room.local_participant().update_name(update_local_name.name).await;
 
             let _ = server.send_event(proto::ffi_event::Message::UpdateLocalName(
-                proto::UpdateLocalNameCallback { async_id },
+                proto::SetLocalNameCallback { async_id, error: res.err().map(|e| e.to_string()) },
             ));
         });
         server.watch_panic(handle);
-        proto::UpdateLocalNameResponse { async_id }
+        proto::SetLocalNameResponse { async_id }
     }
 
     pub fn update_local_attributes(
         self: &Arc<Self>,
         server: &'static FfiServer,
-        update_local_attributes: proto::UpdateLocalAttributesRequest,
-    ) -> proto::UpdateLocalAttributesResponse {
+        update_local_attributes: proto::SetLocalAttributesRequest,
+    ) -> proto::SetLocalAttributesResponse {
         let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
-            let _ = inner
+            let res = inner
                 .room
                 .local_participant()
                 .update_attributes(update_local_attributes.attributes)
                 .await;
 
             let _ = server.send_event(proto::ffi_event::Message::UpdateLocalAttributes(
-                proto::UpdateLocalAttributesCallback { async_id },
+                proto::SetLocalAttributesCallback { async_id, error: res.err().map(|e| e.to_string()) },
             ));
         });
         server.watch_panic(handle);
-        proto::UpdateLocalAttributesResponse { async_id }
+        proto::SetLocalAttributesResponse { async_id }
     }
 }
 

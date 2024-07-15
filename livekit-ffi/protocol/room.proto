@@ -117,39 +117,42 @@ message PublishTranscriptionCallback {
 }
 
 // Change the local participant's metadata
-message UpdateLocalMetadataRequest {
+message SetLocalMetadataRequest {
   uint64 local_participant_handle = 1;
   string metadata = 2;
 }
-message UpdateLocalMetadataResponse {
+message SetLocalMetadataResponse {
   uint64 async_id = 1;
 }
-message UpdateLocalMetadataCallback {
+message SetLocalMetadataCallback {
   uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // Change the local participant's attributes
-message UpdateLocalAttributesRequest {
+message SetLocalAttributesRequest {
   uint64 local_participant_handle = 1;
   map<string, string> attributes = 2;
 }
-message UpdateLocalAttributesResponse {
+message SetLocalAttributesResponse {
   uint64 async_id = 1;
 }
-message UpdateLocalAttributesCallback {
+message SetLocalAttributesCallback {
   uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // Change the local participant's name
-message UpdateLocalNameRequest {
+message SetLocalNameRequest {
   uint64 local_participant_handle = 1;
   string name = 2;
 }
-message UpdateLocalNameResponse {
+message SetLocalNameResponse {
   uint64 async_id = 1;
 }
-message UpdateLocalNameCallback {
+message SetLocalNameCallback {
   uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // Change the "desire" to subs2ribe to a track

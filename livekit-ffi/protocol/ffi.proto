@@ -63,9 +63,9 @@ message FfiRequest {
     UnpublishTrackRequest unpublish_track = 6;
     PublishDataRequest publish_data = 7;
     SetSubscribedRequest set_subscribed = 8;
-    UpdateLocalMetadataRequest update_local_metadata = 9;
-    UpdateLocalNameRequest update_local_name = 10;
-    UpdateLocalAttributesRequest update_local_attributes = 11;
+    SetLocalMetadataRequest update_local_metadata = 9;
+    SetLocalNameRequest update_local_name = 10;
+    SetLocalAttributesRequest update_local_attributes = 11;
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
 
@@ -102,9 +102,9 @@ message FfiResponse {
     UnpublishTrackResponse unpublish_track = 6;
     PublishDataResponse publish_data = 7;
     SetSubscribedResponse set_subscribed = 8;
-    UpdateLocalMetadataResponse update_local_metadata = 9;
-    UpdateLocalNameResponse update_local_name = 10;
-    UpdateLocalAttributesResponse update_local_attributes = 11;
+    SetLocalMetadataResponse update_local_metadata = 9;
+    SetLocalNameResponse update_local_name = 10;
+    SetLocalAttributesResponse update_local_attributes = 11;
     GetSessionStatsResponse get_session_stats = 12;
     PublishTranscriptionResponse publish_transcription = 13;
 
@@ -146,9 +146,9 @@ message FfiEvent {
     PublishDataCallback publish_data = 10;
     PublishTranscriptionCallback publish_transcription = 11;
     CaptureAudioFrameCallback capture_audio_frame = 12;
-    UpdateLocalMetadataCallback update_local_metadata = 13;
-    UpdateLocalNameCallback update_local_name = 14;
-    UpdateLocalAttributesCallback update_local_attributes = 15;
+    SetLocalMetadataCallback update_local_metadata = 13;
+    SetLocalNameCallback update_local_name = 14;
+    SetLocalAttributesCallback update_local_attributes = 15;
     GetStatsCallback get_stats = 16;
     LogBatch logs = 17;
     GetSessionStatsCallback get_session_stats = 18;

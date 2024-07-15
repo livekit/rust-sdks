@@ -2075,7 +2075,7 @@ pub struct PublishTranscriptionCallback {
 /// Change the local participant's metadata
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalMetadataRequest {
+pub struct SetLocalMetadataRequest {
     #[prost(uint64, tag="1")]
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
@@ -2083,20 +2083,22 @@ pub struct UpdateLocalMetadataRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalMetadataResponse {
+pub struct SetLocalMetadataResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalMetadataCallback {
+pub struct SetLocalMetadataCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Change the local participant's attributes
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalAttributesRequest {
+pub struct SetLocalAttributesRequest {
     #[prost(uint64, tag="1")]
     pub local_participant_handle: u64,
     #[prost(map="string, string", tag="2")]
@@ -2104,20 +2106,22 @@ pub struct UpdateLocalAttributesRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalAttributesResponse {
+pub struct SetLocalAttributesResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalAttributesCallback {
+pub struct SetLocalAttributesCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Change the local participant's name
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalNameRequest {
+pub struct SetLocalNameRequest {
     #[prost(uint64, tag="1")]
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
@@ -2125,15 +2129,17 @@ pub struct UpdateLocalNameRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalNameResponse {
+pub struct SetLocalNameResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLocalNameCallback {
+pub struct SetLocalNameCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Change the "desire" to subs2ribe to a track
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3037,11 +3043,11 @@ pub mod ffi_request {
         #[prost(message, tag="8")]
         SetSubscribed(super::SetSubscribedRequest),
         #[prost(message, tag="9")]
-        UpdateLocalMetadata(super::UpdateLocalMetadataRequest),
+        UpdateLocalMetadata(super::SetLocalMetadataRequest),
         #[prost(message, tag="10")]
-        UpdateLocalName(super::UpdateLocalNameRequest),
+        UpdateLocalName(super::SetLocalNameRequest),
         #[prost(message, tag="11")]
-        UpdateLocalAttributes(super::UpdateLocalAttributesRequest),
+        UpdateLocalAttributes(super::SetLocalAttributesRequest),
         #[prost(message, tag="12")]
         GetSessionStats(super::GetSessionStatsRequest),
         #[prost(message, tag="13")]
@@ -3105,11 +3111,11 @@ pub mod ffi_response {
         #[prost(message, tag="8")]
         SetSubscribed(super::SetSubscribedResponse),
         #[prost(message, tag="9")]
-        UpdateLocalMetadata(super::UpdateLocalMetadataResponse),
+        UpdateLocalMetadata(super::SetLocalMetadataResponse),
         #[prost(message, tag="10")]
-        UpdateLocalName(super::UpdateLocalNameResponse),
+        UpdateLocalName(super::SetLocalNameResponse),
         #[prost(message, tag="11")]
-        UpdateLocalAttributes(super::UpdateLocalAttributesResponse),
+        UpdateLocalAttributes(super::SetLocalAttributesResponse),
         #[prost(message, tag="12")]
         GetSessionStats(super::GetSessionStatsResponse),
         #[prost(message, tag="13")]
@@ -3184,11 +3190,11 @@ pub mod ffi_event {
         #[prost(message, tag="12")]
         CaptureAudioFrame(super::CaptureAudioFrameCallback),
         #[prost(message, tag="13")]
-        UpdateLocalMetadata(super::UpdateLocalMetadataCallback),
+        UpdateLocalMetadata(super::SetLocalMetadataCallback),
         #[prost(message, tag="14")]
-        UpdateLocalName(super::UpdateLocalNameCallback),
+        UpdateLocalName(super::SetLocalNameCallback),
         #[prost(message, tag="15")]
-        UpdateLocalAttributes(super::UpdateLocalAttributesCallback),
+        UpdateLocalAttributes(super::SetLocalAttributesCallback),
         #[prost(message, tag="16")]
         GetStats(super::GetStatsCallback),
         #[prost(message, tag="17")]

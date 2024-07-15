@@ -140,8 +140,8 @@ fn on_set_subscribed(
 
 fn on_update_local_metadata(
     server: &'static FfiServer,
-    update_local_metadata: proto::UpdateLocalMetadataRequest,
-) -> FfiResult<proto::UpdateLocalMetadataResponse> {
+    update_local_metadata: proto::SetLocalMetadataRequest,
+) -> FfiResult<proto::SetLocalMetadataResponse> {
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
         .clone();
@@ -151,8 +151,8 @@ fn on_update_local_metadata(
 
 fn on_update_local_name(
     server: &'static FfiServer,
-    update_local_name: proto::UpdateLocalNameRequest,
-) -> FfiResult<proto::UpdateLocalNameResponse> {
+    update_local_name: proto::SetLocalNameRequest,
+) -> FfiResult<proto::SetLocalNameResponse> {
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(update_local_name.local_participant_handle)?
         .clone();
@@ -162,8 +162,8 @@ fn on_update_local_name(
 
 fn on_update_local_attributes(
     server: &'static FfiServer,
-    update_local_attributes: proto::UpdateLocalAttributesRequest,
-) -> FfiResult<proto::UpdateLocalAttributesResponse> {
+    update_local_attributes: proto::SetLocalAttributesRequest,
+) -> FfiResult<proto::SetLocalAttributesResponse> {
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(update_local_attributes.local_participant_handle)?
         .clone();
