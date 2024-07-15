@@ -138,7 +138,7 @@ fn on_set_subscribed(
     Ok(proto::SetSubscribedResponse {})
 }
 
-fn on_update_local_metadata(
+fn on_set_local_metadata(
     server: &'static FfiServer,
     update_local_metadata: proto::SetLocalMetadataRequest,
 ) -> FfiResult<proto::SetLocalMetadataResponse> {
@@ -149,7 +149,7 @@ fn on_update_local_metadata(
     Ok(ffi_participant.room.update_local_metadata(server, update_local_metadata))
 }
 
-fn on_update_local_name(
+fn on_set_local_name(
     server: &'static FfiServer,
     update_local_name: proto::SetLocalNameRequest,
 ) -> FfiResult<proto::SetLocalNameResponse> {
@@ -160,7 +160,7 @@ fn on_update_local_name(
     Ok(ffi_participant.room.update_local_name(server, update_local_name))
 }
 
-fn on_update_local_attributes(
+fn on_set_local_attributes(
     server: &'static FfiServer,
     update_local_attributes: proto::SetLocalAttributesRequest,
 ) -> FfiResult<proto::SetLocalAttributesResponse> {
@@ -597,13 +597,13 @@ pub fn handle_request(
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
         }
         proto::ffi_request::Message::UpdateLocalMetadata(u) => {
-            proto::ffi_response::Message::UpdateLocalMetadata(on_update_local_metadata(server, u)?)
+            proto::ffi_response::Message::SetLocalMetadata(on_set_local_metadata(server, u)?)
         }
         proto::ffi_request::Message::UpdateLocalName(update) => {
-            proto::ffi_response::Message::UpdateLocalName(on_update_local_name(server, update)?)
+            proto::ffi_response::Message::SetLocalName(on_set_local_name(server, update)?)
         }
         proto::ffi_request::Message::UpdateLocalAttributes(update) => {
-            proto::ffi_response::Message::UpdateLocalAttributes(on_update_local_attributes(
+            proto::ffi_response::Message::SetLocalAttributes(on_set_local_attributes(
                 server, update,
             )?)
         }

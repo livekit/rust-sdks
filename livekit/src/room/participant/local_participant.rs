@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{self, Arc},
+};
 
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
@@ -25,7 +29,7 @@ use crate::{
     options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     rtc_engine::RtcEngine,
-    DataPacket, Transcription, TranscriptionSegment,
+    DataPacket, Transcription,
 };
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -231,6 +235,7 @@ impl LocalParticipant {
                     metadata,
                     name: self.name(),
                     attributes: Default::default(),
+                    request_id: 0,
                 },
             ))
             .await;
@@ -245,6 +250,7 @@ impl LocalParticipant {
                     attributes,
                     metadata: self.metadata(),
                     name: self.name(),
+                    request_id: 0,
                 },
             ))
             .await;
@@ -259,6 +265,7 @@ impl LocalParticipant {
                     name,
                     metadata: self.metadata(),
                     attributes: Default::default(),
+                    request_id: 0,
                 },
             ))
             .await;

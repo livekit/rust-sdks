@@ -3111,11 +3111,11 @@ pub mod ffi_response {
         #[prost(message, tag="8")]
         SetSubscribed(super::SetSubscribedResponse),
         #[prost(message, tag="9")]
-        UpdateLocalMetadata(super::SetLocalMetadataResponse),
+        SetLocalMetadata(super::SetLocalMetadataResponse),
         #[prost(message, tag="10")]
-        UpdateLocalName(super::SetLocalNameResponse),
+        SetLocalName(super::SetLocalNameResponse),
         #[prost(message, tag="11")]
-        UpdateLocalAttributes(super::SetLocalAttributesResponse),
+        SetLocalAttributes(super::SetLocalAttributesResponse),
         #[prost(message, tag="12")]
         GetSessionStats(super::GetSessionStatsResponse),
         #[prost(message, tag="13")]
