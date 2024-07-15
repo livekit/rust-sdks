@@ -223,7 +223,7 @@ impl LocalParticipant {
         Ok(publication)
     }
 
-    pub async fn update_metadata(&self, metadata: String) -> RoomResult<()> {
+    pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -237,7 +237,7 @@ impl LocalParticipant {
         Ok(())
     }
 
-    pub async fn update_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
+    pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -251,7 +251,7 @@ impl LocalParticipant {
         Ok(())
     }
 
-    pub async fn update_name(&self, name: String) -> RoomResult<()> {
+    pub async fn set_name(&self, name: String) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
