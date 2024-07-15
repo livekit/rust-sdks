@@ -79,6 +79,7 @@ macro_rules! track_dispatch {
             pub fn kind(self: &Self) -> TrackKind;
             pub fn source(self: &Self) -> TrackSource;
             pub fn stream_state(self: &Self) -> StreamState;
+            pub fn is_enabled(self: &Self) -> bool;
             pub fn enable(self: &Self) -> ();
             pub fn disable(self: &Self) -> ();
             pub fn is_muted(self: &Self) -> bool;
