@@ -366,9 +366,7 @@ impl RemoteParticipant {
                         disabled: !enabled,
                         width,
                         height,
-                        quality: proto::VideoQuality::High.into(), // deprecated, but not marked in proto
-                        priority: 0,
-                        fps: 0,
+                        ..Default::default()
                     };
 
                     rtc_engine
