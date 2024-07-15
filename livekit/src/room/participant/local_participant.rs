@@ -235,7 +235,7 @@ impl LocalParticipant {
                     metadata,
                     name: self.name(),
                     attributes: Default::default(),
-                    request_id: 0,
+                    ..Default::default()
                 },
             ))
             .await;
@@ -250,7 +250,7 @@ impl LocalParticipant {
                     attributes,
                     metadata: self.metadata(),
                     name: self.name(),
-                    request_id: 0,
+                    ..Default::default()
                 },
             ))
             .await;
@@ -265,7 +265,7 @@ impl LocalParticipant {
                     name,
                     metadata: self.metadata(),
                     attributes: Default::default(),
-                    request_id: 0,
+                    ..Default::default()
                 },
             ))
             .await;
