@@ -140,35 +140,34 @@ fn on_set_subscribed(
 
 fn on_set_local_metadata(
     server: &'static FfiServer,
-    update_local_metadata: proto::SetLocalMetadataRequest,
+    set_local_metadata: proto::SetLocalMetadataRequest,
 ) -> FfiResult<proto::SetLocalMetadataResponse> {
     let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
+        .retrieve_handle::<FfiParticipant>(set_local_metadata.local_participant_handle)?
         .clone();
 
-    Ok(ffi_participant.room.update_local_metadata(server, update_local_metadata))
+    Ok(ffi_participant.room.set_local_metadata(server, set_local_metadata))
 }
 
 fn on_set_local_name(
     server: &'static FfiServer,
-    update_local_name: proto::SetLocalNameRequest,
+    set_local_name: proto::SetLocalNameRequest,
 ) -> FfiResult<proto::SetLocalNameResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(update_local_name.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(set_local_name.local_participant_handle)?.clone();
 
-    Ok(ffi_participant.room.update_local_name(server, update_local_name))
+    Ok(ffi_participant.room.set_local_name(server, set_local_name))
 }
 
 fn on_set_local_attributes(
     server: &'static FfiServer,
-    update_local_attributes: proto::SetLocalAttributesRequest,
+    set_local_attributes: proto::SetLocalAttributesRequest,
 ) -> FfiResult<proto::SetLocalAttributesResponse> {
     let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(update_local_attributes.local_participant_handle)?
+        .retrieve_handle::<FfiParticipant>(set_local_attributes.local_participant_handle)?
         .clone();
 
-    Ok(ffi_participant.room.update_local_attributes(server, update_local_attributes))
+    Ok(ffi_participant.room.set_local_attributes(server, set_local_attributes))
 }
 
 /// Create a new video track from a source
@@ -596,13 +595,13 @@ pub fn handle_request(
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
         }
-        proto::ffi_request::Message::UpdateLocalMetadata(u) => {
+        proto::ffi_request::Message::SetLocalMetadata(u) => {
             proto::ffi_response::Message::SetLocalMetadata(on_set_local_metadata(server, u)?)
         }
-        proto::ffi_request::Message::UpdateLocalName(update) => {
+        proto::ffi_request::Message::SetLocalName(update) => {
             proto::ffi_response::Message::SetLocalName(on_set_local_name(server, update)?)
         }
-        proto::ffi_request::Message::UpdateLocalAttributes(update) => {
+        proto::ffi_request::Message::SetLocalAttributes(update) => {
             proto::ffi_response::Message::SetLocalAttributes(on_set_local_attributes(
                 server, update,
             )?)
