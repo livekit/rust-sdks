@@ -47,6 +47,7 @@ impl Participant {
         pub fn identity(self: &Self) -> ParticipantIdentity;
         pub fn name(self: &Self) -> String;
         pub fn metadata(self: &Self) -> String;
+        pub fn attributes(self: &Self) -> HashMap<String, String>;
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;

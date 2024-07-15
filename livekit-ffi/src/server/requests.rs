@@ -22,8 +22,8 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, room,
-    room::{FfiParticipant, FfiPublication, FfiTrack},
+    audio_source, audio_stream, colorcvt,
+    room::{self, FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
@@ -140,8 +140,8 @@ fn on_set_subscribed(
 
 fn on_update_local_metadata(
     server: &'static FfiServer,
-    update_local_metadata: proto::UpdateLocalMetadataRequest,
-) -> FfiResult<proto::UpdateLocalMetadataResponse> {
+    update_local_metadata: proto::SetLocalMetadataRequest,
+) -> FfiResult<proto::SetLocalMetadataResponse> {
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
         .clone();
@@ -151,13 +151,24 @@ fn on_update_local_metadata(
 
 fn on_update_local_name(
     server: &'static FfiServer,
-    update_local_name: proto::UpdateLocalNameRequest,
-) -> FfiResult<proto::UpdateLocalNameResponse> {
+    update_local_name: proto::SetLocalNameRequest,
+) -> FfiResult<proto::SetLocalNameResponse> {
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(update_local_name.local_participant_handle)?
         .clone();
 
     Ok(ffi_participant.room.update_local_name(server, update_local_name))
+}
+
+fn on_update_local_attributes(
+    server: &'static FfiServer,
+    update_local_attributes: proto::SetLocalAttributesRequest,
+) -> FfiResult<proto::SetLocalAttributesResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(update_local_attributes.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant.room.update_local_attributes(server, update_local_attributes))
 }
 
 /// Create a new video track from a source
@@ -590,6 +601,11 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::UpdateLocalName(update) => {
             proto::ffi_response::Message::UpdateLocalName(on_update_local_name(server, update)?)
+        }
+        proto::ffi_request::Message::UpdateLocalAttributes(update) => {
+            proto::ffi_response::Message::UpdateLocalAttributes(on_update_local_attributes(
+                server, update,
+            )?)
         }
         proto::ffi_request::Message::CreateVideoTrack(create) => {
             proto::ffi_response::Message::CreateVideoTrack(on_create_video_track(server, create)?)
