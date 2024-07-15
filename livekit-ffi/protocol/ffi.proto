@@ -68,25 +68,26 @@ message FfiRequest {
     SetLocalAttributesRequest update_local_attributes = 11;
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
+    GetRoomSidRequest get_room_sid = 14;
 
     // Track
-    CreateVideoTrackRequest create_video_track = 14;
-    CreateAudioTrackRequest create_audio_track = 15;
-    GetStatsRequest get_stats = 16;
+    CreateVideoTrackRequest create_video_track = 15;
+    CreateAudioTrackRequest create_audio_track = 16;
+    GetStatsRequest get_stats = 17;
 
     // Video
-    NewVideoStreamRequest new_video_stream = 17;
-    NewVideoSourceRequest new_video_source = 18;
-    CaptureVideoFrameRequest capture_video_frame = 19;
-    VideoConvertRequest video_convert = 20;
+    NewVideoStreamRequest new_video_stream = 18;
+    NewVideoSourceRequest new_video_source = 19;
+    CaptureVideoFrameRequest capture_video_frame = 20;
+    VideoConvertRequest video_convert = 21;
 
     // Audio
-    NewAudioStreamRequest new_audio_stream = 22;
-    NewAudioSourceRequest new_audio_source = 23;
-    CaptureAudioFrameRequest capture_audio_frame = 24;
-    NewAudioResamplerRequest new_audio_resampler = 25;
-    RemixAndResampleRequest remix_and_resample = 26;
-    E2eeRequest e2ee = 27;
+    NewAudioStreamRequest new_audio_stream = 23;
+    NewAudioSourceRequest new_audio_source = 24;
+    CaptureAudioFrameRequest capture_audio_frame = 25;
+    NewAudioResamplerRequest new_audio_resampler = 26;
+    RemixAndResampleRequest remix_and_resample = 27;
+    E2eeRequest e2ee = 28;
   }
 }
 
@@ -107,17 +108,18 @@ message FfiResponse {
     SetLocalAttributesResponse update_local_attributes = 11;
     GetSessionStatsResponse get_session_stats = 12;
     PublishTranscriptionResponse publish_transcription = 13;
+    GetRoomSidResponse get_room_sid = 14;
 
     // Track
-    CreateVideoTrackResponse create_video_track = 14;
-    CreateAudioTrackResponse create_audio_track = 15;
-    GetStatsResponse get_stats = 16;
+    CreateVideoTrackResponse create_video_track = 15;
+    CreateAudioTrackResponse create_audio_track = 16;
+    GetStatsResponse get_stats = 17;
 
     // Video
-    NewVideoStreamResponse new_video_stream = 17;
-    NewVideoSourceResponse new_video_source = 18;
-    CaptureVideoFrameResponse capture_video_frame = 19;
-    VideoConvertResponse video_convert = 20;
+    NewVideoStreamResponse new_video_stream = 18;
+    NewVideoSourceResponse new_video_source = 19;
+    CaptureVideoFrameResponse capture_video_frame = 20;
+    VideoConvertResponse video_convert = 21;
 
     // Audio
     NewAudioStreamResponse new_audio_stream = 22;
@@ -139,20 +141,21 @@ message FfiEvent {
     VideoStreamEvent video_stream_event = 3;
     AudioStreamEvent audio_stream_event = 4;
     ConnectCallback connect = 5;
-    DisconnectCallback disconnect = 6;
-    DisposeCallback dispose = 7;
-    PublishTrackCallback publish_track = 8;
-    UnpublishTrackCallback unpublish_track = 9;
-    PublishDataCallback publish_data = 10;
-    PublishTranscriptionCallback publish_transcription = 11;
-    CaptureAudioFrameCallback capture_audio_frame = 12;
-    SetLocalMetadataCallback update_local_metadata = 13;
-    SetLocalNameCallback update_local_name = 14;
-    SetLocalAttributesCallback update_local_attributes = 15;
-    GetStatsCallback get_stats = 16;
-    LogBatch logs = 17;
-    GetSessionStatsCallback get_session_stats = 18;
-    Panic panic = 19;
+    GetRoomSidCallback get_room_sid = 6;
+    DisconnectCallback disconnect = 7;
+    DisposeCallback dispose = 8;
+    PublishTrackCallback publish_track = 9;
+    UnpublishTrackCallback unpublish_track = 10;
+    PublishDataCallback publish_data = 11;
+    PublishTranscriptionCallback publish_transcription = 12;
+    CaptureAudioFrameCallback capture_audio_frame = 13;
+    SetLocalMetadataCallback update_local_metadata = 14;
+    SetLocalNameCallback update_local_name = 15;
+    SetLocalAttributesCallback update_local_attributes = 16;
+    GetStatsCallback get_stats = 17;
+    LogBatch logs = 18;
+    GetSessionStatsCallback get_session_stats = 19;
+    Panic panic = 20;
   }
 }
 

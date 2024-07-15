@@ -216,7 +216,7 @@ impl From<&FfiRoom> for proto::RoomInfo {
     fn from(value: &FfiRoom) -> Self {
         let room = &value.inner.room;
         Self {
-            sid: room.maybe_sid().unwrap_or_default().into(),
+            sid: room.maybe_sid().map(|x| x.to_string()),
             name: room.name(),
             metadata: room.metadata(),
         }

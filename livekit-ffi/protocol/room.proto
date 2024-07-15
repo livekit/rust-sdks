@@ -49,6 +49,22 @@ message ConnectCallback {
   repeated ParticipantWithTracks participants = 5;
 }
 
+// Get Room Sid
+
+message GetRoomSidRequest {
+  uint64 room_handle = 1;
+}
+
+message GetRoomSidResponse {
+  uint64 async_id = 1;
+}
+
+message GetRoomSidCallback {
+  uint64 async_id = 1;
+  string sid = 2;
+  optional string error = 3;
+}
+
 // Disconnect from the a room
 message DisconnectRequest { uint64 room_handle = 1; }
 message DisconnectResponse { uint64 async_id = 1; }
@@ -305,7 +321,7 @@ message RoomEvent {
 }
 
 message RoomInfo {
-  string sid = 1;
+  optional string sid = 1;
   string name = 2;
   string metadata = 3;
 }
