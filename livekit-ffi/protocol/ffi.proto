@@ -150,6 +150,7 @@ message FfiEvent {
     LogBatch logs = 16;
     GetSessionStatsCallback get_session_stats = 17;
     Panic panic = 18;
+    PublishSipDtmfCallback publish_sip_dtmf = 19;
   }
 }
 

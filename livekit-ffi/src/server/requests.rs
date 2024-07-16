@@ -122,6 +122,18 @@ fn on_publish_transcription(
     ffi_participant.room.publish_transcription(server, publish)
 }
 
+/// Publish sip dtmf messages to the room
+fn on_publish_sip_dtmf(
+    server: &'static FfiServer,
+    publish: proto::PublishSipDtmfRequest,
+) -> FfiResult<proto::PublishSipDtmfResponse> {
+    // Push the data to an async queue (avoid blocking and keep the order)
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+
+    ffi_participant.room.publish_sip_dtmf(server, publish)
+}
+
 /// Change the desired subscription state of a publication
 fn on_set_subscribed(
     server: &'static FfiServer,

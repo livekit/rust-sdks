@@ -16,6 +16,7 @@ use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
 use livekit::participant;
 use livekit::prelude::*;
+use livekit::SipDTMF;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -62,6 +63,7 @@ pub struct RoomInner {
     handle_id: FfiHandleId,
     data_tx: mpsc::UnboundedSender<FfiDataPacket>,
     transcription_tx: mpsc::UnboundedSender<FfiTranscription>,
+    dtmf_tx: mpsc::UnboundedSender<FfiSipDtmfPacket>,
 
     // local tracks just published, it is used to synchronize the publish events:
     // - make sure LocalTrackPublised is sent *after* the PublishTrack callback)
@@ -98,6 +100,11 @@ struct FfiTranscriptionSegment {
     language: String,
 }
 
+struct FfiSipDtmfPacket {
+    payload: SipDTMF,
+    async_id: u64,
+}
+
 impl FfiRoom {
     pub fn connect(
         server: &'static FfiServer,
@@ -124,6 +131,8 @@ impl FfiRoom {
 
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
                     let (transcription_tx, transcription_rx) = mpsc::unbounded_channel();
+                    let (dtmf_tx, dtmf_rx) = mpsc::unbounded_channel();
+
                     let (close_tx, close_rx) = broadcast::channel(1);
 
                     let handle_id = server.next_id();
@@ -132,6 +141,7 @@ impl FfiRoom {
                         handle_id,
                         data_tx,
                         transcription_tx,
+                        dtmf_tx,
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
                     });
@@ -319,6 +329,41 @@ impl RoomInner {
         }
 
         Ok(proto::PublishTranscriptionResponse { async_id })
+    }
+
+    pub fn publish_sip_dtmf(
+        &self,
+        server: &'static FfiServer,
+        publish: proto::PublishSipDtmfRequest,
+    ) -> FfiResult<proto::PublishSipDtmfResponse> {
+        let code = publish.code;
+        let digit = publish.digit;
+        let destination_identities = publish.destination_identities;
+        let async_id = server.next_id();
+
+        if let Err(err) = self.dtmf_tx.send(FfiSipDtmfPacket {
+            payload: SipDTMF {
+                code,
+                digit,
+                destination_identities: destination_identities
+                    .into_iter()
+                    .map(|str| str.try_into().unwrap())
+                    .collect(),
+            },
+            async_id,
+        }) {
+            let handle = server.async_runtime.spawn(async move {
+                let cb = proto::PublishSipDtmfCallback {
+                    async_id,
+                    error: Some(format!("failed to send SIP DTMF message, room closed: {}", err)),
+                };
+
+                let _ = server.send_event(proto::ffi_event::Message::PublishSipDtmf(cb));
+            });
+            server.watch_panic(handle);
+        }
+
+        Ok(proto::PublishSipDtmfResponse { async_id })
     }
 
     /// Publish a track and make sure to sync the async callback
