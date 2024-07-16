@@ -126,6 +126,11 @@ pub enum RoomEvent {
         old_name: String,
         name: String,
     },
+    ParticipantAttributesChanged {
+        participant: Participant,
+        old_attributes: HashMap<String, String>,
+        attributes: HashMap<String, String>,
+    },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
     },

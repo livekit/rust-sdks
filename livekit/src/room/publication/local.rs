@@ -82,11 +82,19 @@ impl LocalTrackPublication {
         if let Some(track) = self.track() {
             track.mute();
         }
+
+        if let Some(mute_update_needed) = self.inner.events.muted.lock().as_ref() {
+            mute_update_needed(TrackPublication::Local(self.clone()))
+        }
     }
 
     pub fn unmute(&self) {
         if let Some(track) = self.track() {
             track.unmute();
+        }
+
+        if let Some(unmute_update_needed) = self.inner.events.unmuted.lock().as_ref() {
+            unmute_update_needed(TrackPublication::Local(self.clone()))
         }
     }
 

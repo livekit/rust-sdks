@@ -132,27 +132,42 @@ message PublishSipDtmfCallback {
 }
 
 // Change the local participant's metadata
-message UpdateLocalMetadataRequest {
+message SetLocalMetadataRequest {
   uint64 local_participant_handle = 1;
   string metadata = 2;
 }
-message UpdateLocalMetadataResponse {
+message SetLocalMetadataResponse {
   uint64 async_id = 1;
 }
-message UpdateLocalMetadataCallback {
+message SetLocalMetadataCallback {
   uint64 async_id = 1;
+  optional string error = 2;
+}
+
+// Change the local participant's attributes
+message SetLocalAttributesRequest {
+  uint64 local_participant_handle = 1;
+  map<string, string> attributes = 2;
+}
+message SetLocalAttributesResponse {
+  uint64 async_id = 1;
+}
+message SetLocalAttributesCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // Change the local participant's name
-message UpdateLocalNameRequest {
+message SetLocalNameRequest {
   uint64 local_participant_handle = 1;
   string name = 2;
 }
-message UpdateLocalNameResponse {
+message SetLocalNameResponse {
   uint64 async_id = 1;
 }
-message UpdateLocalNameCallback {
+message SetLocalNameCallback {
   uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // Change the "desire" to subs2ribe to a track
@@ -291,20 +306,21 @@ message RoomEvent {
     RoomSidChanged room_sid_changed = 15;
     ParticipantMetadataChanged participant_metadata_changed = 16;
     ParticipantNameChanged participant_name_changed = 17;
-    ConnectionQualityChanged connection_quality_changed = 18;
-    ConnectionStateChanged connection_state_changed = 19;
-    // Connected connected = 20;
-    Disconnected disconnected = 21;
-    Reconnecting reconnecting = 22;
-    Reconnected reconnected = 23;
-    E2eeStateChanged e2ee_state_changed = 24;
-    RoomEOS eos = 25; // The stream of room events has ended
-    DataPacketReceived data_packet_received = 26;
+    ParticipantAttributesChanged participant_attributes_changed = 18;
+    ConnectionQualityChanged connection_quality_changed = 19;
+    ConnectionStateChanged connection_state_changed = 20;
+    // Connected connected = 21;
+    Disconnected disconnected = 22;
+    Reconnecting reconnecting = 23;
+    Reconnected reconnected = 24;
+    E2eeStateChanged e2ee_state_changed = 25;
+    RoomEOS eos = 26; // The stream of room events has ended
+    DataPacketReceived data_packet_received = 27;
   }
 }
 
 message RoomInfo {
-  string sid = 1;
+  optional string sid = 1;
   string name = 2;
   string metadata = 3;
 }
@@ -387,6 +403,12 @@ message RoomSidChanged {
 message ParticipantMetadataChanged { 
   string participant_sid = 1;
   string metadata = 2;
+}
+
+message ParticipantAttributesChanged {
+  string participant_sid = 1;
+  map<string, string> old_attributes = 2;
+  map<string, string> attributes = 3;
 }
 
 message ParticipantNameChanged { 

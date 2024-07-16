@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{self, Arc},
+};
 
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
@@ -25,7 +29,7 @@ use crate::{
     options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     rtc_engine::RtcEngine,
-    DataPacket, SipDTMF, Transcription, TranscriptionSegment,
+    DataPacket, SipDTMF, Transcription,
 };
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -223,7 +227,7 @@ impl LocalParticipant {
         Ok(publication)
     }
 
-    pub async fn update_metadata(&self, metadata: String) -> RoomResult<()> {
+    pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -231,13 +235,14 @@ impl LocalParticipant {
                     metadata,
                     name: self.name(),
                     attributes: Default::default(),
+                    ..Default::default()
                 },
             ))
             .await;
         Ok(())
     }
 
-    pub async fn update_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
+    pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -245,13 +250,14 @@ impl LocalParticipant {
                     attributes,
                     metadata: self.metadata(),
                     name: self.name(),
+                    ..Default::default()
                 },
             ))
             .await;
         Ok(())
     }
 
-    pub async fn update_name(&self, name: String) -> RoomResult<()> {
+    pub async fn set_name(&self, name: String) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -259,6 +265,7 @@ impl LocalParticipant {
                     name,
                     metadata: self.metadata(),
                     attributes: Default::default(),
+                    ..Default::default()
                 },
             ))
             .await;

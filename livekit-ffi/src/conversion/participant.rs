@@ -22,6 +22,7 @@ impl From<&FfiParticipant> for proto::ParticipantInfo {
             name: participant.name(),
             identity: participant.identity().into(),
             metadata: participant.metadata(),
+            attributes: participant.attributes(),
         }
     }
 }
