@@ -604,6 +604,9 @@ pub fn handle_request(
                 server, publish,
             )?)
         }
+        proto::ffi_request::Message::PublishSipDtmf(publish) => {
+            proto::ffi_response::Message::PublishSipDtmf(on_publish_sip_dtmf(server, publish)?)
+        }
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
         }

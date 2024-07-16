@@ -16,7 +16,6 @@ use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
 use livekit::participant;
 use livekit::prelude::*;
-use livekit::SipDTMF;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -215,6 +214,8 @@ impl FfiRoom {
                     let transcription_handle = server.watch_panic(server.async_runtime.spawn(
                         transcription_task(server, inner.clone(), transcription_rx, close_rx),
                     )); // Publish transcription
+
+                    let sip_dtmf_handle = server.watch_panic(server.async_runtime.spawn(tr))
 
                     *handle =
                         Some(Handle { event_handle, data_handle, transcription_handle, close_tx });
@@ -595,6 +596,33 @@ async fn transcription_task(
                 };
 
                 let _ = server.send_event(proto::ffi_event::Message::PublishTranscription(cb));
+            },
+            _ = close_rx.recv() => {
+                break;
+            }
+        }
+    }
+}
+
+
+// Task used to publish sip dtmf messages without blocking the client thread
+async fn sip_dtmf_task(
+    server: &'static FfiServer,
+    inner: Arc<RoomInner>,
+    mut dtmf_rx: mpsc::UnboundedReceiver<FfiSipDtmfPacket>,
+    mut close_rx: broadcast::Receiver<()>,
+) {
+    loop {
+        tokio::select! {
+            Some(event) = dtmf_rx.recv() => {
+                let res = inner.room.local_participant().publish_dtmf(event.payload).await;
+
+                let cb = proto::PublishSipDtmfCallback {
+                    async_id: event.async_id,
+                    error: res.err().map(|e| e.to_string()),
+                };
+
+                let _ = server.send_event(proto::ffi_event::Message::PublishSipDtmf(cb));
             },
             _ = close_rx.recv() => {
                 break;

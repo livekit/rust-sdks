@@ -68,6 +68,7 @@ message FfiRequest {
     SetLocalAttributesRequest set_local_attributes = 11;
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
+    PublishSipDtmfRequest publish_sip_dtmf = 14;
 
     // Track
     CreateVideoTrackRequest create_video_track = 15;
@@ -107,6 +108,7 @@ message FfiResponse {
     SetLocalAttributesResponse set_local_attributes = 11;
     GetSessionStatsResponse get_session_stats = 12;
     PublishTranscriptionResponse publish_transcription = 13;
+    PublishSipDtmfResponse publish_sip_dtmf = 14;
 
     // Track
     CreateVideoTrackResponse create_video_track = 15;
