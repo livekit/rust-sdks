@@ -642,7 +642,9 @@ async fn forward_event(
         }
         RoomEvent::ParticipantDisconnected(participant) => {
             let _ = send_event(proto::room_event::Message::ParticipantDisconnected(
-                proto::ParticipantDisconnected { participant_sid: participant.sid().into() },
+                proto::ParticipantDisconnected {
+                    participant_identity: participant.identity().into(),
+                },
             ));
         }
         RoomEvent::LocalTrackPublished { publication, track: _, participant: _ } => {
@@ -691,7 +693,7 @@ async fn forward_event(
             server.store_handle(ffi_publication.handle, ffi_publication);
 
             let _ = send_event(proto::room_event::Message::TrackPublished(proto::TrackPublished {
-                participant_sid: participant.sid().to_string(),
+                participant_identity: participant.identity().to_string(),
                 publication: Some(proto::OwnedTrackPublication {
                     handle: Some(proto::FfiOwnedHandle { id: handle_id }),
                     info: Some(publication_info),
@@ -701,7 +703,7 @@ async fn forward_event(
         RoomEvent::TrackUnpublished { publication, participant } => {
             let _ =
                 send_event(proto::room_event::Message::TrackUnpublished(proto::TrackUnpublished {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     publication_sid: publication.sid().into(),
                 }));
         }
@@ -714,7 +716,7 @@ async fn forward_event(
 
             let _ =
                 send_event(proto::room_event::Message::TrackSubscribed(proto::TrackSubscribed {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     track: Some(proto::OwnedTrack {
                         handle: Some(proto::FfiOwnedHandle { id: handle_id }),
                         info: Some(track_info),
@@ -724,7 +726,7 @@ async fn forward_event(
         RoomEvent::TrackUnsubscribed { track, publication: _, participant } => {
             let _ = send_event(proto::room_event::Message::TrackUnsubscribed(
                 proto::TrackUnsubscribed {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     track_sid: track.sid().to_string(),
                 },
             ));
@@ -732,7 +734,7 @@ async fn forward_event(
         RoomEvent::TrackSubscriptionFailed { participant, error, track_sid } => {
             let _ = send_event(proto::room_event::Message::TrackSubscriptionFailed(
                 proto::TrackSubscriptionFailed {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     error: error.to_string(),
                     track_sid: track_sid.into(),
                 },
@@ -740,13 +742,13 @@ async fn forward_event(
         }
         RoomEvent::TrackMuted { participant, publication } => {
             let _ = send_event(proto::room_event::Message::TrackMuted(proto::TrackMuted {
-                participant_sid: participant.sid().to_string(),
+                participant_identity: participant.identity().to_string(),
                 track_sid: publication.sid().into(),
             }));
         }
         RoomEvent::TrackUnmuted { participant, publication } => {
             let _ = send_event(proto::room_event::Message::TrackUnmuted(proto::TrackUnmuted {
-                participant_sid: participant.sid().to_string(),
+                participant_identity: participant.identity().to_string(),
                 track_sid: publication.sid().into(),
             }));
         }
@@ -758,7 +760,7 @@ async fn forward_event(
         RoomEvent::ParticipantMetadataChanged { participant, old_metadata: _, metadata } => {
             let _ = send_event(proto::room_event::Message::ParticipantMetadataChanged(
                 proto::ParticipantMetadataChanged {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     metadata,
                 },
             ));
@@ -766,7 +768,7 @@ async fn forward_event(
         RoomEvent::ParticipantNameChanged { participant, old_name: _, name } => {
             let _ = send_event(proto::room_event::Message::ParticipantNameChanged(
                 proto::ParticipantNameChanged {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     name,
                 },
             ));
@@ -774,23 +776,24 @@ async fn forward_event(
         RoomEvent::ParticipantAttributesChanged { participant, old_attributes, attributes } => {
             let _ = send_event(proto::room_event::Message::ParticipantAttributesChanged(
                 proto::ParticipantAttributesChanged {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     old_attributes,
                     attributes,
                 },
             ));
         }
         RoomEvent::ActiveSpeakersChanged { speakers } => {
-            let participant_sids = speakers.iter().map(|p| p.sid().to_string()).collect::<Vec<_>>();
+            let participant_identities =
+                speakers.iter().map(|p| p.identity().to_string()).collect::<Vec<_>>();
 
             let _ = send_event(proto::room_event::Message::ActiveSpeakersChanged(
-                proto::ActiveSpeakersChanged { participant_sids },
+                proto::ActiveSpeakersChanged { participant_identities },
             ));
         }
         RoomEvent::ConnectionQualityChanged { quality, participant } => {
             let _ = send_event(proto::room_event::Message::ConnectionQualityChanged(
                 proto::ConnectionQualityChanged {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     quality: proto::ConnectionQuality::from(quality).into(),
                 },
             ));
@@ -817,7 +820,6 @@ async fn forward_event(
                         topic,
                     })),
                     participant_identity: identity,
-                    participant_sid: sid,
                     kind: proto::DataPacketKind::from(kind).into(),
                 },
             ));
@@ -834,7 +836,6 @@ async fn forward_event(
                         digit,
                     })),
                     participant_identity: identity,
-                    participant_sid: sid,
                     kind: proto::DataPacketKind::KindReliable.into(),
                 },
             ));
@@ -861,7 +862,7 @@ async fn forward_event(
         RoomEvent::E2eeStateChanged { participant, state } => {
             let _ =
                 send_event(proto::room_event::Message::E2eeStateChanged(proto::E2eeStateChanged {
-                    participant_sid: participant.sid().to_string(),
+                    participant_identity: participant.identity().to_string(),
                     state: proto::EncryptionState::from(state).into(),
                 }));
         }
