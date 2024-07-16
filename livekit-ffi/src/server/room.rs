@@ -75,6 +75,7 @@ struct Handle {
     event_handle: JoinHandle<()>,
     data_handle: JoinHandle<()>,
     transcription_handle: JoinHandle<()>,
+    sip_dtmf_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
 }
 
@@ -211,14 +212,31 @@ impl FfiRoom {
                         ))
                     }); // Publish data
 
-                    let transcription_handle = server.watch_panic(server.async_runtime.spawn(
-                        transcription_task(server, inner.clone(), transcription_rx, close_rx),
-                    )); // Publish transcription
+                    let transcription_handle = server.watch_panic({
+                        let close_rx = close_rx.resubscribe();
+                        server.async_runtime.spawn(transcription_task(
+                            server,
+                            inner.clone(),
+                            transcription_rx,
+                            close_rx,
+                        ))
+                    }); // Publish transcription
 
-                    let sip_dtmf_handle = server.watch_panic(server.async_runtime.spawn(tr))
+                    let sip_dtmf_handle =
+                        server.watch_panic(server.async_runtime.spawn(sip_dtmf_task(
+                            server,
+                            inner.clone(),
+                            dtmf_rx,
+                            close_rx,
+                        )));
 
-                    *handle =
-                        Some(Handle { event_handle, data_handle, transcription_handle, close_tx });
+                    *handle = Some(Handle {
+                        event_handle,
+                        data_handle,
+                        transcription_handle,
+                        sip_dtmf_handle,
+                        close_tx,
+                    });
                 }
                 Err(e) => {
                     // Failed to connect to the room, send an error message to the FfiClient
@@ -603,7 +621,6 @@ async fn transcription_task(
         }
     }
 }
-
 
 // Task used to publish sip dtmf messages without blocking the client thread
 async fn sip_dtmf_task(
