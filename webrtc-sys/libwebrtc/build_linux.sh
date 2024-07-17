@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-shopt -s nullglob
 
 arch=""
 profile="release"
@@ -68,13 +67,23 @@ then
 fi
 
 cd src
+git fetch origin m114_release
+git checkout m114_release
+
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/fix_m114.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/bssl_rename.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+cp third_party/grpc/src/src/boringssl/boringssl_prefix_symbols.h third_party/boringssl/src/include/
 
-for file in third_party/boringssl/src/**/*.{cc,h}; do
-  cat "$COMMAND_DIR/bssl_symbols.txt" | tr '\n' ' ' | sed 's/ /\\\\|/g' | sed 's/..$//' | xargs -I {} sed 's/\([\n: ]\)\({}\)/\1lk_\2/g'
-done
+# old way of doing this, proved to not work in replacing the actual problematic symbols.
+# files_to_patch=($(find -type f \( -name "*.cc" -o -name "*.h" -o -name "*.c" -o -name "*.cpp" \)))
+# echo "patching BoringSSL symbols..."
+# for file in "${files_to_patch[@]}"; do
+#   cat "$COMMAND_DIR/bssl_symbols.txt" | tr '\n' ' ' | sed 's/ /\\\\|/g' | sed 's/..$//' | xargs -I {} sed -i 's/\([-\t\n\.\+ \*\!~:&<>\[(){]\|^\)\({}\)/\1lk_\2/g' $file >/dev/null
+#   echo
+# done | pv -ptebs "${#files_to_patch[@]}" >/dev/null
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -97,6 +106,7 @@ args="is_debug=$debug  \
   rtc_build_examples=false \
   rtc_libvpx_build_vp9=true \
   enable_libaom=true \
+  bssl_rename=true \
   is_component_build=false \
   enable_stripping=true \
   use_goma=false \
