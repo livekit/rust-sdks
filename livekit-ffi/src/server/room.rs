@@ -62,6 +62,7 @@ pub struct RoomInner {
     handle_id: FfiHandleId,
     data_tx: mpsc::UnboundedSender<FfiDataPacket>,
     transcription_tx: mpsc::UnboundedSender<FfiTranscription>,
+    dtmf_tx: mpsc::UnboundedSender<FfiSipDtmfPacket>,
 
     // local tracks just published, it is used to synchronize the publish events:
     // - make sure LocalTrackPublised is sent *after* the PublishTrack callback)
@@ -74,6 +75,7 @@ struct Handle {
     event_handle: JoinHandle<()>,
     data_handle: JoinHandle<()>,
     transcription_handle: JoinHandle<()>,
+    sip_dtmf_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
 }
 
@@ -96,6 +98,11 @@ struct FfiTranscriptionSegment {
     end_time: u64,
     r#final: bool,
     language: String,
+}
+
+struct FfiSipDtmfPacket {
+    payload: SipDTMF,
+    async_id: u64,
 }
 
 impl FfiRoom {
@@ -124,6 +131,8 @@ impl FfiRoom {
 
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
                     let (transcription_tx, transcription_rx) = mpsc::unbounded_channel();
+                    let (dtmf_tx, dtmf_rx) = mpsc::unbounded_channel();
+
                     let (close_tx, close_rx) = broadcast::channel(1);
 
                     let handle_id = server.next_id();
@@ -132,6 +141,7 @@ impl FfiRoom {
                         handle_id,
                         data_tx,
                         transcription_tx,
+                        dtmf_tx,
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
                     });
@@ -202,12 +212,31 @@ impl FfiRoom {
                         ))
                     }); // Publish data
 
-                    let transcription_handle = server.watch_panic(server.async_runtime.spawn(
-                        transcription_task(server, inner.clone(), transcription_rx, close_rx),
-                    )); // Publish transcription
+                    let transcription_handle = server.watch_panic({
+                        let close_rx = close_rx.resubscribe();
+                        server.async_runtime.spawn(transcription_task(
+                            server,
+                            inner.clone(),
+                            transcription_rx,
+                            close_rx,
+                        ))
+                    }); // Publish transcription
 
-                    *handle =
-                        Some(Handle { event_handle, data_handle, transcription_handle, close_tx });
+                    let sip_dtmf_handle =
+                        server.watch_panic(server.async_runtime.spawn(sip_dtmf_task(
+                            server,
+                            inner.clone(),
+                            dtmf_rx,
+                            close_rx,
+                        )));
+
+                    *handle = Some(Handle {
+                        event_handle,
+                        data_handle,
+                        transcription_handle,
+                        sip_dtmf_handle,
+                        close_tx,
+                    });
                 }
                 Err(e) => {
                     // Failed to connect to the room, send an error message to the FfiClient
@@ -319,6 +348,41 @@ impl RoomInner {
         }
 
         Ok(proto::PublishTranscriptionResponse { async_id })
+    }
+
+    pub fn publish_sip_dtmf(
+        &self,
+        server: &'static FfiServer,
+        publish: proto::PublishSipDtmfRequest,
+    ) -> FfiResult<proto::PublishSipDtmfResponse> {
+        let code = publish.code;
+        let digit = publish.digit;
+        let destination_identities = publish.destination_identities;
+        let async_id = server.next_id();
+
+        if let Err(err) = self.dtmf_tx.send(FfiSipDtmfPacket {
+            payload: SipDTMF {
+                code,
+                digit,
+                destination_identities: destination_identities
+                    .into_iter()
+                    .map(|str| str.try_into().unwrap())
+                    .collect(),
+            },
+            async_id,
+        }) {
+            let handle = server.async_runtime.spawn(async move {
+                let cb = proto::PublishSipDtmfCallback {
+                    async_id,
+                    error: Some(format!("failed to send SIP DTMF message, room closed: {}", err)),
+                };
+
+                let _ = server.send_event(proto::ffi_event::Message::PublishSipDtmf(cb));
+            });
+            server.watch_panic(handle);
+        }
+
+        Ok(proto::PublishSipDtmfResponse { async_id })
     }
 
     /// Publish a track and make sure to sync the async callback
@@ -550,6 +614,32 @@ async fn transcription_task(
                 };
 
                 let _ = server.send_event(proto::ffi_event::Message::PublishTranscription(cb));
+            },
+            _ = close_rx.recv() => {
+                break;
+            }
+        }
+    }
+}
+
+// Task used to publish sip dtmf messages without blocking the client thread
+async fn sip_dtmf_task(
+    server: &'static FfiServer,
+    inner: Arc<RoomInner>,
+    mut dtmf_rx: mpsc::UnboundedReceiver<FfiSipDtmfPacket>,
+    mut close_rx: broadcast::Receiver<()>,
+) {
+    loop {
+        tokio::select! {
+            Some(event) = dtmf_rx.recv() => {
+                let res = inner.room.local_participant().publish_dtmf(event.payload).await;
+
+                let cb = proto::PublishSipDtmfCallback {
+                    async_id: event.async_id,
+                    error: res.err().map(|e| e.to_string()),
+                };
+
+                let _ = server.send_event(proto::ffi_event::Message::PublishSipDtmf(cb));
             },
             _ = close_rx.recv() => {
                 break;

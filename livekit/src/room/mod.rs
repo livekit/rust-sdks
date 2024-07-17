@@ -216,6 +216,13 @@ pub struct TranscriptionSegment {
     pub language: String,
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct SipDTMF {
+    pub code: u32,
+    pub digit: String,
+    pub destination_identities: Vec<ParticipantIdentity>,
+}
+
 #[derive(Debug, Clone)]
 pub struct RoomOptions {
     pub auto_subscribe: bool,

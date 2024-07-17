@@ -116,6 +116,21 @@ message PublishTranscriptionCallback {
   optional string error = 2;
 }
 
+// Publish Sip DTMF messages to other participants
+message PublishSipDtmfRequest {
+  uint64 local_participant_handle = 1;
+  uint32 code = 2;
+  string digit = 3;
+  repeated string destination_identities = 4;
+}
+message PublishSipDtmfResponse {
+  uint64 async_id = 1;
+}
+message PublishSipDtmfCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
+}
+
 // Change the local participant's metadata
 message SetLocalMetadataRequest {
   uint64 local_participant_handle = 1;

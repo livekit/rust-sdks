@@ -29,7 +29,7 @@ use crate::{
     options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     rtc_engine::RtcEngine,
-    DataPacket, Transcription,
+    DataPacket, SipDTMF, Transcription,
 };
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -345,6 +345,24 @@ impl LocalParticipant {
             value: Some(proto::data_packet::Value::Transcription(transcription_packet)),
             ..Default::default()
         };
+        self.inner
+            .rtc_engine
+            .publish_data(&data, DataPacketKind::Reliable)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn publish_dtmf(&self, dtmf: SipDTMF) -> RoomResult<()> {
+        let destination_identities: Vec<String> =
+            dtmf.destination_identities.into_iter().map(Into::into).collect();
+        let dtmf_message = proto::SipDtmf { code: dtmf.code, digit: dtmf.digit };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::SipDtmf(dtmf_message)),
+            destination_identities: destination_identities.clone(),
+            ..Default::default()
+        };
+
         self.inner
             .rtc_engine
             .publish_data(&data, DataPacketKind::Reliable)
