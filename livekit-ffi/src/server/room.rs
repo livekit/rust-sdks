@@ -869,6 +869,7 @@ async fn forward_event(
                 proto::ParticipantAttributesChanged {
                     participant_identity: participant.identity().to_string(),
                     changed_attributes,
+                    attributes: participant.attributes().clone(),
                 },
             ));
         }

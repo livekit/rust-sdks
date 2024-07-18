@@ -407,7 +407,8 @@ message ParticipantMetadataChanged {
 
 message ParticipantAttributesChanged {
   string participant_identity = 1;
-  map<string, string> changed_attributes = 2;
+  map<string, string> attributes = 2;
+  map<string, string> changed_attributes = 3;
 }
 
 message ParticipantNameChanged { 
