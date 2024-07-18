@@ -400,11 +400,9 @@ impl Room {
 
         local_participant.on_attributes_changed({
             let dispatcher = dispatcher.clone();
-            move |participant, changed_attributes | {
-                let event = RoomEvent::ParticipantAttributesChanged {
-                    participant,
-                    changed_attributes,
-                };
+            move |participant, changed_attributes| {
+                let event =
+                    RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
                 dispatcher.dispatch(&event);
             }
         });

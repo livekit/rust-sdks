@@ -85,8 +85,7 @@ struct ParticipantInfo {
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type MetadataChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
-type AttributesChangedHandler =
-    Box<dyn Fn(Participant, HashMap<String, String>) + Send>;
+type AttributesChangedHandler = Box<dyn Fn(Participant, HashMap<String, String>) + Send>;
 type NameChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
 
 #[derive(Default)]
