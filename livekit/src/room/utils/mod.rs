@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-
 pub fn calculate_changed_attributes(
     old_attributes: HashMap<String, String>,
     new_attributes: HashMap<String, String>,
@@ -11,10 +10,10 @@ pub fn calculate_changed_attributes(
 
     let mut changed: HashMap<String, String> = HashMap::new();
     for key in all_keys {
-        let old_value = old_attributes.get(key).cloned().unwrap_or_else(String::new);
-        let new_value = new_attributes.get(key).cloned().unwrap_or_else(String::new);
-        if old_value != new_value {
-            changed.insert(key.clone(), new_value.clone());
+        if old_attributes.get(key) != new_attributes.get(key) {
+            if let Some(new_value) = new_attributes.get(key).cloned() {
+                changed.insert(key.clone(), new_value);
+            }
         }
     }
     return changed;
