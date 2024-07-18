@@ -285,6 +285,13 @@ impl RemoteParticipant {
         super::on_name_changed(&self.inner, handler)
     }
 
+    pub(crate) fn on_attributes_changed(
+        &self,
+        handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
+    ) {
+        super::on_attributes_changed(&self.inner, handler)
+    }
+
     pub(crate) fn set_speaking(&self, speaking: bool) {
         super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
     }

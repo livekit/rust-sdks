@@ -50,6 +50,7 @@ pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod track;
+pub mod utils;
 
 pub type RoomResult<T> = Result<T, RoomError>;
 
@@ -128,8 +129,7 @@ pub enum RoomEvent {
     },
     ParticipantAttributesChanged {
         participant: Participant,
-        old_attributes: HashMap<String, String>,
-        attributes: HashMap<String, String>,
+        changed_attributes: HashMap<String, String>,
     },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
@@ -394,6 +394,17 @@ impl Room {
             let dispatcher = dispatcher.clone();
             move |participant, old_name, name| {
                 let event = RoomEvent::ParticipantNameChanged { participant, old_name, name };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        local_participant.on_attributes_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, changed_attributes | {
+                let event = RoomEvent::ParticipantAttributesChanged {
+                    participant,
+                    changed_attributes,
+                };
                 dispatcher.dispatch(&event);
             }
         });

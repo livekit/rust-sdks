@@ -21,6 +21,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
+use crate::conversion::room;
 use crate::{
     proto,
     server::{FfiHandle, FfiServer},
@@ -863,12 +864,11 @@ async fn forward_event(
                 },
             ));
         }
-        RoomEvent::ParticipantAttributesChanged { participant, old_attributes, attributes } => {
+        RoomEvent::ParticipantAttributesChanged { participant, changed_attributes } => {
             let _ = send_event(proto::room_event::Message::ParticipantAttributesChanged(
                 proto::ParticipantAttributesChanged {
                     participant_identity: participant.identity().to_string(),
-                    old_attributes,
-                    attributes,
+                    changed_attributes,
                 },
             ));
         }

@@ -140,6 +140,13 @@ impl LocalParticipant {
         super::on_name_changed(&self.inner, handler)
     }
 
+    pub(crate) fn on_attributes_changed(
+        &self,
+        handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
+    ) {
+        super::on_attributes_changed(&self.inner, handler)
+    }
+
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
         super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
     }
