@@ -50,7 +50,7 @@ pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod track;
-pub mod utils;
+pub(crate) mod utils;
 
 pub type RoomResult<T> = Result<T, RoomError>;
 
