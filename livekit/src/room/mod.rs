@@ -1156,6 +1156,15 @@ impl RoomSession {
             }
         });
 
+        participant.on_attributes_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, changed_attributes| {
+                let event =
+                    RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
+                dispatcher.dispatch(&event);
+            }
+        });
+
         let mut participants = self.remote_participants.write();
         participants.insert(identity, participant.clone());
         participant
