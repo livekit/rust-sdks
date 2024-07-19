@@ -2525,9 +2525,9 @@ pub struct ParticipantAttributesChanged {
     #[prost(string, tag="1")]
     pub participant_identity: ::prost::alloc::string::String,
     #[prost(map="string, string", tag="2")]
-    pub old_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-    #[prost(map="string, string", tag="3")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(map="string, string", tag="3")]
+    pub changed_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
