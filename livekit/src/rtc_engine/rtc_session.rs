@@ -83,7 +83,7 @@ pub enum SessionEvent {
     },
     Transcription {
         participant_identity: Option<ParticipantIdentity>,
-        track_sid: String,
+        track_id: String,
         segments: Vec<TranscriptionSegment>,
     },
     SipDTMF {
@@ -632,7 +632,7 @@ impl SessionInner {
                             data.participant_identity.clone().try_into().ok();
                         let _ = self.emitter.send(SessionEvent::Transcription {
                             participant_identity,
-                            track_sid,
+                            track_id: track_sid,
                             segments,
                         });
                     }

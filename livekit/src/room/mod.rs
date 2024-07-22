@@ -596,7 +596,7 @@ impl RoomSession {
             EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
                 self.handle_data(payload, topic, kind, participant_sid, participant_identity);
             }
-            EngineEvent::Transcription { participant_identity, track_sid, segments } => {
+            EngineEvent::Transcription { participant_identity, track_id: track_sid, segments } => {
                 self.handle_transcription(participant_identity, track_sid, segments);
             }
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
