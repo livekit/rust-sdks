@@ -442,8 +442,8 @@ message DataPacketReceived {
 }
 
 message TranscriptionReceived {
-  string participant_identity = 1;
-  string track_id = 2;
+  optional string participant_identity = 1;
+  optional string track_sid = 2;
   repeated TranscriptionSegment segments = 3;
 }
 

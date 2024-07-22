@@ -915,7 +915,7 @@ async fn forward_event(
                 },
             ));
         }
-        RoomEvent::TranscriptionReceived { participant, track_sid, segments } => {
+        RoomEvent::TranscriptionReceived { participant, track_publication, segments } => {
             let segments = segments
                 .into_iter()
                 .map(|segment| proto::TranscriptionSegment {
@@ -927,12 +927,17 @@ async fn forward_event(
                     r#final: segment.r#final,
                 })
                 .collect();
+
+            let track_sid: Option<String> = match track_publication {
+                Some(p) => Some(p.sid().to_string()),
+                None => None,
+            };
+            let participant_identity: Option<String> = match participant {
+                Some(p) => Some(p.identity().to_string()),
+                None => None,
+            };
             let _ = send_event(proto::room_event::Message::TranscriptionReceived(
-                proto::TranscriptionReceived {
-                    participant_identity: participant.identity().to_string(),
-                    segments,
-                    track_id: track_sid.clone(),
-                },
+                proto::TranscriptionReceived { participant_identity, segments, track_sid },
             ));
         }
         RoomEvent::SipDTMFReceived { code, digit, participant } => {

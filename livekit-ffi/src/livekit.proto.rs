@@ -2588,10 +2588,10 @@ pub mod data_packet_received {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TranscriptionReceived {
-    #[prost(string, tag="1")]
-    pub participant_identity: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub track_id: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="1")]
+    pub participant_identity: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="2")]
+    pub track_sid: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, repeated, tag="3")]
     pub segments: ::prost::alloc::vec::Vec<TranscriptionSegment>,
 }

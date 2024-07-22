@@ -101,7 +101,7 @@ pub enum EngineEvent {
     },
     Transcription {
         participant_identity: Option<ParticipantIdentity>,
-        track_id: String,
+        track_sid: String,
         segments: Vec<TranscriptionSegment>,
     },
     SipDTMF {
@@ -424,7 +424,7 @@ impl EngineInner {
             SessionEvent::Transcription { participant_identity, track_id: track_sid, segments } => {
                 let _ = self.engine_tx.send(EngineEvent::Transcription {
                     participant_identity,
-                    track_id: track_sid,
+                    track_sid,
                     segments,
                 });
             }
