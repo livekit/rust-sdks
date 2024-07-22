@@ -1058,14 +1058,23 @@ impl RoomSession {
         self.dispatcher.dispatch(&RoomEvent::SipDTMFReceived { code, digit, participant });
     }
 
-    fn handle_transcription(&self, participant_identity: Option<ParticipantIdentity>, track_sid: String, segments: Vec<TranscriptionSegment>) {
+    fn handle_transcription(
+        &self,
+        participant_identity: Option<ParticipantIdentity>,
+        track_sid: String,
+        segments: Vec<TranscriptionSegment>,
+    ) {
         let participant = participant_identity
             .as_ref()
             .map(|identity| self.get_participant_by_identity(identity))
             .unwrap_or(None);
 
         if let Some(participant) = participant {
-            self.dispatcher.dispatch(&RoomEvent::TranscriptionReceived { participant, track_sid, segments });
+            self.dispatcher.dispatch(&RoomEvent::TranscriptionReceived {
+                participant,
+                track_sid,
+                segments,
+            });
         }
     }
 

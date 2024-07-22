@@ -616,18 +616,25 @@ impl SessionInner {
                     proto::data_packet::Value::Transcription(transcription) => {
                         let track_sid = transcription.track_id.clone();
                         // let segments = transcription.segments.clone();
-                        let segments = transcription.segments.iter().map(|s| {
-                            TranscriptionSegment {
+                        let segments = transcription
+                            .segments
+                            .iter()
+                            .map(|s| TranscriptionSegment {
                                 id: s.id.clone(),
                                 start_time: s.start_time,
                                 end_time: s.end_time,
                                 text: s.text.clone(),
                                 language: s.language.clone(),
                                 r#final: s.r#final,
-                            }
-                        }).collect();
-                        let participant_identity = data.participant_identity.clone().try_into().ok();
-                        let _ = self.emitter.send(SessionEvent::Transcription { participant_identity, track_sid, segments });
+                            })
+                            .collect();
+                        let participant_identity =
+                            data.participant_identity.clone().try_into().ok();
+                        let _ = self.emitter.send(SessionEvent::Transcription {
+                            participant_identity,
+                            track_sid,
+                            segments,
+                        });
                     }
                 }
             }

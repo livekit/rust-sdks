@@ -914,21 +914,24 @@ async fn forward_event(
                     kind: proto::DataPacketKind::from(kind).into(),
                 },
             ));
-        },
-        RoomEvent::TranscriptionReceived {participant, track_sid, segments } => {
-            let segments = segments.into_iter().map(|segment| proto::TranscriptionSegment {
-                id: segment.id,
-                text: segment.text,
-                start_time: segment.start_time,
-                end_time: segment.end_time,
-                language: segment.language,
-                r#final: segment.r#final,
-            }).collect();
+        }
+        RoomEvent::TranscriptionReceived { participant, track_sid, segments } => {
+            let segments = segments
+                .into_iter()
+                .map(|segment| proto::TranscriptionSegment {
+                    id: segment.id,
+                    text: segment.text,
+                    start_time: segment.start_time,
+                    end_time: segment.end_time,
+                    language: segment.language,
+                    r#final: segment.r#final,
+                })
+                .collect();
             let _ = send_event(proto::room_event::Message::TranscriptionReceived(
                 proto::TranscriptionReceived {
                     participant_identity: participant.identity().to_string(),
                     segments,
-                    track_id: track_sid.clone()
+                    track_id: track_sid.clone(),
                 },
             ));
         }

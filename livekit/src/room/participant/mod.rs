@@ -153,11 +153,9 @@ pub(super) fn update_info(
     }
 
     let old_attributes = std::mem::replace(&mut info.attributes, new_info.attributes.clone());
-    let changed_attributes = utils::calculate_changed_attributes(
-            old_attributes,
-            new_info.attributes.clone(),
-    );
-    if changed_attributes.len() != 0  {
+    let changed_attributes =
+        utils::calculate_changed_attributes(old_attributes, new_info.attributes.clone());
+    if changed_attributes.len() != 0 {
         if let Some(cb) = inner.events.attributes_changed.lock().as_ref() {
             cb(participant.clone(), changed_attributes);
         }
