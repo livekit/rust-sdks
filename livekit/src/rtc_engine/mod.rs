@@ -27,6 +27,7 @@ use tokio::sync::{
 
 pub use self::rtc_session::SessionStats;
 use crate::prelude::ParticipantIdentity;
+use crate::TranscriptionSegment;
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -97,6 +98,11 @@ pub enum EngineEvent {
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+    },
+    Transcription {
+        participant_identity: Option<ParticipantIdentity>,
+        track_sid: String,
+        segments: Vec<TranscriptionSegment>,
     },
     SipDTMF {
         participant_identity: Option<ParticipantIdentity>,
@@ -414,6 +420,13 @@ impl EngineInner {
             SessionEvent::SipDTMF { participant_identity, code, digit } => {
                 let _ =
                     self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
+            }
+            SessionEvent::Transcription { participant_identity, track_id: track_sid, segments } => {
+                let _ = self.engine_tx.send(EngineEvent::Transcription {
+                    participant_identity,
+                    track_sid,
+                    segments,
+                });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });

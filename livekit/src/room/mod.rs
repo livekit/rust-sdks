@@ -144,6 +144,11 @@ pub enum RoomEvent {
         kind: DataPacketKind,
         participant: Option<RemoteParticipant>,
     },
+    TranscriptionReceived {
+        participant: Option<Participant>,
+        track_publication: Option<TrackPublication>,
+        segments: Vec<TranscriptionSegment>,
+    },
     SipDTMFReceived {
         code: u32,
         digit: Option<String>,
@@ -590,6 +595,9 @@ impl RoomSession {
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
                 self.handle_data(payload, topic, kind, participant_sid, participant_identity);
+            }
+            EngineEvent::Transcription { participant_identity, track_sid, segments } => {
+                self.handle_transcription(participant_identity, track_sid, segments);
             }
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
@@ -1050,6 +1058,34 @@ impl RoomSession {
         self.dispatcher.dispatch(&RoomEvent::SipDTMFReceived { code, digit, participant });
     }
 
+    fn handle_transcription(
+        &self,
+        participant_identity: Option<ParticipantIdentity>,
+        track_sid: String,
+        segments: Vec<TranscriptionSegment>,
+    ) {
+        let participant = participant_identity
+            .as_ref()
+            .and_then(|identity| self.get_local_or_remote_participant(identity));
+
+        let track_sid: TrackSid = track_sid.to_owned().try_into().unwrap();
+        let track_publication: Option<TrackPublication> = match &participant {
+            Some(Participant::Local(ref participant)) => {
+                participant.get_track_publication(&track_sid).map(TrackPublication::Local)
+            }
+            Some(Participant::Remote(ref participant)) => {
+                participant.get_track_publication(&track_sid).map(TrackPublication::Remote)
+            }
+            None => None,
+        };
+
+        self.dispatcher.dispatch(&RoomEvent::TranscriptionReceived {
+            participant,
+            track_publication,
+            segments,
+        });
+    }
+
     /// Create a new participant
     /// Also add it to the participants list
     fn create_participant(
@@ -1191,6 +1227,16 @@ impl RoomSession {
         identity: &ParticipantIdentity,
     ) -> Option<RemoteParticipant> {
         self.remote_participants.read().get(identity).cloned()
+    }
+
+    fn get_local_or_remote_participant(
+        &self,
+        identity: &ParticipantIdentity,
+    ) -> Option<Participant> {
+        if identity == &self.local_participant.identity() {
+            return Some(Participant::Local(self.local_participant.clone()));
+        }
+        return self.get_participant_by_identity(identity).map(Participant::Remote);
     }
 }
 

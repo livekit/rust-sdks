@@ -2317,7 +2317,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2377,6 +2377,8 @@ pub mod room_event {
         Eos(super::RoomEos),
         #[prost(message, tag="27")]
         DataPacketReceived(super::DataPacketReceived),
+        #[prost(message, tag="28")]
+        TranscriptionReceived(super::TranscriptionReceived),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2582,6 +2584,16 @@ pub mod data_packet_received {
         #[prost(message, tag="5")]
         SipDtmf(super::SipDtmf),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TranscriptionReceived {
+    #[prost(string, optional, tag="1")]
+    pub participant_identity: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="2")]
+    pub track_sid: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="3")]
+    pub segments: ::prost::alloc::vec::Vec<TranscriptionSegment>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

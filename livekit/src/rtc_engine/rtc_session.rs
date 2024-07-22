@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::id::ParticipantIdentity;
+use crate::{id::ParticipantIdentity, TranscriptionSegment};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -80,6 +80,11 @@ pub enum SessionEvent {
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+    },
+    Transcription {
+        participant_identity: Option<ParticipantIdentity>,
+        track_id: String,
+        segments: Vec<TranscriptionSegment>,
     },
     SipDTMF {
         // None when the data comes from the ServerSDK (So no real participant)
@@ -608,7 +613,29 @@ impl SessionInner {
                         });
                     }
                     proto::data_packet::Value::Speaker(_) => {}
-                    proto::data_packet::Value::Transcription(_) => {}
+                    proto::data_packet::Value::Transcription(transcription) => {
+                        let track_sid = transcription.track_id.clone();
+                        // let segments = transcription.segments.clone();
+                        let segments = transcription
+                            .segments
+                            .iter()
+                            .map(|s| TranscriptionSegment {
+                                id: s.id.clone(),
+                                start_time: s.start_time,
+                                end_time: s.end_time,
+                                text: s.text.clone(),
+                                language: s.language.clone(),
+                                r#final: s.r#final,
+                            })
+                            .collect();
+                        let participant_identity =
+                            data.participant_identity.clone().try_into().ok();
+                        let _ = self.emitter.send(SessionEvent::Transcription {
+                            participant_identity,
+                            track_id: track_sid,
+                            segments,
+                        });
+                    }
                 }
             }
         }

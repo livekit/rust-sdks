@@ -316,6 +316,7 @@ message RoomEvent {
     E2eeStateChanged e2ee_state_changed = 25;
     RoomEOS eos = 26; // The stream of room events has ended
     DataPacketReceived data_packet_received = 27;
+    TranscriptionReceived transcription_received = 28;
   }
 }
 
@@ -438,6 +439,12 @@ message DataPacketReceived {
     UserPacket user = 4;
     SipDTMF sip_dtmf = 5;
   }
+}
+
+message TranscriptionReceived {
+  optional string participant_identity = 1;
+  optional string track_sid = 2;
+  repeated TranscriptionSegment segments = 3;
 }
 
 message ConnectionStateChanged { ConnectionState state = 1; }
