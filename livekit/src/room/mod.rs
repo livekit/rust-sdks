@@ -144,6 +144,11 @@ pub enum RoomEvent {
         kind: DataPacketKind,
         participant: Option<RemoteParticipant>,
     },
+    TranscriptionReceived {
+        participant: RemoteParticipant,
+        track_sid: String,
+        segments: Vec<TranscriptionSegment>,
+    },
     SipDTMFReceived {
         code: u32,
         digit: Option<String>,
@@ -590,6 +595,9 @@ impl RoomSession {
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
                 self.handle_data(payload, topic, kind, participant_sid, participant_identity);
+            }
+            EngineEvent::Transcription { participant_identity, track_sid, segments } => {
+                self.handle_transcription(participant_identity, track_sid, segments);
             }
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
@@ -1048,6 +1056,17 @@ impl RoomSession {
         }
 
         self.dispatcher.dispatch(&RoomEvent::SipDTMFReceived { code, digit, participant });
+    }
+
+    fn handle_transcription(&self, participant_identity: Option<ParticipantIdentity>, track_sid: String, segments: Vec<TranscriptionSegment>) {
+        let participant = participant_identity
+            .as_ref()
+            .map(|identity| self.get_participant_by_identity(identity))
+            .unwrap_or(None);
+
+        if let Some(participant) = participant {
+            self.dispatcher.dispatch(&RoomEvent::TranscriptionReceived { participant, track_sid, segments });
+        }
     }
 
     /// Create a new participant
