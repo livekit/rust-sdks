@@ -1060,14 +1060,11 @@ impl RoomSession {
 
     fn handle_transcription(
         &self,
-        participant_identity: Option<ParticipantIdentity>,
+        participant_identity: ParticipantIdentity,
         track_sid: String,
         segments: Vec<TranscriptionSegment>,
     ) {
-        let participant = participant_identity
-            .as_ref()
-            .and_then(|identity| self.get_local_or_remote_participant(identity));
-
+        let participant = self.get_local_or_remote_participant(&participant_identity);
         let track_sid: TrackSid = track_sid.to_owned().try_into().unwrap();
         let track_publication: Option<TrackPublication> = match &participant {
             Some(Participant::Local(ref participant)) => {
