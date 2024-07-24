@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-livekit = { path = "../../livekit", version = "0.3.2" }
+livekit = { path = "../../livekit" }
 bytes = "1.4.0"
 tokio-util = "0.7.8"
 futures = "0.3.28"

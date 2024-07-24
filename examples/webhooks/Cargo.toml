@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-livekit-api = { version = "0.3.2", path = "../../livekit-api" }
+livekit-api = { path = "../../livekit-api" }
 hyper = { version = "0.14", features = ["full"] }
 tokio = { version = "1", features = ["full"] }

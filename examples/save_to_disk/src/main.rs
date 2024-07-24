@@ -92,7 +92,8 @@ async fn main() {
     let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
         .await
         .unwrap();
-    println!("Connected to room: {} - {}", room.name(), room.sid());
+    let sid = room.sid().await;
+    println!("Connected to room: {} - {}", room.name(), String::from(sid));
 
     while let Some(msg) = rx.recv().await {
         #[allow(clippy::single_match)]

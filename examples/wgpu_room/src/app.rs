@@ -21,7 +21,7 @@ struct AppState {
 pub struct LkApp {
     async_runtime: tokio::runtime::Runtime,
     state: AppState,
-    video_renderers: HashMap<(ParticipantSid, TrackSid), VideoRenderer>,
+    video_renderers: HashMap<(ParticipantIdentity, TrackSid), VideoRenderer>,
     connecting: bool,
     connection_failure: Option<String>,
     render_state: egui_wgpu::RenderState,
@@ -87,7 +87,7 @@ impl LkApp {
                                 video_track.rtc_track(),
                             );
                             self.video_renderers
-                                .insert((participant.sid(), track.sid()), video_renderer);
+                                .insert((participant.identity(), track.sid()), video_renderer);
                         } else if let RemoteTrack::Audio(_) = track {
                             // TODO(theomonnom): Once we support media devices, we can play audio tracks here
                         }
@@ -98,7 +98,7 @@ impl LkApp {
                         participant,
                     } => {
                         self.video_renderers
-                            .remove(&(participant.sid(), track.sid()));
+                            .remove(&(participant.identity(), track.sid()));
                     }
                     RoomEvent::LocalTrackPublished {
                         track,
@@ -113,7 +113,7 @@ impl LkApp {
                                 video_track.rtc_track(),
                             );
                             self.video_renderers
-                                .insert((participant.sid(), track.sid()), video_renderer);
+                                .insert((participant.identity(), track.sid()), video_renderer);
                         }
                     }
                     RoomEvent::LocalTrackUnpublished {
@@ -121,7 +121,7 @@ impl LkApp {
                         participant,
                     } => {
                         self.video_renderers
-                            .remove(&(participant.sid(), publication.sid()));
+                            .remove(&(participant.identity(), publication.sid()));
                     }
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
@@ -238,11 +238,11 @@ impl LkApp {
 
         if let Some(room) = room.as_ref() {
             ui.label(format!("Name: {}", room.name()));
-            ui.label(format!("Sid: {}", room.sid()));
+            //ui.label(format!("Sid: {}", String::from(sid)));
             ui.label(format!("ConnectionState: {:?}", room.connection_state()));
             ui.label(format!(
                 "ParticipantCount: {:?}",
-                room.participants().len() + 1
+                room.remote_participants().len() + 1
             ));
         }
 
@@ -250,7 +250,7 @@ impl LkApp {
         ui.separator();
     }
 
-    /// Show participants and their tracks
+    /// Show remote_participants and their tracks
     fn right_panel(&self, ui: &mut egui::Ui) {
         ui.label("Participants");
         ui.separator();
@@ -261,16 +261,16 @@ impl LkApp {
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
-            let participants = room.participants();
+            let participants = room.remote_participants();
             let mut sorted_participants = participants
                 .keys()
                 .cloned()
-                .collect::<Vec<ParticipantSid>>();
+                .collect::<Vec<ParticipantIdentity>>();
             sorted_participants.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
             for psid in sorted_participants {
                 let participant = participants.get(&psid).unwrap();
-                let tracks = participant.tracks();
+                let tracks = participant.track_publications();
                 let mut sorted_tracks = tracks.keys().cloned().collect::<Vec<TrackSid>>();
                 sorted_tracks.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
@@ -343,7 +343,7 @@ impl LkApp {
                             ui.video_frame(|ui| {
                                 let room = room.as_ref().unwrap().clone();
 
-                                if let Some(participant) = room.participants().get(participant_sid)
+                                if let Some(participant) = room.remote_participants().get(participant_sid)
                                 {
                                     draw_video(
                                         participant.name().as_str(),

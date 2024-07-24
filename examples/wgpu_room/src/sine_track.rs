@@ -46,6 +46,7 @@ impl SineTrack {
                 AudioSourceOptions::default(),
                 params.sample_rate,
                 params.num_channels,
+                None,
             ),
             params,
             room,
