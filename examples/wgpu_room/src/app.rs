@@ -238,7 +238,7 @@ impl LkApp {
 
         if let Some(room) = room.as_ref() {
             ui.label(format!("Name: {}", room.name()));
-            //ui.label(format!("Sid: {}", String::from(sid)));
+            //ui.label(format!("Sid: {}", String::from(room.sid().await)));
             ui.label(format!("ConnectionState: {:?}", room.connection_state()));
             ui.label(format!(
                 "ParticipantCount: {:?}",
