@@ -1411,34 +1411,30 @@ pub struct OwnedTrack {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LocalTrackMuteRequest {
     #[prost(uint64, tag="1")]
-    pub local_participant_handle: u64,
-    #[prost(string, tag="2")]
-    pub track_sid: ::prost::alloc::string::String,
-    #[prost(bool, tag="3")]
+    pub track_handle: u64,
+    #[prost(bool, tag="2")]
     pub mute: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LocalTrackMuteResponse {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
+    #[prost(bool, tag="1")]
+    pub muted: bool,
 }
 /// Enable/Disable a remote track
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EnableRemoteTrackRequest {
     #[prost(uint64, tag="1")]
-    pub participant_identity: u64,
-    #[prost(string, tag="2")]
-    pub track_sid: ::prost::alloc::string::String,
-    #[prost(bool, tag="3")]
+    pub track_handle: u64,
+    #[prost(bool, tag="2")]
     pub enabled: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EnableRemoteTrackResponse {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
+    #[prost(bool, tag="1")]
+    pub enabled: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
