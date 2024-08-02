@@ -110,3 +110,15 @@ impl From<EncryptionType> for encryption::Type {
         }
     }
 }
+
+impl From<participant_info::Kind> for participant::ParticipantKind {
+    fn from(value: participant_info::Kind) -> Self {
+        match value {
+            participant_info::Kind::Standard => participant::ParticipantKind::Standard,
+            participant_info::Kind::Ingress => participant::ParticipantKind::Ingress,
+            participant_info::Kind::Egress => participant::ParticipantKind::Egress,
+            participant_info::Kind::Sip => participant::ParticipantKind::Sip,
+            participant_info::Kind::Agent => participant::ParticipantKind::Agent,
+        }
+    }
+}

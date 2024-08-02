@@ -33,7 +33,10 @@ use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
-use self::e2ee::{manager::E2eeManager, E2eeOptions};
+use self::{
+    e2ee::{manager::E2eeManager, E2eeOptions},
+    participant::ParticipantKind,
+};
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
     participant::ConnectionQuality,
@@ -331,6 +334,7 @@ impl Room {
         let pi = join_response.participant.unwrap();
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
+            pi.kind().into(),
             pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
@@ -458,6 +462,7 @@ impl Room {
             let participant = {
                 let pi = pi.clone();
                 inner.create_participant(
+                    pi.kind().into(),
                     pi.sid.try_into().unwrap(),
                     pi.identity.into(),
                     pi.name,
@@ -680,6 +685,7 @@ impl RoomSession {
                 let remote_participant = {
                     let pi = pi.clone();
                     self.create_participant(
+                        pi.kind().into(),
                         pi.sid.try_into().unwrap(),
                         pi.identity.into(),
                         pi.name,
@@ -1087,6 +1093,7 @@ impl RoomSession {
     /// Also add it to the participants list
     fn create_participant(
         self: &Arc<Self>,
+        kind: ParticipantKind,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -1095,6 +1102,7 @@ impl RoomSession {
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
+            kind,
             sid.clone(),
             identity.clone(),
             name,
