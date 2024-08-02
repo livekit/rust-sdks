@@ -518,6 +518,7 @@ impl SessionInner {
                         })
                         .unwrap(),
                         target: target as i32,
+                        ..Default::default()
                     }))
                     .await;
             }

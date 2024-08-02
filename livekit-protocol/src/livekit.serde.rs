@@ -1524,6 +1524,9 @@ impl serde::Serialize for AvailabilityResponse {
         if !self.participant_metadata.is_empty() {
             len += 1;
         }
+        if !self.participant_attributes.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.AvailabilityResponse", len)?;
         if !self.job_id.is_empty() {
             struct_ser.serialize_field("jobId", &self.job_id)?;
@@ -1542,6 +1545,9 @@ impl serde::Serialize for AvailabilityResponse {
         }
         if !self.participant_metadata.is_empty() {
             struct_ser.serialize_field("participantMetadata", &self.participant_metadata)?;
+        }
+        if !self.participant_attributes.is_empty() {
+            struct_ser.serialize_field("participantAttributes", &self.participant_attributes)?;
         }
         struct_ser.end()
     }
@@ -1564,6 +1570,8 @@ impl<'de> serde::Deserialize<'de> for AvailabilityResponse {
             "participantIdentity",
             "participant_metadata",
             "participantMetadata",
+            "participant_attributes",
+            "participantAttributes",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1574,6 +1582,7 @@ impl<'de> serde::Deserialize<'de> for AvailabilityResponse {
             ParticipantName,
             ParticipantIdentity,
             ParticipantMetadata,
+            ParticipantAttributes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1602,6 +1611,7 @@ impl<'de> serde::Deserialize<'de> for AvailabilityResponse {
                             "participantName" | "participant_name" => Ok(GeneratedField::ParticipantName),
                             "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
                             "participantMetadata" | "participant_metadata" => Ok(GeneratedField::ParticipantMetadata),
+                            "participantAttributes" | "participant_attributes" => Ok(GeneratedField::ParticipantAttributes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1627,6 +1637,7 @@ impl<'de> serde::Deserialize<'de> for AvailabilityResponse {
                 let mut participant_name__ = None;
                 let mut participant_identity__ = None;
                 let mut participant_metadata__ = None;
+                let mut participant_attributes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::JobId => {
@@ -1665,6 +1676,14 @@ impl<'de> serde::Deserialize<'de> for AvailabilityResponse {
                             }
                             participant_metadata__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::ParticipantAttributes => {
+                            if participant_attributes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantAttributes"));
+                            }
+                            participant_attributes__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1677,6 +1696,7 @@ impl<'de> serde::Deserialize<'de> for AvailabilityResponse {
                     participant_name: participant_name__.unwrap_or_default(),
                     participant_identity: participant_identity__.unwrap_or_default(),
                     participant_metadata: participant_metadata__.unwrap_or_default(),
+                    participant_attributes: participant_attributes__.unwrap_or_default(),
                 })
             }
         }
@@ -5805,6 +5825,7 @@ impl serde::Serialize for DisconnectReason {
             Self::JoinFailure => "JOIN_FAILURE",
             Self::Migration => "MIGRATION",
             Self::SignalClose => "SIGNAL_CLOSE",
+            Self::RoomClosed => "ROOM_CLOSED",
         };
         serializer.serialize_str(variant)
     }
@@ -5826,6 +5847,7 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
             "JOIN_FAILURE",
             "MIGRATION",
             "SIGNAL_CLOSE",
+            "ROOM_CLOSED",
         ];
 
         struct GeneratedVisitor;
@@ -5876,6 +5898,7 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
                     "JOIN_FAILURE" => Ok(DisconnectReason::JoinFailure),
                     "MIGRATION" => Ok(DisconnectReason::Migration),
                     "SIGNAL_CLOSE" => Ok(DisconnectReason::SignalClose),
+                    "ROOM_CLOSED" => Ok(DisconnectReason::RoomClosed),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -10343,6 +10366,9 @@ impl serde::Serialize for Job {
         if !self.id.is_empty() {
             len += 1;
         }
+        if !self.dispatch_id.is_empty() {
+            len += 1;
+        }
         if self.r#type != 0 {
             len += 1;
         }
@@ -10367,6 +10393,9 @@ impl serde::Serialize for Job {
         let mut struct_ser = serializer.serialize_struct("livekit.Job", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
+        }
+        if !self.dispatch_id.is_empty() {
+            struct_ser.serialize_field("dispatchId", &self.dispatch_id)?;
         }
         if self.r#type != 0 {
             let v = JobType::try_from(self.r#type)
@@ -10402,6 +10431,8 @@ impl<'de> serde::Deserialize<'de> for Job {
     {
         const FIELDS: &[&str] = &[
             "id",
+            "dispatch_id",
+            "dispatchId",
             "type",
             "room",
             "participant",
@@ -10415,6 +10446,7 @@ impl<'de> serde::Deserialize<'de> for Job {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Id,
+            DispatchId,
             Type,
             Room,
             Participant,
@@ -10445,6 +10477,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                     {
                         match value {
                             "id" => Ok(GeneratedField::Id),
+                            "dispatchId" | "dispatch_id" => Ok(GeneratedField::DispatchId),
                             "type" => Ok(GeneratedField::Type),
                             "room" => Ok(GeneratedField::Room),
                             "participant" => Ok(GeneratedField::Participant),
@@ -10472,6 +10505,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut id__ = None;
+                let mut dispatch_id__ = None;
                 let mut r#type__ = None;
                 let mut room__ = None;
                 let mut participant__ = None;
@@ -10486,6 +10520,12 @@ impl<'de> serde::Deserialize<'de> for Job {
                                 return Err(serde::de::Error::duplicate_field("id"));
                             }
                             id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::DispatchId => {
+                            if dispatch_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dispatchId"));
+                            }
+                            dispatch_id__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Type => {
                             if r#type__.is_some() {
@@ -10536,6 +10576,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                 }
                 Ok(Job {
                     id: id__.unwrap_or_default(),
+                    dispatch_id: dispatch_id__.unwrap_or_default(),
                     r#type: r#type__.unwrap_or_default(),
                     room: room__,
                     participant: participant__,
@@ -17056,9 +17097,6 @@ impl serde::Serialize for RegisterWorkerRequest {
         if !self.version.is_empty() {
             len += 1;
         }
-        if !self.name.is_empty() {
-            len += 1;
-        }
         if self.ping_interval != 0 {
             len += 1;
         }
@@ -17079,9 +17117,6 @@ impl serde::Serialize for RegisterWorkerRequest {
         }
         if !self.version.is_empty() {
             struct_ser.serialize_field("version", &self.version)?;
-        }
-        if !self.name.is_empty() {
-            struct_ser.serialize_field("name", &self.name)?;
         }
         if self.ping_interval != 0 {
             struct_ser.serialize_field("pingInterval", &self.ping_interval)?;
@@ -17106,7 +17141,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
             "agent_name",
             "agentName",
             "version",
-            "name",
             "ping_interval",
             "pingInterval",
             "namespace",
@@ -17119,7 +17153,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
             Type,
             AgentName,
             Version,
-            Name,
             PingInterval,
             Namespace,
             AllowedPermissions,
@@ -17148,7 +17181,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
                             "type" => Ok(GeneratedField::Type),
                             "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
                             "version" => Ok(GeneratedField::Version),
-                            "name" => Ok(GeneratedField::Name),
                             "pingInterval" | "ping_interval" => Ok(GeneratedField::PingInterval),
                             "namespace" => Ok(GeneratedField::Namespace),
                             "allowedPermissions" | "allowed_permissions" => Ok(GeneratedField::AllowedPermissions),
@@ -17174,7 +17206,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
                 let mut r#type__ = None;
                 let mut agent_name__ = None;
                 let mut version__ = None;
-                let mut name__ = None;
                 let mut ping_interval__ = None;
                 let mut namespace__ = None;
                 let mut allowed_permissions__ = None;
@@ -17197,12 +17228,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
                                 return Err(serde::de::Error::duplicate_field("version"));
                             }
                             version__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Name => {
-                            if name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("name"));
-                            }
-                            name__ = Some(map_.next_value()?);
                         }
                         GeneratedField::PingInterval => {
                             if ping_interval__.is_some() {
@@ -17233,7 +17258,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
                     r#type: r#type__.unwrap_or_default(),
                     agent_name: agent_name__.unwrap_or_default(),
                     version: version__.unwrap_or_default(),
-                    name: name__.unwrap_or_default(),
                     ping_interval: ping_interval__.unwrap_or_default(),
                     namespace: namespace__,
                     allowed_permissions: allowed_permissions__,
@@ -24520,6 +24544,7 @@ impl serde::Serialize for StreamProtocol {
         let variant = match self {
             Self::DefaultProtocol => "DEFAULT_PROTOCOL",
             Self::Rtmp => "RTMP",
+            Self::Srt => "SRT",
         };
         serializer.serialize_str(variant)
     }
@@ -24533,6 +24558,7 @@ impl<'de> serde::Deserialize<'de> for StreamProtocol {
         const FIELDS: &[&str] = &[
             "DEFAULT_PROTOCOL",
             "RTMP",
+            "SRT",
         ];
 
         struct GeneratedVisitor;
@@ -24575,6 +24601,7 @@ impl<'de> serde::Deserialize<'de> for StreamProtocol {
                 match value {
                     "DEFAULT_PROTOCOL" => Ok(StreamProtocol::DefaultProtocol),
                     "RTMP" => Ok(StreamProtocol::Rtmp),
+                    "SRT" => Ok(StreamProtocol::Srt),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -27772,6 +27799,9 @@ impl serde::Serialize for TrickleRequest {
         if self.target != 0 {
             len += 1;
         }
+        if self.r#final {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.TrickleRequest", len)?;
         if !self.candidate_init.is_empty() {
             struct_ser.serialize_field("candidateInit", &self.candidate_init)?;
@@ -27780,6 +27810,9 @@ impl serde::Serialize for TrickleRequest {
             let v = SignalTarget::try_from(self.target)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.target)))?;
             struct_ser.serialize_field("target", &v)?;
+        }
+        if self.r#final {
+            struct_ser.serialize_field("final", &self.r#final)?;
         }
         struct_ser.end()
     }
@@ -27793,12 +27826,14 @@ impl<'de> serde::Deserialize<'de> for TrickleRequest {
         const FIELDS: &[&str] = &[
             "candidateInit",
             "target",
+            "final",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             CandidateInit,
             Target,
+            Final,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -27823,6 +27858,7 @@ impl<'de> serde::Deserialize<'de> for TrickleRequest {
                         match value {
                             "candidateInit" => Ok(GeneratedField::CandidateInit),
                             "target" => Ok(GeneratedField::Target),
+                            "final" => Ok(GeneratedField::Final),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -27844,6 +27880,7 @@ impl<'de> serde::Deserialize<'de> for TrickleRequest {
             {
                 let mut candidate_init__ = None;
                 let mut target__ = None;
+                let mut r#final__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::CandidateInit => {
@@ -27858,6 +27895,12 @@ impl<'de> serde::Deserialize<'de> for TrickleRequest {
                             }
                             target__ = Some(map_.next_value::<SignalTarget>()? as i32);
                         }
+                        GeneratedField::Final => {
+                            if r#final__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("final"));
+                            }
+                            r#final__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -27866,6 +27909,7 @@ impl<'de> serde::Deserialize<'de> for TrickleRequest {
                 Ok(TrickleRequest {
                     candidate_init: candidate_init__.unwrap_or_default(),
                     target: target__.unwrap_or_default(),
+                    r#final: r#final__.unwrap_or_default(),
                 })
             }
         }
