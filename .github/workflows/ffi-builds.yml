@@ -58,12 +58,14 @@ jobs:
             target: aarch64-apple-ios
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-arm64
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: macos-13
             platform: ios
             dylib: liblivekit_ffi.a
             target: aarch64-apple-ios-sim
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-sim-arm64
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
             platform: linux
             build_image: quay.io/pypa/manylinux_2_28_x86_64
