@@ -518,6 +518,7 @@ impl SessionInner {
                         })
                         .unwrap(),
                         target: target as i32,
+                        r#final: false,
                     }))
                     .await;
             }
