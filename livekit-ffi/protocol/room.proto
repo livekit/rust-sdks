@@ -449,8 +449,34 @@ message TranscriptionReceived {
 
 message ConnectionStateChanged { ConnectionState state = 1; }
 
+enum DisconnectReason {
+  UNKNOWN_REASON = 0;
+  // the client initiated the disconnect
+  CLIENT_INITIATED = 1;
+  // another participant with the same identity has joined the room
+  DUPLICATE_IDENTITY = 2;
+  // the server instance is shutting down
+  SERVER_SHUTDOWN = 3;
+  // RoomService.RemoveParticipant was called
+  PARTICIPANT_REMOVED = 4;
+  // RoomService.DeleteRoom was called
+  ROOM_DELETED = 5;
+  // the client is attempting to resume a session, but server is not aware of it
+  STATE_MISMATCH = 6;
+  // client was unable to connect fully
+  JOIN_FAILURE = 7;
+  // Cloud-only, the server requested Participant to migrate the connection elsewhere
+  MIGRATION = 8;
+  // the signal websocket was closed unexpectedly
+  SIGNAL_CLOSE = 9;
+  // the room was closed, due to all Standard and Ingress participants having left
+  ROOM_CLOSED = 10;
+}
+
 message Connected {}
-message Disconnected {}
+message Disconnected {
+  DisconnectReason reason = 1;
+}
 message Reconnecting {}
 message Reconnected {}
 
