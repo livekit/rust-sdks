@@ -1,0 +1,1705 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 76823f6cff..1c1539f4ad 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -299,6 +299,10 @@ config("common_config") {
+     defines += [ "RTC_USE_LIBAOM_AV1_ENCODER" ]
+   }
+ 
++  if (bssl_rename) {
++    defines += [ "BORINGSSL_PREFIX=LK" ]
++  }
++
+   if (rtc_libvpx_build_vp9) {
+     defines += [ "RTC_ENABLE_VP9" ]
+   }
+diff --git a/api/crypto/frame_crypto_transformer.cc b/api/crypto/frame_crypto_transformer.cc
+index 06ec888170..5f185a0726 100644
+--- a/api/crypto/frame_crypto_transformer.cc
++++ b/api/crypto/frame_crypto_transformer.cc
+@@ -63,9 +63,9 @@ webrtc::H264PacketizationMode get_h264_packetization_mode(
+ const EVP_AEAD* GetAesGcmAlgorithmFromKeySize(size_t key_size_bytes) {
+   switch (key_size_bytes) {
+     case 16:
+-      return EVP_aead_aes_128_gcm();
++      return LK_EVP_aead_aes_128_gcm();
+     case 32:
+-      return EVP_aead_aes_256_gcm();
++      return LK_EVP_aead_aes_256_gcm();
+     default:
+       return nullptr;
+   }
+@@ -74,9 +74,9 @@ const EVP_AEAD* GetAesGcmAlgorithmFromKeySize(size_t key_size_bytes) {
+ const EVP_CIPHER* GetAesCbcAlgorithmFromKeySize(size_t key_size_bytes) {
+   switch (key_size_bytes) {
+     case 16:
+-      return EVP_aes_128_cbc();
++      return LK_EVP_aes_128_cbc();
+     case 32:
+-      return EVP_aes_256_cbc();
++      return LK_EVP_aes_256_cbc();
+     default:
+       return nullptr;
+   }
+@@ -179,8 +179,8 @@ int DerivePBKDF2KeyFromRawKey(const std::vector<uint8_t> raw_key,
+   size_t key_size_bytes = optional_length_bits / 8;
+   derived_key->resize(key_size_bytes);
+ 
+-  if (PKCS5_PBKDF2_HMAC((const char*)raw_key.data(), raw_key.size(),
+-                        salt.data(), salt.size(), 100000, EVP_sha256(),
++  if (LK_PKCS5_PBKDF2_HMAC((const char*)raw_key.data(), raw_key.size(),
++                        salt.data(), salt.size(), 100000, LK_EVP_sha256(),
+                         key_size_bytes, derived_key->data()) != 1) {
+     RTC_LOG(LS_ERROR) << "Failed to derive AES key from password.";
+     return ErrorUnexpected;
+@@ -212,7 +212,7 @@ int AesGcmEncryptDecrypt(EncryptOrDecrypt mode,
+     return ErrorUnexpected;
+   }
+ 
+-  if (!EVP_AEAD_CTX_init(ctx.get(), aead_alg, raw_key.data(), raw_key.size(),
++  if (!LK_EVP_AEAD_CTX_init(ctx.get(), aead_alg, raw_key.data(), raw_key.size(),
+                          tag_length_bytes, nullptr)) {
+     RTC_LOG(LS_ERROR) << "Failed to initialize AES-GCM context.";
+     return OperationError;
+@@ -229,13 +229,13 @@ int AesGcmEncryptDecrypt(EncryptOrDecrypt mode,
+ 
+     buffer->resize(data.size() - tag_length_bytes);
+ 
+-    ok = EVP_AEAD_CTX_open(ctx.get(), buffer->data(), &len, buffer->size(),
++    ok = LK_EVP_AEAD_CTX_open(ctx.get(), buffer->data(), &len, buffer->size(),
+                            iv.data(), iv.size(), data.data(), data.size(),
+                            additional_data.data(), additional_data.size());
+   } else {
+-    buffer->resize(data.size() + EVP_AEAD_max_overhead(aead_alg));
++    buffer->resize(data.size() + LK_EVP_AEAD_max_overhead(aead_alg));
+ 
+-    ok = EVP_AEAD_CTX_seal(ctx.get(), buffer->data(), &len, buffer->size(),
++    ok = LK_EVP_AEAD_CTX_seal(ctx.get(), buffer->data(), &len, buffer->size(),
+                            iv.data(), iv.size(), data.data(), data.size(),
+                            additional_data.data(), additional_data.size());
+   }
+@@ -261,7 +261,7 @@ int AesCbcEncryptDecrypt(EncryptOrDecrypt mode,
+   RTC_DCHECK_EQ(EVP_CIPHER_key_length(cipher), raw_key.size());
+ 
+   bssl::ScopedEVP_CIPHER_CTX ctx;
+-  if (!EVP_CipherInit_ex(ctx.get(), cipher, nullptr,
++  if (!LK_EVP_CipherInit_ex(ctx.get(), cipher, nullptr,
+                          reinterpret_cast<const uint8_t*>(raw_key.data()),
+                          iv.data(),
+                          mode == EncryptOrDecrypt::kEncrypt ? 1 : 0)) {
+@@ -272,14 +272,14 @@ int AesCbcEncryptDecrypt(EncryptOrDecrypt mode,
+   output->resize(input.size() +
+                  (mode == EncryptOrDecrypt::kEncrypt ? iv.size() : 0));
+   int out_len;
+-  if (!EVP_CipherUpdate(ctx.get(), output->data(), &out_len, input.data(),
++  if (!LK_EVP_CipherUpdate(ctx.get(), output->data(), &out_len, input.data(),
+                         input.size()))
+     return OperationError;
+ 
+   // Write out the final block plus padding (if any) to the end of the data
+   // just written.
+   int tail_len;
+-  if (!EVP_CipherFinal_ex(ctx.get(), output->data() + out_len, &tail_len))
++  if (!LK_EVP_CipherFinal_ex(ctx.get(), output->data() + out_len, &tail_len))
+     return OperationError;
+ 
+   out_len += tail_len;
+diff --git a/rtc_base/boringssl_certificate.cc b/rtc_base/boringssl_certificate.cc
+index a866224496..d509d5de38 100644
+--- a/rtc_base/boringssl_certificate.cc
++++ b/rtc_base/boringssl_certificate.cc
+@@ -89,21 +89,21 @@ static void PrintCert(BoringSSLCertificate* cert) {
+ bool AddSHA256SignatureAlgorithm(CBB* cbb, KeyType key_type) {
+   // An AlgorithmIdentifier is described in RFC 5280, 4.1.1.2.
+   CBB sequence, oid, params;
+-  if (!CBB_add_asn1(cbb, &sequence, CBS_ASN1_SEQUENCE) ||
+-      !CBB_add_asn1(&sequence, &oid, CBS_ASN1_OBJECT)) {
++  if (!LK_CBB_add_asn1(cbb, &sequence, CBS_ASN1_SEQUENCE) ||
++      !LK_CBB_add_asn1(&sequence, &oid, CBS_ASN1_OBJECT)) {
+     return false;
+   }
+ 
+   switch (key_type) {
+     case KT_RSA:
+-      if (!CBB_add_bytes(&oid, kSHA256WithRSAEncryption,
++      if (!LK_CBB_add_bytes(&oid, kSHA256WithRSAEncryption,
+                          sizeof(kSHA256WithRSAEncryption)) ||
+-          !CBB_add_asn1(&sequence, &params, CBS_ASN1_NULL)) {
++          !LK_CBB_add_asn1(&sequence, &params, CBS_ASN1_NULL)) {
+         return false;
+       }
+       break;
+     case KT_ECDSA:
+-      if (!CBB_add_bytes(&oid, kECDSAWithSHA256, sizeof(kECDSAWithSHA256))) {
++      if (!LK_CBB_add_bytes(&oid, kECDSAWithSHA256, sizeof(kECDSAWithSHA256))) {
+         return false;
+       }
+       break;
+@@ -111,7 +111,7 @@ bool AddSHA256SignatureAlgorithm(CBB* cbb, KeyType key_type) {
+       RTC_DCHECK_NOTREACHED();
+       return false;
+   }
+-  if (!CBB_flush(cbb)) {
++  if (!LK_CBB_flush(cbb)) {
+     return false;
+   }
+   return true;
+@@ -129,20 +129,20 @@ bool AddCommonName(CBB* cbb, absl::string_view common_name) {
+ 
+   // See RFC 5280, section 4.1.2.4.
+   CBB rdns;
+-  if (!CBB_add_asn1(cbb, &rdns, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBB_add_asn1(cbb, &rdns, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+ 
+   CBB rdn, attr, type, value;
+-  if (!CBB_add_asn1(&rdns, &rdn, CBS_ASN1_SET) ||
+-      !CBB_add_asn1(&rdn, &attr, CBS_ASN1_SEQUENCE) ||
+-      !CBB_add_asn1(&attr, &type, CBS_ASN1_OBJECT) ||
+-      !CBB_add_bytes(&type, kCommonName, sizeof(kCommonName)) ||
+-      !CBB_add_asn1(&attr, &value, CBS_ASN1_UTF8STRING) ||
+-      !CBB_add_bytes(&value,
++  if (!LK_CBB_add_asn1(&rdns, &rdn, CBS_ASN1_SET) ||
++      !LK_CBB_add_asn1(&rdn, &attr, CBS_ASN1_SEQUENCE) ||
++      !LK_CBB_add_asn1(&attr, &type, CBS_ASN1_OBJECT) ||
++      !LK_CBB_add_bytes(&type, kCommonName, sizeof(kCommonName)) ||
++      !LK_CBB_add_asn1(&attr, &value, CBS_ASN1_UTF8STRING) ||
++      !LK_CBB_add_bytes(&value,
+                      reinterpret_cast<const uint8_t*>(common_name.data()),
+                      common_name.size()) ||
+-      !CBB_flush(cbb)) {
++      !LK_CBB_flush(cbb)) {
+     return false;
+   }
+ 
+@@ -150,12 +150,12 @@ bool AddCommonName(CBB* cbb, absl::string_view common_name) {
+ }
+ 
+ bool AddTime(CBB* cbb, time_t time) {
+-  bssl::UniquePtr<ASN1_TIME> asn1_time(ASN1_TIME_new());
++  bssl::UniquePtr<ASN1_TIME> asn1_time(LK_ASN1_TIME_new());
+   if (!asn1_time) {
+     return false;
+   }
+ 
+-  if (!ASN1_TIME_set(asn1_time.get(), time)) {
++  if (!LK_ASN1_TIME_set(asn1_time.get(), time)) {
+     return false;
+   }
+ 
+@@ -172,9 +172,9 @@ bool AddTime(CBB* cbb, time_t time) {
+   }
+ 
+   CBB child;
+-  if (!CBB_add_asn1(cbb, &child, tag) ||
+-      !CBB_add_bytes(&child, asn1_time->data, asn1_time->length) ||
+-      !CBB_flush(cbb)) {
++  if (!LK_CBB_add_asn1(cbb, &child, tag) ||
++      !LK_CBB_add_bytes(&child, asn1_time->data, asn1_time->length) ||
++      !LK_CBB_flush(cbb)) {
+     return false;
+   }
+ 
+@@ -194,22 +194,22 @@ static bssl::UniquePtr<CRYPTO_BUFFER> MakeCertificate(
+   uint8_t* tbs_cert_bytes;
+   size_t tbs_cert_len;
+   uint64_t serial_number;
+-  if (!CBB_init(cbb.get(), 64) ||
+-      !CBB_add_asn1(cbb.get(), &tbs_cert, CBS_ASN1_SEQUENCE) ||
+-      !CBB_add_asn1(&tbs_cert, &version,
++  if (!LK_CBB_init(cbb.get(), 64) ||
++      !LK_CBB_add_asn1(cbb.get(), &tbs_cert, CBS_ASN1_SEQUENCE) ||
++      !LK_CBB_add_asn1(&tbs_cert, &version,
+                     CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0) ||
+-      !CBB_add_asn1_uint64(&version, 2) ||
+-      !RAND_bytes(reinterpret_cast<uint8_t*>(&serial_number),
++      !LK_CBB_add_asn1_uint64(&version, 2) ||
++      !LK_RAND_bytes(reinterpret_cast<uint8_t*>(&serial_number),
+                   sizeof(serial_number)) ||
+-      !CBB_add_asn1_uint64(&tbs_cert, serial_number) ||
++      !LK_CBB_add_asn1_uint64(&tbs_cert, serial_number) ||
+       !AddSHA256SignatureAlgorithm(&tbs_cert, params.key_params.type()) ||
+       !AddCommonName(&tbs_cert, params.common_name) ||  // issuer
+-      !CBB_add_asn1(&tbs_cert, &validity, CBS_ASN1_SEQUENCE) ||
++      !LK_CBB_add_asn1(&tbs_cert, &validity, CBS_ASN1_SEQUENCE) ||
+       !AddTime(&validity, params.not_before) ||
+       !AddTime(&validity, params.not_after) ||
+       !AddCommonName(&tbs_cert, params.common_name) ||  // subject
+-      !EVP_marshal_public_key(&tbs_cert, pkey) ||       // subjectPublicKeyInfo
+-      !CBB_finish(cbb.get(), &tbs_cert_bytes, &tbs_cert_len)) {
++      !LK_EVP_marshal_public_key(&tbs_cert, pkey) ||       // subjectPublicKeyInfo
++      !LK_CBB_finish(cbb.get(), &tbs_cert_bytes, &tbs_cert_len)) {
+     return nullptr;
+   }
+ 
+@@ -222,29 +222,29 @@ static bssl::UniquePtr<CRYPTO_BUFFER> MakeCertificate(
+   size_t sig_len;
+   uint8_t* cert_bytes;
+   size_t cert_len;
+-  if (!CBB_init(cbb.get(), tbs_cert_len) ||
+-      !CBB_add_asn1(cbb.get(), &cert, CBS_ASN1_SEQUENCE) ||
+-      !CBB_add_bytes(&cert, tbs_cert_bytes, tbs_cert_len) ||
++  if (!LK_CBB_init(cbb.get(), tbs_cert_len) ||
++      !LK_CBB_add_asn1(cbb.get(), &cert, CBS_ASN1_SEQUENCE) ||
++      !LK_CBB_add_bytes(&cert, tbs_cert_bytes, tbs_cert_len) ||
+       !AddSHA256SignatureAlgorithm(&cert, params.key_params.type()) ||
+-      !CBB_add_asn1(&cert, &signature, CBS_ASN1_BITSTRING) ||
+-      !CBB_add_u8(&signature, 0 /* no unused bits */) ||
+-      !EVP_DigestSignInit(ctx.get(), nullptr, EVP_sha256(), nullptr, pkey) ||
++      !LK_CBB_add_asn1(&cert, &signature, CBS_ASN1_BITSTRING) ||
++      !LK_CBB_add_u8(&signature, 0 /* no unused bits */) ||
++      !LK_EVP_DigestSignInit(ctx.get(), nullptr, LK_EVP_sha256(), nullptr, pkey) ||
+       // Compute the maximum signature length.
+-      !EVP_DigestSign(ctx.get(), nullptr, &sig_len, tbs_cert_bytes,
++      !LK_EVP_DigestSign(ctx.get(), nullptr, &sig_len, tbs_cert_bytes,
+                       tbs_cert_len) ||
+-      !CBB_reserve(&signature, &sig_out, sig_len) ||
++      !LK_CBB_reserve(&signature, &sig_out, sig_len) ||
+       // Actually sign the TBSCertificate.
+-      !EVP_DigestSign(ctx.get(), sig_out, &sig_len, tbs_cert_bytes,
++      !LK_EVP_DigestSign(ctx.get(), sig_out, &sig_len, tbs_cert_bytes,
+                       tbs_cert_len) ||
+-      !CBB_did_write(&signature, sig_len) ||
+-      !CBB_finish(cbb.get(), &cert_bytes, &cert_len)) {
++      !LK_CBB_did_write(&signature, sig_len) ||
++      !LK_CBB_finish(cbb.get(), &cert_bytes, &cert_len)) {
+     return nullptr;
+   }
+   bssl::UniquePtr<uint8_t> delete_cert_bytes(cert_bytes);
+ 
+   RTC_LOG(LS_INFO) << "Returning certificate";
+   return bssl::UniquePtr<CRYPTO_BUFFER>(
+-      CRYPTO_BUFFER_new(cert_bytes, cert_len, openssl::GetBufferPool()));
++      LK_CRYPTO_BUFFER_new(cert_bytes, cert_len, openssl::GetBufferPool()));
+ }
+ 
+ }  // namespace
+@@ -283,7 +283,7 @@ std::unique_ptr<BoringSSLCertificate> BoringSSLCertificate::FromPEMString(
+     return nullptr;
+   }
+   bssl::UniquePtr<CRYPTO_BUFFER> cert_buffer(
+-      CRYPTO_BUFFER_new(reinterpret_cast<const uint8_t*>(der.c_str()),
++      LK_CRYPTO_BUFFER_new(reinterpret_cast<const uint8_t*>(der.c_str()),
+                         der.length(), openssl::GetBufferPool()));
+   if (!cert_buffer) {
+     return nullptr;
+@@ -359,11 +359,11 @@ bool BoringSSLCertificate::ComputeDigest(const CRYPTO_BUFFER* cert_buffer,
+   if (!OpenSSLDigest::GetDigestEVP(algorithm, &md)) {
+     return false;
+   }
+-  if (size < static_cast<size_t>(EVP_MD_size(md))) {
++  if (size < static_cast<size_t>(LK_EVP_MD_size(md))) {
+     return false;
+   }
+-  if (!EVP_Digest(CRYPTO_BUFFER_data(cert_buffer),
+-                  CRYPTO_BUFFER_len(cert_buffer), digest, &n, md, nullptr)) {
++  if (!LK_EVP_Digest(LK_CRYPTO_BUFFER_data(cert_buffer),
++                  LK_CRYPTO_BUFFER_len(cert_buffer), digest, &n, md, nullptr)) {
+     return false;
+   }
+   *length = n;
+@@ -379,21 +379,21 @@ std::unique_ptr<SSLCertificate> BoringSSLCertificate::Clone() const {
+ 
+ std::string BoringSSLCertificate::ToPEMString() const {
+   return SSLIdentity::DerToPem(kPemTypeCertificate,
+-                               CRYPTO_BUFFER_data(cert_buffer_.get()),
+-                               CRYPTO_BUFFER_len(cert_buffer_.get()));
++                               LK_CRYPTO_BUFFER_data(cert_buffer_.get()),
++                               LK_CRYPTO_BUFFER_len(cert_buffer_.get()));
+ }
+ 
+ void BoringSSLCertificate::ToDER(Buffer* der_buffer) const {
+-  der_buffer->SetData(CRYPTO_BUFFER_data(cert_buffer_.get()),
+-                      CRYPTO_BUFFER_len(cert_buffer_.get()));
++  der_buffer->SetData(LK_CRYPTO_BUFFER_data(cert_buffer_.get()),
++                      LK_CRYPTO_BUFFER_len(cert_buffer_.get()));
+ }
+ 
+ bool BoringSSLCertificate::operator==(const BoringSSLCertificate& other) const {
+-  return CRYPTO_BUFFER_len(cert_buffer_.get()) ==
+-             CRYPTO_BUFFER_len(other.cert_buffer_.get()) &&
+-         0 == memcmp(CRYPTO_BUFFER_data(cert_buffer_.get()),
+-                     CRYPTO_BUFFER_data(other.cert_buffer_.get()),
+-                     CRYPTO_BUFFER_len(cert_buffer_.get()));
++  return LK_CRYPTO_BUFFER_len(cert_buffer_.get()) ==
++             LK_CRYPTO_BUFFER_len(other.cert_buffer_.get()) &&
++         0 == memcmp(LK_CRYPTO_BUFFER_data(cert_buffer_.get()),
++                     LK_CRYPTO_BUFFER_data(other.cert_buffer_.get()),
++                     LK_CRYPTO_BUFFER_len(cert_buffer_.get()));
+ }
+ 
+ bool BoringSSLCertificate::operator!=(const BoringSSLCertificate& other) const {
+diff --git a/rtc_base/openssl_adapter.cc b/rtc_base/openssl_adapter.cc
+index 7ac922041d..4215bb9715 100644
+--- a/rtc_base/openssl_adapter.cc
++++ b/rtc_base/openssl_adapter.cc
+@@ -60,31 +60,31 @@ static int socket_free(BIO* data);
+ 
+ static BIO_METHOD* BIO_socket_method() {
+   static BIO_METHOD* methods = [] {
+-    BIO_METHOD* methods = BIO_meth_new(BIO_TYPE_BIO, "socket");
+-    BIO_meth_set_write(methods, socket_write);
+-    BIO_meth_set_read(methods, socket_read);
+-    BIO_meth_set_puts(methods, socket_puts);
+-    BIO_meth_set_ctrl(methods, socket_ctrl);
+-    BIO_meth_set_create(methods, socket_new);
+-    BIO_meth_set_destroy(methods, socket_free);
++    BIO_METHOD* methods = LK_BIO_meth_new(BIO_TYPE_BIO, "socket");
++    LK_BIO_meth_set_write(methods, socket_write);
++    LK_BIO_meth_set_read(methods, socket_read);
++    LK_BIO_meth_set_puts(methods, socket_puts);
++    LK_BIO_meth_set_ctrl(methods, socket_ctrl);
++    LK_BIO_meth_set_create(methods, socket_new);
++    LK_BIO_meth_set_destroy(methods, socket_free);
+     return methods;
+   }();
+   return methods;
+ }
+ 
+-static BIO* BIO_new_socket(rtc::Socket* socket) {
+-  BIO* ret = BIO_new(BIO_socket_method());
++static BIO* LK_BIO_new_socket(rtc::Socket* socket) {
++  BIO* ret = LK_BIO_new(BIO_socket_method());
+   if (ret == nullptr) {
+     return nullptr;
+   }
+-  BIO_set_data(ret, socket);
++  LK_BIO_set_data(ret, socket);
+   return ret;
+ }
+ 
+ static int socket_new(BIO* b) {
+-  BIO_set_shutdown(b, 0);
+-  BIO_set_init(b, 1);
+-  BIO_set_data(b, 0);
++  LK_BIO_set_shutdown(b, 0);
++  LK_BIO_set_init(b, 1);
++  LK_BIO_set_data(b, 0);
+   return 1;
+ }
+ 
+@@ -97,13 +97,13 @@ static int socket_free(BIO* b) {
+ static int socket_read(BIO* b, char* out, int outl) {
+   if (!out)
+     return -1;
+-  rtc::Socket* socket = static_cast<rtc::Socket*>(BIO_get_data(b));
+-  BIO_clear_retry_flags(b);
++  rtc::Socket* socket = static_cast<rtc::Socket*>(LK_BIO_get_data(b));
++  LK_BIO_clear_retry_flags(b);
+   int result = socket->Recv(out, outl, nullptr);
+   if (result > 0) {
+     return result;
+   } else if (socket->IsBlocking()) {
+-    BIO_set_retry_read(b);
++    LK_BIO_set_retry_read(b);
+   }
+   return -1;
+ }
+@@ -111,13 +111,13 @@ static int socket_read(BIO* b, char* out, int outl) {
+ static int socket_write(BIO* b, const char* in, int inl) {
+   if (!in)
+     return -1;
+-  rtc::Socket* socket = static_cast<rtc::Socket*>(BIO_get_data(b));
+-  BIO_clear_retry_flags(b);
++  rtc::Socket* socket = static_cast<rtc::Socket*>(LK_BIO_get_data(b));
++  LK_BIO_clear_retry_flags(b);
+   int result = socket->Send(in, inl);
+   if (result > 0) {
+     return result;
+   } else if (socket->IsBlocking()) {
+-    BIO_set_retry_write(b);
++    LK_BIO_set_retry_write(b);
+   }
+   return -1;
+ }
+@@ -151,7 +151,7 @@ static void LogSslError() {
+   const char* file;
+   int line;
+   do {
+-    error_code = ERR_get_error_line(&file, &line);
++    error_code = LK_ERR_get_error_line(&file, &line);
+     if (ERR_GET_LIB(error_code) == ERR_LIB_SSL) {
+       RTC_LOG(LS_ERROR) << "ERR_LIB_SSL: " << error_code << ", " << file << ":"
+                         << line;
+@@ -186,15 +186,15 @@ std::string StrJoin(const std::vector<std::string>& list, char delimiter) {
+ using webrtc_openssl_adapter_internal::StrJoin;
+ 
+ bool OpenSSLAdapter::InitializeSSL() {
+-  if (!SSL_library_init())
++  if (!LK_SSL_library_init())
+     return false;
+ #if !defined(ADDRESS_SANITIZER) || !defined(WEBRTC_MAC) || defined(WEBRTC_IOS)
+   // Loading the error strings crashes mac_asan.  Omit this debugging aid there.
+-  SSL_load_error_strings();
++  LK_SSL_load_error_strings();
+ #endif
+-  ERR_load_BIO_strings();
+-  OpenSSL_add_all_algorithms();
+-  RAND_poll();
++  LK_ERR_load_BIO_strings();
++  LK_OpenSSL_add_all_algorithms();
++  LK_RAND_poll();
+   return true;
+ }
+ 
+@@ -219,12 +219,12 @@ OpenSSLAdapter::OpenSSLAdapter(Socket* socket,
+       custom_cert_verifier_status_(false) {
+   // If a factory is used, take a reference on the factory's SSL_CTX.
+   // Otherwise, we'll create our own later.
+-  // Either way, we'll release our reference via SSL_CTX_free() in Cleanup().
++  // Either way, we'll release our reference via LK_SSL_CTX_free() in Cleanup().
+   if (ssl_session_cache_ != nullptr) {
+     ssl_ctx_ = ssl_session_cache_->GetSSLContext();
+     RTC_DCHECK(ssl_ctx_);
+     // Note: if using OpenSSL, requires version 1.1.0 or later.
+-    SSL_CTX_up_ref(ssl_ctx_);
++    LK_SSL_CTX_up_ref(ssl_ctx_);
+   }
+ }
+ 
+@@ -314,13 +314,13 @@ int OpenSSLAdapter::BeginSSL() {
+     return -1;
+   }
+ 
+-  std::unique_ptr<BIO, decltype(&::BIO_free)> bio{BIO_new_socket(GetSocket()),
+-                                                  ::BIO_free};
++  std::unique_ptr<BIO, decltype(&::LK_BIO_free)> bio{LK_BIO_new_socket(GetSocket()),
++                                                  ::LK_BIO_free};
+   if (!bio) {
+     return -1;
+   }
+ 
+-  ssl_ = SSL_new(ssl_ctx_);
++  ssl_ = LK_SSL_new(ssl_ctx_);
+   if (!ssl_) {
+     return -1;
+   }
+@@ -328,25 +328,25 @@ int OpenSSLAdapter::BeginSSL() {
+   SSL_set_app_data(ssl_, this);
+ 
+   // SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER allows different buffers to be passed
+-  // into SSL_write when a record could only be partially transmitted (and thus
+-  // requires another call to SSL_write to finish transmission). This allows us
++  // into LK_SSL_write when a record could only be partially transmitted (and thus
++  // requires another call to LK_SSL_write to finish transmission). This allows us
+   // to copy the data into our own buffer when this occurs, since the original
+   // buffer can't safely be accessed after control exits Send.
+   // TODO(deadbeef): Do we want SSL_MODE_ENABLE_PARTIAL_WRITE? It doesn't
+   // appear Send handles partial writes properly, though maybe we never notice
+   // since we never send more than 16KB at once..
+-  SSL_set_mode(ssl_, SSL_MODE_ENABLE_PARTIAL_WRITE |
++  LK_SSL_set_mode(ssl_, SSL_MODE_ENABLE_PARTIAL_WRITE |
+                          SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+ 
+   // Enable SNI, if a hostname is supplied.
+   if (!ssl_host_name_.empty()) {
+-    SSL_set_tlsext_host_name(ssl_, ssl_host_name_.c_str());
++    LK_SSL_set_tlsext_host_name(ssl_, ssl_host_name_.c_str());
+ 
+     // Enable session caching, if configured and a hostname is supplied.
+     if (ssl_session_cache_ != nullptr) {
+       SSL_SESSION* cached = ssl_session_cache_->LookupSession(ssl_host_name_);
+       if (cached) {
+-        if (SSL_set_session(ssl_, cached) == 0) {
++        if (LK_SSL_set_session(ssl_, cached) == 0) {
+           RTC_LOG(LS_WARNING) << "Failed to apply SSL session from cache";
+           return -1;
+         }
+@@ -359,26 +359,26 @@ int OpenSSLAdapter::BeginSSL() {
+ 
+ #ifdef OPENSSL_IS_BORINGSSL
+   // Set a couple common TLS extensions; even though we don't use them yet.
+-  SSL_enable_ocsp_stapling(ssl_);
+-  SSL_enable_signed_cert_timestamps(ssl_);
++  LK_SSL_enable_ocsp_stapling(ssl_);
++  LK_SSL_enable_signed_cert_timestamps(ssl_);
+ #endif
+ 
+   if (!alpn_protocols_.empty()) {
+     std::string tls_alpn_string = TransformAlpnProtocols(alpn_protocols_);
+     if (!tls_alpn_string.empty()) {
+-      SSL_set_alpn_protos(
++      LK_SSL_set_alpn_protos(
+           ssl_, reinterpret_cast<const unsigned char*>(tls_alpn_string.data()),
+           rtc::dchecked_cast<unsigned>(tls_alpn_string.size()));
+     }
+   }
+ 
+   if (!elliptic_curves_.empty()) {
+-    SSL_set1_curves_list(ssl_, StrJoin(elliptic_curves_, ':').c_str());
++    LK_SSL_set1_curves_list(ssl_, StrJoin(elliptic_curves_, ':').c_str());
+   }
+ 
+   // Now that the initial config is done, transfer ownership of `bio` to the
+   // SSL object. If ContinueSSL() fails, the bio will be freed in Cleanup().
+-  SSL_set_bio(ssl_, bio.get(), bio.get());
++  LK_SSL_set_bio(ssl_, bio.get(), bio.get());
+   bio.release();
+ 
+   // Do the connect.
+@@ -396,8 +396,8 @@ int OpenSSLAdapter::ContinueSSL() {
+   // Clear the DTLS timer
+   timer_.reset();
+ 
+-  int code = (role_ == SSL_CLIENT) ? SSL_connect(ssl_) : SSL_accept(ssl_);
+-  switch (SSL_get_error(ssl_, code)) {
++  int code = (role_ == SSL_CLIENT) ? LK_SSL_connect(ssl_) : LK_SSL_accept(ssl_);
++  switch (LK_SSL_get_error(ssl_, code)) {
+     case SSL_ERROR_NONE:
+       if (!SSLPostConnectionCheck(ssl_, ssl_host_name_)) {
+         RTC_LOG(LS_ERROR) << "TLS post connection check failed";
+@@ -421,7 +421,7 @@ int OpenSSLAdapter::ContinueSSL() {
+     case SSL_ERROR_WANT_READ:
+       RTC_LOG(LS_VERBOSE) << " -- error want read";
+       struct timeval timeout;
+-      if (DTLSv1_get_timeout(ssl_, &timeout)) {
++      if (LK_DTLSv1_get_timeout(ssl_, &timeout)) {
+         TimeDelta delay = TimeDelta::Seconds(timeout.tv_sec) +
+                           TimeDelta::Micros(timeout.tv_usec);
+         Thread::Current()->PostDelayedTask(
+@@ -461,12 +461,12 @@ void OpenSSLAdapter::Cleanup() {
+   pending_data_.Clear();
+ 
+   if (ssl_) {
+-    SSL_free(ssl_);
++    LK_SSL_free(ssl_);
+     ssl_ = nullptr;
+   }
+ 
+   if (ssl_ctx_) {
+-    SSL_CTX_free(ssl_ctx_);
++    LK_SSL_CTX_free(ssl_ctx_);
+     ssl_ctx_ = nullptr;
+   }
+   identity_.reset();
+@@ -477,13 +477,13 @@ void OpenSSLAdapter::Cleanup() {
+ 
+ int OpenSSLAdapter::DoSslWrite(const void* pv, size_t cb, int* error) {
+   // If we have pending data (that was previously only partially written by
+-  // SSL_write), we shouldn't be attempting to write anything else.
++  // LK_SSL_write), we shouldn't be attempting to write anything else.
+   RTC_DCHECK(pending_data_.empty() || pv == pending_data_.data());
+   RTC_DCHECK(error != nullptr);
+ 
+   ssl_write_needs_read_ = false;
+-  int ret = SSL_write(ssl_, pv, checked_cast<int>(cb));
+-  *error = SSL_get_error(ssl_, ret);
++  int ret = LK_SSL_write(ssl_, pv, checked_cast<int>(cb));
++  *error = LK_SSL_get_error(ssl_, ret);
+   switch (*error) {
+     case SSL_ERROR_NONE:
+       // Success!
+@@ -543,7 +543,7 @@ int OpenSSLAdapter::Send(const void* pv, size_t cb) {
+       SetError(EWOULDBLOCK);
+       return SOCKET_ERROR;
+     }
+-    // We completed sending the data previously passed into SSL_write! Now
++    // We completed sending the data previously passed into LK_SSL_write! Now
+     // we're allowed to send more data.
+     pending_data_.Clear();
+   }
+@@ -555,10 +555,10 @@ int OpenSSLAdapter::Send(const void* pv, size_t cb) {
+ 
+   ret = DoSslWrite(pv, cb, &error);
+ 
+-  // If SSL_write fails with SSL_ERROR_WANT_READ or SSL_ERROR_WANT_WRITE, this
++  // If LK_SSL_write fails with SSL_ERROR_WANT_READ or SSL_ERROR_WANT_WRITE, this
+   // means the underlying socket is blocked on reading or (more typically)
+   // writing. When this happens, OpenSSL requires that the next call to
+-  // SSL_write uses the same arguments (though, with
++  // LK_SSL_write uses the same arguments (though, with
+   // SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER, the actual buffer pointer may be
+   // different).
+   //
+@@ -614,8 +614,8 @@ int OpenSSLAdapter::Recv(void* pv, size_t cb, int64_t* timestamp) {
+   }
+ 
+   ssl_read_needs_write_ = false;
+-  int code = SSL_read(ssl_, pv, checked_cast<int>(cb));
+-  int error = SSL_get_error(ssl_, code);
++  int code = LK_SSL_read(ssl_, pv, checked_cast<int>(cb));
++  int error = LK_SSL_get_error(ssl_, code);
+ 
+   switch (error) {
+     case SSL_ERROR_NONE:
+@@ -672,12 +672,12 @@ Socket::ConnState OpenSSLAdapter::GetState() const {
+ }
+ 
+ bool OpenSSLAdapter::IsResumedSession() {
+-  return (ssl_ && SSL_session_reused(ssl_) == 1);
++  return (ssl_ && LK_SSL_session_reused(ssl_) == 1);
+ }
+ 
+ void OpenSSLAdapter::OnTimeout() {
+   RTC_LOG(LS_INFO) << "DTLS timeout expired";
+-  DTLSv1_handle_timeout(ssl_);
++  LK_DTLSv1_handle_timeout(ssl_);
+   ContinueSSL();
+ }
+ 
+@@ -745,7 +745,7 @@ void OpenSSLAdapter::OnWriteEvent(Socket* socket) {
+     AsyncSocketAdapter::OnReadEvent(socket);
+   }
+ 
+-  // If a previous SSL_write failed due to the underlying socket being blocked,
++  // If a previous LK_SSL_write failed due to the underlying socket being blocked,
+   // this will attempt finishing the write operation.
+   if (!pending_data_.empty()) {
+     int error;
+@@ -766,7 +766,7 @@ void OpenSSLAdapter::OnCloseEvent(Socket* socket, int err) {
+ bool OpenSSLAdapter::SSLPostConnectionCheck(SSL* ssl, absl::string_view host) {
+   bool is_valid_cert_name =
+       openssl::VerifyPeerCertMatchesHost(ssl, host) &&
+-      (SSL_get_verify_result(ssl) == X509_V_OK || custom_cert_verifier_status_);
++      (LK_SSL_get_verify_result(ssl) == X509_V_OK || custom_cert_verifier_status_);
+ 
+   if (!is_valid_cert_name && ignore_bad_cert_) {
+     RTC_DLOG(LS_WARNING) << "Other TLS post connection checks failed. "
+@@ -855,7 +855,7 @@ enum ssl_verify_result_t OpenSSLAdapter::SSLVerifyInternal(SSL* ssl,
+ int OpenSSLAdapter::SSLVerifyCallback(int status, X509_STORE_CTX* store) {
+   // Get our stream pointer from the store
+   SSL* ssl = reinterpret_cast<SSL*>(
+-      X509_STORE_CTX_get_ex_data(store, SSL_get_ex_data_X509_STORE_CTX_idx()));
++      LK_X509_STORE_CTX_get_ex_data(store, LK_SSL_get_ex_data_X509_STORE_CTX_idx()));
+ 
+   OpenSSLAdapter* stream =
+       reinterpret_cast<OpenSSLAdapter*>(SSL_get_app_data(ssl));
+@@ -878,7 +878,7 @@ int OpenSSLAdapter::SSLVerifyInternal(int previous_status,
+ #if !defined(NDEBUG)
+   if (!previous_status) {
+     char data[256];
+-    X509* cert = X509_STORE_CTX_get_current_cert(store);
++    X509* cert = LK_X509_STORE_CTX_get_current_cert(store);
+     int depth = X509_STORE_CTX_get_error_depth(store);
+     int err = X509_STORE_CTX_get_error(store);
+ 
+@@ -901,21 +901,21 @@ int OpenSSLAdapter::SSLVerifyInternal(int previous_status,
+ #ifdef OPENSSL_IS_BORINGSSL
+   // Convert X509 to CRYPTO_BUFFER.
+   uint8_t* data = nullptr;
+-  int length = i2d_X509(X509_STORE_CTX_get_current_cert(store), &data);
++  int length = LK_i2d_X509(LK_X509_STORE_CTX_get_current_cert(store), &data);
+   if (length < 0) {
+     RTC_LOG(LS_ERROR) << "Failed to encode X509.";
+     return previous_status;
+   }
+   bssl::UniquePtr<uint8_t> owned_data(data);
+   bssl::UniquePtr<CRYPTO_BUFFER> crypto_buffer(
+-      CRYPTO_BUFFER_new(data, length, openssl::GetBufferPool()));
++      LK_CRYPTO_BUFFER_new(data, length, openssl::GetBufferPool()));
+   if (!crypto_buffer) {
+     RTC_LOG(LS_ERROR) << "Failed to allocate CRYPTO_BUFFER.";
+     return previous_status;
+   }
+   const BoringSSLCertificate cert(std::move(crypto_buffer), ssl);
+ #else
+-  const OpenSSLCertificate cert(X509_STORE_CTX_get_current_cert(store));
++  const OpenSSLCertificate cert(LK_X509_STORE_CTX_get_current_cert(store));
+ #endif
+   if (!ssl_cert_verifier_->Verify(cert)) {
+     RTC_LOG(LS_INFO) << "Failed to verify certificate using custom callback";
+@@ -941,16 +941,16 @@ SSL_CTX* OpenSSLAdapter::CreateContext(SSLMode mode, bool enable_cache) {
+ #ifdef WEBRTC_USE_CRYPTO_BUFFER_CALLBACK
+   // If X509 objects aren't used, we can use these methods to avoid
+   // linking the sizable crypto/x509 code.
+-  SSL_CTX* ctx = SSL_CTX_new(mode == SSL_MODE_DTLS ? DTLS_with_buffers_method()
++  SSL_CTX* ctx = LK_SSL_CTX_new(mode == SSL_MODE_DTLS ? DTLS_with_buffers_method()
+                                                    : TLS_with_buffers_method());
+ #else
+   SSL_CTX* ctx =
+-      SSL_CTX_new(mode == SSL_MODE_DTLS ? DTLS_method() : TLS_method());
++      LK_SSL_CTX_new(mode == SSL_MODE_DTLS ? LK_DTLS_method() : LK_TLS_method());
+ #endif
+   if (ctx == nullptr) {
+-    unsigned long error = ERR_get_error();  // NOLINT: type used by OpenSSL.
++    unsigned long error = LK_ERR_get_error();  // NOLINT: type used by OpenSSL.
+     RTC_LOG(LS_WARNING) << "SSL_CTX creation failed: " << '"'
+-                        << ERR_reason_error_string(error)
++                        << LK_ERR_reason_error_string(error)
+                         << "\" "
+                            "(error="
+                         << error << ')';
+@@ -961,7 +961,7 @@ SSL_CTX* OpenSSLAdapter::CreateContext(SSLMode mode, bool enable_cache) {
+   if (!openssl::LoadBuiltinSSLRootCertificates(ctx)) {
+     RTC_LOG(LS_ERROR) << "SSL_CTX creation failed: Failed to load any trusted "
+                          "ssl root certificates.";
+-    SSL_CTX_free(ctx);
++    LK_SSL_CTX_free(ctx);
+     return nullptr;
+   }
+ #endif  // WEBRTC_EXCLUDE_BUILT_IN_SSL_ROOT_CERTS
+@@ -971,32 +971,32 @@ SSL_CTX* OpenSSLAdapter::CreateContext(SSLMode mode, bool enable_cache) {
+ #endif
+ 
+ #ifdef OPENSSL_IS_BORINGSSL
+-  SSL_CTX_set0_buffer_pool(ctx, openssl::GetBufferPool());
++  LK_SSL_CTX_set0_buffer_pool(ctx, openssl::GetBufferPool());
+ #endif
+ 
+ #ifdef WEBRTC_USE_CRYPTO_BUFFER_CALLBACK
+   SSL_CTX_set_custom_verify(ctx, SSL_VERIFY_PEER, SSLVerifyCallback);
+ #else
+-  SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, SSLVerifyCallback);
++  LK_SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, SSLVerifyCallback);
+   // Verify certificate chains up to a depth of 4. This is not
+   // needed for DTLS-SRTP which uses self-signed certificates
+   // (so the depth is 0) but is required to support TURN/TLS.
+-  SSL_CTX_set_verify_depth(ctx, 4);
++  LK_SSL_CTX_set_verify_depth(ctx, 4);
+ #endif
+   // Use defaults, but disable HMAC-SHA256 and HMAC-SHA384 ciphers
+   // (note that SHA256 and SHA384 only select legacy CBC ciphers).
+   // Additionally disable HMAC-SHA1 ciphers in ECDSA. These are the remaining
+   // CBC-mode ECDSA ciphers. Finally, disable 3DES.
+-  SSL_CTX_set_cipher_list(
++  LK_SSL_CTX_set_cipher_list(
+       ctx, "ALL:!SHA256:!SHA384:!aPSK:!ECDSA+SHA1:!ADH:!LOW:!EXP:!MD5:!3DES");
+ 
+   if (mode == SSL_MODE_DTLS) {
+-    SSL_CTX_set_read_ahead(ctx, 1);
++    LK_SSL_CTX_set_read_ahead(ctx, 1);
+   }
+ 
+   if (enable_cache) {
+-    SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_CLIENT);
+-    SSL_CTX_sess_set_new_cb(ctx, &OpenSSLAdapter::NewSSLSessionCallback);
++    LK_SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_CLIENT);
++    LK_SSL_CTX_sess_set_new_cb(ctx, &OpenSSLAdapter::NewSSLSessionCallback);
+   }
+ 
+   return ctx;
+@@ -1066,7 +1066,7 @@ OpenSSLAdapter* OpenSSLAdapterFactory::CreateAdapter(Socket* socket) {
+     // The OpenSSLSessionCache will upref the ssl_ctx.
+     ssl_session_cache_ =
+         std::make_unique<OpenSSLSessionCache>(ssl_mode_, ssl_ctx);
+-    SSL_CTX_free(ssl_ctx);
++    LK_SSL_CTX_free(ssl_ctx);
+   }
+   OpenSSLAdapter* ssl_adapter =
+       new OpenSSLAdapter(socket, ssl_session_cache_.get(), ssl_cert_verifier_);
+diff --git a/rtc_base/openssl_digest.cc b/rtc_base/openssl_digest.cc
+index bbf39570f6..29ee044614 100644
+--- a/rtc_base/openssl_digest.cc
++++ b/rtc_base/openssl_digest.cc
+@@ -17,32 +17,32 @@
+ namespace rtc {
+ 
+ OpenSSLDigest::OpenSSLDigest(absl::string_view algorithm) {
+-  ctx_ = EVP_MD_CTX_new();
++  ctx_ = LK_EVP_MD_CTX_new();
+   RTC_CHECK(ctx_ != nullptr);
+-  EVP_MD_CTX_init(ctx_);
++  LK_EVP_MD_CTX_init(ctx_);
+   if (GetDigestEVP(algorithm, &md_)) {
+-    EVP_DigestInit_ex(ctx_, md_, nullptr);
++    LK_EVP_DigestInit_ex(ctx_, md_, nullptr);
+   } else {
+     md_ = nullptr;
+   }
+ }
+ 
+ OpenSSLDigest::~OpenSSLDigest() {
+-  EVP_MD_CTX_destroy(ctx_);
++  LK_EVP_MD_CTX_destroy(ctx_);
+ }
+ 
+ size_t OpenSSLDigest::Size() const {
+   if (!md_) {
+     return 0;
+   }
+-  return EVP_MD_size(md_);
++  return LK_EVP_MD_size(md_);
+ }
+ 
+ void OpenSSLDigest::Update(const void* buf, size_t len) {
+   if (!md_) {
+     return;
+   }
+-  EVP_DigestUpdate(ctx_, buf, len);
++  LK_EVP_DigestUpdate(ctx_, buf, len);
+ }
+ 
+ size_t OpenSSLDigest::Finish(void* buf, size_t len) {
+@@ -50,8 +50,8 @@ size_t OpenSSLDigest::Finish(void* buf, size_t len) {
+     return 0;
+   }
+   unsigned int md_len;
+-  EVP_DigestFinal_ex(ctx_, static_cast<unsigned char*>(buf), &md_len);
+-  EVP_DigestInit_ex(ctx_, md_, nullptr);  // prepare for future Update()s
++  LK_EVP_DigestFinal_ex(ctx_, static_cast<unsigned char*>(buf), &md_len);
++  LK_EVP_DigestInit_ex(ctx_, md_, nullptr);  // prepare for future Update()s
+   RTC_DCHECK(md_len == Size());
+   return md_len;
+ }
+@@ -60,23 +60,23 @@ bool OpenSSLDigest::GetDigestEVP(absl::string_view algorithm,
+                                  const EVP_MD** mdp) {
+   const EVP_MD* md;
+   if (algorithm == DIGEST_MD5) {
+-    md = EVP_md5();
++    md = LK_EVP_md5();
+   } else if (algorithm == DIGEST_SHA_1) {
+-    md = EVP_sha1();
++    md = LK_EVP_sha1();
+   } else if (algorithm == DIGEST_SHA_224) {
+-    md = EVP_sha224();
++    md = LK_EVP_sha224();
+   } else if (algorithm == DIGEST_SHA_256) {
+-    md = EVP_sha256();
++    md = LK_EVP_sha256();
+   } else if (algorithm == DIGEST_SHA_384) {
+-    md = EVP_sha384();
++    md = LK_EVP_sha384();
+   } else if (algorithm == DIGEST_SHA_512) {
+-    md = EVP_sha512();
++    md = LK_EVP_sha512();
+   } else {
+     return false;
+   }
+ 
+   // Can't happen
+-  RTC_DCHECK(EVP_MD_size(md) >= 16);
++  RTC_DCHECK(LK_EVP_MD_size(md) >= 16);
+   *mdp = md;
+   return true;
+ }
+@@ -85,7 +85,7 @@ bool OpenSSLDigest::GetDigestName(const EVP_MD* md, std::string* algorithm) {
+   RTC_DCHECK(md != nullptr);
+   RTC_DCHECK(algorithm != nullptr);
+ 
+-  int md_type = EVP_MD_type(md);
++  int md_type = LK_EVP_MD_type(md);
+   if (md_type == NID_md5) {
+     *algorithm = DIGEST_MD5;
+   } else if (md_type == NID_sha1) {
+@@ -111,7 +111,7 @@ bool OpenSSLDigest::GetDigestSize(absl::string_view algorithm, size_t* length) {
+   if (!GetDigestEVP(algorithm, &md))
+     return false;
+ 
+-  *length = EVP_MD_size(md);
++  *length = LK_EVP_MD_size(md);
+   return true;
+ }
+ 
+diff --git a/rtc_base/openssl_key_pair.cc b/rtc_base/openssl_key_pair.cc
+index 4c474f2d54..484724de18 100644
+--- a/rtc_base/openssl_key_pair.cc
++++ b/rtc_base/openssl_key_pair.cc
+@@ -38,28 +38,28 @@ namespace rtc {
+ // Generate a key pair. Caller is responsible for freeing the returned object.
+ static EVP_PKEY* MakeKey(const KeyParams& key_params) {
+   RTC_LOG(LS_INFO) << "Making key pair";
+-  EVP_PKEY* pkey = EVP_PKEY_new();
++  EVP_PKEY* pkey = LK_EVP_PKEY_new();
+   if (key_params.type() == KT_RSA) {
+     int key_length = key_params.rsa_params().mod_size;
+-    BIGNUM* exponent = BN_new();
+-    RSA* rsa = RSA_new();
++    BIGNUM* exponent = LK_BN_new();
++    RSA* rsa = LK_RSA_new();
+     if (!pkey || !exponent || !rsa ||
+-        !BN_set_word(exponent, key_params.rsa_params().pub_exp) ||
+-        !RSA_generate_key_ex(rsa, key_length, exponent, nullptr) ||
+-        !EVP_PKEY_assign_RSA(pkey, rsa)) {
+-      EVP_PKEY_free(pkey);
+-      BN_free(exponent);
+-      RSA_free(rsa);
++        !LK_BN_set_word(exponent, key_params.rsa_params().pub_exp) ||
++        !LK_RSA_generate_key_ex(rsa, key_length, exponent, nullptr) ||
++        !LK_EVP_PKEY_assign_RSA(pkey, rsa)) {
++      LK_EVP_PKEY_free(pkey);
++      LK_BN_free(exponent);
++      LK_RSA_free(rsa);
+       RTC_LOG(LS_ERROR) << "Failed to make RSA key pair";
+       return nullptr;
+     }
+     // ownership of rsa struct was assigned, don't free it.
+-    BN_free(exponent);
++    LK_BN_free(exponent);
+   } else if (key_params.type() == KT_ECDSA) {
+     if (key_params.ec_curve() == EC_NIST_P256) {
+       EC_KEY* ec_key = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+       if (!ec_key) {
+-        EVP_PKEY_free(pkey);
++        LK_EVP_PKEY_free(pkey);
+         RTC_LOG(LS_ERROR) << "Failed to allocate EC key";
+         return nullptr;
+       }
+@@ -68,24 +68,24 @@ static EVP_PKEY* MakeKey(const KeyParams& key_params) {
+       // Without this call, OpenSSL versions before 1.1.0 will create
+       // certificates that don't work for TLS.
+       // This is a no-op for BoringSSL and OpenSSL 1.1.0+
+-      EC_KEY_set_asn1_flag(ec_key, OPENSSL_EC_NAMED_CURVE);
++      LK_EC_KEY_set_asn1_flag(ec_key, OPENSSL_EC_NAMED_CURVE);
+ 
+-      if (!pkey || !ec_key || !EC_KEY_generate_key(ec_key) ||
+-          !EVP_PKEY_assign_EC_KEY(pkey, ec_key)) {
+-        EVP_PKEY_free(pkey);
+-        EC_KEY_free(ec_key);
++      if (!pkey || !ec_key || !LK_EC_KEY_generate_key(ec_key) ||
++          !LK_EVP_PKEY_assign_EC_KEY(pkey, ec_key)) {
++        LK_EVP_PKEY_free(pkey);
++        LK_EC_KEY_free(ec_key);
+         RTC_LOG(LS_ERROR) << "Failed to make EC key pair";
+         return nullptr;
+       }
+       // ownership of ec_key struct was assigned, don't free it.
+     } else {
+       // Add generation of any other curves here.
+-      EVP_PKEY_free(pkey);
++      LK_EVP_PKEY_free(pkey);
+       RTC_LOG(LS_ERROR) << "ECDSA key requested for unknown curve";
+       return nullptr;
+     }
+   } else {
+-    EVP_PKEY_free(pkey);
++    LK_EVP_PKEY_free(pkey);
+     RTC_LOG(LS_ERROR) << "Key type requested not understood";
+     return nullptr;
+   }
+@@ -107,29 +107,29 @@ std::unique_ptr<OpenSSLKeyPair> OpenSSLKeyPair::Generate(
+ std::unique_ptr<OpenSSLKeyPair> OpenSSLKeyPair::FromPrivateKeyPEMString(
+     absl::string_view pem_string) {
+   BIO* bio =
+-      BIO_new_mem_buf(const_cast<char*>(pem_string.data()), pem_string.size());
++      LK_BIO_new_mem_buf(const_cast<char*>(pem_string.data()), pem_string.size());
+   if (!bio) {
+     RTC_LOG(LS_ERROR) << "Failed to create a new BIO buffer.";
+     return nullptr;
+   }
+   BIO_set_mem_eof_return(bio, 0);
+   EVP_PKEY* pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+-  BIO_free(bio);  // Frees the BIO, but not the pointed-to string.
++  LK_BIO_free(bio);  // Frees the BIO, but not the pointed-to string.
+   if (!pkey) {
+     RTC_LOG(LS_ERROR) << "Failed to create the private key from PEM string.";
+     return nullptr;
+   }
+-  if (EVP_PKEY_missing_parameters(pkey) != 0) {
++  if (LK_EVP_PKEY_missing_parameters(pkey) != 0) {
+     RTC_LOG(LS_ERROR)
+         << "The resulting key pair is missing public key parameters.";
+-    EVP_PKEY_free(pkey);
++    LK_EVP_PKEY_free(pkey);
+     return nullptr;
+   }
+   return std::make_unique<OpenSSLKeyPair>(pkey);
+ }
+ 
+ OpenSSLKeyPair::~OpenSSLKeyPair() {
+-  EVP_PKEY_free(pkey_);
++  LK_EVP_PKEY_free(pkey_);
+ }
+ 
+ std::unique_ptr<OpenSSLKeyPair> OpenSSLKeyPair::Clone() {
+@@ -138,53 +138,53 @@ std::unique_ptr<OpenSSLKeyPair> OpenSSLKeyPair::Clone() {
+ }
+ 
+ void OpenSSLKeyPair::AddReference() {
+-  EVP_PKEY_up_ref(pkey_);
++  LK_EVP_PKEY_up_ref(pkey_);
+ }
+ 
+ std::string OpenSSLKeyPair::PrivateKeyToPEMString() const {
+-  BIO* temp_memory_bio = BIO_new(BIO_s_mem());
++  BIO* temp_memory_bio = LK_BIO_new(LK_BIO_s_mem());
+   if (!temp_memory_bio) {
+     RTC_LOG_F(LS_ERROR) << "Failed to allocate temporary memory bio";
+     RTC_DCHECK_NOTREACHED();
+     return "";
+   }
+-  if (!PEM_write_bio_PrivateKey(temp_memory_bio, pkey_, nullptr, nullptr, 0,
++  if (!LK_PEM_write_bio_PrivateKey(temp_memory_bio, pkey_, nullptr, nullptr, 0,
+                                 nullptr, nullptr)) {
+     RTC_LOG_F(LS_ERROR) << "Failed to write private key";
+-    BIO_free(temp_memory_bio);
++    LK_BIO_free(temp_memory_bio);
+     RTC_DCHECK_NOTREACHED();
+     return "";
+   }
+   char* buffer;
+-  size_t len = BIO_get_mem_data(temp_memory_bio, &buffer);
++  size_t len = LK_BIO_get_mem_data(temp_memory_bio, &buffer);
+   std::string priv_key_str(buffer, len);
+-  BIO_free(temp_memory_bio);
++  LK_BIO_free(temp_memory_bio);
+   return priv_key_str;
+ }
+ 
+ std::string OpenSSLKeyPair::PublicKeyToPEMString() const {
+-  BIO* temp_memory_bio = BIO_new(BIO_s_mem());
++  BIO* temp_memory_bio = LK_BIO_new(LK_BIO_s_mem());
+   if (!temp_memory_bio) {
+     RTC_LOG_F(LS_ERROR) << "Failed to allocate temporary memory bio";
+     RTC_DCHECK_NOTREACHED();
+     return "";
+   }
+-  if (!PEM_write_bio_PUBKEY(temp_memory_bio, pkey_)) {
++  if (!LK_PEM_write_bio_PUBKEY(temp_memory_bio, pkey_)) {
+     RTC_LOG_F(LS_ERROR) << "Failed to write public key";
+-    BIO_free(temp_memory_bio);
++    LK_BIO_free(temp_memory_bio);
+     RTC_DCHECK_NOTREACHED();
+     return "";
+   }
+-  BIO_write(temp_memory_bio, "\0", 1);
++  LK_BIO_write(temp_memory_bio, "\0", 1);
+   char* buffer;
+-  BIO_get_mem_data(temp_memory_bio, &buffer);
++  LK_BIO_get_mem_data(temp_memory_bio, &buffer);
+   std::string pub_key_str = buffer;
+-  BIO_free(temp_memory_bio);
++  LK_BIO_free(temp_memory_bio);
+   return pub_key_str;
+ }
+ 
+ bool OpenSSLKeyPair::operator==(const OpenSSLKeyPair& other) const {
+-  return EVP_PKEY_cmp(this->pkey_, other.pkey_) == 1;
++  return LK_EVP_PKEY_cmp(this->pkey_, other.pkey_) == 1;
+ }
+ 
+ bool OpenSSLKeyPair::operator!=(const OpenSSLKeyPair& other) const {
+diff --git a/rtc_base/openssl_stream_adapter.cc b/rtc_base/openssl_stream_adapter.cc
+index 9fd8c8f395..85c1361c3d 100644
+--- a/rtc_base/openssl_stream_adapter.cc
++++ b/rtc_base/openssl_stream_adapter.cc
+@@ -63,7 +63,7 @@ namespace {
+ using ::webrtc::SafeTask;
+ // SRTP cipher suite table. `internal_name` is used to construct a
+ // colon-separated profile strings which is needed by
+-// SSL_CTX_set_tlsext_use_srtp().
++// LK_SSL_CTX_set_tlsext_use_srtp().
+ struct SrtpCipherMapEntry {
+   const char* internal_name;
+   const int id;
+@@ -171,33 +171,33 @@ static int stream_free(BIO* data);
+ 
+ static BIO_METHOD* BIO_stream_method() {
+   static BIO_METHOD* method = [] {
+-    BIO_METHOD* method = BIO_meth_new(BIO_TYPE_BIO, "stream");
+-    BIO_meth_set_write(method, stream_write);
+-    BIO_meth_set_read(method, stream_read);
+-    BIO_meth_set_puts(method, stream_puts);
+-    BIO_meth_set_ctrl(method, stream_ctrl);
+-    BIO_meth_set_create(method, stream_new);
+-    BIO_meth_set_destroy(method, stream_free);
++    BIO_METHOD* method = LK_BIO_meth_new(BIO_TYPE_BIO, "stream");
++    LK_BIO_meth_set_write(method, stream_write);
++    LK_BIO_meth_set_read(method, stream_read);
++    LK_BIO_meth_set_puts(method, stream_puts);
++    LK_BIO_meth_set_ctrl(method, stream_ctrl);
++    LK_BIO_meth_set_create(method, stream_new);
++    LK_BIO_meth_set_destroy(method, stream_free);
+     return method;
+   }();
+   return method;
+ }
+ 
+-static BIO* BIO_new_stream(StreamInterface* stream) {
+-  BIO* ret = BIO_new(BIO_stream_method());
++static BIO* LK_BIO_new_stream(StreamInterface* stream) {
++  BIO* ret = LK_BIO_new(BIO_stream_method());
+   if (ret == nullptr) {
+     return nullptr;
+   }
+-  BIO_set_data(ret, stream);
++  LK_BIO_set_data(ret, stream);
+   return ret;
+ }
+ 
+ // bio methods return 1 (or at least non-zero) on success and 0 on failure.
+ 
+ static int stream_new(BIO* b) {
+-  BIO_set_shutdown(b, 0);
+-  BIO_set_init(b, 1);
+-  BIO_set_data(b, 0);
++  LK_BIO_set_shutdown(b, 0);
++  LK_BIO_set_init(b, 1);
++  LK_BIO_set_data(b, 0);
+   return 1;
+ }
+ 
+@@ -212,8 +212,8 @@ static int stream_read(BIO* b, char* out, int outl) {
+   if (!out) {
+     return -1;
+   }
+-  StreamInterface* stream = static_cast<StreamInterface*>(BIO_get_data(b));
+-  BIO_clear_retry_flags(b);
++  StreamInterface* stream = static_cast<StreamInterface*>(LK_BIO_get_data(b));
++  LK_BIO_clear_retry_flags(b);
+   size_t read;
+   int error;
+   StreamResult result = stream->Read(
+@@ -221,7 +221,7 @@ static int stream_read(BIO* b, char* out, int outl) {
+   if (result == SR_SUCCESS) {
+     return checked_cast<int>(read);
+   } else if (result == SR_BLOCK) {
+-    BIO_set_retry_read(b);
++    LK_BIO_set_retry_read(b);
+   }
+   return -1;
+ }
+@@ -230,8 +230,8 @@ static int stream_write(BIO* b, const char* in, int inl) {
+   if (!in) {
+     return -1;
+   }
+-  StreamInterface* stream = static_cast<StreamInterface*>(BIO_get_data(b));
+-  BIO_clear_retry_flags(b);
++  StreamInterface* stream = static_cast<StreamInterface*>(LK_BIO_get_data(b));
++  LK_BIO_clear_retry_flags(b);
+   size_t written;
+   int error;
+   StreamResult result = stream->Write(
+@@ -240,7 +240,7 @@ static int stream_write(BIO* b, const char* in, int inl) {
+   if (result == SR_SUCCESS) {
+     return checked_cast<int>(written);
+   } else if (result == SR_BLOCK) {
+-    BIO_set_retry_write(b);
++    LK_BIO_set_retry_write(b);
+   }
+   return -1;
+ }
+@@ -388,11 +388,11 @@ bool OpenSSLStreamAdapter::SetPeerCertificateDigest(
+ 
+ std::string OpenSSLStreamAdapter::SslCipherSuiteToName(int cipher_suite) {
+ #ifdef OPENSSL_IS_BORINGSSL
+-  const SSL_CIPHER* ssl_cipher = SSL_get_cipher_by_value(cipher_suite);
++  const SSL_CIPHER* ssl_cipher = LK_SSL_get_cipher_by_value(cipher_suite);
+   if (!ssl_cipher) {
+     return std::string();
+   }
+-  return SSL_CIPHER_standard_name(ssl_cipher);
++  return LK_SSL_CIPHER_standard_name(ssl_cipher);
+ #else
+   const int openssl_cipher_id = 0x03000000L | cipher_suite;
+   for (const SslCipherMapEntry* entry = kSslCipherMap; entry->rfc_name;
+@@ -410,12 +410,12 @@ bool OpenSSLStreamAdapter::GetSslCipherSuite(int* cipher_suite) {
+     return false;
+   }
+ 
+-  const SSL_CIPHER* current_cipher = SSL_get_current_cipher(ssl_);
++  const SSL_CIPHER* current_cipher = LK_SSL_get_current_cipher(ssl_);
+   if (current_cipher == nullptr) {
+     return false;
+   }
+ 
+-  *cipher_suite = static_cast<uint16_t>(SSL_CIPHER_get_id(current_cipher));
++  *cipher_suite = static_cast<uint16_t>(LK_SSL_CIPHER_get_id(current_cipher));
+   return true;
+ }
+ 
+@@ -424,7 +424,7 @@ SSLProtocolVersion OpenSSLStreamAdapter::GetSslVersion() const {
+     return SSL_PROTOCOL_NOT_GIVEN;
+   }
+ 
+-  int ssl_version = SSL_version(ssl_);
++  int ssl_version = LK_SSL_version(ssl_);
+   if (ssl_mode_ == SSL_MODE_DTLS) {
+     if (ssl_version == DTLS1_VERSION) {
+       return SSL_PROTOCOL_DTLS_10;
+@@ -448,7 +448,7 @@ bool OpenSSLStreamAdapter::GetSslVersionBytes(int* version) const {
+   if (state_ != SSL_CONNECTED) {
+     return false;
+   }
+-  *version = SSL_version(ssl_);
++  *version = LK_SSL_version(ssl_);
+   return true;
+ }
+ 
+@@ -459,7 +459,7 @@ bool OpenSSLStreamAdapter::ExportKeyingMaterial(absl::string_view label,
+                                                 bool use_context,
+                                                 uint8_t* result,
+                                                 size_t result_len) {
+-  if (SSL_export_keying_material(ssl_, result, result_len, label.data(),
++  if (LK_SSL_export_keying_material(ssl_, result, result_len, label.data(),
+                                  label.length(), context, context_len,
+                                  use_context) != 1) {
+     return false;
+@@ -508,7 +508,7 @@ bool OpenSSLStreamAdapter::GetDtlsSrtpCryptoSuite(int* crypto_suite) {
+   }
+ 
+   const SRTP_PROTECTION_PROFILE* srtp_profile =
+-      SSL_get_selected_srtp_profile(ssl_);
++      LK_SSL_get_selected_srtp_profile(ssl_);
+ 
+   if (!srtp_profile) {
+     return false;
+@@ -596,8 +596,8 @@ StreamResult OpenSSLStreamAdapter::Write(rtc::ArrayView<const uint8_t> data,
+ 
+   ssl_write_needs_read_ = false;
+ 
+-  int code = SSL_write(ssl_, data.data(), checked_cast<int>(data.size()));
+-  int ssl_error = SSL_get_error(ssl_, code);
++  int code = LK_SSL_write(ssl_, data.data(), checked_cast<int>(data.size()));
++  int ssl_error = LK_SSL_get_error(ssl_, code);
+   switch (ssl_error) {
+     case SSL_ERROR_NONE:
+       RTC_DLOG(LS_VERBOSE) << " -- success";
+@@ -654,8 +654,8 @@ StreamResult OpenSSLStreamAdapter::Read(rtc::ArrayView<uint8_t> data,
+ 
+   ssl_read_needs_write_ = false;
+ 
+-  const int code = SSL_read(ssl_, data.data(), checked_cast<int>(data.size()));
+-  const int ssl_error = SSL_get_error(ssl_, code);
++  const int code = LK_SSL_read(ssl_, data.data(), checked_cast<int>(data.size()));
++  const int ssl_error = LK_SSL_get_error(ssl_, code);
+ 
+   switch (ssl_error) {
+     case SSL_ERROR_NONE:
+@@ -666,7 +666,7 @@ StreamResult OpenSSLStreamAdapter::Read(rtc::ArrayView<uint8_t> data,
+ 
+       if (ssl_mode_ == SSL_MODE_DTLS) {
+         // Enforce atomic reads -- this is a short read
+-        unsigned int pending = SSL_pending(ssl_);
++        unsigned int pending = LK_SSL_pending(ssl_);
+ 
+         if (pending) {
+           RTC_DLOG(LS_INFO) << " -- short DTLS read. flushing";
+@@ -701,9 +701,9 @@ void OpenSSLStreamAdapter::FlushInput(unsigned int left) {
+   while (left) {
+     // This should always succeed
+     const int toread = (sizeof(buf) < left) ? sizeof(buf) : left;
+-    const int code = SSL_read(ssl_, buf, toread);
++    const int code = LK_SSL_read(ssl_, buf, toread);
+ 
+-    const int ssl_error = SSL_get_error(ssl_, code);
++    const int ssl_error = LK_SSL_get_error(ssl_, code);
+     RTC_DCHECK(ssl_error == SSL_ERROR_NONE);
+ 
+     if (ssl_error != SSL_ERROR_NONE) {
+@@ -813,7 +813,7 @@ void OpenSSLStreamAdapter::PostEvent(int events, int err) {
+ 
+ void OpenSSLStreamAdapter::SetTimeout(int delay_ms) {
+   // We need to accept 0 delay here as well as >0 delay, because
+-  // DTLSv1_get_timeout seems to frequently return 0 ms.
++  // LK_DTLSv1_get_timeout seems to frequently return 0 ms.
+   RTC_DCHECK_GE(delay_ms, 0);
+   RTC_DCHECK(!timeout_task_.Running());
+ 
+@@ -823,7 +823,7 @@ void OpenSSLStreamAdapter::SetTimeout(int delay_ms) {
+         if (flag->alive()) {
+           RTC_DLOG(LS_INFO) << "DTLS timeout expired";
+           timeout_task_.Stop();
+-          int res = DTLSv1_handle_timeout(ssl_);
++          int res = LK_DTLSv1_handle_timeout(ssl_);
+           if (res > 0) {
+             RTC_LOG(LS_INFO) << "DTLS retransmission";
+           } else if (res < 0) {
+@@ -854,23 +854,23 @@ int OpenSSLStreamAdapter::BeginSSL() {
+     return -1;
+   }
+ 
+-  bio = BIO_new_stream(stream_.get());
++  bio = LK_BIO_new_stream(stream_.get());
+   if (!bio) {
+     return -1;
+   }
+ 
+-  ssl_ = SSL_new(ssl_ctx_);
++  ssl_ = LK_SSL_new(ssl_ctx_);
+   if (!ssl_) {
+-    BIO_free(bio);
++    LK_BIO_free(bio);
+     return -1;
+   }
+ 
+   SSL_set_app_data(ssl_, this);
+ 
+-  SSL_set_bio(ssl_, bio, bio);  // the SSL object owns the bio now.
++  LK_SSL_set_bio(ssl_, bio, bio);  // the SSL object owns the bio now.
+   if (ssl_mode_ == SSL_MODE_DTLS) {
+ #ifdef OPENSSL_IS_BORINGSSL
+-    DTLSv1_set_initial_timeout_duration(ssl_, dtls_handshake_timeout_ms_);
++    LK_DTLSv1_set_initial_timeout_duration(ssl_, dtls_handshake_timeout_ms_);
+ #else
+     // Enable read-ahead for DTLS so whole packets are read from internal BIO
+     // before parsing. This is done internally by BoringSSL for DTLS.
+@@ -878,7 +878,7 @@ int OpenSSLStreamAdapter::BeginSSL() {
+ #endif
+   }
+ 
+-  SSL_set_mode(ssl_, SSL_MODE_ENABLE_PARTIAL_WRITE |
++  LK_SSL_set_mode(ssl_, SSL_MODE_ENABLE_PARTIAL_WRITE |
+                          SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+ 
+   // Do the connect
+@@ -892,8 +892,8 @@ int OpenSSLStreamAdapter::ContinueSSL() {
+   // Clear the DTLS timer
+   timeout_task_.Stop();
+ 
+-  const int code = (role_ == SSL_CLIENT) ? SSL_connect(ssl_) : SSL_accept(ssl_);
+-  const int ssl_error = SSL_get_error(ssl_, code);
++  const int code = (role_ == SSL_CLIENT) ? LK_SSL_connect(ssl_) : LK_SSL_accept(ssl_);
++  const int ssl_error = LK_SSL_get_error(ssl_, code);
+ 
+   switch (ssl_error) {
+     case SSL_ERROR_NONE:
+@@ -919,7 +919,7 @@ int OpenSSLStreamAdapter::ContinueSSL() {
+     case SSL_ERROR_WANT_READ: {
+       RTC_DLOG(LS_VERBOSE) << " -- error want read";
+       struct timeval timeout;
+-      if (DTLSv1_get_timeout(ssl_, &timeout)) {
++      if (LK_DTLSv1_get_timeout(ssl_, &timeout)) {
+         int delay = timeout.tv_sec * 1000 + timeout.tv_usec / 1000;
+         SetTimeout(delay);
+       }
+@@ -932,7 +932,7 @@ int OpenSSLStreamAdapter::ContinueSSL() {
+     case SSL_ERROR_ZERO_RETURN:
+     default:
+       SSLHandshakeError ssl_handshake_err = SSLHandshakeError::UNKNOWN;
+-      int err_code = ERR_peek_last_error();
++      int err_code = LK_ERR_peek_last_error();
+       if (err_code != 0 && ERR_GET_REASON(err_code) == SSL_R_NO_SHARED_CIPHER) {
+         ssl_handshake_err = SSLHandshakeError::INCOMPATIBLE_CIPHERSUITE;
+       }
+@@ -969,29 +969,29 @@ void OpenSSLStreamAdapter::Cleanup(uint8_t alert) {
+ 
+   if (ssl_) {
+     int ret;
+-// SSL_send_fatal_alert is only available in BoringSSL.
++// LK_SSL_send_fatal_alert is only available in BoringSSL.
+ #ifdef OPENSSL_IS_BORINGSSL
+     if (alert) {
+-      ret = SSL_send_fatal_alert(ssl_, alert);
++      ret = LK_SSL_send_fatal_alert(ssl_, alert);
+       if (ret < 0) {
+         RTC_LOG(LS_WARNING) << "SSL_send_fatal_alert failed, error = "
+-                            << SSL_get_error(ssl_, ret);
++                            << LK_SSL_get_error(ssl_, ret);
+       }
+     } else {
+ #endif
+-      ret = SSL_shutdown(ssl_);
++      ret = LK_SSL_shutdown(ssl_);
+       if (ret < 0) {
+         RTC_LOG(LS_WARNING)
+-            << "SSL_shutdown failed, error = " << SSL_get_error(ssl_, ret);
++            << "SSL_shutdown failed, error = " << LK_SSL_get_error(ssl_, ret);
+       }
+ #ifdef OPENSSL_IS_BORINGSSL
+     }
+ #endif
+-    SSL_free(ssl_);
++    LK_SSL_free(ssl_);
+     ssl_ = nullptr;
+   }
+   if (ssl_ctx_) {
+-    SSL_CTX_free(ssl_ctx_);
++    LK_SSL_CTX_free(ssl_ctx_);
+     ssl_ctx_ = nullptr;
+   }
+   identity_.reset();
+@@ -1006,11 +1006,11 @@ SSL_CTX* OpenSSLStreamAdapter::SetupSSLContext() {
+   // If X509 objects aren't used, we can use these methods to avoid
+   // linking the sizable crypto/x509 code, using CRYPTO_BUFFER instead.
+   SSL_CTX* ctx =
+-      SSL_CTX_new(ssl_mode_ == SSL_MODE_DTLS ? DTLS_with_buffers_method()
+-                                             : TLS_with_buffers_method());
++      LK_SSL_CTX_new(ssl_mode_ == SSL_MODE_DTLS ? LK_DTLS_with_buffers_method()
++                                             : LK_TLS_with_buffers_method());
+ #else
+   SSL_CTX* ctx =
+-      SSL_CTX_new(ssl_mode_ == SSL_MODE_DTLS ? DTLS_method() : TLS_method());
++      LK_SSL_CTX_new(ssl_mode_ == SSL_MODE_DTLS ? DTLS_method() : TLS_method());
+ #endif
+   if (ctx == nullptr) {
+     return nullptr;
+@@ -1019,41 +1019,41 @@ SSL_CTX* OpenSSLStreamAdapter::SetupSSLContext() {
+   if (support_legacy_tls_protocols_flag_) {
+     // TODO(https://bugs.webrtc.org/10261): Completely remove this branch in
+     // M84.
+-    SSL_CTX_set_min_proto_version(
++    LK_SSL_CTX_set_min_proto_version(
+         ctx, ssl_mode_ == SSL_MODE_DTLS ? DTLS1_VERSION : TLS1_VERSION);
+     switch (ssl_max_version_) {
+       case SSL_PROTOCOL_TLS_10:
+-        SSL_CTX_set_max_proto_version(
++        LK_SSL_CTX_set_max_proto_version(
+             ctx, ssl_mode_ == SSL_MODE_DTLS ? DTLS1_VERSION : TLS1_VERSION);
+         break;
+       case SSL_PROTOCOL_TLS_11:
+-        SSL_CTX_set_max_proto_version(
++        LK_SSL_CTX_set_max_proto_version(
+             ctx, ssl_mode_ == SSL_MODE_DTLS ? DTLS1_VERSION : TLS1_1_VERSION);
+         break;
+       case SSL_PROTOCOL_TLS_12:
+       default:
+-        SSL_CTX_set_max_proto_version(
++        LK_SSL_CTX_set_max_proto_version(
+             ctx, ssl_mode_ == SSL_MODE_DTLS ? DTLS1_2_VERSION : TLS1_2_VERSION);
+         break;
+     }
+   } else {
+     // TODO(https://bugs.webrtc.org/10261): Make this the default in M84.
+-    SSL_CTX_set_min_proto_version(
++    LK_SSL_CTX_set_min_proto_version(
+         ctx, ssl_mode_ == SSL_MODE_DTLS ? DTLS1_2_VERSION : TLS1_2_VERSION);
+-    SSL_CTX_set_max_proto_version(
++    LK_SSL_CTX_set_max_proto_version(
+         ctx, ssl_mode_ == SSL_MODE_DTLS ? DTLS1_2_VERSION : TLS1_2_VERSION);
+   }
+ 
+ #ifdef OPENSSL_IS_BORINGSSL
+-  // SSL_CTX_set_current_time_cb is only supported in BoringSSL.
++  // LK_SSL_CTX_set_current_time_cb is only supported in BoringSSL.
+   if (g_use_time_callback_for_testing) {
+-    SSL_CTX_set_current_time_cb(ctx, &TimeCallbackForTesting);
++    LK_SSL_CTX_set_current_time_cb(ctx, &TimeCallbackForTesting);
+   }
+-  SSL_CTX_set0_buffer_pool(ctx, openssl::GetBufferPool());
++  LK_SSL_CTX_set0_buffer_pool(ctx, openssl::GetBufferPool());
+ #endif
+ 
+   if (identity_ && !identity_->ConfigureIdentity(ctx)) {
+-    SSL_CTX_free(ctx);
++    LK_SSL_CTX_free(ctx);
+     return nullptr;
+   }
+ 
+@@ -1073,7 +1073,7 @@ SSL_CTX* OpenSSLStreamAdapter::SetupSSLContext() {
+   // certificate digest.
+ #ifdef OPENSSL_IS_BORINGSSL
+   // Use CRYPTO_BUFFER version of the callback if building with BoringSSL.
+-  SSL_CTX_set_custom_verify(ctx, mode, SSLVerifyCallback);
++  LK_SSL_CTX_set_custom_verify(ctx, mode, SSLVerifyCallback);
+ #else
+   // Note the second argument to SSL_CTX_set_verify is to override individual
+   // errors in the default verification logic, which is not what we want here.
+@@ -1085,13 +1085,13 @@ SSL_CTX* OpenSSLStreamAdapter::SetupSSLContext() {
+   // remove HMAC-SHA256 and HMAC-SHA384 cipher suites, not GCM cipher suites
+   // with SHA256 or SHA384 as the handshake hash.
+   // This matches the list of SSLClientSocketImpl in Chromium.
+-  SSL_CTX_set_cipher_list(
++  LK_SSL_CTX_set_cipher_list(
+       ctx,
+       "DEFAULT:!NULL:!aNULL:!SHA256:!SHA384:!aECDH:!AESGCM+AES256:!aPSK:!3DES");
+ 
+   if (!srtp_ciphers_.empty()) {
+-    if (SSL_CTX_set_tlsext_use_srtp(ctx, srtp_ciphers_.c_str())) {
+-      SSL_CTX_free(ctx);
++    if (LK_SSL_CTX_set_tlsext_use_srtp(ctx, srtp_ciphers_.c_str())) {
++      LK_SSL_CTX_free(ctx);
+       return nullptr;
+     }
+   }
+@@ -1144,7 +1144,7 @@ enum ssl_verify_result_t OpenSSLStreamAdapter::SSLVerifyCallback(
+   // Get our OpenSSLStreamAdapter from the context.
+   OpenSSLStreamAdapter* stream =
+       reinterpret_cast<OpenSSLStreamAdapter*>(SSL_get_app_data(ssl));
+-  const STACK_OF(CRYPTO_BUFFER)* chain = SSL_get0_peer_certificates(ssl);
++  const STACK_OF(CRYPTO_BUFFER)* chain = LK_SSL_get0_peer_certificates(ssl);
+   // Creates certificate chain.
+   std::vector<std::unique_ptr<SSLCertificate>> cert_chain;
+   for (CRYPTO_BUFFER* cert : chain) {
+@@ -1170,7 +1170,7 @@ enum ssl_verify_result_t OpenSSLStreamAdapter::SSLVerifyCallback(
+ int OpenSSLStreamAdapter::SSLVerifyCallback(X509_STORE_CTX* store, void* arg) {
+   // Get our SSL structure and OpenSSLStreamAdapter from the store.
+   SSL* ssl = reinterpret_cast<SSL*>(
+-      X509_STORE_CTX_get_ex_data(store, SSL_get_ex_data_X509_STORE_CTX_idx()));
++      X509_STORE_CTX_get_ex_data(store, LK_SSL_get_ex_data_X509_STORE_CTX_idx()));
+   OpenSSLStreamAdapter* stream =
+       reinterpret_cast<OpenSSLStreamAdapter*>(SSL_get_app_data(ssl));
+ 
+diff --git a/rtc_base/openssl_utility.cc b/rtc_base/openssl_utility.cc
+index eba3788a94..7708f89d87 100644
+--- a/rtc_base/openssl_utility.cc
++++ b/rtc_base/openssl_utility.cc
+@@ -79,29 +79,29 @@ bool ParseCertificate(CRYPTO_BUFFER* cert_buffer,
+                       CBS* signature_algorithm_oid,
+                       int64_t* expiration_time) {
+   CBS cbs;
+-  CRYPTO_BUFFER_init_CBS(cert_buffer, &cbs);
++  LK_CRYPTO_BUFFER_init_CBS(cert_buffer, &cbs);
+ 
+   //   Certificate  ::=  SEQUENCE  {
+   CBS certificate;
+-  if (!CBS_get_asn1(&cbs, &certificate, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBS_get_asn1(&cbs, &certificate, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+   //        tbsCertificate       TBSCertificate,
+   CBS tbs_certificate;
+-  if (!CBS_get_asn1(&certificate, &tbs_certificate, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBS_get_asn1(&certificate, &tbs_certificate, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+   //        signatureAlgorithm   AlgorithmIdentifier,
+   CBS signature_algorithm;
+-  if (!CBS_get_asn1(&certificate, &signature_algorithm, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBS_get_asn1(&certificate, &signature_algorithm, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+-  if (!CBS_get_asn1(&signature_algorithm, signature_algorithm_oid,
++  if (!LK_CBS_get_asn1(&signature_algorithm, signature_algorithm_oid,
+                     CBS_ASN1_OBJECT)) {
+     return false;
+   }
+   //        signatureValue       BIT STRING  }
+-  if (!CBS_get_asn1(&certificate, nullptr, CBS_ASN1_BITSTRING)) {
++  if (!LK_CBS_get_asn1(&certificate, nullptr, CBS_ASN1_BITSTRING)) {
+     return false;
+   }
+   if (CBS_len(&certificate)) {
+@@ -110,36 +110,36 @@ bool ParseCertificate(CRYPTO_BUFFER* cert_buffer,
+ 
+   // Now parse the inner TBSCertificate.
+   //        version         [0]  EXPLICIT Version DEFAULT v1,
+-  if (!CBS_get_optional_asn1(
++  if (!LK_CBS_get_optional_asn1(
+           &tbs_certificate, nullptr, nullptr,
+           CBS_ASN1_CONSTRUCTED | CBS_ASN1_CONTEXT_SPECIFIC)) {
+     return false;
+   }
+   //        serialNumber         CertificateSerialNumber,
+-  if (!CBS_get_asn1(&tbs_certificate, nullptr, CBS_ASN1_INTEGER)) {
++  if (!LK_CBS_get_asn1(&tbs_certificate, nullptr, CBS_ASN1_INTEGER)) {
+     return false;
+   }
+   //        signature            AlgorithmIdentifier
+-  if (!CBS_get_asn1(&tbs_certificate, nullptr, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBS_get_asn1(&tbs_certificate, nullptr, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+   //        issuer               Name,
+-  if (!CBS_get_asn1(&tbs_certificate, nullptr, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBS_get_asn1(&tbs_certificate, nullptr, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+   //        validity             Validity,
+   CBS validity;
+-  if (!CBS_get_asn1(&tbs_certificate, &validity, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBS_get_asn1(&tbs_certificate, &validity, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+   // Skip over notBefore.
+-  if (!CBS_get_any_asn1_element(&validity, nullptr, nullptr, nullptr)) {
++  if (!LK_CBS_get_any_asn1_element(&validity, nullptr, nullptr, nullptr)) {
+     return false;
+   }
+   // Parse notAfter.
+   CBS not_after;
+   unsigned not_after_tag;
+-  if (!CBS_get_any_asn1(&validity, &not_after, &not_after_tag)) {
++  if (!LK_CBS_get_any_asn1(&validity, &not_after, &not_after_tag)) {
+     return false;
+   }
+   bool long_format;
+@@ -155,25 +155,25 @@ bool ParseCertificate(CRYPTO_BUFFER* cert_buffer,
+         ASN1TimeToSec(CBS_data(&not_after), CBS_len(&not_after), long_format);
+   }
+   //        subject              Name,
+-  if (!CBS_get_asn1_element(&tbs_certificate, nullptr, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBS_get_asn1_element(&tbs_certificate, nullptr, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+   //        subjectPublicKeyInfo SubjectPublicKeyInfo,
+-  if (!CBS_get_asn1(&tbs_certificate, nullptr, CBS_ASN1_SEQUENCE)) {
++  if (!LK_CBS_get_asn1(&tbs_certificate, nullptr, CBS_ASN1_SEQUENCE)) {
+     return false;
+   }
+   //        issuerUniqueID  [1]  IMPLICIT UniqueIdentifier OPTIONAL
+-  if (!CBS_get_optional_asn1(&tbs_certificate, nullptr, nullptr,
++  if (!LK_CBS_get_optional_asn1(&tbs_certificate, nullptr, nullptr,
+                              0x01 | CBS_ASN1_CONTEXT_SPECIFIC)) {
+     return false;
+   }
+   //        subjectUniqueID [2]  IMPLICIT UniqueIdentifier OPTIONAL
+-  if (!CBS_get_optional_asn1(&tbs_certificate, nullptr, nullptr,
++  if (!LK_CBS_get_optional_asn1(&tbs_certificate, nullptr, nullptr,
+                              0x02 | CBS_ASN1_CONTEXT_SPECIFIC)) {
+     return false;
+   }
+   //        extensions      [3]  EXPLICIT Extensions OPTIONAL
+-  if (!CBS_get_optional_asn1(
++  if (!LK_CBS_get_optional_asn1(
+           &tbs_certificate, nullptr, nullptr,
+           0x03 | CBS_ASN1_CONSTRUCTED | CBS_ASN1_CONTEXT_SPECIFIC)) {
+     return false;
+@@ -200,20 +200,20 @@ bool VerifyPeerCertMatchesHost(SSL* ssl, absl::string_view host) {
+ #ifdef OPENSSL_IS_BORINGSSL
+   // We can't grab a X509 object directly, as the SSL context may have been
+   // initialized with TLS_with_buffers_method.
+-  const STACK_OF(CRYPTO_BUFFER)* chain = SSL_get0_peer_certificates(ssl);
++  const STACK_OF(CRYPTO_BUFFER)* chain = LK_SSL_get0_peer_certificates(ssl);
+   if (chain == nullptr || sk_CRYPTO_BUFFER_num(chain) == 0) {
+     RTC_LOG(LS_ERROR)
+         << "SSL_get0_peer_certificates failed. This should never happen.";
+     return false;
+   }
+   CRYPTO_BUFFER* leaf = sk_CRYPTO_BUFFER_value(chain, 0);
+-  bssl::UniquePtr<X509> x509(X509_parse_from_buffer(leaf));
++  bssl::UniquePtr<X509> x509(LK_X509_parse_from_buffer(leaf));
+   if (!x509) {
+     RTC_LOG(LS_ERROR) << "Failed to parse certificate to X509 object.";
+     return false;
+   }
+   LogCertificates(ssl, x509.get());
+-  return X509_check_host(x509.get(), host.data(), host.size(), 0, nullptr) == 1;
++  return LK_X509_check_host(x509.get(), host.data(), host.size(), 0, nullptr) == 1;
+ #else   // OPENSSL_IS_BORINGSSL
+   X509* certificate = SSL_get_peer_certificate(ssl);
+   if (certificate == nullptr) {
+@@ -225,8 +225,8 @@ bool VerifyPeerCertMatchesHost(SSL* ssl, absl::string_view host) {
+   LogCertificates(ssl, certificate);
+ 
+   bool is_valid_cert_name =
+-      X509_check_host(certificate, host.data(), host.size(), 0, nullptr) == 1;
+-  X509_free(certificate);
++      LK_X509_check_host(certificate, host.data(), host.size(), 0, nullptr) == 1;
++  LK_X509_free(certificate);
+   return is_valid_cert_name;
+ #endif  // !defined(OPENSSL_IS_BORINGSSL)
+ }
+@@ -235,8 +235,8 @@ void LogSSLErrors(absl::string_view prefix) {
+   char error_buf[200];
+   unsigned long err;  // NOLINT
+ 
+-  while ((err = ERR_get_error()) != 0) {
+-    ERR_error_string_n(err, error_buf, sizeof(error_buf));
++  while ((err = LK_ERR_get_error()) != 0) {
++    LK_ERR_error_string_n(err, error_buf, sizeof(error_buf));
+     RTC_LOG(LS_ERROR) << prefix << ": " << error_buf << "\n";
+   }
+ }
+@@ -247,16 +247,16 @@ bool LoadBuiltinSSLRootCertificates(SSL_CTX* ctx) {
+   for (size_t i = 0; i < arraysize(kSSLCertCertificateList); i++) {
+     const unsigned char* cert_buffer = kSSLCertCertificateList[i];
+     size_t cert_buffer_len = kSSLCertCertificateSizeList[i];
+-    X509* cert = d2i_X509(nullptr, &cert_buffer,
++    X509* cert = LK_d2i_X509(nullptr, &cert_buffer,
+                           checked_cast<long>(cert_buffer_len));  // NOLINT
+     if (cert) {
+-      int return_value = X509_STORE_add_cert(SSL_CTX_get_cert_store(ctx), cert);
++      int return_value = LK_X509_STORE_add_cert(LK_SSL_CTX_get_cert_store(ctx), cert);
+       if (return_value == 0) {
+         RTC_LOG(LS_WARNING) << "Unable to add certificate.";
+       } else {
+         count_of_added_certs++;
+       }
+-      X509_free(cert);
++      LK_X509_free(cert);
+     }
+   }
+   return count_of_added_certs > 0;
+@@ -265,7 +265,7 @@ bool LoadBuiltinSSLRootCertificates(SSL_CTX* ctx) {
+ 
+ #ifdef OPENSSL_IS_BORINGSSL
+ CRYPTO_BUFFER_POOL* GetBufferPool() {
+-  static CRYPTO_BUFFER_POOL* instance = CRYPTO_BUFFER_POOL_new();
++  static CRYPTO_BUFFER_POOL* instance = LK_CRYPTO_BUFFER_POOL_new();
+   return instance;
+ }
+ #endif
+diff --git a/webrtc.gni b/webrtc.gni
+index 5e4a5d3c81..5a4e089966 100644
+--- a/webrtc.gni
++++ b/webrtc.gni
+@@ -49,6 +49,8 @@ declare_args() {
+ }
+ 
+ declare_args() {
++  bssl_rename = false
++
+   # Setting this to true, will make RTC_DLOG() expand to log statements instead
+   # of being removed by the preprocessor.
+   # This is useful for example to be able to get RTC_DLOGs on a release build.
