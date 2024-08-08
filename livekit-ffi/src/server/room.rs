@@ -964,9 +964,9 @@ async fn forward_event(
         RoomEvent::Connected { .. } => {
             // Ignore here, we're already sent the event on connect (see above)
         }
-        RoomEvent::Disconnected { reason: resion } => {
+        RoomEvent::Disconnected { reason } => {
             let _ = send_event(proto::room_event::Message::Disconnected(proto::Disconnected {
-                reason: resion.into(),
+                reason: proto::DisconnectReason::from(reason).into(),
             }));
         }
         RoomEvent::Reconnecting => {

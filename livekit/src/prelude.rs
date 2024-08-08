@@ -20,6 +20,6 @@ pub use crate::{
         AudioTrack, LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteAudioTrack, RemoteTrack,
         RemoteVideoTrack, StreamState, Track, TrackDimension, TrackKind, TrackSource, VideoTrack,
     },
-    ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
-    RoomResult, SipDTMF, Transcription, TranscriptionSegment,
+    ConnectionState, DataPacket, DataPacketKind, DisconnectReason, Room, RoomError, RoomEvent,
+    RoomOptions, RoomResult, SipDTMF, Transcription, TranscriptionSegment,
 };

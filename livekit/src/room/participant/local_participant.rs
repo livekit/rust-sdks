@@ -22,7 +22,7 @@ use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 
-use super::{ConnectionQuality, ParticipantInner};
+use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
 use crate::{
     e2ee::EncryptionType,
     options,
@@ -65,6 +65,7 @@ impl Debug for LocalParticipant {
 impl LocalParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
+        kind: ParticipantKind,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -73,7 +74,7 @@ impl LocalParticipant {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes),
+            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
             local: Arc::new(LocalInfo { events: LocalEvents::default(), encryption_type }),
         }
     }
@@ -433,5 +434,9 @@ impl LocalParticipant {
 
     pub fn connection_quality(&self) -> ConnectionQuality {
         self.inner.info.read().connection_quality
+    }
+
+    pub fn kind(&self) -> ParticipantKind {
+        self.inner.info.read().kind
     }
 }

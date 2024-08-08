@@ -35,6 +35,15 @@ pub enum ConnectionQuality {
     Lost,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ParticipantKind {
+    Standard,
+    Ingress,
+    Egress,
+    Sip,
+    Agent,
+}
+
 #[derive(Debug, Clone)]
 pub enum Participant {
     Local(LocalParticipant),
@@ -80,6 +89,7 @@ struct ParticipantInfo {
     pub speaking: bool,
     pub audio_level: f32,
     pub connection_quality: ConnectionQuality,
+    pub kind: ParticipantKind,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
@@ -111,6 +121,7 @@ pub(super) fn new_inner(
     name: String,
     metadata: String,
     attributes: HashMap<String, String>,
+    kind: ParticipantKind,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -120,6 +131,7 @@ pub(super) fn new_inner(
             name,
             metadata,
             attributes,
+            kind,
             speaking: false,
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
@@ -135,6 +147,7 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
+    info.kind = new_info.kind().into();
     info.sid = new_info.sid.try_into().unwrap();
     info.identity = new_info.identity.into();
 
