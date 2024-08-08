@@ -109,3 +109,23 @@ message OwnedTrack {
   FfiOwnedHandle handle = 1;
   TrackInfo info = 2;
 }
+
+// Mute/UnMute a track
+message LocalTrackMuteRequest {
+  uint64 track_handle = 1;
+  bool mute = 2;
+}
+
+message LocalTrackMuteResponse {
+  bool muted = 1;
+}
+
+// Enable/Disable a remote track
+message EnableRemoteTrackRequest {
+  uint64 track_handle = 1;
+  bool enabled = 2;
+}
+
+message EnableRemoteTrackResponse {
+  bool enabled = 1;
+}

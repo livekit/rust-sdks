@@ -73,21 +73,24 @@ message FfiRequest {
     // Track
     CreateVideoTrackRequest create_video_track = 15;
     CreateAudioTrackRequest create_audio_track = 16;
-    GetStatsRequest get_stats = 17;
+    LocalTrackMuteRequest local_track_mute = 17;
+    EnableRemoteTrackRequest enable_remote_track = 18;
+    GetStatsRequest get_stats = 19;
 
     // Video
-    NewVideoStreamRequest new_video_stream = 18;
-    NewVideoSourceRequest new_video_source = 19;
-    CaptureVideoFrameRequest capture_video_frame = 20;
-    VideoConvertRequest video_convert = 21;
+    NewVideoStreamRequest new_video_stream = 20;
+    NewVideoSourceRequest new_video_source = 21;
+    CaptureVideoFrameRequest capture_video_frame = 22;
+    VideoConvertRequest video_convert = 23;
 
     // Audio
-    NewAudioStreamRequest new_audio_stream = 23;
-    NewAudioSourceRequest new_audio_source = 24;
-    CaptureAudioFrameRequest capture_audio_frame = 25;
-    NewAudioResamplerRequest new_audio_resampler = 26;
-    RemixAndResampleRequest remix_and_resample = 27;
-    E2eeRequest e2ee = 28;
+    NewAudioStreamRequest new_audio_stream = 24;
+    NewAudioSourceRequest new_audio_source = 25;
+    CaptureAudioFrameRequest capture_audio_frame = 26;
+    NewAudioResamplerRequest new_audio_resampler = 27;
+    RemixAndResampleRequest remix_and_resample = 28;
+  
+    E2eeRequest e2ee = 29;
   }
 }
 
@@ -113,21 +116,23 @@ message FfiResponse {
     // Track
     CreateVideoTrackResponse create_video_track = 15;
     CreateAudioTrackResponse create_audio_track = 16;
-    GetStatsResponse get_stats = 17;
+    LocalTrackMuteResponse local_track_mute = 17;
+    EnableRemoteTrackResponse enable_remote_track = 18;
+    GetStatsResponse get_stats = 19;
 
     // Video
-    NewVideoStreamResponse new_video_stream = 18;
-    NewVideoSourceResponse new_video_source = 19;
-    CaptureVideoFrameResponse capture_video_frame = 20;
-    VideoConvertResponse video_convert = 21;
+    NewVideoStreamResponse new_video_stream = 20;
+    NewVideoSourceResponse new_video_source = 21;
+    CaptureVideoFrameResponse capture_video_frame = 22;
+    VideoConvertResponse video_convert = 23;
 
     // Audio
-    NewAudioStreamResponse new_audio_stream = 22;
-    NewAudioSourceResponse new_audio_source = 23;
-    CaptureAudioFrameResponse capture_audio_frame = 24;
-    NewAudioResamplerResponse new_audio_resampler = 25;
-    RemixAndResampleResponse remix_and_resample = 26;
-    E2eeResponse e2ee = 27;
+    NewAudioStreamResponse new_audio_stream = 24;
+    NewAudioSourceResponse new_audio_source = 25;
+    CaptureAudioFrameResponse capture_audio_frame = 26;
+    NewAudioResamplerResponse new_audio_resampler = 27;
+    RemixAndResampleResponse remix_and_resample = 28;
+    E2eeResponse e2ee = 29;
   }
 }
 
