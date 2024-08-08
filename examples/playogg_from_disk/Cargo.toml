@@ -1,5 +1,5 @@
 [package]
-name = "save_to_disk"
+name = "playogg_from_disk"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,9 +7,11 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-livekit = { path = "../../livekit" }
-bytes = "1.4.0"
-tokio-util = "0.7.8"
-futures = "0.3.28"
+livekit = { path = "../../livekit", version = "0.4.0" }
+thiserror = "1.0.47"
+log = "0.4.20"
+env_logger = "0.10.0"
+webrtc-media = "0.8.0"
+byteorder = "1.5.0"
 
 [workspace]

@@ -23,6 +23,7 @@ pub mod ffi {
         pub echo_cancellation: bool,
         pub noise_suppression: bool,
         pub auto_gain_control: bool,
+        pub pre_encoded: bool,
     }
 
     extern "C++" {
@@ -49,6 +50,15 @@ pub mod ffi {
             nb_channels: u32,
             nb_frames: usize,
         );
+
+        fn on_captured_frame_u8(
+            self: &AudioTrackSource,
+            data: &[u8],
+            sample_rate: u32,
+            nb_channels: u32,
+            nb_frames: usize,
+        );
+
         fn audio_options(self: &AudioTrackSource) -> AudioSourceOptions;
         fn set_audio_options(self: &AudioTrackSource, options: &AudioSourceOptions);
         fn new_audio_track_source(options: AudioSourceOptions) -> SharedPtr<AudioTrackSource>;
@@ -68,6 +78,15 @@ pub mod ffi {
             nb_channels: usize,
             nb_frames: usize,
         );
+
+        fn on_data_u8(
+            self: &AudioSinkWrapper,
+            data: &[u8],
+            sample_rate: i32,
+            nb_channels: usize,
+            nb_frames: usize,
+        );
+
     }
 }
 
@@ -77,6 +96,7 @@ impl_thread_safety!(ffi::AudioTrackSource, Send + Sync);
 
 pub trait AudioSink: Send {
     fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize);
+    fn on_data_u8(&self, data: &[u8], sample_rate: i32, nb_channels: usize, nb_frames: usize);
 }
 
 pub struct AudioSinkWrapper {
@@ -90,5 +110,9 @@ impl AudioSinkWrapper {
 
     fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
         self.observer.on_data(data, sample_rate, nb_channels, nb_frames);
+    }
+
+    fn on_data_u8(&self, data: &[u8], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
+        self.observer.on_data_u8(data, sample_rate, nb_channels, nb_frames);
     }
 }

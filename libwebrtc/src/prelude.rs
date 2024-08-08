@@ -14,6 +14,7 @@
 
 pub use crate::{
     audio_frame::AudioFrame,
+    audio_frame::AudioFrame_u8,
     audio_source::{AudioSourceOptions, RtcAudioSource},
     audio_track::RtcAudioTrack,
     data_channel::{DataBuffer, DataChannel, DataChannelError, DataChannelInit, DataChannelState},

@@ -131,7 +131,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         header.num_channels as u32,
     );
 
-    let track = LocalAudioTrack::create_audio_track("file", RtcAudioSource::Native(source.clone()));
+    let native_source = RtcAudioSource::Native(source.clone());
+    // ...just to show an API and emphasis the source is *not* pre-encoded,
+    // otherwise set pre_encoded = true
+    native_source.set_audio_options(AudioSourceOptions{
+        pre_encoded: false,
+        ..Default::default()
+    });
+
+    let track = LocalAudioTrack::create_audio_track("file", native_source);
 
     room.local_participant()
         .publish_track(

@@ -23,18 +23,21 @@ use livekit_runtime::Stream;
 use tokio::sync::mpsc;
 use webrtc_sys::audio_track as sys_at;
 
-use crate::{audio_frame::AudioFrame, audio_track::RtcAudioTrack};
+use crate::{audio_frame::AudioFrame, audio_frame::AudioFrame_u8, audio_track::RtcAudioTrack};
 
 pub struct NativeAudioStream {
     native_sink: SharedPtr<sys_at::ffi::NativeAudioSink>,
     audio_track: RtcAudioTrack,
     frame_rx: mpsc::UnboundedReceiver<AudioFrame<'static>>,
+    frame_rx_u8: mpsc::UnboundedReceiver<AudioFrame_u8>,
 }
 
 impl NativeAudioStream {
     pub fn new(audio_track: RtcAudioTrack) -> Self {
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
-        let observer = Arc::new(AudioTrackObserver { frame_tx });
+        let (frame_tx_u8, frame_rx_u8) = mpsc::unbounded_channel();
+
+        let observer = Arc::new(AudioTrackObserver { frame_tx, frame_tx_u8 });
         let native_sink = sys_at::ffi::new_native_audio_sink(Box::new(
             sys_at::AudioSinkWrapper::new(observer.clone()),
         ));
@@ -42,7 +45,7 @@ impl NativeAudioStream {
         let audio = unsafe { sys_at::ffi::media_to_audio(audio_track.sys_handle()) };
         audio.add_sink(&native_sink);
 
-        Self { native_sink, audio_track, frame_rx }
+        Self { native_sink, audio_track, frame_rx, frame_rx_u8 }
     }
 
     pub fn track(&self) -> RtcAudioTrack {
@@ -73,11 +76,21 @@ impl Stream for NativeAudioStream {
 
 pub struct AudioTrackObserver {
     frame_tx: mpsc::UnboundedSender<AudioFrame<'static>>,
+    frame_tx_u8: mpsc::UnboundedSender<AudioFrame_u8>,
 }
 
 impl sys_at::AudioSink for AudioTrackObserver {
     fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
         let _ = self.frame_tx.send(AudioFrame {
+            data: data.to_owned().into(),
+            sample_rate: sample_rate as u32,
+            num_channels: nb_channels as u32,
+            samples_per_channel: nb_frames as u32,
+        });
+    }
+
+    fn on_data_u8(&self, data: &[u8], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
+        let _ = self.frame_tx_u8.send(AudioFrame_u8 {
             data: data.to_owned().into(),
             sample_rate: sample_rate as u32,
             num_channels: nb_channels as u32,
