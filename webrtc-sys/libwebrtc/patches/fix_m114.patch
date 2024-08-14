@@ -1,0 +1,54 @@
+diff --git a/modules/congestion_controller/goog_cc/loss_based_bwe_v2.cc b/modules/congestion_controller/goog_cc/loss_based_bwe_v2.cc
+index 4c0f5fc5ee..bdf18d0e13 100644
+--- a/modules/congestion_controller/goog_cc/loss_based_bwe_v2.cc
++++ b/modules/congestion_controller/goog_cc/loss_based_bwe_v2.cc
+@@ -1096,4 +1096,6 @@ bool LossBasedBweV2::IsRequestingProbe() const {
+   return current_state_ == LossBasedState::kIncreasing;
+ }
+ 
++LossBasedBweV2::Config::Config() = default;
++
+ }  // namespace webrtc
+diff --git a/modules/congestion_controller/goog_cc/loss_based_bwe_v2.h b/modules/congestion_controller/goog_cc/loss_based_bwe_v2.h
+index f5a6396de2..3d5cbc9acf 100644
+--- a/modules/congestion_controller/goog_cc/loss_based_bwe_v2.h
++++ b/modules/congestion_controller/goog_cc/loss_based_bwe_v2.h
+@@ -79,6 +79,7 @@ class LossBasedBweV2 {
+   };
+ 
+   struct Config {
++    Config();
+     double bandwidth_rampup_upper_bound_factor = 0.0;
+     double rampup_acceleration_max_factor = 0.0;
+     TimeDelta rampup_acceleration_maxout_time = TimeDelta::Zero();
+diff --git a/modules/video_coding/codecs/h264/h264_decoder_impl.cc b/modules/video_coding/codecs/h264/h264_decoder_impl.cc
+index f67718cb23..8852837225 100644
+--- a/modules/video_coding/codecs/h264/h264_decoder_impl.cc
++++ b/modules/video_coding/codecs/h264/h264_decoder_impl.cc
+@@ -229,7 +229,7 @@ int H264DecoderImpl::AVGetBuffer2(AVCodecContext* context,
+   int total_size = y_size + 2 * uv_size;
+ 
+   av_frame->format = context->pix_fmt;
+-  av_frame->reordered_opaque = context->reordered_opaque;
++  av_frame->opaque = context->opaque;
+ 
+   // Create a VideoFrame object, to keep a reference to the buffer.
+   // TODO(nisse): The VideoFrame's timestamp and rotation info is not used.
+@@ -378,7 +378,7 @@ int32_t H264DecoderImpl::Decode(const EncodedImage& input_image,
+   }
+   packet->size = static_cast<int>(input_image.size());
+   int64_t frame_timestamp_us = input_image.ntp_time_ms_ * 1000;  // ms -> μs
+-  av_context_->reordered_opaque = frame_timestamp_us;
++  av_context_->opaque = (void*)frame_timestamp_us;
+ 
+   int result = avcodec_send_packet(av_context_.get(), packet.get());
+ 
+@@ -397,7 +397,7 @@ int32_t H264DecoderImpl::Decode(const EncodedImage& input_image,
+ 
+   // We don't expect reordering. Decoded frame timestamp should match
+   // the input one.
+-  RTC_DCHECK_EQ(av_frame_->reordered_opaque, frame_timestamp_us);
++  RTC_DCHECK_EQ(av_frame_->opaque, (void*)frame_timestamp_us);
+ 
+   // TODO(sakal): Maybe it is possible to get QP directly from FFmpeg.
+   h264_bitstream_parser_.ParseBitstream(input_image);
