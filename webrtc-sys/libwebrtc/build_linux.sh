@@ -74,16 +74,6 @@ git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --i
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/fix_m114.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/bssl_rename.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-cp third_party/grpc/src/src/boringssl/boringssl_prefix_symbols.h third_party/boringssl/src/include/
-
-# old way of doing this, proved to not work in replacing the actual problematic symbols.
-# files_to_patch=($(find -type f \( -name "*.cc" -o -name "*.h" -o -name "*.c" -o -name "*.cpp" \)))
-# echo "patching BoringSSL symbols..."
-# for file in "${files_to_patch[@]}"; do
-#   cat "$COMMAND_DIR/bssl_symbols.txt" | tr '\n' ' ' | sed 's/ /\\\\|/g' | sed 's/..$//' | xargs -I {} sed -i 's/\([-\t\n\.\+ \*\!~:&<>\[(){]\|^\)\({}\)/\1lk_\2/g' $file >/dev/null
-#   echo
-# done | pv -ptebs "${#files_to_patch[@]}" >/dev/null
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -106,7 +96,6 @@ args="is_debug=$debug  \
   rtc_build_examples=false \
   rtc_libvpx_build_vp9=true \
   enable_libaom=true \
-  bssl_rename=true \
   is_component_build=false \
   enable_stripping=true \
   use_goma=false \
@@ -131,6 +120,7 @@ ninja -C "$OUTPUT_DIR" :default
 # make libwebrtc.a
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
