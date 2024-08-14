@@ -32,7 +32,7 @@ pub fn livekit_connect(url: String, token: String) {
         }
 
         let (room, mut events) = res.unwrap();
-        log::info!("Connected to room {}", room.sid());
+        log::info!("Connected to room {}", String::from(room.sid().await));
 
         while let Some(event) = events.recv().await {
             log::info!("Received event {:?}", event);

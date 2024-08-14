@@ -24,7 +24,7 @@ use livekit_protocol as proto;
 use livekit_runtime::timeout;
 use parking_lot::Mutex;
 
-use super::{ConnectionQuality, ParticipantInner, TrackKind};
+use super::{ConnectionQuality, ParticipantInner, ParticipantKind, TrackKind};
 use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -70,6 +70,7 @@ impl Debug for RemoteParticipant {
 impl RemoteParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
+        kind: ParticipantKind,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -78,7 +79,7 @@ impl RemoteParticipant {
         auto_subscribe: bool,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes),
+            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
     }
@@ -285,6 +286,13 @@ impl RemoteParticipant {
         super::on_name_changed(&self.inner, handler)
     }
 
+    pub(crate) fn on_attributes_changed(
+        &self,
+        handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
+    ) {
+        super::on_attributes_changed(&self.inner, handler)
+    }
+
     pub(crate) fn set_speaking(&self, speaking: bool) {
         super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
     }
@@ -353,6 +361,30 @@ impl RemoteParticipant {
                 }
             }
         });
+
+        publication.on_enabled_status_changed({
+            let rtc_engine = self.inner.rtc_engine.clone();
+            move |publication, enabled| {
+                let rtc_engine = rtc_engine.clone();
+                livekit_runtime::spawn(async move {
+                    let tsid: String = publication.sid().into();
+                    let TrackDimension(width, height) = publication.dimension();
+                    let update_track_settings = proto::UpdateTrackSettings {
+                        track_sids: vec![tsid.clone()],
+                        disabled: !enabled,
+                        width,
+                        height,
+                        ..Default::default()
+                    };
+
+                    rtc_engine
+                        .send_request(proto::signal_request::Message::TrackSetting(
+                            update_track_settings,
+                        ))
+                        .await
+                });
+            }
+        })
     }
 
     pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
@@ -397,6 +429,10 @@ impl RemoteParticipant {
         self.inner.info.read().metadata.clone()
     }
 
+    pub fn attributes(&self) -> HashMap<String, String> {
+        self.inner.info.read().attributes.clone()
+    }
+
     pub fn is_speaking(&self) -> bool {
         self.inner.info.read().speaking
     }
@@ -422,5 +458,9 @@ impl RemoteParticipant {
 
     pub fn connection_quality(&self) -> ConnectionQuality {
         self.inner.info.read().connection_quality
+    }
+
+    pub fn kind(&self) -> ParticipantKind {
+        self.inner.info.read().kind
     }
 }

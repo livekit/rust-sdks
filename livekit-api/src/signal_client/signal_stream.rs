@@ -170,8 +170,9 @@ impl SignalStream {
                     let res = proto::SignalResponse::decode(data.as_slice())
                         .expect("failed to decode SignalResponse");
 
-                    let msg = res.message.unwrap();
-                    let _ = emitter.send(Box::new(msg));
+                    if let Some(msg) = res.message {
+                        let _ = emitter.send(Box::new(msg));
+                    }
                 }
                 Ok(Message::Ping(data)) => {
                     let _ = internal_tx.send(InternalMessage::Pong { ping_data: data }).await;

@@ -27,12 +27,12 @@ async fn main() {
     let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
         .await
         .unwrap();
-    log::info!("Connected to room: {} - {}", room.name(), room.sid());
+    log::info!("Connected to room: {} - {}", room.name(), String::from(room.sid().await));
 
     room.local_participant()
         .publish_data(DataPacket {
             payload: "Hello world".to_owned().into_bytes(),
-            kind: DataPacketKind::Reliable,
+            reliable: true,
             ..Default::default()
         })
         .await

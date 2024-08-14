@@ -82,6 +82,24 @@ impl From<EncryptionType> for proto::EncryptionType {
     }
 }
 
+impl From<DisconnectReason> for proto::DisconnectReason {
+    fn from(value: DisconnectReason) -> Self {
+        match value {
+            DisconnectReason::UnknownReason => Self::UnknownReason,
+            DisconnectReason::ClientInitiated => Self::ClientInitiated,
+            DisconnectReason::DuplicateIdentity => Self::DuplicateIdentity,
+            DisconnectReason::ServerShutdown => Self::ServerShutdown,
+            DisconnectReason::ParticipantRemoved => Self::ParticipantRemoved,
+            DisconnectReason::RoomDeleted => Self::RoomDeleted,
+            DisconnectReason::StateMismatch => Self::StateMismatch,
+            DisconnectReason::JoinFailure => Self::JoinFailure,
+            DisconnectReason::Migration => Self::Migration,
+            DisconnectReason::SignalClose => Self::SignalClose,
+            DisconnectReason::RoomClosed => Self::RoomClosed,
+        }
+    }
+}
+
 impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     fn from(value: proto::KeyProviderOptions) -> Self {
         Self {
@@ -216,7 +234,7 @@ impl From<&FfiRoom> for proto::RoomInfo {
     fn from(value: &FfiRoom) -> Self {
         let room = &value.inner.room;
         Self {
-            sid: room.maybe_sid().unwrap_or_default().into(),
+            sid: room.maybe_sid().map(|x| x.to_string()),
             name: room.name(),
             metadata: room.metadata(),
         }

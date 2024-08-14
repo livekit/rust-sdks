@@ -27,6 +27,7 @@ type SubscriptionStatusChangedHandler =
 type PermissionStatusChangedHandler =
     Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>; // old_status, new_status
 type SubscriptionUpdateNeededHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
+type EnabledStatusChangedHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
 
 #[derive(Default)]
 struct RemoteEvents {
@@ -35,6 +36,7 @@ struct RemoteEvents {
     subscription_status_changed: Mutex<Option<SubscriptionStatusChangedHandler>>,
     permission_status_changed: Mutex<Option<PermissionStatusChangedHandler>>,
     subscription_update_needed: Mutex<Option<SubscriptionUpdateNeededHandler>>,
+    enabled_status_changed: Mutex<Option<EnabledStatusChangedHandler>>,
 }
 
 #[derive(Debug)]
@@ -206,6 +208,13 @@ impl RemoteTrackPublication {
         *self.remote.events.subscription_update_needed.lock() = Some(Box::new(f));
     }
 
+    pub(crate) fn on_enabled_status_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, bool) + Send + 'static,
+    ) {
+        *self.remote.events.enabled_status_changed.lock() = Some(Box::new(f));
+    }
+
     pub fn set_subscribed(&self, subscribed: bool) {
         let old_subscription_state = self.subscription_status();
         let old_permission_state = self.permission_status();
@@ -233,6 +242,24 @@ impl RemoteTrackPublication {
 
         self.emit_subscription_update(old_subscription_state);
         self.emit_permission_update(old_permission_state);
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        if self.is_subscribed() && enabled != self.is_enabled() {
+            let track = self.track().unwrap();
+            if self.is_enabled() {
+                track.disable();
+            } else {
+                track.enable();
+            }
+
+            // Request to send an update to the SFU
+            if let Some(enabled_status_changed) =
+                self.remote.events.enabled_status_changed.lock().as_ref()
+            {
+                enabled_status_changed(self.clone(), enabled)
+            }
+        }
     }
 
     pub fn subscription_status(&self) -> SubscriptionStatus {
@@ -265,6 +292,10 @@ impl RemoteTrackPublication {
 
     pub fn is_allowed(&self) -> bool {
         self.remote.info.read().allowed
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.track().is_some_and(|x| x.is_enabled())
     }
 
     pub fn sid(&self) -> TrackSid {

@@ -22,8 +22,8 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, room,
-    room::{FfiParticipant, FfiPublication, FfiTrack},
+    audio_source, audio_stream, colorcvt,
+    room::{self, FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
@@ -122,6 +122,18 @@ fn on_publish_transcription(
     ffi_participant.room.publish_transcription(server, publish)
 }
 
+/// Publish sip dtmf messages to the room
+fn on_publish_sip_dtmf(
+    server: &'static FfiServer,
+    publish: proto::PublishSipDtmfRequest,
+) -> FfiResult<proto::PublishSipDtmfResponse> {
+    // Push the data to an async queue (avoid blocking and keep the order)
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+
+    ffi_participant.room.publish_sip_dtmf(server, publish)
+}
+
 /// Change the desired subscription state of a publication
 fn on_set_subscribed(
     server: &'static FfiServer,
@@ -138,26 +150,36 @@ fn on_set_subscribed(
     Ok(proto::SetSubscribedResponse {})
 }
 
-fn on_update_local_metadata(
+fn on_set_local_metadata(
     server: &'static FfiServer,
-    update_local_metadata: proto::UpdateLocalMetadataRequest,
-) -> FfiResult<proto::UpdateLocalMetadataResponse> {
+    set_local_metadata: proto::SetLocalMetadataRequest,
+) -> FfiResult<proto::SetLocalMetadataResponse> {
     let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(update_local_metadata.local_participant_handle)?
+        .retrieve_handle::<FfiParticipant>(set_local_metadata.local_participant_handle)?
         .clone();
 
-    Ok(ffi_participant.room.update_local_metadata(server, update_local_metadata))
+    Ok(ffi_participant.room.set_local_metadata(server, set_local_metadata))
 }
 
-fn on_update_local_name(
+fn on_set_local_name(
     server: &'static FfiServer,
-    update_local_name: proto::UpdateLocalNameRequest,
-) -> FfiResult<proto::UpdateLocalNameResponse> {
+    set_local_name: proto::SetLocalNameRequest,
+) -> FfiResult<proto::SetLocalNameResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(set_local_name.local_participant_handle)?.clone();
+
+    Ok(ffi_participant.room.set_local_name(server, set_local_name))
+}
+
+fn on_set_local_attributes(
+    server: &'static FfiServer,
+    set_local_attributes: proto::SetLocalAttributesRequest,
+) -> FfiResult<proto::SetLocalAttributesResponse> {
     let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(update_local_name.local_participant_handle)?
+        .retrieve_handle::<FfiParticipant>(set_local_attributes.local_participant_handle)?
         .clone();
 
-    Ok(ffi_participant.room.update_local_name(server, update_local_name))
+    Ok(ffi_participant.room.set_local_attributes(server, set_local_attributes))
 }
 
 /// Create a new video track from a source
@@ -582,14 +604,22 @@ pub fn handle_request(
                 server, publish,
             )?)
         }
+        proto::ffi_request::Message::PublishSipDtmf(publish) => {
+            proto::ffi_response::Message::PublishSipDtmf(on_publish_sip_dtmf(server, publish)?)
+        }
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
         }
-        proto::ffi_request::Message::UpdateLocalMetadata(u) => {
-            proto::ffi_response::Message::UpdateLocalMetadata(on_update_local_metadata(server, u)?)
+        proto::ffi_request::Message::SetLocalMetadata(u) => {
+            proto::ffi_response::Message::SetLocalMetadata(on_set_local_metadata(server, u)?)
         }
-        proto::ffi_request::Message::UpdateLocalName(update) => {
-            proto::ffi_response::Message::UpdateLocalName(on_update_local_name(server, update)?)
+        proto::ffi_request::Message::SetLocalName(update) => {
+            proto::ffi_response::Message::SetLocalName(on_set_local_name(server, update)?)
+        }
+        proto::ffi_request::Message::SetLocalAttributes(update) => {
+            proto::ffi_response::Message::SetLocalAttributes(on_set_local_attributes(
+                server, update,
+            )?)
         }
         proto::ffi_request::Message::CreateVideoTrack(create) => {
             proto::ffi_response::Message::CreateVideoTrack(on_create_video_track(server, create)?)

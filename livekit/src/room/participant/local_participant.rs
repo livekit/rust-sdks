@@ -12,20 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{self, Arc},
+};
 
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 
-use super::{ConnectionQuality, ParticipantInner};
+use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
 use crate::{
     e2ee::EncryptionType,
     options,
     options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     rtc_engine::RtcEngine,
-    DataPacket, Transcription, TranscriptionSegment,
+    DataPacket, SipDTMF, Transcription,
 };
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -61,6 +65,7 @@ impl Debug for LocalParticipant {
 impl LocalParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
+        kind: ParticipantKind,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -69,7 +74,7 @@ impl LocalParticipant {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes),
+            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
             local: Arc::new(LocalInfo { events: LocalEvents::default(), encryption_type }),
         }
     }
@@ -134,6 +139,13 @@ impl LocalParticipant {
         handler: impl Fn(Participant, String, String) + Send + 'static,
     ) {
         super::on_name_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_attributes_changed(
+        &self,
+        handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
+    ) {
+        super::on_attributes_changed(&self.inner, handler)
     }
 
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
@@ -223,7 +235,7 @@ impl LocalParticipant {
         Ok(publication)
     }
 
-    pub async fn update_metadata(&self, metadata: String) -> RoomResult<()> {
+    pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -231,13 +243,14 @@ impl LocalParticipant {
                     metadata,
                     name: self.name(),
                     attributes: Default::default(),
+                    ..Default::default()
                 },
             ))
             .await;
         Ok(())
     }
 
-    pub async fn update_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
+    pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -245,13 +258,14 @@ impl LocalParticipant {
                     attributes,
                     metadata: self.metadata(),
                     name: self.name(),
+                    ..Default::default()
                 },
             ))
             .await;
         Ok(())
     }
 
-    pub async fn update_name(&self, name: String) -> RoomResult<()> {
+    pub async fn set_name(&self, name: String) -> RoomResult<()> {
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -259,6 +273,7 @@ impl LocalParticipant {
                     name,
                     metadata: self.metadata(),
                     attributes: Default::default(),
+                    ..Default::default()
                 },
             ))
             .await;
@@ -345,6 +360,24 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
+    pub async fn publish_dtmf(&self, dtmf: SipDTMF) -> RoomResult<()> {
+        let destination_identities: Vec<String> =
+            dtmf.destination_identities.into_iter().map(Into::into).collect();
+        let dtmf_message = proto::SipDtmf { code: dtmf.code, digit: dtmf.digit };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::SipDtmf(dtmf_message)),
+            destination_identities: destination_identities.clone(),
+            ..Default::default()
+        };
+
+        self.inner
+            .rtc_engine
+            .publish_data(&data, DataPacketKind::Reliable)
+            .await
+            .map_err(Into::into)
+    }
+
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
         self.inner.track_publications.read().get(sid).map(|track| {
             if let TrackPublication::Local(local) = track {
@@ -401,5 +434,9 @@ impl LocalParticipant {
 
     pub fn connection_quality(&self) -> ConnectionQuality {
         self.inner.info.read().connection_quality
+    }
+
+    pub fn kind(&self) -> ParticipantKind {
+        self.inner.info.read().kind
     }
 }

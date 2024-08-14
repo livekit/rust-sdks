@@ -22,6 +22,7 @@ use crate::{prelude::*, rtc_engine::RtcEngine};
 
 mod local_participant;
 mod remote_participant;
+use crate::room::utils;
 
 pub use local_participant::*;
 pub use remote_participant::*;
@@ -32,6 +33,15 @@ pub enum ConnectionQuality {
     Good,
     Poor,
     Lost,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ParticipantKind {
+    Standard,
+    Ingress,
+    Egress,
+    Sip,
+    Agent,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +57,7 @@ impl Participant {
         pub fn identity(self: &Self) -> ParticipantIdentity;
         pub fn name(self: &Self) -> String;
         pub fn metadata(self: &Self) -> String;
+        pub fn attributes(self: &Self) -> HashMap<String, String>;
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
@@ -78,13 +89,13 @@ struct ParticipantInfo {
     pub speaking: bool,
     pub audio_level: f32,
     pub connection_quality: ConnectionQuality,
+    pub kind: ParticipantKind,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type MetadataChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
-type AttributesChangedHandler =
-    Box<dyn Fn(Participant, HashMap<String, String>, HashMap<String, String>) + Send>;
+type AttributesChangedHandler = Box<dyn Fn(Participant, HashMap<String, String>) + Send>;
 type NameChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
 
 #[derive(Default)]
@@ -110,6 +121,7 @@ pub(super) fn new_inner(
     name: String,
     metadata: String,
     attributes: HashMap<String, String>,
+    kind: ParticipantKind,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -119,6 +131,7 @@ pub(super) fn new_inner(
             name,
             metadata,
             attributes,
+            kind,
             speaking: false,
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
@@ -134,6 +147,7 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
+    info.kind = new_info.kind().into();
     info.sid = new_info.sid.try_into().unwrap();
     info.identity = new_info.identity.into();
 
@@ -151,17 +165,12 @@ pub(super) fn update_info(
         }
     }
 
-    if new_info.attributes.len() != 0 {
-        let old_attributes = info.attributes.clone();
-        for (key, value) in new_info.attributes {
-            if value.is_empty() {
-                info.attributes.remove(&key);
-            } else {
-                info.attributes.insert(key, value);
-            }
-        }
+    let old_attributes = std::mem::replace(&mut info.attributes, new_info.attributes.clone());
+    let changed_attributes =
+        utils::calculate_changed_attributes(old_attributes, new_info.attributes.clone());
+    if changed_attributes.len() != 0 {
         if let Some(cb) = inner.events.attributes_changed.lock().as_ref() {
-            cb(participant.clone(), old_attributes, info.attributes.clone());
+            cb(participant.clone(), changed_attributes);
         }
     }
 }
@@ -218,6 +227,13 @@ pub(super) fn on_name_changed(
     *inner.events.name_changed.lock() = Some(Box::new(handler));
 }
 
+pub(super) fn on_attributes_changed(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
+) {
+    *inner.events.attributes_changed.lock() = Some(Box::new(handler));
+}
+
 pub(super) fn remove_publication(
     inner: &Arc<ParticipantInner>,
     _participant: &Participant,
@@ -248,8 +264,24 @@ pub(super) fn add_publication(
     publication.on_muted({
         let events = inner.events.clone();
         let participant = participant.clone();
+        let rtc_engine = inner.rtc_engine.clone();
         move |publication| {
             if let Some(cb) = events.track_muted.lock().as_ref() {
+                if !publication.is_remote() {
+                    let rtc_engine = rtc_engine.clone();
+                    let publication_cloned = publication.clone();
+                    livekit_runtime::spawn(async move {
+                        let engine_request = rtc_engine
+                            .mute_track(proto::MuteTrackRequest {
+                                sid: publication_cloned.sid().to_string(),
+                                muted: true,
+                            })
+                            .await;
+                        if let Err(e) = engine_request {
+                            log::error!("could not mute track: {e:?}");
+                        }
+                    });
+                }
                 cb(participant.clone(), publication);
             }
         }
@@ -258,8 +290,24 @@ pub(super) fn add_publication(
     publication.on_unmuted({
         let events = inner.events.clone();
         let participant = participant.clone();
+        let rtc_engine = inner.rtc_engine.clone();
         move |publication| {
             if let Some(cb) = events.track_unmuted.lock().as_ref() {
+                if !publication.is_remote() {
+                    let rtc_engine = rtc_engine.clone();
+                    let publication_cloned = publication.clone();
+                    livekit_runtime::spawn(async move {
+                        let engine_request = rtc_engine
+                            .mute_track(proto::MuteTrackRequest {
+                                sid: publication_cloned.sid().to_string(),
+                                muted: false,
+                            })
+                            .await;
+                        if let Err(e) = engine_request {
+                            log::error!("could not unmute track: {e:?}");
+                        }
+                    });
+                }
                 cb(participant.clone(), publication);
             }
         }

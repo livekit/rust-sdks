@@ -116,28 +116,58 @@ message PublishTranscriptionCallback {
   optional string error = 2;
 }
 
+// Publish Sip DTMF messages to other participants
+message PublishSipDtmfRequest {
+  uint64 local_participant_handle = 1;
+  uint32 code = 2;
+  string digit = 3;
+  repeated string destination_identities = 4;
+}
+message PublishSipDtmfResponse {
+  uint64 async_id = 1;
+}
+message PublishSipDtmfCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
+}
+
 // Change the local participant's metadata
-message UpdateLocalMetadataRequest {
+message SetLocalMetadataRequest {
   uint64 local_participant_handle = 1;
   string metadata = 2;
 }
-message UpdateLocalMetadataResponse {
+message SetLocalMetadataResponse {
   uint64 async_id = 1;
 }
-message UpdateLocalMetadataCallback {
+message SetLocalMetadataCallback {
   uint64 async_id = 1;
+  optional string error = 2;
+}
+
+// Change the local participant's attributes
+message SetLocalAttributesRequest {
+  uint64 local_participant_handle = 1;
+  map<string, string> attributes = 2;
+}
+message SetLocalAttributesResponse {
+  uint64 async_id = 1;
+}
+message SetLocalAttributesCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // Change the local participant's name
-message UpdateLocalNameRequest {
+message SetLocalNameRequest {
   uint64 local_participant_handle = 1;
   string name = 2;
 }
-message UpdateLocalNameResponse {
+message SetLocalNameResponse {
   uint64 async_id = 1;
 }
-message UpdateLocalNameCallback {
+message SetLocalNameCallback {
   uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // Change the "desire" to subs2ribe to a track
@@ -238,6 +268,30 @@ enum DataPacketKind {
   KIND_RELIABLE = 1;
 }
 
+enum DisconnectReason {
+  UNKNOWN_REASON = 0;
+  // the client initiated the disconnect
+  CLIENT_INITIATED = 1;
+  // another participant with the same identity has joined the room
+  DUPLICATE_IDENTITY = 2;
+  // the server instance is shutting down
+  SERVER_SHUTDOWN = 3;
+  // RoomService.RemoveParticipant was called
+  PARTICIPANT_REMOVED = 4;
+  // RoomService.DeleteRoom was called
+  ROOM_DELETED = 5;
+  // the client is attempting to resume a session, but server is not aware of it
+  STATE_MISMATCH = 6;
+  // client was unable to connect fully
+  JOIN_FAILURE = 7;
+  // Cloud-only, the server requested Participant to migrate the connection elsewhere
+  MIGRATION = 8;
+  // the signal websocket was closed unexpectedly
+  SIGNAL_CLOSE = 9;
+  // the room was closed, due to all Standard and Ingress participants having left
+  ROOM_CLOSED = 10;
+}
+
 message TranscriptionSegment {
   string id = 1;
   string text = 2;
@@ -276,20 +330,22 @@ message RoomEvent {
     RoomSidChanged room_sid_changed = 15;
     ParticipantMetadataChanged participant_metadata_changed = 16;
     ParticipantNameChanged participant_name_changed = 17;
-    ConnectionQualityChanged connection_quality_changed = 18;
-    ConnectionStateChanged connection_state_changed = 19;
-    // Connected connected = 20;
-    Disconnected disconnected = 21;
-    Reconnecting reconnecting = 22;
-    Reconnected reconnected = 23;
-    E2eeStateChanged e2ee_state_changed = 24;
-    RoomEOS eos = 25; // The stream of room events has ended
-    DataPacketReceived data_packet_received = 26;
+    ParticipantAttributesChanged participant_attributes_changed = 18;
+    ConnectionQualityChanged connection_quality_changed = 19;
+    ConnectionStateChanged connection_state_changed = 20;
+    // Connected connected = 21;
+    Disconnected disconnected = 22;
+    Reconnecting reconnecting = 23;
+    Reconnected reconnected = 24;
+    E2eeStateChanged e2ee_state_changed = 25;
+    RoomEOS eos = 26; // The stream of room events has ended
+    DataPacketReceived data_packet_received = 27;
+    TranscriptionReceived transcription_received = 28;
   }
 }
 
 message RoomInfo {
-  string sid = 1;
+  optional string sid = 1;
   string name = 2;
   string metadata = 3;
 }
@@ -302,7 +358,7 @@ message OwnedRoom {
 message ParticipantConnected { OwnedParticipant info = 1; }
 
 message ParticipantDisconnected { 
-  string participant_sid = 1;
+  string participant_identity = 1;
 }
 
 message LocalTrackPublished {
@@ -316,50 +372,50 @@ message LocalTrackUnpublished {
 }
 
 message TrackPublished {
-  string participant_sid = 1;
+  string participant_identity = 1;
   OwnedTrackPublication publication = 2;
 }
 
 message TrackUnpublished {
-  string participant_sid = 1;
+  string participant_identity = 1;
   string publication_sid = 2;
 }
 
 // Publication isn't needed for subscription events on the FFI
 // The FFI will retrieve the publication using the Track sid
 message TrackSubscribed {
-  string participant_sid = 1;
+  string participant_identity = 1;
   OwnedTrack track = 2;
 }
 
 message TrackUnsubscribed {
   // The FFI language can dispose/remove the VideoSink here
-  string participant_sid = 1;
+  string participant_identity = 1;
   string track_sid = 2;
 }
 
 message TrackSubscriptionFailed {
-  string participant_sid = 1;
+  string participant_identity = 1;
   string track_sid = 2;
   string error = 3;
 }
 
 message TrackMuted {
-  string participant_sid = 1;
+  string participant_identity = 1;
   string track_sid = 2;
 }
 
 message TrackUnmuted {
-  string participant_sid = 1;
+  string participant_identity = 1;
   string track_sid = 2;
 }
 
 message E2eeStateChanged {
-  string participant_sid = 1; // Using sid instead of identity for ffi communication
+  string participant_identity = 1; // Using sid instead of identity for ffi communication
   EncryptionState state = 2;
 }
 
-message ActiveSpeakersChanged { repeated string participant_sids = 1; }
+message ActiveSpeakersChanged { repeated string participant_identities = 1; }
 
 message RoomMetadataChanged { 
   string metadata = 1;
@@ -370,17 +426,23 @@ message RoomSidChanged {
 }
 
 message ParticipantMetadataChanged { 
-  string participant_sid = 1;
+  string participant_identity = 1;
   string metadata = 2;
 }
 
+message ParticipantAttributesChanged {
+  string participant_identity = 1;
+  map<string, string> attributes = 2;
+  map<string, string> changed_attributes = 3;
+}
+
 message ParticipantNameChanged { 
-  string participant_sid = 1;
+  string participant_identity = 1;
   string name = 2;
 }
 
 message ConnectionQualityChanged {
-  string participant_sid = 1;
+  string participant_identity = 1;
   ConnectionQuality quality = 2;
 }
 
@@ -397,17 +459,24 @@ message SipDTMF {
 message DataPacketReceived {
   DataPacketKind kind = 1;
   string participant_identity = 2; // Can be empty if the data is sent a server SDK
-  optional string participant_sid = 3 [deprecated=true]; // Can be empty if the data is sent a server SDK
   oneof value {
     UserPacket user = 4;
     SipDTMF sip_dtmf = 5;
   }
 }
 
+message TranscriptionReceived {
+  optional string participant_identity = 1;
+  optional string track_sid = 2;
+  repeated TranscriptionSegment segments = 3;
+}
+
 message ConnectionStateChanged { ConnectionState state = 1; }
 
 message Connected {}
-message Disconnected {}
+message Disconnected {
+  DisconnectReason reason = 1;
+}
 message Reconnecting {}
 message Reconnected {}
 

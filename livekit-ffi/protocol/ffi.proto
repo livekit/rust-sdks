@@ -63,29 +63,31 @@ message FfiRequest {
     UnpublishTrackRequest unpublish_track = 6;
     PublishDataRequest publish_data = 7;
     SetSubscribedRequest set_subscribed = 8;
-    UpdateLocalMetadataRequest update_local_metadata = 9;
-    UpdateLocalNameRequest update_local_name = 10;
-    GetSessionStatsRequest get_session_stats = 11;
-    PublishTranscriptionRequest publish_transcription = 12;
+    SetLocalMetadataRequest set_local_metadata = 9;
+    SetLocalNameRequest set_local_name = 10;
+    SetLocalAttributesRequest set_local_attributes = 11;
+    GetSessionStatsRequest get_session_stats = 12;
+    PublishTranscriptionRequest publish_transcription = 13;
+    PublishSipDtmfRequest publish_sip_dtmf = 14;
 
     // Track
-    CreateVideoTrackRequest create_video_track = 13;
-    CreateAudioTrackRequest create_audio_track = 14;
-    GetStatsRequest get_stats = 15;
+    CreateVideoTrackRequest create_video_track = 15;
+    CreateAudioTrackRequest create_audio_track = 16;
+    GetStatsRequest get_stats = 17;
 
     // Video
-    NewVideoStreamRequest new_video_stream = 16;
-    NewVideoSourceRequest new_video_source = 17;
-    CaptureVideoFrameRequest capture_video_frame = 18;
-    VideoConvertRequest video_convert = 19;
+    NewVideoStreamRequest new_video_stream = 18;
+    NewVideoSourceRequest new_video_source = 19;
+    CaptureVideoFrameRequest capture_video_frame = 20;
+    VideoConvertRequest video_convert = 21;
 
     // Audio
-    NewAudioStreamRequest new_audio_stream = 22;
-    NewAudioSourceRequest new_audio_source = 23;
-    CaptureAudioFrameRequest capture_audio_frame = 24;
-    NewAudioResamplerRequest new_audio_resampler = 25;
-    RemixAndResampleRequest remix_and_resample = 26;
-    E2eeRequest e2ee = 27;
+    NewAudioStreamRequest new_audio_stream = 23;
+    NewAudioSourceRequest new_audio_source = 24;
+    CaptureAudioFrameRequest capture_audio_frame = 25;
+    NewAudioResamplerRequest new_audio_resampler = 26;
+    RemixAndResampleRequest remix_and_resample = 27;
+    E2eeRequest e2ee = 28;
   }
 }
 
@@ -101,21 +103,23 @@ message FfiResponse {
     UnpublishTrackResponse unpublish_track = 6;
     PublishDataResponse publish_data = 7;
     SetSubscribedResponse set_subscribed = 8;
-    UpdateLocalMetadataResponse update_local_metadata = 9;
-    UpdateLocalNameResponse update_local_name = 10;
-    GetSessionStatsResponse get_session_stats = 11;
-    PublishTranscriptionResponse publish_transcription = 12;
+    SetLocalMetadataResponse set_local_metadata = 9;
+    SetLocalNameResponse set_local_name = 10;
+    SetLocalAttributesResponse set_local_attributes = 11;
+    GetSessionStatsResponse get_session_stats = 12;
+    PublishTranscriptionResponse publish_transcription = 13;
+    PublishSipDtmfResponse publish_sip_dtmf = 14;
 
     // Track
-    CreateVideoTrackResponse create_video_track = 13;
-    CreateAudioTrackResponse create_audio_track = 14;
-    GetStatsResponse get_stats = 15;
+    CreateVideoTrackResponse create_video_track = 15;
+    CreateAudioTrackResponse create_audio_track = 16;
+    GetStatsResponse get_stats = 17;
 
     // Video
-    NewVideoStreamResponse new_video_stream = 16;
-    NewVideoSourceResponse new_video_source = 17;
-    CaptureVideoFrameResponse capture_video_frame = 18;
-    VideoConvertResponse video_convert = 19;
+    NewVideoStreamResponse new_video_stream = 18;
+    NewVideoSourceResponse new_video_source = 19;
+    CaptureVideoFrameResponse capture_video_frame = 20;
+    VideoConvertResponse video_convert = 21;
 
     // Audio
     NewAudioStreamResponse new_audio_stream = 22;
@@ -137,19 +141,21 @@ message FfiEvent {
     VideoStreamEvent video_stream_event = 3;
     AudioStreamEvent audio_stream_event = 4;
     ConnectCallback connect = 5;
-    DisconnectCallback disconnect = 6;
-    DisposeCallback dispose = 7;
-    PublishTrackCallback publish_track = 8;
-    UnpublishTrackCallback unpublish_track = 9;
-    PublishDataCallback publish_data = 10;
-    PublishTranscriptionCallback publish_transcription = 11;
-    CaptureAudioFrameCallback capture_audio_frame = 12;
-    UpdateLocalMetadataCallback update_local_metadata = 13;
-    UpdateLocalNameCallback update_local_name = 14;
-    GetStatsCallback get_stats = 15;
-    LogBatch logs = 16;
-    GetSessionStatsCallback get_session_stats = 17;
-    Panic panic = 18;
+    DisconnectCallback disconnect = 7;
+    DisposeCallback dispose = 8;
+    PublishTrackCallback publish_track = 9;
+    UnpublishTrackCallback unpublish_track = 10;
+    PublishDataCallback publish_data = 11;
+    PublishTranscriptionCallback publish_transcription = 12;
+    CaptureAudioFrameCallback capture_audio_frame = 13;
+    SetLocalMetadataCallback set_local_metadata = 14;
+    SetLocalNameCallback set_local_name = 15;
+    SetLocalAttributesCallback set_local_attributes = 16;
+    GetStatsCallback get_stats = 17;
+    LogBatch logs = 18;
+    GetSessionStatsCallback get_session_stats = 19;
+    Panic panic = 20;
+    PublishSipDtmfCallback publish_sip_dtmf = 21;
   }
 }
 

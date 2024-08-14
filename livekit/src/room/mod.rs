@@ -33,7 +33,10 @@ use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
-use self::e2ee::{manager::E2eeManager, E2eeOptions};
+use self::{
+    e2ee::{manager::E2eeManager, E2eeOptions},
+    participant::ParticipantKind,
+};
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
     participant::ConnectionQuality,
@@ -50,6 +53,7 @@ pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod track;
+pub(crate) mod utils;
 
 pub type RoomResult<T> = Result<T, RoomError>;
 
@@ -126,6 +130,10 @@ pub enum RoomEvent {
         old_name: String,
         name: String,
     },
+    ParticipantAttributesChanged {
+        participant: Participant,
+        changed_attributes: HashMap<String, String>,
+    },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
     },
@@ -138,6 +146,11 @@ pub enum RoomEvent {
         topic: Option<String>,
         kind: DataPacketKind,
         participant: Option<RemoteParticipant>,
+    },
+    TranscriptionReceived {
+        participant: Option<Participant>,
+        track_publication: Option<TrackPublication>,
+        segments: Vec<TranscriptionSegment>,
     },
     SipDTMFReceived {
         code: u32,
@@ -209,6 +222,13 @@ pub struct TranscriptionSegment {
     pub end_time: u64,
     pub r#final: bool,
     pub language: String,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct SipDTMF {
+    pub code: u32,
+    pub digit: String,
+    pub destination_identities: Vec<ParticipantIdentity>,
 }
 
 #[derive(Debug, Clone)]
@@ -314,6 +334,7 @@ impl Room {
         let pi = join_response.participant.unwrap();
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
+            pi.kind().into(),
             pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
@@ -386,6 +407,15 @@ impl Room {
             }
         });
 
+        local_participant.on_attributes_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, changed_attributes| {
+                let event =
+                    RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
+                dispatcher.dispatch(&event);
+            }
+        });
+
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
             sid: Promise::new(),
@@ -432,6 +462,7 @@ impl Room {
             let participant = {
                 let pi = pi.clone();
                 inner.create_participant(
+                    pi.kind().into(),
                     pi.sid.try_into().unwrap(),
                     pi.identity.into(),
                     pi.name,
@@ -570,6 +601,9 @@ impl RoomSession {
             EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
                 self.handle_data(payload, topic, kind, participant_sid, participant_identity);
             }
+            EngineEvent::Transcription { participant_identity, track_sid, segments } => {
+                self.handle_transcription(participant_identity, track_sid, segments);
+            }
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
             }
@@ -651,6 +685,7 @@ impl RoomSession {
                 let remote_participant = {
                     let pi = pi.clone();
                     self.create_participant(
+                        pi.kind().into(),
                         pi.sid.try_into().unwrap(),
                         pi.identity.into(),
                         pi.name,
@@ -1029,10 +1064,36 @@ impl RoomSession {
         self.dispatcher.dispatch(&RoomEvent::SipDTMFReceived { code, digit, participant });
     }
 
+    fn handle_transcription(
+        &self,
+        participant_identity: ParticipantIdentity,
+        track_sid: String,
+        segments: Vec<TranscriptionSegment>,
+    ) {
+        let participant = self.get_local_or_remote_participant(&participant_identity);
+        let track_sid: TrackSid = track_sid.to_owned().try_into().unwrap();
+        let track_publication: Option<TrackPublication> = match &participant {
+            Some(Participant::Local(ref participant)) => {
+                participant.get_track_publication(&track_sid).map(TrackPublication::Local)
+            }
+            Some(Participant::Remote(ref participant)) => {
+                participant.get_track_publication(&track_sid).map(TrackPublication::Remote)
+            }
+            None => None,
+        };
+
+        self.dispatcher.dispatch(&RoomEvent::TranscriptionReceived {
+            participant,
+            track_publication,
+            segments,
+        });
+    }
+
     /// Create a new participant
     /// Also add it to the participants list
     fn create_participant(
         self: &Arc<Self>,
+        kind: ParticipantKind,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -1041,6 +1102,7 @@ impl RoomSession {
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
+            kind,
             sid.clone(),
             identity.clone(),
             name,
@@ -1135,6 +1197,15 @@ impl RoomSession {
             }
         });
 
+        participant.on_attributes_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, changed_attributes| {
+                let event =
+                    RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
+                dispatcher.dispatch(&event);
+            }
+        });
+
         let mut participants = self.remote_participants.write();
         participants.insert(identity, participant.clone());
         participant
@@ -1161,6 +1232,16 @@ impl RoomSession {
         identity: &ParticipantIdentity,
     ) -> Option<RemoteParticipant> {
         self.remote_participants.read().get(identity).cloned()
+    }
+
+    fn get_local_or_remote_participant(
+        &self,
+        identity: &ParticipantIdentity,
+    ) -> Option<Participant> {
+        if identity == &self.local_participant.identity() {
+            return Some(Participant::Local(self.local_participant.clone()));
+        }
+        return self.get_participant_by_identity(identity).map(Participant::Remote);
     }
 }
 

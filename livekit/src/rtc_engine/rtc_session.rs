@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::id::ParticipantIdentity;
+use crate::{id::ParticipantIdentity, TranscriptionSegment};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -80,6 +80,11 @@ pub enum SessionEvent {
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+    },
+    Transcription {
+        participant_identity: ParticipantIdentity,
+        track_sid: String,
+        segments: Vec<TranscriptionSegment>,
     },
     SipDTMF {
         // None when the data comes from the ServerSDK (So no real participant)
@@ -254,6 +259,10 @@ impl RtcSession {
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         self.inner.add_track(req).await
+    }
+
+    pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
+        self.inner.mute_track(req).await
     }
 
     pub async fn create_sender(
@@ -509,6 +518,7 @@ impl SessionInner {
                         })
                         .unwrap(),
                         target: target as i32,
+                        ..Default::default()
                     }))
                     .await;
             }
@@ -604,7 +614,29 @@ impl SessionInner {
                         });
                     }
                     proto::data_packet::Value::Speaker(_) => {}
-                    proto::data_packet::Value::Transcription(_) => {}
+                    proto::data_packet::Value::Transcription(transcription) => {
+                        let track_sid = transcription.track_id.clone();
+                        // let segments = transcription.segments.clone();
+                        let segments = transcription
+                            .segments
+                            .iter()
+                            .map(|s| TranscriptionSegment {
+                                id: s.id.clone(),
+                                start_time: s.start_time,
+                                end_time: s.end_time,
+                                text: s.text.clone(),
+                                language: s.language.clone(),
+                                r#final: s.r#final,
+                            })
+                            .collect();
+                        let participant_identity: ParticipantIdentity =
+                            transcription.transcribed_participant_identity.clone().into();
+                        let _ = self.emitter.send(SessionEvent::Transcription {
+                            participant_identity,
+                            track_sid,
+                            segments,
+                        });
+                    }
                 }
             }
         }
@@ -646,6 +678,12 @@ impl SessionInner {
         }
 
         self.publisher_pc.peer_connection().remove_track(sender)?;
+
+        Ok(())
+    }
+
+    async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
+        self.signal_client.send(proto::signal_request::Message::Mute(req)).await;
 
         Ok(())
     }
