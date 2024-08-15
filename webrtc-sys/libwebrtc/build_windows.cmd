@@ -50,6 +50,9 @@ if not exist src (
 )
 
 cd src
+call git fetch origin m114_release
+call git checkout m114_release
+
 call git apply "%COMMAND_DIR%/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 call git apply "%COMMAND_DIR%/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 call git apply "%COMMAND_DIR%/patches/windows_silence_warnings.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
