@@ -85,6 +85,9 @@ pub enum RoomEvent {
         publication: LocalTrackPublication,
         participant: LocalParticipant,
     },
+    LocalTrackSubscribed {
+        track: LocalTrack,
+    },
     TrackSubscribed {
         track: RemoteTrack,
         publication: RemoteTrackPublication,
@@ -611,6 +614,7 @@ impl RoomSession {
             EngineEvent::ConnectionQuality { updates } => {
                 self.handle_connection_quality_update(updates)
             }
+            EngineEvent::TrackSubscribed { track_sid } => self.handle_track_subscribed(track_sid),
         }
 
         Ok(())
@@ -786,6 +790,17 @@ impl RoomSession {
 
             participant.set_connection_quality(quality);
             self.dispatcher.dispatch(&RoomEvent::ConnectionQualityChanged { participant, quality });
+        }
+    }
+
+    /// Handle the first time a participant subscribes to a track
+    /// Pass this event forward
+    fn handle_track_subscribed(&self, track_sid: String) {
+        let publications = self.local_participant.track_publications().clone();
+        let publication = publications.get(&track_sid.to_owned().try_into().unwrap());
+        if let Some(publication) = publication {
+            self.dispatcher
+                .dispatch(&RoomEvent::LocalTrackSubscribed { track: publication.track().unwrap() });
         }
     }
 

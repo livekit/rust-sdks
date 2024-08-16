@@ -106,6 +106,9 @@ pub enum SessionEvent {
     RoomUpdate {
         room: proto::Room,
     },
+    TrackSubscribed {
+        track_sid: String,
+    },
     Close {
         source: String,
         reason: DisconnectReason,
@@ -498,6 +501,11 @@ impl SessionInner {
             proto::signal_response::Message::RoomUpdate(room_update) => {
                 let _ =
                     self.emitter.send(SessionEvent::RoomUpdate { room: room_update.room.unwrap() });
+            }
+            proto::signal_response::Message::TrackSubscribed(track_subscribed) => {
+                let _ = self
+                    .emitter
+                    .send(SessionEvent::TrackSubscribed { track_sid: track_subscribed.track_sid });
             }
             _ => {}
         }

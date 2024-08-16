@@ -2316,7 +2316,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2333,34 +2333,36 @@ pub mod room_event {
         #[prost(message, tag="5")]
         LocalTrackUnpublished(super::LocalTrackUnpublished),
         #[prost(message, tag="6")]
-        TrackPublished(super::TrackPublished),
+        LocalTrackSubscribed(super::LocalTrackSubscribed),
         #[prost(message, tag="7")]
-        TrackUnpublished(super::TrackUnpublished),
+        TrackPublished(super::TrackPublished),
         #[prost(message, tag="8")]
-        TrackSubscribed(super::TrackSubscribed),
+        TrackUnpublished(super::TrackUnpublished),
         #[prost(message, tag="9")]
-        TrackUnsubscribed(super::TrackUnsubscribed),
+        TrackSubscribed(super::TrackSubscribed),
         #[prost(message, tag="10")]
-        TrackSubscriptionFailed(super::TrackSubscriptionFailed),
+        TrackUnsubscribed(super::TrackUnsubscribed),
         #[prost(message, tag="11")]
-        TrackMuted(super::TrackMuted),
+        TrackSubscriptionFailed(super::TrackSubscriptionFailed),
         #[prost(message, tag="12")]
-        TrackUnmuted(super::TrackUnmuted),
+        TrackMuted(super::TrackMuted),
         #[prost(message, tag="13")]
-        ActiveSpeakersChanged(super::ActiveSpeakersChanged),
+        TrackUnmuted(super::TrackUnmuted),
         #[prost(message, tag="14")]
-        RoomMetadataChanged(super::RoomMetadataChanged),
+        ActiveSpeakersChanged(super::ActiveSpeakersChanged),
         #[prost(message, tag="15")]
-        RoomSidChanged(super::RoomSidChanged),
+        RoomMetadataChanged(super::RoomMetadataChanged),
         #[prost(message, tag="16")]
-        ParticipantMetadataChanged(super::ParticipantMetadataChanged),
+        RoomSidChanged(super::RoomSidChanged),
         #[prost(message, tag="17")]
-        ParticipantNameChanged(super::ParticipantNameChanged),
+        ParticipantMetadataChanged(super::ParticipantMetadataChanged),
         #[prost(message, tag="18")]
-        ParticipantAttributesChanged(super::ParticipantAttributesChanged),
+        ParticipantNameChanged(super::ParticipantNameChanged),
         #[prost(message, tag="19")]
-        ConnectionQualityChanged(super::ConnectionQualityChanged),
+        ParticipantAttributesChanged(super::ParticipantAttributesChanged),
         #[prost(message, tag="20")]
+        ConnectionQualityChanged(super::ConnectionQualityChanged),
+        #[prost(message, tag="21")]
         ConnectionStateChanged(super::ConnectionStateChanged),
         /// Connected connected = 21;
         #[prost(message, tag="22")]
@@ -2423,6 +2425,12 @@ pub struct LocalTrackPublished {
 pub struct LocalTrackUnpublished {
     #[prost(string, tag="1")]
     pub publication_sid: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LocalTrackSubscribed {
+    #[prost(string, tag="2")]
+    pub track_sid: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

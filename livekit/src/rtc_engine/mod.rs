@@ -136,6 +136,9 @@ pub enum EngineEvent {
     Disconnected {
         reason: DisconnectReason,
     },
+    TrackSubscribed {
+        track_sid: String,
+    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -442,6 +445,9 @@ impl EngineInner {
             }
             SessionEvent::RoomUpdate { room } => {
                 let _ = self.engine_tx.send(EngineEvent::RoomUpdate { room });
+            }
+            SessionEvent::TrackSubscribed { track_sid } => {
+                let _ = self.engine_tx.send(EngineEvent::TrackSubscribed { track_sid });
             }
         }
         Ok(())
