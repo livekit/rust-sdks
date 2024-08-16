@@ -139,6 +139,11 @@ pub enum EngineEvent {
     TrackSubscribed {
         track_sid: String,
     },
+    RequestResponse {
+        request_id: u32,
+        message: String,
+        reason: proto::request_response::Reason,
+    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -448,6 +453,13 @@ impl EngineInner {
             }
             SessionEvent::TrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::TrackSubscribed { track_sid });
+            }
+            SessionEvent::RequestResponse { request_id, message, reason } => {
+                let _ = self.engine_tx.send(EngineEvent::RequestResponse {
+                    request_id,
+                    message,
+                    reason,
+                });
             }
         }
         Ok(())

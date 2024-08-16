@@ -116,6 +116,11 @@ pub enum SessionEvent {
         full_reconnect: bool,
         retry_now: bool,
     },
+    RequestResponse {
+        request_id: u32,
+        message: String,
+        reason: proto::request_response::Reason,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -506,6 +511,13 @@ impl SessionInner {
                 let _ = self
                     .emitter
                     .send(SessionEvent::TrackSubscribed { track_sid: track_subscribed.track_sid });
+            }
+            proto::signal_response::Message::RequestResponse(request_response) => {
+                let _ = self.emitter.send(SessionEvent::RequestResponse {
+                    reason: request_response.reason(),
+                    request_id: request_response.request_id,
+                    message: request_response.message,
+                });
             }
             _ => {}
         }
