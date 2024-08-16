@@ -720,8 +720,13 @@ impl RoomSession {
         }
 
         let (participant_sid, stream_id) = lk_stream_id.unwrap();
+        let mut track_id = track.id();
+        if stream_id.starts_with("TR") {
+            track_id = stream_id.into();
+        }
+
         let participant_sid: ParticipantSid = participant_sid.to_owned().try_into().unwrap();
-        let stream_id = stream_id.to_owned().try_into().unwrap();
+        let track_id = track_id.to_owned().try_into().unwrap();
 
         let remote_participant = self
             .remote_participants
@@ -732,7 +737,7 @@ impl RoomSession {
 
         if let Some(remote_participant) = remote_participant {
             livekit_runtime::spawn(async move {
-                remote_participant.add_subscribed_media_track(stream_id, track, transceiver).await;
+                remote_participant.add_subscribed_media_track(track_id, track, transceiver).await;
             });
         } else {
             // The server should send participant updates before sending a new offer, this should

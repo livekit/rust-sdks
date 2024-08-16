@@ -2240,6 +2240,8 @@ pub struct TrackPublishOptions {
     pub simulcast: bool,
     #[prost(enumeration="TrackSource", tag="7")]
     pub source: i32,
+    #[prost(string, tag="8")]
+    pub stream: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

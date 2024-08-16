@@ -186,6 +186,7 @@ impl LocalParticipant {
             disable_dtx: !options.dtx,
             disable_red: !options.red,
             encryption: proto::encryption::Type::from(self.local.encryption_type) as i32,
+            stream: options.stream.clone(),
             ..Default::default()
         };
 

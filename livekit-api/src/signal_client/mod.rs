@@ -44,7 +44,7 @@ pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
 pub type SignalResult<T> = Result<T, SignalError>;
 
 pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 
 #[derive(Error, Debug)]
 pub enum SignalError {

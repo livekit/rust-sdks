@@ -212,6 +212,7 @@ message TrackPublishOptions {
   bool red = 5;
   bool simulcast = 6;
   TrackSource source = 7;
+  string stream = 8;
 }
 
 enum IceTransportType {
