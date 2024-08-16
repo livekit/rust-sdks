@@ -771,7 +771,7 @@ impl SessionInner {
     async fn close(&self) {
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
-                can_reconnect: false,
+                action: proto::leave_request::Action::Disconnect.into(),
                 reason: DisconnectReason::ClientInitiated as i32,
                 ..Default::default()
             }))
@@ -786,8 +786,8 @@ impl SessionInner {
     async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         let simulate_leave = || {
             self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                action: proto::leave_request::Action::Reconnect.into(),
                 reason: DisconnectReason::ClientInitiated as i32,
-                can_reconnect: true,
                 ..Default::default()
             }))
         };
