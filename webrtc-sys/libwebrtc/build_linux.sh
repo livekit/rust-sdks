@@ -116,6 +116,7 @@ ninja -C "$OUTPUT_DIR" :default
 # make libwebrtc.a
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
