@@ -401,19 +401,25 @@ impl EngineInner {
 
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
-            SessionEvent::Close { source, reason, can_reconnect, retry_now, full_reconnect } => {
+            SessionEvent::Close { source, reason, action, retry_now } => {
                 log::debug!("received session close: {}, {:?}", source, reason);
-                if can_reconnect {
-                    self.reconnection_needed(retry_now, full_reconnect);
-                } else {
-                    // Spawning a new task because the close function wait for the engine_task to
-                    // finish. (So it doesn't make sense to await it here)
-                    livekit_runtime::spawn({
-                        let inner = self.clone();
-                        async move {
-                            inner.close(reason).await;
-                        }
-                    });
+                match action {
+                    proto::leave_request::Action::Resume => {
+                        self.reconnection_needed(retry_now, false)
+                    }
+                    proto::leave_request::Action::Reconnect => {
+                        self.reconnection_needed(retry_now, true)
+                    }
+                    proto::leave_request::Action::Disconnect => {
+                        // Spawning a new task because the close function wait for the engine_task to
+                        // finish. (So it doesn't make sense to await it here)
+                        livekit_runtime::spawn({
+                            let inner = self.clone();
+                            async move {
+                                inner.close(reason).await;
+                            }
+                        });
+                    }
                 }
             }
             SessionEvent::Data { participant_sid, participant_identity, payload, topic, kind } => {

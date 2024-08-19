@@ -112,8 +112,7 @@ pub enum SessionEvent {
     Close {
         source: String,
         reason: DisconnectReason,
-        can_reconnect: bool,
-        full_reconnect: bool,
+        action: proto::leave_request::Action,
         retry_now: bool,
     },
     RequestResponse {
@@ -419,9 +418,8 @@ impl SessionInner {
                             self.on_session_disconnected(
                                 format!("signal client closed: {:?}", reason).as_str(),
                                 DisconnectReason::UnknownReason,
-                                true,
+                                proto::leave_request::Action::Disconnect,
                                 false,
-                                false
                             );
                         }
                     }
@@ -479,8 +477,7 @@ impl SessionInner {
                 self.on_session_disconnected(
                     "server request to leave",
                     leave.reason(),
-                    leave.can_reconnect,
-                    true,
+                    leave.action(),
                     true,
                 );
             }
@@ -550,8 +547,7 @@ impl SessionInner {
                     self.on_session_disconnected(
                         "pc_state failed",
                         DisconnectReason::UnknownReason,
-                        true,
-                        false,
+                        proto::leave_request::Action::Resume,
                         false,
                     );
                 }
@@ -767,16 +763,14 @@ impl SessionInner {
         &self,
         source: &str,
         reason: DisconnectReason,
-        can_reconnect: bool,
+        action: proto::leave_request::Action,
         retry_now: bool,
-        full_reconnect: bool,
     ) {
         let _ = self.emitter.send(SessionEvent::Close {
             source: source.to_owned(),
             reason,
-            can_reconnect,
+            action,
             retry_now,
-            full_reconnect,
         });
     }
 
