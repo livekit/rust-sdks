@@ -106,7 +106,7 @@ pub enum SessionEvent {
     RoomUpdate {
         room: proto::Room,
     },
-    TrackSubscribed {
+    LocalTrackSubscribed {
         track_sid: String,
     },
     Close {
@@ -507,7 +507,7 @@ impl SessionInner {
             proto::signal_response::Message::TrackSubscribed(track_subscribed) => {
                 let _ = self
                     .emitter
-                    .send(SessionEvent::TrackSubscribed { track_sid: track_subscribed.track_sid });
+                    .send(SessionEvent::LocalTrackSubscribed { track_sid: track_subscribed.track_sid });
             }
             proto::signal_response::Message::RequestResponse(request_response) => {
                 let _ = self.emitter.send(SessionEvent::RequestResponse {

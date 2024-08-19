@@ -136,7 +136,7 @@ pub enum EngineEvent {
     Disconnected {
         reason: DisconnectReason,
     },
-    TrackSubscribed {
+    LocalTrackSubscribed {
         track_sid: String,
     },
     RequestResponse {
@@ -457,8 +457,8 @@ impl EngineInner {
             SessionEvent::RoomUpdate { room } => {
                 let _ = self.engine_tx.send(EngineEvent::RoomUpdate { room });
             }
-            SessionEvent::TrackSubscribed { track_sid } => {
-                let _ = self.engine_tx.send(EngineEvent::TrackSubscribed { track_sid });
+            SessionEvent::LocalTrackSubscribed { track_sid } => {
+                let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
             }
             SessionEvent::RequestResponse { request_id, message, reason } => {
                 let _ = self.engine_tx.send(EngineEvent::RequestResponse {
