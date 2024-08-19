@@ -92,6 +92,7 @@ struct SignalInner {
     url: String,
     options: SignalOptions,
     join_response: proto::JoinResponse,
+    request_id: AsyncMutex<u32>,
 }
 
 pub struct SignalClient {
@@ -145,7 +146,7 @@ impl SignalClient {
     /// Send a signal to the server (e.g. publish, subscribe, etc.)
     /// This will automatically queue the message if the connection fails
     /// The queue is flushed on the next restart
-    pub async fn send(&self, signal: proto::signal_request::Message) {
+    pub async fn send(&self, signal: proto::signal_request::Message) -> u32 {
         self.inner.send(signal).await
     }
 
@@ -213,6 +214,7 @@ impl SignalInner {
             options,
             url: url.to_string(),
             join_response: join_response.clone(),
+            request_id: Default::default(),
         });
 
         Ok((inner, join_response, events))
@@ -278,10 +280,13 @@ impl SignalInner {
     }
 
     /// Send a signal to the server
-    pub async fn send(&self, signal: proto::signal_request::Message) {
+    pub async fn send(&self, signal: proto::signal_request::Message) -> u32 {
+        let mut id = self.request_id.lock().await;
+        *id += 1;
+
         if self.reconnecting.load(Ordering::Acquire) {
             self.queue_message(signal).await;
-            return;
+            return self.request_id.lock().await.clone();
         }
 
         self.flush_queue().await; // The queue must be flusehd before sending any new signal
@@ -291,6 +296,8 @@ impl SignalInner {
                 self.queue_message(signal).await;
             }
         }
+
+        self.request_id.lock().await.clone()
     }
 
     async fn queue_message(&self, signal: proto::signal_request::Message) {

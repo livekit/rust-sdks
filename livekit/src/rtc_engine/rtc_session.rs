@@ -115,11 +115,6 @@ pub enum SessionEvent {
         action: proto::leave_request::Action,
         retry_now: bool,
     },
-    RequestResponse {
-        request_id: u32,
-        message: String,
-        reason: proto::request_response::Reason,
-    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -155,6 +150,8 @@ struct SessionInner {
 
     options: EngineOptions,
     negotiation_debouncer: Mutex<Option<Debouncer>>,
+
+    pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
 }
 
 /// This struct holds a WebRTC session
@@ -240,6 +237,7 @@ impl RtcSession {
             emitter,
             options,
             negotiation_debouncer: Default::default(),
+            pending_requests: Default::default(),
         });
 
         // Start session tasks
@@ -342,6 +340,10 @@ impl RtcSession {
 
     pub fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
         self.inner.data_channel(target, kind)
+    }
+
+    pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
+        self.inner.get_response(request_id).await
     }
 }
 
@@ -505,16 +507,15 @@ impl SessionInner {
                     self.emitter.send(SessionEvent::RoomUpdate { room: room_update.room.unwrap() });
             }
             proto::signal_response::Message::TrackSubscribed(track_subscribed) => {
-                let _ = self
-                    .emitter
-                    .send(SessionEvent::LocalTrackSubscribed { track_sid: track_subscribed.track_sid });
+                let _ = self.emitter.send(SessionEvent::LocalTrackSubscribed {
+                    track_sid: track_subscribed.track_sid,
+                });
             }
             proto::signal_response::Message::RequestResponse(request_response) => {
-                let _ = self.emitter.send(SessionEvent::RequestResponse {
-                    reason: request_response.reason(),
-                    request_id: request_response.request_id,
-                    message: request_response.message,
-                });
+                let mut pending_requests = self.pending_requests.lock();
+                if let Some(tx) = pending_requests.remove(&request_response.request_id) {
+                    let _ = tx.send(request_response);
+                }
             }
             _ => {}
         }
@@ -999,6 +1000,12 @@ impl SessionInner {
         } else {
             unreachable!()
         }
+    }
+
+    async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
+        let (tx, rx) = oneshot::channel();
+        self.pending_requests.lock().insert(request_id, tx);
+        rx.await.unwrap()
     }
 }
 

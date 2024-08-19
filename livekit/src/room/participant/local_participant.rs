@@ -21,6 +21,7 @@ use std::{
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
+use proto::request_response::Reason;
 
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
 use crate::{
@@ -237,7 +238,8 @@ impl LocalParticipant {
     }
 
     pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
-        self.inner
+        let request_id = self
+            .inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
                 proto::UpdateParticipantMetadata {
@@ -248,11 +250,16 @@ impl LocalParticipant {
                 },
             ))
             .await;
-        Ok(())
+        let response = self.inner.rtc_engine.get_response(request_id).await;
+        match response.reason() {
+            Reason::Ok => Ok(()),
+            _ => Err(RoomError::Request(response)),
+        }
     }
 
     pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
-        self.inner
+        let request_id = self
+            .inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
                 proto::UpdateParticipantMetadata {
@@ -263,11 +270,16 @@ impl LocalParticipant {
                 },
             ))
             .await;
-        Ok(())
+        let response = self.inner.rtc_engine.get_response(request_id).await;
+        match response.reason() {
+            Reason::Ok => Ok(()),
+            _ => Err(RoomError::Request(response)),
+        }
     }
 
     pub async fn set_name(&self, name: String) -> RoomResult<()> {
-        self.inner
+        let request_id = self
+            .inner
             .rtc_engine
             .send_request(proto::signal_request::Message::UpdateMetadata(
                 proto::UpdateParticipantMetadata {
@@ -278,7 +290,11 @@ impl LocalParticipant {
                 },
             ))
             .await;
-        Ok(())
+        let response = self.inner.rtc_engine.get_response(request_id).await;
+        match response.reason() {
+            Reason::Ok => Ok(()),
+            _ => Err(RoomError::Request(response)),
+        }
     }
 
     pub async fn unpublish_track(

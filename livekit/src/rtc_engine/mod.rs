@@ -139,11 +139,6 @@ pub enum EngineEvent {
     LocalTrackSubscribed {
         track_sid: String,
     },
-    RequestResponse {
-        request_id: u32,
-        message: String,
-        reason: proto::request_response::Reason,
-    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -272,13 +267,17 @@ impl RtcEngine {
         });
     }
 
-    pub async fn send_request(&self, msg: proto::signal_request::Message) {
+    pub async fn send_request(&self, msg: proto::signal_request::Message) -> u32 {
         // Getting the current session is OK to do without waiting for reconnection
         // SignalClient will attempt to queue the message if the session is not connected
         // Also on full_reconnect, every message is OK to ignore (Since this is another RtcSession)
         let session = self.inner.running_handle.read().session.clone();
-        session.signal_client().send(msg).await // Returns () and automatically queues the message
-                                                // on fail
+        session.signal_client().send(msg).await // Returns incrememted request_id and automatically
+                                                // queues the message on fail
+    }
+
+    pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
+        self.inner.running_handle.read().session.clone().get_response(request_id).await
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
@@ -459,13 +458,6 @@ impl EngineInner {
             }
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
-            }
-            SessionEvent::RequestResponse { request_id, message, reason } => {
-                let _ = self.engine_tx.send(EngineEvent::RequestResponse {
-                    request_id,
-                    message,
-                    reason,
-                });
             }
         }
         Ok(())

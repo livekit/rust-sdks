@@ -69,6 +69,8 @@ pub enum RoomError {
     TrackAlreadyPublished,
     #[error("already closed")]
     AlreadyClosed,
+    #[error("request error: {}", .0.message)]
+    Request(proto::RequestResponse),
 }
 
 #[derive(Clone, Debug)]
@@ -614,9 +616,9 @@ impl RoomSession {
             EngineEvent::ConnectionQuality { updates } => {
                 self.handle_connection_quality_update(updates)
             }
-            EngineEvent::LocalTrackSubscribed { track_sid } => self.handle_track_subscribed(track_sid),
-            // RequestResponse is required for protocol version 14, but we don't use it
-            EngineEvent::RequestResponse { request_id, message, reason } => {}
+            EngineEvent::LocalTrackSubscribed { track_sid } => {
+                self.handle_track_subscribed(track_sid)
+            }
         }
 
         Ok(())
