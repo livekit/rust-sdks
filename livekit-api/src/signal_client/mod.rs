@@ -181,8 +181,8 @@ impl SignalClient {
     }
 
     /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
-    pub fn request_id(&self) -> u32 {
-        self.inner.request_id().clone()
+    pub fn next_request_id(&self) -> u32 {
+        self.inner.next_request_id().clone()
     }
 }
 
@@ -324,7 +324,7 @@ impl SignalInner {
     }
 
     /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
-    pub fn request_id(&self) -> u32 {
+    pub fn next_request_id(&self) -> u32 {
         self.request_id.fetch_add(1, Ordering::SeqCst)
     }
 }

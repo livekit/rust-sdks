@@ -243,7 +243,7 @@ impl LocalParticipant {
 
     pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
         if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self.inner.rtc_engine.session().signal_client().request_id();
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
             self.inner
                 .rtc_engine
                 .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -273,7 +273,7 @@ impl LocalParticipant {
 
     pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
         if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self.inner.rtc_engine.session().signal_client().request_id();
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
             self.inner
                 .rtc_engine
                 .send_request(proto::signal_request::Message::UpdateMetadata(
@@ -303,7 +303,7 @@ impl LocalParticipant {
 
     pub async fn set_name(&self, name: String) -> RoomResult<()> {
         if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self.inner.rtc_engine.session().signal_client().request_id();
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
             self.inner
                 .rtc_engine
                 .send_request(proto::signal_request::Message::UpdateMetadata(
