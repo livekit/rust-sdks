@@ -19,11 +19,7 @@ use livekit::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-use super::{
-    colorcvt,
-    room::{FfiParticipant, FfiTrack},
-    FfiHandle,
-};
+use super::{colorcvt, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
@@ -46,7 +42,7 @@ impl FfiVideoStream {
     ///
     /// It is possible that the client receives a VideoFrame after the task is closed. The client
     /// musts ignore it.
-    pub fn setup(
+    pub fn from_track(
         server: &'static server::FfiServer,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FfiResult<proto::OwnedVideoStream> {
@@ -79,6 +75,35 @@ impl FfiVideoStream {
         }?;
 
         // Store the new video stream and return the info
+        let info = proto::VideoStreamInfo::from(&stream);
+        server.store_handle(stream.handle_id, stream);
+
+        Ok(proto::OwnedVideoStream {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(info),
+        })
+    }
+
+    pub fn from_participant(
+        server: &'static server::FfiServer,
+        request: proto::VideoStreamFromParticipantRequest,
+    ) -> FfiResult<proto::OwnedVideoStream> {
+        let (close_tx, close_rx) = oneshot::channel();
+        let stream_type = request.r#type();
+        let handle_id = server.next_id();
+        let dst_type = request.format.and_then(|_| Some(request.format()));
+        let stream = match stream_type {
+            #[cfg(not(target_arch = "wasm32"))]
+            proto::VideoStreamType::VideoStreamNative => {
+                let video_stream = Self { handle_id, close_tx, stream_type };
+                let handle = server.async_runtime.spawn(Self::participant_video_stream_task(
+                    server, request, handle_id, dst_type, close_rx,
+                ));
+                server.watch_panic(handle);
+                Ok::<FfiVideoStream, FfiError>(video_stream)
+            }
+            _ => return Err(FfiError::InvalidRequest("unsupported video stream type".into())),
+        }?;
         let info = proto::VideoStreamInfo::from(&stream);
         server.store_handle(stream.handle_id, stream);
 
@@ -154,27 +179,27 @@ impl FfiVideoStream {
         server: &'static server::FfiServer,
         request: proto::VideoStreamFromParticipantRequest,
         stream_handle: FfiHandleId,
-        participant_handle: FfiHandleId,
-        mut close_rx: oneshot::Receiver<()>,
         dst_type: Option<proto::VideoBufferType>,
-        normalize_stride: bool,
+        mut close_rx: oneshot::Receiver<()>,
     ) {
-        let p = server.retrieve_handle::<FfiParticipant>(participant_handle);
-        let p = match p {
-            Ok(p) => p,
+        let ffi_participant =
+            utils::ffi_participant_from_handle(server, request.participant_handle);
+        let ffi_participant = match ffi_participant {
+            Ok(ffi_participant) => ffi_participant,
             Err(err) => {
-                log::error!("failed to retrieve participant: {}", err);
+                log::error!("failed to get participant: {}", err);
                 return;
             }
         };
+
         let track_source = request.track_source();
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
-            p.clone(),
+            ffi_participant,
             track_source.into(),
             track_tx,
         ));
-        // track_tx is no longer held, so the track_rx will be closed
+        //  track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
 
         loop {
             let track = track_rx.recv().await;
@@ -183,45 +208,33 @@ impl FfiVideoStream {
                 let MediaStreamTrack::Video(rtc_track) = rtc_track else {
                     continue;
                 };
-
-                Self::native_video_stream_task(
-                    server,
-                    stream_handle,
-                    dst_type,
-                    normalize_stride,
-                    NativeVideoStream::new(rtc_track),
-                    close_rx,
-                )
-                .await;
+                let (c_tx, c_rx) = oneshot::channel::<()>();
+                let (done_tx, mut done_rx) = oneshot::channel::<()>();
+                server.async_runtime.spawn(async move {
+                    Self::native_video_stream_task(
+                        server,
+                        stream_handle,
+                        dst_type,
+                        request.normalize_stride,
+                        NativeVideoStream::new(rtc_track),
+                        c_rx,
+                    )
+                    .await;
+                    done_tx.send(());
+                });
+                tokio::select! {
+                    _ = &mut close_rx => {
+                        c_tx.send(());
+                        return
+                    }
+                    _ = &mut done_rx => {
+                        break
+                    }
+                }
             } else {
+                // When tracks are done (i.e. the participant leaves the room), we are done
                 break;
             }
         }
-    }
-
-    pub fn from_participant(
-        server: &'static server::FfiServer,
-        request: proto::VideoStreamFromParticipantRequest,
-    ) -> FfiResult<proto::OwnedVideoStream> {
-        let ffi_participant =
-            server.retrieve_handle::<FfiParticipant>(request.participant_handle)?.clone();
-        let (close_tx, close_rx) = oneshot::channel();
-        let stream_type = request.r#type();
-        let handle_id = server.next_id();
-        let stream = match stream_type {
-            #[cfg(not(target_arch = "wasm32"))]
-            proto::VideoStreamType::VideoStreamNative => {
-                let video_stream = Self { handle_id, close_tx, stream_type };
-                Ok::<FfiVideoStream, FfiError>(video_stream)
-            }
-            _ => return Err(FfiError::InvalidRequest("unsupported video stream type".into())),
-        }?;
-        let info = proto::VideoStreamInfo::from(&stream);
-        server.store_handle(stream.handle_id, stream);
-
-        Ok(proto::OwnedVideoStream {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(info),
-        })
     }
 }

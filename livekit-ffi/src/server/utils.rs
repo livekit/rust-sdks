@@ -2,6 +2,7 @@ use livekit::prelude::{RoomEvent, Track, TrackSource};
 use tokio::sync::mpsc;
 
 use super::room::FfiParticipant;
+use crate::{server, FfiError, FfiHandleId};
 
 pub async fn track_changed_trigger(
     participant: FfiParticipant,
@@ -48,4 +49,15 @@ pub async fn track_changed_trigger(
             _ => {}
         }
     }
+}
+
+pub fn ffi_participant_from_handle(
+    server: &'static server::FfiServer,
+    handle_id: FfiHandleId,
+) -> Result<FfiParticipant, FfiError> {
+    let ffi_participant_handle = server.retrieve_handle::<FfiParticipant>(handle_id);
+    if ffi_participant_handle.is_err() {
+        return Err(FfiError::InvalidRequest("participant not found".into()));
+    }
+    return Ok(ffi_participant_handle.unwrap().clone());
 }
