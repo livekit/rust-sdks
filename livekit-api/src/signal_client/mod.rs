@@ -16,7 +16,7 @@ use std::{
     borrow::Cow,
     fmt::Debug,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -92,7 +92,7 @@ struct SignalInner {
     url: String,
     options: SignalOptions,
     join_response: proto::JoinResponse,
-    request_id: AsyncMutex<u32>,
+    request_id: AtomicU32,
 }
 
 pub struct SignalClient {
@@ -214,7 +214,7 @@ impl SignalInner {
             options,
             url: url.to_string(),
             join_response: join_response.clone(),
-            request_id: Default::default(),
+            request_id: AtomicU32::new(0),
         });
 
         Ok((inner, join_response, events))
@@ -281,12 +281,11 @@ impl SignalInner {
 
     /// Send a signal to the server
     pub async fn send(&self, signal: proto::signal_request::Message) -> u32 {
-        let mut id = self.request_id.lock().await;
-        *id += 1;
+        let request_id = self.request_id.fetch_add(1, Ordering::SeqCst);
 
         if self.reconnecting.load(Ordering::Acquire) {
             self.queue_message(signal).await;
-            return self.request_id.lock().await.clone();
+            return request_id;
         }
 
         self.flush_queue().await; // The queue must be flusehd before sending any new signal
@@ -297,7 +296,7 @@ impl SignalInner {
             }
         }
 
-        self.request_id.lock().await.clone()
+        request_id
     }
 
     async fn queue_message(&self, signal: proto::signal_request::Message) {
