@@ -13,10 +13,18 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
-use livekit::webrtc::{prelude::*, video_stream::native::NativeVideoStream};
-use tokio::sync::oneshot;
+use livekit::{
+    prelude::Track,
+    webrtc::{prelude::*, video_stream::native::NativeVideoStream},
+};
+use tokio::sync::{mpsc, oneshot};
 
-use super::{colorcvt, room::FfiTrack, FfiHandle};
+use super::{
+    colorcvt,
+    room::{FfiParticipant, FfiTrack},
+    FfiHandle,
+};
+use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 pub struct FfiVideoStream {
@@ -140,5 +148,80 @@ impl FfiVideoStream {
         )) {
             log::warn!("failed to send video EOS: {}", err);
         }
+    }
+
+    async fn participant_video_stream_task(
+        server: &'static server::FfiServer,
+        request: proto::VideoStreamFromParticipantRequest,
+        stream_handle: FfiHandleId,
+        participant_handle: FfiHandleId,
+        mut close_rx: oneshot::Receiver<()>,
+        dst_type: Option<proto::VideoBufferType>,
+        normalize_stride: bool,
+    ) {
+        let p = server.retrieve_handle::<FfiParticipant>(participant_handle);
+        let p = match p {
+            Ok(p) => p,
+            Err(err) => {
+                log::error!("failed to retrieve participant: {}", err);
+                return;
+            }
+        };
+        let track_source = request.track_source();
+        let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
+        server.async_runtime.spawn(utils::track_changed_trigger(
+            p.clone(),
+            track_source.into(),
+            track_tx,
+        ));
+        // track_tx is no longer held, so the track_rx will be closed
+
+        loop {
+            let track = track_rx.recv().await;
+            if let Some(track) = track {
+                let rtc_track = track.rtc_track();
+                let MediaStreamTrack::Video(rtc_track) = rtc_track else {
+                    continue;
+                };
+
+                Self::native_video_stream_task(
+                    server,
+                    stream_handle,
+                    dst_type,
+                    normalize_stride,
+                    NativeVideoStream::new(rtc_track),
+                    close_rx,
+                )
+                .await;
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn from_participant(
+        server: &'static server::FfiServer,
+        request: proto::VideoStreamFromParticipantRequest,
+    ) -> FfiResult<proto::OwnedVideoStream> {
+        let ffi_participant =
+            server.retrieve_handle::<FfiParticipant>(request.participant_handle)?.clone();
+        let (close_tx, close_rx) = oneshot::channel();
+        let stream_type = request.r#type();
+        let handle_id = server.next_id();
+        let stream = match stream_type {
+            #[cfg(not(target_arch = "wasm32"))]
+            proto::VideoStreamType::VideoStreamNative => {
+                let video_stream = Self { handle_id, close_tx, stream_type };
+                Ok::<FfiVideoStream, FfiError>(video_stream)
+            }
+            _ => return Err(FfiError::InvalidRequest("unsupported video stream type".into())),
+        }?;
+        let info = proto::VideoStreamInfo::from(&stream);
+        server.store_handle(stream.handle_id, stream);
+
+        Ok(proto::OwnedVideoStream {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(info),
+        })
     }
 }

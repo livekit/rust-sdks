@@ -80,6 +80,7 @@ message FfiRequest {
     NewVideoSourceRequest new_video_source = 19;
     CaptureVideoFrameRequest capture_video_frame = 20;
     VideoConvertRequest video_convert = 21;
+    VideoStreamFromParticipantRequest video_stream_from_participant = 22;
 
     // Audio
     NewAudioStreamRequest new_audio_stream = 23;
@@ -88,6 +89,7 @@ message FfiRequest {
     NewAudioResamplerRequest new_audio_resampler = 26;
     RemixAndResampleRequest remix_and_resample = 27;
     E2eeRequest e2ee = 28;
+    AudioStreamFromParticipantRequest audio_stream_from_participant = 29;
   }
 }
 

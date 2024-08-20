@@ -36,6 +36,7 @@ pub mod colorcvt;
 pub mod logger;
 pub mod requests;
 pub mod room;
+mod utils;
 pub mod video_source;
 pub mod video_stream;
 

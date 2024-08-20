@@ -51,6 +51,10 @@ pub mod native {
         pub fn close(&mut self) {
             self.handle.close();
         }
+
+        pub fn set_native_video_stream(&mut self, native_video_stream: stream_imp::NativeVideoStream) {
+            self.handle = native_video_stream;
+        }
     }
 
     impl Stream for NativeVideoStream {
