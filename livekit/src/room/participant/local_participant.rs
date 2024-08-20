@@ -262,10 +262,9 @@ impl LocalParticipant {
         {
             match response.reason() {
                 Reason::Ok => Ok(()),
-                _ => Err(RoomError::Request(response)),
+                reason => Err(RoomError::Request { reason, message: response.message }),
             }
         } else {
-            log::error!("could not receive response for set_metadata request");
             Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
                 "request timeout".into(),
             ))))
@@ -293,10 +292,9 @@ impl LocalParticipant {
         {
             match response.reason() {
                 Reason::Ok => Ok(()),
-                _ => Err(RoomError::Request(response)),
+                reason => Err(RoomError::Request { reason, message: response.message }),
             }
         } else {
-            log::error!("could not receive response for set_attributes request");
             Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
                 "request timeout".into(),
             ))))
@@ -324,10 +322,9 @@ impl LocalParticipant {
         {
             match response.reason() {
                 Reason::Ok => Ok(()),
-                _ => Err(RoomError::Request(response)),
+                reason => Err(RoomError::Request { reason, message: response.message }),
             }
         } else {
-            log::error!("could not receive response for set_name request");
             Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
                 "request timeout".into(),
             ))))
