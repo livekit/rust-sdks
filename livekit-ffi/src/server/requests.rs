@@ -273,6 +273,14 @@ fn on_new_video_stream(
     Ok(proto::NewVideoStreamResponse { stream: Some(stream_info) })
 }
 
+fn on_video_stream_from_participant(
+    server: &'static FfiServer,
+    request: proto::VideoStreamFromParticipantRequest,
+) -> FfiResult<proto::VideoStreamFromParticipantResponse> {
+    let stream_info = video_stream::FfiVideoStream::from_participant(server, request)?;
+    Ok(proto::VideoStreamFromParticipantResponse { stream: Some(stream_info) })
+}
+
 /// Create a new video source, used to publish data to a track
 fn on_new_video_source(
     server: &'static FfiServer,
@@ -329,6 +337,15 @@ fn on_new_audio_stream(
 ) -> FfiResult<proto::NewAudioStreamResponse> {
     let stream_info = audio_stream::FfiAudioStream::from_track(server, new_stream)?;
     Ok(proto::NewAudioStreamResponse { stream: Some(stream_info) })
+}
+
+// Create a new audio stream from a participant and track source
+fn on_audio_stream_from_participant_stream(
+    server: &'static FfiServer,
+    request: proto::AudioStreamFromParticipantRequest,
+) -> FfiResult<proto::AudioStreamFromParticipantResponse> {
+    let stream_info = audio_stream::FfiAudioStream::from_participant(server, request)?;
+    Ok(proto::AudioStreamFromParticipantResponse { stream: Some(stream_info) })
 }
 
 /// Create a new audio source (used to publish audio frames to a track)
@@ -633,6 +650,11 @@ pub fn handle_request(
         proto::ffi_request::Message::NewVideoStream(new_stream) => {
             proto::ffi_response::Message::NewVideoStream(on_new_video_stream(server, new_stream)?)
         }
+        proto::ffi_request::Message::VideoStreamFromParticipant(new_stream) => {
+            proto::ffi_response::Message::VideoStreamFromParticipant(
+                on_video_stream_from_participant(server, new_stream)?,
+            )
+        }
         proto::ffi_request::Message::NewVideoSource(new_source) => {
             proto::ffi_response::Message::NewVideoSource(on_new_video_source(server, new_source)?)
         }
@@ -647,6 +669,11 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::NewAudioSource(new_source) => {
             proto::ffi_response::Message::NewAudioSource(on_new_audio_source(server, new_source)?)
+        }
+        proto::ffi_request::Message::AudioStreamFromParticipant(new_stream) => {
+            proto::ffi_response::Message::AudioStreamFromParticipant(
+                on_audio_stream_from_participant_stream(server, new_stream)?,
+            )
         }
         proto::ffi_request::Message::CaptureAudioFrame(push) => {
             proto::ffi_response::Message::CaptureAudioFrame(on_capture_audio_frame(server, push)?)

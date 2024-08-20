@@ -122,14 +122,17 @@ message FfiResponse {
     NewVideoSourceResponse new_video_source = 19;
     CaptureVideoFrameResponse capture_video_frame = 20;
     VideoConvertResponse video_convert = 21;
+    VideoStreamFromParticipantResponse video_stream_from_participant = 22;
 
     // Audio
-    NewAudioStreamResponse new_audio_stream = 22;
-    NewAudioSourceResponse new_audio_source = 23;
-    CaptureAudioFrameResponse capture_audio_frame = 24;
-    NewAudioResamplerResponse new_audio_resampler = 25;
-    RemixAndResampleResponse remix_and_resample = 26;
-    E2eeResponse e2ee = 27;
+    NewAudioStreamResponse new_audio_stream = 23;
+    NewAudioSourceResponse new_audio_source = 24;
+    CaptureAudioFrameResponse capture_audio_frame = 25;
+    NewAudioResamplerResponse new_audio_resampler = 26;
+    RemixAndResampleResponse remix_and_resample = 27;
+    AudioStreamFromParticipantResponse audio_stream_from_participant = 28;
+
+    E2eeResponse e2ee = 29;
   }
 }
 

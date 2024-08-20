@@ -3230,7 +3230,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3281,18 +3281,22 @@ pub mod ffi_response {
         CaptureVideoFrame(super::CaptureVideoFrameResponse),
         #[prost(message, tag="21")]
         VideoConvert(super::VideoConvertResponse),
-        /// Audio
         #[prost(message, tag="22")]
-        NewAudioStream(super::NewAudioStreamResponse),
+        VideoStreamFromParticipant(super::VideoStreamFromParticipantResponse),
+        /// Audio
         #[prost(message, tag="23")]
-        NewAudioSource(super::NewAudioSourceResponse),
+        NewAudioStream(super::NewAudioStreamResponse),
         #[prost(message, tag="24")]
-        CaptureAudioFrame(super::CaptureAudioFrameResponse),
+        NewAudioSource(super::NewAudioSourceResponse),
         #[prost(message, tag="25")]
-        NewAudioResampler(super::NewAudioResamplerResponse),
+        CaptureAudioFrame(super::CaptureAudioFrameResponse),
         #[prost(message, tag="26")]
-        RemixAndResample(super::RemixAndResampleResponse),
+        NewAudioResampler(super::NewAudioResamplerResponse),
         #[prost(message, tag="27")]
+        RemixAndResample(super::RemixAndResampleResponse),
+        #[prost(message, tag="28")]
+        AudioStreamFromParticipant(super::AudioStreamFromParticipantResponse),
+        #[prost(message, tag="29")]
         E2ee(super::E2eeResponse),
     }
 }
