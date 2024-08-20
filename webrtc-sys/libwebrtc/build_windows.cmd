@@ -65,13 +65,13 @@ if "!profile!" == "debug" (
 
 rem generate ninja for release
 call gn.bat gen %OUTPUT_DIR% --root="src" ^
-  --args="is_debug=!debug! is_clang=true target_cpu=\"!arch!\" use_custom_libcxx=false rtc_libvpx_build_vp9=true enable_libaom=true rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false is_component_build=false rtc_enable_protobuf=false rtc_use_h264=true ffmpeg_branding=\"Chrome\" symbol_level=0 enable_iterator_debugging=false"
+  --args="is_debug=!debug! is_clang=true target_cpu=\"!arch!\" use_custom_libcxx=false rtc_libvpx_build_vp9=true enable_libaom=true rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false is_component_build=true rtc_enable_protobuf=false rtc_use_h264=true ffmpeg_branding=\"Chrome\" symbol_level=0 enable_iterator_debugging=false"
 
 rem build
 ninja.exe -C %OUTPUT_DIR% :default
 
 rem copy static library for release build
-copy "%OUTPUT_DIR%\obj\webrtc.lib" "%ARTIFACTS_DIR%\lib"
+copy "%OUTPUT_DIR%\obj\webrtc.dll" "%ARTIFACTS_DIR%\lib"
 
 rem generate license
 call python3 "%cd%\src\tools_webrtc\libs\generate_licenses.py" ^
