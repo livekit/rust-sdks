@@ -277,7 +277,8 @@ impl RtcEngine {
     }
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
-        self.inner.running_handle.read().session.clone().get_response(request_id).await
+        let session = self.inner.running_handle.read().session.clone();
+        session.get_response(request_id).await
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
