@@ -16,10 +16,12 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     sync::{self, Arc},
+    time::Duration,
 };
 
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_protocol as proto;
+use livekit_runtime::timeout;
 use parking_lot::Mutex;
 use proto::request_response::Reason;
 
@@ -32,6 +34,8 @@ use crate::{
     rtc_engine::RtcEngine,
     DataPacket, SipDTMF, Transcription,
 };
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -238,62 +242,86 @@ impl LocalParticipant {
     }
 
     pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
-        let request_id = self
-            .inner
-            .rtc_engine
-            .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata {
-                    metadata,
-                    name: self.name(),
-                    attributes: Default::default(),
-                    ..Default::default()
-                },
-            ))
-            .await;
-        let response = self.inner.rtc_engine.get_response(request_id).await;
-        match response.reason() {
-            Reason::Ok => Ok(()),
-            _ => Err(RoomError::Request(response)),
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self
+                .inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        metadata,
+                        name: self.name(),
+                        attributes: Default::default(),
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                _ => Err(RoomError::Request(response)),
+            }
+        } else {
+            log::error!("could not receive response for set_metadata request");
+            Err(RoomError::Internal("request timeout".into()))
         }
     }
 
     pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
-        let request_id = self
-            .inner
-            .rtc_engine
-            .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata {
-                    attributes,
-                    metadata: self.metadata(),
-                    name: self.name(),
-                    ..Default::default()
-                },
-            ))
-            .await;
-        let response = self.inner.rtc_engine.get_response(request_id).await;
-        match response.reason() {
-            Reason::Ok => Ok(()),
-            _ => Err(RoomError::Request(response)),
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self
+                .inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        attributes,
+                        metadata: self.metadata(),
+                        name: self.name(),
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                _ => Err(RoomError::Request(response)),
+            }
+        } else {
+            log::error!("could not receive response for set_attributes request");
+            Err(RoomError::Internal("request timeout".into()))
         }
     }
 
     pub async fn set_name(&self, name: String) -> RoomResult<()> {
-        let request_id = self
-            .inner
-            .rtc_engine
-            .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata {
-                    name,
-                    metadata: self.metadata(),
-                    attributes: Default::default(),
-                    ..Default::default()
-                },
-            ))
-            .await;
-        let response = self.inner.rtc_engine.get_response(request_id).await;
-        match response.reason() {
-            Reason::Ok => Ok(()),
-            _ => Err(RoomError::Request(response)),
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self
+                .inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        name,
+                        metadata: self.metadata(),
+                        attributes: Default::default(),
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                _ => Err(RoomError::Request(response)),
+            }
+        } else {
+            log::error!("could not receive response for set_name request");
+            Err(RoomError::Internal("request timeout".into()))
         }
     }
 
