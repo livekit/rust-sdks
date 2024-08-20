@@ -146,7 +146,7 @@ impl SignalClient {
     /// Send a signal to the server (e.g. publish, subscribe, etc.)
     /// This will automatically queue the message if the connection fails
     /// The queue is flushed on the next restart
-    pub async fn send(&self, signal: proto::signal_request::Message) -> u32 {
+    pub async fn send(&self, signal: proto::signal_request::Message) {
         self.inner.send(signal).await
     }
 
@@ -178,6 +178,11 @@ impl SignalClient {
     /// Returns the last refreshed token (Or initial token if not refreshed yet)
     pub fn token(&self) -> String {
         self.inner.token.lock().clone()
+    }
+
+    /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
+    pub fn request_id(&self) -> u32 {
+        self.inner.request_id().clone()
     }
 }
 
@@ -214,7 +219,7 @@ impl SignalInner {
             options,
             url: url.to_string(),
             join_response: join_response.clone(),
-            request_id: AtomicU32::new(0),
+            request_id: AtomicU32::new(1),
         });
 
         Ok((inner, join_response, events))
@@ -280,12 +285,10 @@ impl SignalInner {
     }
 
     /// Send a signal to the server
-    pub async fn send(&self, signal: proto::signal_request::Message) -> u32 {
-        let request_id = self.request_id.fetch_add(1, Ordering::SeqCst);
-
+    pub async fn send(&self, signal: proto::signal_request::Message) {
         if self.reconnecting.load(Ordering::Acquire) {
             self.queue_message(signal).await;
-            return request_id;
+            return;
         }
 
         self.flush_queue().await; // The queue must be flusehd before sending any new signal
@@ -295,8 +298,6 @@ impl SignalInner {
                 self.queue_message(signal).await;
             }
         }
-
-        request_id
     }
 
     async fn queue_message(&self, signal: proto::signal_request::Message) {
@@ -320,6 +321,11 @@ impl SignalInner {
                 }
             }
         }
+    }
+
+    /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
+    pub fn request_id(&self) -> u32 {
+        self.request_id.fetch_add(1, Ordering::SeqCst)
     }
 }
 

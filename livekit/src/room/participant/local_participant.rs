@@ -20,6 +20,7 @@ use std::{
 };
 
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
+use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
 use parking_lot::Mutex;
@@ -28,10 +29,9 @@ use proto::request_response::Reason;
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
 use crate::{
     e2ee::EncryptionType,
-    options,
-    options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
+    options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    rtc_engine::RtcEngine,
+    rtc_engine::{EngineError, RtcEngine},
     DataPacket, SipDTMF, Transcription,
 };
 
@@ -243,14 +243,15 @@ impl LocalParticipant {
 
     pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
         if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self
-                .inner
+            let request_id = self.inner.rtc_engine.session().signal_client().request_id();
+            self.inner
                 .rtc_engine
                 .send_request(proto::signal_request::Message::UpdateMetadata(
                     proto::UpdateParticipantMetadata {
                         metadata,
                         name: self.name(),
                         attributes: Default::default(),
+                        request_id,
                         ..Default::default()
                     },
                 ))
@@ -265,20 +266,23 @@ impl LocalParticipant {
             }
         } else {
             log::error!("could not receive response for set_metadata request");
-            Err(RoomError::Internal("request timeout".into()))
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
         }
     }
 
     pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
         if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self
-                .inner
+            let request_id = self.inner.rtc_engine.session().signal_client().request_id();
+            self.inner
                 .rtc_engine
                 .send_request(proto::signal_request::Message::UpdateMetadata(
                     proto::UpdateParticipantMetadata {
                         attributes,
                         metadata: self.metadata(),
                         name: self.name(),
+                        request_id,
                         ..Default::default()
                     },
                 ))
@@ -293,20 +297,23 @@ impl LocalParticipant {
             }
         } else {
             log::error!("could not receive response for set_attributes request");
-            Err(RoomError::Internal("request timeout".into()))
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
         }
     }
 
     pub async fn set_name(&self, name: String) -> RoomResult<()> {
         if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self
-                .inner
+            let request_id = self.inner.rtc_engine.session().signal_client().request_id();
+            self.inner
                 .rtc_engine
                 .send_request(proto::signal_request::Message::UpdateMetadata(
                     proto::UpdateParticipantMetadata {
                         name,
                         metadata: self.metadata(),
                         attributes: Default::default(),
+                        request_id,
                         ..Default::default()
                     },
                 ))
@@ -321,7 +328,9 @@ impl LocalParticipant {
             }
         } else {
             log::error!("could not receive response for set_name request");
-            Err(RoomError::Internal("request timeout".into()))
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
         }
     }
 

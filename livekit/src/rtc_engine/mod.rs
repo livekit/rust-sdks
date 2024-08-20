@@ -267,13 +267,13 @@ impl RtcEngine {
         });
     }
 
-    pub async fn send_request(&self, msg: proto::signal_request::Message) -> u32 {
+    pub async fn send_request(&self, msg: proto::signal_request::Message) {
         // Getting the current session is OK to do without waiting for reconnection
         // SignalClient will attempt to queue the message if the session is not connected
         // Also on full_reconnect, every message is OK to ignore (Since this is another RtcSession)
         let session = self.inner.running_handle.read().session.clone();
-        session.signal_client().send(msg).await // Returns incrememted request_id and automatically
-                                                // queues the message on fail
+        session.signal_client().send(msg).await // Returns () and automatically queues the message
+                                                // on fail
     }
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
