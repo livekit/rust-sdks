@@ -269,7 +269,7 @@ fn on_new_video_stream(
     server: &'static FfiServer,
     new_stream: proto::NewVideoStreamRequest,
 ) -> FfiResult<proto::NewVideoStreamResponse> {
-    let stream_info = video_stream::FfiVideoStream::setup(server, new_stream)?;
+    let stream_info = video_stream::FfiVideoStream::from_track(server, new_stream)?;
     Ok(proto::NewVideoStreamResponse { stream: Some(stream_info) })
 }
 
@@ -327,7 +327,7 @@ fn on_new_audio_stream(
     server: &'static FfiServer,
     new_stream: proto::NewAudioStreamRequest,
 ) -> FfiResult<proto::NewAudioStreamResponse> {
-    let stream_info = audio_stream::FfiAudioStream::setup(server, new_stream)?;
+    let stream_info = audio_stream::FfiAudioStream::from_track(server, new_stream)?;
     Ok(proto::NewAudioStreamResponse { stream: Some(stream_info) })
 }
 

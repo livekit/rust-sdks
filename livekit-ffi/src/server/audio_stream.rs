@@ -13,11 +13,13 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
+use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 use super::{room::FfiTrack, FfiHandle};
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+use crate::server::utils;
 
 pub struct FfiAudioStream {
     pub handle_id: FfiHandleId,
@@ -38,7 +40,7 @@ impl FfiAudioStream {
     ///
     /// It is possible that the client receives an AudioFrame after the task is closed. The client
     /// musts ignore it.
-    pub fn setup(
+    pub fn from_track(
         server: &'static server::FfiServer,
         new_stream: proto::NewAudioStreamRequest,
     ) -> FfiResult<proto::OwnedAudioStream> {
@@ -78,6 +80,100 @@ impl FfiAudioStream {
             handle: Some(proto::FfiOwnedHandle { id: handle_id }),
             info: Some(info),
         })
+    }
+
+    pub fn from_participant(
+        server: &'static server::FfiServer,
+        request: proto::AudioStreamFromParticipantRequest,
+    ) -> FfiResult<proto::OwnedAudioStream> {
+        let (close_tx, close_rx) = oneshot::channel();
+        let handle_id = server.next_id();
+        let stream_type = request.r#type();
+        let audio_stream = match stream_type {
+            #[cfg(not(target_arch = "wasm32"))]
+            proto::AudioStreamType::AudioStreamNative => {
+                let audio_stream = Self { handle_id, stream_type, close_tx };
+
+                let handle = server.async_runtime.spawn(Self::participant_audio_stream_task(
+                    server,
+                    request,
+                    handle_id,
+                    close_rx,
+                ));
+                server.watch_panic(handle);
+                Ok::<FfiAudioStream, FfiError>(audio_stream)
+            }
+            _ => return Err(FfiError::InvalidRequest("unsupported audio stream type".into())),
+        }?;
+
+        // Store the new audio stream and return the info
+        let info = proto::AudioStreamInfo::from(&audio_stream);
+        server.store_handle(handle_id, audio_stream);
+
+        Ok(proto::OwnedAudioStream {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(info),
+        })
+    }
+
+    async fn participant_audio_stream_task(
+        server: &'static server::FfiServer,
+        request: proto::AudioStreamFromParticipantRequest,
+        stream_handle: FfiHandleId,
+        mut close_rx: oneshot::Receiver<()>,
+    ) {
+        let ffi_participant =
+            utils::ffi_participant_from_handle(server, request.participant_handle);
+        let ffi_participant = match ffi_participant {
+            Ok(ffi_participant) => ffi_participant,
+            Err(err) => {
+                log::error!("failed to get participant: {}", err);
+                return;
+            }
+        };
+
+        let track_source = request.track_source();
+        let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
+        server.async_runtime.spawn(utils::track_changed_trigger(
+            ffi_participant,
+            track_source.into(),
+            track_tx,
+        ));
+        //  track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
+
+        loop {
+            let track = track_rx.recv().await;
+            if let Some(track) = track {
+                let rtc_track = track.rtc_track();
+                let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
+                    continue;
+                };
+                let (c_tx, c_rx) = oneshot::channel::<()>();
+                let (done_tx, mut done_rx) = oneshot::channel::<()>();
+                server.async_runtime.spawn(async move {
+                    Self::native_audio_stream_task(
+                        server,
+                        stream_handle,
+                        NativeAudioStream::new(rtc_track),
+                        c_rx,
+                    )
+                    .await;
+                    done_tx.send(());
+                });
+                tokio::select! {
+                    _ = &mut close_rx => {
+                        c_tx.send(());
+                        return
+                    }
+                    _ = &mut done_rx => {
+                        break
+                    }
+                }
+            } else {
+                // When tracks are done (i.e. the participant leaves the room), we are done
+                break;
+            }
+        }
     }
 
     async fn native_audio_stream_task(
