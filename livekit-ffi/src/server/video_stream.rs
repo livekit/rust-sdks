@@ -19,7 +19,7 @@ use livekit::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-use super::{colorcvt, FfiHandle};
+use super::{colorcvt, room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
