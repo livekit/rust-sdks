@@ -16,7 +16,7 @@ pub async fn track_changed_trigger(
             let track = track_pub.track();
             match track {
                 Some(track) => {
-                    track_tx.send(track).await;
+                    let _ = track_tx.send(track).await;
                 }
                 _ => {}
             }
@@ -34,7 +34,7 @@ pub async fn track_changed_trigger(
                     let track = publication.track();
                     match track {
                         Some(track) => {
-                            track_tx.send(track.into()).await;
+                            let _ = track_tx.send(track.into()).await;
                         }
                         _ => {}
                     }

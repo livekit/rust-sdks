@@ -220,11 +220,11 @@ impl FfiVideoStream {
                         c_rx,
                     )
                     .await;
-                    done_tx.send(());
+                    let _ = done_tx.send(());
                 });
                 tokio::select! {
                     _ = &mut close_rx => {
-                        c_tx.send(());
+                        let _ = c_tx.send(());
                         return
                     }
                     _ = &mut done_rx => {
