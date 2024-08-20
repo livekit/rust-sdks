@@ -214,6 +214,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             dtx: opts.dtx,
             red: opts.red,
             simulcast: opts.simulcast,
+            stream: opts.stream,
         }
     }
 }

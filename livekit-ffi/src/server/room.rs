@@ -773,6 +773,11 @@ async fn forward_event(
 
             inner.pending_unpublished_tracks.lock().insert(publication.sid());
         }
+        RoomEvent::LocalTrackSubscribed { track } => {
+            let _ = send_event(proto::room_event::Message::LocalTrackSubscribed(
+                proto::LocalTrackSubscribed { track_sid: track.sid().to_string() },
+            ));
+        }
         RoomEvent::TrackPublished { publication, participant } => {
             let handle_id = server.next_id();
             let ffi_publication = FfiPublication {

@@ -16,21 +16,26 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     sync::{self, Arc},
+    time::Duration,
 };
 
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
+use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
+use livekit_runtime::timeout;
 use parking_lot::Mutex;
+use proto::request_response::Reason;
 
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
 use crate::{
     e2ee::EncryptionType,
-    options,
-    options::{compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
+    options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    rtc_engine::RtcEngine,
+    rtc_engine::{EngineError, RtcEngine},
     DataPacket, SipDTMF, Transcription,
 };
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
@@ -186,6 +191,7 @@ impl LocalParticipant {
             disable_dtx: !options.dtx,
             disable_red: !options.red,
             encryption: proto::encryption::Type::from(self.local.encryption_type) as i32,
+            stream: options.stream.clone(),
             ..Default::default()
         };
 
@@ -236,48 +242,93 @@ impl LocalParticipant {
     }
 
     pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
-        self.inner
-            .rtc_engine
-            .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata {
-                    metadata,
-                    name: self.name(),
-                    attributes: Default::default(),
-                    ..Default::default()
-                },
-            ))
-            .await;
-        Ok(())
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
+            self.inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        metadata,
+                        name: self.name(),
+                        attributes: Default::default(),
+                        request_id,
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                reason => Err(RoomError::Request { reason, message: response.message }),
+            }
+        } else {
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
+        }
     }
 
     pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
-        self.inner
-            .rtc_engine
-            .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata {
-                    attributes,
-                    metadata: self.metadata(),
-                    name: self.name(),
-                    ..Default::default()
-                },
-            ))
-            .await;
-        Ok(())
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
+            self.inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        attributes,
+                        metadata: self.metadata(),
+                        name: self.name(),
+                        request_id,
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                reason => Err(RoomError::Request { reason, message: response.message }),
+            }
+        } else {
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
+        }
     }
 
     pub async fn set_name(&self, name: String) -> RoomResult<()> {
-        self.inner
-            .rtc_engine
-            .send_request(proto::signal_request::Message::UpdateMetadata(
-                proto::UpdateParticipantMetadata {
-                    name,
-                    metadata: self.metadata(),
-                    attributes: Default::default(),
-                    ..Default::default()
-                },
-            ))
-            .await;
-        Ok(())
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
+            self.inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        name,
+                        metadata: self.metadata(),
+                        attributes: Default::default(),
+                        request_id,
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                reason => Err(RoomError::Request { reason, message: response.message }),
+            }
+        } else {
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
+        }
     }
 
     pub async fn unpublish_track(
