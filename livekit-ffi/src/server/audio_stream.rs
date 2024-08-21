@@ -18,8 +18,8 @@ use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{room::FfiTrack, FfiHandle};
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use crate::server::utils;
+use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 pub struct FfiAudioStream {
     pub handle_id: FfiHandleId,
@@ -95,10 +95,7 @@ impl FfiAudioStream {
                 let audio_stream = Self { handle_id, stream_type, close_tx };
 
                 let handle = server.async_runtime.spawn(Self::participant_audio_stream_task(
-                    server,
-                    request,
-                    handle_id,
-                    close_rx,
+                    server, request, handle_id, close_rx,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
