@@ -199,7 +199,7 @@ impl FfiVideoStream {
             track_source.into(),
             track_tx,
         ));
-        //  track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
+        // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
 
         loop {
             let track = track_rx.recv().await;
@@ -232,7 +232,7 @@ impl FfiVideoStream {
                     }
                 }
             } else {
-                // When tracks are done (i.e. the participant leaves the room), we are done
+                // when tracks are done (i.e. the participant leaves the room), we are done
                 break;
             }
         }

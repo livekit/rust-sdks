@@ -11,12 +11,8 @@ pub async fn track_changed_trigger(
 ) {
     for track_pub in participant.participant.track_publications().values() {
         if track_pub.source() == track_source.into() {
-            let track = track_pub.track();
-            match track {
-                Some(track) => {
-                    let _ = track_tx.send(track).await;
-                }
-                _ => {}
+            if let Some(track) = track_pub.track() {
+                let _ = track_tx.send(track).await;
             }
         }
     }
@@ -29,12 +25,8 @@ pub async fn track_changed_trigger(
                     continue;
                 }
                 if publication.source() == track_source.into() {
-                    let track = publication.track();
-                    match track {
-                        Some(track) => {
-                            let _ = track_tx.send(track.into()).await;
-                        }
-                        _ => {}
+                    if let Some(track) = publication.track() {
+                        let _ = track_tx.send(track.into()).await;
                     }
                 }
             }
