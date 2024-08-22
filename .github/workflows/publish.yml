@@ -15,9 +15,11 @@
 name: Publish crates
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - v*
+      - ffi-v*
 
 env:
   CARGO_TERM_COLOR: always
