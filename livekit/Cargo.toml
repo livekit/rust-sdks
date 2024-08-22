@@ -29,7 +29,7 @@ __lk-internal = []
 [dependencies]
 livekit-runtime = { path = "../livekit-runtime", version = "0.3.0", default-features = false }
 livekit-api = { path = "../livekit-api", version = "0.4.0", default-features = false }
-libwebrtc = { path = "../libwebrtc", version = "0.3.4" }
+libwebrtc = { path = "../libwebrtc", version = "0.3.5" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.5" }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
