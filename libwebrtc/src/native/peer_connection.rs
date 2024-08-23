@@ -515,9 +515,13 @@ impl sys_pcf::PeerConnectionObserver for PeerObserver {
         }
     }
 
-    fn on_add_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
+    fn on_add_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {
+        log::warn!("NEIL on_add_stream not implemented");
+    }
 
-    fn on_remove_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
+    fn on_remove_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {
+        log::warn!("NEIL on_remove_stream not implemented");
+    }
 
     fn on_data_channel(&self, data_channel: SharedPtr<sys_dc::ffi::DataChannel>) {
         if let Some(f) = self.data_channel_handler.lock().as_mut() {

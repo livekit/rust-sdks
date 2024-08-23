@@ -356,6 +356,7 @@ void PeerConnection::OnAddStream(
 
 void PeerConnection::OnRemoveStream(
     rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
+    observer_->on_remove_stream(std::make_unique<MediaStream>(rtc_runtime_, stream));
   // Find current MediaStream
   // observer_->on_remove_stream(std::make_unique<MediaStream>(rtc_runtime_,
   // stream));
