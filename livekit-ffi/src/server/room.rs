@@ -403,6 +403,16 @@ impl RoomInner {
                 let track = LocalTrack::try_from(ffi_track.track.clone())
                     .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack".into()))?;
 
+                // protobuf 3 doesn't let us require fields, instead defaulting to zero.
+                if publish.options.clone().is_some_and(|opts| {
+                    opts.video_encoding
+                        .is_some_and(|enc| enc.max_framerate == 0.0 || enc.max_bitrate == 0)
+                }) {
+                    return Err(FfiError::InvalidRequest(
+                        "VideoEncoding must specify both max_framerate and max_bitrate".into(),
+                    ));
+                }
+
                 let publication = inner
                     .room
                     .local_participant()
