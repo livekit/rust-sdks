@@ -142,7 +142,7 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   }
 
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
-      frame.timestamp_us(), rtc::TimeMicros());
+      timestamp_us, rtc::TimeMicros());
 
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
       frame.video_frame_buffer();
