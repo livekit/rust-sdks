@@ -136,6 +136,11 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
     const webrtc::VideoFrame& frame) {
   webrtc::MutexLock lock(&mutex_);
 
+  int64_t timestamp_us = frame.timestamp_us();
+  if (timestamp_us == 0) {
+    timestamp_us = rtc::TimeMicros();
+  }
+
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       frame.timestamp_us(), rtc::TimeMicros());
 

@@ -99,14 +99,6 @@ impl NativeVideoSource {
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder.pin_mut().set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
 
-        if frame.timestamp_us == 0 {
-            // If the timestamp is set to 0, default to now
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
-        } else {
-            builder.pin_mut().set_timestamp_us(frame.timestamp_us);
-        }
-
         self.sys_handle.on_captured_frame(&builder.pin_mut().build());
     }
 
