@@ -18,7 +18,7 @@ use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
         ContinualGatheringPolicy, IceTransportsType, MediaStream, MediaStreamTrack,
-        RtcConfiguration,
+        RtcConfiguration, RtpReceiver,
     },
     rtp_transceiver::RtpTransceiver,
     RtcError,
@@ -591,6 +591,7 @@ impl RoomSession {
             EngineEvent::MediaTrack { track, stream, transceiver } => {
                 self.handle_media_track(track, stream, transceiver)
             }
+            EngineEvent::MediaTrackRemoved { stream } => self.handle_stream_removed(stream),
             EngineEvent::RoomUpdate { room } => self.handle_room_update(room),
             EngineEvent::Resuming(tx) => self.handle_resuming(tx),
             EngineEvent::Resumed(tx) => self.handle_resumed(tx),
@@ -742,6 +743,40 @@ impl RoomSession {
         if let Some(remote_participant) = remote_participant {
             livekit_runtime::spawn(async move {
                 remote_participant.add_subscribed_media_track(track_id, track, transceiver).await;
+            });
+        } else {
+            // The server should send participant updates before sending a new offer, this should
+            // happen
+            log::error!("received track from an unknown participant: {:?}", participant_sid);
+        }
+    }
+
+    fn handle_stream_removed(&self, stream: MediaStream) {
+        let stream_id = stream.id();
+        let lk_stream_id = unpack_stream_id(&stream_id);
+        if lk_stream_id.is_none() {
+            log::error!("received track with an invalid track_id: {:?}", &stream_id);
+            return;
+        }
+
+        let (participant_sid, stream_id) = lk_stream_id.unwrap();
+        if !stream_id.starts_with("TR") {
+            return
+        }
+
+        let participant_sid: ParticipantSid = participant_sid.to_owned().try_into().unwrap();
+
+        let remote_participant = self
+            .remote_participants
+            .read()
+            .values()
+            .find(|x| &x.sid() == &participant_sid)
+            .cloned();
+
+        let track_id = stream_id.to_owned().try_into().unwrap();
+        if let Some(remote_participant) = remote_participant {
+            livekit_runtime::spawn(async move {
+                remote_participant.remove_subscribed_media_track(track_id).await;
             });
         } else {
             // The server should send participant updates before sending a new offer, this should

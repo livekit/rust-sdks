@@ -47,6 +47,10 @@ pub enum RtcEvent {
         transceiver: RtpTransceiver,
         target: proto::SignalTarget,
     },
+    StreamRemoved {
+        stream: MediaStream,
+        target: proto::SignalTarget,
+    },
     Data {
         data: Vec<u8>,
         binary: bool,
@@ -102,6 +106,15 @@ fn on_track(target: proto::SignalTarget, emitter: RtcEmitter) -> rtc::peer_conne
     })
 }
 
+fn on_track_removed(
+    target: proto::SignalTarget,
+    emitter: RtcEmitter,
+) -> rtc::peer_connection::OnStreamRemoved {
+    Box::new(move |event| {
+        let _ = emitter.send(RtcEvent::StreamRemoved { stream: event.stream, target });
+    })
+}
+
 fn on_ice_candidate_error(
     _target: proto::SignalTarget,
     _emitter: RtcEmitter,
@@ -122,6 +135,9 @@ pub fn forward_pc_events(transport: &mut PeerTransport, rtc_emitter: RtcEmitter)
         .on_data_channel(Some(on_data_channel(signal_target, rtc_emitter.clone())));
 
     transport.peer_connection().on_track(Some(on_track(signal_target, rtc_emitter.clone())));
+    transport
+        .peer_connection()
+        .on_stream_removed(Some(on_track_removed(signal_target, rtc_emitter.clone())));
 
     transport.peer_connection().on_connection_state_change(Some(on_connection_state_change(
         signal_target,

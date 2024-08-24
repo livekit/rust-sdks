@@ -92,6 +92,9 @@ pub enum EngineEvent {
         stream: MediaStream,
         transceiver: RtpTransceiver,
     },
+    MediaTrackRemoved {
+        stream: MediaStream,
+    },
     Data {
         participant_sid: Option<ParticipantSid>,
         participant_identity: Option<ParticipantIdentity>,
@@ -444,6 +447,9 @@ impl EngineInner {
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });
+            }
+            SessionEvent::StreamRemoved { stream } => {
+                let _ = self.engine_tx.send(EngineEvent::MediaTrackRemoved { stream });
             }
             SessionEvent::ParticipantUpdate { updates } => {
                 let _ = self.engine_tx.send(EngineEvent::ParticipantUpdate { updates });
