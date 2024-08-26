@@ -122,7 +122,6 @@ jobs:
           local-cache: true
         env:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: echo $ANDROID_NDK_ROOT
 
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
