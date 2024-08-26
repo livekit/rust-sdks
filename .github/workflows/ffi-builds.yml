@@ -78,28 +78,27 @@ jobs:
             dylib: liblivekit_ffi.so
             target: aarch64-unknown-linux-gnu
             name: ffi-linux-arm64
-          ## android builds broke
-          # - os: ubuntu-20.04
-          #   platform: android
-          #   dylib: liblivekit_ffi.so
-          #   jar: libwebrtc.jar
-          #   target: aarch64-linux-android
-          #   name: ffi-android-arm64
-          #   buildargs: --no-default-features --features "rustls-tls-webpki-roots"
-          # - os: ubuntu-20.04
-          #   platform: android
-          #   dylib: liblivekit_ffi.so
-          #   jar: libwebrtc.jar
-          #   target: armv7-linux-androideabi
-          #   name: ffi-android-armv7
-          #   buildargs: --no-default-features --features "rustls-tls-webpki-roots"
-          # - os: ubuntu-20.04
-          #   platform: android
-          #   dylib: liblivekit_ffi.so
-          #   jar: libwebrtc.jar
-          #   target: x86_64-linux-android
-          #   name: ffi-android-x86_64
-          #   buildargs: --no-default-features --features "rustls-tls-webpki-roots"
+          - os: ubuntu-20.04
+            platform: android
+            dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
+            target: aarch64-linux-android
+            name: ffi-android-arm64
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
+          - os: ubuntu-20.04
+            platform: android
+            dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
+            target: armv7-linux-androideabi
+            name: ffi-android-armv7
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
+          - os: ubuntu-20.04
+            platform: android
+            dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
+            target: x86_64-linux-android
+            name: ffi-android-x86_64
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -112,6 +111,12 @@ jobs:
         with:
           toolchain: stable
           target: ${{ matrix.target }}
+
+      - name: Set up NDK
+        if: ${{ matrix.platform == 'android' }}
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c
 
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
