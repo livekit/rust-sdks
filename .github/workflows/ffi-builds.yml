@@ -117,6 +117,7 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
+          add-to-path: false
 
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
@@ -160,6 +161,8 @@ jobs:
       # on android use cargo ndk
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
