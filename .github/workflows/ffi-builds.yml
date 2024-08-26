@@ -164,7 +164,8 @@ jobs:
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
         env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: /home/runner/.setup-ndk/r25c
+          ANDROID_NDK_ROOT: /home/runner/.setup-ndk/r25c
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
