@@ -16,7 +16,7 @@ use std::{
     borrow::Cow,
     fmt::Debug,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -44,7 +44,7 @@ pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
 pub type SignalResult<T> = Result<T, SignalError>;
 
 pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 15;
 
 #[derive(Error, Debug)]
 pub enum SignalError {
@@ -92,6 +92,7 @@ struct SignalInner {
     url: String,
     options: SignalOptions,
     join_response: proto::JoinResponse,
+    request_id: AtomicU32,
 }
 
 pub struct SignalClient {
@@ -178,6 +179,11 @@ impl SignalClient {
     pub fn token(&self) -> String {
         self.inner.token.lock().clone()
     }
+
+    /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
+    pub fn next_request_id(&self) -> u32 {
+        self.inner.next_request_id().clone()
+    }
 }
 
 impl SignalInner {
@@ -213,6 +219,7 @@ impl SignalInner {
             options,
             url: url.to_string(),
             join_response: join_response.clone(),
+            request_id: AtomicU32::new(1),
         });
 
         Ok((inner, join_response, events))
@@ -314,6 +321,11 @@ impl SignalInner {
                 }
             }
         }
+    }
+
+    /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
+    pub fn next_request_id(&self) -> u32 {
+        self.request_id.fetch_add(1, Ordering::SeqCst)
     }
 }
 

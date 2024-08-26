@@ -112,6 +112,8 @@ pub struct ParticipantInfo {
     pub kind: i32,
     #[prost(map="string, string", tag="15")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(enumeration="DisconnectReason", tag="16")]
+    pub disconnect_reason: i32,
 }
 /// Nested message and enum types in `ParticipantInfo`.
 pub mod participant_info {
@@ -735,6 +737,67 @@ pub struct RtpStats {
     /// NEXT_ID: 47
     #[prost(message, optional, tag="46")]
     pub rebased_report_drift: ::core::option::Option<RtpDrift>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RtpForwarderState {
+    #[prost(bool, tag="1")]
+    pub started: bool,
+    #[prost(int32, tag="2")]
+    pub reference_layer_spatial: i32,
+    #[prost(int64, tag="3")]
+    pub pre_start_time: i64,
+    #[prost(uint64, tag="4")]
+    pub ext_first_timestamp: u64,
+    #[prost(uint64, tag="5")]
+    pub dummy_start_timestamp_offset: u64,
+    #[prost(message, optional, tag="6")]
+    pub rtp_munger: ::core::option::Option<RtpMungerState>,
+    #[prost(oneof="rtp_forwarder_state::CodecMunger", tags="7")]
+    pub codec_munger: ::core::option::Option<rtp_forwarder_state::CodecMunger>,
+}
+/// Nested message and enum types in `RTPForwarderState`.
+pub mod rtp_forwarder_state {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum CodecMunger {
+        #[prost(message, tag="7")]
+        Vp8Munger(super::Vp8MungerState),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RtpMungerState {
+    #[prost(uint64, tag="1")]
+    pub ext_last_sequence_number: u64,
+    #[prost(uint64, tag="2")]
+    pub ext_second_last_sequence_number: u64,
+    #[prost(uint64, tag="3")]
+    pub ext_last_timestamp: u64,
+    #[prost(uint64, tag="4")]
+    pub ext_second_last_timestamp: u64,
+    #[prost(bool, tag="5")]
+    pub last_marker: bool,
+    #[prost(bool, tag="6")]
+    pub second_last_marker: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Vp8MungerState {
+    #[prost(int32, tag="1")]
+    pub ext_last_picture_id: i32,
+    #[prost(bool, tag="2")]
+    pub picture_id_used: bool,
+    #[prost(uint32, tag="3")]
+    pub last_tl0_pic_idx: u32,
+    #[prost(bool, tag="4")]
+    pub tl0_pic_idx_used: bool,
+    #[prost(bool, tag="5")]
+    pub tid_used: bool,
+    #[prost(uint32, tag="6")]
+    pub last_key_idx: u32,
+    #[prost(bool, tag="7")]
+    pub key_idx_used: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2274,9 +2337,9 @@ pub mod signal_response {
         /// Subscription response, client should not expect any media from this subscription if it fails
         #[prost(message, tag="21")]
         SubscriptionResponse(super::SubscriptionResponse),
-        /// Errors relating to user inititated requests that carry a `request_id`
+        /// Response relating to user inititated requests that carry a `request_id`
         #[prost(message, tag="22")]
-        ErrorResponse(super::ErrorResponse),
+        RequestResponse(super::RequestResponse),
         /// notify to the publisher when a published track has been subscribed for the first time
         #[prost(message, tag="23")]
         TrackSubscribed(super::TrackSubscribed),
@@ -2778,20 +2841,20 @@ pub struct SubscriptionResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ErrorResponse {
+pub struct RequestResponse {
     #[prost(uint32, tag="1")]
     pub request_id: u32,
-    #[prost(enumeration="error_response::Reason", tag="2")]
+    #[prost(enumeration="request_response::Reason", tag="2")]
     pub reason: i32,
     #[prost(string, tag="3")]
     pub message: ::prost::alloc::string::String,
 }
-/// Nested message and enum types in `ErrorResponse`.
-pub mod error_response {
+/// Nested message and enum types in `RequestResponse`.
+pub mod request_response {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Reason {
-        Unknown = 0,
+        Ok = 0,
         NotFound = 1,
         NotAllowed = 2,
         LimitExceeded = 3,
@@ -2803,7 +2866,7 @@ pub mod error_response {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Reason::Unknown => "UNKNOWN",
+                Reason::Ok => "OK",
                 Reason::NotFound => "NOT_FOUND",
                 Reason::NotAllowed => "NOT_ALLOWED",
                 Reason::LimitExceeded => "LIMIT_EXCEEDED",
@@ -2812,7 +2875,7 @@ pub mod error_response {
         /// Creates an enum from field names used in the ProtoBuf definition.
         pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
             match value {
-                "UNKNOWN" => Some(Self::Unknown),
+                "OK" => Some(Self::Ok),
                 "NOT_FOUND" => Some(Self::NotFound),
                 "NOT_ALLOWED" => Some(Self::NotAllowed),
                 "LIMIT_EXCEEDED" => Some(Self::LimitExceeded),
@@ -2944,6 +3007,8 @@ pub struct JobState {
     pub ended_at: i64,
     #[prost(int64, tag="5")]
     pub updated_at: i64,
+    #[prost(string, tag="6")]
+    pub participant_identity: ::prost::alloc::string::String,
 }
 /// from Worker to Server
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3234,10 +3299,12 @@ pub struct RoomAgentDispatch {
 pub struct DeleteAgentDispatchRequest {
     #[prost(string, tag="1")]
     pub dispatch_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub room: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListAgentDispatchRequesst {
+pub struct ListAgentDispatchRequest {
     /// if set, only the dispatch whose id is given will be returned
     #[prost(string, tag="1")]
     pub dispatch_id: ::prost::alloc::string::String,

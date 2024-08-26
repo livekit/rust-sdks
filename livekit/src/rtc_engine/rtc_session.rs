@@ -106,11 +106,13 @@ pub enum SessionEvent {
     RoomUpdate {
         room: proto::Room,
     },
+    LocalTrackSubscribed {
+        track_sid: String,
+    },
     Close {
         source: String,
         reason: DisconnectReason,
-        can_reconnect: bool,
-        full_reconnect: bool,
+        action: proto::leave_request::Action,
         retry_now: bool,
     },
 }
@@ -148,6 +150,8 @@ struct SessionInner {
 
     options: EngineOptions,
     negotiation_debouncer: Mutex<Option<Debouncer>>,
+
+    pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
 }
 
 /// This struct holds a WebRTC session
@@ -233,6 +237,7 @@ impl RtcSession {
             emitter,
             options,
             negotiation_debouncer: Default::default(),
+            pending_requests: Default::default(),
         });
 
         // Start session tasks
@@ -336,6 +341,10 @@ impl RtcSession {
     pub fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
         self.inner.data_channel(target, kind)
     }
+
+    pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
+        self.inner.get_response(request_id).await
+    }
 }
 
 impl SessionInner {
@@ -411,9 +420,8 @@ impl SessionInner {
                             self.on_session_disconnected(
                                 format!("signal client closed: {:?}", reason).as_str(),
                                 DisconnectReason::UnknownReason,
-                                true,
+                                proto::leave_request::Action::Disconnect,
                                 false,
-                                false
                             );
                         }
                     }
@@ -471,8 +479,7 @@ impl SessionInner {
                 self.on_session_disconnected(
                     "server request to leave",
                     leave.reason(),
-                    leave.can_reconnect,
-                    true,
+                    leave.action(),
                     true,
                 );
             }
@@ -498,6 +505,17 @@ impl SessionInner {
             proto::signal_response::Message::RoomUpdate(room_update) => {
                 let _ =
                     self.emitter.send(SessionEvent::RoomUpdate { room: room_update.room.unwrap() });
+            }
+            proto::signal_response::Message::TrackSubscribed(track_subscribed) => {
+                let _ = self.emitter.send(SessionEvent::LocalTrackSubscribed {
+                    track_sid: track_subscribed.track_sid,
+                });
+            }
+            proto::signal_response::Message::RequestResponse(request_response) => {
+                let mut pending_requests = self.pending_requests.lock();
+                if let Some(tx) = pending_requests.remove(&request_response.request_id) {
+                    let _ = tx.send(request_response);
+                }
             }
             _ => {}
         }
@@ -530,8 +548,7 @@ impl SessionInner {
                     self.on_session_disconnected(
                         "pc_state failed",
                         DisconnectReason::UnknownReason,
-                        true,
-                        false,
+                        proto::leave_request::Action::Resume,
                         false,
                     );
                 }
@@ -747,23 +764,21 @@ impl SessionInner {
         &self,
         source: &str,
         reason: DisconnectReason,
-        can_reconnect: bool,
+        action: proto::leave_request::Action,
         retry_now: bool,
-        full_reconnect: bool,
     ) {
         let _ = self.emitter.send(SessionEvent::Close {
             source: source.to_owned(),
             reason,
-            can_reconnect,
+            action,
             retry_now,
-            full_reconnect,
         });
     }
 
     async fn close(&self) {
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
-                can_reconnect: false,
+                action: proto::leave_request::Action::Disconnect.into(),
                 reason: DisconnectReason::ClientInitiated as i32,
                 ..Default::default()
             }))
@@ -778,8 +793,8 @@ impl SessionInner {
     async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         let simulate_leave = || {
             self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                action: proto::leave_request::Action::Reconnect.into(),
                 reason: DisconnectReason::ClientInitiated as i32,
-                can_reconnect: true,
                 ..Default::default()
             }))
         };
@@ -985,6 +1000,12 @@ impl SessionInner {
         } else {
             unreachable!()
         }
+    }
+
+    async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
+        let (tx, rx) = oneshot::channel();
+        self.pending_requests.lock().insert(request_id, tx);
+        rx.await.unwrap()
     }
 }
 
