@@ -287,7 +287,7 @@ fn on_enable_remote_track(
             }
             enabled = track.is_enabled();
         }
-        _ => return Err(FfiError::InvalidRequest("track is not a local track".into())),
+        _ => return Err(FfiError::InvalidRequest("track is not a remote track".into())),
     }
 
     Ok(proto::EnableRemoteTrackResponse {
