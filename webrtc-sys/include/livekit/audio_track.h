@@ -98,6 +98,11 @@ class AudioTrackSource {
                            uint32_t number_of_channels,
                            size_t number_of_frames);
 
+    void on_captured_frame_u8(rust::Slice<const uint8_t> audio_data,
+                           uint32_t sample_rate,
+                           uint32_t number_of_channels,
+                           size_t number_of_frames);
+
    private:
     mutable webrtc::Mutex mutex_;
     std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
@@ -112,6 +117,11 @@ class AudioTrackSource {
   void set_audio_options(const AudioSourceOptions& options) const;
 
   void on_captured_frame(rust::Slice<const int16_t> audio_data,
+                         uint32_t sample_rate,
+                         uint32_t number_of_channels,
+                         size_t number_of_frames) const;
+
+  void on_captured_frame_u8(rust::Slice<const uint8_t> audio_data,
                          uint32_t sample_rate,
                          uint32_t number_of_channels,
                          size_t number_of_frames) const;
