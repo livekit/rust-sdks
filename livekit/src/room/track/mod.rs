@@ -19,7 +19,6 @@ use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
-use tokio::sync::{broadcast, oneshot};
 
 use crate::prelude::*;
 
