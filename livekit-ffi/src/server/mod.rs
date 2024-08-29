@@ -196,7 +196,6 @@ impl FfiServer {
     }
 
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
-        log::info!("NEIL dropping handle {}", id);
         let existed = self.ffi_handles.remove(&id).is_some();
         let _ = self.handle_dropped_tx.send(id).is_ok();
         return existed;
