@@ -64,7 +64,7 @@ impl FfiVideoStream {
                     new_stream.normalize_stride,
                     NativeVideoStream::new(rtc_track),
                     self_dropped_rx,
-                    server.watch_handle_dropped()
+                    server.watch_handle_dropped(),
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiVideoStream, FfiError>(video_stream)
