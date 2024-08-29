@@ -57,7 +57,14 @@ impl FfiAudioStream {
             proto::AudioStreamType::AudioStreamNative => {
                 let audio_stream = Self { handle_id, stream_type, close_tx };
 
-                let native_stream = NativeAudioStream::new(rtc_track);
+                let sample_rate =
+                    if new_stream.sample_rate == 0 { 48000 } else { new_stream.sample_rate as i32 };
+
+                let num_channels =
+                    if new_stream.num_channels == 0 { 1 } else { new_stream.num_channels as i32 };
+
+                let native_stream =
+                    NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
                 let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     handle_id,

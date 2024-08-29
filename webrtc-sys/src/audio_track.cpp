@@ -75,8 +75,12 @@ void AudioTrack::remove_sink(
   sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
 }
 
-NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer)
-    : observer_(std::move(observer)) {}
+NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer,
+                                 int sample_rate,
+                                 int num_channels)
+    : observer_(std::move(observer)),
+      sample_rate_(sample_rate),
+      num_channels_(num_channels) {}
 
 void NativeAudioSink::OnData(const void* audio_data,
                              int bits_per_sample,
@@ -84,14 +88,35 @@ void NativeAudioSink::OnData(const void* audio_data,
                              size_t number_of_channels,
                              size_t number_of_frames) {
   RTC_CHECK_EQ(16, bits_per_sample);
-  rust::Slice<const int16_t> data(static_cast<const int16_t*>(audio_data),
-                                  number_of_channels * number_of_frames);
-  observer_->on_data(data, sample_rate, number_of_channels, number_of_frames);
+
+  const int16_t* data = static_cast<const int16_t*>(audio_data);
+
+  if (sample_rate_ != sample_rate || num_channels_ != number_of_channels) {
+    // resample/remix before capturing
+    webrtc::voe::RemixAndResample(data, number_of_frames, number_of_channels,
+                                  sample_rate, &resampler_, &frame_);
+
+    rust::Slice<const int16_t> rust_slice(
+        frame_.data(), frame_.num_channels() * frame_.samples_per_channel());
+
+    observer_->on_data(rust_slice, frame_.sample_rate_hz(),
+                       frame_.num_channels(), frame_.samples_per_channel());
+
+  } else {
+    rust::Slice<const int16_t> rust_slice(
+        data, number_of_channels * number_of_frames);
+
+    observer_->on_data(rust_slice, sample_rate, number_of_channels,
+                       number_of_frames);
+  }
 }
 
 std::shared_ptr<NativeAudioSink> new_native_audio_sink(
-    rust::Box<AudioSinkWrapper> observer) {
-  return std::make_shared<NativeAudioSink>(std::move(observer));
+    rust::Box<AudioSinkWrapper> observer,
+    int sample_rate,
+    int num_channels) {
+  return std::make_shared<NativeAudioSink>(std::move(observer), sample_rate,
+                                           num_channels);
 }
 
 AudioTrackSource::InternalSource::InternalSource(
