@@ -761,7 +761,7 @@ impl RoomSession {
 
         let (participant_sid, stream_id) = lk_stream_id.unwrap();
         if !stream_id.starts_with("TR") {
-            return
+            return;
         }
 
         let participant_sid: ParticipantSid = participant_sid.to_owned().try_into().unwrap();

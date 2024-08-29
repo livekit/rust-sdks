@@ -13,8 +13,11 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
-use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use tokio::sync::oneshot;
+use livekit::{
+    track::{AudioTrack, LocalAudioTrack, RemoteAudioTrack, Track},
+    webrtc::{audio_stream::native::NativeAudioStream, prelude::*},
+};
+use tokio::sync::{broadcast, oneshot};
 
 use super::{room::FfiTrack, FfiHandle};
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -24,7 +27,7 @@ pub struct FfiAudioStream {
     pub stream_type: proto::AudioStreamType,
 
     #[allow(dead_code)]
-    close_tx: oneshot::Sender<()>, // Close the stream on drop
+    self_dropped_tx: oneshot::Sender<()>, // Close the stream on drop
 }
 
 impl FfiHandle for FfiAudioStream {}
@@ -44,25 +47,27 @@ impl FfiAudioStream {
     ) -> FfiResult<proto::OwnedAudioStream> {
         let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?.clone();
         let rtc_track = ffi_track.track.rtc_track();
+        let track_dropped_rx = ffi_track.track.dropped_rx();
+        let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
 
         let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
             return Err(FfiError::InvalidRequest("not an audio track".into()));
         };
 
-        let (close_tx, close_rx) = oneshot::channel();
         let stream_type = new_stream.r#type();
         let handle_id = server.next_id();
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
-                let audio_stream = Self { handle_id, stream_type, close_tx };
+                let audio_stream = Self { handle_id, stream_type, self_dropped_tx };
 
                 let native_stream = NativeAudioStream::new(rtc_track);
                 let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     handle_id,
                     native_stream,
-                    close_rx,
+                    track_dropped_rx,
+                    self_dropped_rx,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -84,11 +89,15 @@ impl FfiAudioStream {
         server: &'static server::FfiServer,
         stream_handle_id: FfiHandleId,
         mut native_stream: NativeAudioStream,
-        mut close_rx: oneshot::Receiver<()>,
+        mut track_dropped_rx: broadcast::Receiver<()>,
+        mut self_dropped_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
-                _ = &mut close_rx => {
+                _ = track_dropped_rx.recv() => {
+                    break;
+                }
+                _ = &mut self_dropped_rx => {
                     break;
                 }
                 frame = native_stream.next() => {

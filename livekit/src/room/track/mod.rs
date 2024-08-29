@@ -19,6 +19,7 @@ use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
+use tokio::sync::{broadcast, oneshot};
 
 use crate::prelude::*;
 
@@ -120,6 +121,15 @@ impl Track {
             Self::LocalVideo(track) => track.get_stats().await,
             Self::RemoteAudio(track) => track.get_stats().await,
             Self::RemoteVideo(track) => track.get_stats().await,
+        }
+    }
+
+    pub fn dropped_rx(&self) -> broadcast::Receiver<()> {
+        match self {
+            Self::LocalAudio(track) => track.dropped_rx(),
+            Self::LocalVideo(track) => track.dropped_rx(),
+            Self::RemoteAudio(track) => track.dropped_rx(),
+            Self::RemoteVideo(track) => track.dropped_rx(),
         }
     }
 }
