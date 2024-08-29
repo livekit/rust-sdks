@@ -38,8 +38,10 @@ pub mod native {
     }
 
     impl NativeAudioStream {
-        pub fn new(audio_track: RtcAudioTrack) -> Self {
-            Self { handle: stream_imp::NativeAudioStream::new(audio_track) }
+        pub fn new(audio_track: RtcAudioTrack, sample_rate: i32, num_channels: i32) -> Self {
+            Self {
+                handle: stream_imp::NativeAudioStream::new(audio_track, sample_rate, num_channels),
+            }
         }
 
         pub fn track(&self) -> RtcAudioTrack {
