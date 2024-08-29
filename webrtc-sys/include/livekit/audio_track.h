@@ -18,9 +18,9 @@
 
 #include <memory>
 
+#include "api/audio/audio_frame.h"
 #include "api/audio_options.h"
 #include "common_audio/resampler/include/push_resampler.h"
-#include "api/audio/audio_frame.h"
 #include "livekit/helper.h"
 #include "livekit/media_stream_track.h"
 #include "livekit/webrtc.h"
@@ -76,8 +76,6 @@ class NativeAudioSink : public webrtc::AudioTrackSinkInterface {
  private:
   rust::Box<AudioSinkWrapper> observer_;
 
-
-  
   int sample_rate_;
   int num_channels_;
 
@@ -86,7 +84,9 @@ class NativeAudioSink : public webrtc::AudioTrackSinkInterface {
 };
 
 std::shared_ptr<NativeAudioSink> new_native_audio_sink(
-    rust::Box<AudioSinkWrapper> observer, int sample_rate, int num_channels);
+    rust::Box<AudioSinkWrapper> observer,
+    int sample_rate,
+    int num_channels);
 
 class AudioTrackSource {
   class InternalSource : public webrtc::LocalAudioSource {
