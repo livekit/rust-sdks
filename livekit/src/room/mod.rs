@@ -1024,9 +1024,8 @@ impl RoomSession {
             self.dispatcher.dispatch(&RoomEvent::Disconnected { reason });
         }
 
+        log::info!("disconnected from room with reason: {:?}", reason);
         if reason != DisconnectReason::ClientInitiated {
-            log::error!("unexpectedly disconnected from room: {:?}", reason);
-
             livekit_runtime::spawn({
                 let inner = self.clone();
                 async move {
