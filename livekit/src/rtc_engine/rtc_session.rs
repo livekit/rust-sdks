@@ -97,9 +97,6 @@ pub enum SessionEvent {
         stream: MediaStream,
         transceiver: RtpTransceiver,
     },
-    StreamRemoved {
-        stream: MediaStream,
-    },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
     },
@@ -586,10 +583,6 @@ impl SessionInner {
                 } else {
                     log::warn!("Track event with no streams");
                 }
-            }
-            RtcEvent::StreamRemoved { stream, target } => {
-                log::info!("NEIL RTC EVENT Track removed {:?}", stream);
-                let _ = self.emitter.send(SessionEvent::StreamRemoved { stream });
             }
             RtcEvent::Data { data, binary } => {
                 if !binary {

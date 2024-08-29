@@ -168,22 +168,7 @@ impl RemoteParticipant {
         }
     }
 
-    pub(crate) async fn remove_subscribed_media_track(&self, sid: TrackSid) {
-        log::info!("NEIL removing track: {:?} {:?}", sid, self.track_publications());
-        if let Some(publication) = self.get_track_publication(&sid) {
-            log::info!("NEIL actually removing track: {:?}", sid);
-            publication.set_track(None); // This will fire TrackUnsubscribed on the publication
-
-            self.remove_publication(&sid);
-
-            if let Some(track_unpublished) = self.remote.events.track_unpublished.lock().as_ref() {
-                track_unpublished(self.clone(), publication);
-            }
-        }
-    }
-
     pub(crate) fn unpublish_track(&self, sid: &TrackSid) {
-        log::info!("NEIL unpublish track: {:?}", sid);
         if let Some(publication) = self.get_track_publication(sid) {
             // Unsubscribe to the track if needed
             if let Some(track) = publication.track() {

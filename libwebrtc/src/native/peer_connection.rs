@@ -36,8 +36,7 @@ use crate::{
         AnswerOptions, IceCandidateError, IceConnectionState, IceGatheringState, OfferOptions,
         OnConnectionChange, OnDataChannel, OnIceCandidate, OnIceCandidateError,
         OnIceConnectionChange, OnIceGatheringChange, OnNegotiationNeeded, OnSignalingChange,
-        OnStreamRemoved, OnTrack, PeerConnectionState, SignalingState, StreamRemovedEvent,
-        TrackEvent,
+        OnTrack, PeerConnectionState, SignalingState, TrackEvent,
     },
     peer_connection_factory::{
         ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration,
@@ -494,10 +493,6 @@ impl PeerConnection {
     pub fn on_track(&self, f: Option<OnTrack>) {
         *self.observer.track_handler.lock() = f;
     }
-
-    pub fn on_stream_removed(&self, f: Option<OnStreamRemoved>) {
-        *self.observer.stream_removed_handler.lock() = f;
-    }
 }
 
 #[derive(Default)]
@@ -511,7 +506,6 @@ pub struct PeerObserver {
     pub negotiation_needed_handler: Mutex<Option<OnNegotiationNeeded>>,
     pub signaling_change_handler: Mutex<Option<OnSignalingChange>>,
     pub track_handler: Mutex<Option<OnTrack>>,
-    pub stream_removed_handler: Mutex<Option<OnStreamRemoved>>,
 }
 
 impl sys_pcf::PeerConnectionObserver for PeerObserver {
@@ -521,16 +515,9 @@ impl sys_pcf::PeerConnectionObserver for PeerObserver {
         }
     }
 
-    fn on_add_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {
-        log::warn!("NEIL on_add_stream not implemented");
-    }
+    fn on_add_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
 
-    fn on_remove_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {
-        if let Some(f) = self.stream_removed_handler.lock().as_mut() {
-            let stream = MediaStream { handle: imp_ms::MediaStream { sys_handle: _stream } };
-            f(StreamRemovedEvent { stream });
-        }
-    }
+    fn on_remove_stream(&self, _stream: SharedPtr<webrtc_sys::media_stream::ffi::MediaStream>) {}
 
     fn on_data_channel(&self, data_channel: SharedPtr<sys_dc::ffi::DataChannel>) {
         if let Some(f) = self.data_channel_handler.lock().as_mut() {
@@ -626,7 +613,7 @@ impl sys_pcf::PeerConnectionObserver for PeerObserver {
         }
     }
 
-    fn on_remove_track(&self, receiver: SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {}
+    fn on_remove_track(&self, _receiver: SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {}
 
     fn on_interesting_usage(&self, _usage_pattern: i32) {}
 }

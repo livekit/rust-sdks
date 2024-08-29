@@ -95,10 +95,6 @@ pub struct TrackEvent {
     pub transceiver: RtpTransceiver,
 }
 
-pub struct StreamRemovedEvent {
-    pub stream: MediaStream,
-}
-
 pub type OnConnectionChange = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
 pub type OnDataChannel = Box<dyn FnMut(DataChannel) + Send + Sync>;
 pub type OnIceCandidate = Box<dyn FnMut(IceCandidate) + Send + Sync>;
@@ -108,7 +104,6 @@ pub type OnIceGatheringChange = Box<dyn FnMut(IceGatheringState) + Send + Sync>;
 pub type OnNegotiationNeeded = Box<dyn FnMut(u32) + Send + Sync>;
 pub type OnSignalingChange = Box<dyn FnMut(SignalingState) + Send + Sync>;
 pub type OnTrack = Box<dyn FnMut(TrackEvent) + Send + Sync>;
-pub type OnStreamRemoved = Box<dyn FnMut(StreamRemovedEvent) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct PeerConnection {
@@ -264,10 +259,6 @@ impl PeerConnection {
 
     pub fn on_track(&self, f: Option<OnTrack>) {
         self.handle.on_track(f)
-    }
-
-    pub fn on_stream_removed(&self, f: Option<OnStreamRemoved>) {
-        self.handle.on_stream_removed(f)
     }
 }
 
