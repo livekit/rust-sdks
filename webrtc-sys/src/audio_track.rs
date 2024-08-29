@@ -40,7 +40,11 @@ pub mod ffi {
 
         fn add_sink(self: &AudioTrack, sink: &SharedPtr<NativeAudioSink>);
         fn remove_sink(self: &AudioTrack, sink: &SharedPtr<NativeAudioSink>);
-        fn new_native_audio_sink(observer: Box<AudioSinkWrapper>) -> SharedPtr<NativeAudioSink>;
+        fn new_native_audio_sink(
+            observer: Box<AudioSinkWrapper>,
+            sample_rate: i32,
+            num_channels: i32,
+        ) -> SharedPtr<NativeAudioSink>;
 
         fn on_captured_frame(
             self: &AudioTrackSource,
