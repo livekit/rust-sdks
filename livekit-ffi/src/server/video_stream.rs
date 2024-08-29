@@ -44,7 +44,6 @@ impl FfiVideoStream {
     ) -> FfiResult<proto::OwnedVideoStream> {
         let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?.clone();
         let rtc_track = ffi_track.track.rtc_track();
-        let track_dropped_rx = ffi_track.track.dropped_rx();
 
         let MediaStreamTrack::Video(rtc_track) = rtc_track else {
             return Err(FfiError::InvalidRequest("not a video track".into()));
@@ -60,11 +59,12 @@ impl FfiVideoStream {
                 let handle = server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
+                    new_stream.track_handle,
                     new_stream.format.and_then(|_| Some(new_stream.format())),
                     new_stream.normalize_stride,
                     NativeVideoStream::new(rtc_track),
-                    track_dropped_rx,
                     self_dropped_rx,
+                    server.watch_handle_dropped()
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiVideoStream, FfiError>(video_stream)
@@ -85,25 +85,27 @@ impl FfiVideoStream {
     async fn native_video_stream_task(
         server: &'static server::FfiServer,
         stream_handle: FfiHandleId,
+        track_handle: FfiHandleId,
         dst_type: Option<proto::VideoBufferType>,
         normalize_stride: bool,
         mut native_stream: NativeVideoStream,
-        mut track_dropped_rx: broadcast::Receiver<()>,
         mut self_dropped_rx: oneshot::Receiver<()>,
+        mut handle_dropped_rx: broadcast::Receiver<u64>,
     ) {
         loop {
             tokio::select! {
-                _ = track_dropped_rx.recv() => {
-                    break;
-                }
                 _ = &mut self_dropped_rx => {
                     break;
+                }
+                Ok(handle) = handle_dropped_rx.recv() => {
+                    if handle == track_handle {
+                        break;
+                    }
                 }
                 frame = native_stream.next() => {
                     let Some(frame) = frame else {
                         break;
                     };
-
 
                     let Ok((buffer, info)) = colorcvt::to_video_buffer_info(frame.buffer, dst_type, normalize_stride) else {
                         log::error!("video stream failed to convert video frame to {:?}", dst_type);

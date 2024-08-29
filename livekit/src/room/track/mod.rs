@@ -123,15 +123,6 @@ impl Track {
             Self::RemoteVideo(track) => track.get_stats().await,
         }
     }
-
-    pub fn dropped_rx(&self) -> broadcast::Receiver<()> {
-        match self {
-            Self::LocalAudio(track) => track.dropped_rx(),
-            Self::LocalVideo(track) => track.dropped_rx(),
-            Self::RemoteAudio(track) => track.dropped_rx(),
-            Self::RemoteVideo(track) => track.dropped_rx(),
-        }
-    }
 }
 
 pub(super) use track_dispatch;

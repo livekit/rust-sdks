@@ -26,7 +26,7 @@ use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
-use tokio::task::JoinHandle;
+use tokio::{sync::broadcast, task::JoinHandle};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
@@ -74,6 +74,7 @@ pub struct FfiServer {
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
     logger: &'static logger::FfiLogger,
+    handle_dropped_tx: broadcast::Sender<FfiHandleId>,
 }
 
 impl Default for FfiServer {
@@ -105,12 +106,15 @@ impl Default for FfiServer {
             }
         });
 
+        let (handle_dropped_tx, _) = broadcast::channel(100);
+
         Self {
             ffi_handles: Default::default(),
             next_id: AtomicU64::new(1), // 0 is invalid
             async_runtime,
             config: Default::default(),
             logger,
+            handle_dropped_tx,
         }
     }
 }
@@ -192,7 +196,14 @@ impl FfiServer {
     }
 
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
-        self.ffi_handles.remove(&id).is_some()
+        log::info!("NEIL dropping handle {}", id);
+        let existed = self.ffi_handles.remove(&id).is_some();
+        let _ = self.handle_dropped_tx.send(id).is_ok();
+        return existed;
+    }
+
+    pub fn watch_handle_dropped(&self) -> broadcast::Receiver<FfiHandleId> {
+        self.handle_dropped_tx.subscribe()
     }
 
     pub fn send_panic(&self, err: Box<dyn Error>) {

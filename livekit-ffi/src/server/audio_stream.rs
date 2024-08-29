@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
-use livekit::{
-    track::{AudioTrack, LocalAudioTrack, RemoteAudioTrack, Track},
-    webrtc::{audio_stream::native::NativeAudioStream, prelude::*},
-};
+use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
 use tokio::sync::{broadcast, oneshot};
 
 use super::{room::FfiTrack, FfiHandle};
@@ -47,7 +44,6 @@ impl FfiAudioStream {
     ) -> FfiResult<proto::OwnedAudioStream> {
         let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?.clone();
         let rtc_track = ffi_track.track.rtc_track();
-        let track_dropped_rx = ffi_track.track.dropped_rx();
         let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
 
         let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
@@ -65,9 +61,10 @@ impl FfiAudioStream {
                 let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     handle_id,
+                    new_stream.track_handle,
                     native_stream,
-                    track_dropped_rx,
                     self_dropped_rx,
+                    server.watch_handle_dropped(),
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -88,17 +85,20 @@ impl FfiAudioStream {
     async fn native_audio_stream_task(
         server: &'static server::FfiServer,
         stream_handle_id: FfiHandleId,
+        track_handle: FfiHandleId,
         mut native_stream: NativeAudioStream,
-        mut track_dropped_rx: broadcast::Receiver<()>,
         mut self_dropped_rx: oneshot::Receiver<()>,
+        mut handle_dropped_rx: broadcast::Receiver<u64>,
     ) {
         loop {
             tokio::select! {
-                _ = track_dropped_rx.recv() => {
-                    break;
-                }
                 _ = &mut self_dropped_rx => {
                     break;
+                }
+                Ok(handle) = handle_dropped_rx.recv() => {
+                    if handle == track_handle {
+                        break;
+                    }
                 }
                 frame = native_stream.next() => {
                     let Some(frame) = frame else {
@@ -128,14 +128,13 @@ impl FfiAudioStream {
                 }
             }
         }
-
         if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
             proto::AudioStreamEvent {
                 stream_handle: stream_handle_id,
                 message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
             },
         )) {
-            log::warn!("failed to send audio EOS: {}", err);
+            log::warn!("failed to send audio eos: {}", err);
         }
     }
 }

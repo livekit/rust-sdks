@@ -16,7 +16,6 @@ use std::{fmt::Debug, sync::Arc};
 
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
-use tokio::sync::broadcast;
 
 use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
@@ -25,7 +24,6 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub struct LocalVideoTrack {
     inner: Arc<TrackInner>,
     source: RtcVideoSource,
-    dropped_tx: broadcast::Sender<()>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -40,7 +38,6 @@ impl Debug for LocalVideoTrack {
 
 impl LocalVideoTrack {
     pub fn new(name: String, rtc_track: RtcVideoTrack, source: RtcVideoSource) -> Self {
-        let (dropped_tx, _) = broadcast::channel(1);
         Self {
             inner: Arc::new(super::new_inner(
                 "TR_unknown".to_owned().try_into().unwrap(),
@@ -49,7 +46,6 @@ impl LocalVideoTrack {
                 MediaStreamTrack::Video(rtc_track),
             )),
             source,
-            dropped_tx,
         }
     }
 
@@ -149,9 +145,5 @@ impl LocalVideoTrack {
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &Track::LocalVideo(self.clone()), info);
-    }
-
-    pub(crate) fn dropped_rx(&self) -> broadcast::Receiver<()> {
-        self.dropped_tx.subscribe()
     }
 }

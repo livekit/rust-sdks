@@ -17,7 +17,6 @@ use std::{fmt::Debug, sync::Arc};
 
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
-use tokio::sync::broadcast;
 
 use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
@@ -26,7 +25,6 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub struct LocalAudioTrack {
     inner: Arc<TrackInner>,
     source: RtcAudioSource,
-    dropped_tx: broadcast::Sender<()>,
 }
 
 impl Debug for LocalAudioTrack {
@@ -41,7 +39,6 @@ impl Debug for LocalAudioTrack {
 
 impl LocalAudioTrack {
     pub(crate) fn new(name: String, rtc_track: RtcAudioTrack, source: RtcAudioSource) -> Self {
-        let (dropped_tx, _) = broadcast::channel(1);
         Self {
             inner: Arc::new(super::new_inner(
                 "TR_unknown".to_owned().try_into().unwrap(),
@@ -50,7 +47,6 @@ impl LocalAudioTrack {
                 MediaStreamTrack::Audio(rtc_track),
             )),
             source,
-            dropped_tx,
         }
     }
 
@@ -149,9 +145,5 @@ impl LocalAudioTrack {
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &Track::LocalAudio(self.clone()), info);
-    }
-
-    pub(crate) fn dropped_rx(&self) -> broadcast::Receiver<()> {
-        self.dropped_tx.subscribe()
     }
 }
