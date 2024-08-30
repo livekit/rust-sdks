@@ -80,7 +80,10 @@ NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer,
                                  int num_channels)
     : observer_(std::move(observer)),
       sample_rate_(sample_rate),
-      num_channels_(num_channels) {}
+      num_channels_(num_channels) {
+  frame_.sample_rate_hz_ = sample_rate;
+  frame_.num_channels_ = num_channels;
+}
 
 void NativeAudioSink::OnData(const void* audio_data,
                              int bits_per_sample,
