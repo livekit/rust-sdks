@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::HashMap,
     error::Error,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -26,7 +27,10 @@ use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
-use tokio::{sync::broadcast, task::JoinHandle};
+use tokio::{
+    sync::{broadcast, oneshot},
+    task::JoinHandle,
+};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
@@ -74,7 +78,7 @@ pub struct FfiServer {
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
     logger: &'static logger::FfiLogger,
-    handle_dropped_tx: broadcast::Sender<FfiHandleId>,
+    handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
 }
 
 impl Default for FfiServer {
@@ -106,15 +110,13 @@ impl Default for FfiServer {
             }
         });
 
-        let (handle_dropped_tx, _) = broadcast::channel(100);
-
         Self {
             ffi_handles: Default::default(),
             next_id: AtomicU64::new(1), // 0 is invalid
             async_runtime,
             config: Default::default(),
             logger,
-            handle_dropped_tx,
+            handle_dropped_txs: Default::default(),
         }
     }
 }
@@ -146,6 +148,7 @@ impl FfiServer {
 
         // Drop all handles
         self.ffi_handles.clear();
+        self.handle_dropped_txs.clear();
         *self.config.lock() = None; // Invalidate the config
     }
 
@@ -197,12 +200,19 @@ impl FfiServer {
 
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
         let existed = self.ffi_handles.remove(&id).is_some();
-        let _ = self.handle_dropped_tx.send(id).is_ok();
+        self.handle_dropped_txs.remove(&id);
         return existed;
     }
 
-    pub fn watch_handle_dropped(&self) -> broadcast::Receiver<FfiHandleId> {
-        self.handle_dropped_tx.subscribe()
+    pub fn watch_handle_dropped(&self, handle: FfiHandleId) -> oneshot::Receiver<()> {
+        // Create vec if not exists
+        if self.handle_dropped_txs.get(&handle).is_none() {
+            self.handle_dropped_txs.insert(handle, Vec::new());
+        }
+        let (tx, rx) = oneshot::channel::<()>();
+        let mut tx_vec = self.handle_dropped_txs.get_mut(&handle).unwrap();
+        tx_vec.push(tx);
+        return rx;
     }
 
     pub fn send_panic(&self, err: Box<dyn Error>) {

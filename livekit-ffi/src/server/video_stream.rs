@@ -14,7 +14,7 @@
 
 use futures_util::StreamExt;
 use livekit::webrtc::{prelude::*, video_stream::native::NativeVideoStream};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::oneshot;
 
 use super::{colorcvt, room::FfiTrack, FfiHandle};
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -59,12 +59,11 @@ impl FfiVideoStream {
                 let handle = server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
-                    new_stream.track_handle,
                     new_stream.format.and_then(|_| Some(new_stream.format())),
                     new_stream.normalize_stride,
                     NativeVideoStream::new(rtc_track),
                     self_dropped_rx,
-                    server.watch_handle_dropped(),
+                    server.watch_handle_dropped(new_stream.track_handle),
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiVideoStream, FfiError>(video_stream)
@@ -85,22 +84,19 @@ impl FfiVideoStream {
     async fn native_video_stream_task(
         server: &'static server::FfiServer,
         stream_handle: FfiHandleId,
-        track_handle: FfiHandleId,
         dst_type: Option<proto::VideoBufferType>,
         normalize_stride: bool,
         mut native_stream: NativeVideoStream,
         mut self_dropped_rx: oneshot::Receiver<()>,
-        mut handle_dropped_rx: broadcast::Receiver<u64>,
+        mut handle_dropped_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
                 _ = &mut self_dropped_rx => {
                     break;
                 }
-                Ok(handle) = handle_dropped_rx.recv() => {
-                    if handle == track_handle {
-                        break;
-                    }
+                _ = &mut handle_dropped_rx => {
+                    break;
                 }
                 frame = native_stream.next() => {
                     let Some(frame) = frame else {

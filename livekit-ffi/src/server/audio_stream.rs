@@ -14,7 +14,7 @@
 
 use futures_util::StreamExt;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::oneshot;
 
 use super::{room::FfiTrack, FfiHandle};
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -61,10 +61,9 @@ impl FfiAudioStream {
                 let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     handle_id,
-                    new_stream.track_handle,
                     native_stream,
                     self_dropped_rx,
-                    server.watch_handle_dropped(),
+                    server.watch_handle_dropped(new_stream.track_handle),
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -85,20 +84,17 @@ impl FfiAudioStream {
     async fn native_audio_stream_task(
         server: &'static server::FfiServer,
         stream_handle_id: FfiHandleId,
-        track_handle: FfiHandleId,
         mut native_stream: NativeAudioStream,
         mut self_dropped_rx: oneshot::Receiver<()>,
-        mut handle_dropped_rx: broadcast::Receiver<u64>,
+        mut handle_dropped_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
                 _ = &mut self_dropped_rx => {
                     break;
                 }
-                Ok(handle) = handle_dropped_rx.recv() => {
-                    if handle == track_handle {
-                        break;
-                    }
+                _ = &mut handle_dropped_rx => {
+                    break;
                 }
                 frame = native_stream.next() => {
                     let Some(frame) = frame else {
