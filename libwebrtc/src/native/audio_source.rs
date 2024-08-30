@@ -24,8 +24,6 @@ use webrtc_sys::audio_track as sys_at;
 
 use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
 
-const BUFFER_SIZE_MS: usize = 50;
-
 #[derive(Clone)]
 pub struct NativeAudioSource {
     sys_handle: SharedPtr<sys_at::ffi::AudioTrackSource>,
@@ -52,10 +50,13 @@ impl NativeAudioSource {
         options: AudioSourceOptions,
         sample_rate: u32,
         num_channels: u32,
+        buffer_size_ms: u32, // Must be a multiple of 10
         enable_queue: Option<bool>,
     ) -> NativeAudioSource {
+        assert!(buffer_size_ms % 10 == 0, "buffer_size_ms must be a multiple of 10");
+
         let samples_10ms = (sample_rate / 100 * num_channels) as usize;
-        let (po_tx, mut po_rx) = mpsc::channel(BUFFER_SIZE_MS / 10);
+        let (po_tx, mut po_rx) = mpsc::channel(buffer_size_ms as usize / 10);
 
         let source = Self {
             sys_handle: sys_at::ffi::new_audio_track_source(options.into()),

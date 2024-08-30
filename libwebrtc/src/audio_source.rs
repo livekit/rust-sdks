@@ -63,6 +63,7 @@ pub mod native {
             options: AudioSourceOptions,
             sample_rate: u32,
             num_channels: u32,
+            buffer_size_ms: u32, // Must be a multiple of 10
             enable_queue: Option<bool>,
         ) -> NativeAudioSource {
             Self {
@@ -70,6 +71,7 @@ pub mod native {
                     options,
                     sample_rate,
                     num_channels,
+                    buffer_size_ms,
                     enable_queue,
                 ),
             }

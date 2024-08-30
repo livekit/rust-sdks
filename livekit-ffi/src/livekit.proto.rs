@@ -2905,6 +2905,8 @@ pub struct NewAudioSourceRequest {
     pub num_channels: u32,
     #[prost(bool, optional, tag="5")]
     pub enable_queue: ::core::option::Option<bool>,
+    #[prost(uint32, tag="6")]
+    pub buffer_size_ms: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
