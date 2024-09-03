@@ -24,7 +24,7 @@ pub struct FfiAudioStream {
     pub stream_type: proto::AudioStreamType,
 
     #[allow(dead_code)]
-    close_tx: oneshot::Sender<()>, // Close the stream on drop
+    self_dropped_tx: oneshot::Sender<()>, // Close the stream on drop
 }
 
 impl FfiHandle for FfiAudioStream {}
@@ -44,18 +44,18 @@ impl FfiAudioStream {
     ) -> FfiResult<proto::OwnedAudioStream> {
         let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?.clone();
         let rtc_track = ffi_track.track.rtc_track();
+        let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
 
         let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
             return Err(FfiError::InvalidRequest("not an audio track".into()));
         };
 
-        let (close_tx, close_rx) = oneshot::channel();
         let stream_type = new_stream.r#type();
         let handle_id = server.next_id();
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
-                let audio_stream = Self { handle_id, stream_type, close_tx };
+                let audio_stream = Self { handle_id, stream_type, self_dropped_tx };
 
                 let sample_rate =
                     if new_stream.sample_rate == 0 { 48000 } else { new_stream.sample_rate as i32 };
@@ -69,7 +69,8 @@ impl FfiAudioStream {
                     server,
                     handle_id,
                     native_stream,
-                    close_rx,
+                    self_dropped_rx,
+                    server.watch_handle_dropped(new_stream.track_handle),
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -91,11 +92,15 @@ impl FfiAudioStream {
         server: &'static server::FfiServer,
         stream_handle_id: FfiHandleId,
         mut native_stream: NativeAudioStream,
-        mut close_rx: oneshot::Receiver<()>,
+        mut self_dropped_rx: oneshot::Receiver<()>,
+        mut handle_dropped_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
-                _ = &mut close_rx => {
+                _ = &mut self_dropped_rx => {
+                    break;
+                }
+                _ = &mut handle_dropped_rx => {
                     break;
                 }
                 frame = native_stream.next() => {
@@ -126,14 +131,13 @@ impl FfiAudioStream {
                 }
             }
         }
-
         if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
             proto::AudioStreamEvent {
                 stream_handle: stream_handle_id,
                 message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
             },
         )) {
-            log::warn!("failed to send audio EOS: {}", err);
+            log::warn!("failed to send audio eos: {}", err);
         }
     }
 }
