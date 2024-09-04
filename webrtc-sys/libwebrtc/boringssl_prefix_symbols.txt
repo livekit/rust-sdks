@@ -2,7 +2,6 @@
 # version m114_release, by grepping for OPENSSL_EXPORT:
 #
 # rg -NIU "^.*OPENSSL_EXPORT .*[ \n]\*?([\d\w_]+)\(.*$" -r '$1' | sort | uniq
-
 AES_CMAC LK_AES_CMAC
 AES_cbc_encrypt LK_AES_cbc_encrypt
 AES_cfb128_encrypt LK_AES_cfb128_encrypt
