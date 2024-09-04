@@ -28,7 +28,7 @@ pub struct FfiVideoStream {
     pub stream_type: proto::VideoStreamType,
 
     #[allow(dead_code)]
-    close_tx: oneshot::Sender<()>, // Close the stream on drop
+    self_dropped_tx: oneshot::Sender<()>, // Close the stream on drop
 }
 
 impl FfiHandle for FfiVideoStream {}
@@ -53,20 +53,21 @@ impl FfiVideoStream {
             return Err(FfiError::InvalidRequest("not a video track".into()));
         };
 
-        let (close_tx, close_rx) = oneshot::channel();
+        let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
         let stream_type = new_stream.r#type();
         let handle_id = server.next_id();
         let stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
-                let video_stream = Self { handle_id, close_tx, stream_type };
+                let video_stream = Self { handle_id, self_dropped_tx, stream_type };
                 let handle = server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
                     new_stream.format.and_then(|_| Some(new_stream.format())),
                     new_stream.normalize_stride,
                     NativeVideoStream::new(rtc_track),
-                    close_rx,
+                    self_dropped_rx,
+                    server.watch_handle_dropped(new_stream.track_handle),
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiVideoStream, FfiError>(video_stream)
@@ -119,18 +120,21 @@ impl FfiVideoStream {
         dst_type: Option<proto::VideoBufferType>,
         normalize_stride: bool,
         mut native_stream: NativeVideoStream,
-        mut close_rx: oneshot::Receiver<()>,
+        mut self_dropped_rx: oneshot::Receiver<()>,
+        mut handle_dropped_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
-                _ = &mut close_rx => {
+                _ = &mut self_dropped_rx => {
+                    break;
+                }
+                _ = &mut handle_dropped_rx => {
                     break;
                 }
                 frame = native_stream.next() => {
                     let Some(frame) = frame else {
                         break;
                     };
-
 
                     let Ok((buffer, info)) = colorcvt::to_video_buffer_info(frame.buffer, dst_type, normalize_stride) else {
                         log::error!("video stream failed to convert video frame to {:?}", dst_type);

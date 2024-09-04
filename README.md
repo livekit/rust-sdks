@@ -45,7 +45,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - `livekit-protocol`: LiveKit protocol generated code
 
 When adding the SDK as a dependency to your project, make sure to add the
-[necessary `rustflags`](https://github.com/livekit/rust-sdks/blob/main/.cargo/config)
+[necessary `rustflags`](https://github.com/livekit/rust-sdks/blob/main/.cargo/config.toml)
 to your cargo config, otherwise linking may fail.
 
 Also, please refer to the list of the [supported platform toolkits](https://github.com/livekit/rust-sdks/blob/main/.github/workflows/builds.yml).

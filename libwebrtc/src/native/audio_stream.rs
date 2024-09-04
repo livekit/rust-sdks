@@ -32,12 +32,14 @@ pub struct NativeAudioStream {
 }
 
 impl NativeAudioStream {
-    pub fn new(audio_track: RtcAudioTrack) -> Self {
+    pub fn new(audio_track: RtcAudioTrack, sample_rate: i32, num_channels: i32) -> Self {
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
         let observer = Arc::new(AudioTrackObserver { frame_tx });
-        let native_sink = sys_at::ffi::new_native_audio_sink(Box::new(
-            sys_at::AudioSinkWrapper::new(observer.clone()),
-        ));
+        let native_sink = sys_at::ffi::new_native_audio_sink(
+            Box::new(sys_at::AudioSinkWrapper::new(observer.clone())),
+            sample_rate,
+            num_channels,
+        );
 
         let audio = unsafe { sys_at::ffi::media_to_audio(audio_track.sys_handle()) };
         audio.add_sink(&native_sink);

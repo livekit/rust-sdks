@@ -1406,6 +1406,36 @@ pub struct OwnedTrack {
     #[prost(message, optional, tag="2")]
     pub info: ::core::option::Option<TrackInfo>,
 }
+/// Mute/UnMute a track
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LocalTrackMuteRequest {
+    #[prost(uint64, tag="1")]
+    pub track_handle: u64,
+    #[prost(bool, tag="2")]
+    pub mute: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LocalTrackMuteResponse {
+    #[prost(bool, tag="1")]
+    pub muted: bool,
+}
+/// Enable/Disable a remote track
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnableRemoteTrackRequest {
+    #[prost(uint64, tag="1")]
+    pub track_handle: u64,
+    #[prost(bool, tag="2")]
+    pub enabled: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnableRemoteTrackResponse {
+    #[prost(bool, tag="1")]
+    pub enabled: bool,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum TrackKind {
@@ -2872,6 +2902,10 @@ pub struct NewAudioStreamRequest {
     pub track_handle: u64,
     #[prost(enumeration="AudioStreamType", tag="2")]
     pub r#type: i32,
+    #[prost(uint32, tag="3")]
+    pub sample_rate: u32,
+    #[prost(uint32, tag="4")]
+    pub num_channels: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3166,7 +3200,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3207,32 +3241,36 @@ pub mod ffi_request {
         #[prost(message, tag="16")]
         CreateAudioTrack(super::CreateAudioTrackRequest),
         #[prost(message, tag="17")]
+        LocalTrackMute(super::LocalTrackMuteRequest),
+        #[prost(message, tag="18")]
+        EnableRemoteTrack(super::EnableRemoteTrackRequest),
+        #[prost(message, tag="19")]
         GetStats(super::GetStatsRequest),
         /// Video
-        #[prost(message, tag="18")]
-        NewVideoStream(super::NewVideoStreamRequest),
-        #[prost(message, tag="19")]
-        NewVideoSource(super::NewVideoSourceRequest),
         #[prost(message, tag="20")]
-        CaptureVideoFrame(super::CaptureVideoFrameRequest),
+        NewVideoStream(super::NewVideoStreamRequest),
         #[prost(message, tag="21")]
-        VideoConvert(super::VideoConvertRequest),
+        NewVideoSource(super::NewVideoSourceRequest),
         #[prost(message, tag="22")]
+        CaptureVideoFrame(super::CaptureVideoFrameRequest),
+        #[prost(message, tag="23")]
+        VideoConvert(super::VideoConvertRequest),
+        #[prost(message, tag="24")]
         VideoStreamFromParticipant(super::VideoStreamFromParticipantRequest),
         /// Audio
-        #[prost(message, tag="23")]
-        NewAudioStream(super::NewAudioStreamRequest),
-        #[prost(message, tag="24")]
-        NewAudioSource(super::NewAudioSourceRequest),
         #[prost(message, tag="25")]
-        CaptureAudioFrame(super::CaptureAudioFrameRequest),
+        NewAudioStream(super::NewAudioStreamRequest),
         #[prost(message, tag="26")]
-        NewAudioResampler(super::NewAudioResamplerRequest),
+        NewAudioSource(super::NewAudioSourceRequest),
         #[prost(message, tag="27")]
-        RemixAndResample(super::RemixAndResampleRequest),
+        CaptureAudioFrame(super::CaptureAudioFrameRequest),
         #[prost(message, tag="28")]
-        E2ee(super::E2eeRequest),
+        NewAudioResampler(super::NewAudioResamplerRequest),
         #[prost(message, tag="29")]
+        RemixAndResample(super::RemixAndResampleRequest),
+        #[prost(message, tag="30")]
+        E2ee(super::E2eeRequest),
+        #[prost(message, tag="31")]
         AudioStreamFromParticipant(super::AudioStreamFromParticipantRequest),
     }
 }
@@ -3240,7 +3278,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3281,32 +3319,36 @@ pub mod ffi_response {
         #[prost(message, tag="16")]
         CreateAudioTrack(super::CreateAudioTrackResponse),
         #[prost(message, tag="17")]
+        LocalTrackMute(super::LocalTrackMuteResponse),
+        #[prost(message, tag="18")]
+        EnableRemoteTrack(super::EnableRemoteTrackResponse),
+        #[prost(message, tag="19")]
         GetStats(super::GetStatsResponse),
         /// Video
-        #[prost(message, tag="18")]
-        NewVideoStream(super::NewVideoStreamResponse),
-        #[prost(message, tag="19")]
-        NewVideoSource(super::NewVideoSourceResponse),
         #[prost(message, tag="20")]
-        CaptureVideoFrame(super::CaptureVideoFrameResponse),
+        NewVideoStream(super::NewVideoStreamResponse),
         #[prost(message, tag="21")]
-        VideoConvert(super::VideoConvertResponse),
+        NewVideoSource(super::NewVideoSourceResponse),
         #[prost(message, tag="22")]
+        CaptureVideoFrame(super::CaptureVideoFrameResponse),
+        #[prost(message, tag="23")]
+        VideoConvert(super::VideoConvertResponse),
+        #[prost(message, tag="24")]
         VideoStreamFromParticipant(super::VideoStreamFromParticipantResponse),
         /// Audio
-        #[prost(message, tag="23")]
-        NewAudioStream(super::NewAudioStreamResponse),
-        #[prost(message, tag="24")]
-        NewAudioSource(super::NewAudioSourceResponse),
         #[prost(message, tag="25")]
-        CaptureAudioFrame(super::CaptureAudioFrameResponse),
+        NewAudioStream(super::NewAudioStreamResponse),
         #[prost(message, tag="26")]
-        NewAudioResampler(super::NewAudioResamplerResponse),
+        NewAudioSource(super::NewAudioSourceResponse),
         #[prost(message, tag="27")]
-        RemixAndResample(super::RemixAndResampleResponse),
+        CaptureAudioFrame(super::CaptureAudioFrameResponse),
         #[prost(message, tag="28")]
-        AudioStreamFromParticipant(super::AudioStreamFromParticipantResponse),
+        NewAudioResampler(super::NewAudioResamplerResponse),
         #[prost(message, tag="29")]
+        RemixAndResample(super::RemixAndResampleResponse),
+        #[prost(message, tag="30")]
+        AudioStreamFromParticipant(super::AudioStreamFromParticipantResponse),
+        #[prost(message, tag="31")]
         E2ee(super::E2eeResponse),
     }
 }

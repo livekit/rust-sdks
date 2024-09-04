@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
-use livekit::participant;
 use livekit::prelude::*;
+use livekit::{participant, track};
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -70,6 +71,8 @@ pub struct RoomInner {
     pending_published_tracks: Mutex<HashSet<TrackSid>>,
     // Used to wait for the LocalTrackUnpublished event
     pending_unpublished_tracks: Mutex<HashSet<TrackSid>>,
+
+    track_handle_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
 }
 
 struct Handle {
@@ -145,6 +148,7 @@ impl FfiRoom {
                         dtmf_tx,
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
+                        track_handle_lookup: Default::default(),
                     });
 
                     let (local_info, remote_infos) =
@@ -402,6 +406,16 @@ impl RoomInner {
 
                 let track = LocalTrack::try_from(ffi_track.track.clone())
                     .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack".into()))?;
+
+                // protobuf 3 doesn't let us require fields, instead defaulting to zero.
+                if publish.options.clone().is_some_and(|opts| {
+                    opts.video_encoding
+                        .is_some_and(|enc| enc.max_framerate == 0.0 || enc.max_bitrate == 0)
+                }) {
+                    return Err(FfiError::InvalidRequest(
+                        "VideoEncoding must specify both max_framerate and max_bitrate".into(),
+                    ));
+                }
 
                 let publication = inner
                     .room
@@ -805,10 +819,12 @@ async fn forward_event(
         }
         RoomEvent::TrackSubscribed { track, publication: _, participant } => {
             let handle_id = server.next_id();
+            let track_sid = track.sid();
             let ffi_track = FfiTrack { handle: handle_id, track: track.into() };
 
             let track_info = proto::TrackInfo::from(&ffi_track);
             server.store_handle(ffi_track.handle, ffi_track);
+            inner.track_handle_lookup.lock().insert(track_sid, handle_id);
 
             let _ =
                 send_event(proto::room_event::Message::TrackSubscribed(proto::TrackSubscribed {
@@ -820,6 +836,12 @@ async fn forward_event(
                 }));
         }
         RoomEvent::TrackUnsubscribed { track, publication: _, participant } => {
+            let track_sid = track.sid();
+            if let Some(handle) = inner.track_handle_lookup.lock().remove(&track_sid) {
+                server.drop_handle(handle);
+            } else {
+                log::warn!("track {} was not found in the lookup table", track_sid);
+            }
             let _ = send_event(proto::room_event::Message::TrackUnsubscribed(
                 proto::TrackUnsubscribed {
                     participant_identity: participant.identity().to_string(),

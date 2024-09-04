@@ -26,7 +26,7 @@ use super::{
     room::{self, FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
-use crate::proto;
+use crate::{conversion::track, proto};
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -229,6 +229,66 @@ fn on_create_audio_track(
             info: Some(track_info),
         }),
     })
+}
+
+fn on_local_track_mute(
+    server: &'static FfiServer,
+    request: proto::LocalTrackMuteRequest,
+) -> FfiResult<proto::LocalTrackMuteResponse> {
+    let ffi_track = server.retrieve_handle::<FfiTrack>(request.track_handle)?.clone();
+
+    let mut muted = false;
+    match ffi_track.track {
+        Track::LocalAudio(track) => {
+            if request.mute {
+                track.mute();
+            } else {
+                track.unmute();
+            }
+            muted = track.is_muted();
+        }
+        Track::LocalVideo(track) => {
+            if request.mute {
+                track.mute();
+            } else {
+                track.unmute();
+            }
+            muted = track.is_muted();
+        }
+        _ => return Err(FfiError::InvalidRequest("track is not a local track".into())),
+    }
+
+    Ok(proto::LocalTrackMuteResponse { muted: muted })
+}
+
+fn on_enable_remote_track(
+    server: &'static FfiServer,
+    request: proto::EnableRemoteTrackRequest,
+) -> FfiResult<proto::EnableRemoteTrackResponse> {
+    let ffi_track = server.retrieve_handle::<FfiTrack>(request.track_handle)?.clone();
+
+    let mut enabled = false;
+    match ffi_track.track {
+        Track::RemoteAudio(track) => {
+            if request.enabled {
+                track.enable();
+            } else {
+                track.disable();
+            }
+            enabled = track.is_enabled();
+        }
+        Track::RemoteVideo(track) => {
+            if request.enabled {
+                track.enable();
+            } else {
+                track.disable();
+            }
+            enabled = track.is_enabled();
+        }
+        _ => return Err(FfiError::InvalidRequest("track is not a remote track".into())),
+    }
+
+    Ok(proto::EnableRemoteTrackResponse { enabled: enabled })
 }
 
 /// Retrieve the stats from a track
@@ -643,6 +703,12 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::CreateAudioTrack(create) => {
             proto::ffi_response::Message::CreateAudioTrack(on_create_audio_track(server, create)?)
+        }
+        proto::ffi_request::Message::LocalTrackMute(create) => {
+            proto::ffi_response::Message::LocalTrackMute(on_local_track_mute(server, create)?)
+        }
+        proto::ffi_request::Message::EnableRemoteTrack(create) => {
+            proto::ffi_response::Message::EnableRemoteTrack(on_enable_remote_track(server, create)?)
         }
         proto::ffi_request::Message::GetStats(get_stats) => {
             proto::ffi_response::Message::GetStats(on_get_stats(server, get_stats)?)
