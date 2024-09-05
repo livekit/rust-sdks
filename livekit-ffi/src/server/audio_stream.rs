@@ -73,6 +73,7 @@ impl FfiAudioStream {
                     native_stream,
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
+                    true,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -172,6 +173,7 @@ impl FfiAudioStream {
                         NativeAudioStream::new(rtc_track, sample_rate, num_channels),
                         c_rx,
                         server.watch_handle_dropped(request.participant_handle),
+                        false,
                     )
                     .await;
                     let _ = done_tx.send(());
@@ -190,6 +192,15 @@ impl FfiAudioStream {
                 break;
             }
         }
+        log::info!("NEIL sending eos");
+        if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+            proto::AudioStreamEvent {
+                stream_handle: stream_handle,
+                message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
+            },
+        )) {
+            log::warn!("failed to send audio eos: {}", err);
+        }
     }
 
     async fn native_audio_stream_task(
@@ -198,6 +209,7 @@ impl FfiAudioStream {
         mut native_stream: NativeAudioStream,
         mut self_dropped_rx: oneshot::Receiver<()>,
         mut handle_dropped_rx: oneshot::Receiver<()>,
+        send_eos: bool,
     ) {
         log::info!("NEIL native_audio_stream_task");
         loop {
@@ -238,13 +250,17 @@ impl FfiAudioStream {
                 }
             }
         }
-        if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
-            proto::AudioStreamEvent {
-                stream_handle: stream_handle_id,
-                message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
-            },
-        )) {
-            log::warn!("failed to send audio eos: {}", err);
+        if send_eos {
+            if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+                proto::AudioStreamEvent {
+                    stream_handle: stream_handle_id,
+                    message: Some(proto::audio_stream_event::Message::Eos(
+                        proto::AudioStreamEos {},
+                    )),
+                },
+            )) {
+                log::warn!("failed to send audio eos: {}", err);
+            }
         }
     }
 }
