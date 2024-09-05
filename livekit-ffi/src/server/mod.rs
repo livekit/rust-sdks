@@ -172,6 +172,7 @@ impl FfiServer {
     where
         T: FfiHandle,
     {
+        log::trace!("storing handle {} of type {}", id, std::any::type_name::<T>());
         self.ffi_handles.insert(id, Box::new(handle));
     }
 
