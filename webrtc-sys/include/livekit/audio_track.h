@@ -20,12 +20,15 @@
 
 #include "api/audio/audio_frame.h"
 #include "api/audio_options.h"
+#include "api/task_queue/task_queue_factory.h"
 #include "common_audio/resampler/include/push_resampler.h"
 #include "livekit/helper.h"
 #include "livekit/media_stream_track.h"
 #include "livekit/webrtc.h"
 #include "pc/local_audio_source.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/task_queue.h"
+#include "rtc_base/task_utils/repeating_task.h"
 #include "rust/cxx.h"
 
 namespace livekit {
@@ -91,7 +94,12 @@ std::shared_ptr<NativeAudioSink> new_native_audio_sink(
 class AudioTrackSource {
   class InternalSource : public webrtc::LocalAudioSource {
    public:
-    InternalSource(const cricket::AudioOptions& options);
+    InternalSource(const cricket::AudioOptions& options,
+                   int sample_rate,
+                   int num_channels,
+                   int buffer_size_ms,
+                   rust::Fn<void()> data_needed,
+                   webrtc::TaskQueueFactory* task_queue_factory);
 
     SourceState state() const override;
     bool remote() const override;
@@ -105,28 +113,48 @@ class AudioTrackSource {
 
     // AudioFrame should always contain 10 ms worth of data (see index.md of
     // acm)
-    void on_captured_frame(rust::Slice<const int16_t> audio_data,
-                           uint32_t sample_rate,
-                           uint32_t number_of_channels,
-                           size_t number_of_frames);
+    bool capture_frame(rust::Slice<const int16_t> audio_data,
+                       uint32_t sample_rate,
+                       uint32_t number_of_channels,
+                       size_t number_of_frames);
+
+    void clear_buffer();
 
    private:
     mutable webrtc::Mutex mutex_;
+    std::unique_ptr<rtc::TaskQueue> audio_queue_;
+    webrtc::RepeatingTaskHandle audio_task_;
     std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
+    std::vector<int16_t> buffer_;
+    rust::Fn<void()> data_needed_;
+
+    int sample_rate_;
+    int num_channels_;
+    int queue_size_samples_;
+
+    bool data_requested_;
+
     cricket::AudioOptions options_{};
   };
 
  public:
-  AudioTrackSource(AudioSourceOptions options);
+  AudioTrackSource(AudioSourceOptions options,
+                   int sample_rate,
+                   int num_channels,
+                   int queue_size_ms,
+                   rust::Fn<void()> data_needed,
+                   webrtc::TaskQueueFactory* task_queue_factory);
 
   AudioSourceOptions audio_options() const;
 
   void set_audio_options(const AudioSourceOptions& options) const;
 
-  void on_captured_frame(rust::Slice<const int16_t> audio_data,
-                         uint32_t sample_rate,
-                         uint32_t number_of_channels,
-                         size_t number_of_frames) const;
+  bool capture_frame(rust::Slice<const int16_t> audio_data,
+                     uint32_t sample_rate,
+                     uint32_t number_of_channels,
+                     size_t number_of_frames) const;
+
+  void clear_buffer();
 
   rtc::scoped_refptr<InternalSource> get() const;
 
@@ -134,8 +162,6 @@ class AudioTrackSource {
   rtc::scoped_refptr<InternalSource> source_;
 };
 
-std::shared_ptr<AudioTrackSource> new_audio_track_source(
-    AudioSourceOptions options);
 
 static std::shared_ptr<MediaStreamTrack> audio_to_media(
     std::shared_ptr<AudioTrack> track) {
@@ -148,6 +174,10 @@ static std::shared_ptr<AudioTrack> media_to_audio(
 }
 
 static std::shared_ptr<AudioTrack> _shared_audio_track() {
+  return nullptr;  // Ignore
+}
+
+static std::shared_ptr<AudioTrackSource> _shared_audio_track_source() {
   return nullptr;  // Ignore
 }
 

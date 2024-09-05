@@ -46,20 +46,20 @@ pub mod ffi {
             num_channels: i32,
         ) -> SharedPtr<NativeAudioSink>;
 
-        fn on_captured_frame(
+        fn capture_frame(
             self: &AudioTrackSource,
             data: &[i16],
             sample_rate: u32,
             nb_channels: u32,
             nb_frames: usize,
-        );
+        ) -> bool;
         fn audio_options(self: &AudioTrackSource) -> AudioSourceOptions;
         fn set_audio_options(self: &AudioTrackSource, options: &AudioSourceOptions);
-        fn new_audio_track_source(options: AudioSourceOptions) -> SharedPtr<AudioTrackSource>;
 
         fn audio_to_media(track: SharedPtr<AudioTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_audio(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<AudioTrack>;
         fn _shared_audio_track() -> SharedPtr<AudioTrack>;
+        fn _shared_audio_track_source() -> SharedPtr<AudioTrackSource>;
     }
 
     extern "Rust" {

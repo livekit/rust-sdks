@@ -18,12 +18,14 @@
 
 #include <algorithm>
 #include <iostream>
+#include <iterator>
 #include <memory>
 
 #include "api/audio_options.h"
 #include "api/media_stream_interface.h"
 #include "audio/remix_resample.h"
 #include "common_audio/include/audio_util.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/synchronization/mutex.h"
@@ -123,7 +125,73 @@ std::shared_ptr<NativeAudioSink> new_native_audio_sink(
 }
 
 AudioTrackSource::InternalSource::InternalSource(
-    const cricket::AudioOptions& options) {}
+    const cricket::AudioOptions& options,
+    int sample_rate,
+    int num_channels,
+    int queue_size_ms,  // must be a multiple of 10ms
+    rust::Fn<void()> data_needed,
+    webrtc::TaskQueueFactory* task_queue_factory)
+    : sample_rate_(sample_rate),
+      num_channels_(num_channels),
+      data_needed_(std::move(data_needed)),
+      data_requested_(false) {
+  if (queue_size_ms > 0) {
+    return;  // no audio queue
+  }
+
+  int samples10ms = sample_rate / 100 * num_channels;
+  int notify_threshold = samples10ms * 2;
+
+  buffer_.resize(queue_size_ms / 10 * samples10ms);
+
+  audio_queue_ =
+      std::make_unique<rtc::TaskQueue>(task_queue_factory->CreateTaskQueue(
+          "AudioSourceCapture", webrtc::TaskQueueFactory::Priority::NORMAL));
+
+  audio_task_ = webrtc::RepeatingTaskHandle::Start(
+      audio_queue_->Get(), [this, samples10ms, notify_threshold]() {
+        webrtc::MutexLock lock(&mutex_);
+
+        if (buffer_.size() >= samples10ms) {
+          for (auto sink : sinks_)
+            sink->OnData(buffer_.data(), sizeof(int16_t), sample_rate_,
+                         num_channels_, samples10ms / num_channels_);
+
+          buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
+        }
+
+        if (!data_requested_ && buffer_.size() <= notify_threshold) {
+          data_requested_ = true;
+          this->data_needed_();
+        }
+
+        return webrtc::TimeDelta::Millis(10);
+      });
+}
+
+bool AudioTrackSource::InternalSource::capture_frame(
+    rust::Slice<const int16_t> data,
+    uint32_t sample_rate,
+    uint32_t number_of_channels,
+    size_t number_of_frames) {
+  webrtc::MutexLock lock(&mutex_);
+
+  if (queue_size_samples_) {
+    int available = queue_size_samples_ - buffer_.size();
+    if (available < data.size())
+      return false;
+
+    buffer_.insert(buffer_.end(), data.begin(), data.end());
+    data_requested_ = false;
+  } else {
+    // capture directly (realtime source)
+    for (auto sink : sinks_)
+      sink->OnData(data.data(), sizeof(int16_t), sample_rate,
+                   number_of_channels, number_of_frames);
+  }
+
+  return true;
+}
 
 webrtc::MediaSourceInterface::SourceState
 AudioTrackSource::InternalSource::state() const {
@@ -157,22 +225,24 @@ void AudioTrackSource::InternalSource::RemoveSink(
   sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
 }
 
-void AudioTrackSource::InternalSource::on_captured_frame(
-    rust::Slice<const int16_t> data,
-    uint32_t sample_rate,
-    uint32_t number_of_channels,
-    size_t number_of_frames) {
+void AudioTrackSource::InternalSource::clear_buffer() {
   webrtc::MutexLock lock(&mutex_);
-  for (auto sink : sinks_) {
-    sink->OnData(data.data(), 16, sample_rate, number_of_channels,
-                 number_of_frames);
-  }
+  buffer_.clear();
 }
 
-AudioTrackSource::AudioTrackSource(AudioSourceOptions options) {
-  source_ =
-      rtc::make_ref_counted<InternalSource>(to_native_audio_options(options));
-}
+AudioTrackSource::AudioTrackSource(AudioSourceOptions options,
+                                   int sample_rate,
+                                   int num_channels,
+                                   int queue_size_ms,
+                                   rust::Fn<void()> data_needed,
+                                   webrtc::TaskQueueFactory* task_queue_factory)
+    : source_(rtc::make_ref_counted<InternalSource>(
+          to_native_audio_options(options),
+          sample_rate,
+          num_channels,
+          queue_size_ms,
+          std::move(data_needed),
+          task_queue_factory)) {}
 
 AudioSourceOptions AudioTrackSource::audio_options() const {
   return to_rust_audio_options(source_->options());
@@ -183,22 +253,21 @@ void AudioTrackSource::set_audio_options(
   source_->set_options(to_native_audio_options(options));
 }
 
-void AudioTrackSource::on_captured_frame(rust::Slice<const int16_t> audio_data,
-                                         uint32_t sample_rate,
-                                         uint32_t number_of_channels,
-                                         size_t number_of_frames) const {
-  source_->on_captured_frame(audio_data, sample_rate, number_of_channels,
-                             number_of_frames);
+bool AudioTrackSource::capture_frame(rust::Slice<const int16_t> audio_data,
+                                     uint32_t sample_rate,
+                                     uint32_t number_of_channels,
+                                     size_t number_of_frames) const {
+  return source_->capture_frame(audio_data, sample_rate, number_of_channels,
+                                number_of_frames);
+}
+
+void AudioTrackSource::clear_buffer() {
+  source_->clear_buffer();
 }
 
 rtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
     const {
   return source_;
-}
-
-std::shared_ptr<AudioTrackSource> new_audio_track_source(
-    AudioSourceOptions options) {
-  return std::make_shared<AudioTrackSource>(options);
 }
 
 }  // namespace livekit
