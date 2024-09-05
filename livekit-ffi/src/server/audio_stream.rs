@@ -214,7 +214,6 @@ impl FfiAudioStream {
                     let Some(frame) = frame else {
                         break;
                     };
-                    log::info!("NEIL received audio frame: {:?}", frame);
 
                     let handle_id = server.next_id();
                     let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
