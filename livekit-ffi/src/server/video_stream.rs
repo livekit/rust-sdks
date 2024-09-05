@@ -68,6 +68,7 @@ impl FfiVideoStream {
                     NativeVideoStream::new(rtc_track),
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
+                    true,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiVideoStream, FfiError>(video_stream)
@@ -126,6 +127,7 @@ impl FfiVideoStream {
         mut native_stream: NativeVideoStream,
         mut self_dropped_rx: oneshot::Receiver<()>,
         mut handle_dropped_rx: oneshot::Receiver<()>,
+        send_eos: bool,
     ) {
         loop {
             tokio::select! {
@@ -173,13 +175,17 @@ impl FfiVideoStream {
             }
         }
 
-        if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
-            proto::VideoStreamEvent {
-                stream_handle,
-                message: Some(proto::video_stream_event::Message::Eos(proto::VideoStreamEos {})),
-            },
-        )) {
-            log::warn!("failed to send video EOS: {}", err);
+        if send_eos {
+            if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
+                proto::VideoStreamEvent {
+                    stream_handle,
+                    message: Some(proto::video_stream_event::Message::Eos(
+                        proto::VideoStreamEos {},
+                    )),
+                },
+            )) {
+                log::warn!("failed to send video EOS: {}", err);
+            }
         }
     }
 
@@ -227,6 +233,7 @@ impl FfiVideoStream {
                         NativeVideoStream::new(rtc_track),
                         c_rx,
                         server.watch_handle_dropped(request.participant_handle),
+                        false,
                     )
                     .await;
                     let _ = done_tx.send(());
@@ -244,6 +251,14 @@ impl FfiVideoStream {
                 // when tracks are done (i.e. the participant leaves the room), we are done
                 break;
             }
+        }
+        if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
+            proto::VideoStreamEvent {
+                stream_handle,
+                message: Some(proto::video_stream_event::Message::Eos(proto::VideoStreamEos {})),
+            },
+        )) {
+            log::warn!("failed to send video EOS: {}", err);
         }
     }
 }

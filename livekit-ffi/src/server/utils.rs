@@ -28,10 +28,10 @@ pub async fn track_changed_trigger(
                     let _ = track_tx.send(track.into()).await;
                 }
             }
-            RoomEvent::ParticipantDisconnected(participant) => {
+            RoomEvent::ParticipantDisconnected(p) => {
                 log::info!("NEIL part dis");
-                if participant.identity() == participant.identity() {
-                    break;
+                if p.identity() == participant.participant.identity() {
+                    return;
                 }
             }
             RoomEvent::Disconnected { reason: _ } => {
