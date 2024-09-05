@@ -20,18 +20,12 @@ pub async fn track_changed_trigger(
     let mut room_event_rx = room.subscribe();
     while let Some(event) = room_event_rx.recv().await {
         match event {
-            RoomEvent::TrackPublished { publication, participant: p } => {
-                log::info!("NEIL track published: {:?} {:?} {:?}", publication, track_source, publication.source());
+            RoomEvent::TrackSubscribed { track, publication, participant: p } => {
                 if participant.participant.identity() != p.identity() {
-                    log::info!("NEIL part id not eq");
                     continue;
                 }
                 if publication.source() == track_source.into() {
-                    log::info!("NEIL pub source eq");
-                    if let Some(track) = publication.track() {
-                        log::info!("NEIL pub track");
-                        let _ = track_tx.send(track.into()).await;
-                    }
+                    let _ = track_tx.send(track.into()).await;
                 }
             }
             RoomEvent::ParticipantDisconnected(participant) => {
