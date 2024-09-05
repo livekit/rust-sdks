@@ -836,7 +836,6 @@ async fn forward_event(
                 }));
         }
         RoomEvent::TrackUnsubscribed { track, publication: _, participant } => {
-            let track_sid = track.sid();
             let _ = send_event(proto::room_event::Message::TrackUnsubscribed(
                 proto::TrackUnsubscribed {
                     participant_identity: participant.identity().to_string(),
