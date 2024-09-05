@@ -199,9 +199,11 @@ impl FfiAudioStream {
                 tokio::select! {
                     _ = &mut self_dropped_rx => {
                         let _ = c_tx.send(());
+                        log::info!("NEIL self_drop_rx");
                         return
                     }
                     _ = &mut done_rx => {
+                        log::info!("NEIL done_rx");
                         break
                     }
                 }
