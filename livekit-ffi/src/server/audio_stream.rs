@@ -204,7 +204,7 @@ impl FfiAudioStream {
                     }
                     _ = &mut done_rx => {
                         log::info!("NEIL done_rx");
-                        break
+                        continue
                     }
                 }
             } else {
