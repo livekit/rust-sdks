@@ -128,7 +128,7 @@ impl FfiAudioStream {
         server: &'static server::FfiServer,
         request: proto::AudioStreamFromParticipantRequest,
         stream_handle: FfiHandleId,
-        mut close_rx: oneshot::Receiver<()>,
+        mut self_dropped_rx: oneshot::Receiver<()>,
     ) {
         let ffi_participant =
             utils::ffi_participant_from_handle(server, request.participant_handle);
@@ -175,7 +175,7 @@ impl FfiAudioStream {
                     let _ = done_tx.send(());
                 });
                 tokio::select! {
-                    _ = &mut close_rx => {
+                    _ = &mut self_dropped_rx => {
                         let _ = c_tx.send(());
                         return
                     }
@@ -209,6 +209,7 @@ impl FfiAudioStream {
                     let Some(frame) = frame else {
                         break;
                     };
+                    log::info!("NEIL received audio frame: {:?}", frame);
 
                     let handle_id = server.next_id();
                     let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
