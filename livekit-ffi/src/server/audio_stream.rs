@@ -15,7 +15,7 @@
 use futures_util::StreamExt;
 use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::{room::FfiTrack, FfiHandle};
 use crate::server::utils;
@@ -143,12 +143,12 @@ impl FfiAudioStream {
 
         let track_source = request.track_source();
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
-        let (track_finished_tx, mut track_finished_rx) = mpsc::channel::<Track>(1);
+        let (track_finished_tx, _) = broadcast::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
             ffi_participant,
             track_source.into(),
             track_tx,
-            track_finished_tx,
+            track_finished_tx.clone(),
         ));
         // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
 
@@ -170,10 +170,11 @@ impl FfiAudioStream {
                 let num_channels =
                     if request.num_channels == 0 { 1 } else { request.num_channels as i32 };
 
+                let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {
                     tokio::select! {
                             t = track_finished_rx.recv() => {
-                            let Some(t) = t else {
+                            let Ok(t) = t else {
                                 return
                             };
                             if t.sid() == track.sid() {

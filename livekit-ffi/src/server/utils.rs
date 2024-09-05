@@ -1,5 +1,5 @@
 use livekit::prelude::{RoomEvent, Track, TrackSource};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use super::room::FfiParticipant;
 use crate::{server, FfiError, FfiHandleId};
@@ -8,7 +8,7 @@ pub async fn track_changed_trigger(
     participant: FfiParticipant,
     track_source: TrackSource,
     track_tx: mpsc::Sender<Track>,
-    track_finished_tx: mpsc::Sender<Track>,
+    track_finished_tx: broadcast::Sender<Track>,
 ) {
     for track_pub in participant.participant.track_publications().values() {
         if track_pub.source() == track_source.into() {
@@ -34,7 +34,7 @@ pub async fn track_changed_trigger(
                     continue;
                 }
                 if publication.source() == track_source.into() {
-                    let _ = track_finished_tx.send(track.into()).await;
+                    let _ = track_finished_tx.send(track.into());
                 }
             }
             RoomEvent::ParticipantDisconnected(p) => {
