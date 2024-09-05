@@ -150,7 +150,9 @@ impl FfiAudioStream {
         // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
 
         loop {
+            log::info!("NEIL track loop");
             let track = track_rx.recv().await;
+            log::info!("NEIL got track");
             if let Some(track) = track {
                 let rtc_track = track.rtc_track();
                 let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
@@ -197,12 +199,15 @@ impl FfiAudioStream {
         mut self_dropped_rx: oneshot::Receiver<()>,
         mut handle_dropped_rx: oneshot::Receiver<()>,
     ) {
+        log::info!("NEIL native_audio_stream_task");
         loop {
             tokio::select! {
                 _ = &mut self_dropped_rx => {
+                    log::info!("NEIL self dropped");
                     break;
                 }
                 _ = &mut handle_dropped_rx => {
+                    log::info!("NEIL handle dropped");
                     break;
                 }
                 frame = native_stream.next() => {
