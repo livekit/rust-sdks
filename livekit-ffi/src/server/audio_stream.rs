@@ -152,7 +152,7 @@ impl FfiAudioStream {
         loop {
             log::info!("NEIL track loop");
             let track = track_rx.recv().await;
-            log::info!("NEIL got track");
+            log::info!("NEIL got track {:?}", track);
             if let Some(track) = track {
                 let rtc_track = track.rtc_track();
                 let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
