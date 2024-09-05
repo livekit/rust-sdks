@@ -143,10 +143,12 @@ impl FfiAudioStream {
 
         let track_source = request.track_source();
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
+        let (track_finished_tx, mut track_finished_rx) = mpsc::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
             ffi_participant,
             track_source.into(),
             track_tx,
+            track_finished_tx,
         ));
         // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
 
@@ -160,19 +162,35 @@ impl FfiAudioStream {
                     continue;
                 };
                 let (c_tx, c_rx) = oneshot::channel::<()>();
+                let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
                 let sample_rate =
                     if request.sample_rate == 0 { 48000 } else { request.sample_rate as i32 };
 
                 let num_channels =
                     if request.num_channels == 0 { 1 } else { request.num_channels as i32 };
+
+                server.async_runtime.spawn(async move {
+                    tokio::select! {
+                            t = track_finished_rx.recv() => {
+                            let Some(t) = t else {
+                                return
+                            };
+                            if t.sid() == track.sid() {
+                                handle_dropped_tx.send(()).ok();
+                                return
+                            }
+                        }
+                    }
+                });
+
                 server.async_runtime.spawn(async move {
                     Self::native_audio_stream_task(
                         server,
                         stream_handle,
                         NativeAudioStream::new(rtc_track, sample_rate, num_channels),
                         c_rx,
-                        server.watch_handle_dropped(request.participant_handle),
+                        handle_dropped_rx,
                         false,
                     )
                     .await;

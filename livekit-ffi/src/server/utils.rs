@@ -8,6 +8,7 @@ pub async fn track_changed_trigger(
     participant: FfiParticipant,
     track_source: TrackSource,
     track_tx: mpsc::Sender<Track>,
+    track_finished_tx: mpsc::Sender<Track>,
 ) {
     for track_pub in participant.participant.track_publications().values() {
         if track_pub.source() == track_source.into() {
@@ -28,10 +29,16 @@ pub async fn track_changed_trigger(
                     let _ = track_tx.send(track.into()).await;
                 }
             }
+            RoomEvent::TrackUnsubscribed { track, publication, participant: p } => {
+                if p.identity() != participant.participant.identity() {
+                    continue;
+                }
+                if publication.source() == track_source.into() {
+                    let _ = track_finished_tx.send(track.into()).await;
+                }
+            }
             RoomEvent::ParticipantDisconnected(p) => {
-                log::info!("NEIL part dis {:?} {:?}", p.identity(), participant.participant.identity());
                 if p.identity() == participant.participant.identity() {
-                    log::info!("NEIL part dis 2");
                     return;
                 }
             }

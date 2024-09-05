@@ -208,10 +208,12 @@ impl FfiVideoStream {
 
         let track_source = request.track_source();
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
+        let (track_finished_tx, _track_finished_rx) = mpsc::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
             ffi_participant,
             track_source.into(),
             track_tx,
+            track_finished_tx,
         ));
         // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
 
