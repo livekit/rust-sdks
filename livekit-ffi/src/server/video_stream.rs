@@ -225,6 +225,7 @@ impl FfiVideoStream {
                     continue;
                 };
                 let (c_tx, c_rx) = oneshot::channel::<()>();
+                let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
@@ -250,7 +251,7 @@ impl FfiVideoStream {
                         request.normalize_stride,
                         NativeVideoStream::new(rtc_track),
                         c_rx,
-                        server.watch_handle_dropped(request.participant_handle),
+                        handle_dropped_rx,
                         false,
                     )
                     .await;
@@ -262,7 +263,7 @@ impl FfiVideoStream {
                         return
                     }
                     _ = &mut done_rx => {
-                        break
+                        continue
                     }
                 }
             } else {
