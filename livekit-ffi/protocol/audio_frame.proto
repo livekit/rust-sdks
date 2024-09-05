@@ -18,6 +18,7 @@ package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
+import "track.proto";
 
 // Create a new AudioStream
 // AudioStream is used to receive audio frames from a track
@@ -28,6 +29,16 @@ message NewAudioStreamRequest {
   uint32 num_channels = 4;
 }
 message NewAudioStreamResponse { OwnedAudioStream stream = 1; }
+
+message AudioStreamFromParticipantRequest {
+  uint64 participant_handle = 1;
+  AudioStreamType type = 2;
+  optional TrackSource track_source = 3;
+  uint32 sample_rate = 5;
+  uint32 num_channels = 6;
+}
+
+message AudioStreamFromParticipantResponse { OwnedAudioStream stream = 1; }
 
 // Create a new AudioSource
 message NewAudioSourceRequest {
