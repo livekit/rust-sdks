@@ -21,6 +21,7 @@ pub async fn track_changed_trigger(
     while let Some(event) = room_event_rx.recv().await {
         match event {
             RoomEvent::TrackPublished { publication, participant: p } => {
+                log::info!("NEIL track published: {:?}", publication);
                 if participant.participant.identity() != p.identity() {
                     continue;
                 }
@@ -31,6 +32,7 @@ pub async fn track_changed_trigger(
                 }
             }
             RoomEvent::ParticipantDisconnected(participant) => {
+                log::info!("NEIL part dis: {:?}", publication);
                 if participant.identity() == participant.identity() {
                     break;
                 }
