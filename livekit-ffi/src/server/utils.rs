@@ -29,7 +29,7 @@ pub async fn track_changed_trigger(
                 }
             }
             RoomEvent::ParticipantDisconnected(p) => {
-                log::info!("NEIL part dis");
+                log::info!("NEIL part dis {:?} {:?}", p.identity(), participant.participant.identity());
                 if p.identity() == participant.participant.identity() {
                     log::info!("NEIL part dis 2");
                     return;
