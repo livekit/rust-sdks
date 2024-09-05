@@ -23,6 +23,7 @@ pub async fn track_changed_trigger(
             RoomEvent::TrackPublished { publication, participant: p } => {
                 log::info!("NEIL track published: {:?} {:?} {:?}", publication, track_source, publication.source());
                 if participant.participant.identity() != p.identity() {
+                    log::info!("NEIL part id not eq");
                     continue;
                 }
                 if publication.source() == track_source.into() {
