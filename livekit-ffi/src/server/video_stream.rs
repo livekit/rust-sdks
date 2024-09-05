@@ -89,16 +89,20 @@ impl FfiVideoStream {
         server: &'static server::FfiServer,
         request: proto::VideoStreamFromParticipantRequest,
     ) -> FfiResult<proto::OwnedVideoStream> {
-        let (close_tx, close_rx) = oneshot::channel();
+        let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
         let stream_type = request.r#type();
         let handle_id = server.next_id();
         let dst_type = request.format.and_then(|_| Some(request.format()));
         let stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
-                let video_stream = Self { handle_id, close_tx, stream_type };
+                let video_stream = Self { handle_id, self_dropped_tx, stream_type };
                 let handle = server.async_runtime.spawn(Self::participant_video_stream_task(
-                    server, request, handle_id, dst_type, close_rx,
+                    server,
+                    request,
+                    handle_id,
+                    dst_type,
+                    self_dropped_rx,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiVideoStream, FfiError>(video_stream)
@@ -222,6 +226,7 @@ impl FfiVideoStream {
                         request.normalize_stride,
                         NativeVideoStream::new(rtc_track),
                         c_rx,
+                        server.watch_handle_dropped(request.participant_handle),
                     )
                     .await;
                     let _ = done_tx.send(());

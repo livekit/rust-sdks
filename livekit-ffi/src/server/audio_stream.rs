@@ -94,16 +94,19 @@ impl FfiAudioStream {
         server: &'static server::FfiServer,
         request: proto::AudioStreamFromParticipantRequest,
     ) -> FfiResult<proto::OwnedAudioStream> {
-        let (close_tx, close_rx) = oneshot::channel();
+        let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
         let handle_id = server.next_id();
         let stream_type = request.r#type();
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
-                let audio_stream = Self { handle_id, stream_type, close_tx };
+                let audio_stream = Self { handle_id, stream_type, self_dropped_tx };
 
                 let handle = server.async_runtime.spawn(Self::participant_audio_stream_task(
-                    server, request, handle_id, close_rx,
+                    server,
+                    request,
+                    handle_id,
+                    self_dropped_rx,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -155,12 +158,18 @@ impl FfiAudioStream {
                 };
                 let (c_tx, c_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
+                let sample_rate =
+                    if request.sample_rate == 0 { 48000 } else { request.sample_rate as i32 };
+
+                let num_channels =
+                    if request.num_channels == 0 { 1 } else { request.num_channels as i32 };
                 server.async_runtime.spawn(async move {
                     Self::native_audio_stream_task(
                         server,
                         stream_handle,
-                        NativeAudioStream::new(rtc_track),
+                        NativeAudioStream::new(rtc_track, sample_rate, num_channels),
                         c_rx,
+                        server.watch_handle_dropped(request.participant_handle),
                     )
                     .await;
                     let _ = done_tx.send(());

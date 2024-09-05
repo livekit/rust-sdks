@@ -2922,6 +2922,10 @@ pub struct AudioStreamFromParticipantRequest {
     pub r#type: i32,
     #[prost(enumeration="TrackSource", optional, tag="3")]
     pub track_source: ::core::option::Option<i32>,
+    #[prost(uint32, tag="5")]
+    pub sample_rate: u32,
+    #[prost(uint32, tag="6")]
+    pub num_channels: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
