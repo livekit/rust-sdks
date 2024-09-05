@@ -27,7 +27,9 @@ pub async fn track_changed_trigger(
                     continue;
                 }
                 if publication.source() == track_source.into() {
+                    log::info!("NEIL pub source eq");
                     if let Some(track) = publication.track() {
+                        log::info!("NEIL pub track");
                         let _ = track_tx.send(track.into()).await;
                     }
                 }
