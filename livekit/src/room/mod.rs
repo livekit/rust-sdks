@@ -33,7 +33,7 @@ use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
-use self::{
+pub use self::{
     e2ee::{manager::E2eeManager, E2eeOptions},
     participant::ParticipantKind,
 };
