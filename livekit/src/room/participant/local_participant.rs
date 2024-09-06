@@ -210,7 +210,7 @@ impl LocalParticipant {
             LocalTrack::Audio(_audio_track) => {
                 // Setup audio encoding
                 let audio_encoding =
-                    options.audio_encoding.as_ref().unwrap_or(&options::audio::SPEECH.encoding);
+                    options.audio_encoding.as_ref().unwrap_or(&options::audio::MUSIC.encoding);
 
                 encodings.push(RtpEncodingParameters {
                     max_bitrate: Some(audio_encoding.max_bitrate),
