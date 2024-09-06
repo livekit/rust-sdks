@@ -61,6 +61,7 @@ impl Participant {
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
+        pub fn kind(self: &Self) -> ParticipantKind;
 
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 
