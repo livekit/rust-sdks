@@ -307,11 +307,11 @@ pub mod audio {
     use super::AudioPreset;
 
     pub const TELEPHONE: AudioPreset = AudioPreset::new(12_000);
-    pub const SPEECH: AudioPreset = AudioPreset::new(20_000);
-    pub const MUSIC: AudioPreset = AudioPreset::new(32_000);
-    pub const MUSIC_STEREO: AudioPreset = AudioPreset::new(48_000);
-    pub const MUSIC_HIGH_QUALITY: AudioPreset = AudioPreset::new(64_000);
-    pub const MUSIC_HIGH_QUALITY_STEREO: AudioPreset = AudioPreset::new(96_000);
+    pub const SPEECH: AudioPreset = AudioPreset::new(24_000);
+    pub const MUSIC: AudioPreset = AudioPreset::new(48_000);
+    pub const MUSIC_STEREO: AudioPreset = AudioPreset::new(64_000);
+    pub const MUSIC_HIGH_QUALITY: AudioPreset = AudioPreset::new(96_000);
+    pub const MUSIC_HIGH_QUALITY_STEREO: AudioPreset = AudioPreset::new(128_000);
 
     pub const PRESETS: &[AudioPreset] =
         &[TELEPHONE, SPEECH, MUSIC, MUSIC_STEREO, MUSIC_HIGH_QUALITY, MUSIC_HIGH_QUALITY_STEREO];
