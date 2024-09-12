@@ -35,11 +35,6 @@ impl NativeAudioSource {
     ) -> NativeAudioSource {
         assert!(queue_size_ms % 10 == 0, "queue_size_ms must be a multiple of 10");
 
-        print!(
-            "new audio source {} {} {} {}",
-            sample_rate, num_channels, queue_size_ms, options.echo_cancellation
-        );
-
         let sys_handle = sys_at::ffi::new_audio_track_source(
             options.into(),
             sample_rate.try_into().unwrap(),
@@ -112,7 +107,6 @@ impl NativeAudioSource {
             }
 
             let _ = rx.await;
-            println!("captured frame");
         }
 
         Ok(())
