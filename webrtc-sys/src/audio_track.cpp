@@ -136,14 +136,13 @@ AudioTrackSource::InternalSource::InternalSource(
       num_channels_(num_channels),
       capture_userdata_(nullptr),
       on_complete_(nullptr) {
-  if (!queue_size_ms) {
+  if (!queue_size_ms)
     return;  // no audio queue
-  }
 
   int samples10ms = sample_rate / 100 * num_channels;
   queue_size_samples_ = queue_size_ms / 10 * samples10ms;
-  notify_threshold_samples_ = queue_size_samples_; // TODO: this is currently using x2 the queue
-                                                   // size
+  notify_threshold_samples_ = queue_size_samples_;  // TODO: this is currently
+                                                    // using x2 the queue size
   buffer_.resize(queue_size_samples_ + notify_threshold_samples_);
 
   audio_queue_ =
