@@ -836,12 +836,6 @@ async fn forward_event(
                 }));
         }
         RoomEvent::TrackUnsubscribed { track, publication: _, participant } => {
-            let track_sid = track.sid();
-            if let Some(handle) = inner.track_handle_lookup.lock().remove(&track_sid) {
-                server.drop_handle(handle);
-            } else {
-                log::warn!("track {} was not found in the lookup table", track_sid);
-            }
             let _ = send_event(proto::room_event::Message::TrackUnsubscribed(
                 proto::TrackUnsubscribed {
                     participant_identity: participant.identity().to_string(),

@@ -13,10 +13,12 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
+use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::{room::FfiTrack, FfiHandle};
+use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 pub struct FfiAudioStream {
@@ -38,7 +40,7 @@ impl FfiAudioStream {
     ///
     /// It is possible that the client receives an AudioFrame after the task is closed. The client
     /// musts ignore it.
-    pub fn setup(
+    pub fn from_track(
         server: &'static server::FfiServer,
         new_stream: proto::NewAudioStreamRequest,
     ) -> FfiResult<proto::OwnedAudioStream> {
@@ -71,6 +73,7 @@ impl FfiAudioStream {
                     native_stream,
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
+                    true,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -88,12 +91,141 @@ impl FfiAudioStream {
         })
     }
 
+    pub fn from_participant(
+        server: &'static server::FfiServer,
+        request: proto::AudioStreamFromParticipantRequest,
+    ) -> FfiResult<proto::OwnedAudioStream> {
+        let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
+        let handle_id = server.next_id();
+        let stream_type = request.r#type();
+        let audio_stream = match stream_type {
+            #[cfg(not(target_arch = "wasm32"))]
+            proto::AudioStreamType::AudioStreamNative => {
+                let audio_stream = Self { handle_id, stream_type, self_dropped_tx };
+
+                let handle = server.async_runtime.spawn(Self::participant_audio_stream_task(
+                    server,
+                    request,
+                    handle_id,
+                    self_dropped_rx,
+                ));
+                server.watch_panic(handle);
+                Ok::<FfiAudioStream, FfiError>(audio_stream)
+            }
+            _ => return Err(FfiError::InvalidRequest("unsupported audio stream type".into())),
+        }?;
+
+        // Store the new audio stream and return the info
+        let info = proto::AudioStreamInfo::from(&audio_stream);
+        server.store_handle(handle_id, audio_stream);
+
+        Ok(proto::OwnedAudioStream {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(info),
+        })
+    }
+
+    async fn participant_audio_stream_task(
+        server: &'static server::FfiServer,
+        request: proto::AudioStreamFromParticipantRequest,
+        stream_handle: FfiHandleId,
+        mut self_dropped_rx: oneshot::Receiver<()>,
+    ) {
+        let ffi_participant =
+            utils::ffi_participant_from_handle(server, request.participant_handle);
+        let ffi_participant = match ffi_participant {
+            Ok(ffi_participant) => ffi_participant,
+            Err(err) => {
+                log::error!("failed to get participant: {}", err);
+                return;
+            }
+        };
+
+        let track_source = request.track_source();
+        let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
+        let (track_finished_tx, _) = broadcast::channel::<Track>(1);
+        server.async_runtime.spawn(utils::track_changed_trigger(
+            ffi_participant,
+            track_source.into(),
+            track_tx,
+            track_finished_tx.clone(),
+        ));
+        // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
+
+        loop {
+            let track = track_rx.recv().await;
+            if let Some(track) = track {
+                let rtc_track = track.rtc_track();
+                let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
+                    continue;
+                };
+                let (c_tx, c_rx) = oneshot::channel::<()>();
+                let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
+                let (done_tx, mut done_rx) = oneshot::channel::<()>();
+                let sample_rate =
+                    if request.sample_rate == 0 { 48000 } else { request.sample_rate as i32 };
+
+                let num_channels =
+                    if request.num_channels == 0 { 1 } else { request.num_channels as i32 };
+
+                let mut track_finished_rx = track_finished_tx.subscribe();
+                server.async_runtime.spawn(async move {
+                    tokio::select! {
+                            t = track_finished_rx.recv() => {
+                            let Ok(t) = t else {
+                                return
+                            };
+                            if t.sid() == track.sid() {
+                                handle_dropped_tx.send(()).ok();
+                                return
+                            }
+                        }
+                    }
+                });
+
+                server.async_runtime.spawn(async move {
+                    Self::native_audio_stream_task(
+                        server,
+                        stream_handle,
+                        NativeAudioStream::new(rtc_track, sample_rate, num_channels),
+                        c_rx,
+                        handle_dropped_rx,
+                        false,
+                    )
+                    .await;
+                    let _ = done_tx.send(());
+                });
+                tokio::select! {
+                    _ = &mut self_dropped_rx => {
+                        let _ = c_tx.send(());
+                        return
+                    }
+                    _ = &mut done_rx => {
+                        continue
+                    }
+                }
+            } else {
+                // when tracks are done (i.e. the participant leaves the room), we are done
+                break;
+            }
+        }
+        if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+            proto::AudioStreamEvent {
+                stream_handle: stream_handle,
+                message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
+            },
+        )) {
+            log::warn!("failed to send audio eos: {}", err);
+        }
+    }
+
     async fn native_audio_stream_task(
         server: &'static server::FfiServer,
         stream_handle_id: FfiHandleId,
         mut native_stream: NativeAudioStream,
         mut self_dropped_rx: oneshot::Receiver<()>,
         mut handle_dropped_rx: oneshot::Receiver<()>,
+        send_eos: bool,
     ) {
         loop {
             tokio::select! {
@@ -131,13 +263,17 @@ impl FfiAudioStream {
                 }
             }
         }
-        if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
-            proto::AudioStreamEvent {
-                stream_handle: stream_handle_id,
-                message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
-            },
-        )) {
-            log::warn!("failed to send audio eos: {}", err);
+        if send_eos {
+            if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+                proto::AudioStreamEvent {
+                    stream_handle: stream_handle_id,
+                    message: Some(proto::audio_stream_event::Message::Eos(
+                        proto::AudioStreamEos {},
+                    )),
+                },
+            )) {
+                log::warn!("failed to send audio eos: {}", err);
+            }
         }
     }
 }

@@ -25,9 +25,18 @@ message ParticipantInfo {
   string identity = 3;
   string metadata = 4;
   map<string, string> attributes = 5;
+  ParticipantKind kind = 6;
 }
 
 message OwnedParticipant {
   FfiOwnedHandle handle = 1;
   ParticipantInfo info = 2;
+}
+
+enum ParticipantKind {
+  PARTICIPANT_KIND_STANDARD = 0;
+  PARTICIPANT_KIND_INGRESS = 1;
+  PARTICIPANT_KIND_EGRESS = 2;
+  PARTICIPANT_KIND_SIP = 3;
+  PARTICIPANT_KIND_AGENT = 4;
 }

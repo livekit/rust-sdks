@@ -18,6 +18,7 @@ package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
+import "track.proto";
 
 // Create a new VideoStream
 // VideoStream is used to receive video frames from a track
@@ -29,6 +30,17 @@ message NewVideoStreamRequest {
   bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
 }
 message NewVideoStreamResponse { OwnedVideoStream stream = 1; }
+
+// Request a video stream from a participant
+message VideoStreamFromParticipantRequest {
+  uint64 participant_handle = 1;
+  VideoStreamType type = 2;
+  TrackSource track_source = 3;
+  optional VideoBufferType format = 4;
+  bool normalize_stride = 5;
+}
+
+message VideoStreamFromParticipantResponse { OwnedVideoStream stream = 1;}
 
 // Create a new VideoSource
 // VideoSource is used to send video frame to a track
