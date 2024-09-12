@@ -136,16 +136,14 @@ AudioTrackSource::InternalSource::InternalSource(
       num_channels_(num_channels),
       capture_userdata_(nullptr),
       on_complete_(nullptr) {
-  if (queue_size_ms > 0) {
+  if (!queue_size_ms) {
     return;  // no audio queue
   }
 
   int samples10ms = sample_rate / 100 * num_channels;
-  int notify_threshold =
-      sample_rate / 10;  // notify when buffer is less than 100ms
-
   queue_size_samples_ = queue_size_ms / 10 * samples10ms;
-  buffer_.resize(queue_size_samples_ + notify_threshold);
+  notify_threshold_samples_ = queue_size_samples_;
+  buffer_.resize(queue_size_samples_ + notify_threshold_samples_);
 
   audio_queue_ =
       std::make_unique<rtc::TaskQueue>(task_queue_factory->CreateTaskQueue(
@@ -153,7 +151,7 @@ AudioTrackSource::InternalSource::InternalSource(
 
   audio_task_ = webrtc::RepeatingTaskHandle::Start(
       audio_queue_->Get(),
-      [this, samples10ms, notify_threshold]() {
+      [this, samples10ms]() {
         webrtc::MutexLock lock(&mutex_);
 
         if (buffer_.size() >= samples10ms) {
@@ -164,7 +162,7 @@ AudioTrackSource::InternalSource::InternalSource(
           buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
         }
 
-        if (on_complete_ && buffer_.size() <= notify_threshold) {
+        if (on_complete_ && buffer_.size() <= notify_threshold_samples_) {
           on_complete_(capture_userdata_);
           on_complete_ = nullptr;
           capture_userdata_ = nullptr;
@@ -185,7 +183,8 @@ bool AudioTrackSource::InternalSource::capture_frame(
   webrtc::MutexLock lock(&mutex_);
 
   if (queue_size_samples_) {
-    int available = queue_size_samples_ - buffer_.size();
+    int available =
+        (queue_size_samples_ + notify_threshold_samples_) - buffer_.size();
     if (available < data.size())
       return false;
 
@@ -194,8 +193,12 @@ bool AudioTrackSource::InternalSource::capture_frame(
 
     buffer_.insert(buffer_.end(), data.begin(), data.end());
 
-    on_complete_ = on_complete;
-    capture_userdata_ = ctx;
+    if (buffer_.size() <= notify_threshold_samples_) {
+      on_complete(ctx);  // complete directly
+    } else {
+      on_complete_ = on_complete;
+      capture_userdata_ = ctx;
+    }
 
   } else {
     // capture directly when the queue buffer is 0 (frame size must be 10ms)

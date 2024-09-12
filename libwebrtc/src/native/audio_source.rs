@@ -35,6 +35,11 @@ impl NativeAudioSource {
     ) -> NativeAudioSource {
         assert!(queue_size_ms % 10 == 0, "queue_size_ms must be a multiple of 10");
 
+        print!(
+            "new audio source {} {} {} {}",
+            sample_rate, num_channels, queue_size_ms, options.echo_cancellation
+        );
+
         let sys_handle = sys_at::ffi::new_audio_track_source(
             options.into(),
             sample_rate.try_into().unwrap(),
@@ -75,12 +80,14 @@ impl NativeAudioSource {
         }
 
         extern "C" fn lk_audio_source_complete(userdata: *const sys_at::SourceContext) {
+            println!("lk_audio_source_complete");
             let tx = unsafe { Box::from_raw(userdata as *mut oneshot::Sender<()>) };
             let _ = tx.send(());
         }
 
         // iterate over chunks of self._queue_size_samples
         for chunk in frame.data.chunks(self.queue_size_samples as usize) {
+            println!("capturing frame {}", chunk.len());
             let nb_frames = chunk.len() / self.num_channels as usize;
             let (tx, rx) = oneshot::channel::<()>();
             let ctx = Box::new(tx);
@@ -95,6 +102,7 @@ impl NativeAudioSource {
                     ctx_ptr,
                     sys_at::CompleteCallback(lk_audio_source_complete),
                 ) {
+                    print!("failed to capture frame");
                     return Err(RtcError {
                         error_type: RtcErrorType::InvalidState,
                         message: "failed to capture frame".to_owned(),
@@ -103,6 +111,7 @@ impl NativeAudioSource {
             }
 
             let _ = rx.await;
+            println!("captured frame");
         }
 
         Ok(())

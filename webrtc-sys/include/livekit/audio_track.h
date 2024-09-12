@@ -137,6 +137,7 @@ class AudioTrackSource {
     int sample_rate_;
     int num_channels_;
     int queue_size_samples_;
+    int notify_threshold_samples_;
 
     cricket::AudioOptions options_{};
   };
