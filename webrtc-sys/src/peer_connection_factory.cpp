@@ -84,6 +84,7 @@ PeerConnectionFactory::PeerConnectionFactory(
   peer_factory_ =
       webrtc::CreateModularPeerConnectionFactory(std::move(dependencies));
 
+
   task_queue_factory_ = dependencies.task_queue_factory.get();
 
   if (peer_factory_.get() == nullptr) {
@@ -128,17 +129,6 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
   return std::static_pointer_cast<AudioTrack>(
       rtc_runtime_->get_or_create_media_stream_track(
           peer_factory_->CreateAudioTrack(label.c_str(), source->get().get())));
-}
-
-std::shared_ptr<AudioTrackSource> PeerConnectionFactory::create_audio_source(
-    AudioSourceOptions options,
-    int sample_rate,
-    int num_channels,
-    int queue_size_ms,
-    rust::Fn<void()> data_needed) const {
-  return std::make_shared<AudioTrackSource>(
-      options, sample_rate, num_channels, queue_size_ms, std::move(data_needed),
-      task_queue_factory_);
 }
 
 RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(

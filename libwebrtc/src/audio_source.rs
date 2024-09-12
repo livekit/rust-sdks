@@ -63,14 +63,14 @@ pub mod native {
             options: AudioSourceOptions,
             sample_rate: u32,
             num_channels: u32,
-            enable_queue: Option<bool>,
+            queue_size_ms: u32,
         ) -> NativeAudioSource {
             Self {
                 handle: imp_as::NativeAudioSource::new(
                     options,
                     sample_rate,
                     num_channels,
-                    enable_queue,
+                    queue_size_ms,
                 ),
             }
         }
@@ -93,10 +93,6 @@ pub mod native {
 
         pub fn num_channels(&self) -> u32 {
             self.handle.num_channels()
-        }
-
-        pub fn enable_queue(&self) -> bool {
-            self.handle.enable_queue()
         }
     }
 }

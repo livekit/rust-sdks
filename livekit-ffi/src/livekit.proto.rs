@@ -2903,8 +2903,8 @@ pub struct NewAudioSourceRequest {
     pub sample_rate: u32,
     #[prost(uint32, tag="4")]
     pub num_channels: u32,
-    #[prost(bool, optional, tag="5")]
-    pub enable_queue: ::core::option::Option<bool>,
+    #[prost(uint32, tag="5")]
+    pub queue_size_ms: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

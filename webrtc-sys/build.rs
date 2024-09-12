@@ -72,6 +72,7 @@ fn main() {
         "src/audio_device.cpp",
         "src/audio_resampler.cpp",
         "src/frame_cryptor.cpp",
+        "src/global_task_queue.cpp",
     ]);
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();

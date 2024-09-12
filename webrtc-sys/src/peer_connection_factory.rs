@@ -79,7 +79,6 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
         type MediaType = crate::webrtc::ffi::MediaType;
-        type AudioSourceOptions = crate::audio_track::ffi::AudioSourceOptions;
     }
 
     unsafe extern "C++" {
@@ -107,15 +106,6 @@ pub mod ffi {
             label: String,
             source: SharedPtr<AudioTrackSource>,
         ) -> SharedPtr<AudioTrack>;
-
-        fn create_audio_source(
-            self: &PeerConnectionFactory,
-            options: AudioSourceOptions,
-            sample_rate: i32,
-            num_channels: i32,
-            queue_size_ms: i32,
-            data_needed: fn(),
-        ) -> SharedPtr<AudioTrackSource>;
 
         fn rtp_sender_capabilities(
             self: &PeerConnectionFactory,

@@ -29,12 +29,16 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_queue.h"
 #include "rtc_base/task_utils/repeating_task.h"
+#include "rtc_base/thread_annotations.h"
 #include "rust/cxx.h"
 
 namespace livekit {
 class AudioTrack;
 class NativeAudioSink;
 class AudioTrackSource;
+class SourceContext;
+
+using CompleteCallback = void (*)(const livekit::SourceContext*);
 }  // namespace livekit
 #include "webrtc-sys/src/audio_track.rs.h"
 
@@ -98,7 +102,6 @@ class AudioTrackSource {
                    int sample_rate,
                    int num_channels,
                    int buffer_size_ms,
-                   rust::Fn<void()> data_needed,
                    webrtc::TaskQueueFactory* task_queue_factory);
 
     SourceState state() const override;
@@ -111,12 +114,12 @@ class AudioTrackSource {
 
     void set_options(const cricket::AudioOptions& options);
 
-    // AudioFrame should always contain 10 ms worth of data (see index.md of
-    // acm)
     bool capture_frame(rust::Slice<const int16_t> audio_data,
                        uint32_t sample_rate,
                        uint32_t number_of_channels,
-                       size_t number_of_frames);
+                       size_t number_of_frames,
+                       const SourceContext* ctx,
+                       void (*on_complete)(const SourceContext*));
 
     void clear_buffer();
 
@@ -124,15 +127,16 @@ class AudioTrackSource {
     mutable webrtc::Mutex mutex_;
     std::unique_ptr<rtc::TaskQueue> audio_queue_;
     webrtc::RepeatingTaskHandle audio_task_;
-    std::vector<webrtc::AudioTrackSinkInterface*> sinks_;
-    std::vector<int16_t> buffer_;
-    rust::Fn<void()> data_needed_;
+
+    std::vector<webrtc::AudioTrackSinkInterface*> sinks_ RTC_GUARDED_BY(mutex_);
+    std::vector<int16_t> buffer_ RTC_GUARDED_BY(mutex_);
+
+    const SourceContext* capture_userdata_ RTC_GUARDED_BY(mutex_);
+    void (*on_complete_)(const SourceContext*) RTC_GUARDED_BY(mutex_);
 
     int sample_rate_;
     int num_channels_;
     int queue_size_samples_;
-
-    bool data_requested_;
 
     cricket::AudioOptions options_{};
   };
@@ -142,7 +146,6 @@ class AudioTrackSource {
                    int sample_rate,
                    int num_channels,
                    int queue_size_ms,
-                   rust::Fn<void()> data_needed,
                    webrtc::TaskQueueFactory* task_queue_factory);
 
   AudioSourceOptions audio_options() const;
@@ -152,7 +155,9 @@ class AudioTrackSource {
   bool capture_frame(rust::Slice<const int16_t> audio_data,
                      uint32_t sample_rate,
                      uint32_t number_of_channels,
-                     size_t number_of_frames) const;
+                     size_t number_of_frames,
+                     const SourceContext* ctx,
+                     CompleteCallback on_complete) const;
 
   void clear_buffer();
 
@@ -162,6 +167,11 @@ class AudioTrackSource {
   rtc::scoped_refptr<InternalSource> source_;
 };
 
+std::shared_ptr<AudioTrackSource> new_audio_track_source(
+    AudioSourceOptions options,
+    int sample_rate,
+    int num_channels,
+    int queue_size_ms);
 
 static std::shared_ptr<MediaStreamTrack> audio_to_media(
     std::shared_ptr<AudioTrack> track) {
