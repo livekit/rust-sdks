@@ -426,6 +426,16 @@ fn on_capture_audio_frame(
     source.capture_frame(server, push)
 }
 
+// Clear the internal audio buffer (cancel all pending frames from being played)
+fn on_clear_audio_buffer(
+    server: &'static FfiServer,
+    clear: proto::ClearAudioBufferRequest,
+) -> FfiResult<proto::ClearAudioBufferResponse> {
+    let source = server.retrieve_handle::<audio_source::FfiAudioSource>(clear.source_handle)?;
+    source.clear_buffer();
+    Ok(proto::ClearAudioBufferResponse {})
+}
+
 /// Create a new audio resampler
 fn new_audio_resampler(
     server: &'static FfiServer,
@@ -743,6 +753,9 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::CaptureAudioFrame(push) => {
             proto::ffi_response::Message::CaptureAudioFrame(on_capture_audio_frame(server, push)?)
+        }
+        proto::ffi_request::Message::ClearAudioBuffer(clear) => {
+            proto::ffi_response::Message::ClearAudioBuffer(on_clear_audio_buffer(server, clear)?)
         }
         proto::ffi_request::Message::NewAudioResampler(new_res) => {
             proto::ffi_response::Message::NewAudioResampler(new_audio_resampler(server, new_res)?)

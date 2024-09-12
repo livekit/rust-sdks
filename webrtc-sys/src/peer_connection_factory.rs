@@ -49,6 +49,7 @@ pub mod ffi {
         include!("livekit/jsep.h");
         include!("livekit/webrtc.h");
         include!("livekit/peer_connection.h");
+        include!("livekit/audio_track.h");
 
         type RtcConfiguration = crate::peer_connection::ffi::RtcConfiguration;
         type PeerConnectionState = crate::peer_connection::ffi::PeerConnectionState;

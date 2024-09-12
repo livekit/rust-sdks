@@ -46,7 +46,7 @@ message NewAudioSourceRequest {
   optional AudioSourceOptions options = 2;
   uint32 sample_rate = 3;
   uint32 num_channels = 4;
-  optional bool enable_queue = 5;
+  uint32 queue_size_ms = 5;
 }
 message NewAudioSourceResponse { OwnedAudioSource source = 1; }
 
@@ -63,6 +63,11 @@ message CaptureAudioFrameCallback {
   uint64 async_id = 1;
   optional string error = 2;
 }
+
+message ClearAudioBufferRequest {
+  uint64 source_handle = 1;
+}
+message ClearAudioBufferResponse {}
 
 // Create a new AudioResampler
 message NewAudioResamplerRequest {}

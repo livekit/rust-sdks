@@ -28,6 +28,7 @@
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "livekit/audio_device.h"
+#include "livekit/audio_track.h"
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_parameters.h"
@@ -83,6 +84,9 @@ PeerConnectionFactory::PeerConnectionFactory(
   peer_factory_ =
       webrtc::CreateModularPeerConnectionFactory(std::move(dependencies));
 
+
+  task_queue_factory_ = dependencies.task_queue_factory.get();
+
   if (peer_factory_.get() == nullptr) {
     RTC_LOG_ERR(LS_ERROR) << "Failed to create PeerConnectionFactory";
     return;
@@ -126,6 +130,7 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
       rtc_runtime_->get_or_create_media_stream_track(
           peer_factory_->CreateAudioTrack(label.c_str(), source->get().get())));
 }
+
 RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(

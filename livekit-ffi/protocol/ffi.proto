@@ -88,10 +88,11 @@ message FfiRequest {
     NewAudioStreamRequest new_audio_stream = 25;
     NewAudioSourceRequest new_audio_source = 26;
     CaptureAudioFrameRequest capture_audio_frame = 27;
-    NewAudioResamplerRequest new_audio_resampler = 28;
-    RemixAndResampleRequest remix_and_resample = 29;
-    E2eeRequest e2ee = 30;
-    AudioStreamFromParticipantRequest audio_stream_from_participant = 31;
+    ClearAudioBufferRequest clear_audio_buffer = 28;
+    NewAudioResamplerRequest new_audio_resampler = 29;
+    RemixAndResampleRequest remix_and_resample = 30;
+    E2eeRequest e2ee = 31;
+    AudioStreamFromParticipantRequest audio_stream_from_participant = 32;
   }
 }
 
@@ -132,10 +133,11 @@ message FfiResponse {
     NewAudioStreamResponse new_audio_stream = 25;
     NewAudioSourceResponse new_audio_source = 26;
     CaptureAudioFrameResponse capture_audio_frame = 27;
-    NewAudioResamplerResponse new_audio_resampler = 28;
-    RemixAndResampleResponse remix_and_resample = 29;
-    AudioStreamFromParticipantResponse audio_stream_from_participant = 30;
-    E2eeResponse e2ee = 31;
+    ClearAudioBufferResponse clear_audio_buffer = 28;
+    NewAudioResamplerResponse new_audio_resampler = 29;
+    RemixAndResampleResponse remix_and_resample = 30;
+    AudioStreamFromParticipantResponse audio_stream_from_participant = 31;
+    E2eeResponse e2ee = 32;
   }
 }
 
