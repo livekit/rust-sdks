@@ -142,7 +142,8 @@ AudioTrackSource::InternalSource::InternalSource(
 
   int samples10ms = sample_rate / 100 * num_channels;
   queue_size_samples_ = queue_size_ms / 10 * samples10ms;
-  notify_threshold_samples_ = queue_size_samples_;
+  notify_threshold_samples_ = queue_size_samples_; // TODO: this is currently using x2 the queue
+                                                   // size
   buffer_.resize(queue_size_samples_ + notify_threshold_samples_);
 
   audio_queue_ =
