@@ -64,6 +64,11 @@ message CaptureAudioFrameCallback {
   optional string error = 2;
 }
 
+message ClearAudioBufferRequest {
+  uint64 source_handle = 1;
+}
+message ClearAudioBufferResponse {}
+
 // Create a new AudioResampler
 message NewAudioResamplerRequest {}
 message NewAudioResamplerResponse {

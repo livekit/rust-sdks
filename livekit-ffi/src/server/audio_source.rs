@@ -62,6 +62,14 @@ impl FfiAudioSource {
         })
     }
 
+    pub fn clear_buffer(&self) {
+        match self.source {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcAudioSource::Native(ref source) => source.clear_buffer(),
+            _ => {}
+        }
+    }
+
     pub fn capture_frame(
         &self,
         server: &'static server::FfiServer,

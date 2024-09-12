@@ -71,6 +71,10 @@ impl NativeAudioSource {
         self.num_channels
     }
 
+    pub fn clear_buffer(&self) {
+        self.sys_handle.clear_buffer();
+    }
+
     pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
         if self.sample_rate != frame.sample_rate || self.num_channels != frame.num_channels {
             return Err(RtcError {
@@ -80,14 +84,12 @@ impl NativeAudioSource {
         }
 
         extern "C" fn lk_audio_source_complete(userdata: *const sys_at::SourceContext) {
-            println!("lk_audio_source_complete");
             let tx = unsafe { Box::from_raw(userdata as *mut oneshot::Sender<()>) };
             let _ = tx.send(());
         }
 
         // iterate over chunks of self._queue_size_samples
         for chunk in frame.data.chunks(self.queue_size_samples as usize) {
-            println!("capturing frame {}", chunk.len());
             let nb_frames = chunk.len() / self.num_channels as usize;
             let (tx, rx) = oneshot::channel::<()>();
             let ctx = Box::new(tx);
@@ -102,7 +104,6 @@ impl NativeAudioSource {
                     ctx_ptr,
                     sys_at::CompleteCallback(lk_audio_source_complete),
                 ) {
-                    print!("failed to capture frame");
                     return Err(RtcError {
                         error_type: RtcErrorType::InvalidState,
                         message: "failed to capture frame".to_owned(),

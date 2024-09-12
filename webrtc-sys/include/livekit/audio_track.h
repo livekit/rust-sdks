@@ -160,7 +160,7 @@ class AudioTrackSource {
                      const SourceContext* ctx,
                      CompleteCallback on_complete) const;
 
-  void clear_buffer();
+  void clear_buffer() const;
 
   rtc::scoped_refptr<InternalSource> get() const;
 

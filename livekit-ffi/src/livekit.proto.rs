@@ -3014,6 +3014,16 @@ pub struct CaptureAudioFrameCallback {
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClearAudioBufferRequest {
+    #[prost(uint64, tag="1")]
+    pub source_handle: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClearAudioBufferResponse {
+}
 /// Create a new AudioResampler
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3240,7 +3250,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3305,12 +3315,14 @@ pub mod ffi_request {
         #[prost(message, tag="27")]
         CaptureAudioFrame(super::CaptureAudioFrameRequest),
         #[prost(message, tag="28")]
-        NewAudioResampler(super::NewAudioResamplerRequest),
+        ClearAudioBuffer(super::ClearAudioBufferRequest),
         #[prost(message, tag="29")]
-        RemixAndResample(super::RemixAndResampleRequest),
+        NewAudioResampler(super::NewAudioResamplerRequest),
         #[prost(message, tag="30")]
-        E2ee(super::E2eeRequest),
+        RemixAndResample(super::RemixAndResampleRequest),
         #[prost(message, tag="31")]
+        E2ee(super::E2eeRequest),
+        #[prost(message, tag="32")]
         AudioStreamFromParticipant(super::AudioStreamFromParticipantRequest),
     }
 }
@@ -3318,7 +3330,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3383,12 +3395,14 @@ pub mod ffi_response {
         #[prost(message, tag="27")]
         CaptureAudioFrame(super::CaptureAudioFrameResponse),
         #[prost(message, tag="28")]
-        NewAudioResampler(super::NewAudioResamplerResponse),
+        ClearAudioBuffer(super::ClearAudioBufferResponse),
         #[prost(message, tag="29")]
-        RemixAndResample(super::RemixAndResampleResponse),
+        NewAudioResampler(super::NewAudioResamplerResponse),
         #[prost(message, tag="30")]
-        AudioStreamFromParticipant(super::AudioStreamFromParticipantResponse),
+        RemixAndResample(super::RemixAndResampleResponse),
         #[prost(message, tag="31")]
+        AudioStreamFromParticipant(super::AudioStreamFromParticipantResponse),
+        #[prost(message, tag="32")]
         E2ee(super::E2eeResponse),
     }
 }

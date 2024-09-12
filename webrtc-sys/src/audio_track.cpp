@@ -210,6 +210,11 @@ bool AudioTrackSource::InternalSource::capture_frame(
   return true;
 }
 
+void AudioTrackSource::InternalSource::clear_buffer() {
+  webrtc::MutexLock lock(&mutex_);
+  buffer_.clear();
+}
+
 webrtc::MediaSourceInterface::SourceState
 AudioTrackSource::InternalSource::state() const {
   return webrtc::MediaSourceInterface::SourceState::kLive;
@@ -240,11 +245,6 @@ void AudioTrackSource::InternalSource::RemoveSink(
     webrtc::AudioTrackSinkInterface* sink) {
   webrtc::MutexLock lock(&mutex_);
   sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
-}
-
-void AudioTrackSource::InternalSource::clear_buffer() {
-  webrtc::MutexLock lock(&mutex_);
-  buffer_.clear();
 }
 
 AudioTrackSource::AudioTrackSource(AudioSourceOptions options,
@@ -279,7 +279,7 @@ bool AudioTrackSource::capture_frame(
                                 number_of_frames, ctx, on_complete);
 }
 
-void AudioTrackSource::clear_buffer() {
+void AudioTrackSource::clear_buffer() const {
   source_->clear_buffer();
 }
 

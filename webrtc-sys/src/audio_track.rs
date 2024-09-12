@@ -59,6 +59,7 @@ pub mod ffi {
             userdata: *const SourceContext,
             on_complete: CompleteCallback,
         ) -> bool;
+        fn clear_buffer(self: &AudioTrackSource);
         fn audio_options(self: &AudioTrackSource) -> AudioSourceOptions;
         fn set_audio_options(self: &AudioTrackSource, options: &AudioSourceOptions);
 

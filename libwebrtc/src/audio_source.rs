@@ -75,6 +75,10 @@ pub mod native {
             }
         }
 
+        pub fn clear_buffer(&self) {
+            self.handle.clear_buffer()
+        }
+
         pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
             self.handle.capture_frame(frame).await
         }
