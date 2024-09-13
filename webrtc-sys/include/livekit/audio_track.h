@@ -104,6 +104,8 @@ class AudioTrackSource {
                    int buffer_size_ms,
                    webrtc::TaskQueueFactory* task_queue_factory);
 
+    ~InternalSource() override;
+
     SourceState state() const override;
     bool remote() const override;
 
@@ -133,6 +135,9 @@ class AudioTrackSource {
 
     const SourceContext* capture_userdata_ RTC_GUARDED_BY(mutex_);
     void (*on_complete_)(const SourceContext*) RTC_GUARDED_BY(mutex_);
+
+    int missed_frames_ RTC_GUARDED_BY(mutex_) = 0;
+    int16_t* silence_buffer_ = nullptr;
 
     int sample_rate_;
     int num_channels_;
