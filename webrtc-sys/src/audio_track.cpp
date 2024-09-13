@@ -139,11 +139,18 @@ AudioTrackSource::InternalSource::InternalSource(
   if (!queue_size_ms)
     return;  // no audio queue
 
+  // start sending silence when there is nothing on the queue for 10 frames
+  // (100ms)
+  const int silence_frames_threshold = 10;
+  missed_frames_ = silence_frames_threshold;
+
   int samples10ms = sample_rate / 100 * num_channels;
+
+  silence_buffer_ = new int16_t[samples10ms]();
   queue_size_samples_ = queue_size_ms / 10 * samples10ms;
   notify_threshold_samples_ = queue_size_samples_;  // TODO: this is currently
                                                     // using x2 the queue size
-  buffer_.resize(queue_size_samples_ + notify_threshold_samples_);
+  buffer_.reserve(queue_size_samples_ + notify_threshold_samples_);
 
   audio_queue_ =
       std::make_unique<rtc::TaskQueue>(task_queue_factory->CreateTaskQueue(
@@ -160,6 +167,13 @@ AudioTrackSource::InternalSource::InternalSource(
                          num_channels_, samples10ms / num_channels_);
 
           buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
+        } else {
+          missed_frames_++;
+          if (missed_frames_ >= silence_frames_threshold) {
+            for (auto sink : sinks_)
+              sink->OnData(silence_buffer_, sizeof(int16_t), sample_rate_,
+                           num_channels_, samples10ms / num_channels_);
+          }
         }
 
         if (on_complete_ && buffer_.size() <= notify_threshold_samples_) {
@@ -171,6 +185,10 @@ AudioTrackSource::InternalSource::InternalSource(
         return webrtc::TimeDelta::Millis(10);
       },
       webrtc::TaskQueueBase::DelayPrecision::kHigh);
+}
+
+AudioTrackSource::InternalSource::~InternalSource() {
+  delete[] silence_buffer_;
 }
 
 bool AudioTrackSource::InternalSource::capture_frame(
