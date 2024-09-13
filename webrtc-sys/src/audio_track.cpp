@@ -142,6 +142,8 @@ AudioTrackSource::InternalSource::InternalSource(
   // start sending silence when there is nothing on the queue for 10 frames
   // (100ms)
   const int silence_frames_threshold = 10;
+  missed_frames_ = silence_frames_threshold;
+
   int samples10ms = sample_rate / 100 * num_channels;
 
   silence_buffer_ = new int16_t[samples10ms]();
