@@ -12,30 +12,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Publish crates
+name: Bump and publish crates
 
 on:
-  push:
-    tags:
-      - v*
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: "packages to bump"
+        type: string
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
 
 jobs:
+  bump:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: nbsp/ilo@v1
+        with:
+          packages: ${{ github.event.inputs.packages }}
   publish:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+    needs: bump
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: true
       - name: Publish crates
         run: |
-          cd livekit-protocol && cargo publish --no-verify
-          cd ../webrtc-sys/build && cargo publish --no-verify
-          cd ../../webrtc-sys && cargo publish --no-verify
-          cd ../libwebrtc && cargo publish --no-verify
-          cd ../livekit-api && cargo publish --no-verify
-          cd ../livekit && cp ../README.md README.md && cargo publish --allow-dirty --no-verify
-          cd ../livekit-ffi && cargo publish --no-verify
+          git tag --points-at HEAD |
+          sed 's|^[^/]*@|@|' |
+          sed 's|^[^/]*/||' |
+          sed 's|@.*||' |
+          xargs -I _ sh -c 'cd ./_ && cargo publish --no-verify'
