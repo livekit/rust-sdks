@@ -69,6 +69,7 @@ message FfiRequest {
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
     PublishSipDtmfRequest publish_sip_dtmf = 14;
+    SendChatMessageRequest send_chat_message = 33;
 
     // Track
     CreateVideoTrackRequest create_video_track = 15;
@@ -93,6 +94,8 @@ message FfiRequest {
     RemixAndResampleRequest remix_and_resample = 30;
     E2eeRequest e2ee = 31;
     AudioStreamFromParticipantRequest audio_stream_from_participant = 32;
+
+    // next-id 34
   }
 }
 
@@ -114,6 +117,7 @@ message FfiResponse {
     GetSessionStatsResponse get_session_stats = 12;
     PublishTranscriptionResponse publish_transcription = 13;
     PublishSipDtmfResponse publish_sip_dtmf = 14;
+    SendChatMessageResponse send_chat_message = 33;
 
     // Track
     CreateVideoTrackResponse create_video_track = 15;
@@ -138,6 +142,8 @@ message FfiResponse {
     RemixAndResampleResponse remix_and_resample = 30;
     AudioStreamFromParticipantResponse audio_stream_from_participant = 31;
     E2eeResponse e2ee = 32;
+
+    // next-id 34
   }
 }
 

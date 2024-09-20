@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 
-use libwebrtc::rtp_parameters::RtpEncodingParameters;
+use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
@@ -329,6 +329,26 @@ impl LocalParticipant {
                 "request timeout".into(),
             ))))
         }
+    }
+
+    pub async fn send_chat_message(&self, message: String) -> RoomResult<ChatMessage> {
+        let chat_message = proto::ChatMessage {
+            id: create_random_uuid(),
+            timestamp: 0,
+            message,
+            ..Default::default()
+        };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::ChatMessage(chat_message)),
+            ..Default::default()
+        };
+
+        self.inner
+            .rtc_engine
+            .publish_data(&data, DataPacketKind::Reliable)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn unpublish_track(

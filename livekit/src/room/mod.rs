@@ -162,6 +162,10 @@ pub enum RoomEvent {
         digit: Option<String>,
         participant: Option<RemoteParticipant>,
     },
+    ChatMessage {
+        message: ChatMessage,
+        participant: Option<Participant>,
+    },
     E2eeStateChanged {
         participant: Participant,
         state: EncryptionState,
@@ -234,6 +238,16 @@ pub struct SipDTMF {
     pub code: u32,
     pub digit: String,
     pub destination_identities: Vec<ParticipantIdentity>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct ChatMessage {
+    pub id: String,
+    pub message: String,
+    pub timestamp: u64,
+    pub edit_timestamp: Option<u64>,
+    pub delete: Option<bool>,
+    pub generated: Option<bool>,
 }
 
 #[derive(Debug, Clone)]

@@ -8,3 +8,4 @@ members = [
     "webrtc-sys",
     "webrtc-sys/build",
 ]
+resolver = "2"

@@ -654,6 +654,10 @@ impl SessionInner {
                             segments,
                         });
                     }
+                    proto::data_packet::Value::Metrics(_) => {}
+                    proto::data_packet::Value::ChatMessage(message) => {
+                        self.emitter.send(message: SessionEvent::ChatMessage)
+                    }
                 }
             }
         }
