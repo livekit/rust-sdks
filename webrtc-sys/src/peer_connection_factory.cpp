@@ -41,6 +41,7 @@
 #include "rtc_base/thread.h"
 #include "webrtc-sys/src/peer_connection.rs.h"
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
+#include "modules/audio_mixer/audio_mixer_impl.h"
 
 namespace livekit {
 
@@ -85,6 +86,11 @@ PeerConnectionFactory::PeerConnectionFactory(
 
   apm.SetEchoControlFactory(std::move(echo_control));
   media_deps.audio_processing = apm.Create();
+
+  auto audio_mixer = webrtc::AudioMixerImpl::Create();
+
+  media_deps.audio_mixer = audio_mixer;
+
   media_deps.trials = dependencies.trials.get();
 
   dependencies.media_engine = cricket::CreateMediaEngine(std::move(media_deps));
