@@ -21,6 +21,8 @@
 
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "api/audio/echo_canceller3_factory.h"
+#include "api/audio/echo_canceller3_config.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
@@ -76,7 +78,13 @@ PeerConnectionFactory::PeerConnectionFactory(
       std::move(std::make_unique<livekit::VideoDecoderFactory>());
   media_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   media_deps.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-  media_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+
+  auto apm = webrtc::AudioProcessingBuilder();
+  auto cfg = webrtc::EchoCanceller3Config();
+  auto echo_control = std::make_unique<webrtc::EchoCanceller3Factory>(cfg);
+
+  apm.SetEchoControlFactory(std::move(echo_control));
+  media_deps.audio_processing = apm.Create();
   media_deps.trials = dependencies.trials.get();
 
   dependencies.media_engine = cricket::CreateMediaEngine(std::move(media_deps));

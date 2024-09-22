@@ -20,6 +20,7 @@
 
 #include "api/task_queue/task_queue_factory.h"
 #include "modules/audio_device/include/audio_device.h"
+#include "modules/audio_device/audio_device_buffer.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_queue.h"
 #include "rtc_base/task_utils/repeating_task.h"
@@ -123,6 +124,7 @@ class AudioDevice : public webrtc::AudioDeviceModule {
   webrtc::RepeatingTaskHandle audio_task_;
   webrtc::AudioTransport* audio_transport_;
   webrtc::TaskQueueFactory* task_queue_factory_;
+  webrtc::AudioDeviceBuffer audio_device_buffer_;
   bool playing_{false};
   bool initialized_{false};
 };
