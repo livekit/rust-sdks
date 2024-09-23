@@ -167,12 +167,14 @@ bool AudioDevice::RecordingIsInitialized() const {
 int32_t AudioDevice::StartPlayout() {
   webrtc::MutexLock lock(&mutex_);
   playing_ = true;
+  audio_device_buffer_.StartPlayout();
   return 0;
 }
 
 int32_t AudioDevice::StopPlayout() {
   webrtc::MutexLock lock(&mutex_);
   playing_ = false;
+  audio_device_buffer_.StopPlayout();
   return 0;
 }
 
@@ -182,10 +184,12 @@ bool AudioDevice::Playing() const {
 }
 
 int32_t AudioDevice::StartRecording() {
+  audio_device_buffer_.StartRecording();
   return 0;
 }
 
 int32_t AudioDevice::StopRecording() {
+  audio_device_buffer_.StopRecording();
   return 0;
 }
 
