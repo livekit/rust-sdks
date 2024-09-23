@@ -117,6 +117,14 @@ class AudioDevice : public webrtc::AudioDeviceModule {
 
   int32_t SetAudioDeviceSink(webrtc::AudioDeviceSink* sink) const override;
 
+  webrtc::AudioDeviceBuffer *audio_device_buffer() {
+    return &audio_device_buffer_;
+  }
+
+  webrtc::AudioTransport* audio_transport() {
+    return audio_transport_;
+  }
+
  private:
   mutable webrtc::Mutex mutex_;
   std::vector<int16_t> data_;

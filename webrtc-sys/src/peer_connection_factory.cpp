@@ -41,7 +41,6 @@
 #include "rtc_base/thread.h"
 #include "webrtc-sys/src/peer_connection.rs.h"
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
-#include "modules/audio_mixer/audio_mixer_impl.h"
 
 namespace livekit {
 
@@ -49,7 +48,8 @@ class PeerConnectionObserver;
 
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
-    : rtc_runtime_(rtc_runtime) {
+    : rtc_runtime_(rtc_runtime), 
+    audio_context_(rtc_runtime) {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
 
   webrtc::PeerConnectionFactoryDependencies dependencies;
@@ -66,12 +66,7 @@ PeerConnectionFactory::PeerConnectionFactory(
   cricket::MediaEngineDependencies media_deps;
   media_deps.task_queue_factory = dependencies.task_queue_factory.get();
 
-  audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
-    return rtc::make_ref_counted<livekit::AudioDevice>(
-        media_deps.task_queue_factory);
-  });
-
-  media_deps.adm = audio_device_;
+  media_deps.adm = audio_context_.audio_device(media_deps.task_queue_factory);
 
   media_deps.video_encoder_factory =
       std::move(std::make_unique<livekit::VideoEncoderFactory>());
@@ -87,9 +82,7 @@ PeerConnectionFactory::PeerConnectionFactory(
   apm.SetEchoControlFactory(std::move(echo_control));
   media_deps.audio_processing = apm.Create();
 
-  auto audio_mixer = webrtc::AudioMixerImpl::Create();
-
-  media_deps.audio_mixer = audio_mixer;
+  media_deps.audio_mixer = audio_context_.audio_mixer();
 
   media_deps.trials = dependencies.trials.get();
 
@@ -111,8 +104,6 @@ PeerConnectionFactory::~PeerConnectionFactory() {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::~PeerConnectionFactory()";
 
   peer_factory_ = nullptr;
-  rtc_runtime_->worker_thread()->BlockingCall(
-      [this] { audio_device_ = nullptr; });
 }
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
