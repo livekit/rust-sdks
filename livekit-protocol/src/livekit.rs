@@ -131,10 +131,10 @@ pub mod participant_info {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                State::Joining => "JOINING",
-                State::Joined => "JOINED",
-                State::Active => "ACTIVE",
-                State::Disconnected => "DISCONNECTED",
+                Self::Joining => "JOINING",
+                Self::Joined => "JOINED",
+                Self::Active => "ACTIVE",
+                Self::Disconnected => "DISCONNECTED",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -169,11 +169,11 @@ pub mod participant_info {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Kind::Standard => "STANDARD",
-                Kind::Ingress => "INGRESS",
-                Kind::Egress => "EGRESS",
-                Kind::Sip => "SIP",
-                Kind::Agent => "AGENT",
+                Self::Standard => "STANDARD",
+                Self::Ingress => "INGRESS",
+                Self::Egress => "EGRESS",
+                Self::Sip => "SIP",
+                Self::Agent => "AGENT",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -208,9 +208,9 @@ pub mod encryption {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Type::None => "NONE",
-                Type::Gcm => "GCM",
-                Type::Custom => "CUSTOM",
+                Self::None => "NONE",
+                Self::Gcm => "GCM",
+                Self::Custom => "CUSTOM",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -330,8 +330,8 @@ pub mod data_packet {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Kind::Reliable => "RELIABLE",
-                Kind::Lossy => "LOSSY",
+                Self::Reliable => "RELIABLE",
+                Self::Lossy => "LOSSY",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -477,8 +477,8 @@ pub mod server_info {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Edition::Standard => "Standard",
-                Edition::Cloud => "Cloud",
+                Self::Standard => "Standard",
+                Self::Cloud => "Cloud",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -540,17 +540,17 @@ pub mod client_info {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Sdk::Unknown => "UNKNOWN",
-                Sdk::Js => "JS",
-                Sdk::Swift => "SWIFT",
-                Sdk::Android => "ANDROID",
-                Sdk::Flutter => "FLUTTER",
-                Sdk::Go => "GO",
-                Sdk::Unity => "UNITY",
-                Sdk::ReactNative => "REACT_NATIVE",
-                Sdk::Rust => "RUST",
-                Sdk::Python => "PYTHON",
-                Sdk::Cpp => "CPP",
+                Self::Unknown => "UNKNOWN",
+                Self::Js => "JS",
+                Self::Swift => "SWIFT",
+                Self::Android => "ANDROID",
+                Self::Flutter => "FLUTTER",
+                Self::Go => "GO",
+                Self::Unity => "UNITY",
+                Self::ReactNative => "REACT_NATIVE",
+                Self::Rust => "RUST",
+                Self::Python => "PYTHON",
+                Self::Cpp => "CPP",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -791,9 +791,9 @@ impl AudioCodec {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            AudioCodec::DefaultAc => "DEFAULT_AC",
-            AudioCodec::Opus => "OPUS",
-            AudioCodec::Aac => "AAC",
+            Self::DefaultAc => "DEFAULT_AC",
+            Self::Opus => "OPUS",
+            Self::Aac => "AAC",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -822,11 +822,11 @@ impl VideoCodec {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            VideoCodec::DefaultVc => "DEFAULT_VC",
-            VideoCodec::H264Baseline => "H264_BASELINE",
-            VideoCodec::H264Main => "H264_MAIN",
-            VideoCodec::H264High => "H264_HIGH",
-            VideoCodec::Vp8 => "VP8",
+            Self::DefaultVc => "DEFAULT_VC",
+            Self::H264Baseline => "H264_BASELINE",
+            Self::H264Main => "H264_MAIN",
+            Self::H264High => "H264_HIGH",
+            Self::Vp8 => "VP8",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -854,8 +854,8 @@ impl ImageCodec {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            ImageCodec::IcDefault => "IC_DEFAULT",
-            ImageCodec::IcJpeg => "IC_JPEG",
+            Self::IcDefault => "IC_DEFAULT",
+            Self::IcJpeg => "IC_JPEG",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -881,9 +881,9 @@ impl TrackType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            TrackType::Audio => "AUDIO",
-            TrackType::Video => "VIDEO",
-            TrackType::Data => "DATA",
+            Self::Audio => "AUDIO",
+            Self::Video => "VIDEO",
+            Self::Data => "DATA",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -912,11 +912,11 @@ impl TrackSource {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            TrackSource::Unknown => "UNKNOWN",
-            TrackSource::Camera => "CAMERA",
-            TrackSource::Microphone => "MICROPHONE",
-            TrackSource::ScreenShare => "SCREEN_SHARE",
-            TrackSource::ScreenShareAudio => "SCREEN_SHARE_AUDIO",
+            Self::Unknown => "UNKNOWN",
+            Self::Camera => "CAMERA",
+            Self::Microphone => "MICROPHONE",
+            Self::ScreenShare => "SCREEN_SHARE",
+            Self::ScreenShareAudio => "SCREEN_SHARE_AUDIO",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -946,10 +946,10 @@ impl VideoQuality {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            VideoQuality::Low => "LOW",
-            VideoQuality::Medium => "MEDIUM",
-            VideoQuality::High => "HIGH",
-            VideoQuality::Off => "OFF",
+            Self::Low => "LOW",
+            Self::Medium => "MEDIUM",
+            Self::High => "HIGH",
+            Self::Off => "OFF",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -978,10 +978,10 @@ impl ConnectionQuality {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            ConnectionQuality::Poor => "POOR",
-            ConnectionQuality::Good => "GOOD",
-            ConnectionQuality::Excellent => "EXCELLENT",
-            ConnectionQuality::Lost => "LOST",
+            Self::Poor => "POOR",
+            Self::Good => "GOOD",
+            Self::Excellent => "EXCELLENT",
+            Self::Lost => "LOST",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1009,9 +1009,9 @@ impl ClientConfigSetting {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            ClientConfigSetting::Unset => "UNSET",
-            ClientConfigSetting::Disabled => "DISABLED",
-            ClientConfigSetting::Enabled => "ENABLED",
+            Self::Unset => "UNSET",
+            Self::Disabled => "DISABLED",
+            Self::Enabled => "ENABLED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1056,17 +1056,17 @@ impl DisconnectReason {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            DisconnectReason::UnknownReason => "UNKNOWN_REASON",
-            DisconnectReason::ClientInitiated => "CLIENT_INITIATED",
-            DisconnectReason::DuplicateIdentity => "DUPLICATE_IDENTITY",
-            DisconnectReason::ServerShutdown => "SERVER_SHUTDOWN",
-            DisconnectReason::ParticipantRemoved => "PARTICIPANT_REMOVED",
-            DisconnectReason::RoomDeleted => "ROOM_DELETED",
-            DisconnectReason::StateMismatch => "STATE_MISMATCH",
-            DisconnectReason::JoinFailure => "JOIN_FAILURE",
-            DisconnectReason::Migration => "MIGRATION",
-            DisconnectReason::SignalClose => "SIGNAL_CLOSE",
-            DisconnectReason::RoomClosed => "ROOM_CLOSED",
+            Self::UnknownReason => "UNKNOWN_REASON",
+            Self::ClientInitiated => "CLIENT_INITIATED",
+            Self::DuplicateIdentity => "DUPLICATE_IDENTITY",
+            Self::ServerShutdown => "SERVER_SHUTDOWN",
+            Self::ParticipantRemoved => "PARTICIPANT_REMOVED",
+            Self::RoomDeleted => "ROOM_DELETED",
+            Self::StateMismatch => "STATE_MISMATCH",
+            Self::JoinFailure => "JOIN_FAILURE",
+            Self::Migration => "MIGRATION",
+            Self::SignalClose => "SIGNAL_CLOSE",
+            Self::RoomClosed => "ROOM_CLOSED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1103,11 +1103,11 @@ impl ReconnectReason {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            ReconnectReason::RrUnknown => "RR_UNKNOWN",
-            ReconnectReason::RrSignalDisconnected => "RR_SIGNAL_DISCONNECTED",
-            ReconnectReason::RrPublisherFailed => "RR_PUBLISHER_FAILED",
-            ReconnectReason::RrSubscriberFailed => "RR_SUBSCRIBER_FAILED",
-            ReconnectReason::RrSwitchCandidate => "RR_SWITCH_CANDIDATE",
+            Self::RrUnknown => "RR_UNKNOWN",
+            Self::RrSignalDisconnected => "RR_SIGNAL_DISCONNECTED",
+            Self::RrPublisherFailed => "RR_PUBLISHER_FAILED",
+            Self::RrSubscriberFailed => "RR_SUBSCRIBER_FAILED",
+            Self::RrSwitchCandidate => "RR_SWITCH_CANDIDATE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1136,9 +1136,9 @@ impl SubscriptionError {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            SubscriptionError::SeUnknown => "SE_UNKNOWN",
-            SubscriptionError::SeCodecUnsupported => "SE_CODEC_UNSUPPORTED",
-            SubscriptionError::SeTrackNotfound => "SE_TRACK_NOTFOUND",
+            Self::SeUnknown => "SE_UNKNOWN",
+            Self::SeCodecUnsupported => "SE_CODEC_UNSUPPORTED",
+            Self::SeTrackNotfound => "SE_TRACK_NOTFOUND",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1168,12 +1168,12 @@ impl AudioTrackFeature {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            AudioTrackFeature::TfStereo => "TF_STEREO",
-            AudioTrackFeature::TfNoDtx => "TF_NO_DTX",
-            AudioTrackFeature::TfAutoGainControl => "TF_AUTO_GAIN_CONTROL",
-            AudioTrackFeature::TfEchoCancellation => "TF_ECHO_CANCELLATION",
-            AudioTrackFeature::TfNoiseSuppression => "TF_NOISE_SUPPRESSION",
-            AudioTrackFeature::TfEnhancedNoiseCancellation => "TF_ENHANCED_NOISE_CANCELLATION",
+            Self::TfStereo => "TF_STEREO",
+            Self::TfNoDtx => "TF_NO_DTX",
+            Self::TfAutoGainControl => "TF_AUTO_GAIN_CONTROL",
+            Self::TfEchoCancellation => "TF_ECHO_CANCELLATION",
+            Self::TfNoiseSuppression => "TF_NOISE_SUPPRESSION",
+            Self::TfEnhancedNoiseCancellation => "TF_ENHANCED_NOISE_CANCELLATION",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1784,9 +1784,9 @@ pub mod stream_info {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Status::Active => "ACTIVE",
-                Status::Finished => "FINISHED",
-                Status::Failed => "FAILED",
+                Self::Active => "ACTIVE",
+                Self::Finished => "FINISHED",
+                Self::Failed => "FAILED",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1908,9 +1908,9 @@ impl EncodedFileType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            EncodedFileType::DefaultFiletype => "DEFAULT_FILETYPE",
-            EncodedFileType::Mp4 => "MP4",
-            EncodedFileType::Ogg => "OGG",
+            Self::DefaultFiletype => "DEFAULT_FILETYPE",
+            Self::Mp4 => "MP4",
+            Self::Ogg => "OGG",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1936,8 +1936,8 @@ impl SegmentedFileProtocol {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            SegmentedFileProtocol::DefaultSegmentedFileProtocol => "DEFAULT_SEGMENTED_FILE_PROTOCOL",
-            SegmentedFileProtocol::HlsProtocol => "HLS_PROTOCOL",
+            Self::DefaultSegmentedFileProtocol => "DEFAULT_SEGMENTED_FILE_PROTOCOL",
+            Self::HlsProtocol => "HLS_PROTOCOL",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1962,8 +1962,8 @@ impl SegmentedFileSuffix {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            SegmentedFileSuffix::Index => "INDEX",
-            SegmentedFileSuffix::Timestamp => "TIMESTAMP",
+            Self::Index => "INDEX",
+            Self::Timestamp => "TIMESTAMP",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1988,8 +1988,8 @@ impl ImageFileSuffix {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            ImageFileSuffix::ImageSuffixIndex => "IMAGE_SUFFIX_INDEX",
-            ImageFileSuffix::ImageSuffixTimestamp => "IMAGE_SUFFIX_TIMESTAMP",
+            Self::ImageSuffixIndex => "IMAGE_SUFFIX_INDEX",
+            Self::ImageSuffixTimestamp => "IMAGE_SUFFIX_TIMESTAMP",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2016,9 +2016,9 @@ impl StreamProtocol {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            StreamProtocol::DefaultProtocol => "DEFAULT_PROTOCOL",
-            StreamProtocol::Rtmp => "RTMP",
-            StreamProtocol::Srt => "SRT",
+            Self::DefaultProtocol => "DEFAULT_PROTOCOL",
+            Self::Rtmp => "RTMP",
+            Self::Srt => "SRT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2058,14 +2058,14 @@ impl EncodingOptionsPreset {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            EncodingOptionsPreset::H264720p30 => "H264_720P_30",
-            EncodingOptionsPreset::H264720p60 => "H264_720P_60",
-            EncodingOptionsPreset::H2641080p30 => "H264_1080P_30",
-            EncodingOptionsPreset::H2641080p60 => "H264_1080P_60",
-            EncodingOptionsPreset::PortraitH264720p30 => "PORTRAIT_H264_720P_30",
-            EncodingOptionsPreset::PortraitH264720p60 => "PORTRAIT_H264_720P_60",
-            EncodingOptionsPreset::PortraitH2641080p30 => "PORTRAIT_H264_1080P_30",
-            EncodingOptionsPreset::PortraitH2641080p60 => "PORTRAIT_H264_1080P_60",
+            Self::H264720p30 => "H264_720P_30",
+            Self::H264720p60 => "H264_720P_60",
+            Self::H2641080p30 => "H264_1080P_30",
+            Self::H2641080p60 => "H264_1080P_60",
+            Self::PortraitH264720p30 => "PORTRAIT_H264_720P_30",
+            Self::PortraitH264720p60 => "PORTRAIT_H264_720P_60",
+            Self::PortraitH2641080p30 => "PORTRAIT_H264_1080P_30",
+            Self::PortraitH2641080p60 => "PORTRAIT_H264_1080P_60",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2101,13 +2101,13 @@ impl EgressStatus {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            EgressStatus::EgressStarting => "EGRESS_STARTING",
-            EgressStatus::EgressActive => "EGRESS_ACTIVE",
-            EgressStatus::EgressEnding => "EGRESS_ENDING",
-            EgressStatus::EgressComplete => "EGRESS_COMPLETE",
-            EgressStatus::EgressFailed => "EGRESS_FAILED",
-            EgressStatus::EgressAborted => "EGRESS_ABORTED",
-            EgressStatus::EgressLimitReached => "EGRESS_LIMIT_REACHED",
+            Self::EgressStarting => "EGRESS_STARTING",
+            Self::EgressActive => "EGRESS_ACTIVE",
+            Self::EgressEnding => "EGRESS_ENDING",
+            Self::EgressComplete => "EGRESS_COMPLETE",
+            Self::EgressFailed => "EGRESS_FAILED",
+            Self::EgressAborted => "EGRESS_ABORTED",
+            Self::EgressLimitReached => "EGRESS_LIMIT_REACHED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2484,9 +2484,9 @@ pub mod leave_request {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Action::Disconnect => "DISCONNECT",
-                Action::Resume => "RESUME",
-                Action::Reconnect => "RECONNECT",
+                Self::Disconnect => "DISCONNECT",
+                Self::Resume => "RESUME",
+                Self::Reconnect => "RECONNECT",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2747,10 +2747,10 @@ pub mod request_response {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Reason::Ok => "OK",
-                Reason::NotFound => "NOT_FOUND",
-                Reason::NotAllowed => "NOT_ALLOWED",
-                Reason::LimitExceeded => "LIMIT_EXCEEDED",
+                Self::Ok => "OK",
+                Self::NotFound => "NOT_FOUND",
+                Self::NotAllowed => "NOT_ALLOWED",
+                Self::LimitExceeded => "LIMIT_EXCEEDED",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2783,8 +2783,8 @@ impl SignalTarget {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            SignalTarget::Publisher => "PUBLISHER",
-            SignalTarget::Subscriber => "SUBSCRIBER",
+            Self::Publisher => "PUBLISHER",
+            Self::Subscriber => "SUBSCRIBER",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2809,8 +2809,8 @@ impl StreamState {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            StreamState::Active => "ACTIVE",
-            StreamState::Paused => "PAUSED",
+            Self::Active => "ACTIVE",
+            Self::Paused => "PAUSED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2836,9 +2836,9 @@ impl CandidateProtocol {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            CandidateProtocol::Udp => "UDP",
-            CandidateProtocol::Tcp => "TCP",
-            CandidateProtocol::Tls => "TLS",
+            Self::Udp => "UDP",
+            Self::Tcp => "TCP",
+            Self::Tls => "TLS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3067,8 +3067,8 @@ impl JobType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            JobType::JtRoom => "JT_ROOM",
-            JobType::JtPublisher => "JT_PUBLISHER",
+            Self::JtRoom => "JT_ROOM",
+            Self::JtPublisher => "JT_PUBLISHER",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3093,8 +3093,8 @@ impl WorkerStatus {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            WorkerStatus::WsAvailable => "WS_AVAILABLE",
-            WorkerStatus::WsFull => "WS_FULL",
+            Self::WsAvailable => "WS_AVAILABLE",
+            Self::WsFull => "WS_FULL",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3121,10 +3121,10 @@ impl JobStatus {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            JobStatus::JsPending => "JS_PENDING",
-            JobStatus::JsRunning => "JS_RUNNING",
-            JobStatus::JsSuccess => "JS_SUCCESS",
-            JobStatus::JsFailed => "JS_FAILED",
+            Self::JsPending => "JS_PENDING",
+            Self::JsRunning => "JS_RUNNING",
+            Self::JsSuccess => "JS_SUCCESS",
+            Self::JsFailed => "JS_FAILED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3596,11 +3596,11 @@ pub mod ingress_state {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Status::EndpointInactive => "ENDPOINT_INACTIVE",
-                Status::EndpointBuffering => "ENDPOINT_BUFFERING",
-                Status::EndpointPublishing => "ENDPOINT_PUBLISHING",
-                Status::EndpointError => "ENDPOINT_ERROR",
-                Status::EndpointComplete => "ENDPOINT_COMPLETE",
+                Self::EndpointInactive => "ENDPOINT_INACTIVE",
+                Self::EndpointBuffering => "ENDPOINT_BUFFERING",
+                Self::EndpointPublishing => "ENDPOINT_PUBLISHING",
+                Self::EndpointError => "ENDPOINT_ERROR",
+                Self::EndpointComplete => "ENDPOINT_COMPLETE",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3700,9 +3700,9 @@ impl IngressInput {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            IngressInput::RtmpInput => "RTMP_INPUT",
-            IngressInput::WhipInput => "WHIP_INPUT",
-            IngressInput::UrlInput => "URL_INPUT",
+            Self::RtmpInput => "RTMP_INPUT",
+            Self::WhipInput => "WHIP_INPUT",
+            Self::UrlInput => "URL_INPUT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3730,8 +3730,8 @@ impl IngressAudioEncodingPreset {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            IngressAudioEncodingPreset::OpusStereo96kbps => "OPUS_STEREO_96KBPS",
-            IngressAudioEncodingPreset::OpusMono64kbs => "OPUS_MONO_64KBS",
+            Self::OpusStereo96kbps => "OPUS_STEREO_96KBPS",
+            Self::OpusMono64kbs => "OPUS_MONO_64KBS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3774,16 +3774,16 @@ impl IngressVideoEncodingPreset {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            IngressVideoEncodingPreset::H264720p30fps3Layers => "H264_720P_30FPS_3_LAYERS",
-            IngressVideoEncodingPreset::H2641080p30fps3Layers => "H264_1080P_30FPS_3_LAYERS",
-            IngressVideoEncodingPreset::H264540p25fps2Layers => "H264_540P_25FPS_2_LAYERS",
-            IngressVideoEncodingPreset::H264720p30fps1Layer => "H264_720P_30FPS_1_LAYER",
-            IngressVideoEncodingPreset::H2641080p30fps1Layer => "H264_1080P_30FPS_1_LAYER",
-            IngressVideoEncodingPreset::H264720p30fps3LayersHighMotion => "H264_720P_30FPS_3_LAYERS_HIGH_MOTION",
-            IngressVideoEncodingPreset::H2641080p30fps3LayersHighMotion => "H264_1080P_30FPS_3_LAYERS_HIGH_MOTION",
-            IngressVideoEncodingPreset::H264540p25fps2LayersHighMotion => "H264_540P_25FPS_2_LAYERS_HIGH_MOTION",
-            IngressVideoEncodingPreset::H264720p30fps1LayerHighMotion => "H264_720P_30FPS_1_LAYER_HIGH_MOTION",
-            IngressVideoEncodingPreset::H2641080p30fps1LayerHighMotion => "H264_1080P_30FPS_1_LAYER_HIGH_MOTION",
+            Self::H264720p30fps3Layers => "H264_720P_30FPS_3_LAYERS",
+            Self::H2641080p30fps3Layers => "H264_1080P_30FPS_3_LAYERS",
+            Self::H264540p25fps2Layers => "H264_540P_25FPS_2_LAYERS",
+            Self::H264720p30fps1Layer => "H264_720P_30FPS_1_LAYER",
+            Self::H2641080p30fps1Layer => "H264_1080P_30FPS_1_LAYER",
+            Self::H264720p30fps3LayersHighMotion => "H264_720P_30FPS_3_LAYERS_HIGH_MOTION",
+            Self::H2641080p30fps3LayersHighMotion => "H264_1080P_30FPS_3_LAYERS_HIGH_MOTION",
+            Self::H264540p25fps2LayersHighMotion => "H264_540P_25FPS_2_LAYERS_HIGH_MOTION",
+            Self::H264720p30fps1LayerHighMotion => "H264_720P_30FPS_1_LAYER_HIGH_MOTION",
+            Self::H2641080p30fps1LayerHighMotion => "H264_1080P_30FPS_1_LAYER_HIGH_MOTION",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3930,9 +3930,9 @@ pub mod sip_trunk_info {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                TrunkKind::TrunkLegacy => "TRUNK_LEGACY",
-                TrunkKind::TrunkInbound => "TRUNK_INBOUND",
-                TrunkKind::TrunkOutbound => "TRUNK_OUTBOUND",
+                Self::TrunkLegacy => "TRUNK_LEGACY",
+                Self::TrunkInbound => "TRUNK_INBOUND",
+                Self::TrunkOutbound => "TRUNK_OUTBOUND",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -4208,10 +4208,10 @@ impl SipTransport {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            SipTransport::Auto => "SIP_TRANSPORT_AUTO",
-            SipTransport::Udp => "SIP_TRANSPORT_UDP",
-            SipTransport::Tcp => "SIP_TRANSPORT_TCP",
-            SipTransport::Tls => "SIP_TRANSPORT_TLS",
+            Self::Auto => "SIP_TRANSPORT_AUTO",
+            Self::Udp => "SIP_TRANSPORT_UDP",
+            Self::Tcp => "SIP_TRANSPORT_TCP",
+            Self::Tls => "SIP_TRANSPORT_TLS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.

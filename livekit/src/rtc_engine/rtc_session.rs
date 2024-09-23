@@ -420,7 +420,7 @@ impl SessionInner {
                             self.on_session_disconnected(
                                 format!("signal client closed: {:?}", reason).as_str(),
                                 DisconnectReason::UnknownReason,
-                                proto::leave_request::Action::Disconnect,
+                                proto::leave_request::Action::Resume,
                                 false,
                             );
                         }
