@@ -2217,14 +2217,14 @@ pub struct SendChatMessageRequest {
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
     pub message: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="3")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendChatMessageResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
-    #[prost(message, optional, tag="2")]
-    pub message: ::core::option::Option<ChatMessage>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2233,6 +2233,8 @@ pub struct SendChatMessageCallback {
     pub async_id: u64,
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag="3")]
+    pub chat_message: ::core::option::Option<ChatMessage>,
 }
 /// Change the local participant's attributes
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2431,7 +2433,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2495,6 +2497,8 @@ pub mod room_event {
         DataPacketReceived(super::DataPacketReceived),
         #[prost(message, tag="28")]
         TranscriptionReceived(super::TranscriptionReceived),
+        #[prost(message, tag="29")]
+        ChatMessage(super::ChatMessage),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2682,14 +2686,14 @@ pub struct UserPacket {
 pub struct ChatMessage {
     #[prost(string, tag="1")]
     pub id: ::prost::alloc::string::String,
-    #[prost(uint64, tag="2")]
-    pub timestamp: u64,
+    #[prost(int64, tag="2")]
+    pub timestamp: i64,
     #[prost(string, tag="3")]
     pub message: ::prost::alloc::string::String,
-    #[prost(uint64, optional, tag="4")]
-    pub edit_timestamp: ::core::option::Option<u64>,
+    #[prost(int64, optional, tag="4")]
+    pub edit_timestamp: ::core::option::Option<i64>,
     #[prost(bool, optional, tag="5")]
-    pub delete: ::core::option::Option<bool>,
+    pub deleted: ::core::option::Option<bool>,
     #[prost(bool, optional, tag="6")]
     pub generated: ::core::option::Option<bool>,
 }
@@ -3465,7 +3469,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3513,6 +3517,8 @@ pub mod ffi_event {
         Panic(super::Panic),
         #[prost(message, tag="21")]
         PublishSipDtmf(super::PublishSipDtmfCallback),
+        #[prost(message, tag="22")]
+        ChatMessage(super::SendChatMessageCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

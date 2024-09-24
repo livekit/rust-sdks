@@ -32,7 +32,7 @@ use crate::{
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     rtc_engine::{EngineError, RtcEngine},
-    DataPacket, SipDTMF, Transcription,
+    ChatMessage, DataPacket, SipDTMF, Transcription,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -331,7 +331,11 @@ impl LocalParticipant {
         }
     }
 
-    pub async fn send_chat_message(&self, message: String) -> RoomResult<ChatMessage> {
+    pub async fn send_chat_message(
+        &self,
+        message: String,
+        sender_identity: Option<String>,
+    ) -> RoomResult<ChatMessage> {
         let chat_message = proto::ChatMessage {
             id: create_random_uuid(),
             timestamp: 0,
@@ -340,15 +344,14 @@ impl LocalParticipant {
         };
 
         let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::ChatMessage(chat_message)),
+            value: Some(proto::data_packet::Value::ChatMessage(chat_message.clone())),
+            participant_identity: sender_identity.unwrap(),
             ..Default::default()
         };
 
-        self.inner
-            .rtc_engine
-            .publish_data(&data, DataPacketKind::Reliable)
-            .await
-            .map_err(Into::into)
+        let _ = self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await;
+
+        Ok(ChatMessage::from(chat_message))
     }
 
     pub async fn unpublish_track(

@@ -172,6 +172,7 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
+    SendChatMessageCallback chat_message = 22;
   }
 }
 

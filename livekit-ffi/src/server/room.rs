@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
 use livekit::prelude::*;
-use livekit::{participant, track};
+use livekit::{participant, track, ChatMessage};
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -52,6 +52,19 @@ impl FfiHandle for FfiTrack {}
 impl FfiHandle for FfiPublication {}
 impl FfiHandle for FfiParticipant {}
 impl FfiHandle for FfiRoom {}
+
+impl From<ChatMessage> for proto::ChatMessage {
+    fn from(msg: ChatMessage) -> Self {
+        proto::ChatMessage {
+            id: msg.id,
+            message: msg.message,
+            timestamp: msg.timestamp,
+            edit_timestamp: msg.edit_timestamp,
+            deleted: msg.deleted,
+            generated: msg.generated,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct FfiRoom {
@@ -578,18 +591,23 @@ impl RoomInner {
         let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
-            let res =
-                inner.room.local_participant().send_chat_message(send_chat_message.message).await;
-
-            let message = server.send_event(proto::ffi_event::Message::SendChatMessage(
+            let res = inner
+                .room
+                .local_participant()
+                .send_chat_message(send_chat_message.message, send_chat_message.sender_identity)
+                .await;
+            let sent_message = res.as_ref().unwrap().clone();
+            let proto_msg = proto::ChatMessage::from(sent_message);
+            let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
                 proto::SendChatMessageCallback {
                     async_id,
                     error: res.err().map(|e| e.to_string()),
+                    chat_message: proto_msg.into(),
                 },
             ));
         });
         server.watch_panic(handle);
-        proto::SendChatMessageResponse { async_id, message }
+        proto::SendChatMessageResponse { async_id }
     }
 }
 
@@ -1004,12 +1022,11 @@ async fn forward_event(
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
-            let _ = send_event(proto::room_event::Message::ChatMessageReceived(
-                proto::ChatMessageReceived {
+            let _ =
+                send_event(proto::room_event::Message::ChatMessage(proto::ChatMessageReceived {
                     message: proto::ChatMessage::from(message).into(),
                     participant_identity: identity,
-                },
-            ));
+                }));
         }
         RoomEvent::ConnectionStateChanged(state) => {
             let _ = send_event(proto::room_event::Message::ConnectionStateChanged(

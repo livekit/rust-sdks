@@ -164,7 +164,7 @@ pub enum RoomEvent {
     },
     ChatMessage {
         message: ChatMessage,
-        participant: Option<Participant>,
+        participant: Option<RemoteParticipant>,
     },
     E2eeStateChanged {
         participant: Participant,
@@ -244,10 +244,23 @@ pub struct SipDTMF {
 pub struct ChatMessage {
     pub id: String,
     pub message: String,
-    pub timestamp: u64,
-    pub edit_timestamp: Option<u64>,
-    pub delete: Option<bool>,
+    pub timestamp: i64,
+    pub edit_timestamp: Option<i64>,
+    pub deleted: Option<bool>,
     pub generated: Option<bool>,
+}
+
+impl From<proto::ChatMessage> for ChatMessage {
+    fn from(proto_msg: proto::ChatMessage) -> Self {
+        ChatMessage {
+            id: proto_msg.id,
+            message: proto_msg.message,
+            timestamp: proto_msg.timestamp,
+            edit_timestamp: proto_msg.edit_timestamp,
+            deleted: proto_msg.deleted.into(),
+            generated: proto_msg.generated.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -619,6 +632,9 @@ impl RoomSession {
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
                 self.handle_data(payload, topic, kind, participant_sid, participant_identity);
+            }
+            EngineEvent::ChatMessage { participant_identity, message } => {
+                self.handle_chat_message(participant_identity, message);
             }
             EngineEvent::Transcription { participant_identity, track_sid, segments } => {
                 self.handle_transcription(participant_identity, track_sid, segments);
@@ -1080,6 +1096,21 @@ impl RoomSession {
             kind,
             participant,
         });
+    }
+
+    fn handle_chat_message(
+        &self,
+        participant_identity: ParticipantIdentity,
+        chat_message: ChatMessage,
+    ) {
+        let participant = self.get_participant_by_identity(&participant_identity);
+
+        if participant.is_none() {
+            // We received a data packet from a participant that is not in the participants list
+            return;
+        }
+
+        self.dispatcher.dispatch(&RoomEvent::ChatMessage { message: chat_message, participant });
     }
 
     fn handle_dtmf(
