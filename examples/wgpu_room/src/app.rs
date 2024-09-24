@@ -94,7 +94,7 @@ impl LkApp {
                             let rtc_track = audio_track.rtc_track();
                             let mut audio_stream = NativeAudioStream::new(rtc_track, 48000, 2);
                             // Receive the audio frames in a new task
-                            tokio::spawn(async move {
+                            self.async_runtime.spawn(async move {
                                 while let Some(frame) = audio_stream.next().await {
                                     println!("Received audio frame {:?}", frame);
                                 }
