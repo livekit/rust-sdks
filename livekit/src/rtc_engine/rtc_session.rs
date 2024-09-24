@@ -416,7 +416,7 @@ impl SessionInner {
                             task.await;
                         }
                         SignalEvent::Close(reason) => {
-                            if self.closed.load(Ordering::Acquire) {
+                            if !self.closed.load(Ordering::Acquire) {
                                 // SignalClient has been closed unexpectedly
                                 self.on_session_disconnected(
                                     format!("signal client closed: {:?}", reason).as_str(),
