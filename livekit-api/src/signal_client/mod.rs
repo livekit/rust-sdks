@@ -152,7 +152,7 @@ impl SignalClient {
 
     /// Close the connection to the server
     pub async fn close(&self) {
-        self.inner.close().await;
+        self.inner.close(true).await;
 
         let handle = self.handle.lock().take();
         if let Some(signal_task) = handle {
@@ -254,7 +254,7 @@ impl SignalInner {
         proto::ReconnectResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        self.close().await;
+        self.close(false).await;
 
         // Lock while we are reconnecting
         let mut stream = self.stream.write().await;
@@ -278,9 +278,9 @@ impl SignalInner {
     }
 
     /// Close the connection
-    pub async fn close(&self) {
+    pub async fn close(&self, notify_close: bool) {
         if let Some(stream) = self.stream.write().await.take() {
-            stream.close().await;
+            stream.close(notify_close).await;
         }
     }
 
@@ -392,7 +392,7 @@ async fn signal_task(
         }
     }
 
-    inner.close().await; // Make sure to always close the ws connection when the loop is terminated
+    inner.close(true).await; // Make sure to always close the ws connection when the loop is terminated
 }
 
 /// Check if the signal is queuable

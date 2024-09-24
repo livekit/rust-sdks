@@ -110,8 +110,10 @@ impl SignalStream {
 
     /// Close the websocket
     /// It sends a CloseFrame to the server before closing
-    pub async fn close(self) {
-        let _ = self.internal_tx.send(InternalMessage::Close).await;
+    pub async fn close(self, notify_close: bool) {
+        if notify_close {
+            let _ = self.internal_tx.send(InternalMessage::Close).await;
+        }
         let _ = self.write_handle.await;
         let _ = self.read_handle.await;
     }
