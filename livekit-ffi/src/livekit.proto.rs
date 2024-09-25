@@ -2224,6 +2224,20 @@ pub struct SendChatMessageRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EditChatMessageRequest {
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(string, tag="2")]
+    pub edit_text: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub original_message: ::core::option::Option<ChatMessage>,
+    #[prost(string, repeated, tag="4")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="5")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendChatMessageResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
@@ -3305,7 +3319,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 33, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 33, 34, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3342,6 +3356,8 @@ pub mod ffi_request {
         PublishSipDtmf(super::PublishSipDtmfRequest),
         #[prost(message, tag="33")]
         SendChatMessage(super::SendChatMessageRequest),
+        #[prost(message, tag="34")]
+        EditChatMessage(super::EditChatMessageRequest),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackRequest),

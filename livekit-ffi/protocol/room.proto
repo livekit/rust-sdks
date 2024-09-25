@@ -150,6 +150,13 @@ message SendChatMessageRequest {
   repeated string destination_identities = 3;
   optional string sender_identity = 4;
 }
+message EditChatMessageRequest {
+  uint64 local_participant_handle = 1;
+  string edit_text = 2;
+  ChatMessage original_message = 3;
+  repeated string destination_identities = 4;
+  optional string sender_identity = 5;
+}
 message SendChatMessageResponse {
   uint64 async_id = 1;
 }

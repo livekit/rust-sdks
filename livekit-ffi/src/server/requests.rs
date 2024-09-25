@@ -193,6 +193,17 @@ fn on_send_chat_message(
     Ok(ffi_participant.room.send_chat_message(server, send_chat_message))
 }
 
+fn on_edit_chat_message(
+    server: &'static FfiServer,
+    edit_chat_message: proto::EditChatMessageRequest,
+) -> FfiResult<proto::SendChatMessageResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(edit_chat_message.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant.room.edit_chat_message(server, edit_chat_message))
+}
+
 /// Create a new video track from a source
 fn on_create_video_track(
     server: &'static FfiServer,
@@ -721,6 +732,9 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::SendChatMessage(update) => {
             proto::ffi_response::Message::SendChatMessage(on_send_chat_message(server, update)?)
+        }
+        proto::ffi_request::Message::EditChatMessage(update) => {
+            proto::ffi_response::Message::SendChatMessage(on_edit_chat_message(server, update)?)
         }
         proto::ffi_request::Message::CreateVideoTrack(create) => {
             proto::ffi_response::Message::CreateVideoTrack(on_create_video_track(server, create)?)

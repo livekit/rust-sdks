@@ -19,6 +19,8 @@ use std::{
     time::Duration,
 };
 
+use chrono::{TimeZone, Utc};
+
 use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
@@ -339,7 +341,7 @@ impl LocalParticipant {
     ) -> RoomResult<ChatMessage> {
         let chat_message = proto::ChatMessage {
             id: create_random_uuid(),
-            timestamp: 0,
+            timestamp: Utc::now().timestamp_millis(),
             message: text,
             ..Default::default()
         };
@@ -356,19 +358,21 @@ impl LocalParticipant {
         Ok(ChatMessage::from(chat_message))
     }
 
-    pub async fn update_chat_message(
+    pub async fn edit_chat_message(
         &self,
         edit_text: String,
         original_message: ChatMessage,
         destination_identities: Option<Vec<String>>,
         sender_identity: Option<String>,
     ) -> RoomResult<ChatMessage> {
-        let mut chat_message = proto::ChatMessage::from(original_message);
-        chat_message.message = edit_text;
-        chat_message.edit_timestamp = Some(0);
-
+        let edited_message = ChatMessage {
+            message: edit_text,
+            edit_timestamp: Utc::now().timestamp_millis().into(),
+            ..original_message
+        };
+        let proto_msg = proto::ChatMessage::from(edited_message);
         let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::ChatMessage(chat_message.clone())),
+            value: Some(proto::data_packet::Value::ChatMessage(proto_msg.clone())),
             participant_identity: sender_identity.unwrap(),
             destination_identities: destination_identities.unwrap(),
             ..Default::default()
@@ -376,7 +380,7 @@ impl LocalParticipant {
 
         let _ = self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await;
 
-        Ok(ChatMessage::from(chat_message))
+        Ok(ChatMessage::from(proto_msg))
     }
 
     pub async fn unpublish_track(

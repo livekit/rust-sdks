@@ -599,6 +599,37 @@ impl RoomInner {
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
     }
+
+    pub fn edit_chat_message(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        edit_chat_message: proto::EditChatMessageRequest,
+    ) -> proto::SendChatMessageResponse {
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let res = inner
+                .room
+                .local_participant()
+                .edit_chat_message(
+                    edit_chat_message.edit_text,
+                    edit_chat_message.original_message.unwrap().into(),
+                    edit_chat_message.destination_identities.into(),
+                    edit_chat_message.sender_identity,
+                )
+                .await;
+            let sent_message: ChatMessage = res.as_ref().unwrap().clone();
+            let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                proto::SendChatMessageCallback {
+                    async_id,
+                    error: res.err().map(|e| e.to_string()),
+                    chat_message: proto::ChatMessage::from(sent_message).into(),
+                },
+            ));
+        });
+        server.watch_panic(handle);
+        proto::SendChatMessageResponse { async_id }
+    }
 }
 
 // Task used to publish data without blocking the client thread

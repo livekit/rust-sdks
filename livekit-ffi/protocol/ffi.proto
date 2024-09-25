@@ -70,6 +70,7 @@ message FfiRequest {
     PublishTranscriptionRequest publish_transcription = 13;
     PublishSipDtmfRequest publish_sip_dtmf = 14;
     SendChatMessageRequest send_chat_message = 33;
+    EditChatMessageRequest edit_chat_message = 34;
 
     // Track
     CreateVideoTrackRequest create_video_track = 15;
