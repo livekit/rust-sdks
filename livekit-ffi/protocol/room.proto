@@ -357,7 +357,7 @@ message RoomEvent {
     RoomEOS eos = 26; // The stream of room events has ended
     DataPacketReceived data_packet_received = 27;
     TranscriptionReceived transcription_received = 28;
-    ChatMessage chat_message = 29;
+    ChatMessageReceived chat_message = 29;
   }
 }
 

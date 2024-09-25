@@ -2498,7 +2498,7 @@ pub mod room_event {
         #[prost(message, tag="28")]
         TranscriptionReceived(super::TranscriptionReceived),
         #[prost(message, tag="29")]
-        ChatMessage(super::ChatMessage),
+        ChatMessage(super::ChatMessageReceived),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
