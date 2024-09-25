@@ -406,7 +406,7 @@ impl EngineInner {
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
             SessionEvent::Close { source, reason, action, retry_now } => {
-                log::debug!("received session close: {}, {:?}", source, reason);
+                log::warn!("received session close: {:?} {:?} {:?}", source, reason, action);
                 match action {
                     proto::leave_request::Action::Resume => {
                         self.reconnection_needed(retry_now, false)
@@ -619,7 +619,7 @@ impl EngineInner {
                 log::error!("resuming connection... attempt: {}", i);
                 if let Err(err) = self.try_resume_connection().await {
                     log::error!("resuming connection failed: {}", err);
-                    if let EngineError::Signal(_) = err {
+                    if !matches!(err, EngineError::Signal(_)) {
                         let mut running_handle = self.running_handle.write();
                         running_handle.full_reconnect = true;
                     }

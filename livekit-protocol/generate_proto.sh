@@ -14,6 +14,9 @@
 # limitations under the License.
 
 
+# dependencies: cargo install protoc-gen-prost@0.3.1 protoc-gen-prost-serde@0.3.1
+
+
 PROTOCOL=protocol/protobufs
 OUT_RUST=src
 

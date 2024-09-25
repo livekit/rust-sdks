@@ -420,13 +420,15 @@ impl SessionInner {
                             task.await;
                         }
                         SignalEvent::Close(reason) => {
-                            // SignalClient has been closed
-                            self.on_session_disconnected(
-                                format!("signal client closed: {:?}", reason).as_str(),
-                                DisconnectReason::UnknownReason,
-                                proto::leave_request::Action::Disconnect,
-                                false,
-                            );
+                            if !self.closed.load(Ordering::Acquire) {
+                                // SignalClient has been closed unexpectedly
+                                self.on_session_disconnected(
+                                    format!("signal client closed: {:?}", reason).as_str(),
+                                    DisconnectReason::UnknownReason,
+                                    proto::leave_request::Action::Resume,
+                                    false,
+                                );
+                            }
                         }
                     }
                 },
@@ -787,6 +789,8 @@ impl SessionInner {
     }
 
     async fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
                 action: proto::leave_request::Action::Disconnect.into(),
@@ -795,7 +799,6 @@ impl SessionInner {
             }))
             .await;
 
-        self.closed.store(true, Ordering::Release);
         self.signal_client.close().await;
         self.publisher_pc.close();
         self.subscriber_pc.close();
