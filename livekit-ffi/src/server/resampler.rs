@@ -1,4 +1,7 @@
-use std::{ffi::c_char, os::raw::c_void};
+use std::{
+    ffi::c_char,
+    os::raw::{c_ulong, c_void},
+};
 
 use soxr_sys;
 
@@ -45,8 +48,10 @@ impl SoxResampler {
                 to_soxr_datatype(io_spec.output_type),
             );
 
-            let quality_spec =
-                soxr_sys::soxr_quality_spec(quality_spec.quality as u64, quality_spec.flags as u64);
+            let quality_spec = soxr_sys::soxr_quality_spec(
+                quality_spec.quality as c_ulong,
+                quality_spec.flags as c_ulong,
+            );
 
             let runtime_spec = soxr_sys::soxr_runtime_spec(runtime_spec.num_threads);
 
