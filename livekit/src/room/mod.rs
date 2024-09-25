@@ -250,19 +250,6 @@ pub struct ChatMessage {
     pub generated: Option<bool>,
 }
 
-impl From<proto::ChatMessage> for ChatMessage {
-    fn from(proto_msg: proto::ChatMessage) -> Self {
-        ChatMessage {
-            id: proto_msg.id,
-            message: proto_msg.message,
-            timestamp: proto_msg.timestamp,
-            edit_timestamp: proto_msg.edit_timestamp,
-            deleted: proto_msg.deleted.into(),
-            generated: proto_msg.generated.into(),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct RoomOptions {
     pub auto_subscribe: bool,

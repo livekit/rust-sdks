@@ -2217,7 +2217,9 @@ pub struct SendChatMessageRequest {
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
     pub message: ::prost::alloc::string::String,
-    #[prost(string, optional, tag="3")]
+    #[prost(string, repeated, tag="3")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="4")]
     pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

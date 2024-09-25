@@ -147,7 +147,8 @@ message SetLocalMetadataCallback {
 message SendChatMessageRequest {
   uint64 local_participant_handle = 1;
   string message = 2;
-  optional string sender_identity = 3;
+  repeated string destination_identities = 3;
+  optional string sender_identity = 4;
 }
 message SendChatMessageResponse {
   uint64 async_id = 1;

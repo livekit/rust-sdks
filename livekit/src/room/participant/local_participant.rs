@@ -333,19 +333,44 @@ impl LocalParticipant {
 
     pub async fn send_chat_message(
         &self,
-        message: String,
+        text: String,
+        destination_identities: Option<Vec<String>>,
         sender_identity: Option<String>,
     ) -> RoomResult<ChatMessage> {
         let chat_message = proto::ChatMessage {
             id: create_random_uuid(),
             timestamp: 0,
-            message,
+            message: text,
             ..Default::default()
         };
 
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::ChatMessage(chat_message.clone())),
             participant_identity: sender_identity.unwrap(),
+            destination_identities: destination_identities.unwrap(),
+            ..Default::default()
+        };
+
+        let _ = self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await;
+
+        Ok(ChatMessage::from(chat_message))
+    }
+
+    pub async fn update_chat_message(
+        &self,
+        edit_text: String,
+        original_message: ChatMessage,
+        destination_identities: Option<Vec<String>>,
+        sender_identity: Option<String>,
+    ) -> RoomResult<ChatMessage> {
+        let mut chat_message = proto::ChatMessage::from(original_message);
+        chat_message.message = edit_text;
+        chat_message.edit_timestamp = Some(0);
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::ChatMessage(chat_message.clone())),
+            participant_identity: sender_identity.unwrap(),
+            destination_identities: destination_identities.unwrap(),
             ..Default::default()
         };
 

@@ -53,19 +53,6 @@ impl FfiHandle for FfiPublication {}
 impl FfiHandle for FfiParticipant {}
 impl FfiHandle for FfiRoom {}
 
-impl From<ChatMessage> for proto::ChatMessage {
-    fn from(msg: ChatMessage) -> Self {
-        proto::ChatMessage {
-            id: msg.id,
-            message: msg.message,
-            timestamp: msg.timestamp,
-            edit_timestamp: msg.edit_timestamp,
-            deleted: msg.deleted,
-            generated: msg.generated,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct FfiRoom {
     pub inner: Arc<RoomInner>,
@@ -594,15 +581,18 @@ impl RoomInner {
             let res = inner
                 .room
                 .local_participant()
-                .send_chat_message(send_chat_message.message, send_chat_message.sender_identity)
+                .send_chat_message(
+                    send_chat_message.message,
+                    send_chat_message.destination_identities.into(),
+                    send_chat_message.sender_identity,
+                )
                 .await;
             let sent_message = res.as_ref().unwrap().clone();
-            let proto_msg = proto::ChatMessage::from(sent_message);
             let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
                 proto::SendChatMessageCallback {
                     async_id,
                     error: res.err().map(|e| e.to_string()),
-                    chat_message: proto_msg.into(),
+                    chat_message: proto::ChatMessage::from(sent_message).into(),
                 },
             ));
         });
