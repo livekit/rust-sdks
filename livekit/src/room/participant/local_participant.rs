@@ -373,8 +373,8 @@ impl LocalParticipant {
         let proto_msg = proto::ChatMessage::from(edited_message);
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::ChatMessage(proto_msg.clone())),
-            participant_identity: sender_identity.unwrap(),
-            destination_identities: destination_identities.unwrap(),
+            participant_identity: sender_identity.unwrap_or_default(),
+            destination_identities: destination_identities.unwrap_or_default(),
             ..Default::default()
         };
 
