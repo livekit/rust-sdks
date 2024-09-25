@@ -87,6 +87,70 @@ message RemixAndResampleResponse {
   OwnedAudioFrameBuffer buffer = 1;
 }
 
+
+// New resampler using SoX (much better quality)
+
+message NewSoxResamplerRequest {
+  double input_ratea = 1;
+  double output_rate  = 2;
+  uint32 num_channels = 3;
+  SoxResamplerDataType input_data_type = 4;
+  SoxResamplerDataType output_data_type = 5;
+  SoxQualityRecipe quality_recipe = 6;
+  uint32 flags = 7;
+}
+message NewSoxResamplerResponse {
+  OwnedSoxResampler resampler = 1;
+  optional string error = 2;
+}
+
+message PushSoxResamplerRequest {
+  uint64 resampler_handle = 1;
+  uint64 data_ptr = 2; // *const i16
+  uint32 size = 3; // in bytes
+}
+
+message PushSoxResamplerResponse {
+  uint64 output_ptr = 1; // *const i16 (could be null)
+  uint32 size = 2; // in bytes
+  optional string error = 3;
+}
+
+message FlushSoxResamplerRequest {
+  uint64 resampler_handle = 1;
+}
+
+message FlushSoxResamplerResponse {
+  uint64 output_ptr = 1; // *const i16 (could be null)
+  uint32 size = 2; // in bytes
+  optional string error = 3;
+}
+
+enum SoxResamplerDataType {
+  // TODO(theomonnom): support other datatypes (shouldn't really be needed)
+  SOXR_DATATYPE_INT16I = 0;
+  SOXR_DATATYPE_INT16S = 1;
+}
+
+enum SoxQualityRecipe {
+  SOXR_QUALITY_QUICK = 0;
+  SOXR_QUALITY_LOW = 1;
+  SOXR_QUALITY_MEDIUM = 2;
+  SOXR_QUALITY_HIGH = 3;
+  SOXR_QUALITY_VERYHIGH = 4;
+}
+
+enum SoxFlagBits {
+  SOXR_ROLLOFF_SMALL = 0;  // 1 << 0
+  SOXR_ROLLOFF_MEDIUM = 1; // 1 << 1
+  SOXR_ROLLOFF_NONE = 2;   // 1 << 2
+  SOXR_HIGH_PREC_CLOCK = 3; // 1 << 3
+  SOXR_DOUBLE_PRECISION = 4; // 1 << 4
+  SOXR_VR = 5; // 1 << 5
+}
+
+
+
 //
 // AudioFrame buffer
 //
@@ -167,4 +231,18 @@ message AudioResamplerInfo { }
 message OwnedAudioResampler {
   FfiOwnedHandle handle = 1;
   AudioResamplerInfo info = 2;
+}
+
+
+
+//
+// Sox AudioResampler
+//
+
+
+message SoxResamplerInfo {}
+
+message OwnedSoxResampler {
+  FfiOwnedHandle handle = 1;
+  SoxResamplerInfo info = 2;
 }

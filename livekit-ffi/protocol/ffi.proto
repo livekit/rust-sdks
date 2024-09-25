@@ -77,7 +77,7 @@ message FfiRequest {
     EnableRemoteTrackRequest enable_remote_track = 18;
     GetStatsRequest get_stats = 19;
 
-    // Video
+// Video
     NewVideoStreamRequest new_video_stream = 20;
     NewVideoSourceRequest new_video_source = 21;
     CaptureVideoFrameRequest capture_video_frame = 22;
@@ -93,6 +93,9 @@ message FfiRequest {
     RemixAndResampleRequest remix_and_resample = 30;
     E2eeRequest e2ee = 31;
     AudioStreamFromParticipantRequest audio_stream_from_participant = 32;
+    NewSoxResamplerRequest new_sox_resampler = 33;
+    PushSoxResamplerRequest push_sox_resampler = 34;
+    FlushSoxResamplerRequest flush_sox_resampler = 35;
   }
 }
 
@@ -138,6 +141,9 @@ message FfiResponse {
     RemixAndResampleResponse remix_and_resample = 30;
     AudioStreamFromParticipantResponse audio_stream_from_participant = 31;
     E2eeResponse e2ee = 32;
+    NewSoxResamplerResponse new_sox_resampler = 33;
+    PushSoxResamplerResponse push_sox_resampler = 34;
+    FlushSoxResamplerResponse flush_sox_resampler = 35;
   }
 }
 
