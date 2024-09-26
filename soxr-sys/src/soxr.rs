@@ -125,19 +125,19 @@ extern "C" {
 extern "C" {
     pub fn soxr_set_io_ratio(arg1: soxr_t, io_ratio: f64, slew_len: usize) -> soxr_error_t;
 }
-pub const SOXR_FLOAT32: soxr_datatype_t = 0;
-pub const SOXR_FLOAT64: soxr_datatype_t = 1;
-pub const SOXR_INT32: soxr_datatype_t = 2;
-pub const SOXR_INT16: soxr_datatype_t = 3;
-pub const SOXR_SPLIT: soxr_datatype_t = 4;
-pub const SOXR_FLOAT32_I: soxr_datatype_t = 0;
-pub const SOXR_FLOAT64_I: soxr_datatype_t = 1;
-pub const SOXR_INT32_I: soxr_datatype_t = 2;
-pub const SOXR_INT16_I: soxr_datatype_t = 3;
-pub const SOXR_FLOAT32_S: soxr_datatype_t = 4;
-pub const SOXR_FLOAT64_S: soxr_datatype_t = 5;
-pub const SOXR_INT32_S: soxr_datatype_t = 6;
-pub const SOXR_INT16_S: soxr_datatype_t = 7;
+pub const soxr_datatype_t_SOXR_FLOAT32: soxr_datatype_t = 0;
+pub const soxr_datatype_t_SOXR_FLOAT64: soxr_datatype_t = 1;
+pub const soxr_datatype_t_SOXR_INT32: soxr_datatype_t = 2;
+pub const soxr_datatype_t_SOXR_INT16: soxr_datatype_t = 3;
+pub const soxr_datatype_t_SOXR_SPLIT: soxr_datatype_t = 4;
+pub const soxr_datatype_t_SOXR_FLOAT32_I: soxr_datatype_t = 0;
+pub const soxr_datatype_t_SOXR_FLOAT64_I: soxr_datatype_t = 1;
+pub const soxr_datatype_t_SOXR_INT32_I: soxr_datatype_t = 2;
+pub const soxr_datatype_t_SOXR_INT16_I: soxr_datatype_t = 3;
+pub const soxr_datatype_t_SOXR_FLOAT32_S: soxr_datatype_t = 4;
+pub const soxr_datatype_t_SOXR_FLOAT64_S: soxr_datatype_t = 5;
+pub const soxr_datatype_t_SOXR_INT32_S: soxr_datatype_t = 6;
+pub const soxr_datatype_t_SOXR_INT16_S: soxr_datatype_t = 7;
 pub type soxr_datatype_t = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -165,52 +165,27 @@ fn bindgen_test_layout_soxr_io_spec() {
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).itype) as usize - ptr as usize },
         0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_io_spec),
-            "::",
-            stringify!(itype)
-        )
+        concat!("Offset of field: ", stringify!(soxr_io_spec), "::", stringify!(itype))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).otype) as usize - ptr as usize },
         4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_io_spec),
-            "::",
-            stringify!(otype)
-        )
+        concat!("Offset of field: ", stringify!(soxr_io_spec), "::", stringify!(otype))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).scale) as usize - ptr as usize },
         8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_io_spec),
-            "::",
-            stringify!(scale)
-        )
+        concat!("Offset of field: ", stringify!(soxr_io_spec), "::", stringify!(scale))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).e) as usize - ptr as usize },
         16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_io_spec),
-            "::",
-            stringify!(e)
-        )
+        concat!("Offset of field: ", stringify!(soxr_io_spec), "::", stringify!(e))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
         24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_io_spec),
-            "::",
-            stringify!(flags)
-        )
+        concat!("Offset of field: ", stringify!(soxr_io_spec), "::", stringify!(flags))
     );
 }
 #[repr(C)]
@@ -240,12 +215,7 @@ fn bindgen_test_layout_soxr_quality_spec() {
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).precision) as usize - ptr as usize },
         0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_quality_spec),
-            "::",
-            stringify!(precision)
-        )
+        concat!("Offset of field: ", stringify!(soxr_quality_spec), "::", stringify!(precision))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).phase_response) as usize - ptr as usize },
@@ -260,12 +230,7 @@ fn bindgen_test_layout_soxr_quality_spec() {
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).passband_end) as usize - ptr as usize },
         16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_quality_spec),
-            "::",
-            stringify!(passband_end)
-        )
+        concat!("Offset of field: ", stringify!(soxr_quality_spec), "::", stringify!(passband_end))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).stopband_begin) as usize - ptr as usize },
@@ -280,22 +245,12 @@ fn bindgen_test_layout_soxr_quality_spec() {
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).e) as usize - ptr as usize },
         32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_quality_spec),
-            "::",
-            stringify!(e)
-        )
+        concat!("Offset of field: ", stringify!(soxr_quality_spec), "::", stringify!(e))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
         40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_quality_spec),
-            "::",
-            stringify!(flags)
-        )
+        concat!("Offset of field: ", stringify!(soxr_quality_spec), "::", stringify!(flags))
     );
 }
 #[repr(C)]
@@ -355,32 +310,17 @@ fn bindgen_test_layout_soxr_runtime_spec() {
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).num_threads) as usize - ptr as usize },
         12usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_runtime_spec),
-            "::",
-            stringify!(num_threads)
-        )
+        concat!("Offset of field: ", stringify!(soxr_runtime_spec), "::", stringify!(num_threads))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).e) as usize - ptr as usize },
         16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_runtime_spec),
-            "::",
-            stringify!(e)
-        )
+        concat!("Offset of field: ", stringify!(soxr_runtime_spec), "::", stringify!(e))
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
         24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(soxr_runtime_spec),
-            "::",
-            stringify!(flags)
-        )
+        concat!("Offset of field: ", stringify!(soxr_runtime_spec), "::", stringify!(flags))
     );
 }
 extern "C" {

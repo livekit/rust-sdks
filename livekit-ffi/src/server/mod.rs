@@ -39,6 +39,7 @@ pub mod audio_stream;
 pub mod colorcvt;
 pub mod logger;
 pub mod requests;
+pub mod resampler;
 pub mod room;
 mod utils;
 pub mod video_source;
@@ -66,6 +67,7 @@ pub struct FfiDataBuffer {
 
 impl FfiHandle for FfiDataBuffer {}
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
+impl FfiHandle for Arc<Mutex<resampler::SoxResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
 impl FfiHandle for Box<[u8]> {}

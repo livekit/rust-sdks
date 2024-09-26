@@ -31,14 +31,12 @@ mod tests {
 
         let wav_spec = reader.spec();
         let input_rate = wav_spec.sample_rate as f64;
-        let output_rate = 44100.0;
+        let output_rate = 24000.0;
 
         let num_channels = wav_spec.channels as u32;
 
-        let samples: Vec<i16> = reader
-            .samples::<i16>()
-            .map(|s| s.expect("Failed to read sample"))
-            .collect();
+        let samples: Vec<i16> =
+            reader.samples::<i16>().map(|s| s.expect("Failed to read sample")).collect();
 
         let buf_total_len = samples.len();
         let olen =
