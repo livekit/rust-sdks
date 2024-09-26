@@ -91,7 +91,7 @@ message RemixAndResampleResponse {
 // New resampler using SoX (much better quality)
 
 message NewSoxResamplerRequest {
-  double input_ratea = 1;
+  double input_rate = 1;
   double output_rate  = 2;
   uint32 num_channels = 3;
   SoxResamplerDataType input_data_type = 4;

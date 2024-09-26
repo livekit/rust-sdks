@@ -3061,7 +3061,7 @@ pub struct RemixAndResampleResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NewSoxResamplerRequest {
     #[prost(double, tag="1")]
-    pub input_ratea: f64,
+    pub input_rate: f64,
     #[prost(double, tag="2")]
     pub output_rate: f64,
     #[prost(uint32, tag="3")]
