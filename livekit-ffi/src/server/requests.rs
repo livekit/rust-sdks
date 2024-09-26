@@ -672,7 +672,7 @@ fn on_new_sox_resampler(
     let runtime_spec = resampler::RuntimeSpec { num_threads: 1 };
 
     match resampler::SoxResampler::new(
-        new_soxr.input_ratea,
+        new_soxr.input_rate,
         new_soxr.output_rate,
         new_soxr.num_channels,
         io_spec,
