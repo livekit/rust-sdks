@@ -710,7 +710,12 @@ fn on_push_sox_resampler(
     let data_ptr = push.data_ptr;
     let data_size = push.size;
 
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const i16, data_size as usize) };
+    let data = unsafe {
+        slice::from_raw_parts(
+            data_ptr as *const i16,
+            data_size as usize / std::mem::size_of::<i16>(),
+        )
+    };
 
     let mut resampler = resampler.lock();
     match resampler.push(data) {
