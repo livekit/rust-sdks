@@ -131,6 +131,14 @@ impl SoxResampler {
     }
 }
 
+impl Drop for SoxResampler {
+    fn drop(&mut self) {
+        unsafe {
+            soxr_sys::soxr_delete(self.soxr_ptr);
+        }
+    }
+}
+
 fn to_soxr_datatype(datatype: proto::SoxResamplerDataType) -> soxr_sys::soxr_datatype_t {
     match datatype {
         proto::SoxResamplerDataType::SoxrDatatypeInt16i => soxr_sys::soxr_datatype_t_SOXR_INT16_I,
