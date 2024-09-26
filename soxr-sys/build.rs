@@ -1,3 +1,5 @@
+use std::env;
+
 fn main() {
     let mut build = cc::Build::new();
 
@@ -36,5 +38,9 @@ fn main() {
     }
 
     build.compile("libsoxr.a");
-    println!("cargo:rustc-link-lib=m");
+
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    if target_os.as_str() != "windows" {
+        println!("cargo:rustc-link-lib=m");
+    }
 }
