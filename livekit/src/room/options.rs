@@ -179,7 +179,7 @@ pub fn compute_appropriate_encoding(
 
     for preset in presets {
         encoding = preset.encoding.clone();
-        if preset.width >= size {
+        if preset.width > size {
             break;
         }
     }
@@ -244,6 +244,7 @@ pub fn into_rtp_encodings(
 ) -> Vec<RtpEncodingParameters> {
     let mut encodings = Vec::with_capacity(presets.len());
     let size = u32::min(initial_width, initial_height);
+    // TODO: When we have two should the last one be 'h' or 'f'?
     for (i, preset) in presets.iter().enumerate() {
         encodings.push(RtpEncodingParameters {
             rid: VIDEO_RIDS[i].to_string(),
@@ -257,6 +258,7 @@ pub fn into_rtp_encodings(
         })
     }
 
+    encodings.reverse();
     encodings
 }
 
