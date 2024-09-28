@@ -719,11 +719,21 @@ fn on_push_sox_resampler(
 
     let mut resampler = resampler.lock();
     match resampler.push(data) {
-        Ok(output) => Ok(proto::PushSoxResamplerResponse {
-            output_ptr: output.as_ptr() as u64,
-            size: (output.len() * std::mem::size_of::<i16>()) as u32,
-            ..Default::default()
-        }),
+        Ok(output) => {
+            if output.is_empty() {
+                return Ok(proto::PushSoxResamplerResponse {
+                    output_ptr: 0,
+                    size: 0,
+                    ..Default::default()
+                });
+            }
+
+            Ok(proto::PushSoxResamplerResponse {
+                output_ptr: output.as_ptr() as u64,
+                size: (output.len() * std::mem::size_of::<i16>()) as u32,
+                ..Default::default()
+            })
+        }
         Err(e) => {
             Ok(proto::PushSoxResamplerResponse { error: Some(e.to_string()), ..Default::default() })
         }
