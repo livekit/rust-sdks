@@ -23,6 +23,7 @@ import "track.proto";
 import "room.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
+import "rpc.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -96,6 +97,11 @@ message FfiRequest {
     NewSoxResamplerRequest new_sox_resampler = 33;
     PushSoxResamplerRequest push_sox_resampler = 34;
     FlushSoxResamplerRequest flush_sox_resampler = 35;
+
+    // RPC
+    SendRpcRequestRequest send_rpc_request = 36;
+    SendRpcResponseRequest send_rpc_response = 37;
+    SendRpcAckRequest send_rpc_ack = 38;
   }
 }
 
@@ -144,6 +150,11 @@ message FfiResponse {
     NewSoxResamplerResponse new_sox_resampler = 33;
     PushSoxResamplerResponse push_sox_resampler = 34;
     FlushSoxResamplerResponse flush_sox_resampler = 35;
+
+    // RPC
+    SendRpcRequestResponse send_rpc_request = 36;
+    SendRpcResponseResponse send_rpc_response = 37;
+    SendRpcAckResponse send_rpc_ack = 38;
   }
 }
 
@@ -172,6 +183,9 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
+    IncomingRpcRequestCallback incoming_rpc_request = 22;
+    IncomingRpcResponseCallback incoming_rpc_response = 23;
+    IncomingRpcAckCallback incoming_rpc_ack = 24;
   }
 }
 

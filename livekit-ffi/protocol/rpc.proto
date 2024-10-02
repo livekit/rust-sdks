@@ -1,0 +1,99 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package livekit.proto;
+option csharp_namespace = "LiveKit.Proto";
+
+// Data types
+message RpcRequest {
+  string id = 1;
+  string method = 2;
+  string payload = 3;
+  uint32 response_timeout_ms = 4;
+  uint32 version = 5;
+}
+
+message RpcAck {
+  string request_id = 1;
+}
+
+message RpcResponse {
+  string request_id = 1;
+  oneof value {
+    string payload = 2;
+    RpcError error = 3;
+  }
+}
+
+message RpcError {
+  uint32 code = 1;
+  string message = 2;
+  string data = 3;
+}
+
+// FFI Requests
+message SendRpcRequestRequest {
+  uint64 local_participant_handle = 1;
+  string destination_identity = 2;
+  string request_id = 3;
+  string method = 4;
+  string payload = 5;
+  uint32 response_timeout_ms = 6;
+  uint32 version = 7;
+}
+
+message SendRpcResponseRequest {
+  uint64 local_participant_handle = 1;
+  string destination_identity = 2;
+  RpcResponse response = 3;
+}
+
+message SendRpcAckRequest {
+  uint64 local_participant_handle = 1;
+  string destination_identity = 2;
+  RpcAck ack = 3;
+}
+
+// FFI Responses
+message SendRpcRequestResponse {
+  uint64 async_id = 1;
+  string request_id = 2;
+}
+
+message SendRpcResponseResponse {
+  uint64 async_id = 1;
+}
+
+message SendRpcAckResponse {
+  uint64 async_id = 1;
+}
+
+// FFI Events
+message IncomingRpcRequestCallback {
+  uint64 async_id = 1;
+  uint64 participant_identity = 2;
+  RpcRequest request = 3;
+}
+
+message IncomingRpcResponseCallback {
+  uint64 async_id = 1;
+  RpcResponse response = 2;
+}
+
+message IncomingRpcAckCallback {
+  uint64 async_id = 1;
+  RpcAck ack = 2;
+}

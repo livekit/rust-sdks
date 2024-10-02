@@ -190,6 +190,51 @@ message GetSessionStatsCallback {
   repeated RtcStats subscriber_stats = 4;
 }
 
+// RPC
+message PublishRpcRequestRequest {
+  uint64 local_participant_handle = 1;
+  string destination_identity = 2;
+  RpcRequest request = 3;
+}
+
+message PublishRpcResponseRequest {
+  uint64 local_participant_handle = 1;
+  string destination_identity = 2;
+  RpcResponse response = 3;
+}
+
+message PublishRpcAckRequest {
+  uint64 local_participant_handle = 1;
+  string destination_identity = 2;
+  RpcAck ack = 3;
+}
+
+message RpcRequest {
+  string id = 1;
+  string method = 2;
+  string payload = 3;
+  uint32 response_timeout_ms = 4;
+  uint32 version = 5;
+}
+
+message RpcAck {
+  string request_id = 1;
+}
+
+message RpcResponse {
+  string request_id = 1;
+  oneof value {
+    string payload = 2;
+    RpcError error = 3;
+  }
+}
+
+message RpcError {
+  uint32 code = 1;
+  string message = 2;
+  string data = 3;
+}
+
 //
 // Options
 //
@@ -343,6 +388,9 @@ message RoomEvent {
     RoomEOS eos = 26; // The stream of room events has ended
     DataPacketReceived data_packet_received = 27;
     TranscriptionReceived transcription_received = 28;
+    RpcRequestReceived rpc_request_received = 29;
+    RpcResponseReceived rpc_response_received = 30;
+    RpcAckReceived rpc_ack_received = 31;
   }
 }
 
