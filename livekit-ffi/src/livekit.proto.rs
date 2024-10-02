@@ -1961,12 +1961,10 @@ pub struct SendRpcAckRequest {
     pub ack: ::core::option::Option<RpcAck>,
 }
 /// FFI Responses
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SendRpcRequestResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
-    #[prost(string, tag="2")]
-    pub request_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SendRpcResponseResponse {
@@ -1978,29 +1976,29 @@ pub struct SendRpcAckResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
-/// FFI Events
+/// FFI Callbacks
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct IncomingRpcRequestCallback {
+pub struct SendRpcRequestCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
-    #[prost(uint64, tag="2")]
-    pub participant_identity: u64,
-    #[prost(message, optional, tag="3")]
-    pub request: ::core::option::Option<RpcRequest>,
+    #[prost(string, tag="2")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="3")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct IncomingRpcResponseCallback {
+pub struct SendRpcResponseCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
-    #[prost(message, optional, tag="2")]
-    pub response: ::core::option::Option<RpcResponse>,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct IncomingRpcAckCallback {
+pub struct SendRpcAckCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
-    #[prost(message, optional, tag="2")]
-    pub ack: ::core::option::Option<RpcAck>,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Connect to a new LiveKit room
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3603,11 +3601,11 @@ pub mod ffi_event {
         #[prost(message, tag="21")]
         PublishSipDtmf(super::PublishSipDtmfCallback),
         #[prost(message, tag="22")]
-        IncomingRpcRequest(super::IncomingRpcRequestCallback),
+        SendRpcRequest(super::SendRpcRequestCallback),
         #[prost(message, tag="23")]
-        IncomingRpcResponse(super::IncomingRpcResponseCallback),
+        SendRpcResponse(super::SendRpcResponseCallback),
         #[prost(message, tag="24")]
-        IncomingRpcAck(super::IncomingRpcAckCallback),
+        SendRpcAck(super::SendRpcAckCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

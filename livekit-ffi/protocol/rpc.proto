@@ -70,7 +70,6 @@ message SendRpcAckRequest {
 // FFI Responses
 message SendRpcRequestResponse {
   uint64 async_id = 1;
-  string request_id = 2;
 }
 
 message SendRpcResponseResponse {
@@ -81,19 +80,19 @@ message SendRpcAckResponse {
   uint64 async_id = 1;
 }
 
-// FFI Events
-message IncomingRpcRequestCallback {
+// FFI Callbacks
+message SendRpcRequestCallback {
   uint64 async_id = 1;
-  uint64 participant_identity = 2;
-  RpcRequest request = 3;
+  string request_id = 2;
+  optional string error = 3;
 }
 
-message IncomingRpcResponseCallback {
+message SendRpcResponseCallback {
   uint64 async_id = 1;
-  RpcResponse response = 2;
+  optional string error = 2;
 }
 
-message IncomingRpcAckCallback {
+message SendRpcAckCallback {
   uint64 async_id = 1;
-  RpcAck ack = 2;
+  optional string error = 2;
 }

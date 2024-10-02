@@ -183,9 +183,9 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
-    IncomingRpcRequestCallback incoming_rpc_request = 22;
-    IncomingRpcResponseCallback incoming_rpc_response = 23;
-    IncomingRpcAckCallback incoming_rpc_ack = 24;
+    SendRpcRequestCallback send_rpc_request = 22;
+    SendRpcResponseCallback send_rpc_response = 23;
+    SendRpcAckCallback send_rpc_ack = 24;
   }
 }
 
