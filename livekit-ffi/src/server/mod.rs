@@ -76,7 +76,7 @@ pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, Box<dyn FfiHandle>>,
-    async_runtime: tokio::runtime::Runtime,
+    pub async_runtime: tokio::runtime::Runtime,
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
@@ -135,7 +135,9 @@ impl FfiServer {
     }
 
     pub async fn dispose(&self) {
-        log::info!("disposing the FfiServer, closing all rooms...");
+        self.logger.set_capture_logs(false);
+
+        log::info!("disposing ffi server");
 
         // Close all rooms
         let mut rooms = Vec::new();
