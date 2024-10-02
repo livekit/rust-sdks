@@ -85,6 +85,11 @@ pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     FFI_SERVER.drop_handle(handle_id)
 }
 
+#[no_mangle]
+pub extern "C" fn livekit_ffi_dispose() {
+    FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
+}
+
 #[cfg(target_os = "android")]
 pub mod android {
     use jni::{
