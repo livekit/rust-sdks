@@ -163,7 +163,7 @@ AudioTrackSource::InternalSource::InternalSource(
 
         if (buffer_.size() >= samples10ms) {
           for (auto sink : sinks_)
-            sink->OnData(buffer_.data(), sizeof(int16_t), sample_rate_,
+            sink->OnData(buffer_.data(), sizeof(int16_t) * 8, sample_rate_,
                          num_channels_, samples10ms / num_channels_);
 
           buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
@@ -171,7 +171,7 @@ AudioTrackSource::InternalSource::InternalSource(
           missed_frames_++;
           if (missed_frames_ >= silence_frames_threshold) {
             for (auto sink : sinks_)
-              sink->OnData(silence_buffer_, sizeof(int16_t), sample_rate_,
+              sink->OnData(silence_buffer_, sizeof(int16_t) * 8, sample_rate_,
                            num_channels_, samples10ms / num_channels_);
           }
         }
@@ -221,7 +221,7 @@ bool AudioTrackSource::InternalSource::capture_frame(
   } else {
     // capture directly when the queue buffer is 0 (frame size must be 10ms)
     for (auto sink : sinks_)
-      sink->OnData(data.data(), sizeof(int16_t), sample_rate,
+      sink->OnData(data.data(), sizeof(int16_t) * 8, sample_rate,
                    number_of_channels, number_of_frames);
   }
 
