@@ -135,9 +135,9 @@ impl FfiServer {
     }
 
     pub async fn dispose(&self) {
-        log::info!("disposing the FfiServer, closing all rooms...");
-
         self.logger.set_capture_logs(false);
+
+        log::info!("disposing ffi server");
 
         // Close all rooms
         let mut rooms = Vec::new();
