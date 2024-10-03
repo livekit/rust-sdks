@@ -36,7 +36,7 @@ mod tests {
         println!("File header: {:?}", header);
         file.seek(SeekFrom::Start(0)).expect("Failed to reset file position");
 
-        let reader = match WavReader::open(input_wav_path) {
+        let mut reader = match WavReader::open(input_wav_path) {
             Ok(reader) => reader,
             Err(err) => {
                 panic!("Failed to open input WAV file: {}. File header: {:?}", err, header);
