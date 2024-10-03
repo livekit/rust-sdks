@@ -34,6 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        failure-expected: false
         include:
           - os: windows-2019
             target: x86_64-pc-windows-msvc
@@ -46,27 +47,27 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-13
             target: aarch64-apple-ios
-            disabled: "iOS build is currently broken"
+            failure-expected: true
           - os: macos-13
             target: aarch64-apple-ios-sim
-            disabled: "iOS simulator build is currently broken"
+            failure-expected: true
           - os: ubuntu-20.04
             target: x86_64-unknown-linux-gnu
           - os: buildjet-4vcpu-ubuntu-2204-arm
             target: aarch64-unknown-linux-gnu
           - os: ubuntu-20.04
             target: aarch64-linux-android
-            disabled: "Android build is currently broken"
+            failure-expected: true
           - os: ubuntu-20.04
             target: armv7-linux-androideabi
-            disabled: "Android build is currently broken"
+            failure-expected: true
           - os: ubuntu-20.04
             target: x86_64-linux-android
-            disabled: "Android build is currently broken"
+            failure-expected: true
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.disabled }}
+    continue-on-error: ${{ matrix.failure-expected }}
     steps:
       - uses: actions/checkout@v4
         with:
