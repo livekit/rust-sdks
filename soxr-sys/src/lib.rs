@@ -26,22 +26,24 @@ mod tests {
 
         use hound::{WavReader, WavSpec, WavWriter};
 
-        let input_wav_path = "../examples/play_from_disk/change-sophie.wav";
+        let input_wav_path = "test-input.wav";
         let output_wav_path = "test-output.wav";
 
-        // Diagnostic: Read and print the first 12 bytes of the file
-        let mut file = File::open(input_wav_path).expect("Failed to open file");
-        let mut header = [0u8; 12];
-        file.read_exact(&mut header).expect("Failed to read header");
-        println!("File header: {:?}", header);
-        file.seek(SeekFrom::Start(0)).expect("Failed to reset file position");
-
-        let mut reader = match WavReader::open(input_wav_path) {
-            Ok(reader) => reader,
-            Err(err) => {
-                panic!("Failed to open input WAV file: {}. File header: {:?}", err, header);
-            }
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
         };
+        let mut writer = WavWriter::create(input_wav_path, spec).expect("Failed to create test input WAV file");
+        for t in (0..44100).map(|x| x as f32 / 44100.0) {
+            let sample = (t * 440.0 * 2.0 * std::f32::consts::PI).sin();
+            let amplitude = i16::MAX as f32;
+            writer.write_sample((sample * amplitude) as i16).expect("Failed to write sample");
+        }
+        writer.finalize().expect("Failed to finalize test input WAV file");
+
+        let mut reader = WavReader::open(input_wav_path).expect("Failed to open input WAV file");
 
         let wav_spec = reader.spec();
         let input_rate = wav_spec.sample_rate as f64;
@@ -160,5 +162,9 @@ mod tests {
         unsafe {
             soxr_delete(soxr);
         }
+
+        // Clean up the test files
+        std::fs::remove_file(input_wav_path).expect("Failed to remove test input file");
+        std::fs::remove_file(output_wav_path).expect("Failed to remove test output file");
     }
 }
