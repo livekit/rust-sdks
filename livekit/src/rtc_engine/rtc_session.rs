@@ -657,6 +657,7 @@ impl SessionInner {
                                 segments,
                             });
                         }
+                        _ => {}
                     }
                 }
             }
