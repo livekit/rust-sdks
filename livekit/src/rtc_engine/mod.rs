@@ -109,6 +109,22 @@ pub enum EngineEvent {
         code: u32,
         digit: Option<String>,
     },
+    RpcRequest {
+        participant_identity: ParticipantIdentity,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
+    },
+    RpcResponse {
+        request_id: String,
+        payload: Option<String>,
+        error: Option<RpcError>,
+    },
+    RpcAck {
+        request_id: String,
+    },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
     },
@@ -454,14 +470,14 @@ impl EngineInner {
                 let _ =
                     self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
             }
-            SessionEvent::RpcRequest { participant_identity, request } => {
-                let _ = self.engine_tx.send(EngineEvent::RpcRequest { participant_identity, request });
+            SessionEvent::RpcRequest { participant_identity, request_id, method, payload, response_timeout_ms, version } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcRequest { participant_identity, request_id, method, payload, response_timeout_ms, version });
             }
-            SessionEvent::RpcResponse { participant_identity, response } => {
-                let _ = self.engine_tx.send(EngineEvent::RpcResponse { participant_identity, response });
+            SessionEvent::RpcResponse { request_id, payload, error } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcResponse { request_id, payload, error });
             }
-            SessionEvent::RpcAck { participant_identity, ack } => {
-                let _ = self.engine_tx.send(EngineEvent::RpcAck { participant_identity, ack });
+            SessionEvent::RpcAck { request_id } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcAck { request_id });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });

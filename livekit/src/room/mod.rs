@@ -652,14 +652,14 @@ impl RoomSession {
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
             }
-            EngineEvent::RpcRequest { participant_identity, request } => {
-                self.handle_rpc_request(participant_identity, request);
+            EngineEvent::RpcRequest { participant_identity, request_id, method, payload, response_timeout_ms, version } => {
+                self.handle_rpc_request(participant_identity, request_id, method, payload, response_timeout_ms, version);
             }
-            EngineEvent::RpcResponse { participant_identity, response } => {
-                self.handle_rpc_response(participant_identity, response);
+            EngineEvent::RpcResponse { request_id, payload, error } => {
+                self.handle_rpc_response(request_id, payload, error);
             }
-            EngineEvent::RpcAck { participant_identity, ack } => {
-                self.handle_rpc_ack(participant_identity, ack);
+            EngineEvent::RpcAck { request_id } => {
+                self.handle_rpc_ack(request_id);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
@@ -1138,23 +1138,30 @@ impl RoomSession {
 
     fn handle_rpc_request(
         &self,
-        request: RpcRequest,
+        participant_identity: ParticipantIdentity,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
     ) {
-        self.dispatcher.dispatch(&RoomEvent::RpcRequestReceived { request });
+        self.dispatcher.dispatch(&RoomEvent::RpcRequestReceived { participant_identity, request_id, method, payload, response_timeout_ms, version });
     }
 
     fn handle_rpc_response(
         &self,
-        response: RpcResponse,
+        request_id: String,
+        payload: Option<String>,
+        error: Option<RpcError>,
     ) {
-        self.dispatcher.dispatch(&RoomEvent::RpcResponseReceived { response });
+        self.dispatcher.dispatch(&RoomEvent::RpcResponseReceived { request_id, payload, error });
     }
 
     fn handle_rpc_ack(
         &self,
-        ack: RpcAck,
+        request_id: String,
     ) {
-        self.dispatcher.dispatch(&RoomEvent::RpcAckReceived { ack });
+        self.dispatcher.dispatch(&RoomEvent::RpcAckReceived { request_id });
     }
 
     fn handle_transcription(

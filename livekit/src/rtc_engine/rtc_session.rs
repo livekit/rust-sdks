@@ -94,15 +94,19 @@ pub enum SessionEvent {
     },
     RpcRequest {
         participant_identity: ParticipantIdentity,
-        request: RpcRequest,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
     },
     RpcResponse {
-        participant_identity: ParticipantIdentity,
-        response: RpcResponse,
+        request_id: String,
+        payload: Option<String>,
+        error: Option<RpcError>,
     },
     RpcAck {
-        participant_identity: ParticipantIdentity,
-        ack: RpcAck,
+        request_id: String,
     },
     MediaTrack {
         track: MediaStreamTrack,

@@ -483,17 +483,21 @@ message TranscriptionReceived {
 
 message RpcRequestReceived {
   uint64 participant_identity = 1;
-  RpcRequest request = 2;
+  string request_id = 2;
+  string method = 3;
+  string payload = 4;
+  uint32 response_timeout_ms = 5;
+  uint32 version = 6;
 }
 
 message RpcResponseReceived {
-  uint64 participant_identity = 1;
-  RpcResponse response = 2;
+  string request_id = 1;
+  string payload = 2;
+  optional string error = 3;
 }
 
 message RpcAckReceived {
-  uint64 participant_identity = 1;
-  RpcAck ack = 2;
+  string request_id = 1;
 }
 
 message ConnectionStateChanged { ConnectionState state = 1; }
