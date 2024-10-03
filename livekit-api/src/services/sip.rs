@@ -200,6 +200,9 @@ impl SIPClient {
                         allowed_addresses: options.allowed_addresses.to_owned(),
                         auth_username: options.auth_username.to_owned(),
                         auth_password: options.auth_password.to_owned(),
+
+                        headers: HashMap::new(),
+                        headers_to_attributes: HashMap::new(),
                     }),
                 },
                 self.base.auth_header(
@@ -233,6 +236,9 @@ impl SIPClient {
 
                         auth_username: options.auth_username.to_owned(),
                         auth_password: options.auth_password.to_owned(),
+
+                        headers: HashMap::new(),
+                        headers_to_attributes: HashMap::new(),
                     }),
                 },
                 self.base.auth_header(
