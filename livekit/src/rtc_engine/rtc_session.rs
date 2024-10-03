@@ -673,6 +673,7 @@ impl SessionInner {
                                 segments,
                             });
                         }
+                        _ => {}
                     }
                 }
             }
