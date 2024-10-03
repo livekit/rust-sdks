@@ -45,7 +45,7 @@ message RpcError {
 }
 
 // FFI Requests
-message SendRpcRequestRequest {
+message PublishRpcRequestRequest {
   uint64 local_participant_handle = 1;
   string destination_identity = 2;
   string request_id = 3;
@@ -55,44 +55,44 @@ message SendRpcRequestRequest {
   uint32 version = 7;
 }
 
-message SendRpcResponseRequest {
+message PublishRpcResponseRequest {
   uint64 local_participant_handle = 1;
   string destination_identity = 2;
   RpcResponse response = 3;
 }
 
-message SendRpcAckRequest {
+message PublishRpcAckRequest {
   uint64 local_participant_handle = 1;
   string destination_identity = 2;
   RpcAck ack = 3;
 }
 
 // FFI Responses
-message SendRpcRequestResponse {
+message PublishRpcRequestResponse {
   uint64 async_id = 1;
 }
 
-message SendRpcResponseResponse {
+message PublishRpcResponseResponse {
   uint64 async_id = 1;
 }
 
-message SendRpcAckResponse {
+message PublishRpcAckResponse {
   uint64 async_id = 1;
 }
 
 // FFI Callbacks
-message SendRpcRequestCallback {
+message PublishRpcRequestCallback {
   uint64 async_id = 1;
   string request_id = 2;
   optional string error = 3;
 }
 
-message SendRpcResponseCallback {
+message PublishRpcResponseCallback {
   uint64 async_id = 1;
   optional string error = 2;
 }
 
-message SendRpcAckCallback {
+message PublishRpcAckCallback {
   uint64 async_id = 1;
   optional string error = 2;
 }

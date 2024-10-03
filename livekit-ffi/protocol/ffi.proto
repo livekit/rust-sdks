@@ -70,6 +70,9 @@ message FfiRequest {
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
     PublishSipDtmfRequest publish_sip_dtmf = 14;
+    PublishRpcRequestRequest publish_rpc_request = 36;
+    PublishRpcResponseRequest publish_rpc_response = 37;
+    PublishRpcAckRequest publish_rpc_ack = 38;
 
     // Track
     CreateVideoTrackRequest create_video_track = 15;
@@ -97,11 +100,6 @@ message FfiRequest {
     NewSoxResamplerRequest new_sox_resampler = 33;
     PushSoxResamplerRequest push_sox_resampler = 34;
     FlushSoxResamplerRequest flush_sox_resampler = 35;
-
-    // RPC
-    SendRpcRequestRequest send_rpc_request = 36;
-    SendRpcResponseRequest send_rpc_response = 37;
-    SendRpcAckRequest send_rpc_ack = 38;
   }
 }
 
@@ -123,6 +121,9 @@ message FfiResponse {
     GetSessionStatsResponse get_session_stats = 12;
     PublishTranscriptionResponse publish_transcription = 13;
     PublishSipDtmfResponse publish_sip_dtmf = 14;
+    PublishRpcRequestResponse publish_rpc_request = 36;
+    PublishRpcResponseResponse publish_rpc_response = 37;
+    PublishRpcAckResponse publish_rpc_ack = 38;
 
     // Track
     CreateVideoTrackResponse create_video_track = 15;
@@ -150,11 +151,6 @@ message FfiResponse {
     NewSoxResamplerResponse new_sox_resampler = 33;
     PushSoxResamplerResponse push_sox_resampler = 34;
     FlushSoxResamplerResponse flush_sox_resampler = 35;
-
-    // RPC
-    SendRpcRequestResponse send_rpc_request = 36;
-    SendRpcResponseResponse send_rpc_response = 37;
-    SendRpcAckResponse send_rpc_ack = 38;
   }
 }
 
@@ -183,9 +179,9 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
-    SendRpcRequestCallback send_rpc_request = 22;
-    SendRpcResponseCallback send_rpc_response = 23;
-    SendRpcAckCallback send_rpc_ack = 24;
+    PublishRpcRequestCallback publish_rpc_request = 22;
+    PublishRpcResponseCallback publish_rpc_response = 23;
+    PublishRpcAckCallback publish_rpc_ack = 24;
   }
 }
 

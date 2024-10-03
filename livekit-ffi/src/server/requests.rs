@@ -134,6 +134,39 @@ fn on_publish_sip_dtmf(
     ffi_participant.room.publish_sip_dtmf(server, publish)
 }
 
+/// Publish rpc request to the room
+fn on_publish_rpc_request(
+    server: &'static FfiServer,
+    publish: proto::PublishRpcRequestRequest,
+) -> FfiResult<proto::PublishRpcRequestResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+
+    ffi_participant.room.publish_rpc_request(server, publish)
+}
+
+/// Publish rpc response to the room
+fn on_publish_rpc_response(
+    server: &'static FfiServer,
+    publish: proto::PublishRpcResponseRequest,
+) -> FfiResult<proto::PublishRpcResponseResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+
+    ffi_participant.room.publish_rpc_response(server, publish)
+}
+
+/// Publish rpc ack to the room
+fn on_publish_rpc_ack(
+    server: &'static FfiServer,
+    publish: proto::PublishRpcAckRequest,
+) -> FfiResult<proto::PublishRpcAckResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+
+    ffi_participant.room.publish_rpc_ack(server, publish)
+}
+
 /// Change the desired subscription state of a publication
 fn on_set_subscribed(
     server: &'static FfiServer,

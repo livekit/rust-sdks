@@ -1926,7 +1926,7 @@ pub struct RpcError {
 }
 /// FFI Requests
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SendRpcRequestRequest {
+pub struct PublishRpcRequestRequest {
     #[prost(uint64, tag="1")]
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
@@ -1943,7 +1943,7 @@ pub struct SendRpcRequestRequest {
     pub version: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SendRpcResponseRequest {
+pub struct PublishRpcResponseRequest {
     #[prost(uint64, tag="1")]
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
@@ -1952,7 +1952,7 @@ pub struct SendRpcResponseRequest {
     pub response: ::core::option::Option<RpcResponse>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SendRpcAckRequest {
+pub struct PublishRpcAckRequest {
     #[prost(uint64, tag="1")]
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
@@ -1962,23 +1962,23 @@ pub struct SendRpcAckRequest {
 }
 /// FFI Responses
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct SendRpcRequestResponse {
+pub struct PublishRpcRequestResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct SendRpcResponseResponse {
+pub struct PublishRpcResponseResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct SendRpcAckResponse {
+pub struct PublishRpcAckResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
 /// FFI Callbacks
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SendRpcRequestCallback {
+pub struct PublishRpcRequestCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
     #[prost(string, tag="2")]
@@ -1987,14 +1987,14 @@ pub struct SendRpcRequestCallback {
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SendRpcResponseCallback {
+pub struct PublishRpcResponseCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SendRpcAckCallback {
+pub struct PublishRpcAckCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
     #[prost(string, optional, tag="2")]
@@ -3369,7 +3369,7 @@ impl AudioSourceType {
 /// We always expect a response (FFIResponse, even if it's empty)
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 37, 38, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3403,6 +3403,12 @@ pub mod ffi_request {
         PublishTranscription(super::PublishTranscriptionRequest),
         #[prost(message, tag="14")]
         PublishSipDtmf(super::PublishSipDtmfRequest),
+        #[prost(message, tag="36")]
+        PublishRpcRequest(super::PublishRpcRequestRequest),
+        #[prost(message, tag="37")]
+        PublishRpcResponse(super::PublishRpcResponseRequest),
+        #[prost(message, tag="38")]
+        PublishRpcAck(super::PublishRpcAckRequest),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackRequest),
@@ -3448,19 +3454,12 @@ pub mod ffi_request {
         PushSoxResampler(super::PushSoxResamplerRequest),
         #[prost(message, tag="35")]
         FlushSoxResampler(super::FlushSoxResamplerRequest),
-        /// RPC
-        #[prost(message, tag="36")]
-        SendRpcRequest(super::SendRpcRequestRequest),
-        #[prost(message, tag="37")]
-        SendRpcResponse(super::SendRpcResponseRequest),
-        #[prost(message, tag="38")]
-        SendRpcAck(super::SendRpcAckRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 37, 38, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3494,6 +3493,12 @@ pub mod ffi_response {
         PublishTranscription(super::PublishTranscriptionResponse),
         #[prost(message, tag="14")]
         PublishSipDtmf(super::PublishSipDtmfResponse),
+        #[prost(message, tag="36")]
+        PublishRpcRequest(super::PublishRpcRequestResponse),
+        #[prost(message, tag="37")]
+        PublishRpcResponse(super::PublishRpcResponseResponse),
+        #[prost(message, tag="38")]
+        PublishRpcAck(super::PublishRpcAckResponse),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackResponse),
@@ -3539,13 +3544,6 @@ pub mod ffi_response {
         PushSoxResampler(super::PushSoxResamplerResponse),
         #[prost(message, tag="35")]
         FlushSoxResampler(super::FlushSoxResamplerResponse),
-        /// RPC
-        #[prost(message, tag="36")]
-        SendRpcRequest(super::SendRpcRequestResponse),
-        #[prost(message, tag="37")]
-        SendRpcResponse(super::SendRpcResponseResponse),
-        #[prost(message, tag="38")]
-        SendRpcAck(super::SendRpcAckResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
@@ -3601,11 +3599,11 @@ pub mod ffi_event {
         #[prost(message, tag="21")]
         PublishSipDtmf(super::PublishSipDtmfCallback),
         #[prost(message, tag="22")]
-        SendRpcRequest(super::SendRpcRequestCallback),
+        PublishRpcRequest(super::PublishRpcRequestCallback),
         #[prost(message, tag="23")]
-        SendRpcResponse(super::SendRpcResponseCallback),
+        PublishRpcResponse(super::PublishRpcResponseCallback),
         #[prost(message, tag="24")]
-        SendRpcAck(super::SendRpcAckCallback),
+        PublishRpcAck(super::PublishRpcAckCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

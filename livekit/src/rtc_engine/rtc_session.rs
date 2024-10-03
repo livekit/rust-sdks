@@ -92,6 +92,18 @@ pub enum SessionEvent {
         code: u32,
         digit: Option<String>,
     },
+    RpcRequest {
+        participant_identity: ParticipantIdentity,
+        request: RpcRequest,
+    },
+    RpcResponse {
+        participant_identity: ParticipantIdentity,
+        response: RpcResponse,
+    },
+    RpcAck {
+        participant_identity: ParticipantIdentity,
+        ack: RpcAck,
+    },
     MediaTrack {
         track: MediaStreamTrack,
         stream: MediaStream,

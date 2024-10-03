@@ -162,6 +162,18 @@ pub enum RoomEvent {
         digit: Option<String>,
         participant: Option<RemoteParticipant>,
     },
+    RpcRequestReceived {
+        participant: RemoteParticipant,
+        request: RpcRequest,
+    },
+    RpcResponseReceived {
+        participant: RemoteParticipant,
+        response: RpcResponse,
+    },
+    RpcAckReceived {
+        participant: RemoteParticipant,
+        ack: RpcAck,
+    },
     E2eeStateChanged {
         participant: Participant,
         state: EncryptionState,
@@ -234,6 +246,34 @@ pub struct SipDTMF {
     pub code: u32,
     pub digit: String,
     pub destination_identities: Vec<ParticipantIdentity>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct RpcRequest {
+    pub destination_identity: ParticipantIdentity,
+    pub request_id: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout_ms: u32,
+    pub version: u32,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct RpcResponse {
+    pub request_id: String,
+    pub payload: Option<String>,
+    pub error: Option<RpcError>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct RpcAck {
+    pub request_id: String,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct RpcError {
+    pub code: u32,
+    pub message: String,
 }
 
 #[derive(Debug, Clone)]
@@ -611,6 +651,15 @@ impl RoomSession {
             }
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
+            }
+            EngineEvent::RpcRequest { participant_identity, request } => {
+                self.handle_rpc_request(participant_identity, request);
+            }
+            EngineEvent::RpcResponse { participant_identity, response } => {
+                self.handle_rpc_response(participant_identity, response);
+            }
+            EngineEvent::RpcAck { participant_identity, ack } => {
+                self.handle_rpc_ack(participant_identity, ack);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
@@ -1085,6 +1134,27 @@ impl RoomSession {
         }
 
         self.dispatcher.dispatch(&RoomEvent::SipDTMFReceived { code, digit, participant });
+    }
+
+    fn handle_rpc_request(
+        &self,
+        request: RpcRequest,
+    ) {
+        self.dispatcher.dispatch(&RoomEvent::RpcRequestReceived { request });
+    }
+
+    fn handle_rpc_response(
+        &self,
+        response: RpcResponse,
+    ) {
+        self.dispatcher.dispatch(&RoomEvent::RpcResponseReceived { response });
+    }
+
+    fn handle_rpc_ack(
+        &self,
+        ack: RpcAck,
+    ) {
+        self.dispatcher.dispatch(&RoomEvent::RpcAckReceived { ack });
     }
 
     fn handle_transcription(

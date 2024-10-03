@@ -443,16 +443,25 @@ impl EngineInner {
                     kind,
                 });
             }
-            SessionEvent::SipDTMF { participant_identity, code, digit } => {
-                let _ =
-                    self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
-            }
             SessionEvent::Transcription { participant_identity, track_sid, segments } => {
                 let _ = self.engine_tx.send(EngineEvent::Transcription {
                     participant_identity,
                     track_sid,
                     segments,
                 });
+            }
+            SessionEvent::SipDTMF { participant_identity, code, digit } => {
+                let _ =
+                    self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
+            }
+            SessionEvent::RpcRequest { participant_identity, request } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcRequest { participant_identity, request });
+            }
+            SessionEvent::RpcResponse { participant_identity, response } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcResponse { participant_identity, response });
+            }
+            SessionEvent::RpcAck { participant_identity, ack } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcAck { participant_identity, ack });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });
