@@ -238,7 +238,7 @@ impl SIPClient {
                         auth_password: options.auth_password.to_owned(),
 
                         headers: Default::default(),
-                        headers_to_attributes: Default::default()
+                        headers_to_attributes: Default::default(),
                     }),
                 },
                 self.base.auth_header(
