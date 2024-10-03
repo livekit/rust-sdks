@@ -35,7 +35,8 @@ mod tests {
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
-        let mut writer = WavWriter::create(input_wav_path, spec).expect("Failed to create test input WAV file");
+        let mut writer =
+            WavWriter::create(input_wav_path, spec).expect("Failed to create test input WAV file");
         for t in (0..44100).map(|x| x as f32 / 44100.0) {
             let sample = (t * 440.0 * 2.0 * std::f32::consts::PI).sin();
             let amplitude = i16::MAX as f32;
