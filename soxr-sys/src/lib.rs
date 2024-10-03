@@ -6,6 +6,8 @@ include!("soxr.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
 
     #[test]
     fn it_works() {
@@ -27,7 +29,19 @@ mod tests {
         let input_wav_path = "../examples/play_from_disk/change-sophie.wav";
         let output_wav_path = "test-output.wav";
 
-        let mut reader = WavReader::open(input_wav_path).expect("Failed to open input WAV file");
+        // Diagnostic: Read and print the first 12 bytes of the file
+        let mut file = File::open(input_wav_path).expect("Failed to open file");
+        let mut header = [0u8; 12];
+        file.read_exact(&mut header).expect("Failed to read header");
+        println!("File header: {:?}", header);
+        file.seek(SeekFrom::Start(0)).expect("Failed to reset file position");
+
+        let reader = match WavReader::open(input_wav_path) {
+            Ok(reader) => reader,
+            Err(err) => {
+                panic!("Failed to open input WAV file: {}. File header: {:?}", err, header);
+            }
+        };
 
         let wav_spec = reader.spec();
         let input_rate = wav_spec.sample_rate as f64;
