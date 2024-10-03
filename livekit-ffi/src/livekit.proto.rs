@@ -1987,45 +1987,6 @@ impl VideoSourceType {
 /// Data types
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcRequest {
-    #[prost(string, tag="1")]
-    pub id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub method: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub payload: ::prost::alloc::string::String,
-    #[prost(uint32, tag="4")]
-    pub response_timeout_ms: u32,
-    #[prost(uint32, tag="5")]
-    pub version: u32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcAck {
-    #[prost(string, tag="1")]
-    pub request_id: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcResponse {
-    #[prost(string, tag="1")]
-    pub request_id: ::prost::alloc::string::String,
-    #[prost(oneof="rpc_response::Value", tags="2, 3")]
-    pub value: ::core::option::Option<rpc_response::Value>,
-}
-/// Nested message and enum types in `RpcResponse`.
-pub mod rpc_response {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Value {
-        #[prost(string, tag="2")]
-        Payload(::prost::alloc::string::String),
-        #[prost(message, tag="3")]
-        Error(super::RpcError),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RpcError {
     #[prost(uint32, tag="1")]
     pub code: u32,
@@ -2060,8 +2021,21 @@ pub struct PublishRpcResponseRequest {
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
     pub destination_identity: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="3")]
-    pub response: ::core::option::Option<RpcResponse>,
+    #[prost(string, tag="3")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(oneof="publish_rpc_response_request::Value", tags="4, 5")]
+    pub value: ::core::option::Option<publish_rpc_response_request::Value>,
+}
+/// Nested message and enum types in `PublishRpcResponseRequest`.
+pub mod publish_rpc_response_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Value {
+        #[prost(string, tag="4")]
+        Payload(::prost::alloc::string::String),
+        #[prost(message, tag="5")]
+        Error(super::RpcError),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2070,8 +2044,8 @@ pub struct PublishRpcAckRequest {
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
     pub destination_identity: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="3")]
-    pub ack: ::core::option::Option<RpcAck>,
+    #[prost(string, tag="3")]
+    pub request_id: ::prost::alloc::string::String,
 }
 /// FFI Responses
 #[allow(clippy::derive_partial_eq_without_eq)]

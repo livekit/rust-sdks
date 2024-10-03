@@ -432,9 +432,17 @@ impl LocalParticipant {
 
     pub async fn publish_rpc_request(&self, request: RpcRequest) -> RoomResult<()> {
         let destination_identities = vec![request.destination_identity.into()];
+        let proto_request = proto::RpcRequest {
+            id: request.id,
+            method: request.method,
+            payload: request.payload,
+            response_timeout_ms: request.response_timeout_ms,
+            version: request.version,
+            ..Default::default()
+        };
 
         let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::RpcRequest(request)),
+            value: Some(proto::data_packet::Value::RpcRequest(proto_request)),
             destination_identities: destination_identities.clone(),
             ..Default::default()
         };
@@ -447,11 +455,29 @@ impl LocalParticipant {
     }
 
     pub async fn publish_rpc_response(&self, response: RpcResponse) -> RoomResult<()> {
-        self.inner.rtc_engine.publish_rpc_response(response).await.map_err(Into::into)
+        let destination_identities = vec![response.destination_identity.into()];
+        let proto_response = proto::RpcResponse {
+            request_id: response.request_id,
+            payload: response.payload,
+            error: response.error,
+            ..Default::default()
+        };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::RpcRequest(proto_request)),
+            destination_identities: destination_identities.clone(),
+            ..Default::default()
+        };
+
+        self.inner
+            .rtc_engine
+            .publish_data(&data, DataPacketKind::Reliable)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn publish_rpc_ack(&self, ack: RpcAck) -> RoomResult<()> {
-        self.inner.rtc_engine.publish_rpc_ack(ack).await.map_err(Into::into)
+        // self.inner.rtc_engine.publish_rpc_ack(ack).await.map_err(Into::into)
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {

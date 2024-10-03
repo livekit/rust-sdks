@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::{id::ParticipantIdentity, TranscriptionSegment};
+use crate::{id::ParticipantIdentity, TranscriptionSegment, RpcError};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -94,7 +94,7 @@ pub enum SessionEvent {
     },
     RpcRequest {
         participant_identity: ParticipantIdentity,
-        request_id: String,
+        id: String,
         method: String,
         payload: String,
         response_timeout_ms: u32,

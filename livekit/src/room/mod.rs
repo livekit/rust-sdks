@@ -251,7 +251,7 @@ pub struct SipDTMF {
 #[derive(Default, Debug, Clone)]
 pub struct RpcRequest {
     pub destination_identity: ParticipantIdentity,
-    pub request_id: String,
+    pub id: String,
     pub method: String,
     pub payload: String,
     pub response_timeout_ms: u32,
@@ -652,8 +652,8 @@ impl RoomSession {
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
             }
-            EngineEvent::RpcRequest { participant_identity, request_id, method, payload, response_timeout_ms, version } => {
-                self.handle_rpc_request(participant_identity, request_id, method, payload, response_timeout_ms, version);
+            EngineEvent::RpcRequest { participant_identity, id, method, payload, response_timeout_ms, version } => {
+                self.handle_rpc_request(participant_identity, id, method, payload, response_timeout_ms, version);
             }
             EngineEvent::RpcResponse { request_id, payload, error } => {
                 self.handle_rpc_response(request_id, payload, error);
