@@ -51,8 +51,8 @@ mod tests {
         let mut error: soxr_error_t = ptr::null();
 
         let io_spec = soxr_io_spec {
-            itype: SOXR_INT16_I as u32,
-            otype: SOXR_INT16_I as u32,
+            itype: soxr_datatype_t_SOXR_INT16_I as u32,
+            otype: soxr_datatype_t_SOXR_INT16_I as u32,
             scale: 1.0,
             e: ptr::null_mut(),
             flags: 0,
