@@ -43,9 +43,13 @@ mod tests {
             sample_format: hound::SampleFormat::Int,
         };
 
+        let input_duration: u32 = 3; // 3 second of audio
+
         let mut writer = WavWriter::create(input_wav_path, input_spec)
             .expect("Failed to create test input WAV file");
-        for t in (0..input_spec.sample_rate).map(|x| x as f32 / input_spec.sample_rate as f32) {
+        for t in (0..input_spec.sample_rate * input_duration)
+            .map(|x| x as f32 / input_spec.sample_rate as f32)
+        {
             let sample = (t * 440.0 * 2.0 * std::f32::consts::PI).sin();
             let amplitude = i16::MAX as f32;
             writer.write_sample((sample * amplitude) as i16).expect("Failed to write sample");
