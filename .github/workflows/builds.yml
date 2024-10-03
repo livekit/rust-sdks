@@ -21,10 +21,10 @@ on:
       - livekit/**
       - libwebrtc/**
   pull_request:
-    branches: ["main"]
-    paths:
-      - livekit/**
-      - libwebrtc/**
+    # branches: ["main"]
+    # paths:
+    #   - livekit/**
+    #   - libwebrtc/**
 
 env:
   CARGO_TERM_COLOR: always
