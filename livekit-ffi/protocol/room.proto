@@ -493,7 +493,7 @@ message RpcRequestReceived {
 message RpcResponseReceived {
   string request_id = 1;
   string payload = 2;
-  optional string error = 3;
+  optional RpcError error = 3;
 }
 
 message RpcAckReceived {
