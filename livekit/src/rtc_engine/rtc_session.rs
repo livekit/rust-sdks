@@ -657,11 +657,7 @@ impl SessionInner {
                                 segments,
                             });
                         }
-                        proto::data_packet::Value::ChatMessage(_) => {}
-                        proto::data_packet::Value::RpcRequest(_) => {}
-                        proto::data_packet::Value::RpcResponse(_) => {}
-                        proto::data_packet::Value::RpcAck(_) => {}
-                        proto::data_packet::Value::Metrics(_) => {}
+                        _ => {}
                     }
                 }
             }
