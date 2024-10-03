@@ -66,14 +66,8 @@ jobs:
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.disabled != '' }}
+    continue-on-error: ${{ matrix.disabled }}
     steps:
-      - name: Skip disabled job
-        if: ${{ matrix.disabled != '' }}
-        run: |
-          echo "Build for ${{ matrix.target }} is disabled: \"${{ matrix.disabled }}\""
-          exit 1
-
       - uses: actions/checkout@v4
         with:
           submodules: true
