@@ -50,7 +50,8 @@ mod tests {
         for t in (0..input_spec.sample_rate * input_duration)
             .map(|x| x as f32 / input_spec.sample_rate as f32)
         {
-            let sample = (t * 440.0 * 2.0 * std::f32::consts::PI).sin();
+            let a4note = 440.0; // 440Hz = A4
+            let sample = (t * a4note * 2.0 * std::f32::consts::PI).sin();
             let amplitude = i16::MAX as f32;
             writer.write_sample((sample * amplitude) as i16).expect("Failed to write sample");
         }
@@ -168,7 +169,6 @@ mod tests {
             soxr_delete(soxr);
         }
 
-        // Clean up the test files
         std::fs::remove_file(input_wav_path).expect("Failed to remove test input file");
         std::fs::remove_file(output_wav_path).expect("Failed to remove test output file");
     }
