@@ -1,2 +1,4 @@
 target
 /.idea
+soxr-sys/test-output.wav
+.DS_Store

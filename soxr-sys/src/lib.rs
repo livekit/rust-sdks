@@ -24,8 +24,8 @@ mod tests {
 
         use hound::{WavReader, WavSpec, WavWriter};
 
-        let input_wav_path = "input.wav";
-        let output_wav_path = "output.wav";
+        let input_wav_path = "../examples/play_from_disk/change-sophie.wav";
+        let output_wav_path = "test-output.wav";
 
         let mut reader = WavReader::open(input_wav_path).expect("Failed to open input WAV file");
 
