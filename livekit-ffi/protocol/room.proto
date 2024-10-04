@@ -170,7 +170,7 @@ message SetLocalNameCallback {
   optional string error = 2;
 }
 
-// Change the "desire" to subs2ribe to a track
+// Change the "desire" to subscribe to a track
 message SetSubscribedRequest {
   bool subscribe = 1;
   uint64 publication_handle = 2;

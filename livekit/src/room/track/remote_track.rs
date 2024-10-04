@@ -76,7 +76,7 @@ impl TryFrom<Track> for RemoteTrack {
         match track {
             Track::RemoteAudio(track) => Ok(Self::Audio(track)),
             Track::RemoteVideo(track) => Ok(Self::Video(track)),
-            _ => Err("not a local track"),
+            _ => Err("not a remote track"),
         }
     }
 }

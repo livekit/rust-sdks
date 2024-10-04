@@ -22,7 +22,7 @@ pub struct KeyProviderOptions {
     pub ratchet_window_size: i32,
     #[prost(bytes="vec", tag="3")]
     pub ratchet_salt: ::prost::alloc::vec::Vec<u8>,
-    /// -1 = no tolerence
+    /// -1 = no tolerance
     #[prost(int32, tag="4")]
     pub failure_tolerance: i32,
 }
@@ -2256,7 +2256,7 @@ pub struct SetLocalNameCallback {
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
-/// Change the "desire" to subs2ribe to a track
+/// Change the "desire" to subscribe to a track
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetSubscribedRequest {
