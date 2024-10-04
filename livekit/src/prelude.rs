@@ -22,5 +22,5 @@ pub use crate::{
     },
     ConnectionState, DataPacket, DataPacketKind, DisconnectReason, Room, RoomError, RoomEvent,
     RoomOptions, RoomResult, SipDTMF, Transcription, TranscriptionSegment,
-    RpcRequest, RpcResponse, RpcAck,
+    RpcRequest, RpcResponse, RpcAck, RpcError,
 };

@@ -67,7 +67,6 @@ message PublishRpcAckResponse {
 // FFI Callbacks
 message PublishRpcRequestCallback {
   uint64 async_id = 1;
-  string request_id = 2;
   optional string error = 3;
 }
 

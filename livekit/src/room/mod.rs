@@ -163,16 +163,20 @@ pub enum RoomEvent {
         participant: Option<RemoteParticipant>,
     },
     RpcRequestReceived {
-        participant: RemoteParticipant,
-        request: RpcRequest,
+        participant: Option<RemoteParticipant>,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
     },
     RpcResponseReceived {
-        participant: RemoteParticipant,
-        response: RpcResponse,
+        request_id: String,
+        payload: Option<String>,
+        error: Option<RpcError>,
     },
     RpcAckReceived {
-        participant: RemoteParticipant,
-        ack: RpcAck,
+        request_id: String,
     },
     E2eeStateChanged {
         participant: Participant,
@@ -251,7 +255,7 @@ pub struct SipDTMF {
 #[derive(Default, Debug, Clone)]
 pub struct RpcRequest {
     pub destination_identity: ParticipantIdentity,
-    pub id: String,
+    pub request_id: String,
     pub method: String,
     pub payload: String,
     pub response_timeout_ms: u32,
@@ -260,6 +264,7 @@ pub struct RpcRequest {
 
 #[derive(Default, Debug, Clone)]
 pub struct RpcResponse {
+    pub destination_identity: ParticipantIdentity,
     pub request_id: String,
     pub payload: Option<String>,
     pub error: Option<RpcError>,
@@ -267,6 +272,7 @@ pub struct RpcResponse {
 
 #[derive(Default, Debug, Clone)]
 pub struct RpcAck {
+    pub destination_identity: ParticipantIdentity,
     pub request_id: String,
 }
 
@@ -274,6 +280,7 @@ pub struct RpcAck {
 pub struct RpcError {
     pub code: u32,
     pub message: String,
+    pub data: String,
 }
 
 #[derive(Debug, Clone)]
@@ -652,8 +659,22 @@ impl RoomSession {
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
             }
-            EngineEvent::RpcRequest { participant_identity, id, method, payload, response_timeout_ms, version } => {
-                self.handle_rpc_request(participant_identity, id, method, payload, response_timeout_ms, version);
+            EngineEvent::RpcRequest {
+                participant_identity,
+                id,
+                method,
+                payload,
+                response_timeout_ms,
+                version,
+            } => {
+                self.handle_rpc_request(
+                    participant_identity,
+                    id,
+                    method,
+                    payload,
+                    response_timeout_ms,
+                    version,
+                );
             }
             EngineEvent::RpcResponse { request_id, payload, error } => {
                 self.handle_rpc_response(request_id, payload, error);
@@ -1145,7 +1166,16 @@ impl RoomSession {
         response_timeout_ms: u32,
         version: u32,
     ) {
-        self.dispatcher.dispatch(&RoomEvent::RpcRequestReceived { participant_identity, request_id, method, payload, response_timeout_ms, version });
+        let participant = self.get_participant_by_identity(&participant_identity);
+
+        self.dispatcher.dispatch(&RoomEvent::RpcRequestReceived {
+            participant,
+            request_id,
+            method,
+            payload,
+            response_timeout_ms,
+            version,
+        });
     }
 
     fn handle_rpc_response(
@@ -1157,10 +1187,7 @@ impl RoomSession {
         self.dispatcher.dispatch(&RoomEvent::RpcResponseReceived { request_id, payload, error });
     }
 
-    fn handle_rpc_ack(
-        &self,
-        request_id: String,
-    ) {
+    fn handle_rpc_ack(&self, request_id: String) {
         self.dispatcher.dispatch(&RoomEvent::RpcAckReceived { request_id });
     }
 

@@ -2072,8 +2072,6 @@ pub struct PublishRpcAckResponse {
 pub struct PublishRpcRequestCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
-    #[prost(string, tag="2")]
-    pub request_id: ::prost::alloc::string::String,
     #[prost(string, optional, tag="3")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }

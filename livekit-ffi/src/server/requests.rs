@@ -832,6 +832,15 @@ pub fn handle_request(
         proto::ffi_request::Message::PublishSipDtmf(publish) => {
             proto::ffi_response::Message::PublishSipDtmf(on_publish_sip_dtmf(server, publish)?)
         }
+        proto::ffi_request::Message::PublishRpcRequest(publish) => {
+            proto::ffi_response::Message::PublishRpcRequest(on_publish_rpc_request(server, publish)?)
+        }
+        proto::ffi_request::Message::PublishRpcResponse(publish) => {
+            proto::ffi_response::Message::PublishRpcResponse(on_publish_rpc_response(server, publish)?)
+        }
+        proto::ffi_request::Message::PublishRpcAck(publish) => {
+            proto::ffi_response::Message::PublishRpcAck(on_publish_rpc_ack(server, publish)?)
+        }
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
         }
