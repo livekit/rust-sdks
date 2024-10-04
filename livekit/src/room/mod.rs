@@ -661,7 +661,7 @@ impl RoomSession {
             }
             EngineEvent::RpcRequest {
                 participant_identity,
-                id,
+                request_id,
                 method,
                 payload,
                 response_timeout_ms,
@@ -669,7 +669,7 @@ impl RoomSession {
             } => {
                 self.handle_rpc_request(
                     participant_identity,
-                    id,
+                    request_id,
                     method,
                     payload,
                     response_timeout_ms,
@@ -1159,14 +1159,17 @@ impl RoomSession {
 
     fn handle_rpc_request(
         &self,
-        participant_identity: ParticipantIdentity,
+        participant_identity: Option<ParticipantIdentity>,
         request_id: String,
         method: String,
         payload: String,
         response_timeout_ms: u32,
         version: u32,
     ) {
-        let participant = self.get_participant_by_identity(&participant_identity);
+        let participant = participant_identity
+            .as_ref()
+            .map(|identity| self.get_participant_by_identity(identity))
+            .unwrap_or(None);
 
         self.dispatcher.dispatch(&RoomEvent::RpcRequestReceived {
             participant,

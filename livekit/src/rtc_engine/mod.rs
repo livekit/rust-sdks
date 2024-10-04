@@ -111,8 +111,8 @@ pub enum EngineEvent {
         digit: Option<String>,
     },
     RpcRequest {
-        participant_identity: ParticipantIdentity,
-        id: String,
+        participant_identity: Option<ParticipantIdentity>,
+        request_id: String,
         method: String,
         payload: String,
         response_timeout_ms: u32,
@@ -471,8 +471,8 @@ impl EngineInner {
                 let _ =
                     self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
             }
-            SessionEvent::RpcRequest { participant_identity, id, method, payload, response_timeout_ms, version } => {
-                let _ = self.engine_tx.send(EngineEvent::RpcRequest { participant_identity, id, method, payload, response_timeout_ms, version });
+            SessionEvent::RpcRequest { participant_identity, request_id, method, payload, response_timeout_ms, version } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcRequest { participant_identity, request_id, method, payload, response_timeout_ms, version });
             }
             SessionEvent::RpcResponse { request_id, payload, error } => {
                 let _ = self.engine_tx.send(EngineEvent::RpcResponse { request_id, payload, error });
