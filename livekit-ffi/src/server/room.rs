@@ -332,6 +332,11 @@ impl FfiRoom {
             let _ = handle.close_tx.send(());
             let _ = handle.event_handle.await;
             let _ = handle.data_handle.await;
+            let _ = handle.transcription_handle.await;
+            let _ = handle.sip_dtmf_handle.await;
+            let _ = handle.rpc_request_handle.await;
+            let _ = handle.rpc_response_handle.await;
+            let _ = handle.rpc_ack_handle.await;
         }
     }
 }
