@@ -136,7 +136,6 @@ impl FfiServer {
 
     pub async fn dispose(&self) {
         self.logger.set_capture_logs(false);
-
         log::info!("disposing ffi server");
 
         // Close all rooms
@@ -152,8 +151,8 @@ impl FfiServer {
         }
 
         // Drop all handles
-        self.ffi_handles.clear();
-        self.handle_dropped_txs.clear();
+        // self.ffi_handles.clear();
+        // self.handle_dropped_txs.clear();
         *self.config.lock() = None; // Invalidate the config
     }
 
