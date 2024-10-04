@@ -151,8 +151,6 @@ impl FfiServer {
         }
 
         // Drop all handles
-        // self.ffi_handles.clear();
-        // self.handle_dropped_txs.clear();
         *self.config.lock() = None; // Invalidate the config
     }
 
