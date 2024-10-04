@@ -482,7 +482,7 @@ message TranscriptionReceived {
 }
 
 message RpcRequestReceived {
-  string participant_identity = 1;
+  optional string participant_identity = 1;
   string request_id = 2;
   string method = 3;
   string payload = 4;
@@ -492,7 +492,7 @@ message RpcRequestReceived {
 
 message RpcResponseReceived {
   string request_id = 1;
-  string payload = 2;
+  optional string payload = 2;
   optional RpcError error = 3;
 }
 

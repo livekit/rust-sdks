@@ -1221,6 +1221,40 @@ async fn forward_event(
                 },
             ));
         }
+        RoomEvent::RpcRequestReceived { participant, request_id, method, payload, response_timeout_ms, version } => {
+            let participant_identity: Option<String> = match participant {
+                Some(p) => Some(p.identity().to_string()),
+                None => None,
+            };
+            let _ = send_event(proto::room_event::Message::RpcRequestReceived(
+                proto::RpcRequestReceived {
+                    participant_identity: participant_identity,
+                    request_id,
+                    method,
+                    payload,
+                    response_timeout_ms,
+                    version,
+                },
+            ));
+        }
+        RoomEvent::RpcResponseReceived { request_id, payload, error } => {
+            let _ = send_event(proto::room_event::Message::RpcResponseReceived(
+                proto::RpcResponseReceived {
+                    request_id,
+                    payload,
+                    error: error.map(|e| proto::RpcError {
+                        code: e.code,
+                        message: e.message,
+                        data: e.data,
+                    }),
+                },
+            ));
+        }
+        RoomEvent::RpcAckReceived { request_id } => {
+            let _ = send_event(proto::room_event::Message::RpcAckReceived(
+                proto::RpcAckReceived { request_id },
+            ));
+        }
         RoomEvent::ConnectionStateChanged(state) => {
             let _ = send_event(proto::room_event::Message::ConnectionStateChanged(
                 proto::ConnectionStateChanged { state: proto::ConnectionState::from(state).into() },

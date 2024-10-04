@@ -2809,8 +2809,8 @@ pub struct TranscriptionReceived {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RpcRequestReceived {
-    #[prost(string, tag="1")]
-    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="1")]
+    pub participant_identity: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, tag="2")]
     pub request_id: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
@@ -2827,8 +2827,8 @@ pub struct RpcRequestReceived {
 pub struct RpcResponseReceived {
     #[prost(string, tag="1")]
     pub request_id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub payload: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="2")]
+    pub payload: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag="3")]
     pub error: ::core::option::Option<RpcError>,
 }
