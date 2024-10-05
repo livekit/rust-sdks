@@ -38,7 +38,6 @@ use crate::{
         rtc_session::{RtcSession, SessionEvent, SessionEvents},
     },
     DataPacketKind,
-    RpcError,
 };
 
 pub mod lk_runtime;

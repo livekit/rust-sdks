@@ -22,10 +22,12 @@ use crate::{prelude::*, rtc_engine::RtcEngine};
 
 mod local_participant;
 mod remote_participant;
+mod rpc;
 use crate::room::utils;
 
 pub use local_participant::*;
 pub use remote_participant::*;
+pub use rpc::*;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionQuality {

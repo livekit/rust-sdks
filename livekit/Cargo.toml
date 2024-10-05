@@ -40,3 +40,4 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 thiserror = "1.0"
 lazy_static = "1.4"
 log = "0.4"
+uuid = { version = "1.5", features = ["v4"] }

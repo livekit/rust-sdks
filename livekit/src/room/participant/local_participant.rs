@@ -19,22 +19,30 @@ use std::{
     time::Duration,
 };
 
+use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
+use crate::room::proto::RpcError as RpcError_Proto;
+use crate::{
+    e2ee::EncryptionType,
+    options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
+    prelude::*,
+    room::participant::rpc::{ErrorCode, RpcError, MAX_PAYLOAD_BYTES},
+    rtc_engine::{EngineError, RtcEngine},
+    DataPacket,
+    SipDTMF,
+    Transcription,
+    // RpcAck, RpcRequest, RpcResponse,
+};
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
 use parking_lot::Mutex;
 use proto::request_response::Reason;
+use tokio::sync::oneshot;
+use uuid::Uuid;
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
-use crate::{
-    e2ee::EncryptionType,
-    options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
-    prelude::*,
-    rtc_engine::{EngineError, RtcEngine},
-    DataPacket, SipDTMF, Transcription,
-    RpcRequest, RpcResponse, RpcAck,
-};
+type RpcHandler =
+    Box<dyn Fn(RemoteParticipant, String, String, Duration) -> RoomResult<String> + Send + Sync>;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -50,6 +58,9 @@ struct LocalEvents {
 struct LocalInfo {
     events: LocalEvents,
     encryption_type: EncryptionType,
+    pending_acks: Mutex<HashMap<String, oneshot::Sender<()>>>,
+    pending_responses: Mutex<HashMap<String, oneshot::Sender<Result<String, RoomError>>>>,
+    rpc_handlers: Mutex<HashMap<String, RpcHandler>>,
 }
 
 #[derive(Clone)]
@@ -81,7 +92,13 @@ impl LocalParticipant {
     ) -> Self {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
-            local: Arc::new(LocalInfo { events: LocalEvents::default(), encryption_type }),
+            local: Arc::new(LocalInfo {
+                events: LocalEvents::default(),
+                encryption_type,
+                pending_acks: Mutex::new(HashMap::new()),
+                pending_responses: Mutex::new(HashMap::new()),
+                rpc_handlers: Mutex::new(HashMap::new()),
+            }),
         }
     }
 
@@ -430,15 +447,23 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    pub async fn publish_rpc_request(&self, request: RpcRequest) -> RoomResult<()> {
+    pub async fn publish_rpc_request(
+        &self,
+        destination_identity: String,
+        id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
+    ) -> RoomResult<()> {
         let destination_identities: Vec<String> =
-            [request.destination_identity].into_iter().map(Into::into).collect();
+            [destination_identity].into_iter().map(Into::into).collect();
         let rpc_request = proto::RpcRequest {
-            id: request.request_id,
-            method: request.method,
-            payload: request.payload,
-            response_timeout_ms: request.response_timeout_ms,
-            version: request.version,
+            id: id,
+            method: method,
+            payload: payload,
+            response_timeout_ms: response_timeout_ms,
+            version: version,
             ..Default::default()
         };
 
@@ -455,18 +480,24 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    pub async fn publish_rpc_response(&self, response: RpcResponse) -> RoomResult<()> {
+    pub async fn publish_rpc_response(
+        &self,
+        destination_identity: String,
+        request_id: String,
+        payload: Option<String>,
+        error: Option<RpcError_Proto>,
+    ) -> RoomResult<()> {
         let destination_identities: Vec<String> =
-            [response.destination_identity].into_iter().map(Into::into).collect();
+            [destination_identity].into_iter().map(Into::into).collect();
         let rpc_response = proto::RpcResponse {
-            request_id: response.request_id,
-            value: Some(match response.error {
+            request_id: request_id,
+            value: Some(match error {
                 Some(error) => proto::rpc_response::Value::Error(proto::RpcError {
                     code: error.code,
                     message: error.message,
-                    data: error.data
+                    data: error.data,
                 }),
-                None => proto::rpc_response::Value::Payload(response.payload.unwrap()),
+                None => proto::rpc_response::Value::Payload(payload.unwrap()),
             }),
             ..Default::default()
         };
@@ -484,13 +515,14 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    pub async fn publish_rpc_ack(&self, ack: RpcAck) -> RoomResult<()> {
+    pub async fn publish_rpc_ack(
+        &self,
+        destination_identity: String,
+        request_id: String,
+    ) -> RoomResult<()> {
         let destination_identities: Vec<String> =
-            [ack.destination_identity].into_iter().map(Into::into).collect();
-        let rpc_ack = proto::RpcAck {
-            request_id: ack.request_id,
-            ..Default::default()
-        };
+            [destination_identity].into_iter().map(Into::into).collect();
+        let rpc_ack = proto::RpcAck { request_id: request_id, ..Default::default() };
 
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::RpcAck(rpc_ack)),
@@ -565,5 +597,174 @@ impl LocalParticipant {
 
     pub fn kind(&self) -> ParticipantKind {
         self.inner.info.read().kind
+    }
+
+    pub async fn perform_rpc_request(
+        &self,
+        recipient_identity: String,
+        method: String,
+        payload: String,
+        connection_timeout_ms: Option<u64>,
+        response_timeout_ms: Option<u64>,
+    ) -> Result<String, RpcError> {
+        let connection_timeout = Duration::from_millis(connection_timeout_ms.unwrap_or(5000));
+        let response_timeout = Duration::from_millis(response_timeout_ms.unwrap_or(10000));
+        let max_round_trip_latency = Duration::from_millis(2000);
+
+        if payload.len() > MAX_PAYLOAD_BYTES {
+            return Err(RpcError::built_in(ErrorCode::RequestPayloadTooLarge, None));
+        }
+
+        let id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        self.publish_rpc_request(
+            recipient_identity.clone(),
+            id.clone(),
+            method.clone(),
+            payload.clone(),
+            (response_timeout - max_round_trip_latency).as_millis() as u32,
+            1,
+        )
+        .await;
+
+        self.local.pending_responses.lock().insert(id.clone(), tx);
+
+        let connection_result = tokio::time::timeout(connection_timeout, rx).await;
+
+        match connection_result {
+            Ok(response) => {
+                match tokio::time::timeout(response_timeout, async { response }).await {
+                    Ok(inner_response) => match inner_response {
+                        Ok(result) => match result {
+                            Ok(payload) => {
+                                if payload.len() > MAX_PAYLOAD_BYTES {
+                                    Err(RpcError::built_in(ErrorCode::ResponsePayloadTooLarge, None))
+                                } else {
+                                    Ok(payload)
+                                }
+                            }
+                            Err(e) => Err(e),
+                        },
+                        Err(_) => Err(RpcError::built_in(ErrorCode::RecipientDisconnected, None)),
+                    },
+                    Err(_) => {
+                        self.local.pending_responses.lock().remove(&id);
+                        Err(RpcError::built_in(ErrorCode::ResponseTimeout, None))
+                    }
+                }
+            },
+            Err(_) => {
+                self.local.pending_responses.lock().remove(&id);
+                Err(RpcError::built_in(ErrorCode::ConnectionTimeout, None))
+            }
+        }
+
+    }
+
+    pub fn register_rpc_method(
+        &self,
+        method: String,
+        handler: impl Fn(RemoteParticipant, String, String, Duration) -> RoomResult<String>
+            + Send
+            + Sync
+            + 'static,
+    ) {
+        self.local.rpc_handlers.lock().insert(method, Box::new(handler) as RpcHandler);
+    }
+
+    pub fn unregister_rpc_method(&self, method: &str) {
+        self.local.rpc_handlers.lock().remove(method);
+    }
+
+    pub(crate) fn handle_incoming_rpc_ack(&self, request_id: &str) {
+        if let Some(tx) = self.local.pending_acks.lock().remove(request_id) {
+            let _ = tx.send(());
+        } else {
+            log::error!("Ack received for unexpected RPC request: {}", request_id);
+        }
+    }
+
+    pub(crate) fn handle_incoming_rpc_response(
+        &self,
+        request_id: &str,
+        payload: Option<String>,
+        error: Option<RpcError>,
+    ) {
+        if let Some(tx) = self.local.pending_responses.lock().remove(request_id) {
+            let _ = tx.send(match error {
+                Some(e) => Err(RpcError(e)),
+                None => Ok(payload.unwrap_or_default()),
+            });
+        } else {
+            log::error!("Response received for unexpected RPC request: {}", request_id);
+        }
+    }
+
+    pub(crate) async fn handle_incoming_rpc_request(
+        &self,
+        sender: RemoteParticipant,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+    ) {
+        if let Err(e) = self.publish_rpc_ack(sender.identity(), request_id.clone()).await {
+            log::error!("Failed to publish RPC ACK: {:?}", e);
+        }
+
+        // Lookup the handler
+        let handler = self.local.rpc_handlers.lock().get(&method).cloned();
+
+        let response = match handler {
+            Some(handler) => {
+                handler(
+                    sender.clone(),
+                    request_id.clone(),
+                    payload,
+                    Duration::from_millis(response_timeout_ms as u64),
+                )
+                .await
+            }
+            None => Err(RpcError {
+                code: "UNSUPPORTED_METHOD".to_string(),
+                message: format!("Unsupported method: {}", method),
+                data: None,
+            }),
+        };
+
+        // Prepare and send the response
+        let rpc_response = match response {
+            Ok(response_payload) if response_payload.len() <= MAX_PAYLOAD_BYTES => RpcResponse {
+                destination_identity: sender.identity(),
+                request_id,
+                payload: Some(response_payload),
+                error: None,
+            },
+            Ok(_) => RpcResponse {
+                destination_identity: sender.identity(),
+                request_id,
+                payload: None,
+                error: Some(RpcError {
+                    code: "RESPONSE_PAYLOAD_TOO_LARGE".to_string(),
+                    message: "Response payload is too large".to_string(),
+                    data: None,
+                }),
+            },
+            Err(e) => RpcResponse {
+                destination_identity: sender.identity(),
+                request_id,
+                payload: None,
+                error: Some(RpcError {
+                    code: "HANDLER_ERROR".to_string(),
+                    message: format!("Handler error: {:?}", e),
+                    data: None,
+                }),
+            },
+        };
+
+        if let Err(e) = self.publish_rpc_response(rpc_response).await {
+            log::error!("Failed to publish RPC response: {:?}", e);
+        }
     }
 }
