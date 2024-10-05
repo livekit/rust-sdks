@@ -1,0 +1,108 @@
+// SPDX-FileCopyrightText: 2024 LiveKit, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+use livekit_protocol::RpcError as RpcError_Proto;
+
+/// Specialized error handling for RPC methods.
+///
+/// Instances of this type, when thrown in a method handler, will have their `message`
+/// serialized and sent across the wire. The sender will receive an equivalent error on the other side.
+///
+/// Build-in types are included but developers may use any string, with a max length of 256 bytes.
+#[derive(Debug, Clone)]
+pub struct RpcError {
+    pub code: u32,
+    pub message: String,
+    pub data: Option<String>,
+}
+
+impl RpcError {
+    pub const MAX_MESSAGE_BYTES: usize = 256;
+    pub const MAX_DATA_BYTES: usize = 15360; // 15 KB
+
+    /// Creates an error object with the given code and message, plus an optional data payload.
+    ///
+    /// If thrown in an RPC method handler, the error will be sent back to the caller.
+    ///
+    /// Error codes 1001-1999 are reserved for built-in errors (see RpcErrorCode for their meanings).
+    pub fn new(code: u32, message: String, data: Option<String>) -> Self {
+        Self {
+            code,
+            message: truncate_bytes(&message, Self::MAX_MESSAGE_BYTES),
+            data: data.map(|d| truncate_bytes(&d, Self::MAX_DATA_BYTES)),
+        }
+    }
+
+    pub fn from_proto(proto: RpcError_Proto) -> Self {
+        Self::new(proto.code, proto.message, Some(proto.data))
+    }
+
+    pub fn to_proto(&self) -> RpcError_Proto {
+        RpcError_Proto {
+            code: self.code,
+            message: self.message.clone(),
+            data: self.data.clone().unwrap_or_default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RpcErrorCode {
+    UncaughtError = 1001,
+    UnsupportedMethod = 1002,
+    ConnectionTimeout = 1003,
+    ResponseTimeout = 1004,
+    RecipientDisconnected = 1005,
+    RecipientNotFound = 1006,
+    RequestPayloadTooLarge = 1007,
+    ResponsePayloadTooLarge = 1008,
+    SendFailed = 1009,
+}
+
+impl RpcErrorCode {
+    pub(crate) fn message(&self) -> &'static str {
+        match self {
+            Self::UncaughtError => "Uncaught application error",
+            Self::UnsupportedMethod => "Method not supported at destination",
+            Self::ConnectionTimeout => "Connection timeout",
+            Self::ResponseTimeout => "Response timeout",
+            Self::RecipientDisconnected => "Recipient disconnected",
+            Self::RecipientNotFound => "Recipient not found",
+            Self::RequestPayloadTooLarge => "Request payload too large",
+            Self::ResponsePayloadTooLarge => "Response payload too large",
+            Self::SendFailed => "Failed to send",
+        }
+    }
+}
+
+impl RpcError {
+    /// Creates an error object from the code, with an auto-populated message.
+    pub(crate) fn built_in(code: RpcErrorCode, data: Option<String>) -> Self {
+        Self::new(code as u32, code.message().to_string(), data)
+    }
+}
+
+/// Maximum payload size in bytes
+pub const MAX_PAYLOAD_BYTES: usize = 15360; // 15 KB
+
+/// Calculate the byte length of a string
+pub(crate) fn byte_length(s: &str) -> usize {
+    s.as_bytes().len()
+}
+
+/// Truncate a string to a maximum number of bytes
+pub(crate) fn truncate_bytes(s: &str, max_bytes: usize) -> String {
+    if byte_length(s) <= max_bytes {
+        return s.to_string();
+    }
+
+    let mut result = String::new();
+    for c in s.chars() {
+        if byte_length(&(result.clone() + &c.to_string())) > max_bytes {
+            break;
+        }
+        result.push(c);
+    }
+    result
+}
