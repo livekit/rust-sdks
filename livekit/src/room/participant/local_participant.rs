@@ -457,7 +457,7 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    pub async fn publish_rpc_request(
+    async fn publish_rpc_request(
         &self,
         destination_identity: String,
         id: String,
@@ -490,7 +490,7 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    pub async fn publish_rpc_response(
+    async fn publish_rpc_response(
         &self,
         destination_identity: String,
         request_id: String,
@@ -525,7 +525,7 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    pub async fn publish_rpc_ack(
+    async fn publish_rpc_ack(
         &self,
         destination_identity: String,
         request_id: String,
