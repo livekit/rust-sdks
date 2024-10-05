@@ -15,9 +15,9 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
+    pin::Pin,
     sync::{self, Arc},
     time::Duration,
-    pin::Pin,
 };
 
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
@@ -26,13 +26,14 @@ use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::participant::rpc::{ErrorCode, RpcError, MAX_PAYLOAD_BYTES},
+    room::participant::rpc::{RpcErrorCode, RpcError, MAX_PAYLOAD_BYTES},
     rtc_engine::{EngineError, RtcEngine},
     DataPacket,
     SipDTMF,
     Transcription,
     // RpcAck, RpcRequest, RpcResponse,
 };
+use futures_util::Future;
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
@@ -41,9 +42,17 @@ use parking_lot::Mutex;
 use proto::request_response::Reason;
 use tokio::sync::oneshot;
 use uuid::Uuid;
-use futures_util::Future;
 
-type RpcHandler = Arc<dyn Fn(RemoteParticipant, String, String, Duration) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>> + Send + Sync>;
+type RpcHandler = Arc<
+    dyn Fn(
+            RemoteParticipant,
+            String,
+            String,
+            Duration,
+        ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+        + Send
+        + Sync,
+>;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -605,15 +614,14 @@ impl LocalParticipant {
         recipient_identity: String,
         method: String,
         payload: String,
-        connection_timeout_ms: Option<u64>,
         response_timeout_ms: Option<u64>,
     ) -> Result<String, RpcError> {
-        let connection_timeout = Duration::from_millis(connection_timeout_ms.unwrap_or(5000));
-        let response_timeout = Duration::from_millis(response_timeout_ms.unwrap_or(10000));
+        let connection_timeout = Duration::from_millis(2000);
+        let response_timeout = Duration::from_millis(response_timeout_ms.unwrap_or(5000));
         let max_round_trip_latency = Duration::from_millis(2000);
 
         if payload.len() > MAX_PAYLOAD_BYTES {
-            return Err(RpcError::built_in(ErrorCode::RequestPayloadTooLarge, None));
+            return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
         }
 
         let id = Uuid::new_v4().to_string();
@@ -640,33 +648,43 @@ impl LocalParticipant {
                         Ok(result) => match result {
                             Ok(payload) => {
                                 if payload.len() > MAX_PAYLOAD_BYTES {
-                                    Err(RpcError::built_in(ErrorCode::ResponsePayloadTooLarge, None))
+                                    Err(RpcError::built_in(
+                                        RpcErrorCode::ResponsePayloadTooLarge,
+                                        None,
+                                    ))
                                 } else {
                                     Ok(payload)
                                 }
                             }
                             Err(e) => Err(e),
                         },
-                        Err(_) => Err(RpcError::built_in(ErrorCode::RecipientDisconnected, None)),
+                        Err(_) => Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)),
                     },
                     Err(_) => {
                         self.local.pending_responses.lock().remove(&id);
-                        Err(RpcError::built_in(ErrorCode::ResponseTimeout, None))
+                        Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None))
                     }
                 }
-            },
+            }
             Err(_) => {
                 self.local.pending_responses.lock().remove(&id);
-                Err(RpcError::built_in(ErrorCode::ConnectionTimeout, None))
+                Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None))
             }
         }
-
     }
 
     pub fn register_rpc_method(
         &self,
         method: String,
-        handler: impl Fn(RemoteParticipant, String, String, Duration) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>> + Send + Sync + 'static,
+        handler: impl Fn(
+                RemoteParticipant,
+                String,
+                String,
+                Duration,
+            ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) {
         self.local.rpc_handlers.lock().insert(method, Arc::new(handler));
     }
@@ -707,7 +725,9 @@ impl LocalParticipant {
         payload: String,
         response_timeout_ms: u32,
     ) {
-        if let Err(e) = self.publish_rpc_ack(sender.identity().to_string(), request_id.clone()).await {
+        if let Err(e) =
+            self.publish_rpc_ack(sender.identity().to_string(), request_id.clone()).await
+        {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
@@ -723,29 +743,26 @@ impl LocalParticipant {
                 )
                 .await
             }
-            None => Err(RpcError::built_in(ErrorCode::UnsupportedMethod, None)),
+            None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
         };
 
         let (payload, error) = match response {
             Ok(response_payload) if response_payload.len() <= MAX_PAYLOAD_BYTES => {
                 (Some(response_payload), None)
-            },
-            Ok(_) => {
-                (None, Some(RpcError::built_in(ErrorCode::ResponsePayloadTooLarge, None)))
-            },
-            Err(e) => {
-                (None, Some(e.into()))
-            },
+            }
+            Ok(_) => (None, Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None))),
+            Err(e) => (None, Some(e.into())),
         };
 
-
-
-        if let Err(e) = self.publish_rpc_response(
-            sender.identity().to_string(),
-            request_id,
-            payload,
-            error.map(|e| e.to_proto())
-        ).await {
+        if let Err(e) = self
+            .publish_rpc_response(
+                sender.identity().to_string(),
+                request_id,
+                payload,
+                error.map(|e| e.to_proto()),
+            )
+            .await
+        {
             log::error!("Failed to publish RPC response: {:?}", e);
         }
     }

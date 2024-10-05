@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use rand::Rng;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,9 +18,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let room_name = format!("rpc-test-{:x}", rand::thread_rng().gen::<u32>());
     println!("Connecting participants to room: {}", room_name);
 
-    let (requesters_room, requesters_rx) = connect_participant("requester", &room_name, &url, &api_key, &api_secret).await?;
-    let (greeters_room, greeters_rx) = connect_participant("greeter", &room_name, &url, &api_key, &api_secret).await?;
-    let (math_genius_room, math_genius_rx) = connect_participant("math-genius", &room_name, &url, &api_key, &api_secret).await?;
+    let requesters_room = connect_participant("requester", &room_name, &url, &api_key, &api_secret).await?;
+    let greeters_room = connect_participant("greeter", &room_name, &url, &api_key, &api_secret).await?;
+    let math_genius_room = connect_participant("math-genius", &room_name, &url, &api_key, &api_secret).await?;
 
     register_receiver_methods(&greeters_room, &math_genius_room).await;
 
@@ -32,17 +33,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     perform_quantum_hypergeometric_series(&requesters_room).await?;
 
     println!("\n\nParticipants done, disconnecting...");
-    requesters_room.disconnect().await?;
-    greeters_room.disconnect().await?;
-    math_genius_room.disconnect().await?;
+    requesters_room.close().await?;
+    greeters_room.close().await?;
+    math_genius_room.close().await?;
 
     println!("Participants disconnected. Example completed.");
 
     Ok(())
 }
 
-async fn register_receiver_methods(greeters_room: &Room, math_genius_room: &Room) {
-    greeters_room.local_participant().register_rpc_method("arrival", |sender, _, payload, _| {
+async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: &Arc<Room>) {
+    greeters_room.local_participant().register_rpc_method("arrival".to_string(), |sender, _, payload, _| {
         Box::pin(async move {
             println!("[Greeter] Oh {} arrived and said \"{}\"", sender.identity(), payload);
             sleep(Duration::from_secs(2)).await;
@@ -50,7 +51,7 @@ async fn register_receiver_methods(greeters_room: &Room, math_genius_room: &Room
         })
     });
 
-    math_genius_room.local_participant().register_rpc_method("square-root", |sender, _, payload, response_timeout_ms| {
+    math_genius_room.local_participant().register_rpc_method("square-root".to_string(), |sender, _, payload, response_timeout_ms| {
         Box::pin(async move {
             let json_data: Value = serde_json::from_str(&payload).unwrap();
             let number = json_data["number"].as_f64().unwrap();
@@ -58,7 +59,7 @@ async fn register_receiver_methods(greeters_room: &Room, math_genius_room: &Room
                 "[Math Genius] I guess {} wants the square root of {}. I've only got {} seconds to respond but I think I can pull it off.",
                 sender.identity(),
                 number,
-                response_timeout_ms / 1000
+                response_timeout_ms.as_secs()
             );
 
             println!("[Math Genius] *doing math*…");
@@ -71,18 +72,18 @@ async fn register_receiver_methods(greeters_room: &Room, math_genius_room: &Room
     });
 }
 
-async fn perform_greeting(room: &Room) -> Result<(), Box<dyn std::error::Error>> {
+async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
     println!("[Requester] Letting the greeter know that I've arrived");
-    match room.local_participant().perform_rpc_request("greeter", "arrival", "Hello".to_string(), None).await {
+    match room.local_participant().perform_rpc_request("greeter".to_string(), "arrival".to_string(), "Hello".to_string(), None).await {
         Ok(response) => println!("[Requester] That's nice, the greeter said: \"{}\"", response),
         Err(e) => println!("[Requester] RPC call failed: {:?}", e),
     }
     Ok(())
 }
 
-async fn perform_square_root(room: &Room) -> Result<(), Box<dyn std::error::Error>> {
+async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
     println!("[Requester] What's the square root of 16?");
-    match room.local_participant().perform_rpc_request("math-genius", "square-root", json!({"number": 16}).to_string(), None).await {
+    match room.local_participant().perform_rpc_request("math-genius".to_string(), "square-root".to_string(), json!({"number": 16}).to_string(), None).await {
         Ok(response) => {
             let parsed_response: Value = serde_json::from_str(&response)?;
             println!("[Requester] Nice, the answer was {}", parsed_response["result"]);
@@ -92,27 +93,25 @@ async fn perform_square_root(room: &Room) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-async fn perform_quantum_hypergeometric_series(room: &Room) -> Result<(), Box<dyn std::error::Error>> {
+async fn perform_quantum_hypergeometric_series(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
     println!("[Requester] What's the quantum hypergeometric series of 42?");
-    match room.local_participant().perform_rpc_request("math-genius", "quantum-hypergeometric-series", json!({"number": 42}).to_string(), None).await {
+    match room.local_participant().perform_rpc_request("math-genius".to_string(), "quantum-hypergeometric-series".to_string(), json!({"number": 42}).to_string(), None).await {
         Ok(response) => {
             let parsed_response: Value = serde_json::from_str(&response)?;
             println!("[Requester] genius says {}!", parsed_response["result"]);
         },
         Err(e) => {
-            if let Some(rpc_error) = e.downcast_ref::<RpcError>() {
-                if rpc_error.code() == RpcErrorCode::UnsupportedMethod {
-                    println!("[Requester] Aww looks like the genius doesn't know that one.");
-                    return Ok(());
-                }
+            if e.code == RpcErrorCode::UnsupportedMethod as u32 {
+                println!("[Requester] Aww looks like the genius doesn't know that one.");
+                return Ok(());
             }
-            println!("[Requester] Unexpected error: {:?}", e);
+            println!("[Requester] RPC error: {} (code: {})", e.message, e.code);
         },
     }
     Ok(())
 }
 
-async fn connect_participant(identity: &str, room_name: &str, url: &str, api_key: &str, api_secret: &str) -> Result<(Room, tokio::sync::mpsc::Receiver<RoomEvent>), Box<dyn std::error::Error>> {
+async fn connect_participant(identity: &str, room_name: &str, url: &str, api_key: &str, api_secret: &str) -> Result<Arc<Room>, Box<dyn std::error::Error>> {
     let token = access_token::AccessToken::with_api_key(api_key, api_secret)
         .with_identity(identity)
         .with_name(identity)
@@ -123,10 +122,13 @@ async fn connect_participant(identity: &str, room_name: &str, url: &str, api_key
         })
         .to_jwt()?;
 
-    let (room, rx) = Room::connect(url, &token, RoomOptions::default()).await?;
+    let (room, mut rx) = Room::connect(url, &token, RoomOptions::default()).await?;
+
+    let room = Arc::new(room);
 
     tokio::spawn({
         let identity = identity.to_string();
+        let room_clone = Arc::clone(&room);
         async move {
             while let Some(event) = rx.recv().await {
                 if let RoomEvent::Disconnected { .. } = event {
@@ -134,8 +136,9 @@ async fn connect_participant(identity: &str, room_name: &str, url: &str, api_key
                     break;
                 }
             }
+            room_clone.close().await.ok();
         }
     });
 
-    Ok((room, rx))
+    Ok(room)
 }

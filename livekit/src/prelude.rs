@@ -14,7 +14,7 @@
 
 pub use crate::{
     id::*,
-    participant::{ConnectionQuality, LocalParticipant, Participant, RemoteParticipant},
+    participant::{ConnectionQuality, LocalParticipant, Participant, RemoteParticipant, RpcError, RpcErrorCode},
     publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication},
     track::{
         AudioTrack, LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteAudioTrack, RemoteTrack,
