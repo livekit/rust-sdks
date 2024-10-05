@@ -45,7 +45,7 @@ use uuid::Uuid;
 
 type RpcHandler = Arc<
     dyn Fn(
-            RemoteParticipant,
+            ParticipantIdentity,
             String,
             String,
             Duration,
@@ -677,7 +677,7 @@ impl LocalParticipant {
         &self,
         method: String,
         handler: impl Fn(
-                RemoteParticipant,
+                ParticipantIdentity,
                 String,
                 String,
                 Duration,
@@ -689,12 +689,12 @@ impl LocalParticipant {
         self.local.rpc_handlers.lock().insert(method, Arc::new(handler));
     }
 
-    pub fn unregister_rpc_method(&self, method: &str) {
-        self.local.rpc_handlers.lock().remove(method);
+    pub fn unregister_rpc_method(&self, method: String) {
+        self.local.rpc_handlers.lock().remove(&method);
     }
 
-    pub(crate) fn handle_incoming_rpc_ack(&self, request_id: &str) {
-        if let Some(tx) = self.local.pending_acks.lock().remove(request_id) {
+    pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
+        if let Some(tx) = self.local.pending_acks.lock().remove(&request_id) {
             let _ = tx.send(());
         } else {
             log::error!("Ack received for unexpected RPC request: {}", request_id);
@@ -703,13 +703,13 @@ impl LocalParticipant {
 
     pub(crate) fn handle_incoming_rpc_response(
         &self,
-        request_id: &str,
+        request_id: String,
         payload: Option<String>,
-        error: Option<RpcError>,
+        error: Option<RpcError_Proto>,
     ) {
-        if let Some(tx) = self.local.pending_responses.lock().remove(request_id) {
+        if let Some(tx) = self.local.pending_responses.lock().remove(&request_id) {
             let _ = tx.send(match error {
-                Some(e) => Err(e),
+                Some(e) => Err(RpcError::from_proto(e)),
                 None => Ok(payload.unwrap_or_default()),
             });
         } else {
@@ -719,14 +719,14 @@ impl LocalParticipant {
 
     pub(crate) async fn handle_incoming_rpc_request(
         &self,
-        sender: RemoteParticipant,
+        sender_identity: ParticipantIdentity,
         request_id: String,
         method: String,
         payload: String,
         response_timeout_ms: u32,
     ) {
         if let Err(e) =
-            self.publish_rpc_ack(sender.identity().to_string(), request_id.clone()).await
+            self.publish_rpc_ack(sender_identity.to_string(), request_id.clone()).await
         {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
@@ -736,7 +736,7 @@ impl LocalParticipant {
         let response = match handler {
             Some(handler) => {
                 handler(
-                    sender.clone(),
+                    sender_identity.clone(),
                     request_id.clone(),
                     payload.clone(),
                     Duration::from_millis(response_timeout_ms as u64),
@@ -756,7 +756,7 @@ impl LocalParticipant {
 
         if let Err(e) = self
             .publish_rpc_response(
-                sender.identity().to_string(),
+                sender_identity.to_string(),
                 request_id,
                 payload,
                 error.map(|e| e.to_proto()),

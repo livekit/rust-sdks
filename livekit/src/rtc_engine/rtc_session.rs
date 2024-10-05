@@ -93,7 +93,7 @@ pub enum SessionEvent {
         digit: Option<String>,
     },
     RpcRequest {
-        participant_identity: Option<ParticipantIdentity>,
+        sender_identity: Option<ParticipantIdentity>,
         request_id: String,
         method: String,
         payload: String,
@@ -680,7 +680,7 @@ impl SessionInner {
                                 .not()
                                 .then_some(data.participant_identity.clone());
                             let _ = self.emitter.send(SessionEvent::RpcRequest {
-                                participant_identity: participant_identity.map(|s| s.try_into().unwrap()),
+                                sender_identity: participant_identity.map(|s| s.try_into().unwrap()),
                                 request_id: rpc_request.id.clone(),
                                 method: rpc_request.method.clone(),
                                 payload: rpc_request.payload.clone(),

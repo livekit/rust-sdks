@@ -652,29 +652,32 @@ impl RoomSession {
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
             }
-            // EngineEvent::RpcRequest {
-            //     participant_identity,
-            //     request_id,
-            //     method,
-            //     payload,
-            //     response_timeout_ms,
-            //     version,
-            // } => {
-            //     self.handle_rpc_request(
-            //         participant_identity,
-            //         request_id,
-            //         method,
-            //         payload,
-            //         response_timeout_ms,
-            //         version,
-            //     );
-            // }
-            // EngineEvent::RpcResponse { request_id, payload, error } => {
-            //     self.handle_rpc_response(request_id, payload, error);
-            // }
-            // EngineEvent::RpcAck { request_id } => {
-            //     self.handle_rpc_ack(request_id);
-            // }
+            EngineEvent::RpcRequest {
+                sender_identity,
+                request_id,
+                method,
+                payload,
+                response_timeout_ms,
+                version,
+            } => {
+                if sender_identity.is_none() {
+                    log::warn!("Received RPC request with null sender identity");
+                    return Ok(());
+                }
+                self.local_participant.handle_incoming_rpc_request(
+                    sender_identity.unwrap(),
+                    request_id,
+                    method,
+                    payload,
+                    response_timeout_ms,
+                );
+            }
+            EngineEvent::RpcResponse { request_id, payload, error } => {
+                self.local_participant.handle_incoming_rpc_response(request_id, payload, error);
+            }
+            EngineEvent::RpcAck { request_id } => {
+                self.local_participant.handle_incoming_rpc_ack(request_id);
+            }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
                 self.handle_connection_quality_update(updates)
