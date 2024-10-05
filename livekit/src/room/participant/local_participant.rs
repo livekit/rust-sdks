@@ -625,9 +625,10 @@ impl LocalParticipant {
         }
 
         let id = Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
+        let (ack_tx, ack_rx) = oneshot::channel();
+        let (response_tx, response_rx) = oneshot::channel();
 
-        self.publish_rpc_request(
+        match self.publish_rpc_request(
             recipient_identity.clone(),
             id.clone(),
             method.clone(),
@@ -635,23 +636,30 @@ impl LocalParticipant {
             (response_timeout - max_round_trip_latency).as_millis() as u32,
             1,
         )
-        .await;
+        .await
+        {
+            Ok(_) => {
+                self.local.pending_acks.lock().insert(id.clone(), ack_tx);
+                self.local.pending_responses.lock().insert(id.clone(), response_tx);
+            }
+            Err(e) => {
+                log::error!("Failed to publish RPC request: {}", e);
+                return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
+            }
+        }
 
-        self.local.pending_responses.lock().insert(id.clone(), tx);
+        // Wait for the ack first
+        let ack_result = tokio::time::timeout(connection_timeout, ack_rx).await;
 
-        let connection_result = tokio::time::timeout(connection_timeout, rx).await;
-
-        match connection_result {
-            Ok(response) => {
-                match tokio::time::timeout(response_timeout, async { response }).await {
-                    Ok(inner_response) => match inner_response {
+        match ack_result {
+            Ok(_) => {
+                // Ack received, now wait for the response
+                match tokio::time::timeout(response_timeout, response_rx).await {
+                    Ok(response) => match response {
                         Ok(result) => match result {
                             Ok(payload) => {
                                 if payload.len() > MAX_PAYLOAD_BYTES {
-                                    Err(RpcError::built_in(
-                                        RpcErrorCode::ResponsePayloadTooLarge,
-                                        None,
-                                    ))
+                                    Err(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None))
                                 } else {
                                     Ok(payload)
                                 }
@@ -667,6 +675,7 @@ impl LocalParticipant {
                 }
             }
             Err(_) => {
+                self.local.pending_acks.lock().remove(&id);
                 self.local.pending_responses.lock().remove(&id);
                 Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None))
             }

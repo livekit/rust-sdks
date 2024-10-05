@@ -670,7 +670,7 @@ impl RoomSession {
                     method,
                     payload,
                     response_timeout_ms,
-                );
+                ).await;
             }
             EngineEvent::RpcResponse { request_id, payload, error } => {
                 self.local_participant.handle_incoming_rpc_response(request_id, payload, error);

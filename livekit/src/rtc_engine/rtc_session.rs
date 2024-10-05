@@ -689,6 +689,7 @@ impl SessionInner {
                             });
                         }
                         proto::data_packet::Value::RpcResponse(rpc_response) => {
+
                             let _ = self.emitter.send(SessionEvent::RpcResponse {
                                 request_id: rpc_response.request_id.clone(),
                                 payload: rpc_response.value.as_ref().and_then(|v| match v {
