@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::{id::ParticipantIdentity, TranscriptionSegment, RpcError};
+use crate::{id::ParticipantIdentity, TranscriptionSegment};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -103,7 +103,7 @@ pub enum SessionEvent {
     RpcResponse {
         request_id: String,
         payload: Option<String>,
-        error: Option<RpcError>,
+        error: Option<proto::RpcError>,
     },
     RpcAck {
         request_id: String,
@@ -696,11 +696,7 @@ impl SessionInner {
                                     _ => None,
                                 }),
                                 error: rpc_response.value.as_ref().and_then(|v| match v {
-                                    proto::rpc_response::Value::Error(error) => Some(RpcError {
-                                        code: error.code,
-                                        message: error.message.clone(),
-                                        data: error.data.clone(),
-                                    }),
+                                    proto::rpc_response::Value::Error(error) => Some(error.clone()),
                                     _ => None,
                                 }),
                             });

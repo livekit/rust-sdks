@@ -135,37 +135,37 @@ fn on_publish_sip_dtmf(
 }
 
 /// Publish rpc request to the room
-fn on_publish_rpc_request(
-    server: &'static FfiServer,
-    publish: proto::PublishRpcRequestRequest,
-) -> FfiResult<proto::PublishRpcRequestResponse> {
-    let ffi_participant =
-        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+// fn on_publish_rpc_request(
+//     server: &'static FfiServer,
+//     publish: proto::PublishRpcRequestRequest,
+// ) -> FfiResult<proto::PublishRpcRequestResponse> {
+//     let ffi_participant =
+//         server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
 
-    ffi_participant.room.publish_rpc_request(server, publish)
-}
+//     ffi_participant.room.publish_rpc_request(server, publish)
+// }
 
 /// Publish rpc response to the room
-fn on_publish_rpc_response(
-    server: &'static FfiServer,
-    publish: proto::PublishRpcResponseRequest,
-) -> FfiResult<proto::PublishRpcResponseResponse> {
-    let ffi_participant =
-        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+// fn on_publish_rpc_response(
+//     server: &'static FfiServer,
+//     publish: proto::PublishRpcResponseRequest,
+// ) -> FfiResult<proto::PublishRpcResponseResponse> {
+//     let ffi_participant =
+//         server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
 
-    ffi_participant.room.publish_rpc_response(server, publish)
-}
+//     // ffi_participant.room.publish_rpc_response(server, publish)
+// }
 
 /// Publish rpc ack to the room
-fn on_publish_rpc_ack(
-    server: &'static FfiServer,
-    publish: proto::PublishRpcAckRequest,
-) -> FfiResult<proto::PublishRpcAckResponse> {
-    let ffi_participant =
-        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+// fn on_publish_rpc_ack(
+//     server: &'static FfiServer,
+//     publish: proto::PublishRpcAckRequest,
+// ) -> FfiResult<proto::PublishRpcAckResponse> {
+//     let ffi_participant =
+//         server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
 
-    ffi_participant.room.publish_rpc_ack(server, publish)
-}
+//     // ffi_participant.room.publish_rpc_ack(server, publish)
+// }
 
 /// Change the desired subscription state of a publication
 fn on_set_subscribed(
@@ -832,15 +832,15 @@ pub fn handle_request(
         proto::ffi_request::Message::PublishSipDtmf(publish) => {
             proto::ffi_response::Message::PublishSipDtmf(on_publish_sip_dtmf(server, publish)?)
         }
-        proto::ffi_request::Message::PublishRpcRequest(publish) => {
-            proto::ffi_response::Message::PublishRpcRequest(on_publish_rpc_request(server, publish)?)
-        }
-        proto::ffi_request::Message::PublishRpcResponse(publish) => {
-            proto::ffi_response::Message::PublishRpcResponse(on_publish_rpc_response(server, publish)?)
-        }
-        proto::ffi_request::Message::PublishRpcAck(publish) => {
-            proto::ffi_response::Message::PublishRpcAck(on_publish_rpc_ack(server, publish)?)
-        }
+        // proto::ffi_request::Message::PublishRpcRequest(publish) => {
+        //     proto::ffi_response::Message::PublishRpcRequest(on_publish_rpc_request(server, publish)?)
+        // }
+        // proto::ffi_request::Message::PublishRpcResponse(publish) => {
+        //     proto::ffi_response::Message::PublishRpcResponse(on_publish_rpc_response(server, publish)?)
+        // }
+        // proto::ffi_request::Message::PublishRpcAck(publish) => {
+        //     proto::ffi_response::Message::PublishRpcAck(on_publish_rpc_ack(server, publish)?)
+        // }
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
         }

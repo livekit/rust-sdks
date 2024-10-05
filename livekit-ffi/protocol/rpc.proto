@@ -18,64 +18,64 @@ package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 // Data types
-message RpcError {
-  uint32 code = 1;
-  string message = 2;
-  string data = 3;
-}
+// message RpcError {
+//   uint32 code = 1;
+//   string message = 2;
+//   string data = 3;
+// }
 
 // FFI Requests
-message PublishRpcRequestRequest {
-  uint64 local_participant_handle = 1;
-  string destination_identity = 2;
-  string request_id = 3;
-  string method = 4;
-  string payload = 5;
-  uint32 response_timeout_ms = 6;
-  uint32 version = 7;
-}
+// message PublishRpcRequestRequest {
+//   uint64 local_participant_handle = 1;
+//   string destination_identity = 2;
+//   string request_id = 3;
+//   string method = 4;
+//   string payload = 5;
+//   uint32 response_timeout_ms = 6;
+//   uint32 version = 7;
+// }
 
-message PublishRpcResponseRequest {
-  uint64 local_participant_handle = 1;
-  string destination_identity = 2;
-  string request_id = 3;
-  oneof value {
-    string payload = 4;
-    RpcError error = 5;
-  }
-}
+// message PublishRpcResponseRequest {
+//   uint64 local_participant_handle = 1;
+//   string destination_identity = 2;
+//   string request_id = 3;
+//   oneof value {
+//     string payload = 4;
+//     RpcError error = 5;
+//   }
+// }
 
-message PublishRpcAckRequest {
-  uint64 local_participant_handle = 1;
-  string destination_identity = 2;
-  string request_id = 3;
-}
+// message PublishRpcAckRequest {
+//   uint64 local_participant_handle = 1;
+//   string destination_identity = 2;
+//   string request_id = 3;
+// }
 
-// FFI Responses
-message PublishRpcRequestResponse {
-  uint64 async_id = 1;
-}
+// // FFI Responses
+// message PublishRpcRequestResponse {
+//   uint64 async_id = 1;
+// }
 
-message PublishRpcResponseResponse {
-  uint64 async_id = 1;
-}
+// message PublishRpcResponseResponse {
+//   uint64 async_id = 1;
+// }
 
-message PublishRpcAckResponse {
-  uint64 async_id = 1;
-}
+// message PublishRpcAckResponse {
+//   uint64 async_id = 1;
+// }
 
-// FFI Callbacks
-message PublishRpcRequestCallback {
-  uint64 async_id = 1;
-  optional string error = 3;
-}
+// // FFI Callbacks
+// message PublishRpcRequestCallback {
+//   uint64 async_id = 1;
+//   optional string error = 3;
+// }
 
-message PublishRpcResponseCallback {
-  uint64 async_id = 1;
-  optional string error = 2;
-}
+// message PublishRpcResponseCallback {
+//   uint64 async_id = 1;
+//   optional string error = 2;
+// }
 
-message PublishRpcAckCallback {
-  uint64 async_id = 1;
-  optional string error = 2;
-}
+// message PublishRpcAckCallback {
+//   uint64 async_id = 1;
+//   optional string error = 2;
+// }

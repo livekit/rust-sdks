@@ -120,7 +120,7 @@ pub enum EngineEvent {
     RpcResponse {
         request_id: String,
         payload: Option<String>,
-        error: Option<RpcError>,
+        error: Option<proto::RpcError>,
     },
     RpcAck {
         request_id: String,

@@ -1984,113 +1984,6 @@ impl VideoSourceType {
         }
     }
 }
-/// Data types
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcError {
-    #[prost(uint32, tag="1")]
-    pub code: u32,
-    #[prost(string, tag="2")]
-    pub message: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub data: ::prost::alloc::string::String,
-}
-/// FFI Requests
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcRequestRequest {
-    #[prost(uint64, tag="1")]
-    pub local_participant_handle: u64,
-    #[prost(string, tag="2")]
-    pub destination_identity: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub request_id: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
-    pub method: ::prost::alloc::string::String,
-    #[prost(string, tag="5")]
-    pub payload: ::prost::alloc::string::String,
-    #[prost(uint32, tag="6")]
-    pub response_timeout_ms: u32,
-    #[prost(uint32, tag="7")]
-    pub version: u32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcResponseRequest {
-    #[prost(uint64, tag="1")]
-    pub local_participant_handle: u64,
-    #[prost(string, tag="2")]
-    pub destination_identity: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub request_id: ::prost::alloc::string::String,
-    #[prost(oneof="publish_rpc_response_request::Value", tags="4, 5")]
-    pub value: ::core::option::Option<publish_rpc_response_request::Value>,
-}
-/// Nested message and enum types in `PublishRpcResponseRequest`.
-pub mod publish_rpc_response_request {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Value {
-        #[prost(string, tag="4")]
-        Payload(::prost::alloc::string::String),
-        #[prost(message, tag="5")]
-        Error(super::RpcError),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcAckRequest {
-    #[prost(uint64, tag="1")]
-    pub local_participant_handle: u64,
-    #[prost(string, tag="2")]
-    pub destination_identity: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub request_id: ::prost::alloc::string::String,
-}
-/// FFI Responses
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcRequestResponse {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcResponseResponse {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcAckResponse {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-}
-/// FFI Callbacks
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcRequestCallback {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-    #[prost(string, optional, tag="3")]
-    pub error: ::core::option::Option<::prost::alloc::string::String>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcResponseCallback {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-    #[prost(string, optional, tag="2")]
-    pub error: ::core::option::Option<::prost::alloc::string::String>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PublishRpcAckCallback {
-    #[prost(uint64, tag="1")]
-    pub async_id: u64,
-    #[prost(string, optional, tag="2")]
-    pub error: ::core::option::Option<::prost::alloc::string::String>,
-}
 /// Connect to a new LiveKit room
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2514,7 +2407,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2576,14 +2469,11 @@ pub mod room_event {
         Eos(super::RoomEos),
         #[prost(message, tag="27")]
         DataPacketReceived(super::DataPacketReceived),
+        /// RpcRequestReceived rpc_request_received = 29;
+        /// RpcResponseReceived rpc_response_received = 30;
+        /// RpcAckReceived rpc_ack_received = 31;
         #[prost(message, tag="28")]
         TranscriptionReceived(super::TranscriptionReceived),
-        #[prost(message, tag="29")]
-        RpcRequestReceived(super::RpcRequestReceived),
-        #[prost(message, tag="30")]
-        RpcResponseReceived(super::RpcResponseReceived),
-        #[prost(message, tag="31")]
-        RpcAckReceived(super::RpcAckReceived),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2806,38 +2696,25 @@ pub struct TranscriptionReceived {
     #[prost(message, repeated, tag="3")]
     pub segments: ::prost::alloc::vec::Vec<TranscriptionSegment>,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcRequestReceived {
-    #[prost(string, optional, tag="1")]
-    pub participant_identity: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(string, tag="2")]
-    pub request_id: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub method: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
-    pub payload: ::prost::alloc::string::String,
-    #[prost(uint32, tag="5")]
-    pub response_timeout_ms: u32,
-    #[prost(uint32, tag="6")]
-    pub version: u32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcResponseReceived {
-    #[prost(string, tag="1")]
-    pub request_id: ::prost::alloc::string::String,
-    #[prost(string, optional, tag="2")]
-    pub payload: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(message, optional, tag="3")]
-    pub error: ::core::option::Option<RpcError>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcAckReceived {
-    #[prost(string, tag="1")]
-    pub request_id: ::prost::alloc::string::String,
-}
+// message RpcRequestReceived {
+//    optional string participant_identity = 1;
+//    string request_id = 2;
+//    string method = 3;
+//    string payload = 4;
+//    uint32 response_timeout_ms = 5;
+//    uint32 version = 6;
+// }
+
+// message RpcResponseReceived {
+//    string request_id = 1;
+//    optional string payload = 2;
+//    optional RpcError error = 3;
+// }
+
+// message RpcAckReceived {
+//    string request_id = 1;
+// }
+
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionStateChanged {
@@ -3588,7 +3465,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 37, 38, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3621,14 +3498,11 @@ pub mod ffi_request {
         GetSessionStats(super::GetSessionStatsRequest),
         #[prost(message, tag="13")]
         PublishTranscription(super::PublishTranscriptionRequest),
+        /// PublishRpcRequestRequest publish_rpc_request = 36;
+        /// PublishRpcResponseRequest publish_rpc_response = 37;
+        /// PublishRpcAckRequest publish_rpc_ack = 38;
         #[prost(message, tag="14")]
         PublishSipDtmf(super::PublishSipDtmfRequest),
-        #[prost(message, tag="36")]
-        PublishRpcRequest(super::PublishRpcRequestRequest),
-        #[prost(message, tag="37")]
-        PublishRpcResponse(super::PublishRpcResponseRequest),
-        #[prost(message, tag="38")]
-        PublishRpcAck(super::PublishRpcAckRequest),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackRequest),
@@ -3680,7 +3554,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 37, 38, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3713,14 +3587,11 @@ pub mod ffi_response {
         GetSessionStats(super::GetSessionStatsResponse),
         #[prost(message, tag="13")]
         PublishTranscription(super::PublishTranscriptionResponse),
+        /// PublishRpcRequestResponse publish_rpc_request = 36;
+        /// PublishRpcResponseResponse publish_rpc_response = 37;
+        /// PublishRpcAckResponse publish_rpc_ack = 38;
         #[prost(message, tag="14")]
         PublishSipDtmf(super::PublishSipDtmfResponse),
-        #[prost(message, tag="36")]
-        PublishRpcRequest(super::PublishRpcRequestResponse),
-        #[prost(message, tag="37")]
-        PublishRpcResponse(super::PublishRpcResponseResponse),
-        #[prost(message, tag="38")]
-        PublishRpcAck(super::PublishRpcAckResponse),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackResponse),
@@ -3774,7 +3645,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3820,14 +3691,11 @@ pub mod ffi_event {
         GetSessionStats(super::GetSessionStatsCallback),
         #[prost(message, tag="20")]
         Panic(super::Panic),
+        /// PublishRpcRequestCallback publish_rpc_request = 22;
+        /// PublishRpcResponseCallback publish_rpc_response = 23;
+        /// PublishRpcAckCallback publish_rpc_ack = 24;
         #[prost(message, tag="21")]
         PublishSipDtmf(super::PublishSipDtmfCallback),
-        #[prost(message, tag="22")]
-        PublishRpcRequest(super::PublishRpcRequestCallback),
-        #[prost(message, tag="23")]
-        PublishRpcResponse(super::PublishRpcResponseCallback),
-        #[prost(message, tag="24")]
-        PublishRpcAck(super::PublishRpcAckCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).
