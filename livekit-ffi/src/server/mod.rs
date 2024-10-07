@@ -245,10 +245,19 @@ impl FfiServer {
     }
 
     pub fn store_rpc_response_sender(&self, invocation_id: u64, sender: oneshot::Sender<Result<String, RpcError>>) {
+        log::warn!("FfiServer::store_rpc_response_sender - Storing sender for invocation_id: {}", invocation_id);
         self.rpc_response_senders.lock().insert(invocation_id, sender);
+        log::warn!("FfiServer::store_rpc_response_sender - Sender stored successfully for invocation_id: {}", invocation_id);
     }
 
     pub fn take_rpc_response_sender(&self, invocation_id: u64) -> Option<oneshot::Sender<Result<String, RpcError>>> {
-        self.rpc_response_senders.lock().remove(&invocation_id)
+        log::warn!("FfiServer::take_rpc_response_sender - Attempting to take sender for invocation_id: {}", invocation_id);
+        let result = self.rpc_response_senders.lock().remove(&invocation_id);
+        if result.is_some() {
+            log::warn!("FfiServer::take_rpc_response_sender - Sender found and removed for invocation_id: {}", invocation_id);
+        } else {
+            log::warn!("FfiServer::take_rpc_response_sender - No sender found for invocation_id: {}", invocation_id);
+        }
+        result
     }
 }
