@@ -65,10 +65,7 @@ pub struct RoomInner {
     data_tx: mpsc::UnboundedSender<FfiDataPacket>,
     transcription_tx: mpsc::UnboundedSender<FfiTranscription>,
     dtmf_tx: mpsc::UnboundedSender<FfiSipDtmfPacket>,
-    // rpc_request_tx: mpsc::UnboundedSender<FfiRpcRequestPacket>,
-    // rpc_response_tx: mpsc::UnboundedSender<FfiRpcResponsePacket>,
-    // rpc_ack_tx: mpsc::UnboundedSender<FfiRpcAckPacket>,
-
+    
     // local tracks just published, it is used to synchronize the publish events:
     // - make sure LocalTrackPublised is sent *after* the PublishTrack callback)
     pending_published_tracks: Mutex<HashSet<TrackSid>>,
@@ -83,9 +80,6 @@ struct Handle {
     data_handle: JoinHandle<()>,
     transcription_handle: JoinHandle<()>,
     sip_dtmf_handle: JoinHandle<()>,
-    // rpc_request_handle: JoinHandle<()>,
-    // rpc_response_handle: JoinHandle<()>,
-    // rpc_ack_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
 }
 
@@ -115,21 +109,6 @@ struct FfiSipDtmfPacket {
     async_id: u64,
 }
 
-// struct FfiRpcRequestPacket {
-//     payload: RpcRequest,
-//     async_id: u64,
-// }
-
-// struct FfiRpcResponsePacket {
-//     payload: RpcResponse,
-//     async_id: u64,
-// }
-
-// struct FfiRpcAckPacket {
-//     payload: RpcAck,
-//     async_id: u64,
-// }
-
 impl FfiRoom {
     pub fn connect(
         server: &'static FfiServer,
@@ -157,9 +136,6 @@ impl FfiRoom {
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
                     let (transcription_tx, transcription_rx) = mpsc::unbounded_channel();
                     let (dtmf_tx, dtmf_rx) = mpsc::unbounded_channel();
-                    // let (rpc_request_tx, rpc_request_rx) = mpsc::unbounded_channel();
-                    // let (rpc_response_tx, rpc_response_rx) = mpsc::unbounded_channel();
-                    // let (rpc_ack_tx, rpc_ack_rx) = mpsc::unbounded_channel();
                     let (close_tx, close_rx) = broadcast::channel(1);
 
                     let handle_id = server.next_id();
@@ -169,9 +145,6 @@ impl FfiRoom {
                         data_tx,
                         transcription_tx,
                         dtmf_tx,
-                        // rpc_request_tx,
-                        // rpc_response_tx,
-                        // rpc_ack_tx,
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
@@ -263,44 +236,11 @@ impl FfiRoom {
                         ))
                     });
 
-                    // let rpc_request_handle = server.watch_panic({
-                    //     let close_rx = close_rx.resubscribe();
-                    //     server.async_runtime.spawn(rpc_request_task(
-                    //         server,
-                    //         inner.clone(),
-                    //         rpc_request_rx,
-                    //         close_rx,
-                    //     ))
-                    // });
-
-                    // let rpc_response_handle = server.watch_panic({
-                    //     let close_rx = close_rx.resubscribe();
-                    //     server.async_runtime.spawn(rpc_response_task(
-                    //         server,
-                    //         inner.clone(),
-                    //         rpc_response_rx,
-                    //         close_rx,
-                    //     ))
-                    // });
-
-                    // let rpc_ack_handle = server.watch_panic({
-                    //     let close_rx = close_rx.resubscribe();
-                    //     server.async_runtime.spawn(rpc_ack_task(
-                    //         server,
-                    //         inner.clone(),
-                    //         rpc_ack_rx,
-                    //         close_rx,
-                    //     ))
-                    // });
-
                     *handle = Some(Handle {
                         event_handle,
                         data_handle,
                         transcription_handle,
                         sip_dtmf_handle,
-                        // rpc_request_handle,
-                        // rpc_response_handle,
-                        // rpc_ack_handle,
                         close_tx,
                     });
                 }
@@ -334,9 +274,6 @@ impl FfiRoom {
             let _ = handle.data_handle.await;
             let _ = handle.transcription_handle.await;
             let _ = handle.sip_dtmf_handle.await;
-            // let _ = handle.rpc_request_handle.await;
-            // let _ = handle.rpc_response_handle.await;
-            // let _ = handle.rpc_ack_handle.await;
         }
     }
 }
@@ -455,106 +392,6 @@ impl RoomInner {
 
         Ok(proto::PublishSipDtmfResponse { async_id })
     }
-
-    // pub fn publish_rpc_request(
-    //     &self,
-    //     server: &'static FfiServer,
-    //     request: proto::PublishRpcRequestRequest,
-    // ) -> FfiResult<proto::PublishRpcRequestResponse> {
-    //     let async_id = server.next_id();
-    //     if let Err(err) = self.rpc_request_tx.send(FfiRpcRequestPacket {
-    //         async_id,
-    //         payload: RpcRequest {
-    //             destination_identity: request.destination_identity.try_into().unwrap(),
-    //             request_id: request.request_id,
-    //             method: request.method,
-    //             payload: request.payload,
-    //             response_timeout_ms: request.response_timeout_ms,
-    //             version: request.version,
-    //         },
-    //     }) {
-    //         let handle = server.async_runtime.spawn(async move {
-    //             let cb = proto::PublishRpcRequestCallback {
-    //                 async_id,
-    //                 error: Some(format!("failed to send RPC request, room closed: {}", err)),
-    //             };
-
-    //             let _ = server.send_event(proto::ffi_event::Message::PublishRpcRequest(cb));
-    //         });
-    //         server.watch_panic(handle);
-    //     }
-
-    //     Ok(proto::PublishRpcRequestResponse { async_id })
-    // }
-    // pub fn publish_rpc_response(
-    //     &self,
-    //     server: &'static FfiServer,
-    //     response: proto::PublishRpcResponseRequest,
-    // ) -> FfiResult<proto::PublishRpcResponseResponse> {
-    //     let async_id = server.next_id();
-    //     if let Err(err) = self.rpc_response_tx.send(FfiRpcResponsePacket {
-    //         async_id,
-    //         payload: RpcResponse {
-    //             destination_identity: response.destination_identity.try_into().unwrap(),
-    //             request_id: response.request_id,
-    //             payload: match &response.value {
-    //                 Some(proto::publish_rpc_response_request::Value::Payload(payload)) => {
-    //                     Some(payload.clone())
-    //                 }
-    //                 _ => None,
-    //             },
-    //             error: match &response.value {
-    //                 Some(proto::publish_rpc_response_request::Value::Error(error)) => {
-    //                     Some(RpcError {
-    //                         code: error.code,
-    //                         message: error.message.clone(),
-    //                         data: error.data.clone(),
-    //                     })
-    //                 }
-    //                 _ => None,
-    //             },
-    //         },
-    //     }) {
-    //         let handle = server.async_runtime.spawn(async move {
-    //             let cb = proto::PublishRpcResponseCallback {
-    //                 async_id,
-    //                 error: Some(format!("failed to send RPC response, room closed: {}", err)),
-    //             };
-
-    //             let _ = server.send_event(proto::ffi_event::Message::PublishRpcResponse(cb));
-    //         });
-    //         server.watch_panic(handle);
-    //     }
-
-    //     Ok(proto::PublishRpcResponseResponse { async_id })
-    // }
-
-    // pub fn publish_rpc_ack(
-    //     &self,
-    //     server: &'static FfiServer,
-    //     ack: proto::PublishRpcAckRequest,
-    // ) -> FfiResult<proto::PublishRpcAckResponse> {
-    //     let async_id = server.next_id();
-    //     if let Err(err) = self.rpc_ack_tx.send(FfiRpcAckPacket {
-    //         async_id,
-    //         payload: RpcAck {
-    //             destination_identity: ack.destination_identity.try_into().unwrap(),
-    //             request_id: ack.request_id,
-    //         },
-    //     }) {
-    //         let handle = server.async_runtime.spawn(async move {
-    //             let cb = proto::PublishRpcAckCallback {
-    //                 async_id,
-    //                 error: Some(format!("failed to send RPC ack, room closed: {}", err)),
-    //             };
-
-    //             let _ = server.send_event(proto::ffi_event::Message::PublishRpcAck(cb));
-    //         });
-    //         server.watch_panic(handle);
-    //     }
-
-    //     Ok(proto::PublishRpcAckResponse { async_id })
-    // }
 
     /// Publish a track and make sure to sync the async callback
     /// with the LocalTrackPublished event.
@@ -828,84 +665,6 @@ async fn sip_dtmf_task(
         }
     }
 }
-
-// Task used to publish RPC requests without blocking the client thread
-// async fn rpc_request_task(
-//     server: &'static FfiServer,
-//     inner: Arc<RoomInner>,
-//     mut rpc_request_rx: mpsc::UnboundedReceiver<FfiRpcRequestPacket>,
-//     mut close_rx: broadcast::Receiver<()>,
-// ) {
-//     loop {
-//         tokio::select! {
-//             Some(event) = rpc_request_rx.recv() => {
-//                 let res = inner.room.local_participant().publish_rpc_request(event.payload).await;
-
-//                 let cb = proto::PublishRpcRequestCallback {
-//                     async_id: event.async_id,
-//                     error: res.err().map(|e| e.to_string()),
-//                 };
-
-//                 let _ = server.send_event(proto::ffi_event::Message::PublishRpcRequest(cb));
-//             },
-//             _ = close_rx.recv() => {
-//                 break;
-//             }
-//         }
-//     }
-// }
-
-// Task used to publish RPC responses without blocking the client thread
-// async fn rpc_response_task(
-//     server: &'static FfiServer,
-//     inner: Arc<RoomInner>,
-//     mut rpc_response_rx: mpsc::UnboundedReceiver<FfiRpcResponsePacket>,
-//     mut close_rx: broadcast::Receiver<()>,
-// ) {
-//     loop {
-//         tokio::select! {
-//             Some(event) = rpc_response_rx.recv() => {
-//                 let res = inner.room.local_participant().publish_rpc_response(event.payload).await;
-
-//                 let cb = proto::PublishRpcResponseCallback {
-//                     async_id: event.async_id,
-//                     error: res.err().map(|e| e.to_string()),
-//                 };
-
-//                 let _ = server.send_event(proto::ffi_event::Message::PublishRpcResponse(cb));
-//             },
-//             _ = close_rx.recv() => {
-//                 break;
-//             }
-//         }
-//     }
-// }
-
-// Task used to publish RPC acks without blocking the client thread
-// async fn rpc_ack_task(
-//     server: &'static FfiServer,
-//     inner: Arc<RoomInner>,
-//     mut rpc_ack_rx: mpsc::UnboundedReceiver<FfiRpcAckPacket>,
-//     mut close_rx: broadcast::Receiver<()>,
-// ) {
-//     loop {
-//         tokio::select! {
-//             Some(event) = rpc_ack_rx.recv() => {
-//                 let res = inner.room.local_participant().publish_rpc_ack(event.payload).await;
-
-//                 let cb = proto::PublishRpcAckCallback {
-//                     async_id: event.async_id,
-//                     error: res.err().map(|e| e.to_string()),
-//                 };
-
-//                 let _ = server.send_event(proto::ffi_event::Message::PublishRpcAck(cb));
-//             },
-//             _ = close_rx.recv() => {
-//                 break;
-//             }
-//         }
-//     }
-// }
 
 // The utility of this struct is to know the state we're currently processing
 // (The room could have successfully reconnected while we're still processing the previous event,
@@ -1221,40 +980,7 @@ async fn forward_event(
                 },
             ));
         }
-        // RoomEvent::RpcRequestReceived { participant, request_id, method, payload, response_timeout_ms, version } => {
-        //     let participant_identity: Option<String> = match participant {
-        //         Some(p) => Some(p.identity().to_string()),
-        //         None => None,
-        //     };
-        //     let _ = send_event(proto::room_event::Message::RpcRequestReceived(
-        //         proto::RpcRequestReceived {
-        //             participant_identity: participant_identity,
-        //             request_id,
-        //             method,
-        //             payload,
-        //             response_timeout_ms,
-        //             version,
-        //         },
-        //     ));
-        // }
-        // RoomEvent::RpcResponseReceived { request_id, payload, error } => {
-        //     let _ = send_event(proto::room_event::Message::RpcResponseReceived(
-        //         proto::RpcResponseReceived {
-        //             request_id,
-        //             payload,
-        //             error: error.map(|e| proto::RpcError {
-        //                 code: e.code,
-        //                 message: e.message,
-        //                 data: e.data,
-        //             }),
-        //         },
-        //     ));
-        // }
-        // RoomEvent::RpcAckReceived { request_id } => {
-        //     let _ = send_event(proto::room_event::Message::RpcAckReceived(
-        //         proto::RpcAckReceived { request_id },
-        //     ));
-        // }
+
         RoomEvent::ConnectionStateChanged(state) => {
             let _ = send_event(proto::room_event::Message::ConnectionStateChanged(
                 proto::ConnectionStateChanged { state: proto::ConnectionState::from(state).into() },

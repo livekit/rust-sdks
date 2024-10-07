@@ -2469,9 +2469,6 @@ pub mod room_event {
         Eos(super::RoomEos),
         #[prost(message, tag="27")]
         DataPacketReceived(super::DataPacketReceived),
-        /// RpcRequestReceived rpc_request_received = 29;
-        /// RpcResponseReceived rpc_response_received = 30;
-        /// RpcAckReceived rpc_ack_received = 31;
         #[prost(message, tag="28")]
         TranscriptionReceived(super::TranscriptionReceived),
     }
@@ -2696,25 +2693,6 @@ pub struct TranscriptionReceived {
     #[prost(message, repeated, tag="3")]
     pub segments: ::prost::alloc::vec::Vec<TranscriptionSegment>,
 }
-// message RpcRequestReceived {
-//    optional string participant_identity = 1;
-//    string request_id = 2;
-//    string method = 3;
-//    string payload = 4;
-//    uint32 response_timeout_ms = 5;
-//    uint32 version = 6;
-// }
-
-// message RpcResponseReceived {
-//    string request_id = 1;
-//    optional string payload = 2;
-//    optional RpcError error = 3;
-// }
-
-// message RpcAckReceived {
-//    string request_id = 1;
-// }
-
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionStateChanged {

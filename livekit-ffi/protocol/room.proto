@@ -23,7 +23,6 @@ import "participant.proto";
 import "track.proto";
 import "video_frame.proto";
 import "stats.proto";
-// import "rpc.proto";
 
 // Connect to a new LiveKit room
 message ConnectRequest {
@@ -344,9 +343,6 @@ message RoomEvent {
     RoomEOS eos = 26; // The stream of room events has ended
     DataPacketReceived data_packet_received = 27;
     TranscriptionReceived transcription_received = 28;
-    // RpcRequestReceived rpc_request_received = 29;
-    // RpcResponseReceived rpc_response_received = 30;
-    // RpcAckReceived rpc_ack_received = 31;
   }
 }
 
@@ -480,25 +476,6 @@ message TranscriptionReceived {
   optional string track_sid = 2;
   repeated TranscriptionSegment segments = 3;
 }
-
-// message RpcRequestReceived {
-//   optional string participant_identity = 1;
-//   string request_id = 2;
-//   string method = 3;
-//   string payload = 4;
-//   uint32 response_timeout_ms = 5;
-//   uint32 version = 6;
-// }
-
-// message RpcResponseReceived {
-//   string request_id = 1;
-//   optional string payload = 2;
-//   optional RpcError error = 3;
-// }
-
-// message RpcAckReceived {
-//   string request_id = 1;
-// }
 
 message ConnectionStateChanged { ConnectionState state = 1; }
 
