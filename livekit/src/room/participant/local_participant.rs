@@ -614,10 +614,10 @@ impl LocalParticipant {
         recipient_identity: String,
         method: String,
         payload: String,
-        response_timeout_ms: Option<u64>,
+        response_timeout_ms: Option<u32>,
     ) -> Result<String, RpcError> {
         let connection_timeout = Duration::from_millis(2000);
-        let response_timeout = Duration::from_millis(response_timeout_ms.unwrap_or(5000));
+        let response_timeout = Duration::from_millis(response_timeout_ms.unwrap_or(5000) as u64);
         let max_round_trip_latency = Duration::from_millis(2000);
 
         if payload.len() > MAX_PAYLOAD_BYTES {
