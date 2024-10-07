@@ -28,9 +28,7 @@ use crate::{
     prelude::*,
     room::participant::rpc::{RpcError, RpcErrorCode, MAX_PAYLOAD_BYTES},
     rtc_engine::{EngineError, RtcEngine},
-    DataPacket,
-    SipDTMF,
-    Transcription,
+    DataPacket, SipDTMF, Transcription,
 };
 use futures_util::Future;
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
@@ -44,10 +42,10 @@ use uuid::Uuid;
 
 type RpcHandler = Arc<
     dyn Fn(
-        String, // request_id
-        ParticipantIdentity, // participant_identity
-        String, // payload
-        Duration, // response_timeout_ms
+            String,              // request_id
+            ParticipantIdentity, // participant_identity
+            String,              // payload
+            Duration,            // response_timeout_ms
         ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
         + Send
         + Sync,
@@ -615,20 +613,15 @@ impl LocalParticipant {
         payload: String,
         response_timeout_ms: Option<u32>,
     ) -> Result<String, RpcError> {
-        log::warn!("LocalParticipant::perform_rpc_request - Start: recipient={}, method={}", recipient_identity, method);
-        
         let connection_timeout = Duration::from_millis(2000);
         let response_timeout = Duration::from_millis(response_timeout_ms.unwrap_or(5000) as u64);
         let max_round_trip_latency = Duration::from_millis(2000);
 
         if payload.len() > MAX_PAYLOAD_BYTES {
-            log::warn!("LocalParticipant::perform_rpc_request - Payload too large: {} bytes", payload.len());
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
         }
 
         let id = Uuid::new_v4().to_string();
-        log::warn!("LocalParticipant::perform_rpc_request - Generated request ID: {}", id);
-        
         let (ack_tx, ack_rx) = oneshot::channel();
         let (response_tx, response_rx) = oneshot::channel();
 
@@ -644,58 +637,47 @@ impl LocalParticipant {
             .await
         {
             Ok(_) => {
-                log::warn!("LocalParticipant::perform_rpc_request - RPC request published successfully");
                 self.local.pending_acks.lock().insert(id.clone(), ack_tx);
                 self.local.pending_responses.lock().insert(id.clone(), response_tx);
             }
             Err(e) => {
-                log::warn!("LocalParticipant::perform_rpc_request - Failed to publish RPC request: {}", e);
+                log::error!("Failed to publish RPC request: {}", e);
                 return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
             }
         }
 
         // Wait for the ack first
-        log::warn!("LocalParticipant::perform_rpc_request - Waiting for ACK");
         let ack_result = tokio::time::timeout(connection_timeout, ack_rx).await;
 
         match ack_result {
             Ok(_) => {
-                log::warn!("LocalParticipant::perform_rpc_request - ACK received, waiting for response");
                 // Ack received, now wait for the response
                 match tokio::time::timeout(response_timeout, response_rx).await {
                     Ok(response) => match response {
                         Ok(result) => match result {
                             Ok(payload) => {
                                 if payload.len() > MAX_PAYLOAD_BYTES {
-                                    log::warn!("LocalParticipant::perform_rpc_request - Response payload too large: {} bytes", payload.len());
                                     Err(RpcError::built_in(
                                         RpcErrorCode::ResponsePayloadTooLarge,
                                         None,
                                     ))
                                 } else {
-                                    log::warn!("LocalParticipant::perform_rpc_request - Received valid response");
                                     Ok(payload)
                                 }
                             }
-                            Err(e) => {
-                                log::warn!("LocalParticipant::perform_rpc_request - Received error response: {:?}", e);
-                                Err(e)
-                            }
+                            Err(e) => Err(e),
                         },
                         Err(_) => {
-                            log::warn!("LocalParticipant::perform_rpc_request - Recipient disconnected");
                             Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
                         }
                     },
                     Err(_) => {
-                        log::warn!("LocalParticipant::perform_rpc_request - Response timeout");
                         self.local.pending_responses.lock().remove(&id);
                         Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None))
                     }
                 }
             }
             Err(_) => {
-                log::warn!("LocalParticipant::perform_rpc_request - Connection timeout");
                 self.local.pending_acks.lock().remove(&id);
                 self.local.pending_responses.lock().remove(&id);
                 Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None))
@@ -703,23 +685,31 @@ impl LocalParticipant {
         }
     }
 
-    pub fn register_rpc_method(&self, method: String, handler: RpcHandler) {
-        log::warn!("LocalParticipant::register_rpc_method - Registering method: {}", method);
-        self.local.rpc_handlers.lock().insert(method, handler);
+    pub fn register_rpc_method(
+        &self,
+        method: String,
+        handler: impl Fn(
+                String,
+                ParticipantIdentity,
+                String,
+                Duration,
+            ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    ) {
+        self.local.rpc_handlers.lock().insert(method, Arc::new(handler));
     }
 
     pub fn unregister_rpc_method(&self, method: String) {
-        log::warn!("LocalParticipant::unregister_rpc_method - Unregistering method: {}", method);
         self.local.rpc_handlers.lock().remove(&method);
     }
 
     pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
-        log::warn!("LocalParticipant::handle_incoming_rpc_ack - Received ACK for request: {}", request_id);
         if let Some(tx) = self.local.pending_acks.lock().remove(&request_id) {
             let _ = tx.send(());
-            log::warn!("LocalParticipant::handle_incoming_rpc_ack - ACK processed for request: {}", request_id);
         } else {
-            log::warn!("LocalParticipant::handle_incoming_rpc_ack - Ack received for unexpected RPC request: {}", request_id);
+            log::error!("Ack received for unexpected RPC request: {}", request_id);
         }
     }
 
@@ -729,20 +719,13 @@ impl LocalParticipant {
         payload: Option<String>,
         error: Option<RpcError_Proto>,
     ) {
-        log::warn!("LocalParticipant::handle_incoming_rpc_response - Received response for request: {}", request_id);
         if let Some(tx) = self.local.pending_responses.lock().remove(&request_id) {
             let _ = tx.send(match error {
-                Some(e) => {
-                    log::warn!("LocalParticipant::handle_incoming_rpc_response - Error response for request {}: {:?}", request_id, e);
-                    Err(RpcError::from_proto(e))
-                }
-                None => {
-                    log::warn!("LocalParticipant::handle_incoming_rpc_response - Successful response for request {}", request_id);
-                    Ok(payload.unwrap_or_default())
-                }
+                Some(e) => Err(RpcError::from_proto(e)),
+                None => Ok(payload.unwrap_or_default()),
             });
         } else {
-            log::warn!("LocalParticipant::handle_incoming_rpc_response - Response received for unexpected RPC request: {}", request_id);
+            log::error!("Response received for unexpected RPC request: {}", request_id);
         }
     }
 
@@ -754,19 +737,15 @@ impl LocalParticipant {
         payload: String,
         response_timeout_ms: u32,
     ) {
-        log::warn!("LocalParticipant::handle_incoming_rpc_request - Received request: id={}, method={}, sender={}", request_id, method, sender_identity);
-
-        if let Err(e) = self.publish_rpc_ack(sender_identity.to_string(), request_id.clone()).await {
-            log::warn!("LocalParticipant::handle_incoming_rpc_request - Failed to publish RPC ACK: {:?}", e);
-        } else {
-            log::warn!("LocalParticipant::handle_incoming_rpc_request - Published ACK for request: {}", request_id);
+        if let Err(e) = self.publish_rpc_ack(sender_identity.to_string(), request_id.clone()).await
+        {
+            log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
         let handler = self.local.rpc_handlers.lock().get(&method).cloned();
 
         let response = match handler {
             Some(handler) => {
-                log::warn!("LocalParticipant::handle_incoming_rpc_request - Executing handler for method: {}", method);
                 handler(
                     request_id.clone(),
                     sender_identity.clone(),
@@ -775,39 +754,27 @@ impl LocalParticipant {
                 )
                 .await
             }
-            None => {
-                log::warn!("LocalParticipant::handle_incoming_rpc_request - No handler found for method: {}", method);
-                Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None))
-            }
+            None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
         };
 
         let (payload, error) = match response {
             Ok(response_payload) if response_payload.len() <= MAX_PAYLOAD_BYTES => {
-                log::warn!("LocalParticipant::handle_incoming_rpc_request - Successful response for request: {}", request_id);
                 (Some(response_payload), None)
             }
-            Ok(_) => {
-                log::warn!("LocalParticipant::handle_incoming_rpc_request - Response payload too large for request: {}", request_id);
-                (None, Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None)))
-            }
-            Err(e) => {
-                log::warn!("LocalParticipant::handle_incoming_rpc_request - Error response for request: {}, error: {:?}", request_id, e);
-                (None, Some(e.into()))
-            }
+            Ok(_) => (None, Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None))),
+            Err(e) => (None, Some(e.into())),
         };
 
         if let Err(e) = self
             .publish_rpc_response(
                 sender_identity.to_string(),
-                request_id.clone(),
+                request_id,
                 payload,
                 error.map(|e| e.to_proto()),
             )
             .await
         {
-            log::warn!("LocalParticipant::handle_incoming_rpc_request - Failed to publish RPC response: {:?}", e);
-        } else {
-            log::warn!("LocalParticipant::handle_incoming_rpc_request - Published response for request: {}", request_id);
+            log::error!("Failed to publish RPC response: {:?}", e);
         }
     }
 }

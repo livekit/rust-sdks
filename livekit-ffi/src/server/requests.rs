@@ -838,7 +838,7 @@ fn on_register_rpc_method(
                 log::warn!("on_register_rpc_method - Registering method: {}", method);
                 local.register_rpc_method(
                     method.clone(),
-                    Arc::new(move |request_id, participant_identity, payload, timeout| {
+                    move |request_id, participant_identity, payload, timeout| {
                         let method = method.clone();
                         Box::pin(async move {
                             log::warn!("RPC method invoked: method={}, request_id={}, from={}", method, request_id, participant_identity);
@@ -852,7 +852,7 @@ fn on_register_rpc_method(
                                         invocation_id,
                                         method: method,
                                         request_id: request_id,
-                                        participant_identity: participant_identity.to_string(),
+                                        participant_identity: participant_identity.into(),
                                         payload: payload,
                                         timeout_ms: timeout.as_millis() as u32,
                                     },
@@ -891,7 +891,7 @@ fn on_register_rpc_method(
                                 }
                             }
                         })
-                    }),
+                    },
                 );
 
                 log::warn!("on_register_rpc_method - Method registered, sending callback");
