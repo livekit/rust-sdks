@@ -20,6 +20,7 @@ use livekit::{
     webrtc::{native::audio_resampler, prelude::*},
 };
 use parking_lot::Mutex;
+use tokio::sync::oneshot;
 
 use super::{
     audio_source, audio_stream, colorcvt, resampler,
@@ -27,7 +28,6 @@ use super::{
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::{conversion::track, proto};
-
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -134,39 +134,6 @@ fn on_publish_sip_dtmf(
 
     ffi_participant.room.publish_sip_dtmf(server, publish)
 }
-
-/// Publish rpc request to the room
-// fn on_publish_rpc_request(
-//     server: &'static FfiServer,
-//     publish: proto::PublishRpcRequestRequest,
-// ) -> FfiResult<proto::PublishRpcRequestResponse> {
-//     let ffi_participant =
-//         server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
-
-//     ffi_participant.room.publish_rpc_request(server, publish)
-// }
-
-/// Publish rpc response to the room
-// fn on_publish_rpc_response(
-//     server: &'static FfiServer,
-//     publish: proto::PublishRpcResponseRequest,
-// ) -> FfiResult<proto::PublishRpcResponseResponse> {
-//     let ffi_participant =
-//         server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
-
-//     // ffi_participant.room.publish_rpc_response(server, publish)
-// }
-
-/// Publish rpc ack to the room
-// fn on_publish_rpc_ack(
-//     server: &'static FfiServer,
-//     publish: proto::PublishRpcAckRequest,
-// ) -> FfiResult<proto::PublishRpcAckResponse> {
-//     let ffi_participant =
-//         server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
-
-//     // ffi_participant.room.publish_rpc_ack(server, publish)
-// }
 
 /// Change the desired subscription state of a publication
 fn on_set_subscribed(
@@ -800,22 +767,23 @@ fn on_perform_rpc_request(
     server: &'static FfiServer,
     request: proto::PerformRpcRequestRequest,
 ) -> FfiResult<proto::PerformRpcRequestResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
 
     match ffi_participant.participant {
         Participant::Local(local) => {
             tokio::spawn(async move {
-                let result = local.perform_rpc_request(
-                    request.destination_identity,
-                    request.method,
-                    request.payload,
-                    Some(request.response_timeout_ms),
-                ).await;
-        
+                let result = local
+                    .perform_rpc_request(
+                        request.destination_identity,
+                        request.method,
+                        request.payload,
+                        Some(request.response_timeout_ms),
+                    )
+                    .await;
+
                 let callback = proto::PerformRpcRequestCallback {
                     async_id,
                     payload: result.as_ref().ok().cloned(),
@@ -828,12 +796,12 @@ fn on_perform_rpc_request(
                         }),
                     },
                 };
-        
+
                 let _ = server.send_event(proto::ffi_event::Message::PerformRpcRequest(callback));
             });
 
             Ok(proto::PerformRpcRequestResponse { async_id })
-        },
+        }
         Participant::Remote(_) => {
             Err(FfiError::InvalidRequest("remote participant cannot perform RPC request".into()))
         }
@@ -844,41 +812,64 @@ fn on_register_rpc_method(
     server: &'static FfiServer,
     request: proto::RegisterRpcMethodRequest,
 ) -> FfiResult<proto::RegisterRpcMethodResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
 
     match ffi_participant.participant {
         Participant::Local(local) => {
             tokio::spawn(async move {
-                local.register_rpc_method(request.method.clone(), move |participant_identity, method, payload, timeout| {
-                    Box::pin(async move {
-                        let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
-                            proto::RpcMethodInvocation {
-                                participant_identity: participant_identity.to_string(),
-                                method,
-                                payload,
-                                timeout_ms: timeout.as_millis() as u32,
-                            },
-                        ));
+                local.register_rpc_method(
+                    request.method.clone(),
+                    move |participant_identity, method, payload, timeout| {
+                        Box::pin(async move {
+                            let (tx, rx) = oneshot::channel();
+                            let invocation_id = server.next_id();
 
-                        // TODO: wait for response
-                        Ok(String::new())
-                    })
-                });
+                            let _ =
+                                server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
+                                    proto::RpcMethodInvocationEvent {
+                                        invocation_id,
+                                        participant_identity: participant_identity.to_string(),
+                                        method,
+                                        payload,
+                                        timeout_ms: timeout.as_millis() as u32,
+                                    },
+                                ));
 
-                let callback = proto::RegisterRpcMethodCallback {
-                    async_id,
-                    error: None,
-                };
+                            server.store_rpc_response_sender(invocation_id, tx);
+
+                            match tokio::time::timeout(timeout, rx).await {
+                                Ok(result) => match result {
+                                    Ok(response) => match response {
+                                        Ok(payload) => Ok(payload),
+                                        Err(rpc_error) => Err(rpc_error),
+                                    },
+                                    //TODO: Fix the error codes
+                                    Err(_) => Err(RpcError {
+                                        code: 500,
+                                        message: "Failed to receive RPC response".into(),
+                                        data: None,
+                                    }),
+                                },
+                                Err(_) => Err(RpcError {
+                                    code: 408,
+                                    message: "RPC request timed out".into(),
+                                    data: None,
+                                }),
+                            }
+                        })
+                    },
+                );
+
+                let callback = proto::RegisterRpcMethodCallback { async_id };
 
                 let _ = server.send_event(proto::ffi_event::Message::RegisterRpcMethod(callback));
             });
 
             Ok(proto::RegisterRpcMethodResponse { async_id })
-        },
+        }
         Participant::Remote(_) => {
             Err(FfiError::InvalidRequest("remote participant cannot register RPC method".into()))
         }
@@ -889,9 +880,8 @@ fn on_unregister_rpc_method(
     server: &'static FfiServer,
     request: proto::UnregisterRpcMethodRequest,
 ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
 
@@ -900,20 +890,34 @@ fn on_unregister_rpc_method(
             tokio::spawn(async move {
                 local.unregister_rpc_method(request.method);
 
-                let callback = proto::UnregisterRpcMethodCallback {
-                    async_id,
-                    error: None,
-                };
+                let callback = proto::UnregisterRpcMethodCallback { async_id };
 
                 let _ = server.send_event(proto::ffi_event::Message::UnregisterRpcMethod(callback));
             });
 
             Ok(proto::UnregisterRpcMethodResponse { async_id })
-        },
+        }
         Participant::Remote(_) => {
             Err(FfiError::InvalidRequest("remote participant cannot unregister RPC method".into()))
         }
     }
+}
+
+fn on_rpc_method_invocation_response(
+    server: &'static FfiServer,
+    request: proto::RpcMethodInvocationResponseRequest,
+) -> FfiResult<proto::RpcMethodInvocationResponseResponse> {
+    let async_id = server.next_id();
+
+    if let Some(sender) = server.take_rpc_response_sender(request.invocation_id) {
+        let result = if let Some(error) = request.error {
+            Err(RpcError { code: error.code, message: error.message, data: Some(error.data) })
+        } else {
+            Ok(request.payload.unwrap_or_default())
+        };
+        let _ = sender.send(result);
+    }
+    Ok(proto::RpcMethodInvocationResponseResponse { async_id })
 }
 
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
@@ -953,15 +957,6 @@ pub fn handle_request(
         proto::ffi_request::Message::PublishSipDtmf(publish) => {
             proto::ffi_response::Message::PublishSipDtmf(on_publish_sip_dtmf(server, publish)?)
         }
-        // proto::ffi_request::Message::PublishRpcRequest(publish) => {
-        //     proto::ffi_response::Message::PublishRpcRequest(on_publish_rpc_request(server, publish)?)
-        // }
-        // proto::ffi_request::Message::PublishRpcResponse(publish) => {
-        //     proto::ffi_response::Message::PublishRpcResponse(on_publish_rpc_response(server, publish)?)
-        // }
-        // proto::ffi_request::Message::PublishRpcAck(publish) => {
-        //     proto::ffi_response::Message::PublishRpcAck(on_publish_rpc_ack(server, publish)?)
-        // }
         proto::ffi_request::Message::SetSubscribed(subscribed) => {
             proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
         }
@@ -1054,13 +1049,24 @@ pub fn handle_request(
             )?)
         }
         proto::ffi_request::Message::PerformRpcRequest(request) => {
-            proto::ffi_response::Message::PerformRpcRequest(on_perform_rpc_request(server, request)?)
+            proto::ffi_response::Message::PerformRpcRequest(on_perform_rpc_request(
+                server, request,
+            )?)
         }
         proto::ffi_request::Message::RegisterRpcMethod(request) => {
-            proto::ffi_response::Message::RegisterRpcMethod(on_register_rpc_method(server, request)?)
+            proto::ffi_response::Message::RegisterRpcMethod(on_register_rpc_method(
+                server, request,
+            )?)
         }
         proto::ffi_request::Message::UnregisterRpcMethod(request) => {
-            proto::ffi_response::Message::UnregisterRpcMethod(on_unregister_rpc_method(server, request)?)
+            proto::ffi_response::Message::UnregisterRpcMethod(on_unregister_rpc_method(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::RpcMethodInvocationResponse(request) => {
+            proto::ffi_response::Message::RpcMethodInvocationResponse(on_rpc_method_invocation_response(
+                server, request,
+            )?)
         }
     });
 

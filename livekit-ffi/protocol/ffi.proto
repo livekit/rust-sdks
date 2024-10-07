@@ -70,9 +70,7 @@ message FfiRequest {
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
     PublishSipDtmfRequest publish_sip_dtmf = 14;
-    PerformRpcRequestRequest perform_rpc_request = 36;
-    RegisterRpcMethodRequest register_rpc_method = 37;
-    UnregisterRpcMethodRequest unregister_rpc_method = 38;
+    
 
     // Track
     CreateVideoTrackRequest create_video_track = 15;
@@ -100,6 +98,12 @@ message FfiRequest {
     NewSoxResamplerRequest new_sox_resampler = 33;
     PushSoxResamplerRequest push_sox_resampler = 34;
     FlushSoxResamplerRequest flush_sox_resampler = 35;
+
+    // RPC
+    PerformRpcRequestRequest perform_rpc_request = 36;
+    RegisterRpcMethodRequest register_rpc_method = 37;
+    UnregisterRpcMethodRequest unregister_rpc_method = 38;
+    RpcMethodInvocationResponseRequest rpc_method_invocation_response = 39;
   }
 }
 
@@ -121,9 +125,6 @@ message FfiResponse {
     GetSessionStatsResponse get_session_stats = 12;
     PublishTranscriptionResponse publish_transcription = 13;
     PublishSipDtmfResponse publish_sip_dtmf = 14;
-    PerformRpcRequestResponse perform_rpc_request = 36;
-    RegisterRpcMethodResponse register_rpc_method = 37;
-    UnregisterRpcMethodResponse unregister_rpc_method = 38;
 
     // Track
     CreateVideoTrackResponse create_video_track = 15;
@@ -151,6 +152,12 @@ message FfiResponse {
     NewSoxResamplerResponse new_sox_resampler = 33;
     PushSoxResamplerResponse push_sox_resampler = 34;
     FlushSoxResamplerResponse flush_sox_resampler = 35;
+
+    // RPC
+    PerformRpcRequestResponse perform_rpc_request = 36;
+    RegisterRpcMethodResponse register_rpc_method = 37;
+    UnregisterRpcMethodResponse unregister_rpc_method = 38;
+    RpcMethodInvocationResponseResponse rpc_method_invocation_response = 39;
   }
 }
 
@@ -182,7 +189,7 @@ message FfiEvent {
     PerformRpcRequestCallback perform_rpc_request = 22;
     RegisterRpcMethodCallback register_rpc_method = 23;
     UnregisterRpcMethodCallback unregister_rpc_method = 24;
-    RpcMethodInvocation rpc_method_invocation = 25;
+    RpcMethodInvocationEvent rpc_method_invocation = 25;
   }
 }
 

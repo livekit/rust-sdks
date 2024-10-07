@@ -42,6 +42,12 @@ message UnregisterRpcMethodRequest {
   string method = 2;
 }
 
+message RpcMethodInvocationResponseRequest {
+  uint64 invocation_id = 1;
+  optional string payload = 2;
+  optional RpcError error = 3;
+}
+
 // FFI Responses
 message PerformRpcRequestResponse {
   uint64 async_id = 1;
@@ -55,6 +61,10 @@ message UnregisterRpcMethodResponse {
   uint64 async_id = 1;
 }
 
+message RpcMethodInvocationResponseResponse {
+  uint64 async_id = 1;
+}
+
 // FFI Callbacks
 message PerformRpcRequestCallback {
   uint64 async_id = 1;
@@ -64,18 +74,21 @@ message PerformRpcRequestCallback {
 
 message RegisterRpcMethodCallback {
   uint64 async_id = 1;
-  optional string error = 2;
 }
 
 message UnregisterRpcMethodCallback {
   uint64 async_id = 1;    
-  optional string error = 2;
+}
+
+message RpcMethodInvocationResponseCallback {
+  uint64 async_id = 1;
 }
 
 // FFI Events
-message RpcMethodInvocation {
-  string participant_identity = 1;
-  string method = 2;
-  string payload = 3;
-  uint32 timeout_ms = 4;
+message RpcMethodInvocationEvent {
+  uint64 invocation_id = 1;
+  string participant_identity = 2;
+  string method = 3;
+  string payload = 4;
+  uint32 timeout_ms = 5;
 }

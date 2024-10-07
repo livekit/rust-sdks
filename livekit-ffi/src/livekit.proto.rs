@@ -3475,6 +3475,16 @@ pub struct UnregisterRpcMethodRequest {
     #[prost(string, tag="2")]
     pub method: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RpcMethodInvocationResponseRequest {
+    #[prost(uint64, tag="1")]
+    pub invocation_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub payload: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag="3")]
+    pub error: ::core::option::Option<RpcError>,
+}
 /// FFI Responses
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3494,6 +3504,12 @@ pub struct UnregisterRpcMethodResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RpcMethodInvocationResponseResponse {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
 /// FFI Callbacks
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3510,28 +3526,32 @@ pub struct PerformRpcRequestCallback {
 pub struct RegisterRpcMethodCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
-    #[prost(string, optional, tag="2")]
-    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnregisterRpcMethodCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
-    #[prost(string, optional, tag="2")]
-    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RpcMethodInvocationResponseCallback {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
 }
 /// FFI Events
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcMethodInvocation {
-    #[prost(string, tag="1")]
-    pub participant_identity: ::prost::alloc::string::String,
+pub struct RpcMethodInvocationEvent {
+    #[prost(uint64, tag="1")]
+    pub invocation_id: u64,
     #[prost(string, tag="2")]
-    pub method: ::prost::alloc::string::String,
+    pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
+    pub method: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
     pub payload: ::prost::alloc::string::String,
-    #[prost(uint32, tag="4")]
+    #[prost(uint32, tag="5")]
     pub timeout_ms: u32,
 }
 // **How is the livekit-ffi working:
@@ -3565,7 +3585,7 @@ pub struct RpcMethodInvocation {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 37, 38, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3600,12 +3620,6 @@ pub mod ffi_request {
         PublishTranscription(super::PublishTranscriptionRequest),
         #[prost(message, tag="14")]
         PublishSipDtmf(super::PublishSipDtmfRequest),
-        #[prost(message, tag="36")]
-        PerformRpcRequest(super::PerformRpcRequestRequest),
-        #[prost(message, tag="37")]
-        RegisterRpcMethod(super::RegisterRpcMethodRequest),
-        #[prost(message, tag="38")]
-        UnregisterRpcMethod(super::UnregisterRpcMethodRequest),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackRequest),
@@ -3651,13 +3665,22 @@ pub mod ffi_request {
         PushSoxResampler(super::PushSoxResamplerRequest),
         #[prost(message, tag="35")]
         FlushSoxResampler(super::FlushSoxResamplerRequest),
+        /// RPC
+        #[prost(message, tag="36")]
+        PerformRpcRequest(super::PerformRpcRequestRequest),
+        #[prost(message, tag="37")]
+        RegisterRpcMethod(super::RegisterRpcMethodRequest),
+        #[prost(message, tag="38")]
+        UnregisterRpcMethod(super::UnregisterRpcMethodRequest),
+        #[prost(message, tag="39")]
+        RpcMethodInvocationResponse(super::RpcMethodInvocationResponseRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 37, 38, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3692,12 +3715,6 @@ pub mod ffi_response {
         PublishTranscription(super::PublishTranscriptionResponse),
         #[prost(message, tag="14")]
         PublishSipDtmf(super::PublishSipDtmfResponse),
-        #[prost(message, tag="36")]
-        PerformRpcRequest(super::PerformRpcRequestResponse),
-        #[prost(message, tag="37")]
-        RegisterRpcMethod(super::RegisterRpcMethodResponse),
-        #[prost(message, tag="38")]
-        UnregisterRpcMethod(super::UnregisterRpcMethodResponse),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackResponse),
@@ -3743,6 +3760,15 @@ pub mod ffi_response {
         PushSoxResampler(super::PushSoxResamplerResponse),
         #[prost(message, tag="35")]
         FlushSoxResampler(super::FlushSoxResamplerResponse),
+        /// RPC
+        #[prost(message, tag="36")]
+        PerformRpcRequest(super::PerformRpcRequestResponse),
+        #[prost(message, tag="37")]
+        RegisterRpcMethod(super::RegisterRpcMethodResponse),
+        #[prost(message, tag="38")]
+        UnregisterRpcMethod(super::UnregisterRpcMethodResponse),
+        #[prost(message, tag="39")]
+        RpcMethodInvocationResponse(super::RpcMethodInvocationResponseResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
@@ -3806,7 +3832,7 @@ pub mod ffi_event {
         #[prost(message, tag="24")]
         UnregisterRpcMethod(super::UnregisterRpcMethodCallback),
         #[prost(message, tag="25")]
-        RpcMethodInvocation(super::RpcMethodInvocation),
+        RpcMethodInvocation(super::RpcMethodInvocationEvent),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

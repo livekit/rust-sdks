@@ -32,7 +32,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
+use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE, RpcError};
 
 pub mod audio_source;
 pub mod audio_stream;
@@ -82,6 +82,7 @@ pub struct FfiServer {
     config: Mutex<Option<FfiConfig>>,
     logger: &'static logger::FfiLogger,
     handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
+    rpc_response_senders: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 }
 
 impl Default for FfiServer {
@@ -120,6 +121,7 @@ impl Default for FfiServer {
             config: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
+            rpc_response_senders: Default::default(),
         }
     }
 }
@@ -240,5 +242,13 @@ impl FfiServer {
             }
         });
         handle
+    }
+
+    pub fn store_rpc_response_sender(&self, invocation_id: u64, sender: oneshot::Sender<Result<String, RpcError>>) {
+        self.rpc_response_senders.lock().insert(invocation_id, sender);
+    }
+
+    pub fn take_rpc_response_sender(&self, invocation_id: u64) -> Option<oneshot::Sender<Result<String, RpcError>>> {
+        self.rpc_response_senders.lock().remove(&invocation_id)
     }
 }
