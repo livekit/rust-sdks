@@ -3434,8 +3434,8 @@ pub struct PerformRpcRequestRequest {
     pub method: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
     pub payload: ::prost::alloc::string::String,
-    #[prost(uint32, tag="5")]
-    pub response_timeout_ms: u32,
+    #[prost(uint32, optional, tag="5")]
+    pub response_timeout_ms: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

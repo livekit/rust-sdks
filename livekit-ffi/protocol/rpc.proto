@@ -29,7 +29,7 @@ message PerformRpcRequestRequest {
   string destination_identity = 2;
   string method = 3;
   string payload = 4;
-  uint32 response_timeout_ms = 5;
+  optional uint32 response_timeout_ms = 5;
 }
 
 message RegisterRpcMethodRequest {

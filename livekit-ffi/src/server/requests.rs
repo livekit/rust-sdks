@@ -777,13 +777,13 @@ fn on_perform_rpc_request(
     match ffi_participant.participant {
         Participant::Local(local) => {
             tokio::spawn(async move {
-                log::warn!("on_perform_rpc_request - Spawned async task for RPC request");
+                log::warn!("on_perform_rpc_request - Spawned async task for RPC request to {:?} from {:?}", request.destination_identity, local.identity());
                 let result = local
                     .perform_rpc_request(
                         request.destination_identity,
                         request.method,
                         request.payload,
-                        Some(request.response_timeout_ms),
+                        request.response_timeout_ms,
                     )
                     .await;
 

@@ -608,7 +608,7 @@ impl LocalParticipant {
 
     pub async fn perform_rpc_request(
         &self,
-        recipient_identity: String,
+        destination_identity: String,
         method: String,
         payload: String,
         response_timeout_ms: Option<u32>,
@@ -627,7 +627,7 @@ impl LocalParticipant {
 
         match self
             .publish_rpc_request(
-                recipient_identity.clone(),
+                destination_identity.clone(),
                 id.clone(),
                 method.clone(),
                 payload.clone(),
