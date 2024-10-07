@@ -624,7 +624,6 @@ impl RoomSession {
                     log::warn!("Received RPC request with null sender identity");
                     return Ok(());
                 }
-                log::debug!("Received RPC request: {:?} sender: {:?} self: {:?}", request_id, sender_identity, self.local_participant.identity());
                 self.local_participant.handle_incoming_rpc_request(
                     sender_identity.unwrap(),
                     request_id,
