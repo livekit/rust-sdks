@@ -68,6 +68,14 @@ message RegisterRpcMethodCallback {
 }
 
 message UnregisterRpcMethodCallback {
-  uint64 async_id = 1;
+  uint64 async_id = 1;    
   optional string error = 2;
+}
+
+// FFI Events
+message RpcMethodInvocation {
+  string participant_identity = 1;
+  string method = 2;
+  string payload = 3;
+  uint32 timeout_ms = 4;
 }

@@ -182,6 +182,7 @@ message FfiEvent {
     PerformRpcRequestCallback perform_rpc_request = 22;
     RegisterRpcMethodCallback register_rpc_method = 23;
     UnregisterRpcMethodCallback unregister_rpc_method = 24;
+    RpcMethodInvocation rpc_method_invocation = 25;
   }
 }
 

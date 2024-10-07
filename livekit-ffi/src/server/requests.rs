@@ -853,9 +853,18 @@ fn on_register_rpc_method(
     match ffi_participant.participant {
         Participant::Local(local) => {
             tokio::spawn(async move {
-                local.register_rpc_method(request.method, move |participant_identity, method, payload, timeout| {
+                local.register_rpc_method(request.method.clone(), move |participant_identity, method, payload, timeout| {
                     Box::pin(async move {
-                        // TODO: implement
+                        let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
+                            proto::RpcMethodInvocation {
+                                participant_identity: participant_identity.to_string(),
+                                method,
+                                payload,
+                                timeout_ms: timeout.as_millis() as u32,
+                            },
+                        ));
+
+                        // TODO: wait for response
                         Ok(String::new())
                     })
                 });

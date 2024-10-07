@@ -3521,6 +3521,19 @@ pub struct UnregisterRpcMethodCallback {
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
+/// FFI Events
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RpcMethodInvocation {
+    #[prost(string, tag="1")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub method: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub payload: ::prost::alloc::string::String,
+    #[prost(uint32, tag="4")]
+    pub timeout_ms: u32,
+}
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
 // refer as the ffi client the foreign language that commumicates with the ffi server. (e.g Python SDK, Unity SDK, etc...)
@@ -3738,7 +3751,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3792,6 +3805,8 @@ pub mod ffi_event {
         RegisterRpcMethod(super::RegisterRpcMethodCallback),
         #[prost(message, tag="24")]
         UnregisterRpcMethod(super::UnregisterRpcMethodCallback),
+        #[prost(message, tag="25")]
+        RpcMethodInvocation(super::RpcMethodInvocation),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).
