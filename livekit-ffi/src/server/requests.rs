@@ -780,7 +780,7 @@ fn on_perform_rpc_request(
                 log::warn!("on_perform_rpc_request - Spawned async task for RPC request to {:?} from {:?}", request.destination_identity, local.identity());
                 let result = local
                     .perform_rpc_request(
-                        request.destination_identity,
+                        request.destination_identity.to_string(),
                         request.method,
                         request.payload,
                         request.response_timeout_ms,
