@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{slice, sync::Arc};
+use std::{slice, sync::Arc, time::Duration};
 
 use colorcvt::cvtimpl;
 use livekit::{
@@ -816,13 +816,15 @@ fn on_register_rpc_method(
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
+    let method = request.method.clone();
 
     match ffi_participant.participant {
         Participant::Local(local) => {
             tokio::spawn(async move {
                 local.register_rpc_method(
-                    request.method.clone(),
-                    move |participant_identity, method, payload, timeout| {
+                    method.clone(),
+                    Arc::new(move |request_id, participant_identity, payload, timeout| {
+                        let method = method.clone();
                         Box::pin(async move {
                             let (tx, rx) = oneshot::channel();
                             let invocation_id = server.next_id();
@@ -831,9 +833,10 @@ fn on_register_rpc_method(
                                 server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
                                     proto::RpcMethodInvocationEvent {
                                         invocation_id,
+                                        method: method,
+                                        request_id: request_id,
                                         participant_identity: participant_identity.to_string(),
-                                        method,
-                                        payload,
+                                        payload: payload,
                                         timeout_ms: timeout.as_millis() as u32,
                                     },
                                 ));
@@ -860,7 +863,7 @@ fn on_register_rpc_method(
                                 }),
                             }
                         })
-                    },
+                    }),
                 );
 
                 let callback = proto::RegisterRpcMethodCallback { async_id };

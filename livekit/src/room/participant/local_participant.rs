@@ -26,7 +26,7 @@ use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::participant::rpc::{RpcErrorCode, RpcError, MAX_PAYLOAD_BYTES},
+    room::participant::rpc::{RpcError, RpcErrorCode, MAX_PAYLOAD_BYTES},
     rtc_engine::{EngineError, RtcEngine},
     DataPacket,
     SipDTMF,
@@ -45,10 +45,10 @@ use uuid::Uuid;
 
 type RpcHandler = Arc<
     dyn Fn(
-            ParticipantIdentity,
-            String,
-            String,
-            Duration,
+        String, // request_id
+        ParticipantIdentity, // participant_identity
+        String, // payload
+        Duration, // response_timeout_ms
         ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
         + Send
         + Sync,
@@ -628,15 +628,16 @@ impl LocalParticipant {
         let (ack_tx, ack_rx) = oneshot::channel();
         let (response_tx, response_rx) = oneshot::channel();
 
-        match self.publish_rpc_request(
-            recipient_identity.clone(),
-            id.clone(),
-            method.clone(),
-            payload.clone(),
-            (response_timeout - max_round_trip_latency).as_millis() as u32,
-            1,
-        )
-        .await
+        match self
+            .publish_rpc_request(
+                recipient_identity.clone(),
+                id.clone(),
+                method.clone(),
+                payload.clone(),
+                (response_timeout - max_round_trip_latency).as_millis() as u32,
+                1,
+            )
+            .await
         {
             Ok(_) => {
                 self.local.pending_acks.lock().insert(id.clone(), ack_tx);
@@ -659,14 +660,19 @@ impl LocalParticipant {
                         Ok(result) => match result {
                             Ok(payload) => {
                                 if payload.len() > MAX_PAYLOAD_BYTES {
-                                    Err(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None))
+                                    Err(RpcError::built_in(
+                                        RpcErrorCode::ResponsePayloadTooLarge,
+                                        None,
+                                    ))
                                 } else {
                                     Ok(payload)
                                 }
                             }
                             Err(e) => Err(e),
                         },
-                        Err(_) => Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)),
+                        Err(_) => {
+                            Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
+                        }
                     },
                     Err(_) => {
                         self.local.pending_responses.lock().remove(&id);
@@ -682,20 +688,8 @@ impl LocalParticipant {
         }
     }
 
-    pub fn register_rpc_method(
-        &self,
-        method: String,
-        handler: impl Fn(
-                ParticipantIdentity,
-                String,
-                String,
-                Duration,
-            ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    ) {
-        self.local.rpc_handlers.lock().insert(method, Arc::new(handler));
+    pub fn register_rpc_method(&self, method: String, handler: RpcHandler) {
+        self.local.rpc_handlers.lock().insert(method, handler);
     }
 
     pub fn unregister_rpc_method(&self, method: String) {
@@ -734,8 +728,7 @@ impl LocalParticipant {
         payload: String,
         response_timeout_ms: u32,
     ) {
-        if let Err(e) =
-            self.publish_rpc_ack(sender_identity.to_string(), request_id.clone()).await
+        if let Err(e) = self.publish_rpc_ack(sender_identity.to_string(), request_id.clone()).await
         {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
@@ -745,8 +738,8 @@ impl LocalParticipant {
         let response = match handler {
             Some(handler) => {
                 handler(
-                    sender_identity.clone(),
                     request_id.clone(),
+                    sender_identity.clone(),
                     payload.clone(),
                     Duration::from_millis(response_timeout_ms as u64),
                 )
