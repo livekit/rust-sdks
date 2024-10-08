@@ -842,31 +842,16 @@ fn on_register_rpc_method(
 
                     server.store_rpc_response_sender(invocation_id, tx);
 
-                    match tokio::time::timeout(timeout, rx).await {
-                        Ok(result) => match result {
-                            Ok(response) => match response {
-                                Ok(payload) => {
-                                    Ok(payload)
-                                }
-                                Err(rpc_error) => {
-                                    Err(rpc_error)
-                                }
-                            },
-                            Err(_) => {
-                                Err(RpcError {
-                                    code: 500,
-                                    message: "Failed to receive RPC response".into(),
-                                    data: None,
-                                })
-                            }
+                    match rx.await {
+                        Ok(response) => match response {
+                            Ok(payload) => Ok(payload),
+                            Err(rpc_error) => Err(rpc_error),
                         },
-                        Err(_) => {
-                            Err(RpcError {
-                                code: 408,
-                                message: "RPC request timed out".into(),
-                                data: None,
-                            })
-                        }
+                        Err(_) => Err(RpcError {
+                            code: RpcErrorCode::ApplicationError as u32,
+                            message: "Error from method handler".to_string(),
+                            data: None,
+                        })
                     }
                 })
             },

@@ -49,29 +49,31 @@ impl RpcError {
 
 #[derive(Debug, Clone, Copy)]
 pub enum RpcErrorCode {
-    UncaughtError = 1001,
-    UnsupportedMethod = 1002,
-    ConnectionTimeout = 1003,
-    ResponseTimeout = 1004,
-    RecipientDisconnected = 1005,
-    RecipientNotFound = 1006,
-    RequestPayloadTooLarge = 1007,
-    ResponsePayloadTooLarge = 1008,
-    SendFailed = 1009,
+    ApplicationError = 1500,
+    ConnectionTimeout = 1501,
+    ResponseTimeout = 1502,
+    RecipientDisconnected = 1503,
+    ResponsePayloadTooLarge = 1504,
+    SendFailed = 1505,
+
+    UnsupportedMethod = 1400,
+    RecipientNotFound = 1401,
+    RequestPayloadTooLarge = 1402,
 }
 
 impl RpcErrorCode {
     pub(crate) fn message(&self) -> &'static str {
         match self {
-            Self::UncaughtError => "Uncaught application error",
-            Self::UnsupportedMethod => "Method not supported at destination",
+            Self::ApplicationError => "Application error in method handler",
             Self::ConnectionTimeout => "Connection timeout",
             Self::ResponseTimeout => "Response timeout",
             Self::RecipientDisconnected => "Recipient disconnected",
-            Self::RecipientNotFound => "Recipient not found",
-            Self::RequestPayloadTooLarge => "Request payload too large",
             Self::ResponsePayloadTooLarge => "Response payload too large",
             Self::SendFailed => "Failed to send",
+
+            Self::UnsupportedMethod => "Method not supported at destination",
+            Self::RecipientNotFound => "Recipient not found",
+            Self::RequestPayloadTooLarge => "Request payload too large",
         }
     }
 }

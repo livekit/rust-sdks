@@ -746,13 +746,20 @@ impl LocalParticipant {
 
         let response = match handler {
             Some(handler) => {
-                handler(
+                match tokio::task::spawn(handler(
                     request_id.clone(),
                     sender_identity.clone(),
                     payload.clone(),
                     Duration::from_millis(response_timeout_ms as u64),
-                )
+                ))
                 .await
+                {
+                    Ok(result) => result,
+                    Err(e) => {
+                        log::warn!("RPC method handler returned an error {}", e);
+                        Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
+                    },
+                }
             }
             None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
         };
