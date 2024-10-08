@@ -100,7 +100,7 @@ message FfiRequest {
     FlushSoxResamplerRequest flush_sox_resampler = 35;
 
     // RPC
-    PerformRpcRequestRequest perform_rpc_request = 36;
+    PerformRpcRequest perform_rpc = 36;
     RegisterRpcMethodRequest register_rpc_method = 37;
     UnregisterRpcMethodRequest unregister_rpc_method = 38;
     RpcMethodInvocationResponseRequest rpc_method_invocation_response = 39;
@@ -154,7 +154,7 @@ message FfiResponse {
     FlushSoxResamplerResponse flush_sox_resampler = 35;
 
     // RPC
-    PerformRpcRequestResponse perform_rpc_request = 36;
+    PerformRpcResponse perform_rpc = 36;
     RegisterRpcMethodResponse register_rpc_method = 37;
     UnregisterRpcMethodResponse unregister_rpc_method = 38;
     RpcMethodInvocationResponseResponse rpc_method_invocation_response = 39;
@@ -186,7 +186,7 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
-    PerformRpcRequestCallback perform_rpc_request = 22;
+    PerformRpcCallback perform_rpc = 22;
     RegisterRpcMethodCallback register_rpc_method = 23;
     UnregisterRpcMethodCallback unregister_rpc_method = 24;
     RpcMethodInvocationEvent rpc_method_invocation = 25;

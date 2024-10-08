@@ -3425,7 +3425,7 @@ pub struct RpcError {
 /// FFI Requests
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PerformRpcRequestRequest {
+pub struct PerformRpcRequest {
     #[prost(uint64, tag="1")]
     pub local_participant_handle: u64,
     #[prost(string, tag="2")]
@@ -3468,7 +3468,7 @@ pub struct RpcMethodInvocationResponseRequest {
 /// FFI Responses
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PerformRpcRequestResponse {
+pub struct PerformRpcResponse {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
 }
@@ -3493,7 +3493,7 @@ pub struct RpcMethodInvocationResponseResponse {
 /// FFI Callbacks
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PerformRpcRequestCallback {
+pub struct PerformRpcCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
     #[prost(string, optional, tag="2")]
@@ -3653,7 +3653,7 @@ pub mod ffi_request {
         FlushSoxResampler(super::FlushSoxResamplerRequest),
         /// RPC
         #[prost(message, tag="36")]
-        PerformRpcRequest(super::PerformRpcRequestRequest),
+        PerformRpc(super::PerformRpcRequest),
         #[prost(message, tag="37")]
         RegisterRpcMethod(super::RegisterRpcMethodRequest),
         #[prost(message, tag="38")]
@@ -3748,7 +3748,7 @@ pub mod ffi_response {
         FlushSoxResampler(super::FlushSoxResamplerResponse),
         /// RPC
         #[prost(message, tag="36")]
-        PerformRpcRequest(super::PerformRpcRequestResponse),
+        PerformRpc(super::PerformRpcResponse),
         #[prost(message, tag="37")]
         RegisterRpcMethod(super::RegisterRpcMethodResponse),
         #[prost(message, tag="38")]
@@ -3812,7 +3812,7 @@ pub mod ffi_event {
         #[prost(message, tag="21")]
         PublishSipDtmf(super::PublishSipDtmfCallback),
         #[prost(message, tag="22")]
-        PerformRpcRequest(super::PerformRpcRequestCallback),
+        PerformRpc(super::PerformRpcCallback),
         #[prost(message, tag="23")]
         RegisterRpcMethod(super::RegisterRpcMethodCallback),
         #[prost(message, tag="24")]

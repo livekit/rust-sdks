@@ -763,10 +763,10 @@ fn on_flush_sox_resampler(
     }
 }
 
-fn on_perform_rpc_request(
+fn on_perform_rpc(
     server: &'static FfiServer,
-    request: proto::PerformRpcRequestRequest,
-) -> FfiResult<proto::PerformRpcRequestResponse> {
+    request: proto::PerformRpcRequest,
+) -> FfiResult<proto::PerformRpcResponse> {
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
@@ -781,7 +781,7 @@ fn on_perform_rpc_request(
 
     let handle = server.async_runtime.spawn(async move {
         let result = local
-            .perform_rpc_request(
+            .perform_rpc(
                 request.destination_identity.to_string(),
                 request.method,
                 request.payload,
@@ -789,7 +789,7 @@ fn on_perform_rpc_request(
             )
             .await;
 
-        let callback = proto::PerformRpcRequestCallback {
+        let callback = proto::PerformRpcCallback {
             async_id,
             payload: result.as_ref().ok().cloned(),
             error: result.as_ref().err().map(|error| proto::RpcError {
@@ -799,10 +799,10 @@ fn on_perform_rpc_request(
             }),
         };
 
-        let _ = server.send_event(proto::ffi_event::Message::PerformRpcRequest(callback));
+        let _ = server.send_event(proto::ffi_event::Message::PerformRpc(callback));
     });
     server.watch_panic(handle);
-    Ok(proto::PerformRpcRequestResponse { async_id })
+    Ok(proto::PerformRpcResponse { async_id })
 }
 
 fn on_register_rpc_method(
@@ -1053,8 +1053,8 @@ pub fn handle_request(
                 server, flush_soxr,
             )?)
         }
-        proto::ffi_request::Message::PerformRpcRequest(request) => {
-            proto::ffi_response::Message::PerformRpcRequest(on_perform_rpc_request(
+        proto::ffi_request::Message::PerformRpc(request) => {
+            proto::ffi_response::Message::PerformRpc(on_perform_rpc(
                 server, request,
             )?)
         }

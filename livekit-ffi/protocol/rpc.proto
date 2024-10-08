@@ -24,7 +24,7 @@ message RpcError {
 }
 
 // FFI Requests
-message PerformRpcRequestRequest {
+message PerformRpcRequest {
   uint64 local_participant_handle = 1;
   string destination_identity = 2;
   string method = 3;
@@ -50,7 +50,7 @@ message RpcMethodInvocationResponseRequest {
 }
 
 // FFI Responses
-message PerformRpcRequestResponse {
+message PerformRpcResponse {
   uint64 async_id = 1;
 }
 
@@ -67,7 +67,7 @@ message RpcMethodInvocationResponseResponse {
 }
 
 // FFI Callbacks
-message PerformRpcRequestCallback {
+message PerformRpcCallback {
   uint64 async_id = 1;
   optional string payload = 2;
   optional RpcError error = 3;

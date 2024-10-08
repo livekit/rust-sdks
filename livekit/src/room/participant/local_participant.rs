@@ -606,7 +606,7 @@ impl LocalParticipant {
         self.inner.info.read().kind
     }
 
-    pub async fn perform_rpc_request(
+    pub async fn perform_rpc(
         &self,
         destination_identity: String,
         method: String,

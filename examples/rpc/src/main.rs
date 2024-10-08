@@ -79,7 +79,7 @@ async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: 
 
 async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
     println!("[Caller] Letting the greeter know that I've arrived");
-    match room.local_participant().perform_rpc_request("greeter".to_string(), "arrival".to_string(), "Hello".to_string(), None).await {
+    match room.local_participant().perform_rpc("greeter".to_string(), "arrival".to_string(), "Hello".to_string(), None).await {
         Ok(response) => println!("[Caller] That's nice, the greeter said: \"{}\"", response),
         Err(e) => println!("[Caller] RPC call failed: {:?}", e),
     }
@@ -88,7 +88,7 @@ async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
 
 async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
     println!("[Caller] What's the square root of 16?");
-    match room.local_participant().perform_rpc_request("math-genius".to_string(), "square-root".to_string(), json!({"number": 16}).to_string(), None).await {
+    match room.local_participant().perform_rpc("math-genius".to_string(), "square-root".to_string(), json!({"number": 16}).to_string(), None).await {
         Ok(response) => {
             let parsed_response: Value = serde_json::from_str(&response)?;
             println!("[Caller] Nice, the answer was {}", parsed_response["result"]);
@@ -100,7 +100,7 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
 
 async fn perform_quantum_hypergeometric_series(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
     println!("[Caller] What's the quantum hypergeometric series of 42?");
-    match room.local_participant().perform_rpc_request("math-genius".to_string(), "quantum-hypergeometric-series".to_string(), json!({"number": 42}).to_string(), None).await {
+    match room.local_participant().perform_rpc("math-genius".to_string(), "quantum-hypergeometric-series".to_string(), json!({"number": 42}).to_string(), None).await {
         Ok(response) => {
             let parsed_response: Value = serde_json::from_str(&response)?;
             println!("[Caller] genius says {}!", parsed_response["result"]);
