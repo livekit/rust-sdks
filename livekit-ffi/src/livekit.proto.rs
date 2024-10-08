@@ -3518,6 +3518,8 @@ pub struct UnregisterRpcMethodCallback {
 pub struct RpcMethodInvocationResponseCallback {
     #[prost(uint64, tag="1")]
     pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// FFI Events
 #[allow(clippy::derive_partial_eq_without_eq)]

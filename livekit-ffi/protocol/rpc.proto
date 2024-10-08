@@ -83,6 +83,7 @@ message UnregisterRpcMethodCallback {
 
 message RpcMethodInvocationResponseCallback {
   uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // FFI Events

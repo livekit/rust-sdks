@@ -898,19 +898,25 @@ fn on_rpc_method_invocation_response(
 ) -> FfiResult<proto::RpcMethodInvocationResponseResponse> {
     let async_id = server.next_id();
 
-    if let Some(sender) = server.take_rpc_response_sender(request.invocation_id) {
-        let result = if let Some(error) = request.error {
-            Err(RpcError { code: error.code, message: error.message, data: Some(error.data) })
+    let handle = server.async_runtime.spawn(async move {
+        let mut error: Option<String>= None;
+
+        if let Some(sender) = server.take_rpc_response_sender(request.invocation_id) {
+            let result = if let Some(error) = request.error.clone() {
+                Err(RpcError { code: error.code, message: error.message, data: Some(error.data) })
+            } else {
+                Ok(request.payload.unwrap_or_default())
+            };
+            let _ = sender.send(result);
         } else {
-            Ok(request.payload.unwrap_or_default())
-        };
-        let _ = sender.send(result);
-    } else {
-    }
+            error = Some("No sender found".to_string());
+        }
 
-    let callback = proto::RpcMethodInvocationResponseCallback { async_id };
-    let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocationResponse(callback));
+        let callback = proto::RpcMethodInvocationResponseCallback { async_id, error };
+        let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocationResponse(callback));
+    });
 
+    server.watch_panic(handle);
     Ok(proto::RpcMethodInvocationResponseResponse { async_id })
 }
 
