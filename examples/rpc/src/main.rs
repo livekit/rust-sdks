@@ -32,6 +32,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n\nRunning greeting example...");
     perform_greeting(&callers_room).await?;
 
+    println!("\n\nRunning error handling example...");
+    perform_division(&callers_room).await?;
+
     println!("\n\nRunning math example...");
     perform_square_root(&callers_room).await?;
     sleep(Duration::from_secs(2)).await;
@@ -75,6 +78,24 @@ async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: 
             Ok(json!({"result": result}).to_string())
         })
     });
+
+    math_genius_room.local_participant().register_rpc_method("divide".to_string(), |_, caller_identity, payload, _| {
+        Box::pin(async move {
+            let json_data: Value = serde_json::from_str(&payload).unwrap();
+            let dividend = json_data["dividend"].as_i64().unwrap();
+            let divisor = json_data["divisor"].as_i64().unwrap();
+            println!(
+                "[Math Genius] {} wants me to divide {} by {}.",
+                caller_identity,
+                dividend,
+                divisor
+            );
+
+            let result = dividend / divisor;
+            println!("[Math Genius] The result is {}", result);
+            Ok(json!({"result": result}).to_string())
+        })
+    });
 }
 
 async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
@@ -113,6 +134,22 @@ async fn perform_quantum_hypergeometric_series(room: &Arc<Room>) -> Result<(), B
             log::error!("[Caller] RPC error: {} (code: {})", e.message, e.code);
         },
     }
+    Ok(())
+}
+
+async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
+    println!("[Caller] Let's try dividing 5 by 0");
+    match room.local_participant().perform_rpc("math-genius".to_string(), "divide".to_string(), json!({"dividend": 5, "divisor": 0}).to_string(), None).await {
+        Ok(response) => {
+            let parsed_response: Value = serde_json::from_str(&response)?;
+            println!("[Caller] The result is {}", parsed_response["result"]);
+        },
+        Err(e) => {
+            println!("[Caller] Oops! Dividing by zero didn't work. That's ok...");
+            log::error!("[Caller] RPC error: {} (code: {})", e.message, e.code);
+        },
+    }
+
     Ok(())
 }
 
