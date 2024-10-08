@@ -964,6 +964,10 @@ fn on_rpc_method_invocation_response(
     } else {
         log::warn!("on_rpc_method_invocation_response - No sender found for invocation_id={}", request.invocation_id);
     }
+
+    let callback = proto::RpcMethodInvocationResponseCallback { async_id };
+    let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocationResponse(callback));
+
     log::warn!("on_rpc_method_invocation_response - Returning response with async_id: {}", async_id);
     Ok(proto::RpcMethodInvocationResponseResponse { async_id })
 }

@@ -3761,7 +3761,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3817,6 +3817,8 @@ pub mod ffi_event {
         UnregisterRpcMethod(super::UnregisterRpcMethodCallback),
         #[prost(message, tag="25")]
         RpcMethodInvocation(super::RpcMethodInvocationEvent),
+        #[prost(message, tag="26")]
+        RpcMethodInvocationResponse(super::RpcMethodInvocationResponseCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).
