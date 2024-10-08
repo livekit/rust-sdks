@@ -914,7 +914,7 @@ async fn forward_event(
                 data_ptr: payload.as_ptr() as u64,
                 data_len: payload.len() as u64,
             };
-            let (sid, identity) = match participant {
+            let (_sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
@@ -954,7 +954,7 @@ async fn forward_event(
             ));
         }
         RoomEvent::SipDTMFReceived { code, digit, participant } => {
-            let (sid, identity) = match participant {
+            let (_sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
