@@ -470,11 +470,26 @@ impl EngineInner {
                 let _ =
                     self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
             }
-            SessionEvent::RpcRequest { sender_identity, request_id, method, payload, response_timeout_ms, version } => {
-                let _ = self.engine_tx.send(EngineEvent::RpcRequest { sender_identity, request_id, method, payload, response_timeout_ms, version });
+            SessionEvent::RpcRequest {
+                sender_identity,
+                request_id,
+                method,
+                payload,
+                response_timeout_ms,
+                version,
+            } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcRequest {
+                    sender_identity,
+                    request_id,
+                    method,
+                    payload,
+                    response_timeout_ms,
+                    version,
+                });
             }
             SessionEvent::RpcResponse { request_id, payload, error } => {
-                let _ = self.engine_tx.send(EngineEvent::RpcResponse { request_id, payload, error });
+                let _ =
+                    self.engine_tx.send(EngineEvent::RpcResponse { request_id, payload, error });
             }
             SessionEvent::RpcAck { request_id } => {
                 let _ = self.engine_tx.send(EngineEvent::RpcAck { request_id });

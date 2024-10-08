@@ -771,10 +771,12 @@ fn on_perform_rpc_request(
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
-    
+
     let local = match ffi_participant.participant {
         Participant::Local(local) => local.clone(),
-        Participant::Remote(_) => return Err(FfiError::InvalidRequest("Expected local participant".into())),
+        Participant::Remote(_) => {
+            return Err(FfiError::InvalidRequest("Expected local participant".into()))
+        }
     };
 
     let handle = server.async_runtime.spawn(async move {
@@ -815,7 +817,9 @@ fn on_register_rpc_method(
 
     let local = match ffi_participant.participant {
         Participant::Local(local) => local.clone(),
-        Participant::Remote(_) => return Err(FfiError::InvalidRequest("Expected local participant".into())),
+        Participant::Remote(_) => {
+            return Err(FfiError::InvalidRequest("Expected local participant".into()))
+        }
     };
 
     let handle = server.async_runtime.spawn(async move {
@@ -827,18 +831,17 @@ fn on_register_rpc_method(
                     let (tx, rx) = oneshot::channel();
                     let invocation_id = server.next_id();
 
-                    let _ =
-                        server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
-                            proto::RpcMethodInvocationEvent {
-                                local_participant_handle: ffi_participant.handle,
-                                invocation_id,
-                                method: method,
-                                request_id: request_id,
-                                participant_identity: participant_identity.into(),
-                                payload: payload,
-                                timeout_ms: timeout.as_millis() as u32,
-                            },
-                        ));
+                    let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
+                        proto::RpcMethodInvocationEvent {
+                            local_participant_handle: ffi_participant.handle,
+                            invocation_id,
+                            method: method,
+                            request_id: request_id,
+                            participant_identity: participant_identity.into(),
+                            payload: payload,
+                            timeout_ms: timeout.as_millis() as u32,
+                        },
+                    ));
 
                     server.store_rpc_response_sender(invocation_id, tx);
 
@@ -851,7 +854,7 @@ fn on_register_rpc_method(
                             code: RpcErrorCode::ApplicationError as u32,
                             message: "Error from method handler".to_string(),
                             data: None,
-                        })
+                        }),
                     }
                 })
             },
@@ -877,9 +880,11 @@ fn on_unregister_rpc_method(
 
     let local = match ffi_participant.participant {
         Participant::Local(local) => local.clone(),
-        Participant::Remote(_) => return Err(FfiError::InvalidRequest("Expected local participant".into())),
+        Participant::Remote(_) => {
+            return Err(FfiError::InvalidRequest("Expected local participant".into()))
+        }
     };
-    
+
     let handle = server.async_runtime.spawn(async move {
         local.unregister_rpc_method(request.method);
 
@@ -899,7 +904,7 @@ fn on_rpc_method_invocation_response(
     let async_id = server.next_id();
 
     let handle = server.async_runtime.spawn(async move {
-        let mut error: Option<String>= None;
+        let mut error: Option<String> = None;
 
         if let Some(sender) = server.take_rpc_response_sender(request.invocation_id) {
             let result = if let Some(error) = request.error.clone() {
@@ -1064,9 +1069,9 @@ pub fn handle_request(
             )?)
         }
         proto::ffi_request::Message::RpcMethodInvocationResponse(request) => {
-            proto::ffi_response::Message::RpcMethodInvocationResponse(on_rpc_method_invocation_response(
-                server, request,
-            )?)
+            proto::ffi_response::Message::RpcMethodInvocationResponse(
+                on_rpc_method_invocation_response(server, request)?,
+            )
         }
     });
 

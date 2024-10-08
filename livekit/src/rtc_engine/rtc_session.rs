@@ -680,7 +680,8 @@ impl SessionInner {
                                 .not()
                                 .then_some(data.participant_identity.clone());
                             let _ = self.emitter.send(SessionEvent::RpcRequest {
-                                sender_identity: participant_identity.map(|s| s.try_into().unwrap()),
+                                sender_identity: participant_identity
+                                    .map(|s| s.try_into().unwrap()),
                                 request_id: rpc_request.id.clone(),
                                 method: rpc_request.method.clone(),
                                 payload: rpc_request.payload.clone(),
@@ -689,11 +690,12 @@ impl SessionInner {
                             });
                         }
                         proto::data_packet::Value::RpcResponse(rpc_response) => {
-
                             let _ = self.emitter.send(SessionEvent::RpcResponse {
                                 request_id: rpc_response.request_id.clone(),
                                 payload: rpc_response.value.as_ref().and_then(|v| match v {
-                                    proto::rpc_response::Value::Payload(payload) => Some(payload.clone()),
+                                    proto::rpc_response::Value::Payload(payload) => {
+                                        Some(payload.clone())
+                                    }
                                     _ => None,
                                 }),
                                 error: rpc_response.value.as_ref().and_then(|v| match v {

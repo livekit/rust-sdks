@@ -624,13 +624,15 @@ impl RoomSession {
                     log::warn!("Received RPC request with null sender identity");
                     return Ok(());
                 }
-                self.local_participant.handle_incoming_rpc_request(
-                    sender_identity.unwrap(),
-                    request_id,
-                    method,
-                    payload,
-                    response_timeout_ms,
-                ).await;
+                self.local_participant
+                    .handle_incoming_rpc_request(
+                        sender_identity.unwrap(),
+                        request_id,
+                        method,
+                        payload,
+                        response_timeout_ms,
+                    )
+                    .await;
             }
             EngineEvent::RpcResponse { request_id, payload, error } => {
                 self.local_participant.handle_incoming_rpc_response(request_id, payload, error);

@@ -758,7 +758,7 @@ impl LocalParticipant {
                     Err(e) => {
                         log::warn!("RPC method handler returned an error {}", e);
                         Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
-                    },
+                    }
                 }
             }
             None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
