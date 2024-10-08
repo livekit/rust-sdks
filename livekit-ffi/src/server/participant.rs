@@ -93,7 +93,7 @@ impl FfiParticipant {
         let handle = server.async_runtime.spawn(async move {
             local.register_rpc_method(
                 method.clone(),
-                move |request_id, caller_identity, payload, timeout| {
+                move |request_id, caller_identity, payload, response_timeout| {
                     let method = method.clone();
                     Box::pin(async move {
                         let (tx, rx) = oneshot::channel();
@@ -107,7 +107,7 @@ impl FfiParticipant {
                                 request_id: request_id,
                                 caller_identity: caller_identity.into(),
                                 payload: payload,
-                                timeout_ms: timeout.as_millis() as u32,
+                                response_timeout_ms: response_timeout.as_millis() as u32,
                             },
                         ));
 

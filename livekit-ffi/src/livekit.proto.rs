@@ -3538,7 +3538,7 @@ pub struct RpcMethodInvocationEvent {
     #[prost(string, tag="6")]
     pub payload: ::prost::alloc::string::String,
     #[prost(uint32, tag="7")]
-    pub timeout_ms: u32,
+    pub response_timeout_ms: u32,
 }
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
