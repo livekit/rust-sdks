@@ -843,7 +843,7 @@ fn on_register_rpc_method(
                         },
                     ));
 
-                    server.store_rpc_response_sender(invocation_id, tx);
+                    server.store_rpc_method_invocation_waiter(invocation_id, tx);
 
                     match rx.await {
                         Ok(response) => match response {
@@ -906,13 +906,13 @@ fn on_rpc_method_invocation_response(
     let handle = server.async_runtime.spawn(async move {
         let mut error: Option<String> = None;
 
-        if let Some(sender) = server.take_rpc_response_sender(request.invocation_id) {
+        if let Some(waiter) = server.take_rpc_method_invocation_waiter(request.invocation_id) {
             let result = if let Some(error) = request.error.clone() {
                 Err(RpcError { code: error.code, message: error.message, data: Some(error.data) })
             } else {
                 Ok(request.payload.unwrap_or_default())
             };
-            let _ = sender.send(result);
+            let _ = waiter.send(result);
         } else {
             error = Some("No sender found".to_string());
         }
