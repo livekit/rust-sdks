@@ -3522,7 +3522,7 @@ pub struct RpcMethodInvocationResponseCallback {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RpcMethodInvocationEvent {
     #[prost(uint64, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     #[prost(uint64, tag="2")]
     pub invocation_id: u64,
     #[prost(string, tag="3")]
