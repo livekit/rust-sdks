@@ -20,6 +20,12 @@ pub struct Promise<T> {
     result: Mutex<Option<T>>,
 }
 
+impl<T: Clone> Default for Promise<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Clone> Promise<T> {
     pub fn new() -> Self {
         let (tx, rx) = oneshot::channel();

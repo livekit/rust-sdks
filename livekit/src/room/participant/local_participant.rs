@@ -15,7 +15,7 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{self, Arc},
+    sync::{Arc},
     time::Duration,
 };
 
@@ -385,19 +385,19 @@ impl LocalParticipant {
             .segments
             .into_iter()
             .map(
-                (|segment| proto::TranscriptionSegment {
+                |segment| proto::TranscriptionSegment {
                     id: segment.id,
                     start_time: segment.start_time,
                     end_time: segment.end_time,
                     text: segment.text,
                     r#final: segment.r#final,
                     language: segment.language,
-                }),
+                },
             )
             .collect();
         let transcription_packet = proto::Transcription {
             transcribed_participant_identity: packet.participant_identity,
-            segments: segments,
+            segments,
             track_id: packet.track_id,
         };
         let data = proto::DataPacket {

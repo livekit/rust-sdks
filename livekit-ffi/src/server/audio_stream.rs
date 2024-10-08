@@ -66,7 +66,7 @@ impl FfiAudioStream {
                     if new_stream.num_channels == 0 { 1 } else { new_stream.num_channels as i32 };
 
                 let native_stream =
-                    NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
+                    NativeAudioStream::new(rtc_track, sample_rate, num_channels);
                 let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     handle_id,
@@ -177,7 +177,6 @@ impl FfiAudioStream {
                             };
                             if t.sid() == track.sid() {
                                 handle_dropped_tx.send(()).ok();
-                                return
                             }
                         }
                     }
@@ -211,7 +210,7 @@ impl FfiAudioStream {
         }
         if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
             proto::AudioStreamEvent {
-                stream_handle: stream_handle,
+                stream_handle,
                 message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
             },
         )) {

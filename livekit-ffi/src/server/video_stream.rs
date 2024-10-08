@@ -63,7 +63,7 @@ impl FfiVideoStream {
                 let handle = server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
-                    new_stream.format.and_then(|_| Some(new_stream.format())),
+                    new_stream.format.map(|_| new_stream.format()),
                     new_stream.normalize_stride,
                     NativeVideoStream::new(rtc_track),
                     self_dropped_rx,
@@ -93,7 +93,7 @@ impl FfiVideoStream {
         let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
         let stream_type = request.r#type();
         let handle_id = server.next_id();
-        let dst_type = request.format.and_then(|_| Some(request.format()));
+        let dst_type = request.format.map(|_| request.format());
         let stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
@@ -237,7 +237,6 @@ impl FfiVideoStream {
                             };
                             if t.sid() == track.sid() {
                                 handle_dropped_tx.send(()).ok();
-                                return
                             }
                         }
                     }

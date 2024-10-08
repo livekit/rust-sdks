@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
     error::Error,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -28,7 +27,7 @@ use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
 use tokio::{
-    sync::{broadcast, oneshot},
+    sync::oneshot,
     task::JoinHandle,
 };
 
@@ -203,7 +202,7 @@ impl FfiServer {
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
         let existed = self.ffi_handles.remove(&id).is_some();
         self.handle_dropped_txs.remove(&id);
-        return existed;
+        existed
     }
 
     pub fn watch_handle_dropped(&self, handle: FfiHandleId) -> oneshot::Receiver<()> {
@@ -214,7 +213,7 @@ impl FfiServer {
         let (tx, rx) = oneshot::channel::<()>();
         let mut tx_vec = self.handle_dropped_txs.get_mut(&handle).unwrap();
         tx_vec.push(tx);
-        return rx;
+        rx
     }
 
     pub fn send_panic(&self, err: Box<dyn Error>) {
@@ -227,7 +226,8 @@ impl FfiServer {
     where
         O: Send + 'static,
     {
-        let handle = self.async_runtime.spawn(async move {
+        
+        self.async_runtime.spawn(async move {
             match handle.await {
                 Ok(r) => r,
                 Err(e) => {
@@ -238,7 +238,6 @@ impl FfiServer {
                     panic!("watch_panic: task panicked");
                 }
             }
-        });
-        handle
+        })
     }
 }

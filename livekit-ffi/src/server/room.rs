@@ -16,13 +16,11 @@ use std::collections::HashMap;
 use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
 use livekit::prelude::*;
-use livekit::{participant, track};
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
-use crate::conversion::room;
 use crate::{
     proto,
     server::{FfiHandle, FfiServer},
@@ -182,7 +180,7 @@ impl FfiRoom {
                     ));
 
                     // Update Room SID on promise resolve
-                    let room_handle = inner.handle_id.clone();
+                    let room_handle = inner.handle_id;
                     server.async_runtime.spawn(async move {
                         let _ = server.send_event(proto::ffi_event::Message::RoomEvent(
                             proto::RoomEvent {
@@ -298,7 +296,7 @@ impl RoomInner {
                 topic,
                 destination_identities: destination_identities
                     .into_iter()
-                    .map(|str| str.try_into().unwrap())
+                    .map(|str| str.into())
                     .collect(),
             },
             async_id,
@@ -371,7 +369,7 @@ impl RoomInner {
                 digit,
                 destination_identities: destination_identities
                     .into_iter()
-                    .map(|str| str.try_into().unwrap())
+                    .map(|str| str.into())
                     .collect(),
             },
             async_id,
@@ -949,14 +947,8 @@ async fn forward_event(
                 })
                 .collect();
 
-            let track_sid: Option<String> = match track_publication {
-                Some(p) => Some(p.sid().to_string()),
-                None => None,
-            };
-            let participant_identity: Option<String> = match participant {
-                Some(p) => Some(p.identity().to_string()),
-                None => None,
-            };
+            let track_sid: Option<String> = track_publication.map(|p| p.sid().to_string());
+            let participant_identity: Option<String> = participant.map(|p| p.identity().to_string());
             let _ = send_event(proto::room_event::Message::TranscriptionReceived(
                 proto::TranscriptionReceived { participant_identity, segments, track_sid },
             ));

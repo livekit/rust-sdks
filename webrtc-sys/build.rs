@@ -238,7 +238,7 @@ fn get_output_path() -> PathBuf {
     let build_target = env::var("TARGET").unwrap();
     let path =
         Path::new(&manifest_dir_string).join("../target").join(build_target).join(build_type);
-    return PathBuf::from(path);
+    path
 }
 
 fn configure_darwin_sysroot(builder: &mut cc::Build) {

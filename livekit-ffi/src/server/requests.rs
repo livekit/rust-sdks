@@ -26,7 +26,7 @@ use super::{
     room::{self, FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
-use crate::{conversion::track, proto};
+use crate::proto;
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -258,7 +258,7 @@ fn on_local_track_mute(
         _ => return Err(FfiError::InvalidRequest("track is not a local track".into())),
     }
 
-    Ok(proto::LocalTrackMuteResponse { muted: muted })
+    Ok(proto::LocalTrackMuteResponse { muted })
 }
 
 fn on_enable_remote_track(
@@ -288,7 +288,7 @@ fn on_enable_remote_track(
         _ => return Err(FfiError::InvalidRequest("track is not a remote track".into())),
     }
 
-    Ok(proto::EnableRemoteTrackResponse { enabled: enabled })
+    Ok(proto::EnableRemoteTrackResponse { enabled })
 }
 
 /// Retrieve the stats from a track
@@ -730,7 +730,7 @@ fn on_push_sox_resampler(
 
             Ok(proto::PushSoxResamplerResponse {
                 output_ptr: output.as_ptr() as u64,
-                size: (output.len() * std::mem::size_of::<i16>()) as u32,
+                size: std::mem::size_of_val(output) as u32,
                 ..Default::default()
             })
         }
@@ -752,7 +752,7 @@ fn on_flush_sox_resampler(
     match resampler.flush() {
         Ok(output) => Ok(proto::FlushSoxResamplerResponse {
             output_ptr: output.as_ptr() as u64,
-            size: (output.len() * std::mem::size_of::<i16>()) as u32,
+            size: std::mem::size_of_val(output) as u32,
             ..Default::default()
         }),
         Err(e) => Ok(proto::FlushSoxResamplerResponse {

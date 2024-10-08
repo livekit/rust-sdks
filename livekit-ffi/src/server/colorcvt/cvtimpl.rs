@@ -31,7 +31,7 @@ pub unsafe fn cvt_rgba(
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
     let data_len = (stride * height) as usize;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len) };
 
     match dst_type {
         proto::VideoBufferType::I420 => {
@@ -77,7 +77,7 @@ pub unsafe fn cvt_abgr(
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
     let data_len = (stride * height) as usize;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len) };
 
     match dst_type {
         proto::VideoBufferType::I420 => {
@@ -123,7 +123,7 @@ pub unsafe fn cvt_argb(
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Argb);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
     let data_len = (stride * height) as usize;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len) };
 
     match dst_type {
         proto::VideoBufferType::I420 => {
@@ -168,7 +168,7 @@ pub unsafe fn cvt_bgra(
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Bgra);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
     let data_len = (stride * height) as usize;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len) };
 
     match dst_type {
         proto::VideoBufferType::I420 => {
@@ -213,7 +213,7 @@ pub unsafe fn cvt_rgb24(
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgb24);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
     let data_len = (stride * height) as usize;
-    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len) };
 
     match dst_type {
         proto::VideoBufferType::I420 => {
@@ -245,7 +245,7 @@ pub unsafe fn cvt_rgb24(
             Ok((dst, info))
         }
         _ => {
-            return Err(FfiError::InvalidRequest(
+            Err(FfiError::InvalidRequest(
                 format!("rgb24 to {:?} is not supported", dst_type).into(),
             ))
         }
@@ -338,7 +338,7 @@ pub unsafe fn cvt_i420(
             Ok((dst, info))
         }
         _ => {
-            return Err(FfiError::InvalidRequest(
+            Err(FfiError::InvalidRequest(
                 format!("i420 to {:?} is not supported", dst_type).into(),
             ))
         }
@@ -427,7 +427,7 @@ pub unsafe fn cvt_i420a(
             Ok((dst, info))
         }
         _ => {
-            return Err(FfiError::InvalidRequest(
+            Err(FfiError::InvalidRequest(
                 format!("i420a to {:?} is not supported", dst_type).into(),
             ))
         }
@@ -534,7 +534,7 @@ pub unsafe fn cvt_i422(
             Ok((dst, info))
         }
         _ => {
-            return Err(FfiError::InvalidRequest(
+            Err(FfiError::InvalidRequest(
                 format!("i422 to {:?} is not supported", dst_type).into(),
             ))
         }
@@ -640,7 +640,7 @@ pub unsafe fn cvt_i444(
             Ok((dst, info))
         }
         _ => {
-            return Err(FfiError::InvalidRequest(
+            Err(FfiError::InvalidRequest(
                 format!("i444 to {:?} is not supported", dst_type).into(),
             ))
         }
@@ -716,7 +716,7 @@ pub unsafe fn cvt_i010(
             Ok((dst, info))
         }
         _ => {
-            return Err(FfiError::InvalidRequest(
+            Err(FfiError::InvalidRequest(
                 format!("i010 to {:?} is not supported", dst_type).into(),
             ))
         }
@@ -817,7 +817,7 @@ pub unsafe fn cvt_nv12(
             Ok((dst, info))
         }
         _ => {
-            return Err(FfiError::InvalidRequest(
+            Err(FfiError::InvalidRequest(
                 format!("nv12 to {:?} is not supported", dst_type).into(),
             ))
         }

@@ -194,6 +194,7 @@ pub enum DataPacketKind {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct DataPacket {
     pub payload: Vec<u8>,
     pub topic: Option<String>,
@@ -201,16 +202,6 @@ pub struct DataPacket {
     pub destination_identities: Vec<ParticipantIdentity>,
 }
 
-impl Default for DataPacket {
-    fn default() -> Self {
-        Self {
-            payload: Vec::new(),
-            topic: None,
-            reliable: false,
-            destination_identities: Vec::new(),
-        }
-    }
-}
 
 #[derive(Default, Debug, Clone)]
 pub struct Transcription {
@@ -1264,7 +1255,7 @@ impl RoomSession {
         if identity == &self.local_participant.identity() {
             return Some(Participant::Local(self.local_participant.clone()));
         }
-        return self.get_participant_by_identity(identity).map(Participant::Remote);
+        self.get_participant_by_identity(identity).map(Participant::Remote)
     }
 }
 
