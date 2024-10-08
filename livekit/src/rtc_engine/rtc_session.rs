@@ -596,69 +596,72 @@ impl SessionInner {
                 }
 
                 let data = proto::DataPacket::decode(&*data).unwrap();
-                match data.value.as_ref().unwrap() {
-                    proto::data_packet::Value::User(user) => {
-                        let participant_sid = user
-                            .participant_sid
-                            .is_empty()
-                            .not()
-                            .then_some(user.participant_sid.clone());
+                if let Some(packet) = data.value.as_ref() {
+                    match packet {
+                        proto::data_packet::Value::User(user) => {
+                            let participant_sid = user
+                                .participant_sid
+                                .is_empty()
+                                .not()
+                                .then_some(user.participant_sid.clone());
 
-                        let participant_identity = if !data.participant_identity.is_empty() {
-                            Some(data.participant_identity.clone())
-                        } else if !user.participant_identity.is_empty() {
-                            Some(user.participant_identity.clone())
-                        } else {
-                            None
-                        };
+                            let participant_identity = if !data.participant_identity.is_empty() {
+                                Some(data.participant_identity.clone())
+                            } else if !user.participant_identity.is_empty() {
+                                Some(user.participant_identity.clone())
+                            } else {
+                                None
+                            };
 
-                        let _ = self.emitter.send(SessionEvent::Data {
-                            kind: data.kind().into(),
-                            participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
-                            participant_identity: participant_identity
-                                .map(|s| s.try_into().unwrap()),
-                            payload: user.payload.clone(),
-                            topic: user.topic.clone(),
-                        });
-                    }
-                    proto::data_packet::Value::SipDtmf(dtmf) => {
-                        let participant_identity = data
-                            .participant_identity
-                            .is_empty()
-                            .not()
-                            .then_some(data.participant_identity.clone());
-                        let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
+                            let _ = self.emitter.send(SessionEvent::Data {
+                                kind: data.kind().into(),
+                                participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
+                                participant_identity: participant_identity
+                                    .map(|s| s.try_into().unwrap()),
+                                payload: user.payload.clone(),
+                                topic: user.topic.clone(),
+                            });
+                        }
+                        proto::data_packet::Value::SipDtmf(dtmf) => {
+                            let participant_identity = data
+                                .participant_identity
+                                .is_empty()
+                                .not()
+                                .then_some(data.participant_identity.clone());
+                            let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
 
-                        let _ = self.emitter.send(SessionEvent::SipDTMF {
-                            participant_identity: participant_identity
-                                .map(|s| s.try_into().unwrap()),
-                            digit: digit.map(|s| s.try_into().unwrap()),
-                            code: dtmf.code,
-                        });
-                    }
-                    proto::data_packet::Value::Speaker(_) => {}
-                    proto::data_packet::Value::Transcription(transcription) => {
-                        let track_sid = transcription.track_id.clone();
-                        // let segments = transcription.segments.clone();
-                        let segments = transcription
-                            .segments
-                            .iter()
-                            .map(|s| TranscriptionSegment {
-                                id: s.id.clone(),
-                                start_time: s.start_time,
-                                end_time: s.end_time,
-                                text: s.text.clone(),
-                                language: s.language.clone(),
-                                r#final: s.r#final,
-                            })
-                            .collect();
-                        let participant_identity: ParticipantIdentity =
-                            transcription.transcribed_participant_identity.clone().into();
-                        let _ = self.emitter.send(SessionEvent::Transcription {
-                            participant_identity,
-                            track_sid,
-                            segments,
-                        });
+                            let _ = self.emitter.send(SessionEvent::SipDTMF {
+                                participant_identity: participant_identity
+                                    .map(|s| s.try_into().unwrap()),
+                                digit: digit.map(|s| s.try_into().unwrap()),
+                                code: dtmf.code,
+                            });
+                        }
+                        proto::data_packet::Value::Speaker(_) => {}
+                        proto::data_packet::Value::Transcription(transcription) => {
+                            let track_sid = transcription.track_id.clone();
+                            // let segments = transcription.segments.clone();
+                            let segments = transcription
+                                .segments
+                                .iter()
+                                .map(|s| TranscriptionSegment {
+                                    id: s.id.clone(),
+                                    start_time: s.start_time,
+                                    end_time: s.end_time,
+                                    text: s.text.clone(),
+                                    language: s.language.clone(),
+                                    r#final: s.r#final,
+                                })
+                                .collect();
+                            let participant_identity: ParticipantIdentity =
+                                transcription.transcribed_participant_identity.clone().into();
+                            let _ = self.emitter.send(SessionEvent::Transcription {
+                                participant_identity,
+                                track_sid,
+                                segments,
+                            });
+                        }
+                        _ => {}
                     }
                     proto::data_packet::Value::Metrics(_) => {}
                     proto::data_packet::Value::ChatMessage(message) => {

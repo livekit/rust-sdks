@@ -3123,6 +3123,76 @@ pub struct RemixAndResampleResponse {
     #[prost(message, optional, tag="1")]
     pub buffer: ::core::option::Option<OwnedAudioFrameBuffer>,
 }
+// New resampler using SoX (much better quality)
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NewSoxResamplerRequest {
+    #[prost(double, tag="1")]
+    pub input_rate: f64,
+    #[prost(double, tag="2")]
+    pub output_rate: f64,
+    #[prost(uint32, tag="3")]
+    pub num_channels: u32,
+    #[prost(enumeration="SoxResamplerDataType", tag="4")]
+    pub input_data_type: i32,
+    #[prost(enumeration="SoxResamplerDataType", tag="5")]
+    pub output_data_type: i32,
+    #[prost(enumeration="SoxQualityRecipe", tag="6")]
+    pub quality_recipe: i32,
+    #[prost(uint32, tag="7")]
+    pub flags: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NewSoxResamplerResponse {
+    #[prost(message, optional, tag="1")]
+    pub resampler: ::core::option::Option<OwnedSoxResampler>,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PushSoxResamplerRequest {
+    #[prost(uint64, tag="1")]
+    pub resampler_handle: u64,
+    /// *const i16
+    #[prost(uint64, tag="2")]
+    pub data_ptr: u64,
+    /// in bytes
+    #[prost(uint32, tag="3")]
+    pub size: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PushSoxResamplerResponse {
+    /// *const i16 (could be null)
+    #[prost(uint64, tag="1")]
+    pub output_ptr: u64,
+    /// in bytes
+    #[prost(uint32, tag="2")]
+    pub size: u32,
+    #[prost(string, optional, tag="3")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FlushSoxResamplerRequest {
+    #[prost(uint64, tag="1")]
+    pub resampler_handle: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FlushSoxResamplerResponse {
+    /// *const i16 (could be null)
+    #[prost(uint64, tag="1")]
+    pub output_ptr: u64,
+    /// in bytes
+    #[prost(uint32, tag="2")]
+    pub size: u32,
+    #[prost(string, optional, tag="3")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
 //
 // AudioFrame buffer
 //
@@ -3236,6 +3306,128 @@ pub struct OwnedAudioResampler {
     pub info: ::core::option::Option<AudioResamplerInfo>,
 }
 //
+// Sox AudioResampler
+//
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SoxResamplerInfo {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OwnedSoxResampler {
+    #[prost(message, optional, tag="1")]
+    pub handle: ::core::option::Option<FfiOwnedHandle>,
+    #[prost(message, optional, tag="2")]
+    pub info: ::core::option::Option<SoxResamplerInfo>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SoxResamplerDataType {
+    /// TODO(theomonnom): support other datatypes (shouldn't really be needed)
+    SoxrDatatypeInt16i = 0,
+    SoxrDatatypeInt16s = 1,
+}
+impl SoxResamplerDataType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SoxResamplerDataType::SoxrDatatypeInt16i => "SOXR_DATATYPE_INT16I",
+            SoxResamplerDataType::SoxrDatatypeInt16s => "SOXR_DATATYPE_INT16S",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SOXR_DATATYPE_INT16I" => Some(Self::SoxrDatatypeInt16i),
+            "SOXR_DATATYPE_INT16S" => Some(Self::SoxrDatatypeInt16s),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SoxQualityRecipe {
+    SoxrQualityQuick = 0,
+    SoxrQualityLow = 1,
+    SoxrQualityMedium = 2,
+    SoxrQualityHigh = 3,
+    SoxrQualityVeryhigh = 4,
+}
+impl SoxQualityRecipe {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SoxQualityRecipe::SoxrQualityQuick => "SOXR_QUALITY_QUICK",
+            SoxQualityRecipe::SoxrQualityLow => "SOXR_QUALITY_LOW",
+            SoxQualityRecipe::SoxrQualityMedium => "SOXR_QUALITY_MEDIUM",
+            SoxQualityRecipe::SoxrQualityHigh => "SOXR_QUALITY_HIGH",
+            SoxQualityRecipe::SoxrQualityVeryhigh => "SOXR_QUALITY_VERYHIGH",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SOXR_QUALITY_QUICK" => Some(Self::SoxrQualityQuick),
+            "SOXR_QUALITY_LOW" => Some(Self::SoxrQualityLow),
+            "SOXR_QUALITY_MEDIUM" => Some(Self::SoxrQualityMedium),
+            "SOXR_QUALITY_HIGH" => Some(Self::SoxrQualityHigh),
+            "SOXR_QUALITY_VERYHIGH" => Some(Self::SoxrQualityVeryhigh),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SoxFlagBits {
+    /// 1 << 0
+    SoxrRolloffSmall = 0,
+    /// 1 << 1
+    SoxrRolloffMedium = 1,
+    /// 1 << 2
+    SoxrRolloffNone = 2,
+    /// 1 << 3
+    SoxrHighPrecClock = 3,
+    /// 1 << 4
+    SoxrDoublePrecision = 4,
+    /// 1 << 5
+    SoxrVr = 5,
+}
+impl SoxFlagBits {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SoxFlagBits::SoxrRolloffSmall => "SOXR_ROLLOFF_SMALL",
+            SoxFlagBits::SoxrRolloffMedium => "SOXR_ROLLOFF_MEDIUM",
+            SoxFlagBits::SoxrRolloffNone => "SOXR_ROLLOFF_NONE",
+            SoxFlagBits::SoxrHighPrecClock => "SOXR_HIGH_PREC_CLOCK",
+            SoxFlagBits::SoxrDoublePrecision => "SOXR_DOUBLE_PRECISION",
+            SoxFlagBits::SoxrVr => "SOXR_VR",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SOXR_ROLLOFF_SMALL" => Some(Self::SoxrRolloffSmall),
+            "SOXR_ROLLOFF_MEDIUM" => Some(Self::SoxrRolloffMedium),
+            "SOXR_ROLLOFF_NONE" => Some(Self::SoxrRolloffNone),
+            "SOXR_HIGH_PREC_CLOCK" => Some(Self::SoxrHighPrecClock),
+            "SOXR_DOUBLE_PRECISION" => Some(Self::SoxrDoublePrecision),
+            "SOXR_VR" => Some(Self::SoxrVr),
+            _ => None,
+        }
+    }
+}
+//
 // AudioStream
 //
 
@@ -3319,7 +3511,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 33, 34, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3354,10 +3546,6 @@ pub mod ffi_request {
         PublishTranscription(super::PublishTranscriptionRequest),
         #[prost(message, tag="14")]
         PublishSipDtmf(super::PublishSipDtmfRequest),
-        #[prost(message, tag="33")]
-        SendChatMessage(super::SendChatMessageRequest),
-        #[prost(message, tag="34")]
-        EditChatMessage(super::EditChatMessageRequest),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackRequest),
@@ -3397,13 +3585,23 @@ pub mod ffi_request {
         E2ee(super::E2eeRequest),
         #[prost(message, tag="32")]
         AudioStreamFromParticipant(super::AudioStreamFromParticipantRequest),
+        #[prost(message, tag="33")]
+        NewSoxResampler(super::NewSoxResamplerRequest),
+        #[prost(message, tag="34")]
+        PushSoxResampler(super::PushSoxResamplerRequest),
+        #[prost(message, tag="35")]
+        FlushSoxResampler(super::FlushSoxResamplerRequest),
+        #[prost(message, tag="36")]
+        SendChatMessage(super::SendChatMessageRequest),
+        #[prost(message, tag="37")]
+        EditChatMessage(super::EditChatMessageRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 33, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3438,8 +3636,6 @@ pub mod ffi_response {
         PublishTranscription(super::PublishTranscriptionResponse),
         #[prost(message, tag="14")]
         PublishSipDtmf(super::PublishSipDtmfResponse),
-        #[prost(message, tag="33")]
-        SendChatMessage(super::SendChatMessageResponse),
         /// Track
         #[prost(message, tag="15")]
         CreateVideoTrack(super::CreateVideoTrackResponse),
@@ -3479,6 +3675,14 @@ pub mod ffi_response {
         AudioStreamFromParticipant(super::AudioStreamFromParticipantResponse),
         #[prost(message, tag="32")]
         E2ee(super::E2eeResponse),
+        #[prost(message, tag="33")]
+        NewSoxResampler(super::NewSoxResamplerResponse),
+        #[prost(message, tag="34")]
+        PushSoxResampler(super::PushSoxResamplerResponse),
+        #[prost(message, tag="35")]
+        FlushSoxResampler(super::FlushSoxResamplerResponse),
+        #[prost(message, tag="36")]
+        SendChatMessage(super::SendChatMessageResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.

@@ -6,6 +6,8 @@ include!("soxr.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
 
     #[test]
     fn it_works() {
@@ -24,25 +26,50 @@ mod tests {
 
         use hound::{WavReader, WavSpec, WavWriter};
 
-        let input_wav_path = "input.wav";
-        let output_wav_path = "output.wav";
+        let input_wav_path = "test-input.wav";
+        let output_wav_path = "test-output.wav";
+
+        let input_spec = WavSpec {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+
+        let output_spec = WavSpec {
+            channels: 1,
+            sample_rate: 24000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+
+        let input_duration: u32 = 3; // 3 second of audio
+
+        let mut writer = WavWriter::create(input_wav_path, input_spec)
+            .expect("Failed to create test input WAV file");
+        for t in (0..input_spec.sample_rate * input_duration)
+            .map(|x| x as f32 / input_spec.sample_rate as f32)
+        {
+            let a4note = 440.0; // 440Hz = A4
+            let sample = (t * a4note * 2.0 * std::f32::consts::PI).sin();
+            let amplitude = i16::MAX as f32;
+            writer.write_sample((sample * amplitude) as i16).expect("Failed to write sample");
+        }
+        writer.finalize().expect("Failed to finalize test input WAV file");
 
         let mut reader = WavReader::open(input_wav_path).expect("Failed to open input WAV file");
 
         let wav_spec = reader.spec();
-        let input_rate = wav_spec.sample_rate as f64;
-        let output_rate = 44100.0;
 
         let num_channels = wav_spec.channels as u32;
 
-        let samples: Vec<i16> = reader
-            .samples::<i16>()
-            .map(|s| s.expect("Failed to read sample"))
-            .collect();
+        let samples: Vec<i16> =
+            reader.samples::<i16>().map(|s| s.expect("Failed to read sample")).collect();
 
         let buf_total_len = samples.len();
-        let olen =
-            ((output_rate * buf_total_len as f64) / (input_rate + output_rate) + 0.5) as usize;
+        let olen = ((output_spec.sample_rate as f64 * buf_total_len as f64)
+            / (input_spec.sample_rate as f64 + output_spec.sample_rate as f64)
+            + 0.5) as usize;
         let ilen = buf_total_len - olen;
 
         let mut obuf = vec![0i16; olen];
@@ -53,8 +80,8 @@ mod tests {
         let mut error: soxr_error_t = ptr::null();
 
         let io_spec = soxr_io_spec {
-            itype: SOXR_INT16_I as u32,
-            otype: SOXR_INT16_I as u32,
+            itype: soxr_datatype_t_SOXR_INT16_I as u32,
+            otype: soxr_datatype_t_SOXR_INT16_I as u32,
             scale: 1.0,
             e: ptr::null_mut(),
             flags: 0,
@@ -62,8 +89,8 @@ mod tests {
 
         let soxr = unsafe {
             soxr_create(
-                input_rate,
-                output_rate,
+                input_spec.sample_rate as f64,
+                output_spec.sample_rate as f64,
                 num_channels,
                 &mut error,
                 &io_spec,
@@ -123,15 +150,8 @@ mod tests {
                 need_input = (odone < olen) && ibuf.is_some();
             }
 
-            let spec = WavSpec {
-                channels: wav_spec.channels,
-                sample_rate: output_rate as u32,
-                bits_per_sample: 16,
-                sample_format: hound::SampleFormat::Int,
-            };
-
-            let mut writer =
-                WavWriter::create(output_wav_path, spec).expect("Failed to create output WAV file");
+            let mut writer = WavWriter::create(output_wav_path, output_spec)
+                .expect("Failed to create output WAV file");
 
             for sample in output_samples {
                 writer.write_sample(sample).expect("Failed to write sample");
@@ -148,5 +168,8 @@ mod tests {
         unsafe {
             soxr_delete(soxr);
         }
+
+        std::fs::remove_file(input_wav_path).expect("Failed to remove test input file");
+        std::fs::remove_file(output_wav_path).expect("Failed to remove test output file");
     }
 }

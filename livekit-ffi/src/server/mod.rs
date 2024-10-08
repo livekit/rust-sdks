@@ -39,6 +39,7 @@ pub mod audio_stream;
 pub mod colorcvt;
 pub mod logger;
 pub mod requests;
+pub mod resampler;
 pub mod room;
 mod utils;
 pub mod video_source;
@@ -66,6 +67,7 @@ pub struct FfiDataBuffer {
 
 impl FfiHandle for FfiDataBuffer {}
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
+impl FfiHandle for Arc<Mutex<resampler::SoxResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
 impl FfiHandle for Box<[u8]> {}
@@ -74,7 +76,7 @@ pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, Box<dyn FfiHandle>>,
-    async_runtime: tokio::runtime::Runtime,
+    pub async_runtime: tokio::runtime::Runtime,
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
@@ -133,7 +135,8 @@ impl FfiServer {
     }
 
     pub async fn dispose(&self) {
-        log::info!("disposing the FfiServer, closing all rooms...");
+        self.logger.set_capture_logs(false);
+        log::info!("disposing ffi server");
 
         // Close all rooms
         let mut rooms = Vec::new();
@@ -148,8 +151,6 @@ impl FfiServer {
         }
 
         // Drop all handles
-        self.ffi_handles.clear();
-        self.handle_dropped_txs.clear();
         *self.config.lock() = None; // Invalidate the config
     }
 

@@ -152,6 +152,7 @@ struct EngineHandle {
     session: Arc<RtcSession>,
     closed: bool,
     reconnecting: bool,
+    can_reconnect: bool,
 
     // If full_reconnect is true, the next attempt will not try to resume
     // and will instead do a full reconnect
@@ -322,6 +323,7 @@ impl EngineInner {
                             session: Arc::new(session),
                             closed: false,
                             reconnecting: false,
+                            can_reconnect: true,
                             full_reconnect: false,
                             engine_task: None,
                         }),
@@ -406,15 +408,25 @@ impl EngineInner {
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
             SessionEvent::Close { source, reason, action, retry_now } => {
-                log::warn!("received session close: {:?} {:?} {:?}", source, reason, action);
                 match action {
-                    proto::leave_request::Action::Resume => {
-                        self.reconnection_needed(retry_now, false)
-                    }
-                    proto::leave_request::Action::Reconnect => {
-                        self.reconnection_needed(retry_now, true)
+                    proto::leave_request::Action::Resume
+                    | proto::leave_request::Action::Reconnect => {
+                        log::warn!(
+                            "received session close: {:?} {:?} {:?}",
+                            source,
+                            reason,
+                            action
+                        );
+                        self.reconnection_needed(
+                            retry_now,
+                            action == proto::leave_request::Action::Reconnect,
+                        );
                     }
                     proto::leave_request::Action::Disconnect => {
+                        // Disallow reconnection to avoid races
+                        let mut running_handle = self.running_handle.write();
+                        running_handle.can_reconnect = false;
+
                         // Spawning a new task because the close function wait for the engine_task to
                         // finish. (So it doesn't make sense to await it here)
                         livekit_runtime::spawn({
@@ -513,6 +525,11 @@ impl EngineInner {
     /// Ask for a full reconnect if `full_reconnect` is true
     fn reconnection_needed(self: &Arc<Self>, retry_now: bool, full_reconnect: bool) {
         let mut running_handle = self.running_handle.write();
+
+        if !running_handle.can_reconnect {
+            return;
+        }
+
         if running_handle.reconnecting {
             // If we're already reconnecting just update the interval to restart a new attempt
             // ASAP

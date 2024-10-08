@@ -22,7 +22,7 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt,
+    audio_source, audio_stream, colorcvt, resampler,
     room::{self, FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
@@ -679,6 +679,111 @@ fn on_get_session_stats(
     Ok(proto::GetSessionStatsResponse { async_id })
 }
 
+fn on_new_sox_resampler(
+    server: &'static FfiServer,
+    new_soxr: proto::NewSoxResamplerRequest,
+) -> FfiResult<proto::NewSoxResamplerResponse> {
+    let io_spec = resampler::IOSpec {
+        input_type: new_soxr.input_data_type(),
+        output_type: new_soxr.output_data_type(),
+    };
+
+    let quality_spec =
+        resampler::QualitySpec { quality: new_soxr.quality_recipe(), flags: new_soxr.flags };
+
+    let runtime_spec = resampler::RuntimeSpec { num_threads: 1 };
+
+    match resampler::SoxResampler::new(
+        new_soxr.input_rate,
+        new_soxr.output_rate,
+        new_soxr.num_channels,
+        io_spec,
+        quality_spec,
+        runtime_spec,
+    ) {
+        Ok(resampler) => {
+            let resampler = Arc::new(Mutex::new(resampler));
+
+            let handle_id = server.next_id();
+            server.store_handle(handle_id, resampler);
+
+            Ok(proto::NewSoxResamplerResponse {
+                resampler: Some(proto::OwnedSoxResampler {
+                    handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+                    info: Some(proto::SoxResamplerInfo {}),
+                }),
+                ..Default::default()
+            })
+        }
+        Err(e) => {
+            Ok(proto::NewSoxResamplerResponse { error: Some(e.to_string()), ..Default::default() })
+        }
+    }
+}
+
+fn on_push_sox_resampler(
+    server: &'static FfiServer,
+    push: proto::PushSoxResamplerRequest,
+) -> FfiResult<proto::PushSoxResamplerResponse> {
+    let resampler = server
+        .retrieve_handle::<Arc<Mutex<resampler::SoxResampler>>>(push.resampler_handle)?
+        .clone();
+
+    let data_ptr = push.data_ptr;
+    let data_size = push.size;
+
+    let data = unsafe {
+        slice::from_raw_parts(
+            data_ptr as *const i16,
+            data_size as usize / std::mem::size_of::<i16>(),
+        )
+    };
+
+    let mut resampler = resampler.lock();
+    match resampler.push(data) {
+        Ok(output) => {
+            if output.is_empty() {
+                return Ok(proto::PushSoxResamplerResponse {
+                    output_ptr: 0,
+                    size: 0,
+                    ..Default::default()
+                });
+            }
+
+            Ok(proto::PushSoxResamplerResponse {
+                output_ptr: output.as_ptr() as u64,
+                size: (output.len() * std::mem::size_of::<i16>()) as u32,
+                ..Default::default()
+            })
+        }
+        Err(e) => {
+            Ok(proto::PushSoxResamplerResponse { error: Some(e.to_string()), ..Default::default() })
+        }
+    }
+}
+
+fn on_flush_sox_resampler(
+    server: &'static FfiServer,
+    flush: proto::FlushSoxResamplerRequest,
+) -> FfiResult<proto::FlushSoxResamplerResponse> {
+    let resampler = server
+        .retrieve_handle::<Arc<Mutex<resampler::SoxResampler>>>(flush.resampler_handle)?
+        .clone();
+
+    let mut resampler = resampler.lock();
+    match resampler.flush() {
+        Ok(output) => Ok(proto::FlushSoxResamplerResponse {
+            output_ptr: output.as_ptr() as u64,
+            size: (output.len() * std::mem::size_of::<i16>()) as u32,
+            ..Default::default()
+        }),
+        Err(e) => Ok(proto::FlushSoxResamplerResponse {
+            error: Some(e.to_string()),
+            ..Default::default()
+        }),
+    }
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -798,6 +903,19 @@ pub fn handle_request(
             proto::ffi_response::Message::GetSessionStats(on_get_session_stats(
                 server,
                 get_session_stats,
+            )?)
+        }
+        proto::ffi_request::Message::NewSoxResampler(new_soxr) => {
+            proto::ffi_response::Message::NewSoxResampler(on_new_sox_resampler(server, new_soxr)?)
+        }
+        proto::ffi_request::Message::PushSoxResampler(push_soxr) => {
+            proto::ffi_response::Message::PushSoxResampler(on_push_sox_resampler(
+                server, push_soxr,
+            )?)
+        }
+        proto::ffi_request::Message::FlushSoxResampler(flush_soxr) => {
+            proto::ffi_response::Message::FlushSoxResampler(on_flush_sox_resampler(
+                server, flush_soxr,
             )?)
         }
     });
