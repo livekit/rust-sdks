@@ -43,9 +43,10 @@ message UnregisterRpcMethodRequest {
 }
 
 message RpcMethodInvocationResponseRequest {
-  uint64 invocation_id = 1;
-  optional string payload = 2;
-  optional RpcError error = 3;
+  uint64 local_participant_handle = 1;
+  uint64 invocation_id = 2;
+  optional string payload = 3;
+  optional RpcError error = 4;
 }
 
 // FFI Responses

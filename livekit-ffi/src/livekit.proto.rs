@@ -3457,10 +3457,12 @@ pub struct UnregisterRpcMethodRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RpcMethodInvocationResponseRequest {
     #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(uint64, tag="2")]
     pub invocation_id: u64,
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag="3")]
     pub payload: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(message, optional, tag="3")]
+    #[prost(message, optional, tag="4")]
     pub error: ::core::option::Option<RpcError>,
 }
 /// FFI Responses
