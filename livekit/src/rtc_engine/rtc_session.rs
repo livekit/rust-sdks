@@ -661,14 +661,15 @@ impl SessionInner {
                                 segments,
                             });
                         }
+                        proto::data_packet::Value::ChatMessage(message) => {
+                            let _ = self.emitter.send(SessionEvent::ChatMessage {
+                                participant_identity: ParticipantIdentity(
+                                    data.participant_identity,
+                                ),
+                                message: ChatMessage::from(message.clone()),
+                            });
+                        }
                         _ => {}
-                    }
-                    proto::data_packet::Value::Metrics(_) => {}
-                    proto::data_packet::Value::ChatMessage(message) => {
-                        let _ = self.emitter.send(SessionEvent::ChatMessage {
-                            participant_identity: ParticipantIdentity(data.participant_identity),
-                            message: ChatMessage::from(message.clone()),
-                        });
                     }
                 }
             }
