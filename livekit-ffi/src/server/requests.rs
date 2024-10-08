@@ -767,17 +767,14 @@ fn on_perform_rpc_request(
     server: &'static FfiServer,
     request: proto::PerformRpcRequestRequest,
 ) -> FfiResult<proto::PerformRpcRequestResponse> {
-    log::warn!("on_perform_rpc_request - Start: destination={}, method={}", request.destination_identity, request.method);
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
-    log::warn!("on_perform_rpc_request - Generated async_id: {}", async_id);
-
+    
     match ffi_participant.participant {
         Participant::Local(local) => {
             tokio::spawn(async move {
-                log::warn!("on_perform_rpc_request - Spawned async task for RPC request to {:?} from {:?}", request.destination_identity, local.identity());
                 let result = local
                     .perform_rpc_request(
                         request.destination_identity.to_string(),
@@ -792,11 +789,9 @@ fn on_perform_rpc_request(
                     payload: result.as_ref().ok().cloned(),
                     error: match &result {
                         Ok(_) => {
-                            log::warn!("on_perform_rpc_request - RPC request successful");
                             None
                         }
                         Err(error) => {
-                            log::warn!("on_perform_rpc_request - RPC request failed: {:?}", error);
                             Some(proto::RpcError {
                                 code: error.code,
                                 message: error.message.clone(),
@@ -806,15 +801,12 @@ fn on_perform_rpc_request(
                     },
                 };
 
-                log::warn!("on_perform_rpc_request - Sending callback event");
                 let _ = server.send_event(proto::ffi_event::Message::PerformRpcRequest(callback));
             });
 
-            log::warn!("on_perform_rpc_request - Returning response with async_id: {}", async_id);
             Ok(proto::PerformRpcRequestResponse { async_id })
         }
         Participant::Remote(_) => {
-            log::warn!("on_perform_rpc_request - Error: remote participant cannot perform RPC request");
             Err(FfiError::InvalidRequest("remote participant cannot perform RPC request".into()))
         }
     }
@@ -824,28 +816,23 @@ fn on_register_rpc_method(
     server: &'static FfiServer,
     request: proto::RegisterRpcMethodRequest,
 ) -> FfiResult<proto::RegisterRpcMethodResponse> {
-    log::warn!("on_register_rpc_method - Start: method={}", request.method);
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
-    log::warn!("on_register_rpc_method - Generated async_id: {}", async_id);
     let method = request.method.clone();
 
     match ffi_participant.participant {
         Participant::Local(local) => {
             tokio::spawn(async move {
-                log::warn!("on_register_rpc_method - Registering method: {}", method);
                 local.register_rpc_method(
                     method.clone(),
                     move |request_id, participant_identity, payload, timeout| {
                         let method = method.clone();
                         Box::pin(async move {
-                            log::warn!("RPC method invoked: method={}, request_id={}, from={}", method, request_id, participant_identity);
                             let (tx, rx) = oneshot::channel();
                             let invocation_id = server.next_id();
 
-                            log::warn!("Sending RPC method invocation event: invocation_id={}", invocation_id);
                             let _ =
                                 server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
                                     proto::RpcMethodInvocationEvent {
@@ -865,16 +852,13 @@ fn on_register_rpc_method(
                                 Ok(result) => match result {
                                     Ok(response) => match response {
                                         Ok(payload) => {
-                                            log::warn!("RPC method execution successful: invocation_id={}", invocation_id);
                                             Ok(payload)
                                         }
                                         Err(rpc_error) => {
-                                            log::warn!("RPC method execution failed: invocation_id={}, error={:?}", invocation_id, rpc_error);
                                             Err(rpc_error)
                                         }
                                     },
                                     Err(_) => {
-                                        log::warn!("Failed to receive RPC response: invocation_id={}", invocation_id);
                                         Err(RpcError {
                                             code: 500,
                                             message: "Failed to receive RPC response".into(),
@@ -883,7 +867,6 @@ fn on_register_rpc_method(
                                     }
                                 },
                                 Err(_) => {
-                                    log::warn!("RPC request timed out: invocation_id={}", invocation_id);
                                     Err(RpcError {
                                         code: 408,
                                         message: "RPC request timed out".into(),
@@ -895,17 +878,14 @@ fn on_register_rpc_method(
                     },
                 );
 
-                log::warn!("on_register_rpc_method - Method registered, sending callback");
                 let callback = proto::RegisterRpcMethodCallback { async_id };
 
                 let _ = server.send_event(proto::ffi_event::Message::RegisterRpcMethod(callback));
             });
 
-            log::warn!("on_register_rpc_method - Returning response with async_id: {}", async_id);
             Ok(proto::RegisterRpcMethodResponse { async_id })
         }
         Participant::Remote(_) => {
-            log::warn!("on_register_rpc_method - Error: remote participant cannot register RPC method");
             Err(FfiError::InvalidRequest("remote participant cannot register RPC method".into()))
         }
     }
@@ -915,30 +895,24 @@ fn on_unregister_rpc_method(
     server: &'static FfiServer,
     request: proto::UnregisterRpcMethodRequest,
 ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
-    log::warn!("on_unregister_rpc_method - Start: method={}", request.method);
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
-    log::warn!("on_unregister_rpc_method - Generated async_id: {}", async_id);
-
+    
     match ffi_participant.participant {
         Participant::Local(local) => {
             tokio::spawn(async move {
-                log::warn!("on_unregister_rpc_method - Unregistering method: {}", request.method);
                 local.unregister_rpc_method(request.method);
 
-                log::warn!("on_unregister_rpc_method - Method unregistered, sending callback");
                 let callback = proto::UnregisterRpcMethodCallback { async_id };
 
                 let _ = server.send_event(proto::ffi_event::Message::UnregisterRpcMethod(callback));
             });
 
-            log::warn!("on_unregister_rpc_method - Returning response with async_id: {}", async_id);
             Ok(proto::UnregisterRpcMethodResponse { async_id })
         }
         Participant::Remote(_) => {
-            log::warn!("on_unregister_rpc_method - Error: remote participant cannot unregister RPC method");
             Err(FfiError::InvalidRequest("remote participant cannot unregister RPC method".into()))
         }
     }
@@ -948,27 +922,21 @@ fn on_rpc_method_invocation_response(
     server: &'static FfiServer,
     request: proto::RpcMethodInvocationResponseRequest,
 ) -> FfiResult<proto::RpcMethodInvocationResponseResponse> {
-    log::warn!("on_rpc_method_invocation_response - Start: invocation_id={}", request.invocation_id);
     let async_id = server.next_id();
 
     if let Some(sender) = server.take_rpc_response_sender(request.invocation_id) {
         let result = if let Some(error) = request.error {
-            log::warn!("on_rpc_method_invocation_response - Error response: invocation_id={}, error={:?}", request.invocation_id, error);
             Err(RpcError { code: error.code, message: error.message, data: Some(error.data) })
         } else {
-            log::warn!("on_rpc_method_invocation_response - Successful response: invocation_id={}", request.invocation_id);
             Ok(request.payload.unwrap_or_default())
         };
         let _ = sender.send(result);
-        log::warn!("on_rpc_method_invocation_response - Response sent for invocation_id={}", request.invocation_id);
     } else {
-        log::warn!("on_rpc_method_invocation_response - No sender found for invocation_id={}", request.invocation_id);
     }
 
     let callback = proto::RpcMethodInvocationResponseCallback { async_id };
     let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocationResponse(callback));
 
-    log::warn!("on_rpc_method_invocation_response - Returning response with async_id: {}", async_id);
     Ok(proto::RpcMethodInvocationResponseResponse { async_id })
 }
 
