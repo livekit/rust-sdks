@@ -28,7 +28,7 @@ use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
 use tokio::{
-    sync::{broadcast, oneshot},
+    sync::oneshot,
     task::JoinHandle,
 };
 
