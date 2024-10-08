@@ -874,23 +874,22 @@ fn on_unregister_rpc_method(
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
     let async_id = server.next_id();
+
+    let local = match ffi_participant.participant {
+        Participant::Local(local) => local.clone(),
+        Participant::Remote(_) => return Err(FfiError::InvalidRequest("Expected local participant".into())),
+    };
     
-    match ffi_participant.participant {
-        Participant::Local(local) => {
-            tokio::spawn(async move {
-                local.unregister_rpc_method(request.method);
+    let handle = server.async_runtime.spawn(async move {
+        local.unregister_rpc_method(request.method);
 
-                let callback = proto::UnregisterRpcMethodCallback { async_id };
+        let callback = proto::UnregisterRpcMethodCallback { async_id };
 
-                let _ = server.send_event(proto::ffi_event::Message::UnregisterRpcMethod(callback));
-            });
+        let _ = server.send_event(proto::ffi_event::Message::UnregisterRpcMethod(callback));
+    });
 
-            Ok(proto::UnregisterRpcMethodResponse { async_id })
-        }
-        Participant::Remote(_) => {
-            Err(FfiError::InvalidRequest("remote participant cannot unregister RPC method".into()))
-        }
-    }
+    server.watch_panic(handle);
+    Ok(proto::UnregisterRpcMethodResponse { async_id })
 }
 
 fn on_rpc_method_invocation_response(
