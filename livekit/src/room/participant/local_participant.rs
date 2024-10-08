@@ -15,10 +15,10 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    pin::Pin,
-    sync::{Arc},
-    time::Duration,
     panic::{self, AssertUnwindSafe},
+    pin::Pin,
+    sync::Arc,
+    time::Duration,
 };
 
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
@@ -31,7 +31,7 @@ use crate::{
     rtc_engine::{EngineError, RtcEngine},
     DataPacket, SipDTMF, Transcription,
 };
-use futures_util::{Future, future};
+use futures_util::{future, Future};
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
@@ -410,16 +410,14 @@ impl LocalParticipant {
         let segments: Vec<proto::TranscriptionSegment> = packet
             .segments
             .into_iter()
-            .map(
-                |segment| proto::TranscriptionSegment {
-                    id: segment.id,
-                    start_time: segment.start_time,
-                    end_time: segment.end_time,
-                    text: segment.text,
-                    r#final: segment.r#final,
-                    language: segment.language,
-                },
-            )
+            .map(|segment| proto::TranscriptionSegment {
+                id: segment.id,
+                start_time: segment.start_time,
+                end_time: segment.end_time,
+                text: segment.text,
+                r#final: segment.r#final,
+                language: segment.language,
+            })
             .collect();
         let transcription_packet = proto::Transcription {
             transcribed_participant_identity: packet.participant_identity,
@@ -762,10 +760,13 @@ impl LocalParticipant {
                         Ok(result) => result,
                         Err(panic) => {
                             log::error!("RPC method handler panicked: {:?}", panic);
-                            return Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
+                            return Err(RpcError::built_in(RpcErrorCode::ApplicationError, None));
                         }
-                    }.await
-                }).await {
+                    }
+                    .await
+                })
+                .await
+                {
                     Ok(result) => result,
                     Err(e) => {
                         log::error!("RPC method handler returned an error: {:?}", e);
