@@ -86,10 +86,11 @@ message RpcMethodInvocationResponseCallback {
 
 // FFI Events
 message RpcMethodInvocationEvent {
-  uint64 invocation_id = 1;
-  string method = 2;
-  string request_id = 3;
-  string participant_identity = 4;
-  string payload = 5;
-  uint32 timeout_ms = 6;
+  uint64 local_participant_handle = 1;
+  uint64 invocation_id = 2;
+  string method = 3;
+  string request_id = 4;
+  string participant_identity = 5;
+  string payload = 6;
+  uint32 timeout_ms = 7;
 }

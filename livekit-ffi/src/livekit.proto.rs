@@ -3522,16 +3522,18 @@ pub struct RpcMethodInvocationResponseCallback {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RpcMethodInvocationEvent {
     #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(uint64, tag="2")]
     pub invocation_id: u64,
-    #[prost(string, tag="2")]
-    pub method: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
-    pub request_id: ::prost::alloc::string::String,
+    pub method: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
-    pub participant_identity: ::prost::alloc::string::String,
+    pub request_id: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
     pub payload: ::prost::alloc::string::String,
-    #[prost(uint32, tag="6")]
+    #[prost(uint32, tag="7")]
     pub timeout_ms: u32,
 }
 // **How is the livekit-ffi working:
