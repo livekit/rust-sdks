@@ -11,7 +11,9 @@ pub struct MetricsBatch {
     /// To avoid repeating string values, we store them in a separate list and reference them by index
     /// This is useful for storing participant identities, track names, etc.
     /// There is also a predefined list of labels that can be used to reference common metrics.
-    /// They have reserved indices from 0 to (METRIC_LABEL_PREDEFINED_MAX_VALUE - 1)
+    /// They have reserved indices from 0 to (METRIC_LABEL_PREDEFINED_MAX_VALUE - 1).
+    /// Indexes pointing at str_data should start from METRIC_LABEL_PREDEFINED_MAX_VALUE, 
+    /// such that str_data\[0\] == index of METRIC_LABEL_PREDEFINED_MAX_VALUE.
     #[prost(string, repeated, tag="3")]
     pub str_data: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, repeated, tag="4")]
@@ -34,6 +36,9 @@ pub struct TimeSeriesMetric {
     pub track_sid: u32,
     #[prost(message, repeated, tag="4")]
     pub samples: ::prost::alloc::vec::Vec<MetricSample>,
+    /// index into 'str_data'
+    #[prost(uint32, tag="5")]
+    pub rid: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -69,6 +74,9 @@ pub struct EventMetric {
     pub normalized_end_timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(string, tag="8")]
     pub metadata: ::prost::alloc::string::String,
+    /// index into 'str_data'
+    #[prost(uint32, tag="9")]
+    pub rid: u32,
 }
 //
 // Protocol used to record metrics for a specific session.
@@ -88,6 +96,34 @@ pub enum MetricLabel {
     AgentsSttTtft = 1,
     /// time to first byte
     AgentsTtsTtfb = 2,
+    /// Number of video freezes
+    ClientVideoSubscriberFreezeCount = 3,
+    /// total duration of freezes
+    ClientVideoSubscriberTotalFreezeDuration = 4,
+    /// number of video pauses
+    ClientVideoSubscriberPauseCount = 5,
+    /// total duration of pauses
+    ClientVideoSubscriberTotalPausesDuration = 6,
+    /// number of concealed (synthesized) audio samples
+    ClientAudioSubscriberConcealedSamples = 7,
+    /// number of silent concealed samples
+    ClientAudioSubscriberSilentConcealedSamples = 8,
+    /// number of concealment events
+    ClientAudioSubscriberConcealmentEvents = 9,
+    /// number of interruptions
+    ClientAudioSubscriberInterruptionCount = 10,
+    /// total duration of interruptions
+    ClientAudioSubscriberTotalInterruptionDuration = 11,
+    /// total time spent in jitter buffer
+    ClientSubscriberJitterBufferDelay = 12,
+    /// total time spent in jitter buffer
+    ClientSubscriberJitterBufferEmittedCount = 13,
+    /// total duration spent in bandwidth quality limitation
+    ClientVideoPublisherQualityLimitationDurationBandwidth = 14,
+    /// total duration spent in cpu quality limitation
+    ClientVideoPublisherQualityLimitationDurationCpu = 15,
+    /// total duration spent in other quality limitation
+    ClientVideoPublisherQualityLimitationDurationOther = 16,
     PredefinedMaxValue = 4096,
 }
 impl MetricLabel {
@@ -100,6 +136,20 @@ impl MetricLabel {
             MetricLabel::AgentsLlmTtft => "AGENTS_LLM_TTFT",
             MetricLabel::AgentsSttTtft => "AGENTS_STT_TTFT",
             MetricLabel::AgentsTtsTtfb => "AGENTS_TTS_TTFB",
+            MetricLabel::ClientVideoSubscriberFreezeCount => "CLIENT_VIDEO_SUBSCRIBER_FREEZE_COUNT",
+            MetricLabel::ClientVideoSubscriberTotalFreezeDuration => "CLIENT_VIDEO_SUBSCRIBER_TOTAL_FREEZE_DURATION",
+            MetricLabel::ClientVideoSubscriberPauseCount => "CLIENT_VIDEO_SUBSCRIBER_PAUSE_COUNT",
+            MetricLabel::ClientVideoSubscriberTotalPausesDuration => "CLIENT_VIDEO_SUBSCRIBER_TOTAL_PAUSES_DURATION",
+            MetricLabel::ClientAudioSubscriberConcealedSamples => "CLIENT_AUDIO_SUBSCRIBER_CONCEALED_SAMPLES",
+            MetricLabel::ClientAudioSubscriberSilentConcealedSamples => "CLIENT_AUDIO_SUBSCRIBER_SILENT_CONCEALED_SAMPLES",
+            MetricLabel::ClientAudioSubscriberConcealmentEvents => "CLIENT_AUDIO_SUBSCRIBER_CONCEALMENT_EVENTS",
+            MetricLabel::ClientAudioSubscriberInterruptionCount => "CLIENT_AUDIO_SUBSCRIBER_INTERRUPTION_COUNT",
+            MetricLabel::ClientAudioSubscriberTotalInterruptionDuration => "CLIENT_AUDIO_SUBSCRIBER_TOTAL_INTERRUPTION_DURATION",
+            MetricLabel::ClientSubscriberJitterBufferDelay => "CLIENT_SUBSCRIBER_JITTER_BUFFER_DELAY",
+            MetricLabel::ClientSubscriberJitterBufferEmittedCount => "CLIENT_SUBSCRIBER_JITTER_BUFFER_EMITTED_COUNT",
+            MetricLabel::ClientVideoPublisherQualityLimitationDurationBandwidth => "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_BANDWIDTH",
+            MetricLabel::ClientVideoPublisherQualityLimitationDurationCpu => "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_CPU",
+            MetricLabel::ClientVideoPublisherQualityLimitationDurationOther => "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_OTHER",
             MetricLabel::PredefinedMaxValue => "METRIC_LABEL_PREDEFINED_MAX_VALUE",
         }
     }
@@ -109,6 +159,20 @@ impl MetricLabel {
             "AGENTS_LLM_TTFT" => Some(Self::AgentsLlmTtft),
             "AGENTS_STT_TTFT" => Some(Self::AgentsSttTtft),
             "AGENTS_TTS_TTFB" => Some(Self::AgentsTtsTtfb),
+            "CLIENT_VIDEO_SUBSCRIBER_FREEZE_COUNT" => Some(Self::ClientVideoSubscriberFreezeCount),
+            "CLIENT_VIDEO_SUBSCRIBER_TOTAL_FREEZE_DURATION" => Some(Self::ClientVideoSubscriberTotalFreezeDuration),
+            "CLIENT_VIDEO_SUBSCRIBER_PAUSE_COUNT" => Some(Self::ClientVideoSubscriberPauseCount),
+            "CLIENT_VIDEO_SUBSCRIBER_TOTAL_PAUSES_DURATION" => Some(Self::ClientVideoSubscriberTotalPausesDuration),
+            "CLIENT_AUDIO_SUBSCRIBER_CONCEALED_SAMPLES" => Some(Self::ClientAudioSubscriberConcealedSamples),
+            "CLIENT_AUDIO_SUBSCRIBER_SILENT_CONCEALED_SAMPLES" => Some(Self::ClientAudioSubscriberSilentConcealedSamples),
+            "CLIENT_AUDIO_SUBSCRIBER_CONCEALMENT_EVENTS" => Some(Self::ClientAudioSubscriberConcealmentEvents),
+            "CLIENT_AUDIO_SUBSCRIBER_INTERRUPTION_COUNT" => Some(Self::ClientAudioSubscriberInterruptionCount),
+            "CLIENT_AUDIO_SUBSCRIBER_TOTAL_INTERRUPTION_DURATION" => Some(Self::ClientAudioSubscriberTotalInterruptionDuration),
+            "CLIENT_SUBSCRIBER_JITTER_BUFFER_DELAY" => Some(Self::ClientSubscriberJitterBufferDelay),
+            "CLIENT_SUBSCRIBER_JITTER_BUFFER_EMITTED_COUNT" => Some(Self::ClientSubscriberJitterBufferEmittedCount),
+            "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_BANDWIDTH" => Some(Self::ClientVideoPublisherQualityLimitationDurationBandwidth),
+            "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_CPU" => Some(Self::ClientVideoPublisherQualityLimitationDurationCpu),
+            "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_OTHER" => Some(Self::ClientVideoPublisherQualityLimitationDurationOther),
             "METRIC_LABEL_PREDEFINED_MAX_VALUE" => Some(Self::PredefinedMaxValue),
             _ => None,
         }
@@ -439,7 +503,7 @@ pub struct DataPacket {
     /// identities of participants who will receive the message (sent to all by default)
     #[prost(string, repeated, tag="5")]
     pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(oneof="data_packet::Value", tags="2, 3, 6, 7, 8, 9")]
+    #[prost(oneof="data_packet::Value", tags="2, 3, 6, 7, 8, 9, 10, 11, 12")]
     pub value: ::core::option::Option<data_packet::Value>,
 }
 /// Nested message and enum types in `DataPacket`.
@@ -485,6 +549,12 @@ pub mod data_packet {
         Metrics(super::MetricsBatch),
         #[prost(message, tag="9")]
         ChatMessage(super::ChatMessage),
+        #[prost(message, tag="10")]
+        RpcRequest(super::RpcRequest),
+        #[prost(message, tag="11")]
+        RpcAck(super::RpcAck),
+        #[prost(message, tag="12")]
+        RpcResponse(super::RpcResponse),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -595,6 +665,55 @@ pub struct ChatMessage {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RpcRequest {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub method: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub payload: ::prost::alloc::string::String,
+    #[prost(uint32, tag="4")]
+    pub response_timeout_ms: u32,
+    #[prost(uint32, tag="5")]
+    pub version: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RpcAck {
+    #[prost(string, tag="1")]
+    pub request_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RpcResponse {
+    #[prost(string, tag="1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(oneof="rpc_response::Value", tags="2, 3")]
+    pub value: ::core::option::Option<rpc_response::Value>,
+}
+/// Nested message and enum types in `RpcResponse`.
+pub mod rpc_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Value {
+        #[prost(string, tag="2")]
+        Payload(::prost::alloc::string::String),
+        #[prost(message, tag="3")]
+        Error(super::RpcError),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RpcError {
+    #[prost(uint32, tag="1")]
+    pub code: u32,
+    #[prost(string, tag="2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub data: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantTracks {
     /// participant ID of participant to whom the tracks belong
     #[prost(string, tag="1")]
@@ -676,6 +795,10 @@ pub struct ClientInfo {
     /// wifi, wired, cellular, vpn, empty if not known
     #[prost(string, tag="10")]
     pub network: ::prost::alloc::string::String,
+    /// comma separated list of additional LiveKit SDKs in use of this client, with versions
+    /// e.g. "components-js:1.2.3,track-processors-js:1.2.3"
+    #[prost(string, tag="11")]
+    pub other_sdks: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `ClientInfo`.
 pub mod client_info {
@@ -4626,6 +4749,16 @@ pub struct SipParticipantInfo {
     pub room_name: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
     pub sip_call_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TransferSipParticipantRequest {
+    #[prost(string, tag="1")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub transfer_to: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
