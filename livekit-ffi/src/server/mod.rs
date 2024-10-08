@@ -94,8 +94,6 @@ impl Default for FfiServer {
         log::set_logger(logger).unwrap();
         log::set_max_level(log::LevelFilter::Trace);
 
-        log::error!("FfiServer::default - Starting FfiServer");
-
         #[cfg(feature = "tracing")]
         console_subscriber::init();
 

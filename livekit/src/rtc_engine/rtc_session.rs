@@ -608,7 +608,6 @@ impl SessionInner {
                 }
 
                 let data = proto::DataPacket::decode(&*data).unwrap();
-                log::error!("Received data packet: {:?}", data);
                 if let Some(packet) = data.value.as_ref() {
                     match packet {
                         proto::data_packet::Value::User(user) => {
