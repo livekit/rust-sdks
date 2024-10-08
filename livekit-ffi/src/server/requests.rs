@@ -849,7 +849,7 @@ fn on_register_rpc_method(
                             let _ =
                                 server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
                                     proto::RpcMethodInvocationEvent {
-                                        local_participant_handle: ffi_participant.handle,
+                                        room_handle: ffi_participant.room.handle,
                                         invocation_id,
                                         method: method,
                                         request_id: request_id,

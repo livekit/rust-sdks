@@ -86,7 +86,7 @@ message RpcMethodInvocationResponseCallback {
 
 // FFI Events
 message RpcMethodInvocationEvent {
-  uint64 local_participant_handle = 1;
+  uint64 room_handle = 1;
   uint64 invocation_id = 2;
   string method = 3;
   string request_id = 4;
