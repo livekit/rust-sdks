@@ -3534,7 +3534,7 @@ pub struct RpcMethodInvocationEvent {
     #[prost(string, tag="4")]
     pub request_id: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
-    pub participant_identity: ::prost::alloc::string::String,
+    pub caller_identity: ::prost::alloc::string::String,
     #[prost(string, tag="6")]
     pub payload: ::prost::alloc::string::String,
     #[prost(uint32, tag="7")]

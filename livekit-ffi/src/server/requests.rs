@@ -825,7 +825,7 @@ fn on_register_rpc_method(
     let handle = server.async_runtime.spawn(async move {
         local.register_rpc_method(
             method.clone(),
-            move |request_id, participant_identity, payload, timeout| {
+            move |request_id, caller_identity, payload, timeout| {
                 let method = method.clone();
                 Box::pin(async move {
                     let (tx, rx) = oneshot::channel();
@@ -837,7 +837,7 @@ fn on_register_rpc_method(
                             invocation_id,
                             method: method,
                             request_id: request_id,
-                            participant_identity: participant_identity.into(),
+                            caller_identity: caller_identity.into(),
                             payload: payload,
                             timeout_ms: timeout.as_millis() as u32,
                         },
@@ -914,7 +914,7 @@ fn on_rpc_method_invocation_response(
             };
             let _ = waiter.send(result);
         } else {
-            error = Some("No sender found".to_string());
+            error = Some("No caller found".to_string());
         }
 
         let callback = proto::RpcMethodInvocationResponseCallback { async_id, error };

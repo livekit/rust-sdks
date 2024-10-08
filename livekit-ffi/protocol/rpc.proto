@@ -92,7 +92,7 @@ message RpcMethodInvocationEvent {
   uint64 invocation_id = 2;
   string method = 3;
   string request_id = 4;
-  string participant_identity = 5;
+  string caller_identity = 5;
   string payload = 6;
   uint32 timeout_ms = 7;
 }

@@ -613,20 +613,20 @@ impl RoomSession {
                 self.handle_dtmf(code, digit, participant_identity);
             }
             EngineEvent::RpcRequest {
-                sender_identity,
+                caller_identity,
                 request_id,
                 method,
                 payload,
                 response_timeout_ms,
                 version,
             } => {
-                if sender_identity.is_none() {
-                    log::warn!("Received RPC request with null sender identity");
+                if caller_identity.is_none() {
+                    log::warn!("Received RPC request with null caller identity");
                     return Ok(());
                 }
                 self.local_participant
                     .handle_incoming_rpc_request(
-                        sender_identity.unwrap(),
+                        caller_identity.unwrap(),
                         request_id,
                         method,
                         payload,

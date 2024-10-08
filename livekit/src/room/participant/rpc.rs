@@ -7,7 +7,7 @@ use livekit_protocol::RpcError as RpcError_Proto;
 /// Specialized error handling for RPC methods.
 ///
 /// Instances of this type, when thrown in a method handler, will have their `message`
-/// serialized and sent across the wire. The sender will receive an equivalent error on the other side.
+/// serialized and sent across the wire. The caller will receive an equivalent error on the other side.
 ///
 /// Build-in types are included but developers may use any string, with a max length of 256 bytes.
 #[derive(Debug, Clone)]

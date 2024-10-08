@@ -93,7 +93,7 @@ pub enum SessionEvent {
         digit: Option<String>,
     },
     RpcRequest {
-        sender_identity: Option<ParticipantIdentity>,
+        caller_identity: Option<ParticipantIdentity>,
         request_id: String,
         method: String,
         payload: String,
@@ -674,14 +674,14 @@ impl SessionInner {
                             });
                         }
                         proto::data_packet::Value::RpcRequest(rpc_request) => {
-                            let participant_identity = data
+                            let caller_identity = data
                                 .participant_identity
                                 .is_empty()
                                 .not()
-                                .then_some(data.participant_identity.clone());
+                                .then_some(data.participant_identity.clone())
+                                .map(|s| s.try_into().unwrap());
                             let _ = self.emitter.send(SessionEvent::RpcRequest {
-                                sender_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
+                                caller_identity,
                                 request_id: rpc_request.id.clone(),
                                 method: rpc_request.method.clone(),
                                 payload: rpc_request.payload.clone(),

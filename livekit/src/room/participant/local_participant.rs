@@ -43,7 +43,7 @@ use uuid::Uuid;
 type RpcHandler = Arc<
     dyn Fn(
             String,              // request_id
-            ParticipantIdentity, // participant_identity
+            ParticipantIdentity, // caller_identity
             String,              // payload
             Duration,            // response_timeout_ms
         ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
@@ -731,13 +731,13 @@ impl LocalParticipant {
 
     pub(crate) async fn handle_incoming_rpc_request(
         &self,
-        sender_identity: ParticipantIdentity,
+        caller_identity: ParticipantIdentity,
         request_id: String,
         method: String,
         payload: String,
         response_timeout_ms: u32,
     ) {
-        if let Err(e) = self.publish_rpc_ack(sender_identity.to_string(), request_id.clone()).await
+        if let Err(e) = self.publish_rpc_ack(caller_identity.to_string(), request_id.clone()).await
         {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
@@ -748,7 +748,7 @@ impl LocalParticipant {
             Some(handler) => {
                 match tokio::task::spawn(handler(
                     request_id.clone(),
-                    sender_identity.clone(),
+                    caller_identity.clone(),
                     payload.clone(),
                     Duration::from_millis(response_timeout_ms as u64),
                 ))
@@ -774,7 +774,7 @@ impl LocalParticipant {
 
         if let Err(e) = self
             .publish_rpc_response(
-                sender_identity.to_string(),
+                caller_identity.to_string(),
                 request_id,
                 payload,
                 error.map(|e| e.to_proto()),

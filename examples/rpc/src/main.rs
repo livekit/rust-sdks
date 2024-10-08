@@ -48,21 +48,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: &Arc<Room>) {
-    greeters_room.local_participant().register_rpc_method("arrival".to_string(), |_, sender_identity, payload, _| {
+    greeters_room.local_participant().register_rpc_method("arrival".to_string(), |_, caller_identity, payload, _| {
         Box::pin(async move {
-            println!("[Greeter] Oh {} arrived and said \"{}\"", sender_identity, payload);
+            println!("[Greeter] Oh {} arrived and said \"{}\"", caller_identity, payload);
             sleep(Duration::from_secs(2)).await;
             Ok("Welcome and have a wonderful day!".to_string())
         })
     });
 
-    math_genius_room.local_participant().register_rpc_method("square-root".to_string(), |_, sender_identity, payload, response_timeout_ms| {
+    math_genius_room.local_participant().register_rpc_method("square-root".to_string(), |_, caller_identity, payload, response_timeout_ms| {
         Box::pin(async move {
             let json_data: Value = serde_json::from_str(&payload).unwrap();
             let number = json_data["number"].as_f64().unwrap();
             println!(
                 "[Math Genius] I guess {} wants the square root of {}. I've only got {} seconds to respond but I think I can pull it off.",
-                sender_identity,
+                caller_identity,
                 number,
                 response_timeout_ms.as_secs()
             );

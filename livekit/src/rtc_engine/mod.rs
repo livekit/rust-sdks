@@ -110,7 +110,7 @@ pub enum EngineEvent {
         digit: Option<String>,
     },
     RpcRequest {
-        sender_identity: Option<ParticipantIdentity>,
+        caller_identity: Option<ParticipantIdentity>,
         request_id: String,
         method: String,
         payload: String,
@@ -471,7 +471,7 @@ impl EngineInner {
                     self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
             }
             SessionEvent::RpcRequest {
-                sender_identity,
+                caller_identity,
                 request_id,
                 method,
                 payload,
@@ -479,7 +479,7 @@ impl EngineInner {
                 version,
             } => {
                 let _ = self.engine_tx.send(EngineEvent::RpcRequest {
-                    sender_identity,
+                    caller_identity,
                     request_id,
                     method,
                     payload,
