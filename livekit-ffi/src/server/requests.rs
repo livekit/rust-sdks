@@ -22,12 +22,13 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, resampler,
-    room::{self, FfiPublication, FfiTrack},
+    audio_source, audio_stream, colorcvt,
     participant::FfiParticipant,
+    resampler,
+    room::{self, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
-use crate::{proto};
+use crate::proto;
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -947,9 +948,7 @@ pub fn handle_request(
             )?)
         }
         proto::ffi_request::Message::PerformRpc(request) => {
-            proto::ffi_response::Message::PerformRpc(on_perform_rpc(
-                server, request,
-            )?)
+            proto::ffi_response::Message::PerformRpc(on_perform_rpc(server, request)?)
         }
         proto::ffi_request::Message::RegisterRpcMethod(request) => {
             proto::ffi_response::Message::RegisterRpcMethod(on_register_rpc_method(

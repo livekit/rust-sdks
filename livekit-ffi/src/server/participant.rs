@@ -30,7 +30,6 @@ use crate::{
     FfiError, FfiHandleId, FfiResult,
 };
 
-
 #[derive(Clone)]
 pub struct FfiParticipant {
     pub handle: FfiHandleId,

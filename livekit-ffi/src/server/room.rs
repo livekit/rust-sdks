@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
@@ -30,8 +30,6 @@ use crate::{
     server::{FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
 };
-
-
 
 #[derive(Clone)]
 pub struct FfiPublication {
