@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
 use std::collections::HashMap;
-use std::{collections::HashSet, slice, sync::Arc, time::Duration};
+use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
 use livekit::{participant, track};
@@ -25,16 +26,12 @@ use super::FfiDataBuffer;
 use crate::conversion::room;
 use crate::{
     proto,
+    server::participant::FfiParticipant,
     server::{FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
 };
 
-#[derive(Clone)]
-pub struct FfiParticipant {
-    pub handle: FfiHandleId,
-    pub participant: Participant,
-    pub room: Arc<RoomInner>,
-}
+
 
 #[derive(Clone)]
 pub struct FfiPublication {
@@ -50,7 +47,6 @@ pub struct FfiTrack {
 
 impl FfiHandle for FfiTrack {}
 impl FfiHandle for FfiPublication {}
-impl FfiHandle for FfiParticipant {}
 impl FfiHandle for FfiRoom {}
 
 #[derive(Clone)]

@@ -41,6 +41,7 @@ pub mod logger;
 pub mod requests;
 pub mod resampler;
 pub mod room;
+pub mod participant;
 mod utils;
 pub mod video_source;
 pub mod video_stream;

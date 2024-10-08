@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{slice, sync::Arc, time::Duration};
+use std::{slice, sync::Arc};
 
 use colorcvt::cvtimpl;
 use livekit::{
@@ -20,14 +20,14 @@ use livekit::{
     webrtc::{native::audio_resampler, prelude::*},
 };
 use parking_lot::Mutex;
-use tokio::sync::oneshot;
 
 use super::{
     audio_source, audio_stream, colorcvt, resampler,
-    room::{self, FfiParticipant, FfiPublication, FfiTrack},
+    room::{self, FfiPublication, FfiTrack},
+    participant::FfiParticipant,
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
-use crate::{conversion::track, proto};
+use crate::{proto};
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -769,40 +769,7 @@ fn on_perform_rpc(
 ) -> FfiResult<proto::PerformRpcResponse> {
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
-
-    let async_id = server.next_id();
-
-    let local = match ffi_participant.participant {
-        Participant::Local(local) => local.clone(),
-        Participant::Remote(_) => {
-            return Err(FfiError::InvalidRequest("Expected local participant".into()))
-        }
-    };
-
-    let handle = server.async_runtime.spawn(async move {
-        let result = local
-            .perform_rpc(
-                request.destination_identity.to_string(),
-                request.method,
-                request.payload,
-                request.response_timeout_ms,
-            )
-            .await;
-
-        let callback = proto::PerformRpcCallback {
-            async_id,
-            payload: result.as_ref().ok().cloned(),
-            error: result.as_ref().err().map(|error| proto::RpcError {
-                code: error.code,
-                message: error.message.clone(),
-                data: error.data.clone().unwrap_or_default(),
-            }),
-        };
-
-        let _ = server.send_event(proto::ffi_event::Message::PerformRpc(callback));
-    });
-    server.watch_panic(handle);
-    Ok(proto::PerformRpcResponse { async_id })
+    return ffi_participant.perform_rpc(server, request);
 }
 
 fn on_register_rpc_method(
@@ -811,62 +778,7 @@ fn on_register_rpc_method(
 ) -> FfiResult<proto::RegisterRpcMethodResponse> {
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
-
-    let async_id = server.next_id();
-    let method = request.method.clone();
-
-    let local = match ffi_participant.participant {
-        Participant::Local(local) => local.clone(),
-        Participant::Remote(_) => {
-            return Err(FfiError::InvalidRequest("Expected local participant".into()))
-        }
-    };
-
-    let handle = server.async_runtime.spawn(async move {
-        local.register_rpc_method(
-            method.clone(),
-            move |request_id, caller_identity, payload, timeout| {
-                let method = method.clone();
-                Box::pin(async move {
-                    let (tx, rx) = oneshot::channel();
-                    let invocation_id = server.next_id();
-
-                    let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
-                        proto::RpcMethodInvocationEvent {
-                            local_participant_handle: ffi_participant.handle,
-                            invocation_id,
-                            method: method,
-                            request_id: request_id,
-                            caller_identity: caller_identity.into(),
-                            payload: payload,
-                            timeout_ms: timeout.as_millis() as u32,
-                        },
-                    ));
-
-                    server.store_rpc_method_invocation_waiter(invocation_id, tx);
-
-                    match rx.await {
-                        Ok(response) => match response {
-                            Ok(payload) => Ok(payload),
-                            Err(rpc_error) => Err(rpc_error),
-                        },
-                        Err(_) => Err(RpcError {
-                            code: RpcErrorCode::ApplicationError as u32,
-                            message: "Error from method handler".to_string(),
-                            data: None,
-                        }),
-                    }
-                })
-            },
-        );
-
-        let callback = proto::RegisterRpcMethodCallback { async_id };
-
-        let _ = server.send_event(proto::ffi_event::Message::RegisterRpcMethod(callback));
-    });
-
-    server.watch_panic(handle);
-    Ok(proto::RegisterRpcMethodResponse { async_id })
+    return ffi_participant.register_rpc_method(server, request);
 }
 
 fn on_unregister_rpc_method(
@@ -875,26 +787,7 @@ fn on_unregister_rpc_method(
 ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
-
-    let async_id = server.next_id();
-
-    let local = match ffi_participant.participant {
-        Participant::Local(local) => local.clone(),
-        Participant::Remote(_) => {
-            return Err(FfiError::InvalidRequest("Expected local participant".into()))
-        }
-    };
-
-    let handle = server.async_runtime.spawn(async move {
-        local.unregister_rpc_method(request.method);
-
-        let callback = proto::UnregisterRpcMethodCallback { async_id };
-
-        let _ = server.send_event(proto::ffi_event::Message::UnregisterRpcMethod(callback));
-    });
-
-    server.watch_panic(handle);
-    Ok(proto::UnregisterRpcMethodResponse { async_id })
+    return ffi_participant.unregister_rpc_method(server, request);
 }
 
 fn on_rpc_method_invocation_response(
