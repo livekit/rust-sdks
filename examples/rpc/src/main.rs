@@ -7,6 +7,11 @@ use rand::Rng;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+// Example usage of RPC calls between participants
+// (In a real app, you'd have one participant per client/device such as an agent and a browser app)
+//
+// Try it with `LIVEKIT_URL=<url> LIVEKIT_API_KEY=<your-key> LIVEKIT_API_SECRET=<your-secret> cargo run`
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -88,7 +93,7 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
             let parsed_response: Value = serde_json::from_str(&response)?;
             println!("[Requester] Nice, the answer was {}", parsed_response["result"]);
         },
-        Err(e) => println!("[Requester] RPC call failed: {:?}", e),
+        Err(e) => log::error!("[Requester] RPC call failed: {:?}", e),
     }
     Ok(())
 }
@@ -105,7 +110,7 @@ async fn perform_quantum_hypergeometric_series(room: &Arc<Room>) -> Result<(), B
                 println!("[Requester] Aww looks like the genius doesn't know that one.");
                 return Ok(());
             }
-            println!("[Requester] RPC error: {} (code: {})", e.message, e.code);
+            log::error!("[Requester] RPC error: {} (code: {})", e.message, e.code);
         },
     }
     Ok(())
