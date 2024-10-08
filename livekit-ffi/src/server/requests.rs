@@ -802,7 +802,7 @@ fn on_rpc_method_invocation_response(
 
         if let Some(waiter) = server.take_rpc_method_invocation_waiter(request.invocation_id) {
             let result = if let Some(error) = request.error.clone() {
-                Err(RpcError { code: error.code, message: error.message, data: Some(error.data) })
+                Err(RpcError { code: error.code, message: error.message, data: error.data })
             } else {
                 Ok(request.payload.unwrap_or_default())
             };

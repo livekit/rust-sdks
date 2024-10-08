@@ -3419,8 +3419,8 @@ pub struct RpcError {
     pub code: u32,
     #[prost(string, tag="2")]
     pub message: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub data: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="3")]
+    pub data: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// FFI Requests
 #[allow(clippy::derive_partial_eq_without_eq)]

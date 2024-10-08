@@ -20,7 +20,7 @@ option csharp_namespace = "LiveKit.Proto";
 message RpcError {
   uint32 code = 1;
   string message = 2;
-  string data = 3;
+  optional string data = 3;
 }
 
 // FFI Requests

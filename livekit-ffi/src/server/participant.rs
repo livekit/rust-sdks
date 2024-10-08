@@ -64,7 +64,7 @@ impl FfiParticipant {
                 error: result.as_ref().err().map(|error| proto::RpcError {
                     code: error.code,
                     message: error.message.clone(),
-                    data: error.data.clone().unwrap_or_default(),
+                    data: error.data.clone(),
                 }),
             };
 
