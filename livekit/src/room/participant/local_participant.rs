@@ -353,9 +353,10 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        let _ = self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await;
-
-        Ok(ChatMessage::from(chat_message))
+        match self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await {
+            Ok(_) => Ok(ChatMessage::from(chat_message)),
+            Err(e) => Err(Into::into(e)),
+        }
     }
 
     pub async fn edit_chat_message(
@@ -378,9 +379,10 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        let _ = self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await;
-
-        Ok(ChatMessage::from(proto_msg))
+        match self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await {
+            Ok(_) => Ok(ChatMessage::from(proto_msg)),
+            Err(e) => Err(Into::into(e)),
+        }
     }
 
     pub async fn unpublish_track(
