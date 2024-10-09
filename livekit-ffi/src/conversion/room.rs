@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{proto, server::room::FfiRoom};
+use livekit::ChatMessage as RoomChatMessage;
 use livekit::{
     e2ee::{
         key_provider::{KeyProvider, KeyProviderOptions},
@@ -24,8 +26,7 @@ use livekit::{
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
 };
-
-use crate::{proto, server::room::FfiRoom};
+use proto::ChatMessage;
 
 impl From<EncryptionState> for proto::EncryptionState {
     fn from(value: EncryptionState) -> Self {
@@ -238,6 +239,32 @@ impl From<&FfiRoom> for proto::RoomInfo {
             sid: room.maybe_sid().map(|x| x.to_string()),
             name: room.name(),
             metadata: room.metadata(),
+        }
+    }
+}
+
+impl From<ChatMessage> for RoomChatMessage {
+    fn from(proto_msg: ChatMessage) -> Self {
+        RoomChatMessage {
+            id: proto_msg.id,
+            message: proto_msg.message,
+            timestamp: proto_msg.timestamp,
+            edit_timestamp: proto_msg.edit_timestamp,
+            deleted: proto_msg.deleted,
+            generated: proto_msg.generated,
+        }
+    }
+}
+
+impl From<RoomChatMessage> for ChatMessage {
+    fn from(msg: RoomChatMessage) -> Self {
+        ChatMessage {
+            id: msg.id,
+            message: msg.message,
+            timestamp: msg.timestamp,
+            edit_timestamp: msg.edit_timestamp,
+            deleted: msg.deleted.into(),
+            generated: msg.generated.into(),
         }
     }
 }
