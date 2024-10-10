@@ -6,8 +6,6 @@ include!("soxr.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::{Read, Seek, SeekFrom};
 
     #[test]
     fn it_works() {

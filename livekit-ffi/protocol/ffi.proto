@@ -23,6 +23,7 @@ import "track.proto";
 import "room.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
+import "rpc.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -69,6 +70,7 @@ message FfiRequest {
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
     PublishSipDtmfRequest publish_sip_dtmf = 14;
+    
 
     // Track
     CreateVideoTrackRequest create_video_track = 15;
@@ -96,6 +98,12 @@ message FfiRequest {
     NewSoxResamplerRequest new_sox_resampler = 33;
     PushSoxResamplerRequest push_sox_resampler = 34;
     FlushSoxResamplerRequest flush_sox_resampler = 35;
+
+    // RPC
+    PerformRpcRequest perform_rpc = 36;
+    RegisterRpcMethodRequest register_rpc_method = 37;
+    UnregisterRpcMethodRequest unregister_rpc_method = 38;
+    RpcMethodInvocationResponseRequest rpc_method_invocation_response = 39;
   }
 }
 
@@ -144,6 +152,12 @@ message FfiResponse {
     NewSoxResamplerResponse new_sox_resampler = 33;
     PushSoxResamplerResponse push_sox_resampler = 34;
     FlushSoxResamplerResponse flush_sox_resampler = 35;
+
+    // RPC
+    PerformRpcResponse perform_rpc = 36;
+    RegisterRpcMethodResponse register_rpc_method = 37;
+    UnregisterRpcMethodResponse unregister_rpc_method = 38;
+    RpcMethodInvocationResponseResponse rpc_method_invocation_response = 39;
   }
 }
 
@@ -172,6 +186,11 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
+    PerformRpcCallback perform_rpc = 22;
+    RegisterRpcMethodCallback register_rpc_method = 23;
+    UnregisterRpcMethodCallback unregister_rpc_method = 24;
+    RpcMethodInvocationEvent rpc_method_invocation = 25;
+    RpcMethodInvocationResponseCallback rpc_method_invocation_response = 26;
   }
 }
 

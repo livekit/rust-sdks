@@ -13,28 +13,21 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::{collections::HashSet, slice, sync::Arc, time::Duration};
+use std::time::Duration;
+use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
-use livekit::{participant, track};
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
-use crate::conversion::room;
 use crate::{
     proto,
+    server::participant::FfiParticipant,
     server::{FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
 };
-
-#[derive(Clone)]
-pub struct FfiParticipant {
-    pub handle: FfiHandleId,
-    pub participant: Participant,
-    pub room: Arc<RoomInner>,
-}
 
 #[derive(Clone)]
 pub struct FfiPublication {
@@ -50,7 +43,6 @@ pub struct FfiTrack {
 
 impl FfiHandle for FfiTrack {}
 impl FfiHandle for FfiPublication {}
-impl FfiHandle for FfiParticipant {}
 impl FfiHandle for FfiRoom {}
 
 #[derive(Clone)]
@@ -136,7 +128,6 @@ impl FfiRoom {
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
                     let (transcription_tx, transcription_rx) = mpsc::unbounded_channel();
                     let (dtmf_tx, dtmf_rx) = mpsc::unbounded_channel();
-
                     let (close_tx, close_rx) = broadcast::channel(1);
 
                     let handle_id = server.next_id();
@@ -227,13 +218,15 @@ impl FfiRoom {
                         ))
                     }); // Publish transcription
 
-                    let sip_dtmf_handle =
-                        server.watch_panic(server.async_runtime.spawn(sip_dtmf_task(
+                    let sip_dtmf_handle = server.watch_panic({
+                        let close_rx = close_rx.resubscribe();
+                        server.async_runtime.spawn(sip_dtmf_task(
                             server,
                             inner.clone(),
                             dtmf_rx,
                             close_rx,
-                        )));
+                        ))
+                    });
 
                     *handle = Some(Handle {
                         event_handle,
@@ -271,6 +264,8 @@ impl FfiRoom {
             let _ = handle.close_tx.send(());
             let _ = handle.event_handle.await;
             let _ = handle.data_handle.await;
+            let _ = handle.transcription_handle.await;
+            let _ = handle.sip_dtmf_handle.await;
         }
     }
 }
@@ -977,6 +972,7 @@ async fn forward_event(
                 },
             ));
         }
+
         RoomEvent::ConnectionStateChanged(state) => {
             let _ = send_event(proto::room_event::Message::ConnectionStateChanged(
                 proto::ConnectionStateChanged { state: proto::ConnectionState::from(state).into() },

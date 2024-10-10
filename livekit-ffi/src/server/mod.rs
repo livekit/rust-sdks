@@ -27,17 +27,15 @@ use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
-use tokio::{
-    sync::{broadcast, oneshot},
-    task::JoinHandle,
-};
+use tokio::{sync::oneshot, task::JoinHandle};
 
-use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
+use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, RpcError, INVALID_HANDLE};
 
 pub mod audio_source;
 pub mod audio_stream;
 pub mod colorcvt;
 pub mod logger;
+pub mod participant;
 pub mod requests;
 pub mod resampler;
 pub mod room;
@@ -82,6 +80,7 @@ pub struct FfiServer {
     config: Mutex<Option<FfiConfig>>,
     logger: &'static logger::FfiLogger,
     handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
+    rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 }
 
 impl Default for FfiServer {
@@ -120,6 +119,7 @@ impl Default for FfiServer {
             config: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
+            rpc_method_invocation_waiters: Default::default(),
         }
     }
 }
@@ -240,5 +240,20 @@ impl FfiServer {
             }
         });
         handle
+    }
+
+    pub fn store_rpc_method_invocation_waiter(
+        &self,
+        invocation_id: u64,
+        waiter: oneshot::Sender<Result<String, RpcError>>,
+    ) {
+        self.rpc_method_invocation_waiters.lock().insert(invocation_id, waiter);
+    }
+
+    pub fn take_rpc_method_invocation_waiter(
+        &self,
+        invocation_id: u64,
+    ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
+        return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
 }
