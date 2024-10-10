@@ -14,7 +14,9 @@
 
 use livekit_protocol::*;
 
-use crate::{e2ee::EncryptionType, participant, track, DataPacketKind};
+use crate::{
+    e2ee::EncryptionType, participant, room::ChatMessage as RoomChatMessage, track, DataPacketKind,
+};
 
 // Conversions
 impl From<ConnectionQuality> for participant::ConnectionQuality {
@@ -119,6 +121,32 @@ impl From<participant_info::Kind> for participant::ParticipantKind {
             participant_info::Kind::Egress => participant::ParticipantKind::Egress,
             participant_info::Kind::Sip => participant::ParticipantKind::Sip,
             participant_info::Kind::Agent => participant::ParticipantKind::Agent,
+        }
+    }
+}
+
+impl From<ChatMessage> for RoomChatMessage {
+    fn from(proto_msg: ChatMessage) -> Self {
+        RoomChatMessage {
+            id: proto_msg.id,
+            message: proto_msg.message,
+            timestamp: proto_msg.timestamp,
+            edit_timestamp: proto_msg.edit_timestamp,
+            deleted: proto_msg.deleted.into(),
+            generated: proto_msg.generated.into(),
+        }
+    }
+}
+
+impl From<RoomChatMessage> for ChatMessage {
+    fn from(msg: RoomChatMessage) -> Self {
+        ChatMessage {
+            id: msg.id,
+            message: msg.message,
+            timestamp: msg.timestamp,
+            edit_timestamp: msg.edit_timestamp,
+            deleted: msg.deleted.unwrap_or(false),
+            generated: msg.generated.unwrap_or(false),
         }
     }
 }

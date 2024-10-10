@@ -2210,6 +2210,48 @@ pub struct SetLocalMetadataCallback {
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendChatMessageRequest {
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(string, tag="2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="3")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="4")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EditChatMessageRequest {
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(string, tag="2")]
+    pub edit_text: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub original_message: ::core::option::Option<ChatMessage>,
+    #[prost(string, repeated, tag="4")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="5")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendChatMessageResponse {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendChatMessageCallback {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag="3")]
+    pub chat_message: ::core::option::Option<ChatMessage>,
+}
 /// Change the local participant's attributes
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2407,7 +2449,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2471,6 +2513,8 @@ pub mod room_event {
         DataPacketReceived(super::DataPacketReceived),
         #[prost(message, tag="28")]
         TranscriptionReceived(super::TranscriptionReceived),
+        #[prost(message, tag="29")]
+        ChatMessage(super::ChatMessageReceived),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2652,6 +2696,30 @@ pub struct UserPacket {
     pub data: ::core::option::Option<OwnedBuffer>,
     #[prost(string, optional, tag="2")]
     pub topic: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ChatMessage {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(int64, tag="2")]
+    pub timestamp: i64,
+    #[prost(string, tag="3")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(int64, optional, tag="4")]
+    pub edit_timestamp: ::core::option::Option<i64>,
+    #[prost(bool, optional, tag="5")]
+    pub deleted: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="6")]
+    pub generated: ::core::option::Option<bool>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ChatMessageReceived {
+    #[prost(message, optional, tag="1")]
+    pub message: ::core::option::Option<ChatMessage>,
+    #[prost(string, tag="2")]
+    pub participant_identity: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3443,7 +3511,7 @@ impl AudioSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3523,13 +3591,17 @@ pub mod ffi_request {
         PushSoxResampler(super::PushSoxResamplerRequest),
         #[prost(message, tag="35")]
         FlushSoxResampler(super::FlushSoxResamplerRequest),
+        #[prost(message, tag="36")]
+        SendChatMessage(super::SendChatMessageRequest),
+        #[prost(message, tag="37")]
+        EditChatMessage(super::EditChatMessageRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3609,6 +3681,8 @@ pub mod ffi_response {
         PushSoxResampler(super::PushSoxResamplerResponse),
         #[prost(message, tag="35")]
         FlushSoxResampler(super::FlushSoxResamplerResponse),
+        #[prost(message, tag="36")]
+        SendChatMessage(super::SendChatMessageResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
@@ -3617,7 +3691,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3665,6 +3739,8 @@ pub mod ffi_event {
         Panic(super::Panic),
         #[prost(message, tag="21")]
         PublishSipDtmf(super::PublishSipDtmfCallback),
+        #[prost(message, tag="22")]
+        ChatMessage(super::SendChatMessageCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

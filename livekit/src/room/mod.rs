@@ -162,6 +162,10 @@ pub enum RoomEvent {
         digit: Option<String>,
         participant: Option<RemoteParticipant>,
     },
+    ChatMessage {
+        message: ChatMessage,
+        participant: Option<RemoteParticipant>,
+    },
     E2eeStateChanged {
         participant: Participant,
         state: EncryptionState,
@@ -234,6 +238,16 @@ pub struct SipDTMF {
     pub code: u32,
     pub digit: String,
     pub destination_identities: Vec<ParticipantIdentity>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct ChatMessage {
+    pub id: String,
+    pub message: String,
+    pub timestamp: i64,
+    pub edit_timestamp: Option<i64>,
+    pub deleted: Option<bool>,
+    pub generated: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -605,6 +619,9 @@ impl RoomSession {
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
             EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
                 self.handle_data(payload, topic, kind, participant_sid, participant_identity);
+            }
+            EngineEvent::ChatMessage { participant_identity, message } => {
+                self.handle_chat_message(participant_identity, message);
             }
             EngineEvent::Transcription { participant_identity, track_sid, segments } => {
                 self.handle_transcription(participant_identity, track_sid, segments);
@@ -1066,6 +1083,21 @@ impl RoomSession {
             kind,
             participant,
         });
+    }
+
+    fn handle_chat_message(
+        &self,
+        participant_identity: ParticipantIdentity,
+        chat_message: ChatMessage,
+    ) {
+        let participant = self.get_participant_by_identity(&participant_identity);
+
+        if participant.is_none() {
+            // We received a data packet from a participant that is not in the participants list
+            return;
+        }
+
+        self.dispatcher.dispatch(&RoomEvent::ChatMessage { message: chat_message, participant });
     }
 
     fn handle_dtmf(

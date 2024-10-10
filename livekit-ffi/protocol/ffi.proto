@@ -96,6 +96,9 @@ message FfiRequest {
     NewSoxResamplerRequest new_sox_resampler = 33;
     PushSoxResamplerRequest push_sox_resampler = 34;
     FlushSoxResamplerRequest flush_sox_resampler = 35;
+
+    SendChatMessageRequest send_chat_message = 36;
+    EditChatMessageRequest edit_chat_message = 37;
   }
 }
 
@@ -144,6 +147,8 @@ message FfiResponse {
     NewSoxResamplerResponse new_sox_resampler = 33;
     PushSoxResamplerResponse push_sox_resampler = 34;
     FlushSoxResamplerResponse flush_sox_resampler = 35;
+
+    SendChatMessageResponse send_chat_message = 36;
   }
 }
 
@@ -172,6 +177,7 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
+    SendChatMessageCallback chat_message = 22;
   }
 }
 
