@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::{proto, server::room::FfiRoom};
-use livekit::ChatMessage as RoomChatMessage;
 use livekit::{
     e2ee::{
         key_provider::{KeyProvider, KeyProviderOptions},
@@ -26,7 +25,6 @@ use livekit::{
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
 };
-use proto::ChatMessage;
 
 impl From<EncryptionState> for proto::EncryptionState {
     fn from(value: EncryptionState) -> Self {
@@ -243,9 +241,9 @@ impl From<&FfiRoom> for proto::RoomInfo {
     }
 }
 
-impl From<ChatMessage> for RoomChatMessage {
-    fn from(proto_msg: ChatMessage) -> Self {
-        RoomChatMessage {
+impl From<proto::ChatMessage> for livekit::ChatMessage {
+    fn from(proto_msg: proto::ChatMessage) -> Self {
+        livekit::ChatMessage {
             id: proto_msg.id,
             message: proto_msg.message,
             timestamp: proto_msg.timestamp,
@@ -256,9 +254,9 @@ impl From<ChatMessage> for RoomChatMessage {
     }
 }
 
-impl From<RoomChatMessage> for ChatMessage {
-    fn from(msg: RoomChatMessage) -> Self {
-        ChatMessage {
+impl From<livekit::ChatMessage> for proto::ChatMessage {
+    fn from(msg: livekit::ChatMessage) -> Self {
+        proto::ChatMessage {
             id: msg.id,
             message: msg.message,
             timestamp: msg.timestamp,
