@@ -612,7 +612,6 @@ impl LocalParticipant {
         payload: String,
         response_timeout_ms: Option<u32>,
     ) -> Result<String, RpcError> {
-        let connection_timeout = Duration::from_millis(2000);
         let response_timeout = Duration::from_millis(response_timeout_ms.unwrap_or(10000) as u64);
         let max_round_trip_latency = Duration::from_millis(2000);
 
@@ -646,7 +645,7 @@ impl LocalParticipant {
         }
 
         // Wait for the ack first
-        let ack_result = tokio::time::timeout(connection_timeout, ack_rx).await;
+        let ack_result = tokio::time::timeout(max_round_trip_latency, ack_rx).await;
 
         match ack_result {
             Ok(_) => {
