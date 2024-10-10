@@ -613,7 +613,7 @@ impl SessionInner {
                                 kind: data.kind().into(),
                                 participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
                                 participant_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
+                                    .map(|s| s.into()),
                                 payload: user.payload.clone(),
                                 topic: user.topic.clone(),
                             });
@@ -628,7 +628,7 @@ impl SessionInner {
 
                             let _ = self.emitter.send(SessionEvent::SipDTMF {
                                 participant_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
+                                    .map(|s| s.into()),
                                 digit: digit.map(|s| s.try_into().unwrap()),
                                 code: dtmf.code,
                             });

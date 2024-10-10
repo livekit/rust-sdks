@@ -182,7 +182,7 @@ impl SignalClient {
 
     /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
     pub fn next_request_id(&self) -> u32 {
-        self.inner.next_request_id().clone()
+        self.inner.next_request_id()
     }
 }
 

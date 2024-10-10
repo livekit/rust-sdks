@@ -1,4 +1,4 @@
-name: Rust Formatting
+name: Rust Formatting & Linting
 
 on:
   workflow_dispatch:
@@ -16,8 +16,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  formatting:
-    name: Check Formatting
+  linting:
+    name: Lint & Format
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -29,8 +29,11 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2023-12-30
-          components: rustfmt
+          components: rustfmt, clippy
 
-      - name: Cargo fmt
-        run: |
-          cargo fmt -- --check
+      - name: rustfmt
+        run: cargo fmt -- --check
+        
+      - name: clippy
+        run: cargo clippy -- -D warnings
+        

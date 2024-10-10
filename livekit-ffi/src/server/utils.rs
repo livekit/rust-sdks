@@ -11,7 +11,7 @@ pub async fn track_changed_trigger(
     track_finished_tx: broadcast::Sender<Track>,
 ) {
     for track_pub in participant.participant.track_publications().values() {
-        if track_pub.source() == track_source.into() {
+        if track_pub.source() == track_source {
             if let Some(track) = track_pub.track() {
                 let _ = track_tx.send(track).await;
             }
@@ -25,7 +25,7 @@ pub async fn track_changed_trigger(
                 if participant.participant.identity() != p.identity() {
                     continue;
                 }
-                if publication.source() == track_source.into() {
+                if publication.source() == track_source {
                     let _ = track_tx.send(track.into()).await;
                 }
             }
@@ -33,7 +33,7 @@ pub async fn track_changed_trigger(
                 if p.identity() != participant.participant.identity() {
                     continue;
                 }
-                if publication.source() == track_source.into() {
+                if publication.source() == track_source {
                     let _ = track_finished_tx.send(track.into());
                 }
             }
@@ -58,5 +58,5 @@ pub fn ffi_participant_from_handle(
     if ffi_participant_handle.is_err() {
         return Err(FfiError::InvalidRequest("participant not found".into()));
     }
-    return Ok(ffi_participant_handle.unwrap().clone());
+    Ok(ffi_participant_handle.unwrap().clone())
 }
