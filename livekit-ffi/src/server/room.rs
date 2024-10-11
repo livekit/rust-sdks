@@ -65,6 +65,9 @@ pub struct RoomInner {
     pending_unpublished_tracks: Mutex<HashSet<TrackSid>>,
 
     track_handle_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
+
+    // Used to forward RPC method invocation to the FfiClient and collect their results
+    rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 }
 
 struct Handle {
@@ -140,6 +143,7 @@ impl FfiRoom {
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
+                        rpc_method_invocation_waiters: Default::default(),
                     });
 
                     let (local_info, remote_infos) =
@@ -563,6 +567,21 @@ impl RoomInner {
         });
         server.watch_panic(handle);
         proto::SetLocalAttributesResponse { async_id }
+    }
+
+    pub fn store_rpc_method_invocation_waiter(
+        &self,
+        invocation_id: u64,
+        waiter: oneshot::Sender<Result<String, RpcError>>,
+    ) {
+        self.rpc_method_invocation_waiters.lock().insert(invocation_id, waiter);
+    }
+
+    pub fn take_rpc_method_invocation_waiter(
+        &self,
+        invocation_id: u64,
+    ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
+        return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
 }
 

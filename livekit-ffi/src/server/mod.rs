@@ -80,7 +80,6 @@ pub struct FfiServer {
     config: Mutex<Option<FfiConfig>>,
     logger: &'static logger::FfiLogger,
     handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
-    rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 }
 
 impl Default for FfiServer {
@@ -119,7 +118,6 @@ impl Default for FfiServer {
             config: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
-            rpc_method_invocation_waiters: Default::default(),
         }
     }
 }
@@ -240,20 +238,5 @@ impl FfiServer {
             }
         });
         handle
-    }
-
-    pub fn store_rpc_method_invocation_waiter(
-        &self,
-        invocation_id: u64,
-        waiter: oneshot::Sender<Result<String, RpcError>>,
-    ) {
-        self.rpc_method_invocation_waiters.lock().insert(invocation_id, waiter);
-    }
-
-    pub fn take_rpc_method_invocation_waiter(
-        &self,
-        invocation_id: u64,
-    ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
-        return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
 }

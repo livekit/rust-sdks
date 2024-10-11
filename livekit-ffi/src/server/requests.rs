@@ -796,11 +796,15 @@ fn on_rpc_method_invocation_response(
     request: proto::RpcMethodInvocationResponseRequest,
 ) -> FfiResult<proto::RpcMethodInvocationResponseResponse> {
     let async_id = server.next_id();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+
+    let room = ffi_participant.room;
 
     let handle = server.async_runtime.spawn(async move {
         let mut error: Option<String> = None;
 
-        if let Some(waiter) = server.take_rpc_method_invocation_waiter(request.invocation_id) {
+        if let Some(waiter) = room.take_rpc_method_invocation_waiter(request.invocation_id) {
             let result = if let Some(error) = request.error.clone() {
                 Err(RpcError { code: error.code, message: error.message, data: error.data })
             } else {

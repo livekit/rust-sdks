@@ -90,39 +90,44 @@ impl FfiParticipant {
         };
 
         let ffi_handle = self.handle.clone();
+        let room = self.room.clone();
         let handle = server.async_runtime.spawn(async move {
             local.register_rpc_method(
                 method.clone(),
                 move |request_id, caller_identity, payload, response_timeout| {
                     let method = method.clone();
-                    Box::pin(async move {
-                        let (tx, rx) = oneshot::channel();
-                        let invocation_id = server.next_id();
+                    Box::pin({
+                        let room = room.clone();
+                        async move {
+                            let (tx, rx) = oneshot::channel();
+                            let invocation_id = server.next_id();
 
-                        let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
-                            proto::RpcMethodInvocationEvent {
-                                local_participant_handle: ffi_handle,
-                                invocation_id,
-                                method: method,
-                                request_id: request_id,
-                                caller_identity: caller_identity.into(),
-                                payload: payload,
-                                response_timeout_ms: response_timeout.as_millis() as u32,
-                            },
-                        ));
+                            let _ =
+                                server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
+                                    proto::RpcMethodInvocationEvent {
+                                        local_participant_handle: ffi_handle,
+                                        invocation_id,
+                                        method: method,
+                                        request_id: request_id,
+                                        caller_identity: caller_identity.into(),
+                                        payload: payload,
+                                        response_timeout_ms: response_timeout.as_millis() as u32,
+                                    },
+                                ));
 
-                        server.store_rpc_method_invocation_waiter(invocation_id, tx);
+                            room.store_rpc_method_invocation_waiter(invocation_id, tx);
 
-                        match rx.await {
-                            Ok(response) => match response {
-                                Ok(payload) => Ok(payload),
-                                Err(rpc_error) => Err(rpc_error),
-                            },
-                            Err(_) => Err(RpcError {
-                                code: RpcErrorCode::ApplicationError as u32,
-                                message: "Error from method handler".to_string(),
-                                data: None,
-                            }),
+                            match rx.await {
+                                Ok(response) => match response {
+                                    Ok(payload) => Ok(payload),
+                                    Err(rpc_error) => Err(rpc_error),
+                                },
+                                Err(_) => Err(RpcError {
+                                    code: RpcErrorCode::ApplicationError as u32,
+                                    message: "Error from method handler".to_string(),
+                                    data: None,
+                                }),
+                            }
                         }
                     })
                 },
