@@ -34,11 +34,11 @@ use proto::{
     debouncer::{self, Debouncer},
     SignalTarget,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::IntoDeserializer, Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::{id::ParticipantIdentity, TranscriptionSegment};
+use crate::{id::ParticipantIdentity, ChatMessage, TranscriptionSegment};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -80,6 +80,10 @@ pub enum SessionEvent {
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+    },
+    ChatMessage {
+        participant_identity: ParticipantIdentity,
+        message: ChatMessage,
     },
     Transcription {
         participant_identity: ParticipantIdentity,
@@ -707,6 +711,14 @@ impl SessionInner {
                         proto::data_packet::Value::RpcAck(rpc_ack) => {
                             let _ = self.emitter.send(SessionEvent::RpcAck {
                                 request_id: rpc_ack.request_id.clone(),
+                            });
+                        }
+                        proto::data_packet::Value::ChatMessage(message) => {
+                            let _ = self.emitter.send(SessionEvent::ChatMessage {
+                                participant_identity: ParticipantIdentity(
+                                    data.participant_identity,
+                                ),
+                                message: ChatMessage::from(message.clone()),
                             });
                         }
                         _ => {}

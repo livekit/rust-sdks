@@ -29,11 +29,12 @@ use crate::{
     prelude::*,
     room::participant::rpc::{RpcError, RpcErrorCode, MAX_PAYLOAD_BYTES},
     rtc_engine::{EngineError, RtcEngine},
-    DataPacket, SipDTMF, Transcription,
+    ChatMessage, DataPacket, SipDTMF, Transcription,
 };
-use futures_util::{future, Future};
-pub use libwebrtc::native::create_random_uuid;
-use libwebrtc::rtp_parameters::RtpEncodingParameters;
+use chrono::{TimeZone, Utc};
+use futures_util::Future;
+
+use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
@@ -354,6 +355,58 @@ impl LocalParticipant {
             Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
                 "request timeout".into(),
             ))))
+        }
+    }
+
+    pub async fn send_chat_message(
+        &self,
+        text: String,
+        destination_identities: Option<Vec<String>>,
+        sender_identity: Option<String>,
+    ) -> RoomResult<ChatMessage> {
+        let chat_message = proto::ChatMessage {
+            id: create_random_uuid(),
+            timestamp: Utc::now().timestamp_millis(),
+            message: text,
+            ..Default::default()
+        };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::ChatMessage(chat_message.clone())),
+            participant_identity: sender_identity.unwrap_or_default(),
+            destination_identities: destination_identities.unwrap_or_default(),
+            ..Default::default()
+        };
+
+        match self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await {
+            Ok(_) => Ok(ChatMessage::from(chat_message)),
+            Err(e) => Err(Into::into(e)),
+        }
+    }
+
+    pub async fn edit_chat_message(
+        &self,
+        edit_text: String,
+        original_message: ChatMessage,
+        destination_identities: Option<Vec<String>>,
+        sender_identity: Option<String>,
+    ) -> RoomResult<ChatMessage> {
+        let edited_message = ChatMessage {
+            message: edit_text,
+            edit_timestamp: Utc::now().timestamp_millis().into(),
+            ..original_message
+        };
+        let proto_msg = proto::ChatMessage::from(edited_message);
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::ChatMessage(proto_msg.clone())),
+            participant_identity: sender_identity.unwrap_or_default(),
+            destination_identities: destination_identities.unwrap_or_default(),
+            ..Default::default()
+        };
+
+        match self.inner.rtc_engine.publish_data(&data, DataPacketKind::Reliable).await {
+            Ok(_) => Ok(ChatMessage::from(proto_msg)),
+            Err(e) => Err(Into::into(e)),
         }
     }
 

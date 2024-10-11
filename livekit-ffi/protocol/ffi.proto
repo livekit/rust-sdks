@@ -98,12 +98,14 @@ message FfiRequest {
     NewSoxResamplerRequest new_sox_resampler = 33;
     PushSoxResamplerRequest push_sox_resampler = 34;
     FlushSoxResamplerRequest flush_sox_resampler = 35;
+    SendChatMessageRequest send_chat_message = 36;
+    EditChatMessageRequest edit_chat_message = 37;
 
     // RPC
-    PerformRpcRequest perform_rpc = 36;
-    RegisterRpcMethodRequest register_rpc_method = 37;
-    UnregisterRpcMethodRequest unregister_rpc_method = 38;
-    RpcMethodInvocationResponseRequest rpc_method_invocation_response = 39;
+    PerformRpcRequest perform_rpc = 38;
+    RegisterRpcMethodRequest register_rpc_method = 39;
+    UnregisterRpcMethodRequest unregister_rpc_method = 40;
+    RpcMethodInvocationResponseRequest rpc_method_invocation_response = 41;
   }
 }
 
@@ -152,12 +154,12 @@ message FfiResponse {
     NewSoxResamplerResponse new_sox_resampler = 33;
     PushSoxResamplerResponse push_sox_resampler = 34;
     FlushSoxResamplerResponse flush_sox_resampler = 35;
-
+    SendChatMessageResponse send_chat_message = 36;
     // RPC
-    PerformRpcResponse perform_rpc = 36;
-    RegisterRpcMethodResponse register_rpc_method = 37;
-    UnregisterRpcMethodResponse unregister_rpc_method = 38;
-    RpcMethodInvocationResponseResponse rpc_method_invocation_response = 39;
+    PerformRpcResponse perform_rpc = 37;
+    RegisterRpcMethodResponse register_rpc_method = 38;
+    UnregisterRpcMethodResponse unregister_rpc_method = 39;
+    RpcMethodInvocationResponseResponse rpc_method_invocation_response = 40;
   }
 }
 
@@ -186,11 +188,12 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
-    PerformRpcCallback perform_rpc = 22;
-    RegisterRpcMethodCallback register_rpc_method = 23;
-    UnregisterRpcMethodCallback unregister_rpc_method = 24;
-    RpcMethodInvocationEvent rpc_method_invocation = 25;
-    RpcMethodInvocationResponseCallback rpc_method_invocation_response = 26;
+    SendChatMessageCallback send_chat_message = 22;
+    PerformRpcCallback perform_rpc = 23;
+    RegisterRpcMethodCallback register_rpc_method = 24;
+    UnregisterRpcMethodCallback unregister_rpc_method = 25;
+    RpcMethodInvocationEvent rpc_method_invocation = 26;
+    RpcMethodInvocationResponseCallback rpc_method_invocation_response = 27;
   }
 }
 

@@ -17,6 +17,7 @@ use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
+use livekit::{participant, track, ChatMessage};
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -583,6 +584,66 @@ impl RoomInner {
     ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
         return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
+    pub fn send_chat_message(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        send_chat_message: proto::SendChatMessageRequest,
+    ) -> proto::SendChatMessageResponse {
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let res = inner
+                .room
+                .local_participant()
+                .send_chat_message(
+                    send_chat_message.message,
+                    send_chat_message.destination_identities.into(),
+                    send_chat_message.sender_identity,
+                )
+                .await;
+            let sent_message = res.as_ref().unwrap().clone();
+            let _ = server.send_event(proto::ffi_event::Message::SendChatMessage(
+                proto::SendChatMessageCallback {
+                    async_id,
+                    error: res.err().map(|e| e.to_string()),
+                    chat_message: proto::ChatMessage::from(sent_message).into(),
+                },
+            ));
+        });
+        server.watch_panic(handle);
+        proto::SendChatMessageResponse { async_id }
+    }
+
+    pub fn edit_chat_message(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        edit_chat_message: proto::EditChatMessageRequest,
+    ) -> proto::SendChatMessageResponse {
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let res = inner
+                .room
+                .local_participant()
+                .edit_chat_message(
+                    edit_chat_message.edit_text,
+                    edit_chat_message.original_message.unwrap().into(),
+                    edit_chat_message.destination_identities.into(),
+                    edit_chat_message.sender_identity,
+                )
+                .await;
+            let sent_message: ChatMessage = res.as_ref().unwrap().clone();
+            let _ = server.send_event(proto::ffi_event::Message::SendChatMessage(
+                proto::SendChatMessageCallback {
+                    async_id,
+                    error: res.err().map(|e| e.to_string()),
+                    chat_message: proto::ChatMessage::from(sent_message).into(),
+                },
+            ));
+        });
+        server.watch_panic(handle);
+        proto::SendChatMessageResponse { async_id }
+    }
 }
 
 // Task used to publish data without blocking the client thread
@@ -990,6 +1051,18 @@ async fn forward_event(
                     kind: proto::DataPacketKind::KindReliable.into(),
                 },
             ));
+        }
+
+        RoomEvent::ChatMessage { message, participant } => {
+            let (sid, identity) = match participant {
+                Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
+                None => (None, String::new()),
+            };
+            let _ =
+                send_event(proto::room_event::Message::ChatMessage(proto::ChatMessageReceived {
+                    message: proto::ChatMessage::from(message).into(),
+                    participant_identity: identity,
+                }));
         }
 
         RoomEvent::ConnectionStateChanged(state) => {

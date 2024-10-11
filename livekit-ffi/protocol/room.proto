@@ -144,6 +144,28 @@ message SetLocalMetadataCallback {
   optional string error = 2;
 }
 
+message SendChatMessageRequest {
+  uint64 local_participant_handle = 1;
+  string message = 2;
+  repeated string destination_identities = 3;
+  optional string sender_identity = 4;
+}
+message EditChatMessageRequest {
+  uint64 local_participant_handle = 1;
+  string edit_text = 2;
+  ChatMessage original_message = 3;
+  repeated string destination_identities = 4;
+  optional string sender_identity = 5;
+}
+message SendChatMessageResponse {
+  uint64 async_id = 1;
+}
+message SendChatMessageCallback {
+  uint64 async_id = 1;
+  optional string error = 2;
+  optional ChatMessage chat_message = 3;
+}
+
 // Change the local participant's attributes
 message SetLocalAttributesRequest {
   uint64 local_participant_handle = 1;
@@ -343,6 +365,7 @@ message RoomEvent {
     RoomEOS eos = 26; // The stream of room events has ended
     DataPacketReceived data_packet_received = 27;
     TranscriptionReceived transcription_received = 28;
+    ChatMessageReceived chat_message = 29;
   }
 }
 
@@ -455,6 +478,20 @@ message ConnectionQualityChanged {
 message UserPacket {
   OwnedBuffer data = 1;
   optional string topic = 2;
+}
+
+message ChatMessage {
+  string id = 1;
+  int64 timestamp = 2;
+  string message = 3;
+  optional int64 edit_timestamp = 4;
+  optional bool deleted = 5;
+  optional bool generated = 6;
+}
+
+message ChatMessageReceived {
+  ChatMessage message = 1;
+  string participant_identity = 2;
 }
 
 message SipDTMF {

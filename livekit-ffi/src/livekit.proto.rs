@@ -2210,6 +2210,48 @@ pub struct SetLocalMetadataCallback {
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendChatMessageRequest {
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(string, tag="2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="3")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="4")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EditChatMessageRequest {
+    #[prost(uint64, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(string, tag="2")]
+    pub edit_text: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub original_message: ::core::option::Option<ChatMessage>,
+    #[prost(string, repeated, tag="4")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="5")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendChatMessageResponse {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendChatMessageCallback {
+    #[prost(uint64, tag="1")]
+    pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag="3")]
+    pub chat_message: ::core::option::Option<ChatMessage>,
+}
 /// Change the local participant's attributes
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2407,7 +2449,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2471,6 +2513,8 @@ pub mod room_event {
         DataPacketReceived(super::DataPacketReceived),
         #[prost(message, tag="28")]
         TranscriptionReceived(super::TranscriptionReceived),
+        #[prost(message, tag="29")]
+        ChatMessage(super::ChatMessageReceived),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2652,6 +2696,30 @@ pub struct UserPacket {
     pub data: ::core::option::Option<OwnedBuffer>,
     #[prost(string, optional, tag="2")]
     pub topic: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ChatMessage {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(int64, tag="2")]
+    pub timestamp: i64,
+    #[prost(string, tag="3")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(int64, optional, tag="4")]
+    pub edit_timestamp: ::core::option::Option<i64>,
+    #[prost(bool, optional, tag="5")]
+    pub deleted: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="6")]
+    pub generated: ::core::option::Option<bool>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ChatMessageReceived {
+    #[prost(message, optional, tag="1")]
+    pub message: ::core::option::Option<ChatMessage>,
+    #[prost(string, tag="2")]
+    pub participant_identity: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3571,7 +3639,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3651,14 +3719,18 @@ pub mod ffi_request {
         PushSoxResampler(super::PushSoxResamplerRequest),
         #[prost(message, tag="35")]
         FlushSoxResampler(super::FlushSoxResamplerRequest),
-        /// RPC
         #[prost(message, tag="36")]
-        PerformRpc(super::PerformRpcRequest),
+        SendChatMessage(super::SendChatMessageRequest),
         #[prost(message, tag="37")]
-        RegisterRpcMethod(super::RegisterRpcMethodRequest),
+        EditChatMessage(super::EditChatMessageRequest),
+        /// RPC
         #[prost(message, tag="38")]
-        UnregisterRpcMethod(super::UnregisterRpcMethodRequest),
+        PerformRpc(super::PerformRpcRequest),
         #[prost(message, tag="39")]
+        RegisterRpcMethod(super::RegisterRpcMethodRequest),
+        #[prost(message, tag="40")]
+        UnregisterRpcMethod(super::UnregisterRpcMethodRequest),
+        #[prost(message, tag="41")]
         RpcMethodInvocationResponse(super::RpcMethodInvocationResponseRequest),
     }
 }
@@ -3666,7 +3738,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3746,14 +3818,16 @@ pub mod ffi_response {
         PushSoxResampler(super::PushSoxResamplerResponse),
         #[prost(message, tag="35")]
         FlushSoxResampler(super::FlushSoxResamplerResponse),
-        /// RPC
         #[prost(message, tag="36")]
-        PerformRpc(super::PerformRpcResponse),
+        SendChatMessage(super::SendChatMessageResponse),
+        /// RPC
         #[prost(message, tag="37")]
-        RegisterRpcMethod(super::RegisterRpcMethodResponse),
+        PerformRpc(super::PerformRpcResponse),
         #[prost(message, tag="38")]
-        UnregisterRpcMethod(super::UnregisterRpcMethodResponse),
+        RegisterRpcMethod(super::RegisterRpcMethodResponse),
         #[prost(message, tag="39")]
+        UnregisterRpcMethod(super::UnregisterRpcMethodResponse),
+        #[prost(message, tag="40")]
         RpcMethodInvocationResponse(super::RpcMethodInvocationResponseResponse),
     }
 }
@@ -3763,7 +3837,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3812,14 +3886,16 @@ pub mod ffi_event {
         #[prost(message, tag="21")]
         PublishSipDtmf(super::PublishSipDtmfCallback),
         #[prost(message, tag="22")]
-        PerformRpc(super::PerformRpcCallback),
+        SendChatMessage(super::SendChatMessageCallback),
         #[prost(message, tag="23")]
-        RegisterRpcMethod(super::RegisterRpcMethodCallback),
+        PerformRpc(super::PerformRpcCallback),
         #[prost(message, tag="24")]
-        UnregisterRpcMethod(super::UnregisterRpcMethodCallback),
+        RegisterRpcMethod(super::RegisterRpcMethodCallback),
         #[prost(message, tag="25")]
-        RpcMethodInvocation(super::RpcMethodInvocationEvent),
+        UnregisterRpcMethod(super::UnregisterRpcMethodCallback),
         #[prost(message, tag="26")]
+        RpcMethodInvocation(super::RpcMethodInvocationEvent),
+        #[prost(message, tag="27")]
         RpcMethodInvocationResponse(super::RpcMethodInvocationResponseCallback),
     }
 }
