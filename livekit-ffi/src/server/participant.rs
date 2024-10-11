@@ -15,6 +15,8 @@
 use std::sync::Arc;
 
 use livekit::prelude::*;
+use prost_types::Method;
+use std::time::Duration;
 use tokio::sync::oneshot;
 
 use crate::{
@@ -95,39 +97,21 @@ impl FfiParticipant {
             local.register_rpc_method(
                 method.clone(),
                 move |request_id, caller_identity, payload, response_timeout| {
-                    let method = method.clone();
                     Box::pin({
                         let room = room.clone();
+                        let method = method.clone();
                         async move {
-                            let (tx, rx) = oneshot::channel();
-                            let invocation_id = server.next_id();
-
-                            let _ =
-                                server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
-                                    proto::RpcMethodInvocationEvent {
-                                        local_participant_handle: ffi_handle,
-                                        invocation_id,
-                                        method: method,
-                                        request_id: request_id,
-                                        caller_identity: caller_identity.into(),
-                                        payload: payload,
-                                        response_timeout_ms: response_timeout.as_millis() as u32,
-                                    },
-                                ));
-
-                            room.store_rpc_method_invocation_waiter(invocation_id, tx);
-
-                            match rx.await {
-                                Ok(response) => match response {
-                                    Ok(payload) => Ok(payload),
-                                    Err(rpc_error) => Err(rpc_error),
-                                },
-                                Err(_) => Err(RpcError {
-                                    code: RpcErrorCode::ApplicationError as u32,
-                                    message: "Error from method handler".to_string(),
-                                    data: None,
-                                }),
-                            }
+                            forward_rpc_method_invocation(
+                                server,
+                                room,
+                                ffi_handle,
+                                method,
+                                request_id,
+                                caller_identity,
+                                payload,
+                                response_timeout,
+                            )
+                            .await
                         }
                     })
                 },
@@ -167,4 +151,40 @@ impl FfiParticipant {
         server.watch_panic(handle);
         Ok(proto::UnregisterRpcMethodResponse { async_id })
     }
+}
+
+async fn forward_rpc_method_invocation(
+    server: &'static FfiServer,
+    room: Arc<RoomInner>,
+    ffi_handle: FfiHandleId,
+    method: String,
+    request_id: String,
+    caller_identity: ParticipantIdentity,
+    payload: String,
+    response_timeout: Duration,
+) -> Result<String, RpcError> {
+    let (tx, rx) = oneshot::channel();
+    let invocation_id = server.next_id();
+
+    let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
+        proto::RpcMethodInvocationEvent {
+            local_participant_handle: ffi_handle,
+            invocation_id,
+            method,
+            request_id,
+            caller_identity: caller_identity.into(),
+            payload,
+            response_timeout_ms: response_timeout.as_millis() as u32,
+        },
+    ));
+
+    room.store_rpc_method_invocation_waiter(invocation_id, tx);
+
+    rx.await.unwrap_or_else(|_| {
+        Err(RpcError {
+            code: RpcErrorCode::ApplicationError as u32,
+            message: "Error from method handler".to_string(),
+            data: None,
+        })
+    })
 }
