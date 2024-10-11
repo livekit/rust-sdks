@@ -631,7 +631,6 @@ impl RoomInner {
         proto::SendChatMessageResponse { async_id }
     }
 
-
     pub fn store_rpc_method_invocation_waiter(
         &self,
         invocation_id: u64,
