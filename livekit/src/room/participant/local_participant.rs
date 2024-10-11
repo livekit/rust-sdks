@@ -644,10 +644,9 @@ impl LocalParticipant {
             }
         }
 
-        // Wait for the ack first
+        // Wait for ack timeout
         match tokio::time::timeout(max_round_trip_latency, ack_rx).await {
             Err(_) => {
-                // Ack timeout
                 self.local.pending_acks.lock().remove(&id);
                 self.local.pending_responses.lock().remove(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
@@ -657,23 +656,27 @@ impl LocalParticipant {
             }
         }
 
-        // Wait for the response
-        match tokio::time::timeout(response_timeout, response_rx).await {
+        // Wait for response timout
+        let response = match tokio::time::timeout(response_timeout, response_rx).await {
             Err(_) => {
-                // Response timeout
                 self.local.pending_responses.lock().remove(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
             }
-            Ok(Err(_)) => {
-                // Channel closed unexpectedly
-                return Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None));
+            Ok(result) => result,
+        };
+
+        match response {
+            Err(_) => {
+                // Something went wrong locally
+                Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
             }
-            Ok(Ok(Err(e))) => {
-                // RPC error, forward it
-                return Err(e);
+            Ok(Err(e)) => {
+                // RPC error from remote, forward it
+                Err(e)
             }
-            Ok(Ok(Ok(payload))) => {
-                return Ok(payload);
+            Ok(Ok(payload)) => {
+                // Successful response
+                Ok(payload)
             }
         }
     }
