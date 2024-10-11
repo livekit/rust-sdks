@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use livekit::prelude::*;
-use prost_types::Method;
 use std::time::Duration;
 use tokio::sync::oneshot;
 

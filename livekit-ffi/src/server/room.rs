@@ -17,7 +17,7 @@ use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
-use livekit::{participant, track, ChatMessage};
+use livekit::ChatMessage;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
