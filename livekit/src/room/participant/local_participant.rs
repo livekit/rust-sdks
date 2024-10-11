@@ -32,6 +32,7 @@ use crate::{
     DataPacket, SipDTMF, Transcription,
 };
 use futures_util::{future, Future};
+pub use libwebrtc::native::create_random_uuid;
 use libwebrtc::rtp_parameters::RtpEncodingParameters;
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
@@ -39,7 +40,6 @@ use livekit_runtime::timeout;
 use parking_lot::Mutex;
 use proto::request_response::Reason;
 use tokio::sync::oneshot;
-pub use libwebrtc::native::create_random_uuid;
 
 type RpcHandler = Arc<
     dyn Fn(
@@ -645,40 +645,35 @@ impl LocalParticipant {
         }
 
         // Wait for the ack first
-        let ack_result = tokio::time::timeout(max_round_trip_latency, ack_rx).await;
-
-        match ack_result {
-            Ok(_) => {
-                // Ack received, now wait for the response
-                match tokio::time::timeout(response_timeout, response_rx).await {
-                    Ok(response) => match response {
-                        Ok(result) => match result {
-                            Ok(payload) => {
-                                if payload.len() > MAX_PAYLOAD_BYTES {
-                                    Err(RpcError::built_in(
-                                        RpcErrorCode::ResponsePayloadTooLarge,
-                                        None,
-                                    ))
-                                } else {
-                                    Ok(payload)
-                                }
-                            }
-                            Err(e) => Err(e),
-                        },
-                        Err(_) => {
-                            Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
-                        }
-                    },
-                    Err(_) => {
-                        self.local.pending_responses.lock().remove(&id);
-                        Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None))
-                    }
-                }
-            }
+        match tokio::time::timeout(max_round_trip_latency, ack_rx).await {
             Err(_) => {
+                // Ack timeout
                 self.local.pending_acks.lock().remove(&id);
                 self.local.pending_responses.lock().remove(&id);
-                Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None))
+                return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
+            }
+            Ok(_) => {
+                // Ack received, continue to wait for response
+            }
+        }
+
+        // Wait for the response
+        match tokio::time::timeout(response_timeout, response_rx).await {
+            Err(_) => {
+                // Response timeout
+                self.local.pending_responses.lock().remove(&id);
+                return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
+            }
+            Ok(Err(_)) => {
+                // Channel closed unexpectedly
+                return Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None));
+            }
+            Ok(Ok(Err(e))) => {
+                // RPC error, forward it
+                return Err(e);
+            }
+            Ok(Ok(Ok(payload))) => {
+                return Ok(payload);
             }
         }
     }
