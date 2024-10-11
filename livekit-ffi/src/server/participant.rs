@@ -91,8 +91,8 @@ impl FfiParticipant {
             }
         };
 
-        let ffi_handle = self.handle.clone();
-        let room = self.room.clone();
+        let local_participant_handle = self.handle.clone();
+        let room: Arc<RoomInner> = self.room.clone();
         let handle = server.async_runtime.spawn(async move {
             local.register_rpc_method(
                 method.clone(),
@@ -104,7 +104,7 @@ impl FfiParticipant {
                             forward_rpc_method_invocation(
                                 server,
                                 room,
-                                ffi_handle,
+                                local_participant_handle,
                                 method,
                                 request_id,
                                 caller_identity,
@@ -156,7 +156,7 @@ impl FfiParticipant {
 async fn forward_rpc_method_invocation(
     server: &'static FfiServer,
     room: Arc<RoomInner>,
-    ffi_handle: FfiHandleId,
+    local_participant_handle: FfiHandleId,
     method: String,
     request_id: String,
     caller_identity: ParticipantIdentity,
@@ -168,7 +168,7 @@ async fn forward_rpc_method_invocation(
 
     let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
         proto::RpcMethodInvocationEvent {
-            local_participant_handle: ffi_handle,
+            local_participant_handle: local_participant_handle as u64,
             invocation_id,
             method,
             request_id,

@@ -570,20 +570,6 @@ impl RoomInner {
         proto::SetLocalAttributesResponse { async_id }
     }
 
-    pub fn store_rpc_method_invocation_waiter(
-        &self,
-        invocation_id: u64,
-        waiter: oneshot::Sender<Result<String, RpcError>>,
-    ) {
-        self.rpc_method_invocation_waiters.lock().insert(invocation_id, waiter);
-    }
-
-    pub fn take_rpc_method_invocation_waiter(
-        &self,
-        invocation_id: u64,
-    ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
-        return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
-    }
     pub fn send_chat_message(
         self: &Arc<Self>,
         server: &'static FfiServer,
@@ -643,6 +629,22 @@ impl RoomInner {
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
+    }
+
+
+    pub fn store_rpc_method_invocation_waiter(
+        &self,
+        invocation_id: u64,
+        waiter: oneshot::Sender<Result<String, RpcError>>,
+    ) {
+        self.rpc_method_invocation_waiters.lock().insert(invocation_id, waiter);
+    }
+
+    pub fn take_rpc_method_invocation_waiter(
+        &self,
+        invocation_id: u64,
+    ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
+        return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
 }
 
