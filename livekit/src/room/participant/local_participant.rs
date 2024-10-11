@@ -39,7 +39,7 @@ use livekit_runtime::timeout;
 use parking_lot::Mutex;
 use proto::request_response::Reason;
 use tokio::sync::oneshot;
-use uuid::Uuid;
+pub use libwebrtc::native::create_random_uuid;
 
 type RpcHandler = Arc<
     dyn Fn(
@@ -619,7 +619,7 @@ impl LocalParticipant {
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
         }
 
-        let id = Uuid::new_v4().to_string();
+        let id = create_random_uuid();
         let (ack_tx, ack_rx) = oneshot::channel();
         let (response_tx, response_rx) = oneshot::channel();
 
