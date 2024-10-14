@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.11.4"
+version = "0.11.5"
 edition = "2021"
 license = "Apache-2.0"
 description = "FFI interface for bindings in other languages"
@@ -22,7 +22,9 @@ livekit = { path = "../livekit", version = "0.6.0" }
 soxr-sys = { path = "../soxr-sys" }
 livekit-protocol = { path = "../livekit-protocol", version = "0.3.5" }
 tokio = { version = "1", features = ["full", "parking_lot"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+] }
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 prost = "0.12"
 prost-types = "0.12"
@@ -32,7 +34,9 @@ log = "0.4"
 dashmap = "5.4"
 env_logger = "0.10"
 downcast-rs = "1.2"
-console-subscriber = { version = "0.1", features = ["parking_lot"], optional = true }
+console-subscriber = { version = "0.1", features = [
+    "parking_lot",
+], optional = true }
 imgproc = "0.3.11"
 
 [target.'cfg(target_os = "android")'.dependencies]
