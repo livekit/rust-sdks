@@ -37,7 +37,7 @@ message KeyProviderOptions {
     optional bytes shared_key = 1; 
     int32 ratchet_window_size = 2;
     bytes ratchet_salt = 3;
-    int32 failure_tolerance = 4; // -1 = no tolerence
+    int32 failure_tolerance = 4; // -1 = no tolerance
 }
 
 message E2eeOptions {
