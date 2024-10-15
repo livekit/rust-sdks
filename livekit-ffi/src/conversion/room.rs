@@ -156,7 +156,7 @@ impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
         let e2ee = value.e2ee.and_then(|opts| {
             let encryption_type = opts.encryption_type();
-            let Some(provider_opts) = opts.key_provider_options else {
+            let provider_opts = opts.key_provider_options else {
                 return None;
             };
 
