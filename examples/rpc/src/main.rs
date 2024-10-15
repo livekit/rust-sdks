@@ -8,7 +8,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
 // Example usage of RPC calls between participants
@@ -48,12 +48,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let room_name = format!("rpc-test-{:x}", rand::thread_rng().gen::<u32>());
     println!("[{}] Connecting participants to room: {}", elapsed_time(), room_name);
 
-    let callers_room =
-        connect_participant("caller", &room_name, &url, &api_key, &api_secret).await?;
-    let greeters_room =
-        connect_participant("greeter", &room_name, &url, &api_key, &api_secret).await?;
-    let math_genius_room =
-        connect_participant("math-genius", &room_name, &url, &api_key, &api_secret).await?;
+    let (callers_room, greeters_room, math_genius_room) = tokio::try_join!(
+        connect_participant("caller", &room_name, &url, &api_key, &api_secret),
+        connect_participant("greeter", &room_name, &url, &api_key, &api_secret),
+        connect_participant("math-genius", &room_name, &url, &api_key, &api_secret)
+    )?;
 
     register_receiver_methods(&greeters_room, &math_genius_room).await;
 
@@ -246,6 +245,7 @@ async fn connect_participant(
         })
         .to_jwt()?;
 
+    println!("[{}] [{}] Connecting...", elapsed_time(), identity);
     let (room, mut rx) = Room::connect(url, &token, RoomOptions::default()).await?;
 
     let room = Arc::new(room);
@@ -263,6 +263,26 @@ async fn connect_participant(
             room_clone.close().await.ok();
         }
     });
+
+    let mut previous_remote_participants = 0;
+    loop {
+        let remote_participants = room.remote_participants().len();
+        if remote_participants != previous_remote_participants {
+            println!(
+                "[{}] [{}] I see {} remote participants",
+                elapsed_time(),
+                identity,
+                remote_participants
+            );
+            previous_remote_participants = remote_participants;
+        }
+        if remote_participants >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    println!("[{}] [{}] Fully connected.", elapsed_time(), identity);
 
     Ok(room)
 }
