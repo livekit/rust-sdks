@@ -3,8 +3,12 @@ use livekit_api::access_token;
 use rand::Rng;
 use serde_json::{json, Value};
 use std::env;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::Once;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
 
 // Example usage of RPC calls between participants
@@ -12,16 +16,37 @@ use tokio::time::sleep;
 //
 // Try it with `LIVEKIT_URL=<url> LIVEKIT_API_KEY=<your-key> LIVEKIT_API_SECRET=<your-secret> cargo run`
 
+static START_TIME: Once = Once::new();
+static mut START_INSTANT: Option<Instant> = None;
+
+fn get_start_time() -> Instant {
+    unsafe {
+        START_TIME.call_once(|| {
+            START_INSTANT = Some(Instant::now());
+        });
+        START_INSTANT.unwrap()
+    }
+}
+
+fn elapsed_time() -> String {
+    let start = get_start_time();
+    let elapsed = Instant::now().duration_since(start);
+    format!("+{:.3}s", elapsed.as_secs_f64())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+
+    // Initialize START_TIME
+    get_start_time();
 
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     let api_key = env::var("LIVEKIT_API_KEY").expect("LIVEKIT_API_KEY is not set");
     let api_secret = env::var("LIVEKIT_API_SECRET").expect("LIVEKIT_API_SECRET is not set");
 
     let room_name = format!("rpc-test-{:x}", rand::thread_rng().gen::<u32>());
-    println!("Connecting participants to room: {}", room_name);
+    println!("[{}] Connecting participants to room: {}", elapsed_time(), room_name);
 
     let callers_room =
         connect_participant("caller", &room_name, &url, &api_key, &api_secret).await?;
@@ -58,7 +83,12 @@ async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: 
         "arrival".to_string(),
         |_, caller_identity, payload, _| {
             Box::pin(async move {
-                println!("[Greeter] Oh {} arrived and said \"{}\"", caller_identity, payload);
+                println!(
+                    "[{}] [Greeter] Oh {} arrived and said \"{}\"",
+                    elapsed_time(),
+                    caller_identity,
+                    payload
+                );
                 sleep(Duration::from_secs(2)).await;
                 Ok("Welcome and have a wonderful day!".to_string())
             })
@@ -70,17 +100,18 @@ async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: 
             let json_data: Value = serde_json::from_str(&payload).unwrap();
             let number = json_data["number"].as_f64().unwrap();
             println!(
-                "[Math Genius] I guess {} wants the square root of {}. I've only got {} seconds to respond but I think I can pull it off.",
+                "[{}] [Math Genius] I guess {} wants the square root of {}. I've only got {} seconds to respond but I think I can pull it off.",
+                elapsed_time(),
                 caller_identity,
                 number,
                 response_timeout_ms.as_secs()
             );
 
-            println!("[Math Genius] *doing math*…");
+            println!("[{}] [Math Genius] *doing math*…", elapsed_time());
             sleep(Duration::from_secs(2)).await;
 
             let result = number.sqrt();
-            println!("[Math Genius] Aha! It's {}", result);
+            println!("[{}] [Math Genius] Aha! It's {}", elapsed_time(), result);
             Ok(json!({"result": result}).to_string())
         })
     });
@@ -93,12 +124,15 @@ async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: 
                 let dividend = json_data["dividend"].as_i64().unwrap();
                 let divisor = json_data["divisor"].as_i64().unwrap();
                 println!(
-                    "[Math Genius] {} wants me to divide {} by {}.",
-                    caller_identity, dividend, divisor
+                    "[{}] [Math Genius] {} wants me to divide {} by {}.",
+                    elapsed_time(),
+                    caller_identity,
+                    dividend,
+                    divisor
                 );
 
                 let result = dividend / divisor;
-                println!("[Math Genius] The result is {}", result);
+                println!("[{}] [Math Genius] The result is {}", elapsed_time(), result);
                 Ok(json!({"result": result}).to_string())
             })
         },
@@ -106,20 +140,22 @@ async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: 
 }
 
 async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
-    println!("[Caller] Letting the greeter know that I've arrived");
+    println!("[{}] Letting the greeter know that I've arrived", elapsed_time());
     match room
         .local_participant()
         .perform_rpc("greeter".to_string(), "arrival".to_string(), "Hello".to_string(), None)
         .await
     {
-        Ok(response) => println!("[Caller] That's nice, the greeter said: \"{}\"", response),
-        Err(e) => println!("[Caller] RPC call failed: {:?}", e),
+        Ok(response) => {
+            println!("[{}] That's nice, the greeter said: \"{}\"", elapsed_time(), response)
+        }
+        Err(e) => println!("[{}] RPC call failed: {:?}", elapsed_time(), e),
     }
     Ok(())
 }
 
 async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
-    println!("[Caller] What's the square root of 16?");
+    println!("[{}] What's the square root of 16?", elapsed_time());
     match room
         .local_participant()
         .perform_rpc(
@@ -132,9 +168,9 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
     {
         Ok(response) => {
             let parsed_response: Value = serde_json::from_str(&response)?;
-            println!("[Caller] Nice, the answer was {}", parsed_response["result"]);
+            println!("[{}] Nice, the answer was {}", elapsed_time(), parsed_response["result"]);
         }
-        Err(e) => log::error!("[Caller] RPC call failed: {:?}", e),
+        Err(e) => log::error!("[{}] RPC call failed: {:?}", elapsed_time(), e),
     }
     Ok(())
 }
@@ -142,7 +178,7 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
 async fn perform_quantum_hypergeometric_series(
     room: &Arc<Room>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("[Caller] What's the quantum hypergeometric series of 42?");
+    println!("[{}] What's the quantum hypergeometric series of 42?", elapsed_time());
     match room
         .local_participant()
         .perform_rpc(
@@ -155,21 +191,21 @@ async fn perform_quantum_hypergeometric_series(
     {
         Ok(response) => {
             let parsed_response: Value = serde_json::from_str(&response)?;
-            println!("[Caller] genius says {}!", parsed_response["result"]);
+            println!("[{}] genius says {}!", elapsed_time(), parsed_response["result"]);
         }
         Err(e) => {
             if e.code == RpcErrorCode::UnsupportedMethod as u32 {
-                println!("[Caller] Aww looks like the genius doesn't know that one.");
+                println!("[{}] Aww looks like the genius doesn't know that one.", elapsed_time());
                 return Ok(());
             }
-            log::error!("[Caller] RPC error: {} (code: {})", e.message, e.code);
+            log::error!("[{}] RPC error: {} (code: {})", elapsed_time(), e.message, e.code);
         }
     }
     Ok(())
 }
 
 async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
-    println!("[Caller] Let's try dividing 5 by 0");
+    println!("[{}] Let's try dividing 5 by 0", elapsed_time());
     match room
         .local_participant()
         .perform_rpc(
@@ -182,11 +218,11 @@ async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
     {
         Ok(response) => {
             let parsed_response: Value = serde_json::from_str(&response)?;
-            println!("[Caller] The result is {}", parsed_response["result"]);
+            println!("[{}] The result is {}", elapsed_time(), parsed_response["result"]);
         }
         Err(e) => {
-            println!("[Caller] Oops! Dividing by zero didn't work. That's ok...");
-            log::error!("[Caller] RPC error: {} (code: {})", e.message, e.code);
+            println!("[{}] Oops! Dividing by zero didn't work. That's ok...", elapsed_time());
+            log::error!("[{}] RPC error: {} (code: {})", elapsed_time(), e.message, e.code);
         }
     }
 
