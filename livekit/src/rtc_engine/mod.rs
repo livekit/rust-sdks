@@ -113,6 +113,22 @@ pub enum EngineEvent {
         code: u32,
         digit: Option<String>,
     },
+    RpcRequest {
+        caller_identity: Option<ParticipantIdentity>,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
+    },
+    RpcResponse {
+        request_id: String,
+        payload: Option<String>,
+        error: Option<proto::RpcError>,
+    },
+    RpcAck {
+        request_id: String,
+    },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
     },
@@ -461,6 +477,34 @@ impl EngineInner {
                     track_sid,
                     segments,
                 });
+            }
+            SessionEvent::SipDTMF { participant_identity, code, digit } => {
+                let _ =
+                    self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
+            }
+            SessionEvent::RpcRequest {
+                caller_identity,
+                request_id,
+                method,
+                payload,
+                response_timeout_ms,
+                version,
+            } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcRequest {
+                    caller_identity,
+                    request_id,
+                    method,
+                    payload,
+                    response_timeout_ms,
+                    version,
+                });
+            }
+            SessionEvent::RpcResponse { request_id, payload, error } => {
+                let _ =
+                    self.engine_tx.send(EngineEvent::RpcResponse { request_id, payload, error });
+            }
+            SessionEvent::RpcAck { request_id } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcAck { request_id });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });

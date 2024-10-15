@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{proto, server::room::FfiParticipant};
+use crate::{proto, server::participant::FfiParticipant};
 use livekit::ParticipantKind;
 
 impl From<&FfiParticipant> for proto::ParticipantInfo {

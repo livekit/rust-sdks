@@ -28,4 +28,5 @@ protoc \
     $PROTOCOL/video_frame.proto \
     $PROTOCOL/audio_frame.proto \
     $PROTOCOL/e2ee.proto \
-    $PROTOCOL/stats.proto
+    $PROTOCOL/stats.proto \
+    $PROTOCOL/rpc.proto
