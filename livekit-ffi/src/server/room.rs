@@ -117,13 +117,7 @@ impl FfiRoom {
         let async_id = server.next_id();
 
         let connect = async move {
-            match Room::connect(
-                &connect.url,
-                &connect.token,
-                connect.options.map(Into::into).unwrap_or_default(),
-            )
-            .await
-            {
+            match Room::connect(&connect.url, &connect.token, connect.options.into()).await {
                 Ok((room, mut events)) => {
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
@@ -583,15 +577,30 @@ impl RoomInner {
                 )
                 .await;
             let sent_message = res.as_ref().unwrap().clone();
-            
-            let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
-                proto::SendChatMessageCallback {
-                    async_id,
-                    message: 
-                    error: res.err().map(|e| e.to_string()),
-                    chat_message: proto::ChatMessage::from(sent_message).into(),
-                },
-            ));
+
+            match res {
+                Ok(message) => {
+                    let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                        proto::SendChatMessageCallback {
+                            async_id,
+                            message: Some(proto::send_chat_message_callback::Message::ChatMessage(
+                                proto::ChatMessage::from(message).into(),
+                            )),
+                        },
+                    ));
+                }
+                Err(error) => {
+                    let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                        proto::SendChatMessageCallback {
+                            async_id,
+                            message: Some(proto::send_chat_message_callback::Message::Error(
+                                error.to_string(),
+                            )),
+                        },
+                    ));
+                }
+            }
+            sent_message;
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
@@ -610,19 +619,35 @@ impl RoomInner {
                 .local_participant()
                 .edit_chat_message(
                     edit_chat_message.edit_text,
-                    edit_chat_message.original_message.unwrap().into(),
+                    edit_chat_message.original_message.into(),
                     edit_chat_message.destination_identities.into(),
                     edit_chat_message.sender_identity,
                 )
                 .await;
             let sent_message: ChatMessage = res.as_ref().unwrap().clone();
-            let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
-                proto::SendChatMessageCallback {
-                    async_id,
-                    error: res.err().map(|e| e.to_string()),
-                    chat_message: proto::ChatMessage::from(sent_message).into(),
-                },
-            ));
+            match res {
+                Ok(message) => {
+                    let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                        proto::SendChatMessageCallback {
+                            async_id,
+                            message: Some(proto::send_chat_message_callback::Message::ChatMessage(
+                                proto::ChatMessage::from(message).into(),
+                            )),
+                        },
+                    ));
+                }
+                Err(error) => {
+                    let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                        proto::SendChatMessageCallback {
+                            async_id,
+                            message: Some(proto::send_chat_message_callback::Message::Error(
+                                error.to_string(),
+                            )),
+                        },
+                    ));
+                }
+            }
+            sent_message;
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
