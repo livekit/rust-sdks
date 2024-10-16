@@ -26,10 +26,7 @@ use super::{
     room::{self, FfiParticipant, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
-use crate::{
-    conversion::track,
-    proto::{self, get_session_stats_callback},
-};
+use crate::proto;
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -655,8 +652,8 @@ fn on_get_session_stats(
                 let _ = server.send_event(proto::ffi_event::Message::GetSessionStats(
                     proto::GetSessionStatsCallback {
                         async_id,
-                        message: Some(get_session_stats_callback::Message::Result(
-                            get_session_stats_callback::Result {
+                        message: Some(proto::get_session_stats_callback::Message::Result(
+                            proto::get_session_stats_callback::Result {
                                 publisher_stats: stats
                                     .publisher_stats
                                     .into_iter()
@@ -676,7 +673,9 @@ fn on_get_session_stats(
                 let _ = server.send_event(proto::ffi_event::Message::GetSessionStats(
                     proto::GetSessionStatsCallback {
                         async_id,
-                        message: Some(get_session_stats_callback::Message::Error(err.to_string())),
+                        message: Some(proto::get_session_stats_callback::Message::Error(
+                            err.to_string(),
+                        )),
                     },
                 ));
             }
