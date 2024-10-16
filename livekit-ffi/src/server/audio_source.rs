@@ -72,9 +72,7 @@ impl FfiAudioSource {
         server: &'static server::FfiServer,
         capture: proto::CaptureAudioFrameRequest,
     ) -> FfiResult<proto::CaptureAudioFrameResponse> {
-        let buffer = capture.buffer else {
-            return Err(FfiError::InvalidRequest("buffer is None".into()));
-        };
+        let buffer = capture.buffer;
 
         let source = self.source.clone();
         let async_id = server.next_id();
