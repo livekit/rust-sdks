@@ -116,11 +116,17 @@ impl FfiRoom {
     ) -> proto::ConnectResponse {
         let async_id = server.next_id();
 
+        let mut options: RoomOptions = connect.options.map(Into::into).unwrap_or_default();
+        if let Some(config) = server.config.lock().as_ref() {
+            options.sdk = config.sdk.clone();
+            options.sdk_version = config.sdk_version.clone();
+        }
+
         let connect = async move {
             match Room::connect(
                 &connect.url,
                 &connect.token,
-                connect.options.map(Into::into).unwrap_or_default(),
+                options,
             )
             .await
             {

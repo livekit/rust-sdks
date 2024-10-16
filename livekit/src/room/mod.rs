@@ -55,6 +55,8 @@ pub mod publication;
 pub mod track;
 pub(crate) mod utils;
 
+pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub type RoomResult<T> = Result<T, RoomError>;
 
 #[derive(Error, Debug)]
@@ -258,6 +260,8 @@ pub struct RoomOptions {
     pub e2ee: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
+    pub sdk: &'static str,
+    pub sdk_version: &'static str,
 }
 
 impl Default for RoomOptions {
@@ -276,6 +280,8 @@ impl Default for RoomOptions {
                 ice_transport_type: IceTransportsType::All,
             },
             join_retries: 3,
+            sdk: "rust",
+            sdk_version: SDK_VERSION,
         }
     }
 }
@@ -339,6 +345,8 @@ impl Room {
                 signal_options: SignalOptions {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
+                    sdk: options.sdk,
+                    sdk_version: Some(options.sdk_version),
                 },
                 join_retries: options.join_retries,
             },

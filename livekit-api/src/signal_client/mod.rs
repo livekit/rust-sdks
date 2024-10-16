@@ -68,11 +68,18 @@ pub enum SignalError {
 pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
+    pub sdk: &'static str,
+    pub sdk_version: Option<&'static str>,
 }
 
 impl Default for SignalOptions {
     fn default() -> Self {
-        Self { auto_subscribe: true, adaptive_stream: false }
+        Self {
+            auto_subscribe: true,
+            adaptive_stream: false,
+            sdk: "rust",
+            sdk_version: None,
+        }
     }
 }
 
@@ -431,11 +438,15 @@ fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalRes
 
     lk_url
         .query_pairs_mut()
-        .append_pair("sdk", "rust")
-        .append_pair("access_token", token)
+        .append_pair("sdk", options.sdk)
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
+        .append_pair("access_token", token)
         .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
         .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
+
+    if let Some(sdk_version) = options.sdk_version {
+        lk_url.query_pairs_mut().append_pair("version", sdk_version);
+    }
 
     Ok(lk_url)
 }
