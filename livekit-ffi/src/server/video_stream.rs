@@ -80,10 +80,7 @@ impl FfiVideoStream {
         let info = proto::VideoStreamInfo::from(&stream);
         server.store_handle(stream.handle_id, stream);
 
-        Ok(proto::OwnedVideoStream {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(info),
-        })
+        Ok(proto::OwnedVideoStream { handle: proto::FfiOwnedHandle { id: handle_id }, info: info })
     }
 
     pub fn from_participant(
@@ -113,10 +110,7 @@ impl FfiVideoStream {
         let info = proto::VideoStreamInfo::from(&stream);
         server.store_handle(stream.handle_id, stream);
 
-        Ok(proto::OwnedVideoStream {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(info),
-        })
+        Ok(proto::OwnedVideoStream { handle: proto::FfiOwnedHandle { id: handle_id }, info: info })
     }
 
     async fn native_video_stream_task(
@@ -158,12 +152,12 @@ impl FfiVideoStream {
                                 proto::VideoFrameReceived {
                                     timestamp_us: frame.timestamp_us,
                                     rotation: proto::VideoRotation::from(frame.rotation).into(),
-                                    buffer: Some(proto::OwnedVideoBuffer {
-                                        handle: Some(proto::FfiOwnedHandle {
+                                    buffer: proto::OwnedVideoBuffer {
+                                        handle: proto::FfiOwnedHandle {
                                             id: handle_id,
-                                        }),
-                                        info: Some(info),
-                                    }),
+                                        },
+                                        info,
+                                    },
                                 }
                             )),
                         }

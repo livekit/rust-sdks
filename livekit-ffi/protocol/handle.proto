@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -27,5 +27,5 @@ option csharp_namespace = "LiveKit.Proto";
 // When refering to a handle without owning it, we just use a uint32 without this message. 
 // (the variable name is suffixed with "_handle")
 message FfiOwnedHandle {
-  uint64 id = 1;
+  required uint64 id = 1;
 }
