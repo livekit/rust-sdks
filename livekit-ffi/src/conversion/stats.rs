@@ -423,7 +423,7 @@ impl From<rtc::dictionaries::OutboundRtpStreamStats> for proto::OutboundRtpStrea
             encoder_implementation: value.encoder_implementation,
             power_efficient_encoder: value.power_efficient_encoder,
             active: value.active,
-            scalibility_mode: value.scalibility_mode,
+            scalability_mode: value.scalibility_mode,
         }
     }
 }

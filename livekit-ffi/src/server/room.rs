@@ -545,7 +545,13 @@ impl RoomInner {
             let res = inner
                 .room
                 .local_participant()
-                .set_attributes(set_local_attributes.attributes)
+                .set_attributes(
+                    set_local_attributes
+                        .attributes
+                        .into_iter()
+                        .map(|entry| (entry.key, entry.value))
+                        .collect(),
+                )
                 .await;
 
             let _ = server.send_event(proto::ffi_event::Message::SetLocalAttributes(
@@ -972,8 +978,16 @@ async fn forward_event(
             let _ = send_event(proto::room_event::Message::ParticipantAttributesChanged(
                 proto::ParticipantAttributesChanged {
                     participant_identity: participant.identity().to_string(),
-                    changed_attributes,
-                    attributes: participant.attributes().clone(),
+                    changed_attributes: changed_attributes
+                        .into_iter()
+                        .map(|(key, value)| proto::AttributesEntry { key, value })
+                        .collect(),
+                    attributes: participant
+                        .attributes()
+                        .clone()
+                        .into_iter()
+                        .map(|(key, value)| proto::AttributesEntry { key, value })
+                        .collect(),
                 },
             ));
         }

@@ -130,7 +130,11 @@ impl From<proto::ContinualGatheringPolicy> for ContinualGatheringPolicy {
 
 impl From<proto::IceServer> for IceServer {
     fn from(value: proto::IceServer) -> Self {
-        Self { urls: value.urls, username: value.username, password: value.password }
+        Self {
+            urls: value.urls,
+            username: value.username.unwrap_or_default(),
+            password: value.password.unwrap_or_default(),
+        }
     }
 }
 
