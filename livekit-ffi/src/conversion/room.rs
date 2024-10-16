@@ -160,9 +160,7 @@ impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
         let e2ee = value.e2ee.and_then(|opts| {
             let encryption_type = opts.encryption_type();
-            let provider_opts = opts.key_provider_options else {
-                return None;
-            };
+            let provider_opts = opts.key_provider_options;
 
             Some(E2eeOptions {
                 encryption_type: encryption_type.into(),

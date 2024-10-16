@@ -391,10 +391,7 @@ unsafe fn on_video_convert(
     server: &'static FfiServer,
     video_convert: proto::VideoConvertRequest,
 ) -> FfiResult<proto::VideoConvertResponse> {
-    let ref buffer = video_convert.buffer else {
-        return Err(FfiError::InvalidRequest("buffer is empty".into()));
-    };
-
+    let ref buffer = video_convert.buffer;
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
     match cvtimpl::cvt(buffer.clone(), dst_type, flip_y) {
