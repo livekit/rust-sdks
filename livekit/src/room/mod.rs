@@ -331,15 +331,15 @@ impl Room {
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
-        Self::connect_with_sdk(url, token, options, "rust", SDK_VERSION).await
+        Self::connect_with_sdk(url, token, options, Some("rust"), Some(SDK_VERSION)).await
     }
 
     pub async fn connect_with_sdk(
         url: &str,
         token: &str,
         options: RoomOptions,
-        sdk: &'static str,
-        sdk_version: &'static str,
+        sdk: Option<&'static str>,
+        sdk_version: Option<&'static str>,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
@@ -352,7 +352,7 @@ impl Room {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
                     sdk: sdk,
-                    sdk_version: Some(sdk_version),
+                    sdk_version: sdk_version,
                 },
                 join_retries: options.join_retries,
             },

@@ -120,8 +120,8 @@ impl FfiRoom {
         let sdk_version;
         {
             let config = server.config.lock();
-            sdk = config.as_ref().map(|c| c.sdk).unwrap_or_default();
-            sdk_version = config.as_ref().map(|c| c.sdk_version).unwrap_or_default();
+            sdk = config.as_ref().map(|c| c.sdk).unwrap();
+            sdk_version = config.as_ref().map(|c| c.sdk_version).unwrap();
         }
 
         let connect = async move {

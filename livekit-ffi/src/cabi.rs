@@ -18,11 +18,11 @@ pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 pub unsafe extern "C" fn livekit_ffi_initialize(
     cb: FfiCallbackFn,
     capture_logs: bool,
-    sdk: &'static [u8; 16],
-    sdk_version: &'static [u8; 16],
+    sdk: Option<&'static [u8; 16]>,
+    sdk_version: Option<&'static [u8; 16]>,
 ) {
-    let sdk = std::str::from_utf8(sdk).unwrap_or("unknown").trim_end_matches('\0');
-    let sdk_version = std::str::from_utf8(sdk_version).unwrap_or("unknown").trim_end_matches('\0');
+    let sdk = std::str::from_utf8(sdk.unwrap()).unwrap().trim_end_matches('\0');
+    let sdk_version = std::str::from_utf8(sdk_version.unwrap()).unwrap().trim_end_matches('\0');
 
     FFI_SERVER.setup(FfiConfig {
         callback_fn: Arc::new(move |event| {
@@ -30,8 +30,8 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
             cb(data.as_ptr(), data.len());
         }),
         capture_logs,
-        sdk,
-        sdk_version,
+        sdk: Some(sdk),
+        sdk_version: Some(sdk_version),
     });
 
     log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
