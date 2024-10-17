@@ -277,7 +277,7 @@ impl Default for RoomOptions {
                 continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
                 ice_transport_type: IceTransportsType::All,
             },
-            join_retries: 3
+            join_retries: 3,
         }
     }
 }
@@ -333,7 +333,7 @@ impl Room {
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         Self::connect_with_sdk(url, token, options, "rust", SDK_VERSION).await
     }
-        
+
     pub async fn connect_with_sdk(
         url: &str,
         token: &str,
