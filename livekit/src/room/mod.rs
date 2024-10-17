@@ -260,8 +260,6 @@ pub struct RoomOptions {
     pub e2ee: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
-    pub sdk: &'static str,
-    pub sdk_version: &'static str,
 }
 
 impl Default for RoomOptions {
@@ -279,9 +277,7 @@ impl Default for RoomOptions {
                 continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
                 ice_transport_type: IceTransportsType::All,
             },
-            join_retries: 3,
-            sdk: "rust",
-            sdk_version: SDK_VERSION,
+            join_retries: 3
         }
     }
 }
@@ -335,6 +331,16 @@ impl Room {
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
+        Self::connect_with_sdk(url, token, options, "rust", SDK_VERSION).await
+    }
+        
+    pub async fn connect_with_sdk(
+        url: &str,
+        token: &str,
+        options: RoomOptions,
+        sdk: &'static str,
+        sdk_version: &'static str,
+    ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
@@ -345,8 +351,8 @@ impl Room {
                 signal_options: SignalOptions {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
-                    sdk: options.sdk,
-                    sdk_version: Some(options.sdk_version),
+                    sdk: sdk,
+                    sdk_version: Some(sdk_version),
                 },
                 join_retries: options.join_retries,
             },

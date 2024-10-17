@@ -15,13 +15,20 @@ pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 ///
 /// The foreign language must only provide valid pointers
 #[no_mangle]
-pub unsafe extern "C" fn livekit_ffi_initialize(cb: FfiCallbackFn, capture_logs: bool) {
+pub unsafe extern "C" fn livekit_ffi_initialize(
+    cb: FfiCallbackFn,
+    capture_logs: bool,
+    sdk: &'static str,
+    sdk_version: &'static str,
+) {
     FFI_SERVER.setup(FfiConfig {
         callback_fn: Arc::new(move |event| {
             let data = event.encode_to_vec();
             cb(data.as_ptr(), data.len());
         }),
         capture_logs,
+        sdk: &sdk,
+        sdk_version: &sdk_version,
     });
 
     log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
