@@ -55,6 +55,8 @@ pub mod publication;
 pub mod track;
 pub(crate) mod utils;
 
+pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub type RoomResult<T> = Result<T, RoomError>;
 
 #[derive(Error, Debug)]
@@ -329,6 +331,16 @@ impl Room {
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
+        Self::connect_with_sdk(url, token, options, Some("rust"), Some(SDK_VERSION)).await
+    }
+
+    pub async fn connect_with_sdk(
+        url: &str,
+        token: &str,
+        options: RoomOptions,
+        sdk: Option<&'static str>,
+        sdk_version: Option<&'static str>,
+    ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
@@ -339,6 +351,8 @@ impl Room {
                 signal_options: SignalOptions {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
+                    sdk: sdk,
+                    sdk_version: sdk_version,
                 },
                 join_retries: options.join_retries,
             },
