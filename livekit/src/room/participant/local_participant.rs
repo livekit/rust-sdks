@@ -527,8 +527,7 @@ impl LocalParticipant {
         response_timeout_ms: u32,
         version: u32,
     ) -> RoomResult<()> {
-        let destination_identities: Vec<String> =
-            [destination_identity].into_iter().map(Into::into).collect();
+        let destination_identities: Vec<String> = vec![destination_identity.into()];
         let rpc_request = proto::RpcRequest {
             id: id,
             method: method,
