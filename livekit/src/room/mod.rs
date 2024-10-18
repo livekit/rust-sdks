@@ -338,8 +338,8 @@ impl Room {
         url: &str,
         token: &str,
         options: RoomOptions,
-        sdk: &'static str,
-        sdk_version: &'static str,
+        sdk: &str,
+        sdk_version: &str,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
