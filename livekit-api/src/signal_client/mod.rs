@@ -281,7 +281,8 @@ impl SignalInner {
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
         let token = self.token.lock().clone();
 
-        let mut lk_url = get_livekit_url(&self.url, &token, &self.options, &self.analytics_options).unwrap();
+        let mut lk_url =
+            get_livekit_url(&self.url, &token, &self.options, &self.analytics_options).unwrap();
         lk_url.query_pairs_mut().append_pair("reconnect", "1").append_pair("sid", sid);
 
         let (new_stream, mut events) = SignalStream::connect(lk_url).await?;
@@ -425,7 +426,12 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
     )
 }
 
-fn get_livekit_url(url: &str, token: &str, options: &SignalOptions, analytics_options: &SignalAnalyticsOptions) -> SignalResult<url::Url> {
+fn get_livekit_url(
+    url: &str,
+    token: &str,
+    options: &SignalOptions,
+    analytics_options: &SignalAnalyticsOptions,
+) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
 
     if !lk_url.has_host() {
