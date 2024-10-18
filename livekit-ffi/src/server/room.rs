@@ -129,8 +129,8 @@ impl FfiRoom {
                 &connect.url,
                 &connect.token,
                 connect.options.map(Into::into).unwrap_or_default(),
-                sdk,
-                sdk_version,
+                sdk.unwrap(),
+                sdk_version.unwrap(),
             )
             .await
             {

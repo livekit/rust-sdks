@@ -1,6 +1,8 @@
 use prost::Message;
 use server::FfiDataBuffer;
 use std::{panic, sync::Arc};
+use std::os::raw::c_char;
+use std::ffi::CStr;
 
 use crate::{
     proto,
@@ -18,20 +20,17 @@ pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 pub unsafe extern "C" fn livekit_ffi_initialize(
     cb: FfiCallbackFn,
     capture_logs: bool,
-    sdk: Option<&'static [u8; 16]>,
-    sdk_version: Option<&'static [u8; 16]>,
+    sdk: *const c_char,
+    sdk_version: *const c_char,
 ) {
-    let sdk = std::str::from_utf8(sdk.unwrap()).unwrap().trim_end_matches('\0');
-    let sdk_version = std::str::from_utf8(sdk_version.unwrap()).unwrap().trim_end_matches('\0');
-
     FFI_SERVER.setup(FfiConfig {
         callback_fn: Arc::new(move |event| {
             let data = event.encode_to_vec();
             cb(data.as_ptr(), data.len());
         }),
         capture_logs,
-        sdk: Some(sdk),
-        sdk_version: Some(sdk_version),
+        sdk: CStr::from_ptr(sdk).to_str().ok(),
+        sdk_version: CStr::from_ptr(sdk_version).to_str().ok(),
     });
 
     log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
