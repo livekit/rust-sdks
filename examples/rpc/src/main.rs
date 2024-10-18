@@ -264,25 +264,5 @@ async fn connect_participant(
         }
     });
 
-    let mut previous_remote_participants = 0;
-    loop {
-        let remote_participants = room.remote_participants().len();
-        if remote_participants != previous_remote_participants {
-            println!(
-                "[{}] [{}] I see {} remote participants",
-                elapsed_time(),
-                identity,
-                remote_participants
-            );
-            previous_remote_participants = remote_participants;
-        }
-        if remote_participants >= 2 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-
-    println!("[{}] [{}] Fully connected.", elapsed_time(), identity);
-
     Ok(room)
 }
