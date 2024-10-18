@@ -251,6 +251,30 @@ pub struct ChatMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct RpcRequest {
+    pub destination_identity: String,
+    pub id: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout_ms: u32,
+    pub version: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcResponse {
+    destination_identity: String,
+    request_id: String,
+    payload: Option<String>,
+    error: Option<proto::RpcError>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcAck {
+    destination_identity: String,
+    request_id: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
