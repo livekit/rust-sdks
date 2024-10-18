@@ -224,10 +224,10 @@ fn on_create_video_track(
     server.store_handle(handle_id, ffi_track);
 
     Ok(proto::CreateVideoTrackResponse {
-        track: Some(proto::OwnedTrack {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(track_info),
-        }),
+        track: proto::OwnedTrack {
+            handle: proto::FfiOwnedHandle { id: handle_id },
+            info: track_info,
+        },
     })
 }
 
@@ -248,10 +248,10 @@ fn on_create_audio_track(
     server.store_handle(handle_id, ffi_track);
 
     Ok(proto::CreateAudioTrackResponse {
-        track: Some(proto::OwnedTrack {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(track_info),
-        }),
+        track: proto::OwnedTrack {
+            handle: proto::FfiOwnedHandle { id: handle_id },
+            info: track_info,
+        },
     })
 }
 
@@ -354,7 +354,7 @@ fn on_new_video_stream(
     new_stream: proto::NewVideoStreamRequest,
 ) -> FfiResult<proto::NewVideoStreamResponse> {
     let stream_info = video_stream::FfiVideoStream::from_track(server, new_stream)?;
-    Ok(proto::NewVideoStreamResponse { stream: Some(stream_info) })
+    Ok(proto::NewVideoStreamResponse { stream: stream_info })
 }
 
 fn on_video_stream_from_participant(
@@ -362,7 +362,7 @@ fn on_video_stream_from_participant(
     request: proto::VideoStreamFromParticipantRequest,
 ) -> FfiResult<proto::VideoStreamFromParticipantResponse> {
     let stream_info = video_stream::FfiVideoStream::from_participant(server, request)?;
-    Ok(proto::VideoStreamFromParticipantResponse { stream: Some(stream_info) })
+    Ok(proto::VideoStreamFromParticipantResponse { stream: stream_info })
 }
 
 /// Create a new video source, used to publish data to a track
@@ -371,7 +371,7 @@ fn on_new_video_source(
     new_source: proto::NewVideoSourceRequest,
 ) -> FfiResult<proto::NewVideoSourceResponse> {
     let source_info = video_source::FfiVideoSource::setup(server, new_source)?;
-    Ok(proto::NewVideoSourceResponse { source: Some(source_info) })
+    Ok(proto::NewVideoSourceResponse { source: source_info })
 }
 
 /// Push a frame to a source, libwebrtc will then decide if the frame should be dropped or not
@@ -393,24 +393,23 @@ unsafe fn on_video_convert(
     server: &'static FfiServer,
     video_convert: proto::VideoConvertRequest,
 ) -> FfiResult<proto::VideoConvertResponse> {
-    let Some(ref buffer) = video_convert.buffer else {
-        return Err(FfiError::InvalidRequest("buffer is empty".into()));
-    };
-
+    let ref buffer = video_convert.buffer;
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
     match cvtimpl::cvt(buffer.clone(), dst_type, flip_y) {
         Ok((buffer, info)) => {
             let id = server.next_id();
             server.store_handle(id, buffer);
-            let owned_info = proto::OwnedVideoBuffer {
-                handle: Some(proto::FfiOwnedHandle { id }),
-                info: Some(info),
-            };
-            Ok(proto::VideoConvertResponse { buffer: Some(owned_info), error: None })
+            let owned_info =
+                proto::OwnedVideoBuffer { handle: proto::FfiOwnedHandle { id }, info: info };
+            Ok(proto::VideoConvertResponse {
+                message: Some(proto::video_convert_response::Message::Buffer(owned_info)),
+            })
         }
 
-        Err(err) => Ok(proto::VideoConvertResponse { buffer: None, error: Some(err.to_string()) }),
+        Err(err) => Ok(proto::VideoConvertResponse {
+            message: Some(proto::video_convert_response::Message::Error(err.to_string())),
+        }),
     }
 }
 
@@ -420,7 +419,7 @@ fn on_new_audio_stream(
     new_stream: proto::NewAudioStreamRequest,
 ) -> FfiResult<proto::NewAudioStreamResponse> {
     let stream_info = audio_stream::FfiAudioStream::from_track(server, new_stream)?;
-    Ok(proto::NewAudioStreamResponse { stream: Some(stream_info) })
+    Ok(proto::NewAudioStreamResponse { stream: stream_info })
 }
 
 // Create a new audio stream from a participant and track source
@@ -429,7 +428,7 @@ fn on_audio_stream_from_participant_stream(
     request: proto::AudioStreamFromParticipantRequest,
 ) -> FfiResult<proto::AudioStreamFromParticipantResponse> {
     let stream_info = audio_stream::FfiAudioStream::from_participant(server, request)?;
-    Ok(proto::AudioStreamFromParticipantResponse { stream: Some(stream_info) })
+    Ok(proto::AudioStreamFromParticipantResponse { stream: stream_info })
 }
 
 /// Create a new audio source (used to publish audio frames to a track)
@@ -438,7 +437,7 @@ fn on_new_audio_source(
     new_source: proto::NewAudioSourceRequest,
 ) -> FfiResult<proto::NewAudioSourceResponse> {
     let source_info = audio_source::FfiAudioSource::setup(server, new_source)?;
-    Ok(proto::NewAudioSourceResponse { source: Some(source_info) })
+    Ok(proto::NewAudioSourceResponse { source: source_info })
 }
 
 /// Push a frame to a source
@@ -472,10 +471,10 @@ fn new_audio_resampler(
     server.store_handle(handle_id, resampler);
 
     Ok(proto::NewAudioResamplerResponse {
-        resampler: Some(proto::OwnedAudioResampler {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(proto::AudioResamplerInfo {}),
-        }),
+        resampler: proto::OwnedAudioResampler {
+            handle: proto::FfiOwnedHandle { id: handle_id },
+            info: proto::AudioResamplerInfo {},
+        },
     })
 }
 
@@ -489,7 +488,7 @@ fn remix_and_resample(
         .retrieve_handle::<Arc<Mutex<audio_resampler::AudioResampler>>>(remix.resampler_handle)?
         .clone();
 
-    let buffer = remix.buffer.ok_or(FfiError::InvalidRequest("buffer is empty".into()))?;
+    let buffer = remix.buffer;
 
     let data = unsafe {
         let len = (buffer.num_channels * buffer.samples_per_channel) as usize;
@@ -521,10 +520,10 @@ fn remix_and_resample(
     server.store_handle(handle_id, audio_frame);
 
     Ok(proto::RemixAndResampleResponse {
-        buffer: Some(proto::OwnedAudioFrameBuffer {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(buffer_info),
-        }),
+        buffer: proto::OwnedAudioFrameBuffer {
+            handle: proto::FfiOwnedHandle { id: handle_id },
+            info: buffer_info,
+        },
     })
 }
 
@@ -652,17 +651,20 @@ fn on_get_session_stats(
                 let _ = server.send_event(proto::ffi_event::Message::GetSessionStats(
                     proto::GetSessionStatsCallback {
                         async_id,
-                        error: None,
-                        publisher_stats: stats
-                            .publisher_stats
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        subscriber_stats: stats
-                            .subscriber_stats
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
+                        message: Some(proto::get_session_stats_callback::Message::Result(
+                            proto::get_session_stats_callback::Result {
+                                publisher_stats: stats
+                                    .publisher_stats
+                                    .into_iter()
+                                    .map(Into::into)
+                                    .collect(),
+                                subscriber_stats: stats
+                                    .subscriber_stats
+                                    .into_iter()
+                                    .map(Into::into)
+                                    .collect(),
+                            },
+                        )),
                     },
                 ));
             }
@@ -670,8 +672,9 @@ fn on_get_session_stats(
                 let _ = server.send_event(proto::ffi_event::Message::GetSessionStats(
                     proto::GetSessionStatsCallback {
                         async_id,
-                        error: Some(err.to_string()),
-                        ..Default::default()
+                        message: Some(proto::get_session_stats_callback::Message::Error(
+                            err.to_string(),
+                        )),
                     },
                 ));
             }
@@ -710,16 +713,17 @@ fn on_new_sox_resampler(
             server.store_handle(handle_id, resampler);
 
             Ok(proto::NewSoxResamplerResponse {
-                resampler: Some(proto::OwnedSoxResampler {
-                    handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-                    info: Some(proto::SoxResamplerInfo {}),
-                }),
-                ..Default::default()
+                message: Some(proto::new_sox_resampler_response::Message::Resampler(
+                    proto::OwnedSoxResampler {
+                        handle: proto::FfiOwnedHandle { id: handle_id },
+                        info: proto::SoxResamplerInfo {},
+                    },
+                )),
             })
         }
-        Err(e) => {
-            Ok(proto::NewSoxResamplerResponse { error: Some(e.to_string()), ..Default::default() })
-        }
+        Err(e) => Ok(proto::NewSoxResamplerResponse {
+            message: Some(proto::new_sox_resampler_response::Message::Error(e.to_string())),
+        }),
     }
 }
 
