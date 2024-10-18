@@ -351,8 +351,8 @@ impl Room {
                 signal_options: SignalOptions {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
-                    sdk: sdk,
-                    sdk_version: Some(sdk_version),
+                    sdk: sdk.to_string(),
+                    sdk_version: Some(sdk_version.to_string()),
                 },
                 join_retries: options.join_retries,
             },
