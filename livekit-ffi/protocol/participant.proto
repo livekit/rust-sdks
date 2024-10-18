@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -20,17 +20,17 @@ option csharp_namespace = "LiveKit.Proto";
 import "handle.proto";
 
 message ParticipantInfo {
-  string sid = 1;
-  string name = 2;
-  string identity = 3;
-  string metadata = 4;
+  required string sid = 1;
+  required string name = 2;
+  required string identity = 3;
+  required string metadata = 4;
   map<string, string> attributes = 5;
-  ParticipantKind kind = 6;
+  required ParticipantKind kind = 6;
 }
 
 message OwnedParticipant {
-  FfiOwnedHandle handle = 1;
-  ParticipantInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required ParticipantInfo info = 2;
 }
 
 enum ParticipantKind {

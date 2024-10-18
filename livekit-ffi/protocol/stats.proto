@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -91,83 +91,83 @@ enum IceTcpCandidateType {
 
 message RtcStats {
     message Codec {
-        RtcStatsData rtc = 1;
-    	CodecStats codec = 2;
+        required RtcStatsData rtc = 1;
+    	required CodecStats codec = 2;
     }
 
     message InboundRtp {
-	RtcStatsData rtc = 1;
-	RtpStreamStats stream = 2;
-	ReceivedRtpStreamStats received = 3;
-	InboundRtpStreamStats inbound = 4;
+        required RtcStatsData rtc = 1;
+        required RtpStreamStats stream = 2;
+        required ReceivedRtpStreamStats received = 3;
+        required InboundRtpStreamStats inbound = 4;
     }
 
     message OutboundRtp {
-        RtcStatsData rtc = 1;
-	RtpStreamStats stream = 2;
-	SentRtpStreamStats sent = 3;
-	OutboundRtpStreamStats outbound = 4;
+        required RtcStatsData rtc = 1;
+        required RtpStreamStats stream = 2;
+        required SentRtpStreamStats sent = 3;
+        required OutboundRtpStreamStats outbound = 4;
     }
 
     message RemoteInboundRtp {
-        RtcStatsData rtc = 1;
-	RtpStreamStats stream = 2;
-	ReceivedRtpStreamStats received = 3;
-	RemoteInboundRtpStreamStats remote_inbound = 4;
+        required RtcStatsData rtc = 1;
+        required RtpStreamStats stream = 2;
+        required ReceivedRtpStreamStats received = 3;
+        required RemoteInboundRtpStreamStats remote_inbound = 4;
     }
 
     message RemoteOutboundRtp {
-        RtcStatsData rtc = 1;
-	RtpStreamStats stream = 2;
-	SentRtpStreamStats sent = 3;
-	RemoteOutboundRtpStreamStats remote_outbound = 4;
+        required RtcStatsData rtc = 1;
+        required RtpStreamStats stream = 2;
+        required SentRtpStreamStats sent = 3;
+        required RemoteOutboundRtpStreamStats remote_outbound = 4;
     }
 
     message MediaSource {
-        RtcStatsData rtc = 1;
-        MediaSourceStats source = 2;
-	AudioSourceStats audio = 3;
-	VideoSourceStats video = 4;
+        required RtcStatsData rtc = 1;
+        required MediaSourceStats source = 2;
+        required AudioSourceStats audio = 3;
+        required VideoSourceStats video = 4;
     }
 
     message MediaPlayout {
-        RtcStatsData rtc = 1;
-        AudioPlayoutStats audio_playout = 2;
+        required RtcStatsData rtc = 1;
+        required AudioPlayoutStats audio_playout = 2;
     }
 
     message PeerConnection {
-        RtcStatsData rtc = 1;
-	PeerConnectionStats pc = 2;
+        required RtcStatsData rtc = 1;
+	    required PeerConnectionStats pc = 2;
     }
 
     message DataChannel {
-        RtcStatsData rtc = 1;
-	DataChannelStats dc = 2;
+        required RtcStatsData rtc = 1;
+	    required DataChannelStats dc = 2;
     }
 
     message Transport {
-        RtcStatsData rtc = 1;
-	TransportStats transport  = 2;
+        required RtcStatsData rtc = 1;
+	    required TransportStats transport  = 2;
     }
 
     message CandidatePair {
-        RtcStatsData rtc = 1;
-	CandidatePairStats candidate_pair = 2;
+        required RtcStatsData rtc = 1;
+	    required CandidatePairStats candidate_pair = 2;
     }
 
     message LocalCandidate {
-        RtcStatsData rtc = 1;
-	IceCandidateStats candidate = 2;
+        required RtcStatsData rtc = 1;
+	required IceCandidateStats candidate = 2;
     }
 
     message RemoteCandidate {
-        RtcStatsData rtc = 1;
-	IceCandidateStats candidate = 2;
+        required RtcStatsData rtc = 1;
+	    required IceCandidateStats candidate = 2;
     }
 
     message Certificate {
-        RtcStatsData rtc = 1;
-	CertificateStats certificate = 2;
+        required RtcStatsData rtc = 1;
+	    required CertificateStats certificate = 2;
     }
 
     message Track {
@@ -194,256 +194,256 @@ message RtcStats {
 }
 
 message RtcStatsData {
-    string id = 1;
-    int64 timestamp = 2;
+    required string id = 1;
+    required int64 timestamp = 2;
 }
 
 message CodecStats {
-    uint32 payload_type = 1;
-    string transport_id = 2;
-    string mime_type = 3;
-    uint32 clock_rate = 4;
-    uint32 channels = 5;
-    string sdp_fmtp_line = 6;
+    required uint32 payload_type = 1;
+    required string transport_id = 2;
+    required string mime_type = 3;
+    required uint32 clock_rate = 4;
+    required uint32 channels = 5;
+    required string sdp_fmtp_line = 6;
 }
 
 message RtpStreamStats {
-    uint32 ssrc = 1;
-    string kind = 2;
-    string transport_id = 3;
-    string codec_id = 4;
+    required uint32 ssrc = 1;
+    required string kind = 2;
+    required string transport_id = 3;
+    required string codec_id = 4;
 }
 
 message ReceivedRtpStreamStats {
-    uint64 packets_received = 1;
-    int64 packets_lost = 2;
-    double jitter = 3;
+    required uint64 packets_received = 1;
+    required int64 packets_lost = 2;
+    required double jitter = 3;
 }
 
 message InboundRtpStreamStats {
-    string track_identifier = 1;
-    string mid = 2;
-    string remote_id = 3;
-    uint32 frames_decoded = 4;
-    uint32 key_frames_decoded = 5;
-    uint32 frames_rendered = 6;
-    uint32 frames_dropped = 7;
-    uint32 frame_width = 8;
-    uint32 frame_height = 9;
-    double frames_per_second = 10;
-    uint64 qp_sum = 11;
-    double total_decode_time = 12;
-    double total_inter_frame_delay = 13;
-    double total_squared_inter_frame_delay = 14;
-    uint32 pause_count = 15;
-    double total_pause_duration = 16;
-    uint32 freeze_count = 17;
-    double total_freeze_duration = 18;
-    double last_packet_received_timestamp = 19;
-    uint64 header_bytes_received = 20;
-    uint64 packets_discarded = 21;
-    uint64 fec_bytes_received = 22;
-    uint64 fec_packets_received = 23;
-    uint64 fec_packets_discarded = 24;
-    uint64 bytes_received = 25;
-    uint32 nack_count = 26;
-    uint32 fir_count = 27;
-    uint32 pli_count = 28;
-    double total_processing_delay = 29;
-    double estimated_playout_timestamp = 30;
-    double jitter_buffer_delay = 31;
-    double jitter_buffer_target_delay = 32;
-    uint64 jitter_buffer_emitted_count = 33;
-    double jitter_buffer_minimum_delay = 34;
-    uint64 total_samples_received = 35;
-    uint64 concealed_samples = 36;
-    uint64 silent_concealed_samples = 37;
-    uint64 concealment_events = 38;
-    uint64 inserted_samples_for_deceleration = 39;
-    uint64 removed_samples_for_acceleration = 40;
-    double audio_level = 41;
-    double total_audio_energy = 42;
-    double total_samples_duration = 43;
-    uint64 frames_received = 44;
-    string decoder_implementation = 45;
-    string playout_id = 46;
-    bool power_efficient_decoder = 47;
-    uint64 frames_assembled_from_multiple_packets = 48;
-    double total_assembly_time = 49;
-    uint64 retransmitted_packets_received = 50;
-    uint64 retransmitted_bytes_received = 51;
-    uint32 rtx_ssrc = 52;
-    uint32 fec_ssrc = 53;
+    required string track_identifier = 1;
+    required string mid = 2;
+    required string remote_id = 3;
+    required uint32 frames_decoded = 4;
+    required uint32 key_frames_decoded = 5;
+    required uint32 frames_rendered = 6;
+    required uint32 frames_dropped = 7;
+    required uint32 frame_width = 8;
+    required uint32 frame_height = 9;
+    required double frames_per_second = 10;
+    required uint64 qp_sum = 11;
+    required double total_decode_time = 12;
+    required double total_inter_frame_delay = 13;
+    required double total_squared_inter_frame_delay = 14;
+    required uint32 pause_count = 15;
+    required double total_pause_duration = 16;
+    required uint32 freeze_count = 17;
+    required double total_freeze_duration = 18;
+    required double last_packet_received_timestamp = 19;
+    required uint64 header_bytes_received = 20;
+    required uint64 packets_discarded = 21;
+    required  uint64 fec_bytes_received = 22;
+    required uint64 fec_packets_received = 23;
+    required uint64 fec_packets_discarded = 24;
+    required uint64 bytes_received = 25;
+    required uint32 nack_count = 26;
+    required uint32 fir_count = 27;
+    required uint32 pli_count = 28;
+    required double total_processing_delay = 29;
+    required double estimated_playout_timestamp = 30;
+    required double jitter_buffer_delay = 31;
+    required double jitter_buffer_target_delay = 32;
+    required uint64 jitter_buffer_emitted_count = 33;
+    required double jitter_buffer_minimum_delay = 34;
+    required uint64 total_samples_received = 35;
+    required uint64 concealed_samples = 36;
+    required uint64 silent_concealed_samples = 37;
+    required uint64 concealment_events = 38;
+    required uint64 inserted_samples_for_deceleration = 39;
+    required uint64 removed_samples_for_acceleration = 40;
+    required double audio_level = 41;
+    required double total_audio_energy = 42;
+    required double total_samples_duration = 43;
+    required uint64 frames_received = 44;
+    required string decoder_implementation = 45;
+    required string playout_id = 46;
+    required  bool power_efficient_decoder = 47;
+    required uint64 frames_assembled_from_multiple_packets = 48;
+    required double total_assembly_time = 49;
+    required uint64 retransmitted_packets_received = 50;
+    required  uint64 retransmitted_bytes_received = 51;
+    required uint32 rtx_ssrc = 52;
+    required uint32 fec_ssrc = 53;
 }
 
 message SentRtpStreamStats {
-    uint64 packets_sent = 1;
-    uint64 bytes_sent = 2;
+    required uint64 packets_sent = 1;
+    required uint64 bytes_sent = 2;
 }
 
 message OutboundRtpStreamStats {
-    string mid = 1;
-    string media_source_id = 2;
-    string remote_id = 3;
-    string rid = 4;
-    uint64 header_bytes_sent = 5;
-    uint64 retransmitted_packets_sent = 6;
-    uint64 retransmitted_bytes_sent = 7;
-    uint32 rtx_ssrc = 8;
-    double target_bitrate = 9;
-    uint64 total_encoded_bytes_target = 10;
-    uint32 frame_width = 11;
-    uint32 frame_height = 12;
-    double frames_per_second = 13;
-    uint32 frames_sent = 14;
-    uint32 huge_frames_sent = 15;
-    uint32 frames_encoded = 16;
-    uint32 key_frames_encoded = 17;
-    uint64 qp_sum = 18;
-    double total_encode_time = 19;
-    double total_packet_send_delay = 20;
-    QualityLimitationReason quality_limitation_reason = 21;
+    required string mid = 1;
+    required string media_source_id = 2;
+    required string remote_id = 3;
+    required string rid = 4;
+    required uint64 header_bytes_sent = 5;
+    required uint64 retransmitted_packets_sent = 6;
+    required uint64 retransmitted_bytes_sent = 7;
+    required uint32 rtx_ssrc = 8;
+    required double target_bitrate = 9;
+    required uint64 total_encoded_bytes_target = 10;
+    required uint32 frame_width = 11;
+    required uint32 frame_height = 12;
+    required double frames_per_second = 13;
+    required uint32 frames_sent = 14;
+    required uint32 huge_frames_sent = 15;
+    required uint32 frames_encoded = 16;
+    required uint32 key_frames_encoded = 17;
+    required uint64 qp_sum = 18;
+    required double total_encode_time = 19;
+    required double total_packet_send_delay = 20;
+    required QualityLimitationReason quality_limitation_reason = 21;
     map<string, double> quality_limitation_durations = 22;
-    uint32 quality_limitation_resolution_changes = 23;
-    uint32 nack_count = 24;
-    uint32 fir_count = 25;
-    uint32 pli_count = 26;
-    string encoder_implementation = 27;
-    bool power_efficient_encoder = 28;
-    bool active = 29;
-    string scalibility_mode = 30;
+    required uint32 quality_limitation_resolution_changes = 23;
+    required uint32 nack_count = 24;
+    required uint32 fir_count = 25;
+    required uint32 pli_count = 26;
+    required string encoder_implementation = 27;
+    required bool power_efficient_encoder = 28;
+    required bool active = 29;
+    required string scalability_mode = 30;
 }
 
 message RemoteInboundRtpStreamStats {
-    string local_id = 1;
-    double round_trip_time = 2;
-    double total_round_trip_time = 3;
-    double fraction_lost = 4;
-    uint64 round_trip_time_measurements = 5;
+    required string local_id = 1;
+    required double round_trip_time = 2;
+    required double total_round_trip_time = 3;
+    required double fraction_lost = 4;
+    required uint64 round_trip_time_measurements = 5;
 }
 
 message RemoteOutboundRtpStreamStats {
-    string local_id = 1;
-    double remote_timestamp = 2;
-    uint64 reports_sent = 3;
-    double round_trip_time = 4;
-    double total_round_trip_time = 5;
-    uint64 round_trip_time_measurements = 6;
+    required string local_id = 1;
+    required double remote_timestamp = 2;
+    required uint64 reports_sent = 3;
+    required double round_trip_time = 4;
+    required double total_round_trip_time = 5;
+    required uint64 round_trip_time_measurements = 6;
 }
 
 message MediaSourceStats {
-    string track_identifier = 1;
-    string kind = 2;
+    required string track_identifier = 1;
+    required string kind = 2;
 }
 
 message AudioSourceStats {
-    double audio_level = 1;
-    double total_audio_energy = 2;
-    double total_samples_duration = 3;
-    double echo_return_loss = 4;
-    double echo_return_loss_enhancement = 5;
-    double dropped_samples_duration = 6;
-    uint32 dropped_samples_events = 7;
-    double total_capture_delay = 8;
-    uint64 total_samples_captured = 9;
+    required double audio_level = 1;
+    required double total_audio_energy = 2;
+    required double total_samples_duration = 3;
+    required double echo_return_loss = 4;
+    required double echo_return_loss_enhancement = 5;
+    required double dropped_samples_duration = 6;
+    required uint32 dropped_samples_events = 7;
+    required double total_capture_delay = 8;
+    required uint64 total_samples_captured = 9;
 }
 
 message VideoSourceStats {
-    uint32 width = 1;
-    uint32 height = 2;
-    uint32 frames = 3;
-    double frames_per_second = 4;
+    required uint32 width = 1;
+    required uint32 height = 2;
+    required uint32 frames = 3;
+    required double frames_per_second = 4;
 }
 
 message AudioPlayoutStats {
-    string kind = 1;
-    double synthesized_samples_duration = 2;
-    uint32 synthesized_samples_events = 3;
-    double total_samples_duration = 4;
-    double total_playout_delay = 5;
-    uint64 total_samples_count = 6;
+    required string kind = 1;
+    required double synthesized_samples_duration = 2;
+    required uint32 synthesized_samples_events = 3;
+    required double total_samples_duration = 4;
+    required double total_playout_delay = 5;
+    required uint64 total_samples_count = 6;
 }
 
 message PeerConnectionStats {
-    uint32 data_channels_opened = 1;
-    uint32 data_channels_closed = 2;
+    required uint32 data_channels_opened = 1;
+    required uint32 data_channels_closed = 2;
 }
 
 message DataChannelStats {
-    string label = 1;
-    string protocol = 2;
-    int32 data_channel_identifier = 3;
+    required string label = 1;
+    required string protocol = 2;
+    required int32 data_channel_identifier = 3;
     optional DataChannelState state = 4;
-    uint32 messages_sent = 5;
-    uint64 bytes_sent = 6;
-    uint32 messages_received = 7;
-    uint64 bytes_received = 8;
+    required uint32 messages_sent = 5;
+    required uint64 bytes_sent = 6;
+    required uint32 messages_received = 7;
+    required uint64 bytes_received = 8;
 }
 
 message TransportStats {
-    uint64 packets_sent = 1;
-    uint64 packets_received = 2;
-    uint64 bytes_sent = 3;
-    uint64 bytes_received = 4;
-    IceRole ice_role = 5;
-    string ice_local_username_fragment = 6;
+    required uint64 packets_sent = 1;
+    required uint64 packets_received = 2;
+    required uint64 bytes_sent = 3;
+    required uint64 bytes_received = 4;
+    required IceRole ice_role = 5;
+    required string ice_local_username_fragment = 6;
     optional DtlsTransportState dtls_state = 7;
     optional IceTransportState ice_state = 8;
-    string selected_candidate_pair_id = 9;
-    string local_certificate_id = 10;
-    string remote_certificate_id = 11;
-    string tls_version = 12;
-    string dtls_cipher = 13;
-    DtlsRole dtls_role = 14;
-    string srtp_cipher = 15;
-    uint32 selected_candidate_pair_changes = 16;
+    required string selected_candidate_pair_id = 9;
+    required string local_certificate_id = 10;
+    required string remote_certificate_id = 11;
+    required string tls_version = 12;
+    required string dtls_cipher = 13;
+    required DtlsRole dtls_role = 14;
+    required string srtp_cipher = 15;
+    required uint32 selected_candidate_pair_changes = 16;
 }
 
 message CandidatePairStats {
-    string transport_id = 1;
-    string local_candidate_id = 2;
-    string remote_candidate_id = 3;
+    required string transport_id = 1;
+    required string local_candidate_id = 2;
+    required string remote_candidate_id = 3;
     optional IceCandidatePairState state = 4;
-    bool nominated = 5;
-    uint64 packets_sent = 6;
-    uint64 packets_received = 7;
-    uint64 bytes_sent = 8;
-    uint64 bytes_received = 9;
-    double last_packet_sent_timestamp = 10;
-    double last_packet_received_timestamp = 11;
-    double total_round_trip_time = 12;
-    double current_round_trip_time = 13;
-    double available_outgoing_bitrate = 14;
-    double available_incoming_bitrate = 15;
-    uint64 requests_received = 16;
-    uint64 requests_sent = 17;
-    uint64 responses_received = 18;
-    uint64 responses_sent = 19;
-    uint64 consent_requests_sent = 20;
-    uint32 packets_discarded_on_send = 21;
-    uint64 bytes_discarded_on_send = 22;
+    required bool nominated = 5;
+    required uint64 packets_sent = 6;
+    required uint64 packets_received = 7;
+    required uint64 bytes_sent = 8;
+    required uint64 bytes_received = 9;
+    required double last_packet_sent_timestamp = 10;
+    required double last_packet_received_timestamp = 11;
+    required double total_round_trip_time = 12;
+    required double current_round_trip_time = 13;
+    required double available_outgoing_bitrate = 14;
+    required double available_incoming_bitrate = 15;
+    required uint64 requests_received = 16;
+    required uint64 requests_sent = 17;
+    required uint64 responses_received = 18;
+    required uint64 responses_sent = 19;
+    required uint64 consent_requests_sent = 20;
+    required uint32 packets_discarded_on_send = 21;
+    required uint64 bytes_discarded_on_send = 22;
 }
 
 message IceCandidateStats {
-    string transport_id = 1;
-    string address = 2;
-    int32 port = 3;
-    string protocol = 4;
+    required string transport_id = 1;
+    required string address = 2;
+    required int32 port = 3;
+    required string protocol = 4;
     optional IceCandidateType candidate_type = 5;
-    int32 priority = 6;
-    string url = 7;
+    required int32 priority = 6;
+    required string url = 7;
     optional IceServerTransportProtocol relay_protocol = 8;
-    string foundation = 9;
-    string related_address = 10;
-    int32 related_port = 11;
-    string username_fragment = 12;
+    required string foundation = 9;
+    required string related_address = 10;
+    required int32 related_port = 11;
+    required string username_fragment = 12;
     optional IceTcpCandidateType tcp_type = 13;
 }
 
 message CertificateStats {
-    string fingerprint = 1;
-    string fingerprint_algorithm = 2;
-    string base64_certificate = 3;
-    string issuer_certificate_id = 4;
+    required string fingerprint = 1;
+    required string fingerprint_algorithm = 2;
+    required string base64_certificate = 3;
+    required string issuer_certificate_id = 4;
 }
 
