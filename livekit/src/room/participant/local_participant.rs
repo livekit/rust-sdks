@@ -796,24 +796,14 @@ impl LocalParticipant {
         let response = match handler {
             Some(handler) => {
                 match tokio::task::spawn(async move {
-                    match panic::catch_unwind(AssertUnwindSafe(|| {
-                        handler(
-                            request_id.clone(),
-                            caller_identity.clone(),
-                            payload.clone(),
-                            Duration::from_millis(response_timeout_ms as u64),
-                        )
-                    })) {
-                        Ok(result) => result,
-                        Err(panic) => {
-                            log::error!("RPC method handler panicked: {:?}", panic);
-                            return Err(RpcError::built_in(RpcErrorCode::ApplicationError, None));
-                        }
-                    }
-                    .await
+                    handler(
+                        request_id.clone(),
+                        caller_identity.clone(),
+                        payload.clone(),
+                        Duration::from_millis(response_timeout_ms as u64),
+                    ).await
                 })
-                .await
-                {
+                .await {
                     Ok(result) => result,
                     Err(e) => {
                         log::error!("RPC method handler returned an error: {:?}", e);
