@@ -12,13 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    pin::Pin,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
 
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
 use crate::{
@@ -570,7 +564,8 @@ impl LocalParticipant {
 
     async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
         let destination_identities = vec![rpc_ack.destination_identity];
-        let rpc_ack_message = proto::RpcAck { request_id: rpc_ack.request_id, ..Default::default() };
+        let rpc_ack_message =
+            proto::RpcAck { request_id: rpc_ack.request_id, ..Default::default() };
 
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::RpcAck(rpc_ack_message)),
@@ -779,10 +774,12 @@ impl LocalParticipant {
         payload: String,
         response_timeout_ms: u32,
     ) {
-        if let Err(e) = self.publish_rpc_ack(RpcAck {
-            destination_identity: caller_identity.to_string(),
-            request_id: request_id.clone(),
-        }).await
+        if let Err(e) = self
+            .publish_rpc_ack(RpcAck {
+                destination_identity: caller_identity.to_string(),
+                request_id: request_id.clone(),
+            })
+            .await
         {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
@@ -800,9 +797,11 @@ impl LocalParticipant {
                         caller_identity.clone(),
                         payload.clone(),
                         Duration::from_millis(response_timeout_ms as u64),
-                    ).await
+                    )
+                    .await
                 })
-                .await {
+                .await
+                {
                     Ok(result) => result,
                     Err(e) => {
                         log::error!("RPC method handler returned an error: {:?}", e);
@@ -822,14 +821,12 @@ impl LocalParticipant {
         };
 
         if let Err(e) = self
-            .publish_rpc_response(
-                RpcResponse {
-                    destination_identity: caller_identity_2.to_string(),
-                    request_id: request_id_2,
-                    payload,
-                    error: error.map(|e| e.to_proto()),
-                }
-            )
+            .publish_rpc_response(RpcResponse {
+                destination_identity: caller_identity_2.to_string(),
+                request_id: request_id_2,
+                payload,
+                error: error.map(|e| e.to_proto()),
+            })
             .await
         {
             log::error!("Failed to publish RPC response: {:?}", e);
