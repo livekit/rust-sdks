@@ -68,8 +68,8 @@ pub enum SignalError {
 pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
-    pub sdk: &'static str,
-    pub sdk_version: Option<&'static str>,
+    pub sdk: String,
+    pub sdk_version: Option<String>,
 }
 
 impl Default for SignalOptions {
