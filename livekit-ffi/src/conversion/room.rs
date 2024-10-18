@@ -23,7 +23,7 @@ use livekit::{
     webrtc::{
         native::frame_cryptor::EncryptionState,
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
-    }, RoomAnalyticsOptions,
+    },
 };
 
 impl From<EncryptionState> for proto::EncryptionState {
