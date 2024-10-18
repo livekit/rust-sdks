@@ -15,7 +15,6 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    panic::{self, AssertUnwindSafe},
     pin::Pin,
     sync::Arc,
     time::Duration,
