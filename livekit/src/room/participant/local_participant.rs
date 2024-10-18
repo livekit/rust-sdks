@@ -86,6 +86,16 @@ struct LocalInfo {
     rpc_state: Mutex<RpcState>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PublishRpcRequestOptions {
+    pub destination_identity: String,
+    pub id: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout_ms: u32,
+    pub version: u32,
+}
+
 #[derive(Clone)]
 pub struct LocalParticipant {
     inner: Arc<ParticipantInner>,
@@ -518,28 +528,20 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    async fn publish_rpc_request(
-        &self,
-        destination_identity: String,
-        id: String,
-        method: String,
-        payload: String,
-        response_timeout_ms: u32,
-        version: u32,
-    ) -> RoomResult<()> {
-        let destination_identities: Vec<String> = vec![destination_identity.into()];
+    async fn publish_rpc_request(&self, options: PublishRpcRequestOptions) -> RoomResult<()> {
+        let destination_identities: Vec<String> = vec![options.destination_identity];
         let rpc_request = proto::RpcRequest {
-            id: id,
-            method: method,
-            payload: payload,
-            response_timeout_ms: response_timeout_ms,
-            version: version,
+            id: options.id,
+            method: options.method,
+            payload: options.payload,
+            response_timeout_ms: options.response_timeout_ms,
+            version: options.version,
             ..Default::default()
         };
 
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::RpcRequest(rpc_request)),
-            destination_identities: destination_identities.clone(),
+            destination_identities,
             ..Default::default()
         };
 
@@ -688,14 +690,14 @@ impl LocalParticipant {
         let (response_tx, response_rx) = oneshot::channel();
 
         match self
-            .publish_rpc_request(
-                destination_identity.clone(),
-                id.clone(),
-                method.clone(),
-                payload.clone(),
-                (response_timeout - max_round_trip_latency).as_millis() as u32,
-                1,
-            )
+            .publish_rpc_request(PublishRpcRequestOptions {
+                destination_identity: destination_identity.clone(),
+                id: id.clone(),
+                method: method.clone(),
+                payload: payload.clone(),
+                response_timeout_ms: (response_timeout - max_round_trip_latency).as_millis() as u32,
+                version: 1,
+            })
             .await
         {
             Ok(_) => {
