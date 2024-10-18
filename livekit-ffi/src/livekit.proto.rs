@@ -3957,7 +3957,7 @@ pub mod ffi_event {
         #[prost(message, tag="21")]
         PublishSipDtmf(super::PublishSipDtmfCallback),
         #[prost(message, tag="22")]
-        SendChatMessage(super::SendChatMessageCallback),
+        ChatMessage(super::SendChatMessageCallback),
         #[prost(message, tag="23")]
         PerformRpc(super::PerformRpcCallback),
         #[prost(message, tag="24")]

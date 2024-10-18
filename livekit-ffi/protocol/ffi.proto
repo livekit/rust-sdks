@@ -188,7 +188,7 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
-    SendChatMessageCallback send_chat_message = 22;
+    SendChatMessageCallback chat_message = 22;
     PerformRpcCallback perform_rpc = 23;
     RegisterRpcMethodCallback register_rpc_method = 24;
     UnregisterRpcMethodCallback unregister_rpc_method = 25;
