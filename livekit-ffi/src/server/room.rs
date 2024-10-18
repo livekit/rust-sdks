@@ -588,7 +588,7 @@ impl RoomInner {
                 )
                 .await;
             let sent_message = res.as_ref().unwrap().clone();
-            let _ = server.send_event(proto::ffi_event::Message::SendChatMessage(
+            let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
                 proto::SendChatMessageCallback {
                     async_id,
                     error: res.err().map(|e| e.to_string()),
@@ -619,7 +619,7 @@ impl RoomInner {
                 )
                 .await;
             let sent_message: ChatMessage = res.as_ref().unwrap().clone();
-            let _ = server.send_event(proto::ffi_event::Message::SendChatMessage(
+            let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
                 proto::SendChatMessageCallback {
                     async_id,
                     error: res.err().map(|e| e.to_string()),
