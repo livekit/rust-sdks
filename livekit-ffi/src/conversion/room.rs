@@ -130,11 +130,7 @@ impl From<proto::ContinualGatheringPolicy> for ContinualGatheringPolicy {
 
 impl From<proto::IceServer> for IceServer {
     fn from(value: proto::IceServer) -> Self {
-        Self {
-            urls: value.urls,
-            username: value.username.unwrap_or_default(),
-            password: value.password.unwrap_or_default(),
-        }
+        Self { urls: value.urls, username: value.username, password: value.password }
     }
 }
 
@@ -160,7 +156,9 @@ impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
         let e2ee = value.e2ee.and_then(|opts| {
             let encryption_type = opts.encryption_type();
-            let provider_opts = opts.key_provider_options;
+            let Some(provider_opts) = opts.key_provider_options else {
+                return None;
+            };
 
             Some(E2eeOptions {
                 encryption_type: encryption_type.into(),

@@ -174,17 +174,17 @@ impl From<rtc::RtcStats> for proto::RtcStats {
 
 impl From<rtc::CodecStats> for proto::rtc_stats::Codec {
     fn from(value: rtc::CodecStats) -> Self {
-        Self { rtc: value.rtc.into(), codec: value.codec.into() }
+        Self { rtc: Some(value.rtc.into()), codec: Some(value.codec.into()) }
     }
 }
 
 impl From<rtc::InboundRtpStats> for proto::rtc_stats::InboundRtp {
     fn from(value: rtc::InboundRtpStats) -> Self {
         Self {
-            rtc: value.rtc.into(),
-            stream: value.stream.into(),
-            received: value.received.into(),
-            inbound: value.inbound.into(),
+            rtc: Some(value.rtc.into()),
+            stream: Some(value.stream.into()),
+            received: Some(value.received.into()),
+            inbound: Some(value.inbound.into()),
         }
     }
 }
@@ -192,10 +192,10 @@ impl From<rtc::InboundRtpStats> for proto::rtc_stats::InboundRtp {
 impl From<rtc::OutboundRtpStats> for proto::rtc_stats::OutboundRtp {
     fn from(value: rtc::OutboundRtpStats) -> Self {
         Self {
-            rtc: value.rtc.into(),
-            stream: value.stream.into(),
-            sent: value.sent.into(),
-            outbound: value.outbound.into(),
+            rtc: Some(value.rtc.into()),
+            stream: Some(value.stream.into()),
+            sent: Some(value.sent.into()),
+            outbound: Some(value.outbound.into()),
         }
     }
 }
@@ -203,10 +203,10 @@ impl From<rtc::OutboundRtpStats> for proto::rtc_stats::OutboundRtp {
 impl From<rtc::RemoteInboundRtpStats> for proto::rtc_stats::RemoteInboundRtp {
     fn from(value: rtc::RemoteInboundRtpStats) -> Self {
         Self {
-            rtc: value.rtc.into(),
-            stream: value.stream.into(),
-            received: value.received.into(),
-            remote_inbound: value.remote_inbound.into(),
+            rtc: Some(value.rtc.into()),
+            stream: Some(value.stream.into()),
+            received: Some(value.received.into()),
+            remote_inbound: Some(value.remote_inbound.into()),
         }
     }
 }
@@ -214,10 +214,10 @@ impl From<rtc::RemoteInboundRtpStats> for proto::rtc_stats::RemoteInboundRtp {
 impl From<rtc::RemoteOutboundRtpStats> for proto::rtc_stats::RemoteOutboundRtp {
     fn from(value: rtc::RemoteOutboundRtpStats) -> Self {
         Self {
-            rtc: value.rtc.into(),
-            stream: value.stream.into(),
-            sent: value.sent.into(),
-            remote_outbound: value.remote_outbound.into(),
+            rtc: Some(value.rtc.into()),
+            stream: Some(value.stream.into()),
+            sent: Some(value.sent.into()),
+            remote_outbound: Some(value.remote_outbound.into()),
         }
     }
 }
@@ -225,59 +225,59 @@ impl From<rtc::RemoteOutboundRtpStats> for proto::rtc_stats::RemoteOutboundRtp {
 impl From<rtc::MediaSourceStats> for proto::rtc_stats::MediaSource {
     fn from(value: rtc::MediaSourceStats) -> Self {
         Self {
-            rtc: value.rtc.into(),
-            source: value.source.into(),
-            audio: value.audio.into(),
-            video: value.video.into(),
+            rtc: Some(value.rtc.into()),
+            source: Some(value.source.into()),
+            audio: Some(value.audio.into()),
+            video: Some(value.video.into()),
         }
     }
 }
 
 impl From<rtc::MediaPlayoutStats> for proto::rtc_stats::MediaPlayout {
     fn from(value: rtc::MediaPlayoutStats) -> Self {
-        Self { rtc: value.rtc.into(), audio_playout: value.audio_playout.into() }
+        Self { rtc: Some(value.rtc.into()), audio_playout: Some(value.audio_playout.into()) }
     }
 }
 
 impl From<rtc::PeerConnectionStats> for proto::rtc_stats::PeerConnection {
     fn from(value: rtc::PeerConnectionStats) -> Self {
-        Self { rtc: value.rtc.into(), pc: value.pc.into() }
+        Self { rtc: Some(value.rtc.into()), pc: Some(value.pc.into()) }
     }
 }
 
 impl From<rtc::DataChannelStats> for proto::rtc_stats::DataChannel {
     fn from(value: rtc::DataChannelStats) -> Self {
-        Self { rtc: value.rtc.into(), dc: value.dc.into() }
+        Self { rtc: Some(value.rtc.into()), dc: Some(value.dc.into()) }
     }
 }
 
 impl From<rtc::TransportStats> for proto::rtc_stats::Transport {
     fn from(value: rtc::TransportStats) -> Self {
-        Self { rtc: value.rtc.into(), transport: value.transport.into() }
+        Self { rtc: Some(value.rtc.into()), transport: Some(value.transport.into()) }
     }
 }
 
 impl From<rtc::CandidatePairStats> for proto::rtc_stats::CandidatePair {
     fn from(value: rtc::CandidatePairStats) -> Self {
-        Self { rtc: value.rtc.into(), candidate_pair: value.candidate_pair.into() }
+        Self { rtc: Some(value.rtc.into()), candidate_pair: Some(value.candidate_pair.into()) }
     }
 }
 
 impl From<rtc::LocalCandidateStats> for proto::rtc_stats::LocalCandidate {
     fn from(value: rtc::LocalCandidateStats) -> Self {
-        Self { rtc: value.rtc.into(), candidate: value.local_candidate.into() }
+        Self { rtc: Some(value.rtc.into()), candidate: Some(value.local_candidate.into()) }
     }
 }
 
 impl From<rtc::RemoteCandidateStats> for proto::rtc_stats::RemoteCandidate {
     fn from(value: rtc::RemoteCandidateStats) -> Self {
-        Self { rtc: value.rtc.into(), candidate: value.remote_candidate.into() }
+        Self { rtc: Some(value.rtc.into()), candidate: Some(value.remote_candidate.into()) }
     }
 }
 
 impl From<rtc::CertificateStats> for proto::rtc_stats::Certificate {
     fn from(value: rtc::CertificateStats) -> Self {
-        Self { rtc: value.rtc.into(), certificate: value.certificate.into() }
+        Self { rtc: Some(value.rtc.into()), certificate: Some(value.certificate.into()) }
     }
 }
 
@@ -423,7 +423,7 @@ impl From<rtc::dictionaries::OutboundRtpStreamStats> for proto::OutboundRtpStrea
             encoder_implementation: value.encoder_implementation,
             power_efficient_encoder: value.power_efficient_encoder,
             active: value.active,
-            scalability_mode: value.scalibility_mode,
+            scalibility_mode: value.scalibility_mode,
         }
     }
 }

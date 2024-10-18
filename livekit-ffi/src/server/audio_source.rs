@@ -56,7 +56,10 @@ impl FfiAudioSource {
         let info = proto::AudioSourceInfo::from(&source);
         server.store_handle(source.handle_id, source);
 
-        Ok(proto::OwnedAudioSource { handle: proto::FfiOwnedHandle { id: handle_id }, info: info })
+        Ok(proto::OwnedAudioSource {
+            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
+            info: Some(info),
+        })
     }
 
     pub fn clear_buffer(&self) {
@@ -72,7 +75,9 @@ impl FfiAudioSource {
         server: &'static server::FfiServer,
         capture: proto::CaptureAudioFrameRequest,
     ) -> FfiResult<proto::CaptureAudioFrameResponse> {
-        let buffer = capture.buffer;
+        let Some(buffer) = capture.buffer else {
+            return Err(FfiError::InvalidRequest("buffer is None".into()));
+        };
 
         let source = self.source.clone();
         let async_id = server.next_id();

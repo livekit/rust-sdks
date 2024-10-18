@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto2";
+syntax = "proto3";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -201,14 +201,14 @@ message FfiEvent {
 // e.g: This is used for the Unity Editor after each assemblies reload.
 // TODO(theomonnom): Implement a debug mode where we can find all leaked handles?
 message DisposeRequest {
-  required bool async = 1;
+  bool async = 1;
 }
 message DisposeResponse {
   optional uint64 async_id = 1; // None if sync
 }
 
 message DisposeCallback {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 
 enum LogLevel {
@@ -220,12 +220,12 @@ enum LogLevel {
 }
 
 message LogRecord {
-  required LogLevel level = 1;
-  required string target = 2; // e.g "livekit", "libwebrtc", "tokio-tungstenite", etc...
+  LogLevel level = 1;
+  string target = 2; // e.g "livekit", "libwebrtc", "tokio-tungstenite", etc...
   optional string module_path = 3;
   optional string file = 4;
   optional uint32 line = 5;
-  required string message = 6;
+  string message = 6;
 }
 
 message LogBatch {
@@ -233,7 +233,7 @@ message LogBatch {
 }
 
 message Panic {
-  required string message = 1;
+  string message = 1;
 }
 
 // TODO(theomonnom): Debug messages (Print handles).

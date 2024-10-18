@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto2";
+syntax = "proto3";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -26,215 +26,190 @@ import "stats.proto";
 
 // Connect to a new LiveKit room
 message ConnectRequest {
-  required string url = 1;
-  required string token = 2;
-  required RoomOptions options = 3;
+  string url = 1;
+  string token = 2;
+  RoomOptions options = 3;
 }
 message ConnectResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message ConnectCallback {
   message ParticipantWithTracks {
-    required OwnedParticipant participant = 1;
+    OwnedParticipant participant = 1;
 
     // TrackInfo are not needed here, if we're subscribed to a track, the FfiServer will send
     // a TrackSubscribed event
     repeated OwnedTrackPublication publications = 2;
   }
 
-  message Result {
-    required OwnedRoom room = 1;
-    required OwnedParticipant local_participant = 2;
-    repeated ParticipantWithTracks participants = 3;
-  }
-
-  required uint64 async_id = 1;
-  oneof message {
-    string error = 2;
-    Result result = 3;
-  }
-  
+  uint64 async_id = 1;
+  optional string error = 2;
+  OwnedRoom room = 3;
+  OwnedParticipant local_participant = 4;
+  repeated ParticipantWithTracks participants = 5;
 }
 
 // Disconnect from the a room
-message DisconnectRequest { required uint64 room_handle = 1; }
-message DisconnectResponse { required uint64 async_id = 1; }
-message DisconnectCallback { required uint64 async_id = 1; }
+message DisconnectRequest { uint64 room_handle = 1; }
+message DisconnectResponse { uint64 async_id = 1; }
+message DisconnectCallback { uint64 async_id = 1; }
 
 // Publish a track to the room
 message PublishTrackRequest {
-  required uint64 local_participant_handle = 1;
-  required uint64 track_handle = 2;
-  required TrackPublishOptions options = 3;
+  uint64 local_participant_handle = 1;
+  uint64 track_handle = 2;
+  TrackPublishOptions options = 3;
 }
 message PublishTrackResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message PublishTrackCallback {
-  required uint64 async_id = 1;
-  oneof message {
-    string error = 2;
-    OwnedTrackPublication publication = 3;
-  }
- 
+  uint64 async_id = 1;
+  optional string error = 2;
+  OwnedTrackPublication publication = 3;
 }
 
 // Unpublish a track from the room
 message UnpublishTrackRequest {
-  required uint64 local_participant_handle = 1;
-  required string track_sid = 2;
-  required bool stop_on_unpublish = 3;
+  uint64 local_participant_handle = 1;
+  string track_sid = 2;
+  bool stop_on_unpublish = 3;
 }
 message UnpublishTrackResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message UnpublishTrackCallback {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Publish data to other participants
 message PublishDataRequest {
-  required uint64 local_participant_handle = 1;
-  required uint64 data_ptr = 2;
-  required uint64 data_len = 3;
-  required bool reliable = 4;
+  uint64 local_participant_handle = 1;
+  uint64 data_ptr = 2;
+  uint64 data_len = 3;
+  bool reliable = 4;
   repeated string destination_sids = 5 [deprecated=true];
   optional string topic = 6;
   repeated string destination_identities = 7;
 }
 message PublishDataResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message PublishDataCallback {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Publish transcription messages to room
 message PublishTranscriptionRequest {
-  required uint64 local_participant_handle = 1;
-  required string participant_identity = 2;
-  required string track_id = 3;
+  uint64 local_participant_handle = 1;
+  string participant_identity = 2;
+  string track_id = 3;
   repeated TranscriptionSegment segments = 4;
 }
 message PublishTranscriptionResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message PublishTranscriptionCallback {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Publish Sip DTMF messages to other participants
 message PublishSipDtmfRequest {
-  required uint64 local_participant_handle = 1;
-  required uint32 code = 2;
-  required string digit = 3;
+  uint64 local_participant_handle = 1;
+  uint32 code = 2;
+  string digit = 3;
   repeated string destination_identities = 4;
 }
 message PublishSipDtmfResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message PublishSipDtmfCallback {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Change the local participant's metadata
 message SetLocalMetadataRequest {
-  required uint64 local_participant_handle = 1;
-  required string metadata = 2;
+  uint64 local_participant_handle = 1;
+  string metadata = 2;
 }
 message SetLocalMetadataResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message SetLocalMetadataCallback {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 message SendChatMessageRequest {
-  required uint64 local_participant_handle = 1;
-  required string message = 2;
+  uint64 local_participant_handle = 1;
+  string message = 2;
   repeated string destination_identities = 3;
   optional string sender_identity = 4;
 }
 message EditChatMessageRequest {
-  required uint64 local_participant_handle = 1;
-  required string edit_text = 2;
-  required ChatMessage original_message = 3;
+  uint64 local_participant_handle = 1;
+  string edit_text = 2;
+  ChatMessage original_message = 3;
   repeated string destination_identities = 4;
   optional string sender_identity = 5;
 }
 message SendChatMessageResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message SendChatMessageCallback {
-  required uint64 async_id = 1;
-  oneof message {
-    string error = 2;
-    ChatMessage chat_message = 3;
-  }
+  uint64 async_id = 1;
+  optional string error = 2;
+  optional ChatMessage chat_message = 3;
 }
 
 // Change the local participant's attributes
 message SetLocalAttributesRequest {
-  required uint64 local_participant_handle = 1;
-  repeated AttributesEntry attributes = 2;
+  uint64 local_participant_handle = 1;
+  map<string, string> attributes = 2;
 }
-
-message AttributesEntry {
-  required string key = 1;
-  required string value = 2;
-}
-
 message SetLocalAttributesResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message SetLocalAttributesCallback {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Change the local participant's name
 message SetLocalNameRequest {
-  required uint64 local_participant_handle = 1;
-  required string name = 2;
+  uint64 local_participant_handle = 1;
+  string name = 2;
 }
 message SetLocalNameResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message SetLocalNameCallback {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
   optional string error = 2;
 }
 
 // Change the "desire" to subs2ribe to a track
 message SetSubscribedRequest {
-  required bool subscribe = 1;
-  required uint64 publication_handle = 2;
+  bool subscribe = 1;
+  uint64 publication_handle = 2;
 }
 message SetSubscribedResponse {}
 
 message GetSessionStatsRequest {
-  required uint64 room_handle = 1;
+  uint64 room_handle = 1;
 }
 message GetSessionStatsResponse {
-  required uint64 async_id = 1;
+  uint64 async_id = 1;
 }
 message GetSessionStatsCallback {
-  message Result {
-    repeated RtcStats publisher_stats = 1;
-    repeated RtcStats subscriber_stats = 2;
-  }
-
-  required uint64 async_id = 1;
-
-  oneof message {
-    string error = 2;
-    Result result = 3;
-  }
+  uint64 async_id = 1;
+  optional string error = 2;
+  repeated RtcStats publisher_stats = 3;
+  repeated RtcStats subscriber_stats = 4;
 }
 
 //
@@ -242,24 +217,24 @@ message GetSessionStatsCallback {
 //
 
 message VideoEncoding {
-  required uint64 max_bitrate = 1;
-  required double max_framerate = 2;
+  uint64 max_bitrate = 1;
+  double max_framerate = 2;
 }
 
 message AudioEncoding {
-  required uint64 max_bitrate = 1;
+  uint64 max_bitrate = 1;
 }
 
 message TrackPublishOptions {
   // encodings are optional
-  optional VideoEncoding video_encoding = 1;
-  optional AudioEncoding audio_encoding = 2;
-  required VideoCodec video_codec = 3;
-  required bool dtx = 4;
-  required bool red = 5;
-  required bool simulcast = 6;
-  required TrackSource source = 7;
-  required string stream = 8;
+  VideoEncoding video_encoding = 1;
+  AudioEncoding audio_encoding = 2;
+  VideoCodec video_codec = 3;
+  bool dtx = 4;
+  bool red = 5;
+  bool simulcast = 6;
+  TrackSource source = 7;
+  string stream = 8;
 }
 
 enum IceTransportType {
@@ -275,8 +250,8 @@ enum ContinualGatheringPolicy {
 
 message IceServer {
   repeated string urls = 1;
-  optional string username = 2;
-  optional string password = 3;
+  string username = 2;
+  string password = 3;
 }
 
 message RtcConfig {
@@ -286,12 +261,12 @@ message RtcConfig {
 }
 
 message RoomOptions {
-  required bool auto_subscribe = 1;
-  required bool adaptive_stream = 2;
-  required bool dynacast = 3;
+  bool auto_subscribe = 1;
+  bool adaptive_stream = 2;
+  bool dynacast = 3;
   optional E2eeOptions e2ee = 4;
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
-  required uint32 join_retries = 6;
+  uint32 join_retries = 6;
 }
 
 //
@@ -341,26 +316,26 @@ enum DisconnectReason {
 }
 
 message TranscriptionSegment {
-  required string id = 1;
-  required string text = 2;
-  required uint64 start_time = 3;
-  required uint64 end_time = 4;
-  required bool final = 5;
-  required string language = 6;
+  string id = 1;
+  string text = 2;
+  uint64 start_time = 3;
+  uint64 end_time = 4;
+  bool final = 5;
+  string language = 6;
 }
 
 message BufferInfo {
-  required uint64 data_ptr = 1;
-  required uint64 data_len = 2;
+  uint64 data_ptr = 1;
+  uint64 data_len = 2;
 }
 
 message OwnedBuffer {
-  required FfiOwnedHandle handle = 1;
-  required BufferInfo data = 2;
+  FfiOwnedHandle handle = 1;
+  BufferInfo data = 2;
 }
 
 message RoomEvent {
-  required uint64 room_handle = 1;
+  uint64 room_handle = 1;
   oneof message {
     ParticipantConnected participant_connected = 2;
     ParticipantDisconnected participant_disconnected = 3;
@@ -396,137 +371,137 @@ message RoomEvent {
 
 message RoomInfo {
   optional string sid = 1;
-  required string name = 2;
-  required string metadata = 3;
+  string name = 2;
+  string metadata = 3;
 }
 
 message OwnedRoom {
-  required FfiOwnedHandle handle = 1;
-  required RoomInfo info = 2;
+  FfiOwnedHandle handle = 1;
+  RoomInfo info = 2;
 }
 
-message ParticipantConnected { required OwnedParticipant info = 1; }
+message ParticipantConnected { OwnedParticipant info = 1; }
 
 message ParticipantDisconnected { 
-  required string participant_identity = 1;
+  string participant_identity = 1;
 }
 
 message LocalTrackPublished {
   // The TrackPublicationInfo comes from the PublishTrack response
   // and the FfiClient musts wait for it before firing this event
-  required string track_sid = 1;
+  string track_sid = 1;
 }
 
 message LocalTrackUnpublished {
-  required string publication_sid = 1;
+  string publication_sid = 1;
 }
 
 message LocalTrackSubscribed {
-  required string track_sid = 2;
+  string track_sid = 2;
 }
 
 message TrackPublished {
-  required string participant_identity = 1;
-  required OwnedTrackPublication publication = 2;
+  string participant_identity = 1;
+  OwnedTrackPublication publication = 2;
 }
 
 message TrackUnpublished {
-  required string participant_identity = 1;
-  required string publication_sid = 2;
+  string participant_identity = 1;
+  string publication_sid = 2;
 }
 
 // Publication isn't needed for subscription events on the FFI
 // The FFI will retrieve the publication using the Track sid
 message TrackSubscribed {
-  required string participant_identity = 1;
-  required OwnedTrack track = 2;
+  string participant_identity = 1;
+  OwnedTrack track = 2;
 }
 
 message TrackUnsubscribed {
   // The FFI language can dispose/remove the VideoSink here
-  required string participant_identity = 1;
-  required string track_sid = 2;
+  string participant_identity = 1;
+  string track_sid = 2;
 }
 
 message TrackSubscriptionFailed {
-  required string participant_identity = 1;
-  required string track_sid = 2;
-  required string error = 3;
+  string participant_identity = 1;
+  string track_sid = 2;
+  string error = 3;
 }
 
 message TrackMuted {
-  required string participant_identity = 1;
-  required string track_sid = 2;
+  string participant_identity = 1;
+  string track_sid = 2;
 }
 
 message TrackUnmuted {
-  required string participant_identity = 1;
-  required string track_sid = 2;
+  string participant_identity = 1;
+  string track_sid = 2;
 }
 
 message E2eeStateChanged {
-  required string participant_identity = 1; // Using sid instead of identity for ffi communication
-  required EncryptionState state = 2;
+  string participant_identity = 1; // Using sid instead of identity for ffi communication
+  EncryptionState state = 2;
 }
 
 message ActiveSpeakersChanged { repeated string participant_identities = 1; }
 
 message RoomMetadataChanged { 
-  required string metadata = 1;
+  string metadata = 1;
 }
 
 message RoomSidChanged {
-  required string sid = 1;
+  string sid = 1;
 }
 
 message ParticipantMetadataChanged { 
-  required string participant_identity = 1;
-  required string metadata = 2;
+  string participant_identity = 1;
+  string metadata = 2;
 }
 
 message ParticipantAttributesChanged {
-  required string participant_identity = 1;
-  repeated AttributesEntry attributes = 2;
-  repeated AttributesEntry changed_attributes = 3;
+  string participant_identity = 1;
+  map<string, string> attributes = 2;
+  map<string, string> changed_attributes = 3;
 }
 
 message ParticipantNameChanged { 
-  required string participant_identity = 1;
-  required string name = 2;
+  string participant_identity = 1;
+  string name = 2;
 }
 
 message ConnectionQualityChanged {
-  required string participant_identity = 1;
-  required ConnectionQuality quality = 2;
+  string participant_identity = 1;
+  ConnectionQuality quality = 2;
 }
 
 message UserPacket {
-  required OwnedBuffer data = 1;
+  OwnedBuffer data = 1;
   optional string topic = 2;
 }
 
 message ChatMessage {
-  required string id = 1;
-  required int64 timestamp = 2;
-  required string message = 3;
+  string id = 1;
+  int64 timestamp = 2;
+  string message = 3;
   optional int64 edit_timestamp = 4;
   optional bool deleted = 5;
   optional bool generated = 6;
 }
 
 message ChatMessageReceived {
-  required ChatMessage message = 1;
-  required string participant_identity = 2;
+  ChatMessage message = 1;
+  string participant_identity = 2;
 }
 
 message SipDTMF {
-  required uint32 code = 1;
+  uint32 code = 1;
   optional string digit = 2;
 }
 
 message DataPacketReceived {
-  required DataPacketKind kind = 1;
-  required string participant_identity = 2; // Can be empty if the data is sent a server SDK
+  DataPacketKind kind = 1;
+  string participant_identity = 2; // Can be empty if the data is sent a server SDK
   oneof value {
     UserPacket user = 4;
     SipDTMF sip_dtmf = 5;
@@ -539,14 +514,13 @@ message TranscriptionReceived {
   repeated TranscriptionSegment segments = 3;
 }
 
-message ConnectionStateChanged { required ConnectionState state = 1; }
+message ConnectionStateChanged { ConnectionState state = 1; }
 
 message Connected {}
 message Disconnected {
-  required DisconnectReason reason = 1;
+  DisconnectReason reason = 1;
 }
 message Reconnecting {}
 message Reconnected {}
 
 message RoomEOS {}
-
