@@ -188,7 +188,7 @@ impl RtcSession {
         let (emitter, session_events) = mpsc::unbounded_channel();
 
         let (signal_client, join_response, signal_events) =
-            SignalClient::connect(url, token, options.signal_options.clone()).await?;
+            SignalClient::connect(url, token, options.signal_options.clone(), options.signal_analytics_options.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
 

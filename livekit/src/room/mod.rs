@@ -23,7 +23,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::SignalOptions;
+use livekit_api::signal_client::{SignalOptions, SignalAnalyticsOptions};
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
@@ -281,6 +281,20 @@ impl Default for RoomOptions {
         }
     }
 }
+#[derive(Debug, Clone)]
+pub struct RoomAnalyticsOptions {
+    pub sdk: String,
+    pub sdk_version: Option<String>,
+}
+
+impl Default for RoomAnalyticsOptions {
+    fn default() -> Self {
+        Self {
+            sdk: "rust".to_string(),
+            sdk_version: Some(SDK_VERSION.to_string()),
+        }
+    }
+}
 
 pub struct Room {
     inner: Arc<RoomSession>,
@@ -330,16 +344,7 @@ impl Room {
         url: &str,
         token: &str,
         options: RoomOptions,
-    ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
-        Self::connect_with_sdk(url, token, options, "rust", SDK_VERSION).await
-    }
-
-    pub async fn connect_with_sdk(
-        url: &str,
-        token: &str,
-        options: RoomOptions,
-        sdk: &str,
-        sdk_version: &str,
+        analytics_options: RoomAnalyticsOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
@@ -351,8 +356,10 @@ impl Room {
                 signal_options: SignalOptions {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
-                    sdk: sdk.to_string(),
-                    sdk_version: Some(sdk_version.to_string()),
+                },
+                signal_analytics_options: SignalAnalyticsOptions {
+                    sdk: analytics_options.sdk,
+                    sdk_version: analytics_options.sdk_version,
                 },
                 join_retries: options.join_retries,
             },

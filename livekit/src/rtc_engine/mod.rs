@@ -15,7 +15,7 @@
 use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 
 use libwebrtc::prelude::*;
-use livekit_api::signal_client::{SignalError, SignalOptions};
+use livekit_api::signal_client::{SignalError, SignalOptions, SignalAnalyticsOptions};
 use livekit_protocol as proto;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -79,6 +79,7 @@ pub enum EngineError {
 pub struct EngineOptions {
     pub rtc_config: RtcConfiguration,
     pub signal_options: SignalOptions,
+    pub signal_analytics_options: SignalAnalyticsOptions,
     pub join_retries: u32,
 }
 
