@@ -29,7 +29,7 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
             cb(data.as_ptr(), data.len());
         }),
         capture_logs,
-        sdk: CStr::from_ptr(sdk).to_string_lossy().into_owned(),
+        sdk: Some(CStr::from_ptr(sdk).to_string_lossy().into_owned()).unwrap_or("rust".to_string()),
         sdk_version: Some(CStr::from_ptr(sdk_version).to_string_lossy().into_owned()),
     });
 

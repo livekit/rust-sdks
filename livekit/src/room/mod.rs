@@ -283,13 +283,13 @@ impl Default for RoomOptions {
 }
 #[derive(Debug, Clone)]
 pub struct RoomAnalyticsOptions {
-    pub sdk: String,
+    pub sdk: Option<String>,
     pub sdk_version: Option<String>,
 }
 
 impl Default for RoomAnalyticsOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: Some(SDK_VERSION.to_string()) }
+        Self { sdk: Some("rust".to_string()), sdk_version: Some(SDK_VERSION.to_string()) }
     }
 }
 
@@ -355,7 +355,7 @@ impl Room {
                     adaptive_stream: options.adaptive_stream,
                 },
                 signal_analytics_options: SignalAnalyticsOptions {
-                    sdk: analytics_options.sdk,
+                    sdk: analytics_options.sdk.unwrap_or("rust".to_string()),
                     sdk_version: analytics_options.sdk_version,
                 },
                 join_retries: options.join_retries,

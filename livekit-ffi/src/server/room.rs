@@ -119,8 +119,8 @@ impl FfiRoom {
         {
             let config = server.config.lock();
             analytics_options = RoomAnalyticsOptions {
-                sdk: config.as_ref().map(|c| c.sdk.clone()).unwrap(),
-                sdk_version: config.as_ref().map(|c| c.sdk_version.clone()).flatten(),
+                sdk: config.as_ref().map(|c| c.sdk.clone()),
+                sdk_version: config.as_ref().and_then(|c| c.sdk_version.clone()),
             };
         }
 
