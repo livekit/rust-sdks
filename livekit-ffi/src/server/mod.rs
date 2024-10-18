@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
     error::Error,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -27,10 +26,7 @@ use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
-use tokio::{
-    sync::{broadcast, oneshot},
-    task::JoinHandle,
-};
+use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
@@ -38,6 +34,7 @@ pub mod audio_source;
 pub mod audio_stream;
 pub mod colorcvt;
 pub mod logger;
+pub mod participant;
 pub mod requests;
 pub mod resampler;
 pub mod room;

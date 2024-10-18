@@ -13,28 +13,22 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::{collections::HashSet, slice, sync::Arc, time::Duration};
+use std::time::Duration;
+use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
-use livekit::{participant, track, ChatMessage};
+use livekit::ChatMessage;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
-use crate::conversion::room;
 use crate::{
     proto,
+    server::participant::FfiParticipant,
     server::{FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
 };
-
-#[derive(Clone)]
-pub struct FfiParticipant {
-    pub handle: FfiHandleId,
-    pub participant: Participant,
-    pub room: Arc<RoomInner>,
-}
 
 #[derive(Clone)]
 pub struct FfiPublication {
@@ -50,7 +44,6 @@ pub struct FfiTrack {
 
 impl FfiHandle for FfiTrack {}
 impl FfiHandle for FfiPublication {}
-impl FfiHandle for FfiParticipant {}
 impl FfiHandle for FfiRoom {}
 
 #[derive(Clone)]
@@ -73,6 +66,9 @@ pub struct RoomInner {
     pending_unpublished_tracks: Mutex<HashSet<TrackSid>>,
 
     track_handle_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
+
+    // Used to forward RPC method invocation to the FfiClient and collect their results
+    rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 }
 
 struct Handle {
@@ -130,7 +126,6 @@ impl FfiRoom {
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
                     let (transcription_tx, transcription_rx) = mpsc::unbounded_channel();
                     let (dtmf_tx, dtmf_rx) = mpsc::unbounded_channel();
-
                     let (close_tx, close_rx) = broadcast::channel(1);
 
                     let handle_id = server.next_id();
@@ -143,6 +138,7 @@ impl FfiRoom {
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
+                        rpc_method_invocation_waiters: Default::default(),
                     });
 
                     let (local_info, remote_infos) =
@@ -224,13 +220,15 @@ impl FfiRoom {
                         ))
                     }); // Publish transcription
 
-                    let sip_dtmf_handle =
-                        server.watch_panic(server.async_runtime.spawn(sip_dtmf_task(
+                    let sip_dtmf_handle = server.watch_panic({
+                        let close_rx = close_rx.resubscribe();
+                        server.async_runtime.spawn(sip_dtmf_task(
                             server,
                             inner.clone(),
                             dtmf_rx,
                             close_rx,
-                        )));
+                        ))
+                    });
 
                     *handle = Some(Handle {
                         event_handle,
@@ -660,6 +658,21 @@ impl RoomInner {
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
     }
+
+    pub fn store_rpc_method_invocation_waiter(
+        &self,
+        invocation_id: u64,
+        waiter: oneshot::Sender<Result<String, RpcError>>,
+    ) {
+        self.rpc_method_invocation_waiters.lock().insert(invocation_id, waiter);
+    }
+
+    pub fn take_rpc_method_invocation_waiter(
+        &self,
+        invocation_id: u64,
+    ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
+        return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
+    }
 }
 
 // Task used to publish data without blocking the client thread
@@ -1076,6 +1089,7 @@ async fn forward_event(
                 },
             ));
         }
+
         RoomEvent::ChatMessage { message, participant } => {
             let (sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
@@ -1087,6 +1101,7 @@ async fn forward_event(
                     participant_identity: identity,
                 }));
         }
+
         RoomEvent::ConnectionStateChanged(state) => {
             let _ = send_event(proto::room_event::Message::ConnectionStateChanged(
                 proto::ConnectionStateChanged { state: proto::ConnectionState::from(state).into() },
