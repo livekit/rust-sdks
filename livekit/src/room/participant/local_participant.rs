@@ -31,7 +31,7 @@ use crate::{
     rtc_engine::{EngineError, RtcEngine},
     ChatMessage, DataPacket, SipDTMF, Transcription,
 };
-use chrono::{TimeZone, Utc};
+use chrono::Utc;
 use futures_util::Future;
 
 use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
@@ -64,12 +64,26 @@ struct LocalEvents {
     local_track_unpublished: Mutex<Option<LocalTrackUnpublishedHandler>>,
 }
 
+struct RpcState {
+    pending_acks: HashMap<String, oneshot::Sender<()>>,
+    pending_responses: HashMap<String, oneshot::Sender<Result<String, RpcError>>>,
+    handlers: HashMap<String, RpcHandler>,
+}
+
+impl RpcState {
+    fn new() -> Self {
+        Self {
+            pending_acks: HashMap::new(),
+            pending_responses: HashMap::new(),
+            handlers: HashMap::new(),
+        }
+    }
+}
+
 struct LocalInfo {
     events: LocalEvents,
     encryption_type: EncryptionType,
-    pending_acks: Mutex<HashMap<String, oneshot::Sender<()>>>,
-    pending_responses: Mutex<HashMap<String, oneshot::Sender<Result<String, RpcError>>>>,
-    rpc_handlers: Mutex<HashMap<String, RpcHandler>>,
+    rpc_state: Mutex<RpcState>,
 }
 
 #[derive(Clone)]
@@ -104,9 +118,7 @@ impl LocalParticipant {
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
                 encryption_type,
-                pending_acks: Mutex::new(HashMap::new()),
-                pending_responses: Mutex::new(HashMap::new()),
-                rpc_handlers: Mutex::new(HashMap::new()),
+                rpc_state: Mutex::new(RpcState::new()),
             }),
         }
     }
@@ -688,8 +700,9 @@ impl LocalParticipant {
             .await
         {
             Ok(_) => {
-                self.local.pending_acks.lock().insert(id.clone(), ack_tx);
-                self.local.pending_responses.lock().insert(id.clone(), response_tx);
+                let mut rpc_state = self.local.rpc_state.lock();
+                rpc_state.pending_acks.insert(id.clone(), ack_tx);
+                rpc_state.pending_responses.insert(id.clone(), response_tx);
             }
             Err(e) => {
                 log::error!("Failed to publish RPC request: {}", e);
@@ -700,8 +713,9 @@ impl LocalParticipant {
         // Wait for ack timeout
         match tokio::time::timeout(max_round_trip_latency, ack_rx).await {
             Err(_) => {
-                self.local.pending_acks.lock().remove(&id);
-                self.local.pending_responses.lock().remove(&id);
+                let mut rpc_state = self.local.rpc_state.lock();
+                rpc_state.pending_acks.remove(&id);
+                rpc_state.pending_responses.remove(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
             }
             Ok(_) => {
@@ -712,7 +726,7 @@ impl LocalParticipant {
         // Wait for response timout
         let response = match tokio::time::timeout(response_timeout, response_rx).await {
             Err(_) => {
-                self.local.pending_responses.lock().remove(&id);
+                self.local.rpc_state.lock().pending_responses.remove(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
             }
             Ok(result) => result,
@@ -747,15 +761,16 @@ impl LocalParticipant {
             + Sync
             + 'static,
     ) {
-        self.local.rpc_handlers.lock().insert(method, Arc::new(handler));
+        self.local.rpc_state.lock().handlers.insert(method, Arc::new(handler));
     }
 
     pub fn unregister_rpc_method(&self, method: String) {
-        self.local.rpc_handlers.lock().remove(&method);
+        self.local.rpc_state.lock().handlers.remove(&method);
     }
 
     pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
-        if let Some(tx) = self.local.pending_acks.lock().remove(&request_id) {
+        let mut rpc_state = self.local.rpc_state.lock();
+        if let Some(tx) = rpc_state.pending_acks.remove(&request_id) {
             let _ = tx.send(());
         } else {
             log::error!("Ack received for unexpected RPC request: {}", request_id);
@@ -768,7 +783,8 @@ impl LocalParticipant {
         payload: Option<String>,
         error: Option<RpcError_Proto>,
     ) {
-        if let Some(tx) = self.local.pending_responses.lock().remove(&request_id) {
+        let mut rpc_state = self.local.rpc_state.lock();
+        if let Some(tx) = rpc_state.pending_responses.remove(&request_id) {
             let _ = tx.send(match error {
                 Some(e) => Err(RpcError::from_proto(e)),
                 None => Ok(payload.unwrap_or_default()),
@@ -791,7 +807,7 @@ impl LocalParticipant {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
-        let handler = self.local.rpc_handlers.lock().get(&method).cloned();
+        let handler = self.local.rpc_state.lock().handlers.get(&method).cloned();
 
         let caller_identity_2 = caller_identity.clone();
         let request_id_2 = request_id.clone();
