@@ -15,7 +15,7 @@
 use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 
 use libwebrtc::prelude::*;
-use livekit_api::signal_client::{SignalError, SignalOptions, SignalAnalyticsOptions};
+use livekit_api::signal_client::{SignalAnalyticsOptions, SignalError, SignalOptions};
 use livekit_protocol as proto;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};

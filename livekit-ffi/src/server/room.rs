@@ -129,7 +129,7 @@ impl FfiRoom {
                 &connect.url,
                 &connect.token,
                 connect.options.into(),
-                analytics_options
+                analytics_options,
             )
             .await
             {

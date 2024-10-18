@@ -23,7 +23,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::{SignalOptions, SignalAnalyticsOptions};
+use livekit_api::signal_client::{SignalAnalyticsOptions, SignalOptions};
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
@@ -289,10 +289,7 @@ pub struct RoomAnalyticsOptions {
 
 impl Default for RoomAnalyticsOptions {
     fn default() -> Self {
-        Self {
-            sdk: "rust".to_string(),
-            sdk_version: Some(SDK_VERSION.to_string()),
-        }
+        Self { sdk: "rust".to_string(), sdk_version: Some(SDK_VERSION.to_string()) }
     }
 }
 

@@ -1,8 +1,8 @@
 use prost::Message;
 use server::FfiDataBuffer;
-use std::{panic, sync::Arc};
-use std::os::raw::c_char;
 use std::ffi::CStr;
+use std::os::raw::c_char;
+use std::{panic, sync::Arc};
 
 use crate::{
     proto,
