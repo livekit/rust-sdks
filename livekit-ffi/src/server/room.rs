@@ -16,13 +16,12 @@ use std::collections::HashMap;
 use std::{collections::HashSet, slice, sync::Arc, time::Duration};
 
 use livekit::prelude::*;
-use livekit::{participant, track, ChatMessage};
+use livekit::{ChatMessage, RoomAnalyticsOptions};
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
-use crate::conversion::room;
 use crate::{
     proto,
     server::{FfiHandle, FfiServer},
@@ -116,8 +115,24 @@ impl FfiRoom {
     ) -> proto::ConnectResponse {
         let async_id = server.next_id();
 
+        let analytics_options: RoomAnalyticsOptions;
+        {
+            let config = server.config.lock();
+            analytics_options = RoomAnalyticsOptions {
+                sdk: config.as_ref().map(|c| c.sdk.clone()),
+                sdk_version: config.as_ref().map(|c| c.sdk_version.clone()),
+            };
+        }
+
         let connect = async move {
-            match Room::connect(&connect.url, &connect.token, connect.options.into()).await {
+            match Room::connect(
+                &connect.url,
+                &connect.token,
+                connect.options.into(),
+                analytics_options,
+            )
+            .await
+            {
                 Ok((room, mut events)) => {
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient

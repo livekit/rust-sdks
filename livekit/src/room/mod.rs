@@ -23,7 +23,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::SignalOptions;
+use livekit_api::signal_client::{SignalAnalyticsOptions, SignalOptions};
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
@@ -54,6 +54,8 @@ pub mod participant;
 pub mod publication;
 pub mod track;
 pub(crate) mod utils;
+
+pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub type RoomResult<T> = Result<T, RoomError>;
 
@@ -279,6 +281,17 @@ impl Default for RoomOptions {
         }
     }
 }
+#[derive(Debug, Clone)]
+pub struct RoomAnalyticsOptions {
+    pub sdk: Option<String>,
+    pub sdk_version: Option<String>,
+}
+
+impl Default for RoomAnalyticsOptions {
+    fn default() -> Self {
+        Self { sdk: Some("rust".to_string()), sdk_version: Some(SDK_VERSION.to_string()) }
+    }
+}
 
 pub struct Room {
     inner: Arc<RoomSession>,
@@ -328,6 +341,7 @@ impl Room {
         url: &str,
         token: &str,
         options: RoomOptions,
+        analytics_options: RoomAnalyticsOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
@@ -339,6 +353,10 @@ impl Room {
                 signal_options: SignalOptions {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
+                },
+                signal_analytics_options: SignalAnalyticsOptions {
+                    sdk: analytics_options.sdk.unwrap_or("rust".to_string()),
+                    sdk_version: analytics_options.sdk_version,
                 },
                 join_retries: options.join_retries,
             },
