@@ -1371,6 +1371,10 @@ pub enum DisconnectReason {
     SignalClose = 9,
     /// the room was closed, due to all Standard and Ingress participants having left
     RoomClosed = 10,
+    /// SIP callee did not respond in time
+    UserUnavailable = 11,
+    /// SIP callee rejected the call (busy)
+    UserRejected = 12,
 }
 impl DisconnectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1390,6 +1394,8 @@ impl DisconnectReason {
             DisconnectReason::Migration => "MIGRATION",
             DisconnectReason::SignalClose => "SIGNAL_CLOSE",
             DisconnectReason::RoomClosed => "ROOM_CLOSED",
+            DisconnectReason::UserUnavailable => "USER_UNAVAILABLE",
+            DisconnectReason::UserRejected => "USER_REJECTED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1406,6 +1412,8 @@ impl DisconnectReason {
             "MIGRATION" => Some(Self::Migration),
             "SIGNAL_CLOSE" => Some(Self::SignalClose),
             "ROOM_CLOSED" => Some(Self::RoomClosed),
+            "USER_UNAVAILABLE" => Some(Self::UserUnavailable),
+            "USER_REJECTED" => Some(Self::UserRejected),
             _ => None,
         }
     }
@@ -3471,8 +3479,8 @@ pub struct UpdateWorkerStatus {
     /// optional string metadata = 2 \[deprecated=true\];
     #[prost(float, tag="3")]
     pub load: f32,
-    #[prost(int32, tag="4")]
-    pub job_count: i32,
+    #[prost(uint32, tag="4")]
+    pub job_count: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4469,6 +4477,12 @@ pub struct SipInboundTrunkInfo {
     /// Map SIP X-* headers from INVITE to SIP participant attributes.
     #[prost(map="string, string", tag="10")]
     pub headers_to_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Max time for the caller to wait for track subscription.
+    #[prost(message, optional, tag="11")]
+    pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
+    /// Max call duration.
+    #[prost(message, optional, tag="12")]
+    pub max_call_duration: ::core::option::Option<::pbjson_types::Duration>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4737,6 +4751,12 @@ pub struct CreateSipParticipantRequest {
     /// If true, a random value for identity will be used and numbers will be omitted from attributes.
     #[prost(bool, tag="10")]
     pub hide_phone_number: bool,
+    /// Max time for the callee to answer the call.
+    #[prost(message, optional, tag="11")]
+    pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
+    /// Max call duration.
+    #[prost(message, optional, tag="12")]
+    pub max_call_duration: ::core::option::Option<::pbjson_types::Duration>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4759,6 +4779,47 @@ pub struct TransferSipParticipantRequest {
     pub room_name: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub transfer_to: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipCallInfo {
+    #[prost(string, tag="1")]
+    pub call_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub trunk_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub room_name: ::prost::alloc::string::String,
+    /// ID of the current/previous room published to
+    #[prost(string, tag="4")]
+    pub room_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="6")]
+    pub from_uri: ::core::option::Option<SipUri>,
+    #[prost(message, optional, tag="7")]
+    pub to_uri: ::core::option::Option<SipUri>,
+    #[prost(enumeration="SipCallStatus", tag="8")]
+    pub call_status: i32,
+    #[prost(int64, tag="9")]
+    pub started_at: i64,
+    #[prost(int64, tag="10")]
+    pub ended_at: i64,
+    #[prost(enumeration="DisconnectReason", tag="11")]
+    pub disconnect_reason: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipUri {
+    #[prost(string, tag="1")]
+    pub user: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub host: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub ip: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub port: ::prost::alloc::string::String,
+    #[prost(enumeration="SipTransport", tag="5")]
+    pub transport: i32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -4788,6 +4849,42 @@ impl SipTransport {
             "SIP_TRANSPORT_UDP" => Some(Self::Udp),
             "SIP_TRANSPORT_TCP" => Some(Self::Tcp),
             "SIP_TRANSPORT_TLS" => Some(Self::Tls),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipCallStatus {
+    /// Incoming call is being handled by the SIP service. The SIP participant hasn't joined a LiveKit room yet
+    ScsCallIncoming = 0,
+    /// SIP participant for outgoing call has been created. The SIP outgoing call is being established
+    ScsParticipantJoined = 1,
+    /// Call is ongoing. SIP participant is active in the LiveKit room
+    ScsActive = 2,
+    /// Call has ended
+    ScsDisconnected = 3,
+}
+impl SipCallStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipCallStatus::ScsCallIncoming => "SCS_CALL_INCOMING",
+            SipCallStatus::ScsParticipantJoined => "SCS_PARTICIPANT_JOINED",
+            SipCallStatus::ScsActive => "SCS_ACTIVE",
+            SipCallStatus::ScsDisconnected => "SCS_DISCONNECTED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SCS_CALL_INCOMING" => Some(Self::ScsCallIncoming),
+            "SCS_PARTICIPANT_JOINED" => Some(Self::ScsParticipantJoined),
+            "SCS_ACTIVE" => Some(Self::ScsActive),
+            "SCS_DISCONNECTED" => Some(Self::ScsDisconnected),
             _ => None,
         }
     }

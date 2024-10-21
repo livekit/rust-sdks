@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -26,23 +26,23 @@ enum EncryptionType {
 }
 
 message FrameCryptor {
-    string participant_identity = 1;
-    string track_sid = 2;
-    int32 key_index = 3;
-    bool enabled = 4;
+    required string participant_identity = 1;
+    required string track_sid = 2;
+    required int32 key_index = 3;
+    required bool enabled = 4;
 }
 
 message KeyProviderOptions {
     // Only specify if you want to use a shared_key
     optional bytes shared_key = 1; 
-    int32 ratchet_window_size = 2;
-    bytes ratchet_salt = 3;
-    int32 failure_tolerance = 4; // -1 = no tolerence
+    required int32 ratchet_window_size = 2;
+    required bytes ratchet_salt = 3;
+    required int32 failure_tolerance = 4; // -1 = no tolerance
 }
 
 message E2eeOptions {
-  EncryptionType encryption_type = 1;
-  KeyProviderOptions key_provider_options = 2;
+    required EncryptionType encryption_type = 1;
+    required KeyProviderOptions key_provider_options = 2;
 }
 
 enum EncryptionState {
@@ -56,7 +56,7 @@ enum EncryptionState {
 }
 
 message E2eeManagerSetEnabledRequest {
-    bool enabled = 1;
+    required bool enabled = 1;
 }
 message E2eeManagerSetEnabledResponse {}
 
@@ -66,64 +66,64 @@ message E2eeManagerGetFrameCryptorsResponse {
 }
 
 message FrameCryptorSetEnabledRequest {
-    string participant_identity = 1;
-    string track_sid = 2;
-    bool enabled = 3;
+    required string participant_identity = 1;
+    required string track_sid = 2;
+    required bool enabled = 3;
 }
-message FrameCryptorSetEnabledResponse { }
+message FrameCryptorSetEnabledResponse {}
 
 message FrameCryptorSetKeyIndexRequest {
-    string participant_identity = 1;
-    string track_sid = 2;
-    int32 key_index = 3;
+    required string participant_identity = 1;
+    required string track_sid = 2;
+    required int32 key_index = 3;
 }
-message FrameCryptorSetKeyIndexResponse { }
+message FrameCryptorSetKeyIndexResponse {}
 
 message SetSharedKeyRequest {
-    bytes shared_key = 1;
-    int32 key_index = 2;
+    required bytes shared_key = 1;
+    required int32 key_index = 2;
 }
-message SetSharedKeyResponse { }
+message SetSharedKeyResponse {}
 
 message RatchetSharedKeyRequest {
-    int32 key_index = 1;   
+    required int32 key_index = 1;   
 }
 message RatchetSharedKeyResponse {
     optional bytes new_key = 1;
 }
 
 message GetSharedKeyRequest {
-    int32 key_index = 1;
+    required int32 key_index = 1;
 }
 message GetSharedKeyResponse {
     optional bytes key = 1;
 }
 
 message SetKeyRequest {
-    string participant_identity = 1;
-    bytes key = 2;
-    int32 key_index = 3;
+    required string participant_identity = 1;
+    required bytes key = 2;
+    required int32 key_index = 3;
 }
 message SetKeyResponse {}
 
 message RatchetKeyRequest {
-    string participant_identity = 1;
-    int32 key_index = 2;
+    required string participant_identity = 1;
+    required int32 key_index = 2;
 }
 message RatchetKeyResponse {
     optional bytes new_key = 1;
 }
 
 message GetKeyRequest {
-    string participant_identity = 1;
-    int32 key_index = 2;
+    required string participant_identity = 1;
+    required int32 key_index = 2;
 }
 message GetKeyResponse {
     optional bytes key = 1;
 }
 
 message E2eeRequest {
-    uint64 room_handle = 1;
+    required uint64 room_handle = 1;
     oneof message {
         E2eeManagerSetEnabledRequest manager_set_enabled = 2;
         E2eeManagerGetFrameCryptorsRequest manager_get_frame_cryptors = 3;
