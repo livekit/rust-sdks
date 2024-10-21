@@ -68,11 +68,13 @@ pub enum SignalError {
 pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
+    pub sdk: String,
+    pub sdk_version: Option<String>,
 }
 
 impl Default for SignalOptions {
     fn default() -> Self {
-        Self { auto_subscribe: true, adaptive_stream: false }
+        Self { auto_subscribe: true, adaptive_stream: false, sdk: "rust".to_string(), sdk_version: None }
     }
 }
 
@@ -91,7 +93,6 @@ struct SignalInner {
     queue: AsyncMutex<Vec<proto::signal_request::Message>>,
     url: String,
     options: SignalOptions,
-    analytics_options: SignalAnalyticsOptions,
     join_response: proto::JoinResponse,
     request_id: AtomicU32,
 }
@@ -112,27 +113,14 @@ impl Debug for SignalClient {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SignalAnalyticsOptions {
-    pub sdk: String,
-    pub sdk_version: Option<String>,
-}
-
-impl Default for SignalAnalyticsOptions {
-    fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: None }
-    }
-}
-
 impl SignalClient {
     pub async fn connect(
         url: &str,
         token: &str,
         options: SignalOptions,
-        analytics_options: SignalAnalyticsOptions,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
         let (inner, join_response, stream_events) =
-            SignalInner::connect(url, token, options, analytics_options).await?;
+            SignalInner::connect(url, token, options).await?;
 
         let (emitter, events) = mpsc::unbounded_channel();
         let signal_task =
@@ -205,13 +193,12 @@ impl SignalInner {
         url: &str,
         token: &str,
         options: SignalOptions,
-        analytics_options: SignalAnalyticsOptions,
     ) -> SignalResult<(
         Arc<Self>,
         proto::JoinResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        let lk_url = get_livekit_url(url, token, &options, &analytics_options)?;
+        let lk_url = get_livekit_url(url, token, &options)?;
 
         // Try to connect to the SignalClient
         let (stream, mut events) = match SignalStream::connect(lk_url.clone()).await {
@@ -232,7 +219,6 @@ impl SignalInner {
             reconnecting: AtomicBool::new(false),
             queue: Default::default(),
             options,
-            analytics_options,
             url: url.to_string(),
             join_response: join_response.clone(),
             request_id: AtomicU32::new(1),
@@ -281,8 +267,7 @@ impl SignalInner {
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
         let token = self.token.lock().clone();
 
-        let mut lk_url =
-            get_livekit_url(&self.url, &token, &self.options, &self.analytics_options).unwrap();
+        let mut lk_url = get_livekit_url(&self.url, &token, &self.options).unwrap();
         lk_url.query_pairs_mut().append_pair("reconnect", "1").append_pair("sid", sid);
 
         let (new_stream, mut events) = SignalStream::connect(lk_url).await?;
@@ -426,12 +411,7 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
     )
 }
 
-fn get_livekit_url(
-    url: &str,
-    token: &str,
-    options: &SignalOptions,
-    analytics_options: &SignalAnalyticsOptions,
-) -> SignalResult<url::Url> {
+fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
 
     if !lk_url.has_host() {
@@ -453,13 +433,13 @@ fn get_livekit_url(
 
     lk_url
         .query_pairs_mut()
-        .append_pair("sdk", analytics_options.sdk.as_str())
+        .append_pair("sdk", options.sdk.as_str())
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
         .append_pair("access_token", token)
         .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
         .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
-    if let Some(sdk_version) = &analytics_options.sdk_version {
+    if let Some(sdk_version) = &options.sdk_version {
         lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
     }
 
