@@ -74,7 +74,12 @@ pub struct SignalOptions {
 
 impl Default for SignalOptions {
     fn default() -> Self {
-        Self { auto_subscribe: true, adaptive_stream: false, sdk: "rust".to_string(), sdk_version: None }
+        Self {
+            auto_subscribe: true,
+            adaptive_stream: false,
+            sdk: "rust".to_string(),
+            sdk_version: None,
+        }
     }
 }
 
