@@ -6127,8 +6127,6 @@ impl serde::Serialize for DisconnectReason {
             Self::Migration => "MIGRATION",
             Self::SignalClose => "SIGNAL_CLOSE",
             Self::RoomClosed => "ROOM_CLOSED",
-            Self::UserUnavailable => "USER_UNAVAILABLE",
-            Self::UserRejected => "USER_REJECTED",
         };
         serializer.serialize_str(variant)
     }
@@ -6151,8 +6149,6 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
             "MIGRATION",
             "SIGNAL_CLOSE",
             "ROOM_CLOSED",
-            "USER_UNAVAILABLE",
-            "USER_REJECTED",
         ];
 
         struct GeneratedVisitor;
@@ -6204,8 +6200,6 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
                     "MIGRATION" => Ok(DisconnectReason::Migration),
                     "SIGNAL_CLOSE" => Ok(DisconnectReason::SignalClose),
                     "ROOM_CLOSED" => Ok(DisconnectReason::RoomClosed),
-                    "USER_UNAVAILABLE" => Ok(DisconnectReason::UserUnavailable),
-                    "USER_REJECTED" => Ok(DisconnectReason::UserRejected),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

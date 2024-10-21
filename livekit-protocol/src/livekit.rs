@@ -1371,10 +1371,6 @@ pub enum DisconnectReason {
     SignalClose = 9,
     /// the room was closed, due to all Standard and Ingress participants having left
     RoomClosed = 10,
-    /// SIP callee did not respond in time
-    UserUnavailable = 11,
-    /// SIP callee rejected the call (busy)
-    UserRejected = 12,
 }
 impl DisconnectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1394,8 +1390,6 @@ impl DisconnectReason {
             DisconnectReason::Migration => "MIGRATION",
             DisconnectReason::SignalClose => "SIGNAL_CLOSE",
             DisconnectReason::RoomClosed => "ROOM_CLOSED",
-            DisconnectReason::UserUnavailable => "USER_UNAVAILABLE",
-            DisconnectReason::UserRejected => "USER_REJECTED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1412,8 +1406,6 @@ impl DisconnectReason {
             "MIGRATION" => Some(Self::Migration),
             "SIGNAL_CLOSE" => Some(Self::SignalClose),
             "ROOM_CLOSED" => Some(Self::RoomClosed),
-            "USER_UNAVAILABLE" => Some(Self::UserUnavailable),
-            "USER_REJECTED" => Some(Self::UserRejected),
             _ => None,
         }
     }
@@ -3479,8 +3471,8 @@ pub struct UpdateWorkerStatus {
     /// optional string metadata = 2 \[deprecated=true\];
     #[prost(float, tag="3")]
     pub load: f32,
-    #[prost(uint32, tag="4")]
-    pub job_count: u32,
+    #[prost(int32, tag="4")]
+    pub job_count: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
