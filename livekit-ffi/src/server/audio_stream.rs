@@ -85,10 +85,7 @@ impl FfiAudioStream {
         let info = proto::AudioStreamInfo::from(&audio_stream);
         server.store_handle(handle_id, audio_stream);
 
-        Ok(proto::OwnedAudioStream {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(info),
-        })
+        Ok(proto::OwnedAudioStream { handle: proto::FfiOwnedHandle { id: handle_id }, info: info })
     }
 
     pub fn from_participant(
@@ -119,10 +116,7 @@ impl FfiAudioStream {
         let info = proto::AudioStreamInfo::from(&audio_stream);
         server.store_handle(handle_id, audio_stream);
 
-        Ok(proto::OwnedAudioStream {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(info),
-        })
+        Ok(proto::OwnedAudioStream { handle: proto::FfiOwnedHandle { id: handle_id }, info: info })
     }
 
     async fn participant_audio_stream_task(
@@ -249,10 +243,10 @@ impl FfiAudioStream {
                             stream_handle: stream_handle_id,
                             message: Some(proto::audio_stream_event::Message::FrameReceived(
                                 proto::AudioFrameReceived {
-                                    frame: Some(proto::OwnedAudioFrameBuffer {
-                                        handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-                                        info: Some(buffer_info),
-                                    }),
+                                    frame: proto::OwnedAudioFrameBuffer {
+                                        handle: proto::FfiOwnedHandle { id: handle_id },
+                                        info: buffer_info,
+                                    },
                                 },
                             )),
                         },
