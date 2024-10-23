@@ -64,7 +64,6 @@ pub enum SignalError {
     SendError,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct SignalSdkOptions {
     pub sdk: String,
@@ -73,10 +72,7 @@ pub struct SignalSdkOptions {
 
 impl Default for SignalSdkOptions {
     fn default() -> Self {
-        Self {
-            sdk: "rust".to_string(),
-            sdk_version: None,
-        }
+        Self { sdk: "rust".to_string(), sdk_version: None }
     }
 }
 

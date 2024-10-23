@@ -127,13 +127,7 @@ impl FfiRoom {
         }
 
         let connect = async move {
-            match Room::connect(
-                &connect.url,
-                &connect.token,
-                options.clone(),
-            )
-            .await
-            {
+            match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
@@ -1201,4 +1195,3 @@ fn build_initial_states(
         remote_infos,
     )
 }
-

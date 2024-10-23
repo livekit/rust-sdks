@@ -260,19 +260,13 @@ pub struct RoomSdkOptions {
 
 impl Default for RoomSdkOptions {
     fn default() -> Self {
-        Self {
-            sdk: "rust".to_string(),
-            sdk_version: SDK_VERSION.to_string(),
-        }
+        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string() }
     }
 }
 
 impl From<RoomSdkOptions> for SignalSdkOptions {
     fn from(options: RoomSdkOptions) -> Self {
-        SignalSdkOptions {
-            sdk: options.sdk,
-            sdk_version: Some(options.sdk_version),
-        }
+        SignalSdkOptions { sdk: options.sdk, sdk_version: Some(options.sdk_version) }
     }
 }
 
