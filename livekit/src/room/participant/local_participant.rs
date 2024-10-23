@@ -656,8 +656,8 @@ impl LocalParticipant {
         if payload.len() > MAX_PAYLOAD_BYTES {
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
         }
-
-        if let Some(server_info) = self.inner.rtc_engine.get_latest_join_response().server_info {
+        
+        if let Some(server_info) = self.inner.rtc_engine.session().signal_client().join_response().server_info {
             if !server_info.version.is_empty() {
                 let server_version = Version::parse(&server_info.version).unwrap();
                 let min_required_version = Version::parse("1.8.0").unwrap();

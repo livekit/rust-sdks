@@ -183,7 +183,6 @@ struct EngineInner {
     lk_runtime: Arc<LkRuntime>,
     engine_tx: EngineEmitter,
     options: EngineOptions,
-    latest_join_response: proto::JoinResponse,
 
     close_notifier: Arc<Notify>,
     running_handle: RwLock<EngineHandle>,
@@ -311,10 +310,6 @@ impl RtcEngine {
     pub fn session(&self) -> Arc<RtcSession> {
         self.inner.running_handle.read().session.clone()
     }
-
-    pub fn get_latest_join_response(&self) -> proto::JoinResponse {
-        self.inner.latest_join_response.clone()
-    }
 }
 
 impl EngineInner {
@@ -340,7 +335,6 @@ impl EngineInner {
                         lk_runtime,
                         engine_tx,
                         close_notifier: Arc::new(Notify::new()),
-                        latest_join_response: join_response.clone(),
                         running_handle: RwLock::new(EngineHandle {
                             session: Arc::new(session),
                             closed: false,
