@@ -827,26 +827,20 @@ fn on_rpc_method_invocation_response(
 
     let room = ffi_participant.room;
 
-    let handle = server.async_runtime.spawn(async move {
-        let mut error: Option<String> = None;
+    let mut error: Option<String> = None;
 
-        if let Some(waiter) = room.take_rpc_method_invocation_waiter(request.invocation_id) {
-            let result = if let Some(error) = request.error.clone() {
-                Err(RpcError { code: error.code, message: error.message, data: error.data })
-            } else {
-                Ok(request.payload.unwrap_or_default())
-            };
-            let _ = waiter.send(result);
+    if let Some(waiter) = room.take_rpc_method_invocation_waiter(request.invocation_id) {
+        let result = if let Some(error) = request.error.clone() {
+            Err(RpcError { code: error.code, message: error.message, data: error.data })
         } else {
-            error = Some("No caller found".to_string());
-        }
+            Ok(request.payload.unwrap_or_default())
+        };
+        let _ = waiter.send(result);
+    } else {
+        error = Some("No caller found".to_string());
+    }
 
-        let callback = proto::RpcMethodInvocationResponseCallback { async_id, error };
-        let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocationResponse(callback));
-    });
-
-    server.watch_panic(handle);
-    Ok(proto::RpcMethodInvocationResponseResponse { async_id })
+    Ok(proto::RpcMethodInvocationResponseResponse { async_id, error })
 }
 
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format

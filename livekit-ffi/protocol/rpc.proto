@@ -64,6 +64,7 @@ message UnregisterRpcMethodResponse {
 
 message RpcMethodInvocationResponseResponse {
   required uint64 async_id = 1;
+  optional string error = 2;
 }
 
 // FFI Callbacks
@@ -71,11 +72,6 @@ message PerformRpcCallback {
   required uint64 async_id = 1;
   optional string payload = 2;
   optional RpcError error = 3;
-}
-
-message RpcMethodInvocationResponseCallback {
-  required uint64 async_id = 1;
-  optional string error = 2;
 }
 
 // FFI Events

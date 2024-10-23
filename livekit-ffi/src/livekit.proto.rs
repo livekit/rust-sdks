@@ -3628,6 +3628,8 @@ pub struct UnregisterRpcMethodResponse {
 pub struct RpcMethodInvocationResponseResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// FFI Callbacks
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3639,14 +3641,6 @@ pub struct PerformRpcCallback {
     pub payload: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag="3")]
     pub error: ::core::option::Option<RpcError>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RpcMethodInvocationResponseCallback {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-    #[prost(string, optional, tag="2")]
-    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// FFI Events
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3896,7 +3890,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -3950,8 +3944,6 @@ pub mod ffi_event {
         PerformRpc(super::PerformRpcCallback),
         #[prost(message, tag="24")]
         RpcMethodInvocation(super::RpcMethodInvocationEvent),
-        #[prost(message, tag="25")]
-        RpcMethodInvocationResponse(super::RpcMethodInvocationResponseCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

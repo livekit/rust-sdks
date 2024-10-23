@@ -191,7 +191,6 @@ message FfiEvent {
     SendChatMessageCallback chat_message = 22;
     PerformRpcCallback perform_rpc = 23;
     RpcMethodInvocationEvent rpc_method_invocation = 24;
-    RpcMethodInvocationResponseCallback rpc_method_invocation_response = 25;
   }
 }
 
