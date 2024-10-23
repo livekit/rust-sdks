@@ -21,5 +21,5 @@ pub use crate::{
         RemoteVideoTrack, StreamState, Track, TrackDimension, TrackKind, TrackSource, VideoTrack,
     },
     ConnectionState, DataPacket, DataPacketKind, DisconnectReason, Room, RoomError, RoomEvent,
-    RoomOptions, RoomResult, SipDTMF, Transcription, TranscriptionSegment,
+    RoomOptions, RoomSdkOptions, RoomResult, SipDTMF, Transcription, TranscriptionSegment,
 };

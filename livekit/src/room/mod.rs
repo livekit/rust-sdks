@@ -23,7 +23,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::SignalOptions;
+use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
@@ -253,6 +253,30 @@ pub struct ChatMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct RoomSdkOptions {
+    pub sdk: String,
+    pub sdk_version: String,
+}
+
+impl Default for RoomSdkOptions {
+    fn default() -> Self {
+        Self {
+            sdk: "rust".to_string(),
+            sdk_version: SDK_VERSION.to_string(),
+        }
+    }
+}
+
+impl From<RoomSdkOptions> for SignalSdkOptions {
+    fn from(options: RoomSdkOptions) -> Self {
+        SignalSdkOptions {
+            sdk: options.sdk,
+            sdk_version: Some(options.sdk_version),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
@@ -260,6 +284,7 @@ pub struct RoomOptions {
     pub e2ee: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
+    pub sdk_options: RoomSdkOptions,
 }
 
 impl Default for RoomOptions {
@@ -278,6 +303,7 @@ impl Default for RoomOptions {
                 ice_transport_type: IceTransportsType::All,
             },
             join_retries: 3,
+            sdk_options: RoomSdkOptions::default(),
         }
     }
 }
@@ -331,16 +357,6 @@ impl Room {
         token: &str,
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
-        Self::connect_with_sdk(url, token, options, "rust", SDK_VERSION).await
-    }
-
-    pub async fn connect_with_sdk(
-        url: &str,
-        token: &str,
-        options: RoomOptions,
-        sdk: &str,
-        sdk_version: &str,
-    ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
@@ -351,8 +367,7 @@ impl Room {
                 signal_options: SignalOptions {
                     auto_subscribe: options.auto_subscribe,
                     adaptive_stream: options.adaptive_stream,
-                    sdk: sdk.to_string(),
-                    sdk_version: Some(sdk_version.to_string()),
+                    sdk_options: options.sdk_options.clone().into(),
                 },
                 join_retries: options.join_retries,
             },
@@ -459,7 +474,7 @@ impl Room {
             }),
             remote_participants: Default::default(),
             active_speakers: Default::default(),
-            options,
+            options: options.clone(),
             rtc_engine: rtc_engine.clone(),
             local_participant,
             dispatcher: dispatcher.clone(),

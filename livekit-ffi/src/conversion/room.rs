@@ -183,6 +183,7 @@ impl From<proto::RoomOptions> for RoomOptions {
             e2ee,
             rtc_config,
             join_retries: value.join_retries,
+            sdk_options: RoomSdkOptions::default(),
         }
     }
 }

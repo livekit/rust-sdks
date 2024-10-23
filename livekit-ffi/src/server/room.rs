@@ -116,21 +116,21 @@ impl FfiRoom {
     ) -> proto::ConnectResponse {
         let async_id = server.next_id();
 
-        let sdk;
-        let sdk_version;
+        let mut options: RoomOptions = connect.options.into();
+
         {
             let config = server.config.lock();
-            sdk = config.as_ref().map(|c| c.sdk.clone()).unwrap();
-            sdk_version = config.as_ref().map(|c| c.sdk_version.clone()).unwrap();
+            if let Some(c) = config.as_ref() {
+                options.sdk_options.sdk = c.sdk.clone();
+                options.sdk_options.sdk_version = c.sdk_version.clone();
+            }
         }
 
         let connect = async move {
-            match Room::connect_with_sdk(
+            match Room::connect(
                 &connect.url,
                 &connect.token,
-                connect.options.into(),
-                &sdk,
-                &sdk_version,
+                options.clone(),
             )
             .await
             {
@@ -1201,3 +1201,4 @@ fn build_initial_states(
         remote_infos,
     )
 }
+
