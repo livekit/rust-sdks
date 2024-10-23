@@ -32,6 +32,7 @@ use livekit_protocol as proto;
 use livekit_runtime::timeout;
 use parking_lot::Mutex;
 use proto::request_response::Reason;
+use semver::Version;
 use tokio::sync::oneshot;
 
 type RpcHandler = Arc<
@@ -654,6 +655,16 @@ impl LocalParticipant {
 
         if payload.len() > MAX_PAYLOAD_BYTES {
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
+        }
+
+        if let Some(server_info) = self.inner.rtc_engine.get_latest_join_response().server_info {
+            if !server_info.version.is_empty() {
+                let server_version = Version::parse(&server_info.version).unwrap();
+                let min_required_version = Version::parse("1.8.0").unwrap();
+                if server_version < min_required_version {
+                    return Err(RpcError::built_in(RpcErrorCode::UnsupportedServer, None));
+                }
+            }
         }
 
         let id = create_random_uuid();

@@ -1607,6 +1607,7 @@ dependencies = [
  "log",
  "parking_lot",
  "prost 0.12.3",
+ "semver",
  "serde",
  "serde_json",
  "thiserror",
