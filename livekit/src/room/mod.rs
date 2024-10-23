@@ -31,7 +31,10 @@ use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
-use tokio::{signal, sync::{mpsc, oneshot, Mutex as AsyncMutex}};
+use tokio::{
+    signal,
+    sync::{mpsc, oneshot, Mutex as AsyncMutex},
+};
 
 pub use self::{
     e2ee::{manager::E2eeManager, E2eeOptions},
