@@ -113,7 +113,7 @@ impl FfiParticipant {
                 })
             },
         );
-        Ok(proto::RegisterRpcMethodResponse { })
+        Ok(proto::RegisterRpcMethodResponse {})
     }
 
     pub fn unregister_rpc_method(
@@ -130,7 +130,7 @@ impl FfiParticipant {
 
         local.unregister_rpc_method(request.method);
 
-        Ok(proto::UnregisterRpcMethodResponse { })
+        Ok(proto::UnregisterRpcMethodResponse {})
     }
 }
 
