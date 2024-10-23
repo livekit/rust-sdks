@@ -65,6 +65,7 @@ pub enum SignalError {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SignalSdkOptions {
     pub sdk: String,
     pub sdk_version: Option<String>,
@@ -77,6 +78,7 @@ impl Default for SignalSdkOptions {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
