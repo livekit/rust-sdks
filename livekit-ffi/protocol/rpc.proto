@@ -59,7 +59,7 @@ message RegisterRpcMethodResponse {}
 message UnregisterRpcMethodResponse {}
 
 message RpcMethodInvocationResponseResponse {
-  optional string error = 2;
+  optional string error = 1;
 }
 
 // FFI Callbacks

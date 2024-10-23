@@ -3622,7 +3622,7 @@ pub struct UnregisterRpcMethodResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RpcMethodInvocationResponseResponse {
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag="1")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// FFI Callbacks
