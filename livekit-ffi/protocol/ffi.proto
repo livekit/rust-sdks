@@ -190,10 +190,8 @@ message FfiEvent {
     PublishSipDtmfCallback publish_sip_dtmf = 21;
     SendChatMessageCallback chat_message = 22;
     PerformRpcCallback perform_rpc = 23;
-    RegisterRpcMethodCallback register_rpc_method = 24;
-    UnregisterRpcMethodCallback unregister_rpc_method = 25;
-    RpcMethodInvocationEvent rpc_method_invocation = 26;
-    RpcMethodInvocationResponseCallback rpc_method_invocation_response = 27;
+    RpcMethodInvocationEvent rpc_method_invocation = 24;
+    RpcMethodInvocationResponseCallback rpc_method_invocation_response = 25;
   }
 }
 

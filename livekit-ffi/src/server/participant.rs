@@ -92,36 +92,28 @@ impl FfiParticipant {
 
         let local_participant_handle = self.handle.clone();
         let room: Arc<RoomInner> = self.room.clone();
-        let handle = server.async_runtime.spawn(async move {
-            local.register_rpc_method(
-                method.clone(),
-                move |request_id, caller_identity, payload, response_timeout| {
-                    Box::pin({
-                        let room = room.clone();
-                        let method = method.clone();
-                        async move {
-                            forward_rpc_method_invocation(
-                                server,
-                                room,
-                                local_participant_handle,
-                                method,
-                                request_id,
-                                caller_identity,
-                                payload,
-                                response_timeout,
-                            )
-                            .await
-                        }
-                    })
-                },
-            );
-
-            let callback = proto::RegisterRpcMethodCallback { async_id };
-
-            let _ = server.send_event(proto::ffi_event::Message::RegisterRpcMethod(callback));
-        });
-
-        server.watch_panic(handle);
+        local.register_rpc_method(
+            method.clone(),
+            move |request_id, caller_identity, payload, response_timeout| {
+                Box::pin({
+                    let room = room.clone();
+                    let method = method.clone();
+                    async move {
+                        forward_rpc_method_invocation(
+                            server,
+                            room,
+                            local_participant_handle,
+                            method,
+                            request_id,
+                            caller_identity,
+                            payload,
+                            response_timeout,
+                        )
+                        .await
+                    }
+                })
+            },
+        );
         Ok(proto::RegisterRpcMethodResponse { async_id })
     }
 
@@ -139,15 +131,8 @@ impl FfiParticipant {
             }
         };
 
-        let handle = server.async_runtime.spawn(async move {
-            local.unregister_rpc_method(request.method);
+        local.unregister_rpc_method(request.method);
 
-            let callback = proto::UnregisterRpcMethodCallback { async_id };
-
-            let _ = server.send_event(proto::ffi_event::Message::UnregisterRpcMethod(callback));
-        });
-
-        server.watch_panic(handle);
         Ok(proto::UnregisterRpcMethodResponse { async_id })
     }
 }

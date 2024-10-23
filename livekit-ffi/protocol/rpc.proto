@@ -73,14 +73,6 @@ message PerformRpcCallback {
   optional RpcError error = 3;
 }
 
-message RegisterRpcMethodCallback {
-  required uint64 async_id = 1;
-}
-
-message UnregisterRpcMethodCallback {
-  required uint64 async_id = 1;
-}
-
 message RpcMethodInvocationResponseCallback {
   required uint64 async_id = 1;
   optional string error = 2;
