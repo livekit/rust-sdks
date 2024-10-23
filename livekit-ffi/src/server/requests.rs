@@ -821,7 +821,6 @@ fn on_rpc_method_invocation_response(
     server: &'static FfiServer,
     request: proto::RpcMethodInvocationResponseRequest,
 ) -> FfiResult<proto::RpcMethodInvocationResponseResponse> {
-    let async_id = server.next_id();
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
 
@@ -840,7 +839,7 @@ fn on_rpc_method_invocation_response(
         error = Some("No caller found".to_string());
     }
 
-    Ok(proto::RpcMethodInvocationResponseResponse { async_id, error })
+    Ok(proto::RpcMethodInvocationResponseResponse { error })
 }
 
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format

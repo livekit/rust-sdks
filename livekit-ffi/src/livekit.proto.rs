@@ -3614,20 +3614,14 @@ pub struct PerformRpcResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterRpcMethodResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnregisterRpcMethodResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RpcMethodInvocationResponseResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
     #[prost(string, optional, tag="2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }

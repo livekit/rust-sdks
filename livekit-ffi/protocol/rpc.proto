@@ -54,16 +54,11 @@ message PerformRpcResponse {
   required uint64 async_id = 1;
 }
 
-message RegisterRpcMethodResponse {
-  required uint64 async_id = 1;
-}
+message RegisterRpcMethodResponse {}
 
-message UnregisterRpcMethodResponse {
-  required uint64 async_id = 1;
-}
+message UnregisterRpcMethodResponse {}
 
 message RpcMethodInvocationResponseResponse {
-  required uint64 async_id = 1;
   optional string error = 2;
 }
 

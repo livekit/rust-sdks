@@ -80,7 +80,6 @@ impl FfiParticipant {
         server: &'static FfiServer,
         request: proto::RegisterRpcMethodRequest,
     ) -> FfiResult<proto::RegisterRpcMethodResponse> {
-        let async_id = server.next_id();
         let method = request.method.clone();
 
         let local = match &self.participant {
@@ -114,7 +113,7 @@ impl FfiParticipant {
                 })
             },
         );
-        Ok(proto::RegisterRpcMethodResponse { async_id })
+        Ok(proto::RegisterRpcMethodResponse { })
     }
 
     pub fn unregister_rpc_method(
@@ -122,8 +121,6 @@ impl FfiParticipant {
         server: &'static FfiServer,
         request: proto::UnregisterRpcMethodRequest,
     ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
-        let async_id = server.next_id();
-
         let local = match &self.participant {
             Participant::Local(local) => local.clone(),
             Participant::Remote(_) => {
@@ -133,7 +130,7 @@ impl FfiParticipant {
 
         local.unregister_rpc_method(request.method);
 
-        Ok(proto::UnregisterRpcMethodResponse { async_id })
+        Ok(proto::UnregisterRpcMethodResponse { })
     }
 }
 
