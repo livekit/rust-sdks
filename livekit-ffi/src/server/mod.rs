@@ -49,6 +49,8 @@ pub mod video_stream;
 pub struct FfiConfig {
     pub callback_fn: Arc<dyn Fn(FfiEvent) + Send + Sync>,
     pub capture_logs: bool,
+    pub sdk: String,
+    pub sdk_version: String,
 }
 
 /// To make sure we use the right types, only types that implement this trait

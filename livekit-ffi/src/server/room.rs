@@ -112,8 +112,18 @@ impl FfiRoom {
     ) -> proto::ConnectResponse {
         let async_id = server.next_id();
 
+        let mut options: RoomOptions = connect.options.into();
+
+        {
+            let config = server.config.lock();
+            if let Some(c) = config.as_ref() {
+                options.sdk_options.sdk = c.sdk.clone();
+                options.sdk_options.sdk_version = c.sdk_version.clone();
+            }
+        }
+
         let connect = async move {
-            match Room::connect(&connect.url, &connect.token, connect.options.into()).await {
+            match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient

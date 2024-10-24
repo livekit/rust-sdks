@@ -1,5 +1,7 @@
 use prost::Message;
 use server::FfiDataBuffer;
+use std::ffi::CStr;
+use std::os::raw::c_char;
 use std::{panic, sync::Arc};
 
 use crate::{
@@ -15,13 +17,20 @@ pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 ///
 /// The foreign language must only provide valid pointers
 #[no_mangle]
-pub unsafe extern "C" fn livekit_ffi_initialize(cb: FfiCallbackFn, capture_logs: bool) {
+pub unsafe extern "C" fn livekit_ffi_initialize(
+    cb: FfiCallbackFn,
+    capture_logs: bool,
+    sdk: *const c_char,
+    sdk_version: *const c_char,
+) {
     FFI_SERVER.setup(FfiConfig {
         callback_fn: Arc::new(move |event| {
             let data = event.encode_to_vec();
             cb(data.as_ptr(), data.len());
         }),
         capture_logs,
+        sdk: CStr::from_ptr(sdk).to_string_lossy().into_owned(),
+        sdk_version: CStr::from_ptr(sdk_version).to_string_lossy().into_owned(),
     });
 
     log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));

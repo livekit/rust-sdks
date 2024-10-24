@@ -24,9 +24,7 @@ async fn main() {
         .to_jwt()
         .unwrap();
 
-    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
-        .await
-        .unwrap();
+    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     log::info!("Connected to room: {} - {}", room.name(), String::from(room.sid().await));
 
     room.local_participant()

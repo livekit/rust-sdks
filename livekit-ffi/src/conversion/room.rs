@@ -176,14 +176,15 @@ impl From<proto::RoomOptions> for RoomOptions {
         let rtc_config =
             value.rtc_config.map(Into::into).unwrap_or(RoomOptions::default().rtc_config);
 
-        Self {
-            adaptive_stream: value.adaptive_stream,
-            auto_subscribe: value.auto_subscribe,
-            dynacast: value.dynacast,
-            e2ee,
-            rtc_config,
-            join_retries: value.join_retries,
-        }
+        let mut options = RoomOptions::default();
+        options.adaptive_stream = value.adaptive_stream;
+        options.auto_subscribe = value.auto_subscribe;
+        options.dynacast = value.dynacast;
+        options.e2ee = e2ee;
+        options.rtc_config = rtc_config;
+        options.join_retries = value.join_retries;
+        options.sdk_options = RoomSdkOptions::default();
+        options
     }
 }
 
