@@ -96,6 +96,22 @@ pub enum SessionEvent {
         code: u32,
         digit: Option<String>,
     },
+    RpcRequest {
+        caller_identity: Option<ParticipantIdentity>,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
+    },
+    RpcResponse {
+        request_id: String,
+        payload: Option<String>,
+        error: Option<proto::RpcError>,
+    },
+    RpcAck {
+        request_id: String,
+    },
     MediaTrack {
         track: MediaStreamTrack,
         stream: MediaStream,
@@ -659,6 +675,42 @@ impl SessionInner {
                                 participant_identity,
                                 track_sid,
                                 segments,
+                            });
+                        }
+                        proto::data_packet::Value::RpcRequest(rpc_request) => {
+                            let caller_identity = data
+                                .participant_identity
+                                .is_empty()
+                                .not()
+                                .then_some(data.participant_identity.clone())
+                                .map(|s| s.try_into().unwrap());
+                            let _ = self.emitter.send(SessionEvent::RpcRequest {
+                                caller_identity,
+                                request_id: rpc_request.id.clone(),
+                                method: rpc_request.method.clone(),
+                                payload: rpc_request.payload.clone(),
+                                response_timeout_ms: rpc_request.response_timeout_ms,
+                                version: rpc_request.version,
+                            });
+                        }
+                        proto::data_packet::Value::RpcResponse(rpc_response) => {
+                            let _ = self.emitter.send(SessionEvent::RpcResponse {
+                                request_id: rpc_response.request_id.clone(),
+                                payload: rpc_response.value.as_ref().and_then(|v| match v {
+                                    proto::rpc_response::Value::Payload(payload) => {
+                                        Some(payload.clone())
+                                    }
+                                    _ => None,
+                                }),
+                                error: rpc_response.value.as_ref().and_then(|v| match v {
+                                    proto::rpc_response::Value::Error(error) => Some(error.clone()),
+                                    _ => None,
+                                }),
+                            });
+                        }
+                        proto::data_packet::Value::RpcAck(rpc_ack) => {
+                            let _ = self.emitter.send(SessionEvent::RpcAck {
+                                request_id: rpc_ack.request_id.clone(),
                             });
                         }
                         proto::data_packet::Value::ChatMessage(message) => {

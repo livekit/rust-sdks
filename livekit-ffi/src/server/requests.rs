@@ -22,8 +22,10 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, resampler,
-    room::{self, FfiParticipant, FfiPublication, FfiTrack},
+    audio_source, audio_stream, colorcvt,
+    participant::FfiParticipant,
+    resampler,
+    room::{self, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
@@ -788,6 +790,58 @@ fn on_flush_sox_resampler(
     }
 }
 
+fn on_perform_rpc(
+    server: &'static FfiServer,
+    request: proto::PerformRpcRequest,
+) -> FfiResult<proto::PerformRpcResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    return ffi_participant.perform_rpc(server, request);
+}
+
+fn on_register_rpc_method(
+    server: &'static FfiServer,
+    request: proto::RegisterRpcMethodRequest,
+) -> FfiResult<proto::RegisterRpcMethodResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    return ffi_participant.register_rpc_method(server, request);
+}
+
+fn on_unregister_rpc_method(
+    server: &'static FfiServer,
+    request: proto::UnregisterRpcMethodRequest,
+) -> FfiResult<proto::UnregisterRpcMethodResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    return ffi_participant.unregister_rpc_method(server, request);
+}
+
+fn on_rpc_method_invocation_response(
+    server: &'static FfiServer,
+    request: proto::RpcMethodInvocationResponseRequest,
+) -> FfiResult<proto::RpcMethodInvocationResponseResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+
+    let room = ffi_participant.room;
+
+    let mut error: Option<String> = None;
+
+    if let Some(waiter) = room.take_rpc_method_invocation_waiter(request.invocation_id) {
+        let result = if let Some(error) = request.error.clone() {
+            Err(RpcError { code: error.code, message: error.message, data: error.data })
+        } else {
+            Ok(request.payload.unwrap_or_default())
+        };
+        let _ = waiter.send(result);
+    } else {
+        error = Some("No caller found".to_string());
+    }
+
+    Ok(proto::RpcMethodInvocationResponseResponse { error })
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -921,6 +975,24 @@ pub fn handle_request(
             proto::ffi_response::Message::FlushSoxResampler(on_flush_sox_resampler(
                 server, flush_soxr,
             )?)
+        }
+        proto::ffi_request::Message::PerformRpc(request) => {
+            proto::ffi_response::Message::PerformRpc(on_perform_rpc(server, request)?)
+        }
+        proto::ffi_request::Message::RegisterRpcMethod(request) => {
+            proto::ffi_response::Message::RegisterRpcMethod(on_register_rpc_method(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::UnregisterRpcMethod(request) => {
+            proto::ffi_response::Message::UnregisterRpcMethod(on_unregister_rpc_method(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::RpcMethodInvocationResponse(request) => {
+            proto::ffi_response::Message::RpcMethodInvocationResponse(
+                on_rpc_method_invocation_response(server, request)?,
+            )
         }
     });
 

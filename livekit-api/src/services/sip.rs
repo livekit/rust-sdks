@@ -14,9 +14,8 @@
 
 use livekit_protocol as proto;
 use std::collections::HashMap;
-use std::ptr::null;
 
-use crate::access_token::{SIPGrants, VideoGrants};
+use crate::access_token::SIPGrants;
 use crate::get_env_keys;
 use crate::services::twirp_client::TwirpClient;
 use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};

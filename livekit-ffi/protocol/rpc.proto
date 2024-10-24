@@ -1,0 +1,81 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package livekit.proto;
+option csharp_namespace = "LiveKit.Proto";
+
+message RpcError {
+  required uint32 code = 1;
+  required string message = 2;
+  optional string data = 3;
+}
+
+// FFI Requests
+message PerformRpcRequest {
+  required uint64 local_participant_handle = 1;
+  required string destination_identity = 2;
+  required string method = 3;
+  required string payload = 4;
+  optional uint32 response_timeout_ms = 5;
+}
+
+message RegisterRpcMethodRequest {
+  required uint64 local_participant_handle = 1;
+  required string method = 2;
+}
+
+message UnregisterRpcMethodRequest {
+  required uint64 local_participant_handle = 1;
+  required string method = 2;
+}
+
+message RpcMethodInvocationResponseRequest {
+  required uint64 local_participant_handle = 1;
+  required uint64 invocation_id = 2;
+  optional string payload = 3;
+  optional RpcError error = 4;
+}
+
+// FFI Responses
+message PerformRpcResponse {
+  required uint64 async_id = 1;
+}
+
+message RegisterRpcMethodResponse {}
+
+message UnregisterRpcMethodResponse {}
+
+message RpcMethodInvocationResponseResponse {
+  optional string error = 1;
+}
+
+// FFI Callbacks
+message PerformRpcCallback {
+  required uint64 async_id = 1;
+  optional string payload = 2;
+  optional RpcError error = 3;
+}
+
+// FFI Events
+message RpcMethodInvocationEvent {
+  required uint64 local_participant_handle = 1;
+  required uint64 invocation_id = 2;
+  required string method = 3;
+  required string request_id = 4;
+  required string caller_identity = 5;
+  required string payload = 6;
+  required uint32 response_timeout_ms = 7;
+}

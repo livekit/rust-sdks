@@ -256,6 +256,30 @@ pub struct ChatMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct RpcRequest {
+    pub destination_identity: String,
+    pub id: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout_ms: u32,
+    pub version: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcResponse {
+    destination_identity: String,
+    request_id: String,
+    payload: Option<String>,
+    error: Option<proto::RpcError>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcAck {
+    destination_identity: String,
+    request_id: String,
+}
+
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RoomSdkOptions {
     pub sdk: String,
@@ -660,6 +684,34 @@ impl RoomSession {
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
             }
+            EngineEvent::RpcRequest {
+                caller_identity,
+                request_id,
+                method,
+                payload,
+                response_timeout_ms,
+                version,
+            } => {
+                if caller_identity.is_none() {
+                    log::warn!("Received RPC request with null caller identity");
+                    return Ok(());
+                }
+                self.local_participant
+                    .handle_incoming_rpc_request(
+                        caller_identity.unwrap(),
+                        request_id,
+                        method,
+                        payload,
+                        response_timeout_ms,
+                    )
+                    .await;
+            }
+            EngineEvent::RpcResponse { request_id, payload, error } => {
+                self.local_participant.handle_incoming_rpc_response(request_id, payload, error);
+            }
+            EngineEvent::RpcAck { request_id } => {
+                self.local_participant.handle_incoming_rpc_ack(request_id);
+            }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
                 self.handle_connection_quality_update(updates)
@@ -667,6 +719,7 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
+            _ => {}
         }
 
         Ok(())
