@@ -286,12 +286,12 @@ message RtcConfig {
 }
 
 message RoomOptions {
-  required bool auto_subscribe = 1;
-  required bool adaptive_stream = 2;
-  required bool dynacast = 3;
+  optional bool auto_subscribe = 1;
+  optional bool adaptive_stream = 2;
+  optional bool dynacast = 3;
   optional E2eeOptions e2ee = 4;
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
-  required uint32 join_retries = 6;
+  optional uint32 join_retries = 6;
 }
 
 //

@@ -130,6 +130,8 @@ impl FfiServer {
         *self.config.lock() = Some(config.clone());
         self.logger.set_capture_logs(config.capture_logs);
 
+        log::info!("sdk v{}", config.sdk);
+        log::info!("v{}", config.sdk_version);
         log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
     }
 

@@ -2460,19 +2460,19 @@ pub struct RtcConfig {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomOptions {
-    #[prost(bool, required, tag="1")]
-    pub auto_subscribe: bool,
-    #[prost(bool, required, tag="2")]
-    pub adaptive_stream: bool,
-    #[prost(bool, required, tag="3")]
-    pub dynacast: bool,
+    #[prost(bool, optional, tag="1")]
+    pub auto_subscribe: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="2")]
+    pub adaptive_stream: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="3")]
+    pub dynacast: ::core::option::Option<bool>,
     #[prost(message, optional, tag="4")]
     pub e2ee: ::core::option::Option<E2eeOptions>,
     /// allow to setup a custom RtcConfiguration
     #[prost(message, optional, tag="5")]
     pub rtc_config: ::core::option::Option<RtcConfig>,
-    #[prost(uint32, required, tag="6")]
-    pub join_retries: u32,
+    #[prost(uint32, optional, tag="6")]
+    pub join_retries: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
