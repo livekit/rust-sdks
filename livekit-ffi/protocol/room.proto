@@ -254,12 +254,12 @@ message TrackPublishOptions {
   // encodings are optional
   optional VideoEncoding video_encoding = 1;
   optional AudioEncoding audio_encoding = 2;
-  required VideoCodec video_codec = 3;
-  required bool dtx = 4;
-  required bool red = 5;
-  required bool simulcast = 6;
-  required TrackSource source = 7;
-  required string stream = 8;
+  optional VideoCodec video_codec = 3;
+  optional bool dtx = 4;
+  optional bool red = 5;
+  optional bool simulcast = 6;
+  optional TrackSource source = 7;
+  optional string stream = 8;
 }
 
 enum IceTransportType {

@@ -1601,8 +1601,8 @@ pub struct NewVideoStreamRequest {
     #[prost(enumeration="VideoBufferType", optional, tag="3")]
     pub format: ::core::option::Option<i32>,
     /// if true, stride will be set to width/chroma_width
-    #[prost(bool, required, tag="4")]
-    pub normalize_stride: bool,
+    #[prost(bool, optional, tag="4")]
+    pub normalize_stride: ::core::option::Option<bool>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1622,8 +1622,8 @@ pub struct VideoStreamFromParticipantRequest {
     pub track_source: i32,
     #[prost(enumeration="VideoBufferType", optional, tag="4")]
     pub format: ::core::option::Option<i32>,
-    #[prost(bool, required, tag="5")]
-    pub normalize_stride: bool,
+    #[prost(bool, optional, tag="5")]
+    pub normalize_stride: ::core::option::Option<bool>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1670,8 +1670,8 @@ pub struct CaptureVideoFrameResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoConvertRequest {
-    #[prost(bool, required, tag="1")]
-    pub flip_y: bool,
+    #[prost(bool, optional, tag="1")]
+    pub flip_y: ::core::option::Option<bool>,
     #[prost(message, required, tag="2")]
     pub buffer: VideoBufferInfo,
     #[prost(enumeration="VideoBufferType", required, tag="3")]
@@ -1720,8 +1720,8 @@ pub struct VideoBufferInfo {
     #[prost(uint64, required, tag="4")]
     pub data_ptr: u64,
     /// only for packed formats
-    #[prost(uint32, required, tag="6")]
-    pub stride: u32,
+    #[prost(uint32, optional, tag="6")]
+    pub stride: ::core::option::Option<u32>,
     #[prost(message, repeated, tag="7")]
     pub components: ::prost::alloc::vec::Vec<video_buffer_info::ComponentInfo>,
 }
@@ -2423,18 +2423,18 @@ pub struct TrackPublishOptions {
     pub video_encoding: ::core::option::Option<VideoEncoding>,
     #[prost(message, optional, tag="2")]
     pub audio_encoding: ::core::option::Option<AudioEncoding>,
-    #[prost(enumeration="VideoCodec", required, tag="3")]
-    pub video_codec: i32,
-    #[prost(bool, required, tag="4")]
-    pub dtx: bool,
-    #[prost(bool, required, tag="5")]
-    pub red: bool,
-    #[prost(bool, required, tag="6")]
-    pub simulcast: bool,
-    #[prost(enumeration="TrackSource", required, tag="7")]
-    pub source: i32,
-    #[prost(string, required, tag="8")]
-    pub stream: ::prost::alloc::string::String,
+    #[prost(enumeration="VideoCodec", optional, tag="3")]
+    pub video_codec: ::core::option::Option<i32>,
+    #[prost(bool, optional, tag="4")]
+    pub dtx: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="5")]
+    pub red: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="6")]
+    pub simulcast: ::core::option::Option<bool>,
+    #[prost(enumeration="TrackSource", optional, tag="7")]
+    pub source: ::core::option::Option<i32>,
+    #[prost(string, optional, tag="8")]
+    pub stream: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3069,10 +3069,10 @@ pub struct NewAudioStreamRequest {
     pub track_handle: u64,
     #[prost(enumeration="AudioStreamType", required, tag="2")]
     pub r#type: i32,
-    #[prost(uint32, required, tag="3")]
-    pub sample_rate: u32,
-    #[prost(uint32, required, tag="4")]
-    pub num_channels: u32,
+    #[prost(uint32, optional, tag="3")]
+    pub sample_rate: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag="4")]
+    pub num_channels: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3089,10 +3089,10 @@ pub struct AudioStreamFromParticipantRequest {
     pub r#type: i32,
     #[prost(enumeration="TrackSource", optional, tag="3")]
     pub track_source: ::core::option::Option<i32>,
-    #[prost(uint32, required, tag="5")]
-    pub sample_rate: u32,
-    #[prost(uint32, required, tag="6")]
-    pub num_channels: u32,
+    #[prost(uint32, optional, tag="5")]
+    pub sample_rate: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag="6")]
+    pub num_channels: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3112,8 +3112,8 @@ pub struct NewAudioSourceRequest {
     pub sample_rate: u32,
     #[prost(uint32, required, tag="4")]
     pub num_channels: u32,
-    #[prost(uint32, required, tag="5")]
-    pub queue_size_ms: u32,
+    #[prost(uint32, optional, tag="5")]
+    pub queue_size_ms: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3202,8 +3202,8 @@ pub struct NewSoxResamplerRequest {
     pub output_data_type: i32,
     #[prost(enumeration="SoxQualityRecipe", required, tag="6")]
     pub quality_recipe: i32,
-    #[prost(uint32, required, tag="7")]
-    pub flags: u32,
+    #[prost(uint32, optional, tag="7")]
+    pub flags: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
