@@ -25,8 +25,8 @@ import "track.proto";
 message NewAudioStreamRequest {
   required uint64 track_handle = 1;
   required AudioStreamType type = 2;
-  required uint32 sample_rate = 3;
-  required uint32 num_channels = 4;
+  optional uint32 sample_rate = 3;
+  optional uint32 num_channels = 4;
 }
 message NewAudioStreamResponse { required OwnedAudioStream stream = 1; }
 
@@ -34,8 +34,8 @@ message AudioStreamFromParticipantRequest {
   required uint64 participant_handle = 1;
   required AudioStreamType type = 2;
   optional TrackSource track_source = 3;
-  required uint32 sample_rate = 5;
-  required uint32 num_channels = 6;
+  optional uint32 sample_rate = 5;
+  optional uint32 num_channels = 6;
 }
 
 message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 1; }
@@ -46,7 +46,7 @@ message NewAudioSourceRequest {
   optional AudioSourceOptions options = 2;
   required uint32 sample_rate = 3;
   required uint32 num_channels = 4;
-  required uint32 queue_size_ms = 5;
+  optional uint32 queue_size_ms = 5;
 }
 message NewAudioSourceResponse { required OwnedAudioSource source = 1; }
 
@@ -97,7 +97,7 @@ message NewSoxResamplerRequest {
   required SoxResamplerDataType input_data_type = 4;
   required SoxResamplerDataType output_data_type = 5;
   required SoxQualityRecipe quality_recipe = 6;
-  required uint32 flags = 7;
+  optional uint32 flags = 7;
 }
 message NewSoxResamplerResponse {
   oneof message {

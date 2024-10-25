@@ -64,7 +64,7 @@ impl FfiVideoStream {
                     server,
                     handle_id,
                     new_stream.format.and_then(|_| Some(new_stream.format())),
-                    new_stream.normalize_stride,
+                    new_stream.normalize_stride.unwrap_or(true),
                     NativeVideoStream::new(rtc_track),
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
@@ -80,7 +80,7 @@ impl FfiVideoStream {
         let info = proto::VideoStreamInfo::from(&stream);
         server.store_handle(stream.handle_id, stream);
 
-        Ok(proto::OwnedVideoStream { handle: proto::FfiOwnedHandle { id: handle_id }, info: info })
+        Ok(proto::OwnedVideoStream { handle: proto::FfiOwnedHandle { id: handle_id }, info })
     }
 
     pub fn from_participant(
@@ -242,7 +242,7 @@ impl FfiVideoStream {
                         server,
                         stream_handle,
                         dst_type,
-                        request.normalize_stride,
+                        request.normalize_stride.unwrap_or(true),
                         NativeVideoStream::new(rtc_track),
                         c_rx,
                         handle_dropped_rx,

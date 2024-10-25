@@ -27,7 +27,7 @@ message NewVideoStreamRequest {
   required VideoStreamType type = 2;
   // Get the frame on a specific format
   optional VideoBufferType format = 3;
-  required bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
+  optional bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
 }
 message NewVideoStreamResponse { required OwnedVideoStream stream = 1; }
 
@@ -37,7 +37,7 @@ message VideoStreamFromParticipantRequest {
   required VideoStreamType type = 2;
   required TrackSource track_source = 3;
   optional VideoBufferType format = 4;
-  required bool normalize_stride = 5;
+  optional bool normalize_stride = 5;
 }
 
 message VideoStreamFromParticipantResponse { required OwnedVideoStream stream = 1;}
@@ -63,7 +63,7 @@ message CaptureVideoFrameRequest {
 message CaptureVideoFrameResponse {}
 
 message VideoConvertRequest {
-  required bool flip_y = 1;
+  optional bool flip_y = 1;
   required VideoBufferInfo buffer = 2;
   required VideoBufferType dst_type = 3;
 }

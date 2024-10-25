@@ -254,12 +254,12 @@ message TrackPublishOptions {
   // encodings are optional
   optional VideoEncoding video_encoding = 1;
   optional AudioEncoding audio_encoding = 2;
-  required VideoCodec video_codec = 3;
-  required bool dtx = 4;
-  required bool red = 5;
-  required bool simulcast = 6;
-  required TrackSource source = 7;
-  required string stream = 8;
+  optional VideoCodec video_codec = 3;
+  optional bool dtx = 4;
+  optional bool red = 5;
+  optional bool simulcast = 6;
+  optional TrackSource source = 7;
+  optional string stream = 8;
 }
 
 enum IceTransportType {
@@ -286,12 +286,12 @@ message RtcConfig {
 }
 
 message RoomOptions {
-  required bool auto_subscribe = 1;
-  required bool adaptive_stream = 2;
-  required bool dynacast = 3;
+  optional bool auto_subscribe = 1;
+  optional bool adaptive_stream = 2;
+  optional bool dynacast = 3;
   optional E2eeOptions e2ee = 4;
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
-  required uint32 join_retries = 6;
+  optional uint32 join_retries = 6;
 }
 
 //

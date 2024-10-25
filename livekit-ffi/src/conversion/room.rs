@@ -177,13 +177,12 @@ impl From<proto::RoomOptions> for RoomOptions {
             value.rtc_config.map(Into::into).unwrap_or(RoomOptions::default().rtc_config);
 
         let mut options = RoomOptions::default();
-        options.adaptive_stream = value.adaptive_stream;
-        options.auto_subscribe = value.auto_subscribe;
-        options.dynacast = value.dynacast;
-        options.e2ee = e2ee;
+        options.adaptive_stream = value.adaptive_stream.unwrap_or(options.adaptive_stream);
+        options.auto_subscribe = value.auto_subscribe.unwrap_or(options.auto_subscribe);
+        options.dynacast = value.dynacast.unwrap_or(options.dynacast);
         options.rtc_config = rtc_config;
-        options.join_retries = value.join_retries;
-        options.sdk_options = RoomSdkOptions::default();
+        options.join_retries = value.join_retries.unwrap_or(options.join_retries);
+        options.e2ee = e2ee;
         options
     }
 }
@@ -208,15 +207,25 @@ impl From<DataPacketKind> for proto::DataPacketKind {
 
 impl From<proto::TrackPublishOptions> for TrackPublishOptions {
     fn from(opts: proto::TrackPublishOptions) -> Self {
+        let default_publish_options = TrackPublishOptions::default();
+        let video_codec = opts.video_codec.map(|x| proto::VideoCodec::try_from(x).ok()).flatten();
+        let source = opts.source.map(|x| proto::TrackSource::try_from(x).ok()).flatten();
+
         Self {
-            video_codec: opts.video_codec().into(),
-            source: opts.source().into(),
-            video_encoding: opts.video_encoding.map(Into::into),
-            audio_encoding: opts.audio_encoding.map(Into::into),
-            dtx: opts.dtx,
-            red: opts.red,
-            simulcast: opts.simulcast,
-            stream: opts.stream,
+            video_codec: video_codec.map(Into::into).unwrap_or(default_publish_options.video_codec),
+            source: source.map(Into::into).unwrap_or(default_publish_options.source),
+            video_encoding: opts
+                .video_encoding
+                .map(Into::into)
+                .or(default_publish_options.video_encoding),
+            audio_encoding: opts
+                .audio_encoding
+                .map(Into::into)
+                .or(default_publish_options.audio_encoding),
+            dtx: opts.dtx.unwrap_or(default_publish_options.dtx),
+            red: opts.red.unwrap_or(default_publish_options.red),
+            simulcast: opts.simulcast.unwrap_or(default_publish_options.simulcast),
+            stream: opts.stream.unwrap_or(default_publish_options.stream),
         }
     }
 }
