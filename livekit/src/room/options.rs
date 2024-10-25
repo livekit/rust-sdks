@@ -179,7 +179,7 @@ pub fn compute_appropriate_encoding(
 
     for preset in presets {
         encoding = preset.encoding.clone();
-        if preset.width >= size {
+        if preset.width > size {
             break;
         }
     }
@@ -257,6 +257,7 @@ pub fn into_rtp_encodings(
         })
     }
 
+    encodings.reverse();
     encodings
 }
 
