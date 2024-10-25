@@ -1720,8 +1720,8 @@ pub struct VideoBufferInfo {
     #[prost(uint64, required, tag="4")]
     pub data_ptr: u64,
     /// only for packed formats
-    #[prost(uint32, optional, tag="6")]
-    pub stride: ::core::option::Option<u32>,
+    #[prost(uint32, required, tag="6")]
+    pub stride: u32,
     #[prost(message, repeated, tag="7")]
     pub components: ::prost::alloc::vec::Vec<video_buffer_info::ComponentInfo>,
 }

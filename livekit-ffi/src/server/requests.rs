@@ -396,12 +396,11 @@ unsafe fn on_video_convert(
     let ref buffer = video_convert.buffer;
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
-    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y) {
+    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false)) {
         Ok((buffer, info)) => {
             let id = server.next_id();
             server.store_handle(id, buffer);
-            let owned_info =
-                proto::OwnedVideoBuffer { handle: proto::FfiOwnedHandle { id }, info: info };
+            let owned_info = proto::OwnedVideoBuffer { handle: proto::FfiOwnedHandle { id }, info };
             Ok(proto::VideoConvertResponse {
                 message: Some(proto::video_convert_response::Message::Buffer(owned_info)),
             })
@@ -693,8 +692,10 @@ fn on_new_sox_resampler(
         output_type: new_soxr.output_data_type(),
     };
 
-    let quality_spec =
-        resampler::QualitySpec { quality: new_soxr.quality_recipe(), flags: new_soxr.flags };
+    let quality_spec = resampler::QualitySpec {
+        quality: new_soxr.quality_recipe(),
+        flags: new_soxr.flags.unwrap_or(0),
+    };
 
     let runtime_spec = resampler::RuntimeSpec { num_threads: 1 };
 
