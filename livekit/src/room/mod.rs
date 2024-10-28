@@ -703,6 +703,7 @@ impl RoomSession {
                         method,
                         payload,
                         response_timeout_ms,
+                        version,
                     )
                     .await;
             }

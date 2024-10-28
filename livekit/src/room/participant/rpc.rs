@@ -60,6 +60,7 @@ pub enum RpcErrorCode {
     RecipientNotFound = 1401,
     RequestPayloadTooLarge = 1402,
     UnsupportedServer = 1403,
+    UnsupportedVersion = 1404,
 }
 
 impl RpcErrorCode {
@@ -76,6 +77,7 @@ impl RpcErrorCode {
             Self::RecipientNotFound => "Recipient not found",
             Self::RequestPayloadTooLarge => "Request payload too large",
             Self::UnsupportedServer => "RPC not supported by server",
+            Self::UnsupportedVersion => "Unsupported RPC version",
         }
     }
 }

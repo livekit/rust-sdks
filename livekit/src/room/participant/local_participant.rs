@@ -786,6 +786,7 @@ impl LocalParticipant {
         method: String,
         payload: String,
         response_timeout_ms: u32,
+        version: u32,
     ) {
         if let Err(e) = self
             .publish_rpc_ack(RpcAck {
@@ -797,32 +798,36 @@ impl LocalParticipant {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
-        let handler = self.local.rpc_state.lock().handlers.get(&method).cloned();
-
         let caller_identity_2 = caller_identity.clone();
         let request_id_2 = request_id.clone();
 
-        let response = match handler {
-            Some(handler) => {
-                match tokio::task::spawn(async move {
-                    handler(
-                        request_id.clone(),
-                        caller_identity.clone(),
-                        payload.clone(),
-                        Duration::from_millis(response_timeout_ms as u64),
-                    )
+        let response = if version != 1 {
+            Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
+        } else {
+            let handler = self.local.rpc_state.lock().handlers.get(&method).cloned();
+
+            match handler {
+                Some(handler) => {
+                    match tokio::task::spawn(async move {
+                        handler(
+                            request_id.clone(),
+                            caller_identity.clone(),
+                            payload.clone(),
+                            Duration::from_millis(response_timeout_ms as u64),
+                        )
+                        .await
+                    })
                     .await
-                })
-                .await
-                {
-                    Ok(result) => result,
-                    Err(e) => {
-                        log::error!("RPC method handler returned an error: {:?}", e);
-                        Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
+                    {
+                        Ok(result) => result,
+                        Err(e) => {
+                            log::error!("RPC method handler returned an error: {:?}", e);
+                            Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
+                        }
                     }
                 }
+                None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
             }
-            None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
         };
 
         let (payload, error) = match response {
