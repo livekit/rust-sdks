@@ -55,7 +55,7 @@ impl FfiParticipant {
                     request.destination_identity.to_string(),
                     request.method,
                     request.payload,
-                    request.response_timeout_ms,
+                    request.response_timeout_ms.map(|ms| Duration::from_millis(ms as u64)),
                 )
                 .await;
 

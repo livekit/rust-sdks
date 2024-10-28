@@ -512,7 +512,7 @@ impl LocalParticipant {
             id: rpc_request.id,
             method: rpc_request.method,
             payload: rpc_request.payload,
-            response_timeout_ms: rpc_request.response_timeout_ms,
+            response_timeout_ms: rpc_request.response_timeout.as_millis() as u32,
             version: rpc_request.version,
             ..Default::default()
         };
@@ -643,9 +643,9 @@ impl LocalParticipant {
         destination_identity: String,
         method: String,
         payload: String,
-        response_timeout_ms: Option<u32>,
+        response_timeout: Option<Duration>,
     ) -> Result<String, RpcError> {
-        let response_timeout = Duration::from_millis(response_timeout_ms.unwrap_or(10000) as u64);
+        let response_timeout = response_timeout.unwrap_or(Duration::from_millis(10000));
         let max_round_trip_latency = Duration::from_millis(2000);
 
         if payload.len() > MAX_PAYLOAD_BYTES {
@@ -674,7 +674,7 @@ impl LocalParticipant {
                 id: id.clone(),
                 method: method.clone(),
                 payload: payload.clone(),
-                response_timeout_ms: (response_timeout - max_round_trip_latency).as_millis() as u32,
+                response_timeout: response_timeout - max_round_trip_latency,
                 version: 1,
             })
             .await
