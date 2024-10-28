@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use livekit_protocol::RpcError as RpcError_Proto;
 use crate::room::participant::ParticipantIdentity;
+use livekit_protocol::RpcError as RpcError_Proto;
 use std::time::Duration;
 /// Data passed to method handler for incoming RPC invocations
 ///

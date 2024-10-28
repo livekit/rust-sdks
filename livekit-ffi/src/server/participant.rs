@@ -91,25 +91,22 @@ impl FfiParticipant {
 
         let local_participant_handle = self.handle.clone();
         let room: Arc<RoomInner> = self.room.clone();
-        local.register_rpc_method(
-            method.clone(),
-            move |data| {
-                Box::pin({
-                    let room = room.clone();
-                    let method = method.clone();
-                    async move {
-                        forward_rpc_method_invocation(
-                            server,
-                            room,
-                            local_participant_handle,
-                            method,
-                            data,
-                        )
-                        .await
-                    }
-                })
-            },
-        );
+        local.register_rpc_method(method.clone(), move |data| {
+            Box::pin({
+                let room = room.clone();
+                let method = method.clone();
+                async move {
+                    forward_rpc_method_invocation(
+                        server,
+                        room,
+                        local_participant_handle,
+                        method,
+                        data,
+                    )
+                    .await
+                }
+            })
+        });
         Ok(proto::RegisterRpcMethodResponse {})
     }
 
