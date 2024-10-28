@@ -815,7 +815,7 @@ fn on_unregister_rpc_method(
 ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
-    return ffi_participant.unregister_rpc_method(server, request);
+    return ffi_participant.unregister_rpc_method(request);
 }
 
 fn on_rpc_method_invocation_response(

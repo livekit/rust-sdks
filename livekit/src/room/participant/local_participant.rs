@@ -19,7 +19,7 @@ use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::participant::rpc::{RpcError, RpcErrorCode, MAX_PAYLOAD_BYTES},
+    room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
     rtc_engine::{EngineError, RtcEngine},
     ChatMessage, DataPacket, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
 };
@@ -36,12 +36,7 @@ use semver::Version;
 use tokio::sync::oneshot;
 
 type RpcHandler = Arc<
-    dyn Fn(
-            String,              // request_id
-            ParticipantIdentity, // caller_identity
-            String,              // payload
-            Duration,            // response_timeout_ms
-        ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+    dyn Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
         + Send
         + Sync,
 >;
@@ -736,12 +731,7 @@ impl LocalParticipant {
     pub fn register_rpc_method(
         &self,
         method: String,
-        handler: impl Fn(
-                String,
-                ParticipantIdentity,
-                String,
-                Duration,
-            ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
             + Send
             + Sync
             + 'static,
@@ -785,7 +775,7 @@ impl LocalParticipant {
         request_id: String,
         method: String,
         payload: String,
-        response_timeout_ms: u32,
+        response_timeout: Duration,
         version: u32,
     ) {
         if let Err(e) = self
@@ -809,12 +799,12 @@ impl LocalParticipant {
             match handler {
                 Some(handler) => {
                     match tokio::task::spawn(async move {
-                        handler(
-                            request_id.clone(),
-                            caller_identity.clone(),
-                            payload.clone(),
-                            Duration::from_millis(response_timeout_ms as u64),
-                        )
+                        handler(RpcInvocationData {
+                            request_id: request_id.clone(),
+                            caller_identity: caller_identity.clone(),
+                            payload: payload.clone(),
+                            response_timeout,
+                        })
                         .await
                     })
                     .await

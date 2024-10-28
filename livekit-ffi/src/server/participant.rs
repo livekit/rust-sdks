@@ -93,7 +93,7 @@ impl FfiParticipant {
         let room: Arc<RoomInner> = self.room.clone();
         local.register_rpc_method(
             method.clone(),
-            move |request_id, caller_identity, payload, response_timeout| {
+            move |data| {
                 Box::pin({
                     let room = room.clone();
                     let method = method.clone();
@@ -103,10 +103,7 @@ impl FfiParticipant {
                             room,
                             local_participant_handle,
                             method,
-                            request_id,
-                            caller_identity,
-                            payload,
-                            response_timeout,
+                            data,
                         )
                         .await
                     }
@@ -118,7 +115,6 @@ impl FfiParticipant {
 
     pub fn unregister_rpc_method(
         &self,
-        server: &'static FfiServer,
         request: proto::UnregisterRpcMethodRequest,
     ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
         let local = match &self.participant {
@@ -139,10 +135,7 @@ async fn forward_rpc_method_invocation(
     room: Arc<RoomInner>,
     local_participant_handle: FfiHandleId,
     method: String,
-    request_id: String,
-    caller_identity: ParticipantIdentity,
-    payload: String,
-    response_timeout: Duration,
+    data: RpcInvocationData,
 ) -> Result<String, RpcError> {
     let (tx, rx) = oneshot::channel();
     let invocation_id = server.next_id();
@@ -152,10 +145,10 @@ async fn forward_rpc_method_invocation(
             local_participant_handle: local_participant_handle as u64,
             invocation_id,
             method,
-            request_id,
-            caller_identity: caller_identity.into(),
-            payload,
-            response_timeout_ms: response_timeout.as_millis() as u32,
+            request_id: data.request_id,
+            caller_identity: data.caller_identity.into(),
+            payload: data.payload,
+            response_timeout_ms: data.response_timeout.as_millis() as u32,
         },
     ));
 

@@ -702,7 +702,7 @@ impl RoomSession {
                         request_id,
                         method,
                         payload,
-                        response_timeout_ms,
+                        Duration::from_millis(response_timeout_ms as u64),
                         version,
                     )
                     .await;

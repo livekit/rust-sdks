@@ -3,6 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use livekit_protocol::RpcError as RpcError_Proto;
+use crate::room::participant::ParticipantIdentity;
+use std::time::Duration;
+/// Data passed to method handler for incoming RPC invocations
+///
+/// Attributes:
+///     request_id (String): The unique request ID. Will match at both sides of the call, useful for debugging or logging.
+///     caller_identity (ParticipantIdentity): The unique participant identity of the caller.
+///     payload (String): The payload of the request. User-definable format, typically JSON.
+///     response_timeout (Duration): The maximum time the caller will wait for a response.
+#[derive(Debug, Clone)]
+pub struct RpcInvocationData {
+    pub request_id: String,
+    pub caller_identity: ParticipantIdentity,
+    pub payload: String,
+    pub response_timeout: Duration,
+}
 
 /// Specialized error handling for RPC methods.
 ///

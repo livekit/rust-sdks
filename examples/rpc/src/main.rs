@@ -80,13 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: &Arc<Room>) {
     greeters_room.local_participant().register_rpc_method(
         "arrival".to_string(),
-        |_, caller_identity, payload, _| {
+        |data| {
             Box::pin(async move {
                 println!(
                     "[{}] [Greeter] Oh {} arrived and said \"{}\"",
                     elapsed_time(),
-                    caller_identity,
-                    payload
+                    data.caller_identity,
+                    data.payload
                 );
                 sleep(Duration::from_secs(2)).await;
                 Ok("Welcome and have a wonderful day!".to_string())
@@ -94,38 +94,41 @@ async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: 
         },
     );
 
-    math_genius_room.local_participant().register_rpc_method("square-root".to_string(), |_, caller_identity, payload, response_timeout_ms| {
-        Box::pin(async move {
-            let json_data: Value = serde_json::from_str(&payload).unwrap();
-            let number = json_data["number"].as_f64().unwrap();
-            println!(
-                "[{}] [Math Genius] I guess {} wants the square root of {}. I've only got {} seconds to respond but I think I can pull it off.",
-                elapsed_time(),
-                caller_identity,
-                number,
-                response_timeout_ms.as_secs()
-            );
+    math_genius_room.local_participant().register_rpc_method(
+        "square-root".to_string(),
+        |data| {
+            Box::pin(async move {
+                let json_data: Value = serde_json::from_str(&data.payload).unwrap();
+                let number = json_data["number"].as_f64().unwrap();
+                println!(
+                    "[{}] [Math Genius] I guess {} wants the square root of {}. I've only got {} seconds to respond but I think I can pull it off.",
+                    elapsed_time(),
+                    data.caller_identity,
+                    number,
+                    data.response_timeout.as_secs()
+                );
 
-            println!("[{}] [Math Genius] *doing math*…", elapsed_time());
-            sleep(Duration::from_secs(2)).await;
+                println!("[{}] [Math Genius] *doing math*…", elapsed_time());
+                sleep(Duration::from_secs(2)).await;
 
-            let result = number.sqrt();
-            println!("[{}] [Math Genius] Aha! It's {}", elapsed_time(), result);
-            Ok(json!({"result": result}).to_string())
-        })
-    });
+                let result = number.sqrt();
+                println!("[{}] [Math Genius] Aha! It's {}", elapsed_time(), result);
+                Ok(json!({"result": result}).to_string())
+            })
+        },
+    );
 
     math_genius_room.local_participant().register_rpc_method(
         "divide".to_string(),
-        |_, caller_identity, payload, _| {
+        |data| {
             Box::pin(async move {
-                let json_data: Value = serde_json::from_str(&payload).unwrap();
+                let json_data: Value = serde_json::from_str(&data.payload).unwrap();
                 let dividend = json_data["dividend"].as_i64().unwrap();
                 let divisor = json_data["divisor"].as_i64().unwrap();
                 println!(
                     "[{}] [Math Genius] {} wants me to divide {} by {}.",
                     elapsed_time(),
-                    caller_identity,
+                    data.caller_identity,
                     dividend,
                     divisor
                 );
