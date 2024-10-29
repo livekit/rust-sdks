@@ -40,3 +40,5 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 thiserror = "1.0"
 lazy_static = "1.4"
 log = "0.4"
+chrono = "0.4.38"
+semver = "1.0"

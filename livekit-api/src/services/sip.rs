@@ -14,9 +14,8 @@
 
 use livekit_protocol as proto;
 use std::collections::HashMap;
-use std::ptr::null;
 
-use crate::access_token::{SIPGrants, VideoGrants};
+use crate::access_token::SIPGrants;
 use crate::get_env_keys;
 use crate::services::twirp_client::TwirpClient;
 use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
@@ -200,6 +199,9 @@ impl SIPClient {
                         allowed_addresses: options.allowed_addresses.to_owned(),
                         auth_username: options.auth_username.to_owned(),
                         auth_password: options.auth_password.to_owned(),
+
+                        headers: Default::default(),
+                        headers_to_attributes: Default::default(),
                     }),
                 },
                 self.base.auth_header(
@@ -233,6 +235,9 @@ impl SIPClient {
 
                         auth_username: options.auth_username.to_owned(),
                         auth_password: options.auth_password.to_owned(),
+
+                        headers: Default::default(),
+                        headers_to_attributes: Default::default(),
                     }),
                 },
                 self.base.auth_header(

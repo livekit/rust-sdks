@@ -65,14 +65,33 @@ pub enum SignalError {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct SignalSdkOptions {
+    pub sdk: String,
+    pub sdk_version: Option<String>,
+}
+
+impl Default for SignalSdkOptions {
+    fn default() -> Self {
+        Self { sdk: "rust".to_string(), sdk_version: None }
+    }
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
+    pub sdk_options: SignalSdkOptions,
 }
 
 impl Default for SignalOptions {
     fn default() -> Self {
-        Self { auto_subscribe: true, adaptive_stream: false }
+        Self {
+            auto_subscribe: true,
+            adaptive_stream: false,
+            sdk_options: SignalSdkOptions::default(),
+        }
     }
 }
 
@@ -152,7 +171,7 @@ impl SignalClient {
 
     /// Close the connection to the server
     pub async fn close(&self) {
-        self.inner.close().await;
+        self.inner.close(true).await;
 
         let handle = self.handle.lock().take();
         if let Some(signal_task) = handle {
@@ -254,7 +273,7 @@ impl SignalInner {
         proto::ReconnectResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        self.close().await;
+        self.close(false).await;
 
         // Lock while we are reconnecting
         let mut stream = self.stream.write().await;
@@ -278,9 +297,9 @@ impl SignalInner {
     }
 
     /// Close the connection
-    pub async fn close(&self) {
+    pub async fn close(&self, notify_close: bool) {
         if let Some(stream) = self.stream.write().await.take() {
-            stream.close().await;
+            stream.close(notify_close).await;
         }
     }
 
@@ -392,7 +411,7 @@ async fn signal_task(
         }
     }
 
-    inner.close().await; // Make sure to always close the ws connection when the loop is terminated
+    inner.close(true).await; // Make sure to always close the ws connection when the loop is terminated
 }
 
 /// Check if the signal is queuable
@@ -431,11 +450,15 @@ fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalRes
 
     lk_url
         .query_pairs_mut()
-        .append_pair("sdk", "rust")
-        .append_pair("access_token", token)
+        .append_pair("sdk", options.sdk_options.sdk.as_str())
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
+        .append_pair("access_token", token)
         .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
         .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
+
+    if let Some(sdk_version) = &options.sdk_options.sdk_version {
+        lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+    }
 
     Ok(lk_url)
 }

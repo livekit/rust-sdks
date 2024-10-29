@@ -6,4 +6,5 @@ members = [
     "wgpu_room",
     "webhooks",
     "api",
+    "rpc",
 ]

@@ -34,11 +34,11 @@ use proto::{
     debouncer::{self, Debouncer},
     SignalTarget,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::IntoDeserializer, Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::{id::ParticipantIdentity, TranscriptionSegment};
+use crate::{id::ParticipantIdentity, ChatMessage, TranscriptionSegment};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -81,6 +81,10 @@ pub enum SessionEvent {
         topic: Option<String>,
         kind: DataPacketKind,
     },
+    ChatMessage {
+        participant_identity: ParticipantIdentity,
+        message: ChatMessage,
+    },
     Transcription {
         participant_identity: ParticipantIdentity,
         track_sid: String,
@@ -91,6 +95,22 @@ pub enum SessionEvent {
         participant_identity: Option<ParticipantIdentity>,
         code: u32,
         digit: Option<String>,
+    },
+    RpcRequest {
+        caller_identity: Option<ParticipantIdentity>,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
+    },
+    RpcResponse {
+        request_id: String,
+        payload: Option<String>,
+        error: Option<proto::RpcError>,
+    },
+    RpcAck {
+        request_id: String,
     },
     MediaTrack {
         track: MediaStreamTrack,
@@ -416,13 +436,15 @@ impl SessionInner {
                             task.await;
                         }
                         SignalEvent::Close(reason) => {
-                            // SignalClient has been closed
-                            self.on_session_disconnected(
-                                format!("signal client closed: {:?}", reason).as_str(),
-                                DisconnectReason::UnknownReason,
-                                proto::leave_request::Action::Disconnect,
-                                false,
-                            );
+                            if !self.closed.load(Ordering::Acquire) {
+                                // SignalClient has been closed unexpectedly
+                                self.on_session_disconnected(
+                                    format!("signal client closed: {:?}", reason).as_str(),
+                                    DisconnectReason::UnknownReason,
+                                    proto::leave_request::Action::Resume,
+                                    false,
+                                );
+                            }
                         }
                     }
                 },
@@ -590,69 +612,116 @@ impl SessionInner {
                 }
 
                 let data = proto::DataPacket::decode(&*data).unwrap();
-                match data.value.as_ref().unwrap() {
-                    proto::data_packet::Value::User(user) => {
-                        let participant_sid = user
-                            .participant_sid
-                            .is_empty()
-                            .not()
-                            .then_some(user.participant_sid.clone());
+                if let Some(packet) = data.value.as_ref() {
+                    match packet {
+                        proto::data_packet::Value::User(user) => {
+                            let participant_sid = user
+                                .participant_sid
+                                .is_empty()
+                                .not()
+                                .then_some(user.participant_sid.clone());
 
-                        let participant_identity = if !data.participant_identity.is_empty() {
-                            Some(data.participant_identity.clone())
-                        } else if !user.participant_identity.is_empty() {
-                            Some(user.participant_identity.clone())
-                        } else {
-                            None
-                        };
+                            let participant_identity = if !data.participant_identity.is_empty() {
+                                Some(data.participant_identity.clone())
+                            } else if !user.participant_identity.is_empty() {
+                                Some(user.participant_identity.clone())
+                            } else {
+                                None
+                            };
 
-                        let _ = self.emitter.send(SessionEvent::Data {
-                            kind: data.kind().into(),
-                            participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
-                            participant_identity: participant_identity
-                                .map(|s| s.try_into().unwrap()),
-                            payload: user.payload.clone(),
-                            topic: user.topic.clone(),
-                        });
-                    }
-                    proto::data_packet::Value::SipDtmf(dtmf) => {
-                        let participant_identity = data
-                            .participant_identity
-                            .is_empty()
-                            .not()
-                            .then_some(data.participant_identity.clone());
-                        let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
+                            let _ = self.emitter.send(SessionEvent::Data {
+                                kind: data.kind().into(),
+                                participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
+                                participant_identity: participant_identity
+                                    .map(|s| s.try_into().unwrap()),
+                                payload: user.payload.clone(),
+                                topic: user.topic.clone(),
+                            });
+                        }
+                        proto::data_packet::Value::SipDtmf(dtmf) => {
+                            let participant_identity = data
+                                .participant_identity
+                                .is_empty()
+                                .not()
+                                .then_some(data.participant_identity.clone());
+                            let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
 
-                        let _ = self.emitter.send(SessionEvent::SipDTMF {
-                            participant_identity: participant_identity
-                                .map(|s| s.try_into().unwrap()),
-                            digit: digit.map(|s| s.try_into().unwrap()),
-                            code: dtmf.code,
-                        });
-                    }
-                    proto::data_packet::Value::Speaker(_) => {}
-                    proto::data_packet::Value::Transcription(transcription) => {
-                        let track_sid = transcription.track_id.clone();
-                        // let segments = transcription.segments.clone();
-                        let segments = transcription
-                            .segments
-                            .iter()
-                            .map(|s| TranscriptionSegment {
-                                id: s.id.clone(),
-                                start_time: s.start_time,
-                                end_time: s.end_time,
-                                text: s.text.clone(),
-                                language: s.language.clone(),
-                                r#final: s.r#final,
-                            })
-                            .collect();
-                        let participant_identity: ParticipantIdentity =
-                            transcription.transcribed_participant_identity.clone().into();
-                        let _ = self.emitter.send(SessionEvent::Transcription {
-                            participant_identity,
-                            track_sid,
-                            segments,
-                        });
+                            let _ = self.emitter.send(SessionEvent::SipDTMF {
+                                participant_identity: participant_identity
+                                    .map(|s| s.try_into().unwrap()),
+                                digit: digit.map(|s| s.try_into().unwrap()),
+                                code: dtmf.code,
+                            });
+                        }
+                        proto::data_packet::Value::Speaker(_) => {}
+                        proto::data_packet::Value::Transcription(transcription) => {
+                            let track_sid = transcription.track_id.clone();
+                            // let segments = transcription.segments.clone();
+                            let segments = transcription
+                                .segments
+                                .iter()
+                                .map(|s| TranscriptionSegment {
+                                    id: s.id.clone(),
+                                    start_time: s.start_time,
+                                    end_time: s.end_time,
+                                    text: s.text.clone(),
+                                    language: s.language.clone(),
+                                    r#final: s.r#final,
+                                })
+                                .collect();
+                            let participant_identity: ParticipantIdentity =
+                                transcription.transcribed_participant_identity.clone().into();
+                            let _ = self.emitter.send(SessionEvent::Transcription {
+                                participant_identity,
+                                track_sid,
+                                segments,
+                            });
+                        }
+                        proto::data_packet::Value::RpcRequest(rpc_request) => {
+                            let caller_identity = data
+                                .participant_identity
+                                .is_empty()
+                                .not()
+                                .then_some(data.participant_identity.clone())
+                                .map(|s| s.try_into().unwrap());
+                            let _ = self.emitter.send(SessionEvent::RpcRequest {
+                                caller_identity,
+                                request_id: rpc_request.id.clone(),
+                                method: rpc_request.method.clone(),
+                                payload: rpc_request.payload.clone(),
+                                response_timeout_ms: rpc_request.response_timeout_ms,
+                                version: rpc_request.version,
+                            });
+                        }
+                        proto::data_packet::Value::RpcResponse(rpc_response) => {
+                            let _ = self.emitter.send(SessionEvent::RpcResponse {
+                                request_id: rpc_response.request_id.clone(),
+                                payload: rpc_response.value.as_ref().and_then(|v| match v {
+                                    proto::rpc_response::Value::Payload(payload) => {
+                                        Some(payload.clone())
+                                    }
+                                    _ => None,
+                                }),
+                                error: rpc_response.value.as_ref().and_then(|v| match v {
+                                    proto::rpc_response::Value::Error(error) => Some(error.clone()),
+                                    _ => None,
+                                }),
+                            });
+                        }
+                        proto::data_packet::Value::RpcAck(rpc_ack) => {
+                            let _ = self.emitter.send(SessionEvent::RpcAck {
+                                request_id: rpc_ack.request_id.clone(),
+                            });
+                        }
+                        proto::data_packet::Value::ChatMessage(message) => {
+                            let _ = self.emitter.send(SessionEvent::ChatMessage {
+                                participant_identity: ParticipantIdentity(
+                                    data.participant_identity,
+                                ),
+                                message: ChatMessage::from(message.clone()),
+                            });
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -776,6 +845,8 @@ impl SessionInner {
     }
 
     async fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
                 action: proto::leave_request::Action::Disconnect.into(),
@@ -784,7 +855,6 @@ impl SessionInner {
             }))
             .await;
 
-        self.closed.store(true, Ordering::Release);
         self.signal_client.close().await;
         self.publisher_pc.close();
         self.subscriber_pc.close();

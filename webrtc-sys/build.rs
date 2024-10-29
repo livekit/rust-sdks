@@ -127,9 +127,6 @@ fn main() {
             builder.flag("/std:c++20").flag("/EHsc");
         }
         "linux" => {
-            println!("cargo:rustc-link-lib=dylib=Xext");
-            println!("cargo:rustc-link-lib=dylib=X11");
-            println!("cargo:rustc-link-lib=dylib=GL");
             println!("cargo:rustc-link-lib=dylib=rt");
             println!("cargo:rustc-link-lib=dylib=dl");
             println!("cargo:rustc-link-lib=dylib=pthread");

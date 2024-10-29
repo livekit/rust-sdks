@@ -58,12 +58,8 @@ impl FfiAudioStream {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
                 let audio_stream = Self { handle_id, stream_type, self_dropped_tx };
-
-                let sample_rate =
-                    if new_stream.sample_rate == 0 { 48000 } else { new_stream.sample_rate as i32 };
-
-                let num_channels =
-                    if new_stream.num_channels == 0 { 1 } else { new_stream.num_channels as i32 };
+                let sample_rate = new_stream.sample_rate.unwrap_or(48000);
+                let num_channels = new_stream.num_channels.unwrap_or(1);
 
                 let native_stream =
                     NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
@@ -85,10 +81,7 @@ impl FfiAudioStream {
         let info = proto::AudioStreamInfo::from(&audio_stream);
         server.store_handle(handle_id, audio_stream);
 
-        Ok(proto::OwnedAudioStream {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(info),
-        })
+        Ok(proto::OwnedAudioStream { handle: proto::FfiOwnedHandle { id: handle_id }, info })
     }
 
     pub fn from_participant(
@@ -119,10 +112,7 @@ impl FfiAudioStream {
         let info = proto::AudioStreamInfo::from(&audio_stream);
         server.store_handle(handle_id, audio_stream);
 
-        Ok(proto::OwnedAudioStream {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(info),
-        })
+        Ok(proto::OwnedAudioStream { handle: proto::FfiOwnedHandle { id: handle_id }, info })
     }
 
     async fn participant_audio_stream_task(
@@ -162,11 +152,8 @@ impl FfiAudioStream {
                 let (c_tx, c_rx) = oneshot::channel::<()>();
                 let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
-                let sample_rate =
-                    if request.sample_rate == 0 { 48000 } else { request.sample_rate as i32 };
-
-                let num_channels =
-                    if request.num_channels == 0 { 1 } else { request.num_channels as i32 };
+                let sample_rate = request.sample_rate.unwrap_or(48000) as i32;
+                let num_channels = request.num_channels.unwrap_or(1) as i32;
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {
@@ -249,10 +236,10 @@ impl FfiAudioStream {
                             stream_handle: stream_handle_id,
                             message: Some(proto::audio_stream_event::Message::FrameReceived(
                                 proto::AudioFrameReceived {
-                                    frame: Some(proto::OwnedAudioFrameBuffer {
-                                        handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-                                        info: Some(buffer_info),
-                                    }),
+                                    frame: proto::OwnedAudioFrameBuffer {
+                                        handle: proto::FfiOwnedHandle { id: handle_id },
+                                        info: buffer_info,
+                                    },
                                 },
                             )),
                         },

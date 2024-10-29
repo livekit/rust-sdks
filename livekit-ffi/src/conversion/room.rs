@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{proto, server::room::FfiRoom};
 use livekit::{
     e2ee::{
         key_provider::{KeyProvider, KeyProviderOptions},
@@ -24,8 +25,6 @@ use livekit::{
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
 };
-
-use crate::{proto, server::room::FfiRoom};
 
 impl From<EncryptionState> for proto::EncryptionState {
     fn from(value: EncryptionState) -> Self {
@@ -131,7 +130,11 @@ impl From<proto::ContinualGatheringPolicy> for ContinualGatheringPolicy {
 
 impl From<proto::IceServer> for IceServer {
     fn from(value: proto::IceServer) -> Self {
-        Self { urls: value.urls, username: value.username, password: value.password }
+        Self {
+            urls: value.urls,
+            username: value.username.unwrap_or_default(),
+            password: value.password.unwrap_or_default(),
+        }
     }
 }
 
@@ -157,9 +160,7 @@ impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
         let e2ee = value.e2ee.and_then(|opts| {
             let encryption_type = opts.encryption_type();
-            let Some(provider_opts) = opts.key_provider_options else {
-                return None;
-            };
+            let provider_opts = opts.key_provider_options;
 
             Some(E2eeOptions {
                 encryption_type: encryption_type.into(),
@@ -175,14 +176,14 @@ impl From<proto::RoomOptions> for RoomOptions {
         let rtc_config =
             value.rtc_config.map(Into::into).unwrap_or(RoomOptions::default().rtc_config);
 
-        Self {
-            adaptive_stream: value.adaptive_stream,
-            auto_subscribe: value.auto_subscribe,
-            dynacast: value.dynacast,
-            e2ee,
-            rtc_config,
-            join_retries: value.join_retries,
-        }
+        let mut options = RoomOptions::default();
+        options.adaptive_stream = value.adaptive_stream.unwrap_or(options.adaptive_stream);
+        options.auto_subscribe = value.auto_subscribe.unwrap_or(options.auto_subscribe);
+        options.dynacast = value.dynacast.unwrap_or(options.dynacast);
+        options.rtc_config = rtc_config;
+        options.join_retries = value.join_retries.unwrap_or(options.join_retries);
+        options.e2ee = e2ee;
+        options
     }
 }
 
@@ -206,15 +207,25 @@ impl From<DataPacketKind> for proto::DataPacketKind {
 
 impl From<proto::TrackPublishOptions> for TrackPublishOptions {
     fn from(opts: proto::TrackPublishOptions) -> Self {
+        let default_publish_options = TrackPublishOptions::default();
+        let video_codec = opts.video_codec.map(|x| proto::VideoCodec::try_from(x).ok()).flatten();
+        let source = opts.source.map(|x| proto::TrackSource::try_from(x).ok()).flatten();
+
         Self {
-            video_codec: opts.video_codec().into(),
-            source: opts.source().into(),
-            video_encoding: opts.video_encoding.map(Into::into),
-            audio_encoding: opts.audio_encoding.map(Into::into),
-            dtx: opts.dtx,
-            red: opts.red,
-            simulcast: opts.simulcast,
-            stream: opts.stream,
+            video_codec: video_codec.map(Into::into).unwrap_or(default_publish_options.video_codec),
+            source: source.map(Into::into).unwrap_or(default_publish_options.source),
+            video_encoding: opts
+                .video_encoding
+                .map(Into::into)
+                .or(default_publish_options.video_encoding),
+            audio_encoding: opts
+                .audio_encoding
+                .map(Into::into)
+                .or(default_publish_options.audio_encoding),
+            dtx: opts.dtx.unwrap_or(default_publish_options.dtx),
+            red: opts.red.unwrap_or(default_publish_options.red),
+            simulcast: opts.simulcast.unwrap_or(default_publish_options.simulcast),
+            stream: opts.stream.unwrap_or(default_publish_options.stream),
         }
     }
 }
@@ -238,6 +249,32 @@ impl From<&FfiRoom> for proto::RoomInfo {
             sid: room.maybe_sid().map(|x| x.to_string()),
             name: room.name(),
             metadata: room.metadata(),
+        }
+    }
+}
+
+impl From<proto::ChatMessage> for livekit::ChatMessage {
+    fn from(proto_msg: proto::ChatMessage) -> Self {
+        livekit::ChatMessage {
+            id: proto_msg.id,
+            message: proto_msg.message,
+            timestamp: proto_msg.timestamp,
+            edit_timestamp: proto_msg.edit_timestamp,
+            deleted: proto_msg.deleted,
+            generated: proto_msg.generated,
+        }
+    }
+}
+
+impl From<livekit::ChatMessage> for proto::ChatMessage {
+    fn from(msg: livekit::ChatMessage) -> Self {
+        proto::ChatMessage {
+            id: msg.id,
+            message: msg.message,
+            timestamp: msg.timestamp,
+            edit_timestamp: msg.edit_timestamp,
+            deleted: msg.deleted.into(),
+            generated: msg.generated.into(),
         }
     }
 }
