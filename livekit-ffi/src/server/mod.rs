@@ -26,7 +26,7 @@ use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
-use tokio::task::JoinHandle;
+use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
@@ -34,8 +34,11 @@ pub mod audio_source;
 pub mod audio_stream;
 pub mod colorcvt;
 pub mod logger;
+pub mod participant;
 pub mod requests;
+pub mod resampler;
 pub mod room;
+mod utils;
 pub mod video_source;
 pub mod video_stream;
 
@@ -46,6 +49,8 @@ pub mod video_stream;
 pub struct FfiConfig {
     pub callback_fn: Arc<dyn Fn(FfiEvent) + Send + Sync>,
     pub capture_logs: bool,
+    pub sdk: String,
+    pub sdk_version: String,
 }
 
 /// To make sure we use the right types, only types that implement this trait
@@ -61,6 +66,7 @@ pub struct FfiDataBuffer {
 
 impl FfiHandle for FfiDataBuffer {}
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
+impl FfiHandle for Arc<Mutex<resampler::SoxResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
 impl FfiHandle for Box<[u8]> {}
@@ -69,11 +75,12 @@ pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, Box<dyn FfiHandle>>,
-    async_runtime: tokio::runtime::Runtime,
+    pub async_runtime: tokio::runtime::Runtime,
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
     logger: &'static logger::FfiLogger,
+    handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
 }
 
 impl Default for FfiServer {
@@ -111,6 +118,7 @@ impl Default for FfiServer {
             async_runtime,
             config: Default::default(),
             logger,
+            handle_dropped_txs: Default::default(),
         }
     }
 }
@@ -126,7 +134,8 @@ impl FfiServer {
     }
 
     pub async fn dispose(&self) {
-        log::info!("disposing the FfiServer, closing all rooms...");
+        self.logger.set_capture_logs(false);
+        log::info!("disposing ffi server");
 
         // Close all rooms
         let mut rooms = Vec::new();
@@ -141,7 +150,6 @@ impl FfiServer {
         }
 
         // Drop all handles
-        self.ffi_handles.clear();
         *self.config.lock() = None; // Invalidate the config
     }
 
@@ -192,7 +200,20 @@ impl FfiServer {
     }
 
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
-        self.ffi_handles.remove(&id).is_some()
+        let existed = self.ffi_handles.remove(&id).is_some();
+        self.handle_dropped_txs.remove(&id);
+        return existed;
+    }
+
+    pub fn watch_handle_dropped(&self, handle: FfiHandleId) -> oneshot::Receiver<()> {
+        // Create vec if not exists
+        if self.handle_dropped_txs.get(&handle).is_none() {
+            self.handle_dropped_txs.insert(handle, Vec::new());
+        }
+        let (tx, rx) = oneshot::channel::<()>();
+        let mut tx_vec = self.handle_dropped_txs.get_mut(&handle).unwrap();
+        tx_vec.push(tx);
+        return rx;
     }
 
     pub fn send_panic(&self, err: Box<dyn Error>) {

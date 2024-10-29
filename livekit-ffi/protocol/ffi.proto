@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -23,6 +23,7 @@ import "track.proto";
 import "room.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
+import "rpc.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -69,25 +70,42 @@ message FfiRequest {
     GetSessionStatsRequest get_session_stats = 12;
     PublishTranscriptionRequest publish_transcription = 13;
     PublishSipDtmfRequest publish_sip_dtmf = 14;
+    
 
     // Track
     CreateVideoTrackRequest create_video_track = 15;
     CreateAudioTrackRequest create_audio_track = 16;
-    GetStatsRequest get_stats = 17;
+    LocalTrackMuteRequest local_track_mute = 17;
+    EnableRemoteTrackRequest enable_remote_track = 18;
+    GetStatsRequest get_stats = 19;
 
-    // Video
-    NewVideoStreamRequest new_video_stream = 18;
-    NewVideoSourceRequest new_video_source = 19;
-    CaptureVideoFrameRequest capture_video_frame = 20;
-    VideoConvertRequest video_convert = 21;
+// Video
+    NewVideoStreamRequest new_video_stream = 20;
+    NewVideoSourceRequest new_video_source = 21;
+    CaptureVideoFrameRequest capture_video_frame = 22;
+    VideoConvertRequest video_convert = 23;
+    VideoStreamFromParticipantRequest video_stream_from_participant = 24;
 
     // Audio
-    NewAudioStreamRequest new_audio_stream = 23;
-    NewAudioSourceRequest new_audio_source = 24;
-    CaptureAudioFrameRequest capture_audio_frame = 25;
-    NewAudioResamplerRequest new_audio_resampler = 26;
-    RemixAndResampleRequest remix_and_resample = 27;
-    E2eeRequest e2ee = 28;
+    NewAudioStreamRequest new_audio_stream = 25;
+    NewAudioSourceRequest new_audio_source = 26;
+    CaptureAudioFrameRequest capture_audio_frame = 27;
+    ClearAudioBufferRequest clear_audio_buffer = 28;
+    NewAudioResamplerRequest new_audio_resampler = 29;
+    RemixAndResampleRequest remix_and_resample = 30;
+    E2eeRequest e2ee = 31;
+    AudioStreamFromParticipantRequest audio_stream_from_participant = 32;
+    NewSoxResamplerRequest new_sox_resampler = 33;
+    PushSoxResamplerRequest push_sox_resampler = 34;
+    FlushSoxResamplerRequest flush_sox_resampler = 35;
+    SendChatMessageRequest send_chat_message = 36;
+    EditChatMessageRequest edit_chat_message = 37;
+
+    // RPC
+    PerformRpcRequest perform_rpc = 38;
+    RegisterRpcMethodRequest register_rpc_method = 39;
+    UnregisterRpcMethodRequest unregister_rpc_method = 40;
+    RpcMethodInvocationResponseRequest rpc_method_invocation_response = 41;
   }
 }
 
@@ -113,21 +131,35 @@ message FfiResponse {
     // Track
     CreateVideoTrackResponse create_video_track = 15;
     CreateAudioTrackResponse create_audio_track = 16;
-    GetStatsResponse get_stats = 17;
+    LocalTrackMuteResponse local_track_mute = 17;
+    EnableRemoteTrackResponse enable_remote_track = 18;
+    GetStatsResponse get_stats = 19;
 
     // Video
-    NewVideoStreamResponse new_video_stream = 18;
-    NewVideoSourceResponse new_video_source = 19;
-    CaptureVideoFrameResponse capture_video_frame = 20;
-    VideoConvertResponse video_convert = 21;
+    NewVideoStreamResponse new_video_stream = 20;
+    NewVideoSourceResponse new_video_source = 21;
+    CaptureVideoFrameResponse capture_video_frame = 22;
+    VideoConvertResponse video_convert = 23;
+    VideoStreamFromParticipantResponse video_stream_from_participant = 24;
 
     // Audio
-    NewAudioStreamResponse new_audio_stream = 22;
-    NewAudioSourceResponse new_audio_source = 23;
-    CaptureAudioFrameResponse capture_audio_frame = 24;
-    NewAudioResamplerResponse new_audio_resampler = 25;
-    RemixAndResampleResponse remix_and_resample = 26;
-    E2eeResponse e2ee = 27;
+    NewAudioStreamResponse new_audio_stream = 25;
+    NewAudioSourceResponse new_audio_source = 26;
+    CaptureAudioFrameResponse capture_audio_frame = 27;
+    ClearAudioBufferResponse clear_audio_buffer = 28;
+    NewAudioResamplerResponse new_audio_resampler = 29;
+    RemixAndResampleResponse remix_and_resample = 30;
+    AudioStreamFromParticipantResponse audio_stream_from_participant = 31;
+    E2eeResponse e2ee = 32;
+    NewSoxResamplerResponse new_sox_resampler = 33;
+    PushSoxResamplerResponse push_sox_resampler = 34;
+    FlushSoxResamplerResponse flush_sox_resampler = 35;
+    SendChatMessageResponse send_chat_message = 36;
+    // RPC
+    PerformRpcResponse perform_rpc = 37;
+    RegisterRpcMethodResponse register_rpc_method = 38;
+    UnregisterRpcMethodResponse unregister_rpc_method = 39;
+    RpcMethodInvocationResponseResponse rpc_method_invocation_response = 40;
   }
 }
 
@@ -156,6 +188,9 @@ message FfiEvent {
     GetSessionStatsCallback get_session_stats = 19;
     Panic panic = 20;
     PublishSipDtmfCallback publish_sip_dtmf = 21;
+    SendChatMessageCallback chat_message = 22;
+    PerformRpcCallback perform_rpc = 23;
+    RpcMethodInvocationEvent rpc_method_invocation = 24;
   }
 }
 
@@ -163,14 +198,14 @@ message FfiEvent {
 // e.g: This is used for the Unity Editor after each assemblies reload.
 // TODO(theomonnom): Implement a debug mode where we can find all leaked handles?
 message DisposeRequest {
-  bool async = 1;
+  required bool async = 1;
 }
 message DisposeResponse {
   optional uint64 async_id = 1; // None if sync
 }
 
 message DisposeCallback {
-  uint64 async_id = 1;
+  required uint64 async_id = 1;
 }
 
 enum LogLevel {
@@ -182,12 +217,12 @@ enum LogLevel {
 }
 
 message LogRecord {
-  LogLevel level = 1;
-  string target = 2; // e.g "livekit", "libwebrtc", "tokio-tungstenite", etc...
+  required LogLevel level = 1;
+  required string target = 2; // e.g "livekit", "libwebrtc", "tokio-tungstenite", etc...
   optional string module_path = 3;
   optional string file = 4;
   optional uint32 line = 5;
-  string message = 6;
+  required string message = 6;
 }
 
 message LogBatch {
@@ -195,7 +230,7 @@ message LogBatch {
 }
 
 message Panic {
-  string message = 1;
+  required string message = 1;
 }
 
 // TODO(theomonnom): Debug messages (Print handles).

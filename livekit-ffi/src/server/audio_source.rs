@@ -43,7 +43,7 @@ impl FfiAudioSource {
                     new_source.options.map(Into::into).unwrap_or_default(),
                     new_source.sample_rate,
                     new_source.num_channels,
-                    new_source.enable_queue,
+                    new_source.queue_size_ms.unwrap_or(1000),
                 );
                 RtcAudioSource::Native(audio_source)
             }
@@ -56,10 +56,15 @@ impl FfiAudioSource {
         let info = proto::AudioSourceInfo::from(&source);
         server.store_handle(source.handle_id, source);
 
-        Ok(proto::OwnedAudioSource {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(info),
-        })
+        Ok(proto::OwnedAudioSource { handle: proto::FfiOwnedHandle { id: handle_id }, info: info })
+    }
+
+    pub fn clear_buffer(&self) {
+        match self.source {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcAudioSource::Native(ref source) => source.clear_buffer(),
+            _ => {}
+        }
     }
 
     pub fn capture_frame(
@@ -67,9 +72,7 @@ impl FfiAudioSource {
         server: &'static server::FfiServer,
         capture: proto::CaptureAudioFrameRequest,
     ) -> FfiResult<proto::CaptureAudioFrameResponse> {
-        let Some(buffer) = capture.buffer else {
-            return Err(FfiError::InvalidRequest("buffer is None".into()));
-        };
+        let buffer = capture.buffer;
 
         let source = self.source.clone();
         let async_id = server.next_id();

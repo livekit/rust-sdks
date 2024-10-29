@@ -23,7 +23,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::SignalOptions;
+use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
@@ -31,9 +31,12 @@ use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
-use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::{
+    signal,
+    sync::{mpsc, oneshot, Mutex as AsyncMutex},
+};
 
-use self::{
+pub use self::{
     e2ee::{manager::E2eeManager, E2eeOptions},
     participant::ParticipantKind,
 };
@@ -54,6 +57,8 @@ pub mod participant;
 pub mod publication;
 pub mod track;
 pub(crate) mod utils;
+
+pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub type RoomResult<T> = Result<T, RoomError>;
 
@@ -162,6 +167,10 @@ pub enum RoomEvent {
         digit: Option<String>,
         participant: Option<RemoteParticipant>,
     },
+    ChatMessage {
+        message: ChatMessage,
+        participant: Option<RemoteParticipant>,
+    },
     E2eeStateChanged {
         participant: Participant,
         state: EncryptionState,
@@ -236,7 +245,64 @@ pub struct SipDTMF {
     pub destination_identities: Vec<ParticipantIdentity>,
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct ChatMessage {
+    pub id: String,
+    pub message: String,
+    pub timestamp: i64,
+    pub edit_timestamp: Option<i64>,
+    pub deleted: Option<bool>,
+    pub generated: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
+pub struct RpcRequest {
+    pub destination_identity: String,
+    pub id: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout_ms: u32,
+    pub version: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcResponse {
+    destination_identity: String,
+    request_id: String,
+    payload: Option<String>,
+    error: Option<proto::RpcError>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RpcAck {
+    destination_identity: String,
+    request_id: String,
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RoomSdkOptions {
+    pub sdk: String,
+    pub sdk_version: String,
+}
+
+impl Default for RoomSdkOptions {
+    fn default() -> Self {
+        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string() }
+    }
+}
+
+impl From<RoomSdkOptions> for SignalSdkOptions {
+    fn from(options: RoomSdkOptions) -> Self {
+        let mut sdk_options = SignalSdkOptions::default();
+        sdk_options.sdk = options.sdk;
+        sdk_options.sdk_version = Some(options.sdk_version);
+        sdk_options
+    }
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
@@ -244,6 +310,7 @@ pub struct RoomOptions {
     pub e2ee: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
+    pub sdk_options: RoomSdkOptions,
 }
 
 impl Default for RoomOptions {
@@ -262,6 +329,7 @@ impl Default for RoomOptions {
                 ice_transport_type: IceTransportsType::All,
             },
             join_retries: 3,
+            sdk_options: RoomSdkOptions::default(),
         }
     }
 }
@@ -317,15 +385,16 @@ impl Room {
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let e2ee_manager = E2eeManager::new(options.e2ee.clone());
+        let mut signal_options = SignalOptions::default();
+        signal_options.sdk_options = options.sdk_options.clone().into();
+        signal_options.auto_subscribe = options.auto_subscribe;
+        signal_options.adaptive_stream = options.adaptive_stream;
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
             EngineOptions {
                 rtc_config: options.rtc_config.clone(),
-                signal_options: SignalOptions {
-                    auto_subscribe: options.auto_subscribe,
-                    adaptive_stream: options.adaptive_stream,
-                },
+                signal_options,
                 join_retries: options.join_retries,
             },
         )
@@ -431,7 +500,7 @@ impl Room {
             }),
             remote_participants: Default::default(),
             active_speakers: Default::default(),
-            options,
+            options: options.clone(),
             rtc_engine: rtc_engine.clone(),
             local_participant,
             dispatcher: dispatcher.clone(),
@@ -606,11 +675,42 @@ impl RoomSession {
             EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
                 self.handle_data(payload, topic, kind, participant_sid, participant_identity);
             }
+            EngineEvent::ChatMessage { participant_identity, message } => {
+                self.handle_chat_message(participant_identity, message);
+            }
             EngineEvent::Transcription { participant_identity, track_sid, segments } => {
                 self.handle_transcription(participant_identity, track_sid, segments);
             }
             EngineEvent::SipDTMF { code, digit, participant_identity } => {
                 self.handle_dtmf(code, digit, participant_identity);
+            }
+            EngineEvent::RpcRequest {
+                caller_identity,
+                request_id,
+                method,
+                payload,
+                response_timeout_ms,
+                version,
+            } => {
+                if caller_identity.is_none() {
+                    log::warn!("Received RPC request with null caller identity");
+                    return Ok(());
+                }
+                self.local_participant
+                    .handle_incoming_rpc_request(
+                        caller_identity.unwrap(),
+                        request_id,
+                        method,
+                        payload,
+                        response_timeout_ms,
+                    )
+                    .await;
+            }
+            EngineEvent::RpcResponse { request_id, payload, error } => {
+                self.local_participant.handle_incoming_rpc_response(request_id, payload, error);
+            }
+            EngineEvent::RpcAck { request_id } => {
+                self.local_participant.handle_incoming_rpc_ack(request_id);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
@@ -619,6 +719,7 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
+            _ => {}
         }
 
         Ok(())
@@ -1024,9 +1125,8 @@ impl RoomSession {
             self.dispatcher.dispatch(&RoomEvent::Disconnected { reason });
         }
 
+        log::info!("disconnected from room with reason: {:?}", reason);
         if reason != DisconnectReason::ClientInitiated {
-            log::error!("unexpectedly disconnected from room: {:?}", reason);
-
             livekit_runtime::spawn({
                 let inner = self.clone();
                 async move {
@@ -1067,6 +1167,21 @@ impl RoomSession {
             kind,
             participant,
         });
+    }
+
+    fn handle_chat_message(
+        &self,
+        participant_identity: ParticipantIdentity,
+        chat_message: ChatMessage,
+    ) {
+        let participant = self.get_participant_by_identity(&participant_identity);
+
+        if participant.is_none() {
+            // We received a data packet from a participant that is not in the participants list
+            return;
+        }
+
+        self.dispatcher.dispatch(&RoomEvent::ChatMessage { message: chat_message, participant });
     }
 
     fn handle_dtmf(

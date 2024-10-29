@@ -107,6 +107,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
 
 [[package]]
+name = "android-tzdata"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
+
+[[package]]
 name = "android_log-sys"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -658,11 +664,16 @@ checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
 name = "chrono"
-version = "0.4.31"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f2c685bad3eb3d45a01354cedb7d5faa66194d1d58ba6e267a8de788f79db38"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
+ "android-tzdata",
+ "iana-time-zone",
+ "js-sys",
  "num-traits",
+ "wasm-bindgen",
+ "windows-targets 0.52.0",
 ]
 
 [[package]]
@@ -1843,6 +1854,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "iana-time-zone"
+version = "0.1.61"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "235e081f3925a06703c2d0117ea8b91f042756fd6e7a6e5d901e8ca1a996b220"
+dependencies = [
+ "android_system_properties",
+ "core-foundation-sys",
+ "iana-time-zone-haiku",
+ "js-sys",
+ "wasm-bindgen",
+ "windows-core",
+]
+
+[[package]]
+name = "iana-time-zone-haiku"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "idna"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2108,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.2"
+version = "0.3.7"
 dependencies = [
  "cxx",
  "jni",
@@ -2122,7 +2156,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-stream",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -2152,8 +2185,9 @@ checksum = "c4cd1a83af159aa67994778be9070f0ae1bd732942279cabb14f86f986a21456"
 
 [[package]]
 name = "livekit"
-version = "0.3.2"
+version = "0.6.0"
 dependencies = [
+ "chrono",
  "futures-util",
  "lazy_static",
  "libwebrtc",
@@ -2163,6 +2197,7 @@ dependencies = [
  "log",
  "parking_lot",
  "prost 0.12.3",
+ "semver",
  "serde",
  "serde_json",
  "thiserror",
@@ -2171,7 +2206,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "async-tungstenite",
  "base64",
@@ -2196,7 +2231,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "futures-util",
  "livekit-runtime",
@@ -2215,6 +2250,7 @@ name = "livekit-runtime"
 version = "0.3.0"
 dependencies = [
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -3279,6 +3315,19 @@ dependencies = [
  "bitflags 2.4.1",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "rpc_example"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "livekit",
+ "livekit-api",
+ "log",
+ "rand",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -4455,7 +4504,7 @@ checksum = "1778a42e8b3b90bff8d0f5032bf22250792889a5cdc752aa0020c84abe3aaf10"
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "cc",
  "cxx",
@@ -4467,7 +4516,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys-build"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "fs2",
  "regex",
@@ -4668,6 +4717,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e745dab35a0c4c77aa3ce42d595e13d2003d6902d6b08c9ef5fc326d08da12b"
 dependencies = [
  "windows-targets 0.42.2",
+]
+
+[[package]]
+name = "windows-core"
+version = "0.52.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
+dependencies = [
+ "windows-targets 0.52.0",
 ]
 
 [[package]]

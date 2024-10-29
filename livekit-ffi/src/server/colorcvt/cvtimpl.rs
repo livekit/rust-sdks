@@ -63,6 +63,15 @@ pub unsafe fn cvt_rgba(
             );
             Ok((dst, info))
         }
+        proto::VideoBufferType::Bgra => {
+            let mut dst = vec![0u8; (width * height * 4) as usize].into_boxed_slice();
+            let stride = width * 4;
+
+            colorcvt::abgr_to_argb(data, stride, &mut dst, stride, width, height, flip_y);
+
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
+            Ok((dst, info))
+        }
         _ => {
             Err(FfiError::InvalidRequest(format!("rgba to {:?} is not supported", dst_type).into()))
         }
@@ -197,6 +206,16 @@ pub unsafe fn cvt_bgra(
                 chroma_w,
                 chroma_w,
             );
+
+            Ok((dst, info))
+        }
+        proto::VideoBufferType::Rgba => {
+            let mut dst = vec![0u8; (width * height * 4) as usize].into_boxed_slice();
+            let stride = width * 4;
+
+            colorcvt::argb_to_abgr(data, stride, &mut dst, stride, width, height, flip_y);
+
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
             Ok((dst, info))
         }
         _ => {

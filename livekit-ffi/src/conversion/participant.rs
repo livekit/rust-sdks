@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{proto, server::room::FfiParticipant};
+use crate::{proto, server::participant::FfiParticipant};
+use livekit::ParticipantKind;
 
 impl From<&FfiParticipant> for proto::ParticipantInfo {
     fn from(value: &FfiParticipant) -> Self {
@@ -23,6 +24,19 @@ impl From<&FfiParticipant> for proto::ParticipantInfo {
             identity: participant.identity().into(),
             metadata: participant.metadata(),
             attributes: participant.attributes(),
+            kind: proto::ParticipantKind::from(participant.kind()).into(),
+        }
+    }
+}
+
+impl From<ParticipantKind> for proto::ParticipantKind {
+    fn from(kind: ParticipantKind) -> Self {
+        match kind {
+            ParticipantKind::Standard => proto::ParticipantKind::Standard,
+            ParticipantKind::Sip => proto::ParticipantKind::Sip,
+            ParticipantKind::Ingress => proto::ParticipantKind::Ingress,
+            ParticipantKind::Egress => proto::ParticipantKind::Egress,
+            ParticipantKind::Agent => proto::ParticipantKind::Agent,
         }
     }
 }

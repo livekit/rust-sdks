@@ -12,52 +12,66 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
+import "track.proto";
 
 // Create a new VideoStream
 // VideoStream is used to receive video frames from a track
 message NewVideoStreamRequest {
-  uint64 track_handle = 1;
-  VideoStreamType type = 2;
+  required uint64 track_handle = 1;
+  required VideoStreamType type = 2;
   // Get the frame on a specific format
   optional VideoBufferType format = 3;
-  bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
+  optional bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
 }
-message NewVideoStreamResponse { OwnedVideoStream stream = 1; }
+message NewVideoStreamResponse { required OwnedVideoStream stream = 1; }
+
+// Request a video stream from a participant
+message VideoStreamFromParticipantRequest {
+  required uint64 participant_handle = 1;
+  required VideoStreamType type = 2;
+  required TrackSource track_source = 3;
+  optional VideoBufferType format = 4;
+  optional bool normalize_stride = 5;
+}
+
+message VideoStreamFromParticipantResponse { required OwnedVideoStream stream = 1;}
 
 // Create a new VideoSource
 // VideoSource is used to send video frame to a track
 message NewVideoSourceRequest { 
-  VideoSourceType type = 1; 
+  required VideoSourceType type = 1; 
   // Used to determine which encodings to use + simulcast layers
   // Most of the time it corresponds to the source resolution 
-  VideoSourceResolution resolution = 2;
+  required VideoSourceResolution resolution = 2;
 }
-message NewVideoSourceResponse { OwnedVideoSource source = 1; }
+message NewVideoSourceResponse { required OwnedVideoSource source = 1; }
 
 // Push a frame to a VideoSource
 message CaptureVideoFrameRequest {
-  uint64 source_handle = 1;
-  VideoBufferInfo buffer = 2;
-  int64 timestamp_us = 3; // In microseconds
-  VideoRotation rotation = 4;
+  required uint64 source_handle = 1;
+  required VideoBufferInfo buffer = 2;
+  required int64 timestamp_us = 3; // In microseconds
+  required VideoRotation rotation = 4;
 }
 
 message CaptureVideoFrameResponse {}
 
 message VideoConvertRequest {
-  bool flip_y = 1;
-  VideoBufferInfo buffer = 2;
-  VideoBufferType dst_type = 3;
+  optional bool flip_y = 1;
+  required VideoBufferInfo buffer = 2;
+  required VideoBufferType dst_type = 3;
 }
-message VideoConvertResponse { 
-  optional string error = 1;
-  OwnedVideoBuffer buffer = 2; 
+message VideoConvertResponse {
+  oneof message {
+    string error = 1;
+    OwnedVideoBuffer buffer = 2; 
+  }
 }
 
 //
@@ -65,9 +79,9 @@ message VideoConvertResponse {
 //
 
 message VideoResolution {
-  uint32 width = 1;
-  uint32 height = 2;
-  double frame_rate = 3;
+  required uint32 width = 1;
+  required uint32 height = 2;
+  required double frame_rate = 3;
 }
 
 enum VideoCodec {
@@ -100,21 +114,21 @@ enum VideoBufferType {
 
 message VideoBufferInfo {
   message ComponentInfo {
-    uint64 data_ptr = 1;
-    uint32 stride = 2;
-    uint32 size = 3;
+    required uint64 data_ptr = 1;
+    required uint32 stride = 2;
+    required uint32 size = 3;
   }
-  VideoBufferType type = 1;
-  uint32 width = 2;
-  uint32 height = 3;
-  uint64 data_ptr = 4;
-  uint32 stride = 6; // only for packed formats
+  required VideoBufferType type = 1;
+  required uint32 width = 2;
+  required uint32 height = 3;
+  required uint64 data_ptr = 4;
+  required uint32 stride = 6; // only for packed formats
   repeated ComponentInfo components = 7;
 }
 
 message OwnedVideoBuffer {
-  FfiOwnedHandle handle = 1;
-  VideoBufferInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required VideoBufferInfo info = 2;
 }
 
 //
@@ -128,16 +142,16 @@ enum VideoStreamType {
 }
 
 message VideoStreamInfo {
-  VideoStreamType type = 1;
+  required VideoStreamType type = 1;
 }
 
 message OwnedVideoStream {
-  FfiOwnedHandle handle = 1;
-  VideoStreamInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required VideoStreamInfo info = 2;
 }
 
 message VideoStreamEvent {
-  uint64 stream_handle = 1;
+  required uint64 stream_handle = 1;
   oneof message { 
     VideoFrameReceived frame_received = 2;
     VideoStreamEOS eos = 3;
@@ -145,9 +159,9 @@ message VideoStreamEvent {
 }
 
 message VideoFrameReceived {
-  OwnedVideoBuffer buffer = 1;
-  int64 timestamp_us = 2; // In microseconds
-  VideoRotation rotation = 3;
+  required OwnedVideoBuffer buffer = 1;
+  required int64 timestamp_us = 2; // In microseconds
+  required VideoRotation rotation = 3;
 }
 
 message VideoStreamEOS {}
@@ -157,8 +171,8 @@ message VideoStreamEOS {}
 //
 
 message VideoSourceResolution {
-  uint32 width = 1;
-  uint32 height = 2;
+  required uint32 width = 1;
+  required uint32 height = 2;
 }
 
 enum VideoSourceType {
@@ -166,10 +180,10 @@ enum VideoSourceType {
 }
 
 message VideoSourceInfo {
-  VideoSourceType type = 1;
+  required VideoSourceType type = 1;
 }
 
 message OwnedVideoSource {
-  FfiOwnedHandle handle = 1;
-  VideoSourceInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required VideoSourceInfo info = 2;
 }

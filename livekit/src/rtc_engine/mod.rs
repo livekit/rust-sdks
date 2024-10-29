@@ -27,7 +27,6 @@ use tokio::sync::{
 
 pub use self::rtc_session::SessionStats;
 use crate::prelude::ParticipantIdentity;
-use crate::TranscriptionSegment;
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -39,6 +38,7 @@ use crate::{
     },
     DataPacketKind,
 };
+use crate::{ChatMessage, TranscriptionSegment};
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -99,6 +99,10 @@ pub enum EngineEvent {
         topic: Option<String>,
         kind: DataPacketKind,
     },
+    ChatMessage {
+        participant_identity: ParticipantIdentity,
+        message: ChatMessage,
+    },
     Transcription {
         participant_identity: ParticipantIdentity,
         track_sid: String,
@@ -108,6 +112,22 @@ pub enum EngineEvent {
         participant_identity: Option<ParticipantIdentity>,
         code: u32,
         digit: Option<String>,
+    },
+    RpcRequest {
+        caller_identity: Option<ParticipantIdentity>,
+        request_id: String,
+        method: String,
+        payload: String,
+        response_timeout_ms: u32,
+        version: u32,
+    },
+    RpcResponse {
+        request_id: String,
+        payload: Option<String>,
+        error: Option<proto::RpcError>,
+    },
+    RpcAck {
+        request_id: String,
     },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
@@ -148,6 +168,7 @@ struct EngineHandle {
     session: Arc<RtcSession>,
     closed: bool,
     reconnecting: bool,
+    can_reconnect: bool,
 
     // If full_reconnect is true, the next attempt will not try to resume
     // and will instead do a full reconnect
@@ -318,6 +339,7 @@ impl EngineInner {
                             session: Arc::new(session),
                             closed: false,
                             reconnecting: false,
+                            can_reconnect: true,
                             full_reconnect: false,
                             engine_task: None,
                         }),
@@ -402,15 +424,25 @@ impl EngineInner {
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
             SessionEvent::Close { source, reason, action, retry_now } => {
-                log::debug!("received session close: {}, {:?}", source, reason);
                 match action {
-                    proto::leave_request::Action::Resume => {
-                        self.reconnection_needed(retry_now, false)
-                    }
-                    proto::leave_request::Action::Reconnect => {
-                        self.reconnection_needed(retry_now, true)
+                    proto::leave_request::Action::Resume
+                    | proto::leave_request::Action::Reconnect => {
+                        log::warn!(
+                            "received session close: {:?} {:?} {:?}",
+                            source,
+                            reason,
+                            action
+                        );
+                        self.reconnection_needed(
+                            retry_now,
+                            action == proto::leave_request::Action::Reconnect,
+                        );
                     }
                     proto::leave_request::Action::Disconnect => {
+                        // Disallow reconnection to avoid races
+                        let mut running_handle = self.running_handle.write();
+                        running_handle.can_reconnect = false;
+
                         // Spawning a new task because the close function wait for the engine_task to
                         // finish. (So it doesn't make sense to await it here)
                         livekit_runtime::spawn({
@@ -431,6 +463,10 @@ impl EngineInner {
                     kind,
                 });
             }
+            SessionEvent::ChatMessage { participant_identity, message } => {
+                let _ =
+                    self.engine_tx.send(EngineEvent::ChatMessage { participant_identity, message });
+            }
             SessionEvent::SipDTMF { participant_identity, code, digit } => {
                 let _ =
                     self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
@@ -441,6 +477,34 @@ impl EngineInner {
                     track_sid,
                     segments,
                 });
+            }
+            SessionEvent::SipDTMF { participant_identity, code, digit } => {
+                let _ =
+                    self.engine_tx.send(EngineEvent::SipDTMF { participant_identity, code, digit });
+            }
+            SessionEvent::RpcRequest {
+                caller_identity,
+                request_id,
+                method,
+                payload,
+                response_timeout_ms,
+                version,
+            } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcRequest {
+                    caller_identity,
+                    request_id,
+                    method,
+                    payload,
+                    response_timeout_ms,
+                    version,
+                });
+            }
+            SessionEvent::RpcResponse { request_id, payload, error } => {
+                let _ =
+                    self.engine_tx.send(EngineEvent::RpcResponse { request_id, payload, error });
+            }
+            SessionEvent::RpcAck { request_id } => {
+                let _ = self.engine_tx.send(EngineEvent::RpcAck { request_id });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });
@@ -505,6 +569,11 @@ impl EngineInner {
     /// Ask for a full reconnect if `full_reconnect` is true
     fn reconnection_needed(self: &Arc<Self>, retry_now: bool, full_reconnect: bool) {
         let mut running_handle = self.running_handle.write();
+
+        if !running_handle.can_reconnect {
+            return;
+        }
+
         if running_handle.reconnecting {
             // If we're already reconnecting just update the interval to restart a new attempt
             // ASAP
@@ -611,7 +680,7 @@ impl EngineInner {
                 log::error!("resuming connection... attempt: {}", i);
                 if let Err(err) = self.try_resume_connection().await {
                     log::error!("resuming connection failed: {}", err);
-                    if let EngineError::Signal(_) = err {
+                    if !matches!(err, EngineError::Signal(_)) {
                         let mut running_handle = self.running_handle.write();
                         running_handle.full_reconnect = true;
                     }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -23,30 +23,30 @@ import "stats.proto";
 
 // Create a new VideoTrack from a VideoSource
 message CreateVideoTrackRequest {
-  string name = 1;
-  uint64 source_handle = 2;
+  required string name = 1;
+  required uint64 source_handle = 2;
 }
 message CreateVideoTrackResponse {
-  OwnedTrack track = 1;
+  required OwnedTrack track = 1;
 }
 
 // Create a new AudioTrack from a AudioSource
 message CreateAudioTrackRequest {
-  string name = 1;
-  uint64 source_handle = 2;
+  required string name = 1;
+  required uint64 source_handle = 2;
 }
 message CreateAudioTrackResponse {
-  OwnedTrack track = 1;
+  required OwnedTrack track = 1;
 }
 
 message GetStatsRequest {
-  uint64 track_handle = 1;
+  required uint64 track_handle = 1;
 }
 message GetStatsResponse {
-  uint64 async_id = 1;
+  required uint64 async_id = 1;
 }
 message GetStatsCallback {
-  uint64 async_id = 1;
+  required uint64 async_id = 1;
   optional string error = 2;
   repeated RtcStats stats = 3;
 }
@@ -78,34 +78,54 @@ enum StreamState {
 }
 
 message TrackPublicationInfo {
-  string sid = 1;
-  string name = 2;
-  TrackKind kind = 3;
-  TrackSource source = 4;
-  bool simulcasted = 5;
-  uint32 width = 6;
-  uint32 height = 7;
-  string mime_type = 8;
-  bool muted = 9;
-  bool remote = 10;
-  EncryptionType encryption_type = 11;
+  required string sid = 1;
+  required string name = 2;
+  required TrackKind kind = 3;
+  required TrackSource source = 4;
+  required bool simulcasted = 5;
+  required uint32 width = 6;
+  required uint32 height = 7;
+  required string mime_type = 8;
+  required bool muted = 9;
+  required bool remote = 10;
+  required EncryptionType encryption_type = 11;
 }
 
 message OwnedTrackPublication {
-  FfiOwnedHandle handle = 1;
-  TrackPublicationInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required TrackPublicationInfo info = 2;
 }
 
 message TrackInfo {
-  string sid = 1;
-  string name = 2;
-  TrackKind kind = 3;
-  StreamState stream_state = 4;
-  bool muted = 5;
-  bool remote = 6;
+  required string sid = 1;
+  required string name = 2;
+  required TrackKind kind = 3;
+  required StreamState stream_state = 4;
+  required bool muted = 5;
+  required bool remote = 6;
 }
 
 message OwnedTrack {
-  FfiOwnedHandle handle = 1;
-  TrackInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required TrackInfo info = 2;
+}
+
+// Mute/UnMute a track
+message LocalTrackMuteRequest {
+  required uint64 track_handle = 1;
+  required bool mute = 2;
+}
+
+message LocalTrackMuteResponse {
+  required bool muted = 1;
+}
+
+// Enable/Disable a remote track
+message EnableRemoteTrackRequest {
+  required uint64 track_handle = 1;
+  required bool enabled = 2;
+}
+
+message EnableRemoteTrackResponse {
+  required bool enabled = 1;
 }

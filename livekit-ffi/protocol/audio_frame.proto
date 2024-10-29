@@ -12,77 +12,162 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
+import "track.proto";
 
 // Create a new AudioStream
 // AudioStream is used to receive audio frames from a track
 message NewAudioStreamRequest {
-  uint64 track_handle = 1;
-  AudioStreamType type = 2;
+  required uint64 track_handle = 1;
+  required AudioStreamType type = 2;
+  optional uint32 sample_rate = 3;
+  optional uint32 num_channels = 4;
 }
-message NewAudioStreamResponse { OwnedAudioStream stream = 1; }
+message NewAudioStreamResponse { required OwnedAudioStream stream = 1; }
+
+message AudioStreamFromParticipantRequest {
+  required uint64 participant_handle = 1;
+  required AudioStreamType type = 2;
+  optional TrackSource track_source = 3;
+  optional uint32 sample_rate = 5;
+  optional uint32 num_channels = 6;
+}
+
+message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 1; }
 
 // Create a new AudioSource
 message NewAudioSourceRequest {
-  AudioSourceType type = 1;
+  required AudioSourceType type = 1;
   optional AudioSourceOptions options = 2;
-  uint32 sample_rate = 3;
-  uint32 num_channels = 4;
-  optional bool enable_queue = 5;
+  required uint32 sample_rate = 3;
+  required uint32 num_channels = 4;
+  optional uint32 queue_size_ms = 5;
 }
-message NewAudioSourceResponse { OwnedAudioSource source = 1; }
+message NewAudioSourceResponse { required OwnedAudioSource source = 1; }
 
 // Push a frame to an AudioSource 
 // The data provided must be available as long as the client receive the callback.
 message CaptureAudioFrameRequest { 
-  uint64 source_handle = 1;
-  AudioFrameBufferInfo buffer = 2;
+  required uint64 source_handle = 1;
+  required AudioFrameBufferInfo buffer = 2;
 }
 message CaptureAudioFrameResponse {
-  uint64 async_id = 1;
+  required uint64 async_id = 1;
 }
 message CaptureAudioFrameCallback {
-  uint64 async_id = 1;
+  required uint64 async_id = 1;
   optional string error = 2;
 }
+
+message ClearAudioBufferRequest {
+  required uint64 source_handle = 1;
+}
+message ClearAudioBufferResponse {}
 
 // Create a new AudioResampler
 message NewAudioResamplerRequest {}
 message NewAudioResamplerResponse {
-  OwnedAudioResampler resampler = 1;
+  required OwnedAudioResampler resampler = 1;
 }
 
 // Remix and resample an audio frame
 message RemixAndResampleRequest {
-  uint64 resampler_handle = 1;
-  AudioFrameBufferInfo buffer = 2;
-  uint32 num_channels = 3;
-  uint32 sample_rate = 4;
+  required uint64 resampler_handle = 1;
+  required AudioFrameBufferInfo buffer = 2;
+  required uint32 num_channels = 3;
+  required uint32 sample_rate = 4;
 }
 
 message RemixAndResampleResponse {
-  OwnedAudioFrameBuffer buffer = 1;
+  required OwnedAudioFrameBuffer buffer = 1;
 }
+
+
+// New resampler using SoX (much better quality)
+
+message NewSoxResamplerRequest {
+  required double input_rate = 1;
+  required double output_rate  = 2;
+  required uint32 num_channels = 3;
+  required SoxResamplerDataType input_data_type = 4;
+  required SoxResamplerDataType output_data_type = 5;
+  required SoxQualityRecipe quality_recipe = 6;
+  optional uint32 flags = 7;
+}
+message NewSoxResamplerResponse {
+  oneof message {
+    OwnedSoxResampler resampler = 1;
+    string error = 2;
+  }
+  
+}
+
+message PushSoxResamplerRequest {
+  required uint64 resampler_handle = 1;
+  required uint64 data_ptr = 2; // *const i16
+  required uint32 size = 3; // in bytes
+}
+
+message PushSoxResamplerResponse {
+  required uint64 output_ptr = 1; // *const i16 (could be null)
+  required uint32 size = 2; // in bytes
+  optional string error = 3;
+}
+
+message FlushSoxResamplerRequest {
+  required uint64 resampler_handle = 1;
+}
+
+message FlushSoxResamplerResponse {
+  required uint64 output_ptr = 1; // *const i16 (could be null)
+  required uint32 size = 2; // in bytes
+  optional string error = 3;
+}
+
+enum SoxResamplerDataType {
+  // TODO(theomonnom): support other datatypes (shouldn't really be needed)
+  SOXR_DATATYPE_INT16I = 0;
+  SOXR_DATATYPE_INT16S = 1;
+}
+
+enum SoxQualityRecipe {
+  SOXR_QUALITY_QUICK = 0;
+  SOXR_QUALITY_LOW = 1;
+  SOXR_QUALITY_MEDIUM = 2;
+  SOXR_QUALITY_HIGH = 3;
+  SOXR_QUALITY_VERYHIGH = 4;
+}
+
+enum SoxFlagBits {
+  SOXR_ROLLOFF_SMALL = 0;  // 1 << 0
+  SOXR_ROLLOFF_MEDIUM = 1; // 1 << 1
+  SOXR_ROLLOFF_NONE = 2;   // 1 << 2
+  SOXR_HIGH_PREC_CLOCK = 3; // 1 << 3
+  SOXR_DOUBLE_PRECISION = 4; // 1 << 4
+  SOXR_VR = 5; // 1 << 5
+}
+
+
 
 //
 // AudioFrame buffer
 //
 
 message AudioFrameBufferInfo {
-  uint64 data_ptr = 1; // *const i16
-  uint32 num_channels = 2;
-  uint32 sample_rate = 3;
-  uint32 samples_per_channel = 4;
+  required uint64 data_ptr = 1; // *const i16
+  required uint32 num_channels = 2;
+  required uint32 sample_rate = 3;
+  required uint32 samples_per_channel = 4;
 }
 
 message OwnedAudioFrameBuffer {
-  FfiOwnedHandle handle = 1;
-  AudioFrameBufferInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required AudioFrameBufferInfo info = 2;
 }
 
 //
@@ -95,16 +180,16 @@ enum AudioStreamType {
 }
 
 message AudioStreamInfo {
-  AudioStreamType type = 1;
+  required AudioStreamType type = 1;
 }
 
 message OwnedAudioStream {
-  FfiOwnedHandle handle = 1;
-  AudioStreamInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required AudioStreamInfo info = 2;
 }
 
 message AudioStreamEvent {
-  uint64 stream_handle = 1;
+  required uint64 stream_handle = 1;
   oneof message { 
     AudioFrameReceived frame_received = 2;
     AudioStreamEOS eos = 3;
@@ -112,7 +197,7 @@ message AudioStreamEvent {
 }
 
 message AudioFrameReceived {
-  OwnedAudioFrameBuffer frame = 1;
+  required OwnedAudioFrameBuffer frame = 1;
 }
 
 message AudioStreamEOS {}
@@ -122,9 +207,9 @@ message AudioStreamEOS {}
 //
 
 message AudioSourceOptions {
-  bool echo_cancellation = 1;
-  bool noise_suppression = 2;
-  bool auto_gain_control = 3;
+  required bool echo_cancellation = 1;
+  required bool noise_suppression = 2;
+  required bool auto_gain_control = 3;
 }
 
 enum AudioSourceType {
@@ -132,12 +217,12 @@ enum AudioSourceType {
 }
 
 message AudioSourceInfo {
-  AudioSourceType type = 2;
+  required AudioSourceType type = 2;
 }
 
 message OwnedAudioSource {
-  FfiOwnedHandle handle = 1;
-  AudioSourceInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required AudioSourceInfo info = 2;
 }
 
 //
@@ -147,6 +232,20 @@ message OwnedAudioSource {
 message AudioResamplerInfo { }
 
 message OwnedAudioResampler {
-  FfiOwnedHandle handle = 1;
-  AudioResamplerInfo info = 2;
+  required FfiOwnedHandle handle = 1;
+  required AudioResamplerInfo info = 2;
+}
+
+
+
+//
+// Sox AudioResampler
+//
+
+
+message SoxResamplerInfo {}
+
+message OwnedSoxResampler {
+  required FfiOwnedHandle handle = 1;
+  required SoxResamplerInfo info = 2;
 }

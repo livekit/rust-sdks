@@ -1,0 +1,14 @@
+[package]
+name = "soxr-sys"
+version = "0.1.0"
+authors = ["Theo Monnom <theo.8bits@gmail.com"]
+edition = "2021"
+
+[dependencies]
+
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]
+hound = "3.4"
