@@ -112,19 +112,6 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
 
-      - name: Set up NDK
-        if: ${{ matrix.platform == 'android' }}
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r25c
-          add-to-path: false
-          link-to-sdk: true
-          local-cache: true
-
-      - name: Install clang
-        if: ${{ matrix.platform == 'android' }}
-        run: sudo apt-get install -y clang
-
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
         uses: docker/setup-qemu-action@v3
@@ -167,9 +154,6 @@ jobs:
       # on android use cargo ndk
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
-        #env:
-        #  ANDROID_NDK_HOME: /home/runner/.setup-ndk/r25c
-        #  ANDROID_NDK_ROOT: /home/runner/.setup-ndk/r25c
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
