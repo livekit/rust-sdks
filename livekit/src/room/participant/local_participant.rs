@@ -67,7 +67,6 @@ impl RpcState {
         }
     }
 }
-
 struct LocalInfo {
     events: LocalEvents,
     encryption_type: EncryptionType,
@@ -638,17 +637,10 @@ impl LocalParticipant {
         self.inner.info.read().kind
     }
 
-    pub async fn perform_rpc(
-        &self,
-        destination_identity: String,
-        method: String,
-        payload: String,
-        response_timeout: Option<Duration>,
-    ) -> Result<String, RpcError> {
-        let response_timeout = response_timeout.unwrap_or(Duration::from_millis(10000));
+    pub async fn perform_rpc(&self, params: PerformRpcParams) -> Result<String, RpcError> {
         let max_round_trip_latency = Duration::from_millis(2000);
 
-        if payload.len() > MAX_PAYLOAD_BYTES {
+        if params.payload.len() > MAX_PAYLOAD_BYTES {
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
         }
 
@@ -670,11 +662,11 @@ impl LocalParticipant {
 
         match self
             .publish_rpc_request(RpcRequest {
-                destination_identity: destination_identity.clone(),
+                destination_identity: params.destination_identity.clone(),
                 id: id.clone(),
-                method: method.clone(),
-                payload: payload.clone(),
-                response_timeout: response_timeout - max_round_trip_latency,
+                method: params.method.clone(),
+                payload: params.payload.clone(),
+                response_timeout: params.response_timeout - max_round_trip_latency,
                 version: 1,
             })
             .await
@@ -704,7 +696,7 @@ impl LocalParticipant {
         }
 
         // Wait for response timout
-        let response = match tokio::time::timeout(response_timeout, response_rx).await {
+        let response = match tokio::time::timeout(params.response_timeout, response_rx).await {
             Err(_) => {
                 self.local.rpc_state.lock().pending_responses.remove(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));

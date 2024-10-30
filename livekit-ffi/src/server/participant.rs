@@ -51,12 +51,15 @@ impl FfiParticipant {
 
         let handle = server.async_runtime.spawn(async move {
             let result = local
-                .perform_rpc(
-                    request.destination_identity.to_string(),
-                    request.method,
-                    request.payload,
-                    request.response_timeout_ms.map(|ms| Duration::from_millis(ms as u64)),
-                )
+                .perform_rpc(PerformRpcParams {
+                    destination_identity: request.destination_identity.to_string(),
+                    method: request.method,
+                    payload: request.payload,
+                    response_timeout: request
+                        .response_timeout_ms
+                        .map(|ms| Duration::from_millis(ms as u64))
+                        .unwrap_or(PerformRpcParams::default().response_timeout),
+                })
                 .await;
 
             let callback = proto::PerformRpcCallback {

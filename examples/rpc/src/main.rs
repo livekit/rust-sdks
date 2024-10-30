@@ -78,21 +78,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: &Arc<Room>) {
-    greeters_room.local_participant().register_rpc_method(
-        "arrival".to_string(),
-        |data| {
-            Box::pin(async move {
-                println!(
-                    "[{}] [Greeter] Oh {} arrived and said \"{}\"",
-                    elapsed_time(),
-                    data.caller_identity,
-                    data.payload
-                );
-                sleep(Duration::from_secs(2)).await;
-                Ok("Welcome and have a wonderful day!".to_string())
-            })
-        },
-    );
+    greeters_room.local_participant().register_rpc_method("arrival".to_string(), |data| {
+        Box::pin(async move {
+            println!(
+                "[{}] [Greeter] Oh {} arrived and said \"{}\"",
+                elapsed_time(),
+                data.caller_identity,
+                data.payload
+            );
+            sleep(Duration::from_secs(2)).await;
+            Ok("Welcome and have a wonderful day!".to_string())
+        })
+    });
 
     math_genius_room.local_participant().register_rpc_method(
         "square-root".to_string(),
@@ -118,34 +115,36 @@ async fn register_receiver_methods(greeters_room: &Arc<Room>, math_genius_room: 
         },
     );
 
-    math_genius_room.local_participant().register_rpc_method(
-        "divide".to_string(),
-        |data| {
-            Box::pin(async move {
-                let json_data: Value = serde_json::from_str(&data.payload).unwrap();
-                let dividend = json_data["dividend"].as_i64().unwrap();
-                let divisor = json_data["divisor"].as_i64().unwrap();
-                println!(
-                    "[{}] [Math Genius] {} wants me to divide {} by {}.",
-                    elapsed_time(),
-                    data.caller_identity,
-                    dividend,
-                    divisor
-                );
+    math_genius_room.local_participant().register_rpc_method("divide".to_string(), |data| {
+        Box::pin(async move {
+            let json_data: Value = serde_json::from_str(&data.payload).unwrap();
+            let dividend = json_data["dividend"].as_i64().unwrap();
+            let divisor = json_data["divisor"].as_i64().unwrap();
+            println!(
+                "[{}] [Math Genius] {} wants me to divide {} by {}.",
+                elapsed_time(),
+                data.caller_identity,
+                dividend,
+                divisor
+            );
 
-                let result = dividend / divisor;
-                println!("[{}] [Math Genius] The result is {}", elapsed_time(), result);
-                Ok(json!({"result": result}).to_string())
-            })
-        },
-    );
+            let result = dividend / divisor;
+            println!("[{}] [Math Genius] The result is {}", elapsed_time(), result);
+            Ok(json!({"result": result}).to_string())
+        })
+    });
 }
 
 async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
     println!("[{}] Letting the greeter know that I've arrived", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc("greeter".to_string(), "arrival".to_string(), "Hello".to_string(), None)
+        .perform_rpc(PerformRpcParams {
+            destination_identity: "greeter".to_string(),
+            method: "arrival".to_string(),
+            payload: "Hello".to_string(),
+            ..Default::default()
+        })
         .await
     {
         Ok(response) => {
@@ -160,12 +159,12 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
     println!("[{}] What's the square root of 16?", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(
-            "math-genius".to_string(),
-            "square-root".to_string(),
-            json!({"number": 16}).to_string(),
-            None,
-        )
+        .perform_rpc(PerformRpcParams {
+            destination_identity: "math-genius".to_string(),
+            method: "square-root".to_string(),
+            payload: json!({"number": 16}).to_string(),
+            ..Default::default()
+        })
         .await
     {
         Ok(response) => {
@@ -183,12 +182,12 @@ async fn perform_quantum_hypergeometric_series(
     println!("[{}] What's the quantum hypergeometric series of 42?", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(
-            "math-genius".to_string(),
-            "quantum-hypergeometric-series".to_string(),
-            json!({"number": 42}).to_string(),
-            None,
-        )
+        .perform_rpc(PerformRpcParams {
+            destination_identity: "math-genius".to_string(),
+            method: "quantum-hypergeometric-series".to_string(),
+            payload: json!({"number": 42}).to_string(),
+            ..Default::default()
+        })
         .await
     {
         Ok(response) => {
@@ -210,12 +209,12 @@ async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
     println!("[{}] Let's try dividing 5 by 0", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(
-            "math-genius".to_string(),
-            "divide".to_string(),
-            json!({"dividend": 5, "divisor": 0}).to_string(),
-            None,
-        )
+        .perform_rpc(PerformRpcParams {
+            destination_identity: "math-genius".to_string(),
+            method: "divide".to_string(),
+            payload: json!({"dividend": 5, "divisor": 0}).to_string(),
+            ..Default::default()
+        })
         .await
     {
         Ok(response) => {

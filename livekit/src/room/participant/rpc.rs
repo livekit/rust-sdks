@@ -5,6 +5,27 @@
 use crate::room::participant::ParticipantIdentity;
 use livekit_protocol::RpcError as RpcError_Proto;
 use std::time::Duration;
+
+/// Parameters for performing an RPC call
+#[derive(Debug, Clone)]
+pub struct PerformRpcParams {
+    pub destination_identity: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout: Duration,
+}
+
+impl Default for PerformRpcParams {
+    fn default() -> Self {
+        Self {
+            destination_identity: Default::default(),
+            method: Default::default(),
+            payload: Default::default(),
+            response_timeout: Duration::from_secs(10),
+        }
+    }
+}
+
 /// Data passed to method handler for incoming RPC invocations
 ///
 /// Attributes:
