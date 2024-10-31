@@ -261,7 +261,7 @@ pub struct RpcRequest {
     pub id: String,
     pub method: String,
     pub payload: String,
-    pub response_timeout_ms: u32,
+    pub response_timeout: Duration,
     pub version: u32,
 }
 
@@ -689,7 +689,7 @@ impl RoomSession {
                 request_id,
                 method,
                 payload,
-                response_timeout_ms,
+                response_timeout,
                 version,
             } => {
                 if caller_identity.is_none() {
@@ -702,7 +702,8 @@ impl RoomSession {
                         request_id,
                         method,
                         payload,
-                        response_timeout_ms,
+                        response_timeout,
+                        version,
                     )
                     .await;
             }
