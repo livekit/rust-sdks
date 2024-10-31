@@ -637,10 +637,10 @@ impl LocalParticipant {
         self.inner.info.read().kind
     }
 
-    pub async fn perform_rpc(&self, params: PerformRpcParams) -> Result<String, RpcError> {
+    pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
         let max_round_trip_latency = Duration::from_millis(2000);
 
-        if params.payload.len() > MAX_PAYLOAD_BYTES {
+        if data.payload.len() > MAX_PAYLOAD_BYTES {
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
         }
 
@@ -662,11 +662,11 @@ impl LocalParticipant {
 
         match self
             .publish_rpc_request(RpcRequest {
-                destination_identity: params.destination_identity.clone(),
+                destination_identity: data.destination_identity.clone(),
                 id: id.clone(),
-                method: params.method.clone(),
-                payload: params.payload.clone(),
-                response_timeout: params.response_timeout - max_round_trip_latency,
+                method: data.method.clone(),
+                payload: data.payload.clone(),
+                response_timeout: data.response_timeout - max_round_trip_latency,
                 version: 1,
             })
             .await
@@ -696,7 +696,7 @@ impl LocalParticipant {
         }
 
         // Wait for response timout
-        let response = match tokio::time::timeout(params.response_timeout, response_rx).await {
+        let response = match tokio::time::timeout(data.response_timeout, response_rx).await {
             Err(_) => {
                 self.local.rpc_state.lock().pending_responses.remove(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));

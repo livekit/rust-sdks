@@ -51,14 +51,14 @@ impl FfiParticipant {
 
         let handle = server.async_runtime.spawn(async move {
             let result = local
-                .perform_rpc(PerformRpcParams {
+                .perform_rpc(PerformRpcData {
                     destination_identity: request.destination_identity.to_string(),
                     method: request.method,
                     payload: request.payload,
                     response_timeout: request
                         .response_timeout_ms
                         .map(|ms| Duration::from_millis(ms as u64))
-                        .unwrap_or(PerformRpcParams::default().response_timeout),
+                        .unwrap_or(PerformRpcData::default().response_timeout),
                 })
                 .await;
 

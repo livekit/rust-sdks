@@ -139,7 +139,7 @@ async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
     println!("[{}] Letting the greeter know that I've arrived", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcParams {
+        .perform_rpc(PerformRpcData {
             destination_identity: "greeter".to_string(),
             method: "arrival".to_string(),
             payload: "Hello".to_string(),
@@ -159,7 +159,7 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
     println!("[{}] What's the square root of 16?", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcParams {
+        .perform_rpc(PerformRpcData {
             destination_identity: "math-genius".to_string(),
             method: "square-root".to_string(),
             payload: json!({"number": 16}).to_string(),
@@ -182,7 +182,7 @@ async fn perform_quantum_hypergeometric_series(
     println!("[{}] What's the quantum hypergeometric series of 42?", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcParams {
+        .perform_rpc(PerformRpcData {
             destination_identity: "math-genius".to_string(),
             method: "quantum-hypergeometric-series".to_string(),
             payload: json!({"number": 42}).to_string(),
@@ -209,7 +209,7 @@ async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
     println!("[{}] Let's try dividing 5 by 0", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcParams {
+        .perform_rpc(PerformRpcData {
             destination_identity: "math-genius".to_string(),
             method: "divide".to_string(),
             payload: json!({"dividend": 5, "divisor": 0}).to_string(),

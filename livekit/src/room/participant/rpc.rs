@@ -8,14 +8,14 @@ use std::time::Duration;
 
 /// Parameters for performing an RPC call
 #[derive(Debug, Clone)]
-pub struct PerformRpcParams {
+pub struct PerformRpcData {
     pub destination_identity: String,
     pub method: String,
     pub payload: String,
     pub response_timeout: Duration,
 }
 
-impl Default for PerformRpcParams {
+impl Default for PerformRpcData {
     fn default() -> Self {
         Self {
             destination_identity: Default::default(),
