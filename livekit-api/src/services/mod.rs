@@ -19,6 +19,8 @@ use thiserror::Error;
 
 use crate::access_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
 
+pub use twirp_client::{TwirpError, TwirpErrorCode, TwirpResult};
+
 pub mod egress;
 pub mod ingress;
 pub mod room;
@@ -35,7 +37,7 @@ pub enum ServiceError {
     #[error("invalid access token: {0}")]
     AccessToken(#[from] AccessTokenError),
     #[error("twirp error: {0}")]
-    Twirp(#[from] twirp_client::TwirpError),
+    Twirp(#[from] TwirpError),
 }
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
