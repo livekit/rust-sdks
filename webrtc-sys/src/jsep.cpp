@@ -53,7 +53,7 @@ rust::String IceCandidate::candidate() const {
 rust::String IceCandidate::stringify() const {
   std::string str;
   ice_candidate_->ToString(&str);
-  return rust::String{str};
+  return rust::String::lossy(str);
 }
 
 std::unique_ptr<webrtc::IceCandidateInterface> IceCandidate::release() {
@@ -85,7 +85,7 @@ SdpType SessionDescription::sdp_type() const {
 rust::String SessionDescription::stringify() const {
   std::string str;
   session_description_->ToString(&str);
-  return rust::String{str};
+  return rust::String::lossy(str);
 }
 
 std::unique_ptr<SessionDescription> SessionDescription::clone() const {
