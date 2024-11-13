@@ -30,7 +30,7 @@ pub enum TwirpError {
     #[cfg(feature = "services-tokio")]
     #[error("failed to execute the request: {0}")]
     Request(#[from] reqwest::Error),
-    #[cfg(feature = "services-async")]
+    #[cfg(any(feature = "services-async", feature = "services-dispatcher"))]
     #[error("failed to execute the request: {0}")]
     Request(#[from] std::io::Error),
     #[error("twirp error: {0}")]
