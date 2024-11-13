@@ -38,6 +38,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "android-tzdata"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
+
+[[package]]
+name = "android_system_properties"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -429,11 +444,16 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.34"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bc015644b92d5890fab7489e49d21f879d5c990186827d42ec511919404f38b"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
+ "android-tzdata",
+ "iana-time-zone",
+ "js-sys",
  "num-traits",
+ "wasm-bindgen",
+ "windows-targets 0.52.0",
 ]
 
 [[package]]
@@ -1116,6 +1136,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "iana-time-zone"
+version = "0.1.61"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "235e081f3925a06703c2d0117ea8b91f042756fd6e7a6e5d901e8ca1a996b220"
+dependencies = [
+ "android_system_properties",
+ "core-foundation-sys",
+ "iana-time-zone-haiku",
+ "js-sys",
+ "wasm-bindgen",
+ "windows-core",
+]
+
+[[package]]
+name = "iana-time-zone-haiku"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "idna"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1301,7 +1344,7 @@ checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.2"
+version = "0.3.7"
 dependencies = [
  "cxx",
  "jni",
@@ -1315,7 +1358,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-stream",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -1357,8 +1399,9 @@ checksum = "01cda141df6706de531b6c46c3a33ecca755538219bd484262fa09410c13539c"
 
 [[package]]
 name = "livekit"
-version = "0.3.2"
+version = "0.7.0"
 dependencies = [
+ "chrono",
  "futures-util",
  "lazy_static",
  "libwebrtc",
@@ -1368,6 +1411,7 @@ dependencies = [
  "log",
  "parking_lot",
  "prost",
+ "semver",
  "serde",
  "serde_json",
  "thiserror",
@@ -1376,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "async-tungstenite",
  "base64",
@@ -1402,7 +1446,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.3.2"
+version = "0.3.6"
 dependencies = [
  "futures-util",
  "livekit-runtime",
@@ -1418,7 +1462,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-runtime"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-io 2.3.1",
  "async-std",
@@ -2415,6 +2459,7 @@ dependencies = [
  "mio",
  "num_cpus",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2 0.5.5",
  "tokio-macros",
  "windows-sys 0.48.0",
@@ -2448,17 +2493,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
 dependencies = [
  "rustls",
- "tokio",
-]
-
-[[package]]
-name = "tokio-stream"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "397c988d37662c7dda6d2208364a706264bf3d6138b11d436cbac0ad38832842"
-dependencies = [
- "futures-core",
- "pin-project-lite",
  "tokio",
 ]
 
@@ -2767,7 +2801,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "cc",
  "cxx",
@@ -2779,7 +2813,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys-build"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "fs2",
  "regex",
@@ -2831,6 +2865,15 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "windows-core"
+version = "0.52.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
+dependencies = [
+ "windows-targets 0.52.0",
+]
 
 [[package]]
 name = "windows-sys"

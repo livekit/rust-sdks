@@ -86,20 +86,13 @@ impl VideoRenderer {
                             bytes_per_row: Some(width * 4),
                             ..Default::default()
                         },
-                        wgpu::Extent3d {
-                            width,
-                            height,
-                            ..Default::default()
-                        },
+                        wgpu::Extent3d { width, height, ..Default::default() },
                     );
                 }
             }
         });
 
-        Self {
-            rtc_track,
-            internal,
-        }
+        Self { rtc_track, internal }
     }
 
     // Returns the last frame resolution
@@ -124,47 +117,35 @@ impl RendererInternal {
         self.height = height;
         self.rgba_data.resize((width * height * 4) as usize, 0);
 
-        self.texture = Some(
-            self.render_state
-                .device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some("lk-videotexture"),
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    dimension: wgpu::TextureDimension::D2,
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        ..Default::default()
-                    },
-                    sample_count: 1,
-                    mip_level_count: 1,
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-                }),
-        );
+        self.texture = Some(self.render_state.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lk-videotexture"),
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            dimension: wgpu::TextureDimension::D2,
+            size: wgpu::Extent3d { width, height, ..Default::default() },
+            sample_count: 1,
+            mip_level_count: 1,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+        }));
 
-        self.texture_view = Some(self.texture.as_mut().unwrap().create_view(
-            &wgpu::TextureViewDescriptor {
+        self.texture_view =
+            Some(self.texture.as_mut().unwrap().create_view(&wgpu::TextureViewDescriptor {
                 label: Some("lk-videotexture-view"),
                 format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 mip_level_count: Some(1),
                 array_layer_count: Some(1),
                 ..Default::default()
-            },
-        ));
+            }));
 
         if let Some(texture_id) = self.egui_texture {
             // Update the existing texture
-            self.render_state
-                .renderer
-                .write()
-                .update_egui_texture_from_wgpu_texture(
-                    &self.render_state.device,
-                    self.texture_view.as_ref().unwrap(),
-                    wgpu::FilterMode::Linear,
-                    texture_id,
-                );
+            self.render_state.renderer.write().update_egui_texture_from_wgpu_texture(
+                &self.render_state.device,
+                self.texture_view.as_ref().unwrap(),
+                wgpu::FilterMode::Linear,
+                texture_id,
+            );
         } else {
             self.egui_texture = Some(self.render_state.renderer.write().register_native_texture(
                 &self.render_state.device,
