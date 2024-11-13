@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "access-token")]
+#[cfg_attr(feature = "access-token", deprecated(note = "access-token feature is no longer optional, and so is deprecated"))]
 pub mod access_token;
 
 #[cfg(any(

@@ -10,7 +10,7 @@ repository = "https://github.com/livekit/rust-sdks"
 # By default ws TLS is not enabled
 #
 # FIXME: ensure configurations beyond the one in Zed still work
-default = ["services-tokio", "access-token", "webhooks"]
+default = ["services-tokio", "webhooks"]
 
 signal-client-tokio = [
     "dep:tokio-tungstenite",
@@ -42,8 +42,10 @@ signal-client-dispatcher = [
 services-tokio = ["dep:reqwest"]
 services-dispatcher = ["dep:serde_json"]
 services-async = ["dep:isahc"]
-access-token = ["dep:jsonwebtoken"]
-webhooks = ["access-token", "dep:serde_json", "dep:base64"]
+webhooks = ["dep:serde_json", "dep:base64"]
+
+# Deprecated: old feature that does nothing.
+access-token = []
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys
@@ -88,7 +90,6 @@ scopeguard = "1.2.0"
 [dependencies.jsonwebtoken]
 version = "9"
 default-features = false
-optional = true
 
 [dependencies.livekit-runtime]
 version = "0.3.0"
