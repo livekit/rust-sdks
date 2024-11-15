@@ -8,8 +8,6 @@ repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 # By default ws TLS is not enabled
-#
-# FIXME: ensure configurations beyond the one in Zed still work
 default = ["services-tokio", "webhooks"]
 
 signal-client-tokio = [
