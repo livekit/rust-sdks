@@ -1529,6 +1529,34 @@ impl StreamState {
         }
     }
 }
+/// Enable/Disable a remote track publication
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnableRemoteTrackPublicationRequest {
+    #[prost(uint64, required, tag="1")]
+    pub track_publication_handle: u64,
+    #[prost(bool, required, tag="2")]
+    pub enabled: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnableRemoteTrackPublicationResponse {
+}
+/// update a remote track publication dimension
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateRemoteTrackPublicationDimensionRequest {
+    #[prost(uint64, required, tag="1")]
+    pub track_publication_handle: u64,
+    #[prost(uint32, required, tag="2")]
+    pub width: u32,
+    #[prost(uint32, required, tag="3")]
+    pub height: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateRemoteTrackPublicationDimensionResponse {
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantInfo {
@@ -3686,7 +3714,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3779,13 +3807,18 @@ pub mod ffi_request {
         UnregisterRpcMethod(super::UnregisterRpcMethodRequest),
         #[prost(message, tag="41")]
         RpcMethodInvocationResponse(super::RpcMethodInvocationResponseRequest),
+        /// Track Publication
+        #[prost(message, tag="42")]
+        EnableRemoteTrackPublication(super::EnableRemoteTrackPublicationRequest),
+        #[prost(message, tag="43")]
+        UpdateRemoteTrackPublicationDimension(super::UpdateRemoteTrackPublicationDimensionRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3876,6 +3909,11 @@ pub mod ffi_response {
         UnregisterRpcMethod(super::UnregisterRpcMethodResponse),
         #[prost(message, tag="40")]
         RpcMethodInvocationResponse(super::RpcMethodInvocationResponseResponse),
+        /// Track Publication
+        #[prost(message, tag="41")]
+        EnableRemoteTrackPublication(super::EnableRemoteTrackPublicationResponse),
+        #[prost(message, tag="42")]
+        UpdateRemoteTrackPublicationDimension(super::UpdateRemoteTrackPublicationDimensionResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
