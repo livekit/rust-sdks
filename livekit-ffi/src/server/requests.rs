@@ -162,7 +162,7 @@ fn on_enable_remote_track_publication(
     let TrackPublication::Remote(publication) = &ffi_publication.publication else {
         return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
     };
-    
+
     publication.set_enabled(request.enabled);
     Ok(proto::EnableRemoteTrackPublicationResponse {})
 }
@@ -1026,10 +1026,14 @@ pub fn handle_request(
             )
         }
         proto::ffi_request::Message::EnableRemoteTrackPublication(request) => {
-            proto::ffi_response::Message::EnableRemoteTrackPublication(on_enable_remote_track_publication(server, request)?)
+            proto::ffi_response::Message::EnableRemoteTrackPublication(
+                on_enable_remote_track_publication(server, request)?,
+            )
         }
         proto::ffi_request::Message::UpdateRemoteTrackPublicationDimension(request) => {
-            proto::ffi_response::Message::UpdateRemoteTrackPublicationDimension(on_update_remote_track_publication_dimension(server, request)?)
+            proto::ffi_response::Message::UpdateRemoteTrackPublicationDimension(
+                on_update_remote_track_publication_dimension(server, request)?,
+            )
         }
     });
 
