@@ -158,10 +158,11 @@ jobs:
           ANDROID_NDK: /usr/local/lib/android/sdk/ndk/26.3.11579264
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.3.11579264
           ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/26.3.11579264
+          RUSTFLAGS: "-C link-arg=-fuse-ld=lld -C link-arg=-pthread"
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
-          cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
+          cargo ndk --bindgen -t ${{ matrix.target }} -p 26 -- build --release ${{ matrix.buildargs }}
 
       - name: Copy/Build licenses
         run: |
