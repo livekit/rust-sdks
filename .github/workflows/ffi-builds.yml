@@ -164,7 +164,7 @@ jobs:
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
-          RUSTFLAGS="-C link-arg=-fuse-ld=lld -C link-arg=-l:libpthread.a" cargo ndk --bindgen -t ${{ matrix.target }} -p 26 -- build --release ${{ matrix.buildargs }}
+          RUSTFLAGS="-C link-arg=-fuse-ld=lld -C link-arg=-l:libpthread.so" cargo ndk --bindgen -t ${{ matrix.target }} -p 26 -- build --release ${{ matrix.buildargs }}
 
       - name: Copy/Build licenses
         run: |
