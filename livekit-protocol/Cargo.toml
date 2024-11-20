@@ -7,7 +7,7 @@ description = "Livekit protocol and utilities for the Rust SDK"
 repository = "https://github.com/livekit/rust-sdks"
 
 [dependencies]
-livekit-runtime = { path = "../livekit-runtime", version = "0.3.1" }
+livekit-runtime = { workspace = true }
 tokio = { version = "1", default-features = false, features = [
     "sync",
     "macros",
