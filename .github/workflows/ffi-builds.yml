@@ -155,9 +155,9 @@ jobs:
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
         env:
-          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+          ANDROID_NDK: /usr/local/lib/android/sdk/ndk/26.3.11579264
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.3.11579264
+          ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/26.3.11579264
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
