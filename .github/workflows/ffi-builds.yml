@@ -158,6 +158,9 @@ jobs:
           ANDROID_NDK: /usr/local/lib/android/sdk/ndk/26.3.11579264
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.3.11579264
           ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/26.3.11579264
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang
+          CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi26-clang
+          CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER: /usr/local/lib/android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android26-clang
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
