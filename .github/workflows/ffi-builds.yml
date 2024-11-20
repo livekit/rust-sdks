@@ -154,11 +154,11 @@ jobs:
       # on android use cargo ndk
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
         run: |
-          export ANDROID_NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* | grep '26' | sort -V | tail -n 1)
-          echo "ANDROID_NDK=$ANDROID_NDK" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK" >> $GITHUB_ENV
-          echo "ANDROID_NDK_ROOT=$ANDROID_NDK" >> $GITHUB_ENV
           cd livekit-ffi/
           cargo install cargo-ndk
           cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
