@@ -78,28 +78,27 @@ jobs:
             dylib: liblivekit_ffi.so
             target: aarch64-unknown-linux-gnu
             name: ffi-linux-arm64
-          ## android builds broke
-          # - os: ubuntu-20.04
-          #   platform: android
-          #   dylib: liblivekit_ffi.so
-          #   jar: libwebrtc.jar
-          #   target: aarch64-linux-android
-          #   name: ffi-android-arm64
-          #   buildargs: --no-default-features --features "rustls-tls-webpki-roots"
-          # - os: ubuntu-20.04
-          #   platform: android
-          #   dylib: liblivekit_ffi.so
-          #   jar: libwebrtc.jar
-          #   target: armv7-linux-androideabi
-          #   name: ffi-android-armv7
-          #   buildargs: --no-default-features --features "rustls-tls-webpki-roots"
-          # - os: ubuntu-20.04
-          #   platform: android
-          #   dylib: liblivekit_ffi.so
-          #   jar: libwebrtc.jar
-          #   target: x86_64-linux-android
-          #   name: ffi-android-x86_64
-          #   buildargs: --no-default-features --features "rustls-tls-webpki-roots"
+          - os: ubuntu-20.04
+            platform: android
+            dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
+            target: aarch64-linux-android
+            name: ffi-android-arm64
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
+          - os: ubuntu-20.04
+            platform: android
+            dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
+            target: armv7-linux-androideabi
+            name: ffi-android-armv7
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
+          - os: ubuntu-20.04
+            platform: android
+            dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
+            target: x86_64-linux-android
+            name: ffi-android-x86_64
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -156,6 +155,10 @@ jobs:
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
         run: |
+          export ANDROID_NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* | grep '26' | sort -V | tail -n 1)
+          echo "ANDROID_NDK=$ANDROID_NDK" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK" >> $GITHUB_ENV
           cd livekit-ffi/
           cargo install cargo-ndk
           cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
