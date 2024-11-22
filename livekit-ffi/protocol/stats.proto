@@ -170,6 +170,11 @@ message RtcStats {
 	    required CertificateStats certificate = 2;
     }
 
+    message Stream {
+        required RtcStatsData rtc = 1;
+	    required StreamStats stream = 2;
+    }
+
     message Track {
 	// Deprecated
     }
@@ -189,7 +194,8 @@ message RtcStats {
 	LocalCandidate local_candidate = 14;
 	RemoteCandidate remote_candidate = 15;
 	Certificate certificate = 16;
-	Track track = 17;
+    Stream stream = 17;
+	Track track = 18;
     }
 }
 
@@ -445,5 +451,11 @@ message CertificateStats {
     required string fingerprint_algorithm = 2;
     required string base64_certificate = 3;
     required string issuer_certificate_id = 4;
+}
+
+message StreamStats {
+    required string id = 1;
+    required string stream_identifier = 2;
+    // required int64 timestamp = 3;
 }
 
