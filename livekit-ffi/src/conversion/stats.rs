@@ -164,6 +164,7 @@ impl From<rtc::RtcStats> for proto::RtcStats {
                 rtc::RtcStats::Certificate(certificate) => {
                     proto::rtc_stats::Stats::Certificate(certificate.into())
                 }
+                rtc::RtcStats::Stream(stream) => proto::rtc_stats::Stats::Stream(stream.into()),
                 rtc::RtcStats::Track {} => {
                     proto::rtc_stats::Stats::Track(proto::rtc_stats::Track {})
                 }
@@ -281,11 +282,23 @@ impl From<rtc::CertificateStats> for proto::rtc_stats::Certificate {
     }
 }
 
+impl From<rtc::StreamStats> for proto::rtc_stats::Stream {
+    fn from(value: rtc::StreamStats) -> Self {
+        Self { rtc: value.rtc.into(), stream: value.stream.into() }
+    }
+}
+
 // Dictionaries
 
 impl From<rtc::dictionaries::RtcStats> for proto::RtcStatsData {
     fn from(value: rtc::dictionaries::RtcStats) -> Self {
         Self { id: value.id, timestamp: value.timestamp }
+    }
+}
+
+impl From<rtc::dictionaries::StreamStats> for proto::StreamStats {
+    fn from(value: rtc::dictionaries::StreamStats) -> Self {
+        Self { id: value.id, stream_identifier: value.stream_identifier }
     }
 }
 
