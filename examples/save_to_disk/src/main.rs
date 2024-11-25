@@ -30,11 +30,7 @@ impl WavWriter {
         let file = File::create(path).await?;
         let writer = BufWriter::new(file);
 
-        let mut wav_writer = WavWriter {
-            header,
-            data: BytesMut::new(),
-            writer,
-        };
+        let mut wav_writer = WavWriter { header, data: BytesMut::new(), writer };
 
         wav_writer.write_header()?;
         Ok(wav_writer)
@@ -88,19 +84,13 @@ async fn main() {
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     let token = env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is not set");
 
-    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
-        .await
-        .unwrap();
+    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     println!("Connected to room: {} - {}", room.name(), String::from(room.sid().await));
 
     while let Some(msg) = rx.recv().await {
         #[allow(clippy::single_match)]
         match msg {
-            RoomEvent::TrackSubscribed {
-                track,
-                publication: _,
-                participant: _,
-            } => {
+            RoomEvent::TrackSubscribed { track, publication: _, participant: _ } => {
                 if let RemoteTrack::Audio(audio_track) = track {
                     record_track(audio_track).await.unwrap();
                     break;

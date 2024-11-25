@@ -13,25 +13,13 @@ use tokio::sync::mpsc::{self, error::SendError};
 
 #[derive(Debug)]
 pub enum AsyncCmd {
-    RoomConnect {
-        url: String,
-        token: String,
-        auto_subscribe: bool,
-        enable_e2ee: bool,
-        key: String,
-    },
+    RoomConnect { url: String, token: String, auto_subscribe: bool, enable_e2ee: bool, key: String },
     RoomDisconnect,
-    SimulateScenario {
-        scenario: SimulateScenario,
-    },
+    SimulateScenario { scenario: SimulateScenario },
     ToggleLogo,
     ToggleSine,
-    SubscribeTrack {
-        publication: RemoteTrackPublication,
-    },
-    UnsubscribeTrack {
-        publication: RemoteTrackPublication,
-    },
+    SubscribeTrack { publication: RemoteTrackPublication },
+    UnsubscribeTrack { publication: RemoteTrackPublication },
     E2eeKeyRatchet,
     LogStats,
 }
@@ -62,18 +50,10 @@ impl LkService {
         let (ui_tx, ui_rx) = mpsc::unbounded_channel();
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
-        let inner = Arc::new(ServiceInner {
-            ui_tx,
-            room: Default::default(),
-        });
+        let inner = Arc::new(ServiceInner { ui_tx, room: Default::default() });
         let handle = async_handle.spawn(service_task(inner.clone(), cmd_rx));
 
-        Self {
-            cmd_tx,
-            ui_rx,
-            handle,
-            inner,
-        }
+        Self { cmd_tx, ui_rx, handle, inner }
     }
 
     pub fn room(&self) -> Option<Arc<Room>> {
