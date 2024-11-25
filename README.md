@@ -133,7 +133,7 @@ match event {
         match track {
             RemoteTrack::Audio(audio_track) => {
                 let rtc_track = audio_track.rtc_track();
-                let mut audio_stream = NativeAudioStream::new(rtc_track);
+                let mut audio_stream = NativeAudioStream::new(rtc_track, 48000, 1);
                 tokio::spawn(async move {
                     // Receive the audio frames in a new task
                     while let Some(audio_frame) = audio_stream.next().await {

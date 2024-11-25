@@ -2,7 +2,6 @@ use bytes::{BufMut, BytesMut};
 use futures::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
-use livekit::webrtc::native::audio_resampler;
 use std::env;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -118,29 +117,16 @@ async fn record_track(audio_track: RemoteAudioTrack) -> Result<(), std::io::Erro
     println!("Recording track {:?}", audio_track.sid());
     let rtc_track = audio_track.rtc_track();
 
-    let header = WavHeader {
-        sample_rate: 48000,
-        bit_depth: 16,
-        num_channels: 2,
-    };
+    let header = WavHeader { sample_rate: 48000, bit_depth: 16, num_channels: 2 };
 
-    let mut resampler = audio_resampler::AudioResampler::default();
     let mut wav_writer = WavWriter::create(FILE_PATH, header).await?;
-    let mut audio_stream = NativeAudioStream::new(rtc_track);
+    let mut audio_stream =
+        NativeAudioStream::new(rtc_track, header.sample_rate as i32, header.num_channels as i32);
 
     let max_record = 5 * header.sample_rate * header.num_channels;
     let mut sample_count = 0;
     'recv_loop: while let Some(frame) = audio_stream.next().await {
-        let data = resampler.remix_and_resample(
-            &frame.data,
-            frame.samples_per_channel,
-            frame.num_channels,
-            frame.sample_rate,
-            header.num_channels,
-            header.sample_rate,
-        );
-
-        for sample in data {
+        for sample in frame.data.into_iter() {
             wav_writer.write_sample(*sample).await.unwrap();
             sample_count += 1;
 
