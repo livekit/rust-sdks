@@ -106,32 +106,19 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
 
     while let Some(event) = cmd_rx.recv().await {
         match event {
-            AsyncCmd::RoomConnect {
-                url,
-                token,
-                auto_subscribe,
-                enable_e2ee,
-                key,
-            } => {
+            AsyncCmd::RoomConnect { url, token, auto_subscribe, enable_e2ee, key } => {
                 log::info!("connecting to room: {}", url);
 
                 let key_provider =
                     KeyProvider::with_shared_key(KeyProviderOptions::default(), key.into_bytes());
-                let e2ee = enable_e2ee.then_some(E2eeOptions {
-                    encryption_type: EncryptionType::Gcm,
-                    key_provider,
-                });
+                let e2ee = enable_e2ee
+                    .then_some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
 
-                let res = Room::connect(
-                    &url,
-                    &token,
-                    RoomOptions {
-                        auto_subscribe,
-                        e2ee,
-                        ..Default::default()
-                    },
-                )
-                .await;
+                let mut room_options: RoomOptions = Default::default();
+                room_options.auto_subscribe = auto_subscribe;
+                room_options.e2ee = e2ee;
+
+                let res = Room::connect(&url, &token, room_options).await;
 
                 if let Ok((new_room, events)) = res {
                     log::info!("connected to room: {}", new_room.name());
