@@ -272,7 +272,14 @@ impl RemoteTrackPublication {
     }
 
     pub fn update_video_dimensions(&self, dimension: TrackDimension) {
-        if self.is_subscribed() && dimension != self.dimension() {
+        if self.is_subscribed() {
+            if dimension != self.dimension() {
+                let TrackDimension(width, height) = dimension;
+                let mut new_info = self.proto_info();
+                new_info.width = width;
+                new_info.height = height;
+                self.update_info(new_info);
+            }
             // Request to send an update to the SFU
             if let Some(video_dimensions_changed) =
                 self.remote.events.video_dimensions_changed.lock().as_ref()
