@@ -20,7 +20,7 @@ fn main() {
     }
 
     webrtc_sys_build::download_webrtc().unwrap();
-    println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
+    println!("cargo:rustc-link-lib=static=webrtc");
     if env::var("CARGO_CFG_TARGET_OS").unwrap() == "android" {
         webrtc_sys_build::configure_jni_symbols().unwrap();
     }
