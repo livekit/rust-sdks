@@ -24,13 +24,13 @@ fn main() {
         webrtc_sys_build::download_webrtc().unwrap();
     }
 
-    // Link webrtc library
-    println!("cargo:rustc-link-lib=static=webrtc");
-
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     match target_os.as_str() {
         "windows" => {}
-        "linux" => {}
+        "linux" => {
+            // Link webrtc library
+            println!("cargo:rustc-link-lib=static=webrtc");
+        }
         "android" => {
             webrtc_sys_build::configure_jni_symbols().unwrap();
             // Copy the webrtc license to CARGO_MANIFEST_DIR
@@ -44,7 +44,6 @@ fn main() {
         }
         "macos" => {
             println!("cargo:rustc-link-arg=-ObjC");
-            println!("cargo:rustc-link-arg=-undefined dynamic_lookup");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
