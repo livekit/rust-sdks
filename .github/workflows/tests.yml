@@ -44,7 +44,7 @@ jobs:
       - name: Install Rust toolchain
         run: |
           rustup update --no-self-update stable
-          rustup target add ${{ matrix.target }}
+          rustup target add ${{ matrix.target }} --toolchain nightly
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-20.04' }}
