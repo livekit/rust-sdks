@@ -50,13 +50,13 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-20.04' }}
         run: |
           sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev gcc
+          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
 
       - uses: actions/checkout@v3
         with:
           submodules: true
 
       - name: Test
-        run: cargo test --release --verbose --target ${{ matrix.target }} -- --nocapture
+        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} -- --nocapture
 
 
