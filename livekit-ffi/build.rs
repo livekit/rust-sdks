@@ -19,7 +19,12 @@ fn main() {
         return;
     }
 
-    webrtc_sys_build::download_webrtc().unwrap();
+    let webrtc_dir = webrtc_sys_build::webrtc_dir();
+    if !webrtc_dir.exists() {
+        webrtc_sys_build::download_webrtc().unwrap();
+    }
+
+    // Link webrtc library
     println!("cargo:rustc-link-lib=static=webrtc");
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
@@ -39,7 +44,7 @@ fn main() {
             std::fs::copy(license, out_file).unwrap();
         }
         "macos" => {
-            println!("cargo:rustc-link-arg=-ObjC");
+            println!("cargo:rustc-link-arg=-Wl,-multiply_defined,suppress");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
