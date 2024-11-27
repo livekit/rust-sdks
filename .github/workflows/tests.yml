@@ -50,7 +50,7 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-20.04' }}
         run: |
           sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
+          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev gcc
 
       - uses: actions/checkout@v3
         with:
