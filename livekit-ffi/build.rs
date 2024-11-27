@@ -21,6 +21,8 @@ fn main() {
 
     webrtc_sys_build::download_webrtc().unwrap();
     println!("cargo:rustc-link-lib=static=webrtc");
+    println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
+    println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
     if env::var("CARGO_CFG_TARGET_OS").unwrap() == "android" {
         webrtc_sys_build::configure_jni_symbols().unwrap();
     }
