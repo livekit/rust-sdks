@@ -43,6 +43,21 @@ fn main() {
             std::fs::copy(license, out_file).unwrap();
         }
         "macos" => {
+            println!("cargo:rustc-link-lib=framework=Foundation");
+            println!("cargo:rustc-link-lib=framework=AVFoundation");
+            println!("cargo:rustc-link-lib=framework=CoreAudio");
+            println!("cargo:rustc-link-lib=framework=AudioToolbox");
+            println!("cargo:rustc-link-lib=framework=Appkit");
+            println!("cargo:rustc-link-lib=framework=CoreMedia");
+            println!("cargo:rustc-link-lib=framework=CoreGraphics");
+            println!("cargo:rustc-link-lib=framework=VideoToolbox");
+            println!("cargo:rustc-link-lib=framework=CoreVideo");
+            println!("cargo:rustc-link-lib=framework=OpenGL");
+            println!("cargo:rustc-link-lib=framework=Metal");
+            println!("cargo:rustc-link-lib=framework=MetalKit");
+            println!("cargo:rustc-link-lib=framework=QuartzCore");
+            println!("cargo:rustc-link-lib=framework=IOKit");
+            println!("cargo:rustc-link-lib=framework=IOSurface");
             println!("cargo:rustc-link-lib=clang_rt.osx");
             println!("cargo:rustc-link-arg=-ObjC,-Wl,-multiply_defined,suppress");
         }
