@@ -159,7 +159,7 @@ jobs:
         if: ${{ matrix.platform == 'android' }}
         run: |
           cd livekit-ffi/
-          ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/libunwind.so $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
+                    ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so, libc++*} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
           cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
 

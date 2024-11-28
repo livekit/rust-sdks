@@ -54,10 +54,13 @@ jobs:
             target: aarch64-unknown-linux-gnu
           - os: ubuntu-20.04
             target: aarch64-linux-android
+            ndk_arch: aarch64-unknown-linux-musl
           - os: ubuntu-20.04
             target: armv7-linux-androideabi
+            ndk_arch: arm-unknown-linux-musleabihf
           - os: ubuntu-20.04
             target: x86_64-linux-android
+            ndk_arch: x86_64-unknown-linux-musl
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -85,5 +88,6 @@ jobs:
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
         run: |
+          ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so, libc++*} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
