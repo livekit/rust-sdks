@@ -101,7 +101,7 @@ pub enum SessionEvent {
         request_id: String,
         method: String,
         payload: String,
-        response_timeout_ms: u32,
+        response_timeout: Duration,
         version: u32,
     },
     RpcResponse {
@@ -689,7 +689,9 @@ impl SessionInner {
                                 request_id: rpc_request.id.clone(),
                                 method: rpc_request.method.clone(),
                                 payload: rpc_request.payload.clone(),
-                                response_timeout_ms: rpc_request.response_timeout_ms,
+                                response_timeout: Duration::from_millis(
+                                    rpc_request.response_timeout_ms as u64,
+                                ),
                                 version: rpc_request.version,
                             });
                         }

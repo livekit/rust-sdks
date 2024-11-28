@@ -15,7 +15,8 @@
 pub use crate::{
     id::*,
     participant::{
-        ConnectionQuality, LocalParticipant, Participant, RemoteParticipant, RpcError, RpcErrorCode,
+        ConnectionQuality, LocalParticipant, Participant, PerformRpcData, RemoteParticipant,
+        RpcError, RpcErrorCode, RpcInvocationData,
     },
     publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication},
     track::{

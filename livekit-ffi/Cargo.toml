@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.1"
+version = "0.12.3"
 edition = "2021"
 license = "Apache-2.0"
 description = "FFI interface for bindings in other languages"
@@ -18,9 +18,9 @@ __rustls-tls = ["livekit/__rustls-tls"]
 tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
-livekit = { path = "../livekit", version = "0.6.0" }
+livekit = { workspace = true }
 soxr-sys = { path = "../soxr-sys" }
-livekit-protocol = { path = "../livekit-protocol", version = "0.3.5" }
+livekit-protocol = { workspace = true }
 tokio = { version = "1", features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
@@ -42,7 +42,7 @@ jni = "0.21.1"
 webrtc-sys-build = { path = "../webrtc-sys/build", version = "0.3.2" }
 
 [dev-dependencies]
-livekit-api = { path = "../livekit-api", version = "0.4.0" }
+livekit-api = { path = "../livekit-api", version = "0.4.1" }
 
 [lib]
 crate-type = ["lib", "cdylib"]

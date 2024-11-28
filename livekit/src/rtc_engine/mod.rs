@@ -118,7 +118,7 @@ pub enum EngineEvent {
         request_id: String,
         method: String,
         payload: String,
-        response_timeout_ms: u32,
+        response_timeout: Duration,
         version: u32,
     },
     RpcResponse {
@@ -487,7 +487,7 @@ impl EngineInner {
                 request_id,
                 method,
                 payload,
-                response_timeout_ms,
+                response_timeout,
                 version,
             } => {
                 let _ = self.engine_tx.send(EngineEvent::RpcRequest {
@@ -495,7 +495,7 @@ impl EngineInner {
                     request_id,
                     method,
                     payload,
-                    response_timeout_ms,
+                    response_timeout,
                     version,
                 });
             }

@@ -25,6 +25,7 @@ pub mod media_stream;
 pub mod media_stream_track;
 pub mod peer_connection;
 pub mod peer_connection_factory;
+pub mod prohibit_libsrtp_initialization;
 pub mod rtc_error;
 pub mod rtp_parameters;
 pub mod rtp_receiver;
