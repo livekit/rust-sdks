@@ -83,6 +83,7 @@ jobs:
             dylib: liblivekit_ffi.so
             jar: libwebrtc.jar
             target: aarch64-linux-android
+            ndk_arch: aarch64-unknown-linux-musl
             name: ffi-android-arm64
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
@@ -90,6 +91,7 @@ jobs:
             dylib: liblivekit_ffi.so
             jar: libwebrtc.jar
             target: armv7-linux-androideabi
+            ndk_arch: arm-unknown-linux-musleabihf
             name: ffi-android-armv7
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
@@ -97,6 +99,7 @@ jobs:
             dylib: liblivekit_ffi.so
             jar: libwebrtc.jar
             target: x86_64-linux-android
+            ndk_arch: x86_64-unknown-linux-musl
             name: ffi-android-x86_64
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
 
@@ -156,6 +159,7 @@ jobs:
         if: ${{ matrix.platform == 'android' }}
         run: |
           cd livekit-ffi/
+          ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/libunwind.so $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
           cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
 
