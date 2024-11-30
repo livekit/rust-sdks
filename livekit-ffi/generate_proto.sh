@@ -24,6 +24,7 @@ protoc \
     $PROTOCOL/handle.proto \
     $PROTOCOL/room.proto \
     $PROTOCOL/track.proto \
+    $PROTOCOL/track_publication.proto \
     $PROTOCOL/participant.proto \
     $PROTOCOL/video_frame.proto \
     $PROTOCOL/audio_frame.proto \

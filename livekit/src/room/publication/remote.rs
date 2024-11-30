@@ -28,6 +28,7 @@ type PermissionStatusChangedHandler =
     Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>; // old_status, new_status
 type SubscriptionUpdateNeededHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
 type EnabledStatusChangedHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
+type VideoDimensionsChangedHandler = Box<dyn Fn(RemoteTrackPublication, TrackDimension) + Send>;
 
 #[derive(Default)]
 struct RemoteEvents {
@@ -37,6 +38,7 @@ struct RemoteEvents {
     permission_status_changed: Mutex<Option<PermissionStatusChangedHandler>>,
     subscription_update_needed: Mutex<Option<SubscriptionUpdateNeededHandler>>,
     enabled_status_changed: Mutex<Option<EnabledStatusChangedHandler>>,
+    video_dimensions_changed: Mutex<Option<VideoDimensionsChangedHandler>>,
 }
 
 #[derive(Debug)]
@@ -215,6 +217,13 @@ impl RemoteTrackPublication {
         *self.remote.events.enabled_status_changed.lock() = Some(Box::new(f));
     }
 
+    pub(crate) fn on_video_dimensions_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, TrackDimension) + Send + 'static,
+    ) {
+        *self.remote.events.video_dimensions_changed.lock() = Some(Box::new(f));
+    }
+
     pub fn set_subscribed(&self, subscribed: bool) {
         let old_subscription_state = self.subscription_status();
         let old_permission_state = self.permission_status();
@@ -258,6 +267,24 @@ impl RemoteTrackPublication {
                 self.remote.events.enabled_status_changed.lock().as_ref()
             {
                 enabled_status_changed(self.clone(), enabled)
+            }
+        }
+    }
+
+    pub fn update_video_dimensions(&self, dimension: TrackDimension) {
+        if self.is_subscribed() {
+            if dimension != self.dimension() {
+                let TrackDimension(width, height) = dimension;
+                let mut new_info = self.proto_info();
+                new_info.width = width;
+                new_info.height = height;
+                self.update_info(new_info);
+            }
+            // Request to send an update to the SFU
+            if let Some(video_dimensions_changed) =
+                self.remote.events.video_dimensions_changed.lock().as_ref()
+            {
+                video_dimensions_changed(self.clone(), dimension)
             }
         }
     }
