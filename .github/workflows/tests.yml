@@ -43,8 +43,8 @@ jobs:
     steps:
       - name: Install Rust toolchain
         run: |
-          rustup update --no-self-update stable
-          rustup target add ${{ matrix.target }}
+          rustup update --no-self-update nightly
+          rustup target add ${{ matrix.target }} --toolchain nightly
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-20.04' }}
@@ -57,6 +57,6 @@ jobs:
           submodules: true
 
       - name: Test
-        run: cargo test --release --verbose --target ${{ matrix.target }} -- --nocapture
+        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} -- --nocapture
 
 

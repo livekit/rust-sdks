@@ -19,20 +19,34 @@ fn main() {
         return;
     }
 
-    webrtc_sys_build::download_webrtc().unwrap();
-    if env::var("CARGO_CFG_TARGET_OS").unwrap() == "android" {
-        webrtc_sys_build::configure_jni_symbols().unwrap();
+    let webrtc_dir = webrtc_sys_build::webrtc_dir();
+    if !webrtc_dir.exists() {
+        webrtc_sys_build::download_webrtc().unwrap();
     }
 
-    {
-        // Copy the webrtc license to CARGO_MANIFEST_DIR
-        // (used by the ffi release action)
-        let webrtc_dir = webrtc_sys_build::webrtc_dir();
-        let license = webrtc_dir.join("LICENSE.md");
-        let target_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    match target_os.as_str() {
+        "windows" => {}
+        "linux" => {
+            // Link webrtc library
+            println!("cargo:rustc-link-lib=static=webrtc");
+        }
+        "android" => {
+            webrtc_sys_build::configure_jni_symbols().unwrap();
+            // Copy the webrtc license to CARGO_MANIFEST_DIR
+            // (used by the ffi release action)
+            let license = webrtc_dir.join("LICENSE.md");
+            let target_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
 
-        let out_file = Path::new(&target_dir).join("WEBRTC_LICENSE.md");
+            let out_file = Path::new(&target_dir).join("WEBRTC_LICENSE.md");
 
-        std::fs::copy(license, out_file).unwrap();
+            std::fs::copy(license, out_file).unwrap();
+        }
+        "macos" => {
+            println!("cargo:rustc-link-arg=-ObjC");
+        }
+        _ => {
+            panic!("Unsupported target, {}", target_os);
+        }
     }
 }
