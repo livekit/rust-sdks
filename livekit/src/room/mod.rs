@@ -31,10 +31,7 @@ use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
-use tokio::{
-    signal,
-    sync::{mpsc, oneshot, Mutex as AsyncMutex},
-};
+use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
 pub use self::{
     e2ee::{manager::E2eeManager, E2eeOptions},
@@ -720,7 +717,6 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
-            _ => {}
         }
 
         Ok(())

@@ -17,7 +17,6 @@ use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
-use livekit::ChatMessage;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -590,7 +589,6 @@ impl RoomInner {
                     send_chat_message.sender_identity,
                 )
                 .await;
-            let sent_message = res.as_ref().unwrap().clone();
             match res {
                 Ok(message) => {
                     let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
@@ -613,7 +611,6 @@ impl RoomInner {
                     ));
                 }
             }
-            sent_message;
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
@@ -637,7 +634,6 @@ impl RoomInner {
                     edit_chat_message.sender_identity,
                 )
                 .await;
-            let sent_message: ChatMessage = res.as_ref().unwrap().clone();
             match res {
                 Ok(message) => {
                     let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
@@ -660,7 +656,6 @@ impl RoomInner {
                     ));
                 }
             }
-            sent_message;
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }

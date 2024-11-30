@@ -261,7 +261,7 @@ fn on_local_track_mute(
 ) -> FfiResult<proto::LocalTrackMuteResponse> {
     let ffi_track = server.retrieve_handle::<FfiTrack>(request.track_handle)?.clone();
 
-    let mut muted = false;
+    let muted;
     match ffi_track.track {
         Track::LocalAudio(track) => {
             if request.mute {
@@ -291,7 +291,7 @@ fn on_enable_remote_track(
 ) -> FfiResult<proto::EnableRemoteTrackResponse> {
     let ffi_track = server.retrieve_handle::<FfiTrack>(request.track_handle)?.clone();
 
-    let mut enabled = false;
+    let enabled;
     match ffi_track.track {
         Track::RemoteAudio(track) => {
             if request.enabled {
@@ -312,7 +312,7 @@ fn on_enable_remote_track(
         _ => return Err(FfiError::InvalidRequest("track is not a remote track".into())),
     }
 
-    Ok(proto::EnableRemoteTrackResponse { enabled: enabled })
+    Ok(proto::EnableRemoteTrackResponse { enabled })
 }
 
 /// Retrieve the stats from a track

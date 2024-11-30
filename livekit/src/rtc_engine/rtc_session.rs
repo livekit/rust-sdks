@@ -34,7 +34,7 @@ use proto::{
     debouncer::{self, Debouncer},
     SignalTarget,
 };
-use serde::{de::IntoDeserializer, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
