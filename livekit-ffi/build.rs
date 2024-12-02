@@ -42,7 +42,7 @@ fn main() {
 
             std::fs::copy(license, out_file).unwrap();
         }
-        "macos" => {
+        "macos" | "ios" => {
             println!("cargo:rustc-link-arg=-ObjC");
         }
         _ => {
