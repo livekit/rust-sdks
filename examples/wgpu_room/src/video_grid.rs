@@ -61,16 +61,12 @@ impl VideoGrid {
         self.prev_state = prev_state.unwrap_or_default();
         self.available_rect = ui.available_rect_before_wrap();
 
-        ui.ctx()
-            .check_for_id_clash(self.id, self.available_rect, "VideoGrid");
+        ui.ctx().check_for_id_clash(self.id, self.available_rect, "VideoGrid");
 
         ui.allocate_ui_at_rect(self.available_rect, |ui| {
             ui.set_visible(!is_first_frame);
 
-            let mut ctx = VideoGridContext {
-                layout: &mut self,
-                ui,
-            };
+            let mut ctx = VideoGridContext { layout: &mut self, ui };
             let res = grid(&mut ctx);
 
             // Save the new state
