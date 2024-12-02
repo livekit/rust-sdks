@@ -12,10 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "access-token")]
+#[cfg_attr(
+    feature = "access-token",
+    deprecated(note = "access-token feature is no longer optional, and so is deprecated")
+)]
 pub mod access_token;
 
-#[cfg(any(feature = "services-tokio", feature = "services-async"))]
+#[cfg(any(
+    feature = "services-tokio",
+    feature = "services-async",
+    feature = "services-dispatcher"
+))]
 pub mod services;
 
 #[cfg(any(
@@ -30,9 +37,13 @@ pub mod signal_client;
     feature = "signal-client-async",
     feature = "signal-client-dispatcher",
     feature = "services-tokio",
-    feature = "services-async"
+    feature = "services-async",
+    feature = "services-dispatcher",
 ))]
 mod http_client;
+
+#[cfg(any(feature = "signal-client-dispatcher", feature = "services-dispatcher",))]
+pub use http_client::{set_http_client, HttpClient, Response};
 
 #[cfg(feature = "webhooks")]
 pub mod webhooks;

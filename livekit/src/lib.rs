@@ -27,7 +27,6 @@ pub mod prelude;
 
 #[cfg(feature = "dispatcher")]
 pub mod dispatcher {
-    pub use livekit_runtime::set_dispatcher;
-    pub use livekit_runtime::Dispatcher;
-    pub use livekit_runtime::Runnable;
+    pub use livekit_api::{set_http_client, HttpClient, Response};
+    pub use livekit_runtime::{set_dispatcher, Dispatcher, Runnable};
 }
