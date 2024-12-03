@@ -157,7 +157,7 @@ AudioTrackSource::InternalSource::InternalSource(
           "AudioSourceCapture", webrtc::TaskQueueFactory::Priority::NORMAL);
 
   audio_task_ = webrtc::RepeatingTaskHandle::Start(
-      audio_queue_->Get(),
+      audio_queue_.get(),
       [this, samples10ms]() {
         webrtc::MutexLock lock(&mutex_);
 
