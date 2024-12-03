@@ -98,7 +98,7 @@ VideoEncoderFactory::InternalFactory::CreateVideoEncoder(
       webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
 
   if (original_format) {
-    return Factory().CreateVideoEncoder(*original_format);
+    return Factory().Create(webrtc::CreateEnvironment(), *original_format);
   }
 
   RTC_LOG(LS_ERROR) << "No VideoEncoder found for " << format.name;
@@ -125,7 +125,7 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::CreateVideoEncoder(
   std::unique_ptr<webrtc::VideoEncoder> encoder;
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
-        webrtc::CreateEnvironment(), internal_factory_.get(), NULL, format);
+        webrtc::CreateEnvironment(), internal_factory_.get(), nullptr, format);
   }
 
   return encoder;
