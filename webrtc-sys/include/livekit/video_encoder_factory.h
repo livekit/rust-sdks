@@ -31,8 +31,8 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
         const webrtc::SdpVideoFormat& format,
         absl::optional<std::string> scalability_mode) const override;
 
-    std::unique_ptr<webrtc::VideoEncoder> CreateVideoEncoder(
-        const webrtc::SdpVideoFormat& format) override;
+    std::unique_ptr<webrtc::VideoEncoder> Create(
+        const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) override;
 
    private:
     std::vector<std::unique_ptr<webrtc::VideoEncoderFactory>> factories_;
@@ -48,7 +48,7 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
       absl::optional<std::string> scalability_mode) const override;
 
   std::unique_ptr<webrtc::VideoEncoder> CreateVideoEncoder(
-      const webrtc::SdpVideoFormat& format) override;
+      const webrtc::SdpVideoFormat& format);
 
  private:
   std::unique_ptr<InternalFactory> internal_factory_;

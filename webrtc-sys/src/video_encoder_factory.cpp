@@ -85,12 +85,12 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
 }
 
 std::unique_ptr<webrtc::VideoEncoder>
-VideoEncoderFactory::InternalFactory::CreateVideoEncoder(
-    const webrtc::SdpVideoFormat& format) {
+VideoEncoderFactory::InternalFactory::Create(
+    const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format))
-        return factory->Create(webrtc::CreateEnvironment(), format);
+        return factory->Create(env, format);
     }
   }
 
