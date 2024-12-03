@@ -60,7 +60,7 @@ PeerConnectionFactory::PeerConnectionFactory(
 
   audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
     return rtc::make_ref_counted<livekit::AudioDevice>(
-        dependencies.task_queue_factory);
+        dependencies.task_queue_factory.get());
   });
 
   dependencies.adm = audio_device_;
