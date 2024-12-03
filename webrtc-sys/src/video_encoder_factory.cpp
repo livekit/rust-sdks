@@ -16,6 +16,7 @@
 
 #include "livekit/video_encoder_factory.h"
 
+#include "api/environment/environment_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
@@ -89,7 +90,7 @@ VideoEncoderFactory::InternalFactory::CreateVideoEncoder(
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format))
-        return factory->CreateVideoEncoder(format);
+        return factory->Create(webrtc::CreateEnvironment(), format);
     }
   }
 
@@ -124,7 +125,7 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::CreateVideoEncoder(
   std::unique_ptr<webrtc::VideoEncoder> encoder;
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
-        internal_factory_.get(), format);
+        webrtc::CreateEnvironment(), internal_factory_.get(), NULL, format);
   }
 
   return encoder;
