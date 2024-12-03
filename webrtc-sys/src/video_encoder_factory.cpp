@@ -120,8 +120,8 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
   return internal_factory_->QueryCodecSupport(format, scalability_mode);
 }
 
-std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::CreateVideoEncoder(
-    const webrtc::SdpVideoFormat& format) {
+std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
+    const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
   std::unique_ptr<webrtc::VideoEncoder> encoder;
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
