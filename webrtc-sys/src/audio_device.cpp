@@ -48,8 +48,8 @@ int32_t AudioDevice::Init() {
     return 0;
 
   audio_queue_ =
-      std::make_unique<rtc::TaskQueue>(task_queue_factory_->CreateTaskQueue(
-          "AudioDevice", webrtc::TaskQueueFactory::Priority::NORMAL));
+      task_queue_factory_->CreateTaskQueue(
+          "AudioDevice", webrtc::TaskQueueFactory::Priority::NORMAL);
 
   audio_task_ =
       webrtc::RepeatingTaskHandle::Start(audio_queue_->Get(), [this]() {

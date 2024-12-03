@@ -1,0 +1,12 @@
+diff --git a/modules/congestion_controller/goog_cc/loss_based_bwe_v2.h b/modules/congestion_controller/goog_cc/loss_based_bwe_v2.h
+index 34c96c66d9..9ddfb13681 100644
+--- a/modules/congestion_controller/goog_cc/loss_based_bwe_v2.h
++++ b/modules/congestion_controller/goog_cc/loss_based_bwe_v2.h
+@@ -86,6 +86,7 @@ class LossBasedBweV2 {
+   };
+ 
+   struct Config {
++    Config();
+     double bandwidth_rampup_upper_bound_factor = 0.0;
+     double bandwidth_rampup_upper_bound_factor_in_hold = 0;
+     double bandwidth_rampup_hold_threshold = 0;
