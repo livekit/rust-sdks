@@ -18,6 +18,7 @@
 
 #include "api/video_codecs/video_decoder.h"
 #include "api/video_codecs/video_decoder_factory.h"
+#include "absl/strings/numbers.h"
 
 namespace livekit {
 class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
