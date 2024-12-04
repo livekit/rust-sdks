@@ -54,6 +54,7 @@ call git apply "%COMMAND_DIR%/patches/add_licenses.patch" -v --ignore-space-chan
 call git apply "%COMMAND_DIR%/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 call git apply "%COMMAND_DIR%/patches/windows_silence_warnings.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 call git apply "%COMMAND_DIR%/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+call git apply "%COMMAND_DIR%/patches/loss_based_bwe_default.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 cd ..
 
 mkdir "%ARTIFACTS_DIR%\lib"
