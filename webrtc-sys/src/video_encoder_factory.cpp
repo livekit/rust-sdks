@@ -16,6 +16,7 @@
 
 #include "livekit/video_encoder_factory.h"
 
+#include "api/environment/environment_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
@@ -84,12 +85,12 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
 }
 
 std::unique_ptr<webrtc::VideoEncoder>
-VideoEncoderFactory::InternalFactory::CreateVideoEncoder(
-    const webrtc::SdpVideoFormat& format) {
+VideoEncoderFactory::InternalFactory::Create(
+    const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format))
-        return factory->CreateVideoEncoder(format);
+        return factory->Create(env, format);
     }
   }
 
@@ -97,7 +98,7 @@ VideoEncoderFactory::InternalFactory::CreateVideoEncoder(
       webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
 
   if (original_format) {
-    return Factory().CreateVideoEncoder(*original_format);
+    return Factory().Create(env, *original_format);
   }
 
   RTC_LOG(LS_ERROR) << "No VideoEncoder found for " << format.name;
@@ -119,12 +120,12 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
   return internal_factory_->QueryCodecSupport(format, scalability_mode);
 }
 
-std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::CreateVideoEncoder(
-    const webrtc::SdpVideoFormat& format) {
+std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
+    const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
   std::unique_ptr<webrtc::VideoEncoder> encoder;
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
-        internal_factory_.get(), format);
+        env, internal_factory_.get(), nullptr, format);
   }
 
   return encoder;

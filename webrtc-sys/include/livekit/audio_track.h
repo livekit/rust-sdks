@@ -27,7 +27,7 @@
 #include "livekit/webrtc.h"
 #include "pc/local_audio_source.h"
 #include "rtc_base/synchronization/mutex.h"
-#include "rtc_base/task_queue.h"
+#include "api/task_queue/task_queue_base.h"
 #include "rtc_base/task_utils/repeating_task.h"
 #include "rtc_base/thread_annotations.h"
 #include "rust/cxx.h"
@@ -127,7 +127,7 @@ class AudioTrackSource {
 
    private:
     mutable webrtc::Mutex mutex_;
-    std::unique_ptr<rtc::TaskQueue> audio_queue_;
+    std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> audio_queue_;
     webrtc::RepeatingTaskHandle audio_task_;
 
     std::vector<webrtc::AudioTrackSinkInterface*> sinks_ RTC_GUARDED_BY(mutex_);
