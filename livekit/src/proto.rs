@@ -30,6 +30,27 @@ impl From<ConnectionQuality> for participant::ConnectionQuality {
     }
 }
 
+impl From<DisconnectReason> for participant::DisconnectReason {
+    fn from(value: DisconnectReason) -> Self {
+        match value {
+            DisconnectReason::UnknownReason => Self::UnknownReason,
+            DisconnectReason::ClientInitiated => Self::ClientInitiated,
+            DisconnectReason::DuplicateIdentity => Self::DuplicateIdentity,
+            DisconnectReason::ServerShutdown => Self::ServerShutdown,
+            DisconnectReason::ParticipantRemoved => Self::ParticipantRemoved,
+            DisconnectReason::RoomDeleted => Self::RoomDeleted,
+            DisconnectReason::StateMismatch => Self::StateMismatch,
+            DisconnectReason::JoinFailure => Self::JoinFailure,
+            DisconnectReason::Migration => Self::Migration,
+            DisconnectReason::SignalClose => Self::SignalClose,
+            DisconnectReason::RoomClosed => Self::RoomClosed,
+            DisconnectReason::UserUnavailable => Self::UserUnavailable,
+            DisconnectReason::UserRejected => Self::UserRejected,
+            DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
+        }
+    }
+}
+
 impl TryFrom<TrackType> for track::TrackKind {
     type Error = &'static str;
 

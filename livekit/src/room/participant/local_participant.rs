@@ -637,6 +637,10 @@ impl LocalParticipant {
         self.inner.info.read().kind
     }
 
+    pub fn disconnect_reason(&self) -> DisconnectReason {
+        self.inner.info.read().disconnect_reason
+    }
+
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
         let max_round_trip_latency = Duration::from_millis(2000);
 

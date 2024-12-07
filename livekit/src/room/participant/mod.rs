@@ -46,6 +46,24 @@ pub enum ParticipantKind {
     Agent,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DisconnectReason {
+    UnknownReason,
+    ClientInitiated,
+    DuplicateIdentity,
+    ServerShutdown,
+    ParticipantRemoved,
+    RoomDeleted,
+    StateMismatch,
+    JoinFailure,
+    Migration,
+    SignalClose,
+    RoomClosed,
+    UserUnavailable,
+    UserRejected,
+    SipTrunkFailure,
+}
+
 #[derive(Debug, Clone)]
 pub enum Participant {
     Local(LocalParticipant),
@@ -64,6 +82,7 @@ impl Participant {
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
         pub fn kind(self: &Self) -> ParticipantKind;
+        pub fn disconnect_reason(self: &Self) -> DisconnectReason;
 
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 
@@ -93,6 +112,7 @@ struct ParticipantInfo {
     pub audio_level: f32,
     pub connection_quality: ConnectionQuality,
     pub kind: ParticipantKind,
+    pub disconnect_reason: DisconnectReason,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
@@ -138,6 +158,7 @@ pub(super) fn new_inner(
             speaking: false,
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
+            disconnect_reason: DisconnectReason::UnknownReason,
         }),
         track_publications: Default::default(),
         events: Default::default(),
@@ -150,6 +171,7 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
+    info.disconnect_reason = new_info.disconnect_reason().into();
     info.kind = new_info.kind().into();
     info.sid = new_info.sid.try_into().unwrap();
     info.identity = new_info.identity.into();

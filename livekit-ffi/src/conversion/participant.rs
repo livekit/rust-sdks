@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::{proto, server::participant::FfiParticipant};
+use livekit::DisconnectReason;
 use livekit::ParticipantKind;
 
 impl From<&FfiParticipant> for proto::ParticipantInfo {
@@ -25,6 +26,8 @@ impl From<&FfiParticipant> for proto::ParticipantInfo {
             metadata: participant.metadata(),
             attributes: participant.attributes(),
             kind: proto::ParticipantKind::from(participant.kind()).into(),
+            disconnect_reason: proto::DisconnectReason::from(participant.disconnect_reason())
+                .into(),
         }
     }
 }
@@ -37,6 +40,27 @@ impl From<ParticipantKind> for proto::ParticipantKind {
             ParticipantKind::Ingress => proto::ParticipantKind::Ingress,
             ParticipantKind::Egress => proto::ParticipantKind::Egress,
             ParticipantKind::Agent => proto::ParticipantKind::Agent,
+        }
+    }
+}
+
+impl From<DisconnectReason> for proto::DisconnectReason {
+    fn from(reason: DisconnectReason) -> Self {
+        match reason {
+            DisconnectReason::UnknownReason => proto::DisconnectReason::UnknownReason,
+            DisconnectReason::ClientInitiated => proto::DisconnectReason::ClientInitiated,
+            DisconnectReason::DuplicateIdentity => proto::DisconnectReason::DuplicateIdentity,
+            DisconnectReason::ServerShutdown => proto::DisconnectReason::ServerShutdown,
+            DisconnectReason::ParticipantRemoved => proto::DisconnectReason::ParticipantRemoved,
+            DisconnectReason::RoomDeleted => proto::DisconnectReason::RoomDeleted,
+            DisconnectReason::StateMismatch => proto::DisconnectReason::StateMismatch,
+            DisconnectReason::JoinFailure => proto::DisconnectReason::JoinFailure,
+            DisconnectReason::Migration => proto::DisconnectReason::Migration,
+            DisconnectReason::SignalClose => proto::DisconnectReason::SignalClose,
+            DisconnectReason::RoomClosed => proto::DisconnectReason::RoomClosed,
+            DisconnectReason::UserUnavailable => proto::DisconnectReason::UserUnavailable,
+            DisconnectReason::UserRejected => proto::DisconnectReason::UserRejected,
+            DisconnectReason::SipTrunkFailure => proto::DisconnectReason::SipTrunkFailure,
         }
     }
 }
