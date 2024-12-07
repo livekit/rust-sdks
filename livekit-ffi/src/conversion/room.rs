@@ -95,6 +95,9 @@ impl From<DisconnectReason> for proto::DisconnectReason {
             DisconnectReason::Migration => Self::Migration,
             DisconnectReason::SignalClose => Self::SignalClose,
             DisconnectReason::RoomClosed => Self::RoomClosed,
+            DisconnectReason::UserUnavailable => Self::UserUnavailable,
+            DisconnectReason::UserRejected => Self::UserRejected,
+            DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
         }
     }
 }

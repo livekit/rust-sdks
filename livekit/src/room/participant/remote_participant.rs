@@ -488,4 +488,8 @@ impl RemoteParticipant {
     pub fn kind(&self) -> ParticipantKind {
         self.inner.info.read().kind
     }
+
+    pub fn disconnect_reason(&self) -> DisconnectReason {
+        self.inner.info.read().disconnect_reason
+    }
 }
