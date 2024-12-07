@@ -627,10 +627,12 @@ impl serde::Serialize for AgentDispatchState {
         }
         if self.created_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdAt", ToString::to_string(&self.created_at).as_str())?;
         }
         if self.deleted_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("deletedAt", ToString::to_string(&self.deleted_at).as_str())?;
         }
         struct_ser.end()
@@ -1941,10 +1943,12 @@ impl serde::Serialize for ChatMessage {
         }
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if let Some(v) = self.edit_timestamp.as_ref() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("editTimestamp", ToString::to_string(&v).as_str())?;
         }
         if !self.message.is_empty() {
@@ -5473,10 +5477,12 @@ impl serde::Serialize for data_stream::Chunk {
         }
         if self.chunk_index != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("chunkIndex", ToString::to_string(&self.chunk_index).as_str())?;
         }
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         if self.complete {
@@ -5487,6 +5493,7 @@ impl serde::Serialize for data_stream::Chunk {
         }
         if let Some(v) = self.iv.as_ref() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("iv", pbjson::private::base64::encode(&v).as_str())?;
         }
         struct_ser.end()
@@ -5771,6 +5778,7 @@ impl serde::Serialize for data_stream::Header {
         }
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if !self.topic.is_empty() {
@@ -5781,10 +5789,12 @@ impl serde::Serialize for data_stream::Header {
         }
         if let Some(v) = self.total_length.as_ref() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("totalLength", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.total_chunks.as_ref() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("totalChunks", ToString::to_string(&v).as_str())?;
         }
         if self.encryption_type != 0 {
@@ -7286,14 +7296,17 @@ impl serde::Serialize for EgressInfo {
         }
         if self.started_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startedAt", ToString::to_string(&self.started_at).as_str())?;
         }
         if self.ended_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endedAt", ToString::to_string(&self.ended_at).as_str())?;
         }
         if self.updated_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("updatedAt", ToString::to_string(&self.updated_at).as_str())?;
         }
         if !self.details.is_empty() {
@@ -8657,10 +8670,12 @@ impl serde::Serialize for EventMetric {
         }
         if self.start_timestamp_ms != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startTimestampMs", ToString::to_string(&self.start_timestamp_ms).as_str())?;
         }
         if let Some(v) = self.end_timestamp_ms.as_ref() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endTimestampMs", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.normalized_start_timestamp.as_ref() {
@@ -8893,18 +8908,22 @@ impl serde::Serialize for FileInfo {
         }
         if self.started_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startedAt", ToString::to_string(&self.started_at).as_str())?;
         }
         if self.ended_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endedAt", ToString::to_string(&self.ended_at).as_str())?;
         }
         if self.duration != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("duration", ToString::to_string(&self.duration).as_str())?;
         }
         if self.size != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("size", ToString::to_string(&self.size).as_str())?;
         }
         if !self.location.is_empty() {
@@ -10136,14 +10155,17 @@ impl serde::Serialize for ImagesInfo {
         }
         if self.image_count != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("imageCount", ToString::to_string(&self.image_count).as_str())?;
         }
         if self.started_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startedAt", ToString::to_string(&self.started_at).as_str())?;
         }
         if self.ended_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endedAt", ToString::to_string(&self.ended_at).as_str())?;
         }
         struct_ser.end()
@@ -11120,14 +11142,17 @@ impl serde::Serialize for IngressState {
         }
         if self.started_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startedAt", ToString::to_string(&self.started_at).as_str())?;
         }
         if self.ended_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endedAt", ToString::to_string(&self.ended_at).as_str())?;
         }
         if self.updated_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("updatedAt", ToString::to_string(&self.updated_at).as_str())?;
         }
         if !self.resource_id.is_empty() {
@@ -12515,14 +12540,17 @@ impl serde::Serialize for JobState {
         }
         if self.started_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startedAt", ToString::to_string(&self.started_at).as_str())?;
         }
         if self.ended_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endedAt", ToString::to_string(&self.ended_at).as_str())?;
         }
         if self.updated_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("updatedAt", ToString::to_string(&self.updated_at).as_str())?;
         }
         if !self.participant_identity.is_empty() {
@@ -13009,6 +13037,7 @@ impl serde::Serialize for JoinResponse {
         }
         if !self.sif_trailer.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("sifTrailer", pbjson::private::base64::encode(&self.sif_trailer).as_str())?;
         }
         if !self.enabled_publish_codecs.is_empty() {
@@ -15335,6 +15364,7 @@ impl serde::Serialize for MetricSample {
         let mut struct_ser = serializer.serialize_struct("livekit.MetricSample", len)?;
         if self.timestamp_ms != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestampMs", ToString::to_string(&self.timestamp_ms).as_str())?;
         }
         if let Some(v) = self.normalized_timestamp.as_ref() {
@@ -15477,6 +15507,7 @@ impl serde::Serialize for MetricsBatch {
         let mut struct_ser = serializer.serialize_struct("livekit.MetricsBatch", len)?;
         if self.timestamp_ms != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestampMs", ToString::to_string(&self.timestamp_ms).as_str())?;
         }
         if let Some(v) = self.normalized_timestamp.as_ref() {
@@ -16380,6 +16411,7 @@ impl serde::Serialize for ParticipantInfo {
         }
         if self.joined_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("joinedAt", ToString::to_string(&self.joined_at).as_str())?;
         }
         if !self.name.is_empty() {
@@ -16848,7 +16880,7 @@ impl serde::Serialize for ParticipantPermission {
             let v = self.can_publish_sources.iter().cloned().map(|v| {
                 TrackSource::try_from(v)
                     .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
-                }).collect::<Result<Vec<_>, _>>()?;
+                }).collect::<std::result::Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("canPublishSources", &v)?;
         }
         if self.hidden {
@@ -17266,10 +17298,12 @@ impl serde::Serialize for Ping {
         let mut struct_ser = serializer.serialize_struct("livekit.Ping", len)?;
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if self.rtt != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("rtt", ToString::to_string(&self.rtt).as_str())?;
         }
         struct_ser.end()
@@ -17517,10 +17551,12 @@ impl serde::Serialize for Pong {
         let mut struct_ser = serializer.serialize_struct("livekit.Pong", len)?;
         if self.last_ping_timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("lastPingTimestamp", ToString::to_string(&self.last_ping_timestamp).as_str())?;
         }
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         struct_ser.end()
@@ -17783,18 +17819,22 @@ impl serde::Serialize for RtcpSenderReportState {
         }
         if self.rtp_timestamp_ext != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("rtpTimestampExt", ToString::to_string(&self.rtp_timestamp_ext).as_str())?;
         }
         if self.ntp_timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("ntpTimestamp", ToString::to_string(&self.ntp_timestamp).as_str())?;
         }
         if self.at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("at", ToString::to_string(&self.at).as_str())?;
         }
         if self.at_adjusted != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("atAdjusted", ToString::to_string(&self.at_adjusted).as_str())?;
         }
         if self.packets != 0 {
@@ -17802,6 +17842,7 @@ impl serde::Serialize for RtcpSenderReportState {
         }
         if self.octets != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("octets", ToString::to_string(&self.octets).as_str())?;
         }
         struct_ser.end()
@@ -18015,18 +18056,22 @@ impl serde::Serialize for RtpDrift {
         }
         if self.start_timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startTimestamp", ToString::to_string(&self.start_timestamp).as_str())?;
         }
         if self.end_timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endTimestamp", ToString::to_string(&self.end_timestamp).as_str())?;
         }
         if self.rtp_clock_ticks != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("rtpClockTicks", ToString::to_string(&self.rtp_clock_ticks).as_str())?;
         }
         if self.drift_samples != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("driftSamples", ToString::to_string(&self.drift_samples).as_str())?;
         }
         if self.drift_ms != 0. {
@@ -18266,14 +18311,17 @@ impl serde::Serialize for RtpForwarderState {
         }
         if self.pre_start_time != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("preStartTime", ToString::to_string(&self.pre_start_time).as_str())?;
         }
         if self.ext_first_timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extFirstTimestamp", ToString::to_string(&self.ext_first_timestamp).as_str())?;
         }
         if self.dummy_start_timestamp_offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("dummyStartTimestampOffset", ToString::to_string(&self.dummy_start_timestamp_offset).as_str())?;
         }
         if let Some(v) = self.rtp_munger.as_ref() {
@@ -18491,18 +18539,22 @@ impl serde::Serialize for RtpMungerState {
         let mut struct_ser = serializer.serialize_struct("livekit.RTPMungerState", len)?;
         if self.ext_last_sequence_number != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extLastSequenceNumber", ToString::to_string(&self.ext_last_sequence_number).as_str())?;
         }
         if self.ext_second_last_sequence_number != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extSecondLastSequenceNumber", ToString::to_string(&self.ext_second_last_sequence_number).as_str())?;
         }
         if self.ext_last_timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extLastTimestamp", ToString::to_string(&self.ext_last_timestamp).as_str())?;
         }
         if self.ext_second_last_timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extSecondLastTimestamp", ToString::to_string(&self.ext_second_last_timestamp).as_str())?;
         }
         if self.last_marker {
@@ -18821,10 +18873,12 @@ impl serde::Serialize for RtpStats {
         }
         if self.bytes != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", ToString::to_string(&self.bytes).as_str())?;
         }
         if self.header_bytes != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("headerBytes", ToString::to_string(&self.header_bytes).as_str())?;
         }
         if self.bitrate != 0. {
@@ -18847,10 +18901,12 @@ impl serde::Serialize for RtpStats {
         }
         if self.bytes_duplicate != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytesDuplicate", ToString::to_string(&self.bytes_duplicate).as_str())?;
         }
         if self.header_bytes_duplicate != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("headerBytesDuplicate", ToString::to_string(&self.header_bytes_duplicate).as_str())?;
         }
         if self.bitrate_duplicate != 0. {
@@ -18864,10 +18920,12 @@ impl serde::Serialize for RtpStats {
         }
         if self.bytes_padding != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytesPadding", ToString::to_string(&self.bytes_padding).as_str())?;
         }
         if self.header_bytes_padding != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("headerBytesPadding", ToString::to_string(&self.header_bytes_padding).as_str())?;
         }
         if self.bitrate_padding != 0. {
@@ -19837,6 +19895,7 @@ impl serde::Serialize for RegionInfo {
         }
         if self.distance != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("distance", ToString::to_string(&self.distance).as_str())?;
         }
         struct_ser.end()
@@ -20687,6 +20746,7 @@ impl serde::Serialize for Room {
         }
         if self.creation_time != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("creationTime", ToString::to_string(&self.creation_time).as_str())?;
         }
         if !self.turn_password.is_empty() {
@@ -22929,7 +22989,7 @@ impl serde::Serialize for SipCallInfo {
             let v = self.enabled_features.iter().cloned().map(|v| {
                 SipFeature::try_from(v)
                     .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
-                }).collect::<Result<Vec<_>, _>>()?;
+                }).collect::<std::result::Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("enabledFeatures", &v)?;
         }
         if self.call_status != 0 {
@@ -22939,14 +22999,17 @@ impl serde::Serialize for SipCallInfo {
         }
         if self.created_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdAt", ToString::to_string(&self.created_at).as_str())?;
         }
         if self.started_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startedAt", ToString::to_string(&self.started_at).as_str())?;
         }
         if self.ended_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endedAt", ToString::to_string(&self.ended_at).as_str())?;
         }
         if self.disconnect_reason != 0 {
@@ -25919,10 +25982,12 @@ impl serde::Serialize for SegmentsInfo {
         }
         if self.duration != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("duration", ToString::to_string(&self.duration).as_str())?;
         }
         if self.size != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("size", ToString::to_string(&self.size).as_str())?;
         }
         if !self.playlist_location.is_empty() {
@@ -25933,14 +25998,17 @@ impl serde::Serialize for SegmentsInfo {
         }
         if self.segment_count != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("segmentCount", ToString::to_string(&self.segment_count).as_str())?;
         }
         if self.started_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startedAt", ToString::to_string(&self.started_at).as_str())?;
         }
         if self.ended_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endedAt", ToString::to_string(&self.ended_at).as_str())?;
         }
         struct_ser.end()
@@ -26160,6 +26228,7 @@ impl serde::Serialize for SendDataRequest {
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
         }
         if self.kind != 0 {
@@ -26980,6 +27049,7 @@ impl serde::Serialize for SignalRequest {
                 }
                 signal_request::Message::Ping(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("ping", ToString::to_string(&v).as_str())?;
                 }
                 signal_request::Message::UpdateMetadata(v) => {
@@ -27309,6 +27379,7 @@ impl serde::Serialize for SignalResponse {
                 }
                 signal_response::Message::Pong(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("pong", ToString::to_string(&v).as_str())?;
                 }
                 signal_response::Message::Reconnect(v) => {
@@ -27865,6 +27936,7 @@ impl serde::Serialize for SimulateScenario {
                 }
                 simulate_scenario::Scenario::SubscriberBandwidth(v) => {
                     #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("subscriberBandwidth", ToString::to_string(&v).as_str())?;
                 }
                 simulate_scenario::Scenario::DisconnectSignalOnResume(v) => {
@@ -28765,14 +28837,17 @@ impl serde::Serialize for StreamInfo {
         }
         if self.started_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startedAt", ToString::to_string(&self.started_at).as_str())?;
         }
         if self.ended_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endedAt", ToString::to_string(&self.ended_at).as_str())?;
         }
         if self.duration != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("duration", ToString::to_string(&self.duration).as_str())?;
         }
         if self.status != 0 {
@@ -30748,6 +30823,7 @@ impl serde::Serialize for TimedVersion {
         let mut struct_ser = serializer.serialize_struct("livekit.TimedVersion", len)?;
         if self.unix_micro != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("unixMicro", ToString::to_string(&self.unix_micro).as_str())?;
         }
         if self.ticks != 0 {
@@ -31416,7 +31492,7 @@ impl serde::Serialize for TrackInfo {
             let v = self.audio_features.iter().cloned().map(|v| {
                 AudioTrackFeature::try_from(v)
                     .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
-                }).collect::<Result<Vec<_>, _>>()?;
+                }).collect::<std::result::Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("audioFeatures", &v)?;
         }
         struct_ser.end()
@@ -32479,10 +32555,12 @@ impl serde::Serialize for TranscriptionSegment {
         }
         if self.start_time != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startTime", ToString::to_string(&self.start_time).as_str())?;
         }
         if self.end_time != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endTime", ToString::to_string(&self.end_time).as_str())?;
         }
         if self.r#final {
@@ -33435,7 +33513,7 @@ impl serde::Serialize for UpdateLocalAudioTrack {
             let v = self.features.iter().cloned().map(|v| {
                 AudioTrackFeature::try_from(v)
                     .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
-                }).collect::<Result<Vec<_>, _>>()?;
+                }).collect::<std::result::Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("features", &v)?;
         }
         struct_ser.end()
@@ -35110,6 +35188,7 @@ impl serde::Serialize for UserPacket {
         }
         if !self.payload.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("payload", pbjson::private::base64::encode(&self.payload).as_str())?;
         }
         if !self.destination_sids.is_empty() {
@@ -35126,10 +35205,12 @@ impl serde::Serialize for UserPacket {
         }
         if let Some(v) = self.start_time.as_ref() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("startTime", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.end_time.as_ref() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endTime", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
@@ -36314,6 +36395,7 @@ impl serde::Serialize for WebhookEvent {
         }
         if self.created_at != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdAt", ToString::to_string(&self.created_at).as_str())?;
         }
         if self.num_dropped != 0 {
@@ -36691,6 +36773,7 @@ impl serde::Serialize for WorkerPing {
         let mut struct_ser = serializer.serialize_struct("livekit.WorkerPing", len)?;
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         struct_ser.end()
@@ -36792,10 +36875,12 @@ impl serde::Serialize for WorkerPong {
         let mut struct_ser = serializer.serialize_struct("livekit.WorkerPong", len)?;
         if self.last_timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("lastTimestamp", ToString::to_string(&self.last_timestamp).as_str())?;
         }
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         struct_ser.end()
