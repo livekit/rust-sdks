@@ -8,11 +8,15 @@ members = [
     "livekit-runtime",
     "libwebrtc",
     "soxr-sys",
+    "yuv-sys",
+    "imgproc",
     "webrtc-sys",
     "webrtc-sys/build",
 ]
 
 [workspace.dependencies]
+imgproc = { version = "0.3.11", path = "imgproc" }
+yuv-sys = { version = "0.3.6", path = "yuv-sys" }
 libwebrtc = { version = "0.3.7", path = "libwebrtc" }
 livekit-api = { version = "0.4.1", path = "livekit-api" }
 livekit-ffi = { version = "0.12.3", path = "livekit-ffi" }
