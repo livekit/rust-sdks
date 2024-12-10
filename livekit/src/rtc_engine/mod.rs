@@ -159,6 +159,21 @@ pub enum EngineEvent {
     LocalTrackSubscribed {
         track_sid: String,
     },
+    DataStreamHeader {
+        stream_id: String,
+        timestamp: i64,
+        topic: String,
+        mime_type: String,
+        total_length: Option<u64>,
+        total_chunks: Option<u64>,
+    },
+    DataStreamChunk {
+        stream_id: String,
+        chunk_index: u64,
+        content: Vec<u8>,
+        complete: bool,
+        version: i32,
+    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -523,6 +538,38 @@ impl EngineInner {
             }
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
+            }
+            SessionEvent::DataStreamHeader {
+                stream_id,
+                timestamp,
+                topic,
+                mime_type,
+                total_length,
+                total_chunks,
+            } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamHeader {
+                    stream_id,
+                    timestamp,
+                    topic,
+                    mime_type,
+                    total_length,
+                    total_chunks,
+                });
+            }
+            SessionEvent::DataStreamChunk {
+                stream_id,
+                chunk_index,
+                content,
+                complete,
+                version,
+            } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamChunk {
+                    stream_id,
+                    chunk_index,
+                    content,
+                    complete,
+                    version,
+                });
             }
         }
         Ok(())

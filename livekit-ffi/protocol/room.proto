@@ -338,6 +338,12 @@ enum DisconnectReason {
   SIGNAL_CLOSE = 9;
   // the room was closed, due to all Standard and Ingress participants having left
   ROOM_CLOSED = 10;
+  /// SIP callee did not respond in time
+  UserUnavailable = 11;
+  /// SIP callee rejected the call (busy)
+  UserRejected = 12;
+  /// SIP protocol failure or unexpected response
+  SipTrunkFailure = 13;
 }
 
 message TranscriptionSegment {
