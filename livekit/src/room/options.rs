@@ -178,10 +178,10 @@ pub fn compute_appropriate_encoding(
     let mut encoding = presets.first().unwrap().encoding.clone();
 
     for preset in presets {
-        encoding = preset.encoding.clone();
         if preset.width > size {
             break;
         }
+        encoding = preset.encoding.clone();
     }
 
     match codec {
@@ -360,11 +360,12 @@ pub mod screenshare {
     pub const H360_FPS3: VideoPreset = VideoPreset::new(640, 360, 200_000, 3.0);
     pub const H720_FPS5: VideoPreset = VideoPreset::new(1280, 720, 400_000, 5.0);
     pub const H720_FPS15: VideoPreset = VideoPreset::new(1280, 720, 1_000_000, 15.0);
+    pub const H720_FPS30: VideoPreset = VideoPreset::new(1280, 720, 2_000_000, 30.0);
     pub const H1080_FPS15: VideoPreset = VideoPreset::new(1920, 1080, 1_500_000, 15.0);
     pub const H1080_FPS30: VideoPreset = VideoPreset::new(1920, 1080, 3_000_000, 30.0);
 
     pub const PRESETS: &[VideoPreset] =
-        &[H360_FPS3, H720_FPS5, H720_FPS15, H1080_FPS15, H1080_FPS30];
+        &[H360_FPS3, H720_FPS5, H720_FPS15, H720_FPS30, H1080_FPS15, H1080_FPS30];
 
     /// Only one additional layer for screenshares. (Prioritize quality)
     pub fn compute_default_simulcast_preset(initial: &VideoPreset) -> VideoPreset {
