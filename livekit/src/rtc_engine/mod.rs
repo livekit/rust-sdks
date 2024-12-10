@@ -24,6 +24,7 @@ use tokio::sync::{
     mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
     RwLockReadGuard as AsyncRwLockReadGuard,
 };
+use tokio_stream::StreamExt;
 
 pub use self::rtc_session::SessionStats;
 use crate::prelude::ParticipantIdentity;
@@ -158,6 +159,21 @@ pub enum EngineEvent {
     },
     LocalTrackSubscribed {
         track_sid: String,
+    },
+    DataStreamHeader {
+        stream_id: String,
+        timestamp: i64,
+        topic: String,
+        mime_type: String,
+        total_length: Option<u64>,
+        total_chunks: Option<u64>,
+    },
+    DataStreamChunk {
+        stream_id: String,
+        chunk_index: u64,
+        content: Vec<u8>,
+        complete: bool,
+        version: i32,
     },
 }
 
@@ -523,6 +539,38 @@ impl EngineInner {
             }
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
+            }
+            SessionEvent::DataStreamHeader {
+                stream_id,
+                timestamp,
+                topic,
+                mime_type,
+                total_length,
+                total_chunks,
+            } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamHeader {
+                    stream_id,
+                    timestamp,
+                    topic,
+                    mime_type,
+                    total_length,
+                    total_chunks,
+                });
+            }
+            SessionEvent::DataStreamChunk {
+                stream_id,
+                chunk_index,
+                content,
+                complete,
+                version,
+            } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamChunk {
+                    stream_id,
+                    chunk_index,
+                    content,
+                    complete,
+                    version,
+                });
             }
         }
         Ok(())

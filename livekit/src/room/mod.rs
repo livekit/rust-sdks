@@ -720,6 +720,26 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
+            EngineEvent::DataStreamHeader {
+                stream_id,
+                timestamp,
+                topic,
+                mime_type,
+                total_length,
+                total_chunks,
+            } => {
+                self.handle_data_stream_header(
+                    stream_id,
+                    timestamp,
+                    topic,
+                    mime_type,
+                    total_length,
+                    total_chunks,
+                );
+            }
+            EngineEvent::DataStreamChunk { stream_id, chunk_index, content, complete, version } => {
+                self.handle_data_stream_chunk(stream_id, chunk_index, content, complete, version);
+            }
             _ => {}
         }
 
@@ -1227,6 +1247,31 @@ impl RoomSession {
             track_publication,
             segments,
         });
+    }
+
+    fn handle_data_stream_header(
+        &self,
+        stream_id: String,
+        timestamp: i64,
+        topic: String,
+        mime_type: String,
+        total_length: Option<u64>,
+        total_chunks: Option<u64>,
+    ) {
+
+        // create and store readable stream
+        // emit event with readable stream and info
+    }
+
+    fn handle_data_stream_chunk(
+        &self,
+        stream_id: String,
+        chunk_index: u64,
+        content: Vec<u8>,
+        complete: bool,
+        version: i32,
+    ) {
+        // update readable stream
     }
 
     /// Create a new participant

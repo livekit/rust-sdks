@@ -129,6 +129,9 @@ pub struct CreateSIPParticipantOptions {
     /// Optionally play ringtone in the room as an audible indicator for existing participants
     pub play_ringtone: bool,
     pub hide_phone_number: bool,
+    pub enable_krisp: bool,
+    pub max_call_duration: i32,
+    pub play_dialtone: bool,
 }
 
 impl SIPClient {
@@ -202,6 +205,10 @@ impl SIPClient {
 
                         headers: Default::default(),
                         headers_to_attributes: Default::default(),
+                        krisp_enabled: Default::default(),
+                        attributes_to_headers: Default::default(),
+                        ringing_timeout: Default::default(),
+                        max_call_duration: Default::default(),
                     }),
                 },
                 self.base.auth_header(
@@ -238,6 +245,7 @@ impl SIPClient {
 
                         headers: Default::default(),
                         headers_to_attributes: Default::default(),
+                        attributes_to_headers: Default::default(),
                     }),
                 },
                 self.base.auth_header(
@@ -414,6 +422,12 @@ impl SIPClient {
                     dtmf: options.dtmf.to_owned(),
                     play_ringtone: options.play_ringtone,
                     hide_phone_number: options.hide_phone_number,
+
+                    enable_krisp: Default::default(),
+                    sip_number: Default::default(),
+                    play_dialtone: Default::default(),
+                    ringing_timeout: Default::default(),
+                    max_call_duration: Default::default(),
                 },
                 self.base.auth_header(
                     Default::default(),

@@ -26,7 +26,7 @@ use std::{
 
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-use livekit_protocol as proto;
+use livekit_protocol::{self as proto, Encryption};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
@@ -134,6 +134,21 @@ pub enum SessionEvent {
         reason: DisconnectReason,
         action: proto::leave_request::Action,
         retry_now: bool,
+    },
+    DataStreamHeader {
+        stream_id: String,
+        timestamp: i64,
+        topic: String,
+        mime_type: String,
+        total_length: Option<u64>,
+        total_chunks: Option<u64>,
+    },
+    DataStreamChunk {
+        stream_id: String,
+        chunk_index: u64,
+        content: Vec<u8>,
+        complete: bool,
+        version: i32,
     },
 }
 
@@ -721,6 +736,25 @@ impl SessionInner {
                                     data.participant_identity,
                                 ),
                                 message: ChatMessage::from(message.clone()),
+                            });
+                        }
+                        proto::data_packet::Value::StreamHeader(message) => {
+                            let _ = self.emitter.send(SessionEvent::DataStreamHeader {
+                                stream_id: message.stream_id.clone(),
+                                timestamp: message.timestamp.clone(),
+                                topic: message.topic.clone(),
+                                mime_type: message.mime_type.clone(),
+                                total_length: message.total_length.clone(),
+                                total_chunks: message.total_chunks.clone(),
+                            });
+                        }
+                        proto::data_packet::Value::StreamChunk(message) => {
+                            let _ = self.emitter.send(SessionEvent::DataStreamChunk {
+                                stream_id: message.stream_id.clone(),
+                                chunk_index: message.chunk_index.clone(),
+                                content: message.content.clone(),
+                                complete: message.complete.clone(),
+                                version: message.version.clone(),
                             });
                         }
                         _ => {}
