@@ -14,6 +14,8 @@
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 
+use data_streams::{DataStreamChunk, FileStreamInfo, FileStreamUpdater};
+use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -50,6 +52,7 @@ use crate::{
     },
 };
 
+pub mod data_streams;
 pub mod e2ee;
 pub mod id;
 pub mod options;
@@ -365,6 +368,7 @@ pub(crate) struct RoomSession {
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
+    file_streams: HashMap<String, FileStreamUpdater>,
 }
 
 impl Debug for RoomSession {
@@ -506,6 +510,7 @@ impl Room {
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
             room_task: Default::default(),
+            file_streams: HashMap::new(),
         });
 
         e2ee_manager.on_state_changed({
@@ -1258,6 +1263,18 @@ impl RoomSession {
         total_length: Option<u64>,
         total_chunks: Option<u64>,
     ) {
+        let (mut stream_reader, updater) = data_streams::FileStreamReader::new(FileStreamInfo {
+            stream_id,
+            timestamp,
+            topic,
+            mime_type,
+            total_length,
+            total_chunks,
+        });
+
+        self.file_streams.insert(stream_reader.info.stream_id.clone(), updater);
+
+        let _ = self.dispatcher.dispatch(RoomEvent::FileStreamReceived { stream_reader });
 
         // create and store readable stream
         // emit event with readable stream and info
@@ -1271,7 +1288,14 @@ impl RoomSession {
         complete: bool,
         version: i32,
     ) {
-        // update readable stream
+        let file_updater = self.file_streams.get(&stream_id).unwrap();
+        let _ = file_updater.send_update(DataStreamChunk {
+            stream_id,
+            chunk_index,
+            content,
+            complete,
+            version,
+        });
     }
 
     /// Create a new participant

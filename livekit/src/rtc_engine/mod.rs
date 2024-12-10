@@ -24,7 +24,6 @@ use tokio::sync::{
     mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
     RwLockReadGuard as AsyncRwLockReadGuard,
 };
-use tokio_stream::StreamExt;
 
 pub use self::rtc_session::SessionStats;
 use crate::prelude::ParticipantIdentity;
