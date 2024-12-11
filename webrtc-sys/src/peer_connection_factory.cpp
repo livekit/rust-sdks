@@ -21,6 +21,8 @@
 
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "api/audio/echo_canceller3_factory.h"
+#include "api/audio/echo_canceller3_config.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
@@ -46,7 +48,8 @@ class PeerConnectionObserver;
 
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
-    : rtc_runtime_(rtc_runtime) {
+    : rtc_runtime_(rtc_runtime), 
+    audio_context_(rtc_runtime) {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
 
   webrtc::PeerConnectionFactoryDependencies dependencies;
@@ -63,12 +66,7 @@ PeerConnectionFactory::PeerConnectionFactory(
   cricket::MediaEngineDependencies media_deps;
   media_deps.task_queue_factory = dependencies.task_queue_factory.get();
 
-  audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
-    return rtc::make_ref_counted<livekit::AudioDevice>(
-        media_deps.task_queue_factory);
-  });
-
-  media_deps.adm = audio_device_;
+  media_deps.adm = audio_context_.audio_device(media_deps.task_queue_factory);
 
   media_deps.video_encoder_factory =
       std::move(std::make_unique<livekit::VideoEncoderFactory>());
@@ -76,7 +74,16 @@ PeerConnectionFactory::PeerConnectionFactory(
       std::move(std::make_unique<livekit::VideoDecoderFactory>());
   media_deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   media_deps.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-  media_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
+
+  auto apm = webrtc::AudioProcessingBuilder();
+  auto cfg = webrtc::EchoCanceller3Config();
+  auto echo_control = std::make_unique<webrtc::EchoCanceller3Factory>(cfg);
+
+  apm.SetEchoControlFactory(std::move(echo_control));
+  media_deps.audio_processing = apm.Create();
+
+  media_deps.audio_mixer = audio_context_.audio_mixer();
+
   media_deps.trials = dependencies.trials.get();
 
   dependencies.media_engine = cricket::CreateMediaEngine(std::move(media_deps));
@@ -97,8 +104,6 @@ PeerConnectionFactory::~PeerConnectionFactory() {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::~PeerConnectionFactory()";
 
   peer_factory_ = nullptr;
-  rtc_runtime_->worker_thread()->BlockingCall(
-      [this] { audio_device_ = nullptr; });
 }
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
