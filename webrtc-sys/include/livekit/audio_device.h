@@ -19,9 +19,9 @@
 #include <atomic>
 
 #include "api/task_queue/task_queue_factory.h"
+#include "api/task_queue/task_queue_base.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "rtc_base/synchronization/mutex.h"
-#include "rtc_base/task_queue.h"
 #include "rtc_base/task_utils/repeating_task.h"
 
 namespace livekit {
@@ -119,7 +119,7 @@ class AudioDevice : public webrtc::AudioDeviceModule {
  private:
   mutable webrtc::Mutex mutex_;
   std::vector<int16_t> data_;
-  std::unique_ptr<rtc::TaskQueue> audio_queue_;
+  std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> audio_queue_;
   webrtc::RepeatingTaskHandle audio_task_;
   webrtc::AudioTransport* audio_transport_;
   webrtc::TaskQueueFactory* task_queue_factory_;
