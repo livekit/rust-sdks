@@ -26,7 +26,7 @@ use std::{
 
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-use livekit_protocol::{self as proto, Encryption};
+use livekit_protocol::{self as proto, data_stream::header::ContentHeader, Encryption};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
@@ -142,6 +142,7 @@ pub enum SessionEvent {
         mime_type: String,
         total_length: Option<u64>,
         total_chunks: Option<u64>,
+        content_header: Option<ContentHeader>,
     },
     DataStreamChunk {
         stream_id: String,
@@ -746,6 +747,7 @@ impl SessionInner {
                                 mime_type: message.mime_type.clone(),
                                 total_length: message.total_length.clone(),
                                 total_chunks: message.total_chunks.clone(),
+                                content_header: message.content_header.clone(),
                             });
                         }
                         proto::data_packet::Value::StreamChunk(message) => {

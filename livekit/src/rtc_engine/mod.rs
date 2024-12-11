@@ -17,6 +17,7 @@ use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
+use livekit_protocol::data_stream::header::ContentHeader;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
 use thiserror::Error;
@@ -166,6 +167,7 @@ pub enum EngineEvent {
         mime_type: String,
         total_length: Option<u64>,
         total_chunks: Option<u64>,
+        content_header: Option<ContentHeader>,
     },
     DataStreamChunk {
         stream_id: String,
@@ -546,6 +548,7 @@ impl EngineInner {
                 mime_type,
                 total_length,
                 total_chunks,
+                content_header,
             } => {
                 let _ = self.engine_tx.send(EngineEvent::DataStreamHeader {
                     stream_id,
@@ -554,6 +557,7 @@ impl EngineInner {
                     mime_type,
                     total_length,
                     total_chunks,
+                    content_header,
                 });
             }
             SessionEvent::DataStreamChunk {

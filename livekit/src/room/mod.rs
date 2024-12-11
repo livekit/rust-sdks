@@ -13,10 +13,14 @@
 // limitations under the License.
 
 use std::{
-    borrow::BorrowMut, collections::HashMap, fmt::Debug, ops::Deref, sync::Arc, time::Duration,
+    borrow::BorrowMut, collections::HashMap, fmt::Debug, hash::Hash, ops::Deref, sync::Arc,
+    time::Duration,
 };
 
-use data_streams::{DataStreamChunk, FileStreamInfo, FileStreamUpdater};
+use data_streams::{
+    DataStreamChunk, FileStreamInfo, FileStreamReader, FileStreamUpdater, TextStreamInfo,
+    TextStreamReader, TextStreamUpdater,
+};
 use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
@@ -28,8 +32,8 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
-use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
+use livekit_protocol::{self as proto, data_stream::header::ContentHeader};
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
@@ -175,6 +179,12 @@ pub enum RoomEvent {
     ChatMessage {
         message: ChatMessage,
         participant: Option<RemoteParticipant>,
+    },
+    TextStreamReceived {
+        stream_reader: TextStreamReader,
+    },
+    FileStreamReceived {
+        stream_reader: FileStreamReader,
     },
     E2eeStateChanged {
         participant: Participant,
@@ -371,6 +381,7 @@ pub(crate) struct RoomSession {
     e2ee_manager: E2eeManager,
     room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
     file_streams: RwLock<HashMap<String, FileStreamUpdater>>,
+    text_streams: RwLock<HashMap<String, TextStreamUpdater>>,
 }
 
 impl Debug for RoomSession {
@@ -513,6 +524,7 @@ impl Room {
             e2ee_manager: e2ee_manager.clone(),
             room_task: Default::default(),
             file_streams: RwLock::new(HashMap::new()),
+            text_streams: RwLock::new(HashMap::new()),
         });
 
         e2ee_manager.on_state_changed({
@@ -734,6 +746,7 @@ impl RoomSession {
                 mime_type,
                 total_length,
                 total_chunks,
+                content_header,
             } => {
                 self.handle_data_stream_header(
                     stream_id,
@@ -742,6 +755,7 @@ impl RoomSession {
                     mime_type,
                     total_length,
                     total_chunks,
+                    content_header,
                 );
             }
             EngineEvent::DataStreamChunk { stream_id, chunk_index, content, complete, version } => {
@@ -1264,19 +1278,45 @@ impl RoomSession {
         mime_type: String,
         total_length: Option<u64>,
         total_chunks: Option<u64>,
+        content_header: Option<ContentHeader>,
     ) {
-        let (mut stream_reader, updater) = data_streams::FileStreamReader::new(FileStreamInfo {
-            stream_id,
-            timestamp,
-            topic,
-            mime_type,
-            total_length,
-            total_chunks,
-        });
+        match content_header.unwrap() {
+            ContentHeader::TextHeader(text_header) => {
+                let (stream_reader, updater) =
+                    data_streams::TextStreamReader::new(TextStreamInfo {
+                        stream_id,
+                        timestamp,
+                        topic,
+                        mime_type,
+                        total_length,
+                        total_chunks,
+                        attachments: text_header.attached_stream_ids,
+                        version: text_header.version,
+                    });
 
-        self.file_streams.write().insert(stream_reader.info.stream_id.clone(), updater);
+                self.text_streams.write().insert(stream_reader.info.stream_id.clone(), updater);
 
-        let _ = self.dispatcher.dispatch(RoomEvent::FileStreamReceived { stream_reader });
+                let event = RoomEvent::TextStreamReceived { stream_reader };
+                self.dispatcher.dispatch(&event);
+            }
+            ContentHeader::FileHeader(file_header) => {
+                let (stream_reader, updater) =
+                    data_streams::FileStreamReader::new(FileStreamInfo {
+                        stream_id,
+                        timestamp,
+                        topic,
+                        mime_type,
+                        total_length,
+                        total_chunks,
+                        file_name: file_header.file_name,
+                    });
+
+                self.file_streams.write().insert(stream_reader.info.stream_id.clone(), updater);
+
+                let event = RoomEvent::FileStreamReceived { stream_reader };
+                self.dispatcher.dispatch(&event);
+            }
+        }
 
         // create and store readable stream
         // emit event with readable stream and info
