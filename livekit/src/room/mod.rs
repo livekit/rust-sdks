@@ -12,16 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    borrow::BorrowMut, collections::HashMap, fmt::Debug, hash::Hash, ops::Deref, sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 
-use data_streams::{
-    DataStreamChunk, FileStreamInfo, FileStreamReader, FileStreamUpdater, TextStreamInfo,
-    TextStreamReader, TextStreamUpdater,
-};
-use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -39,10 +31,7 @@ use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
-use tokio::{
-    signal,
-    sync::{mpsc, oneshot, Mutex as AsyncMutex},
-};
+use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
 pub use self::{
     e2ee::{manager::E2eeManager, E2eeOptions},
@@ -181,10 +170,10 @@ pub enum RoomEvent {
         participant: Option<RemoteParticipant>,
     },
     TextStreamReceived {
-        stream_reader: TextStreamReader,
+        stream_reader: data_streams::TextStreamReader,
     },
     FileStreamReceived {
-        stream_reader: FileStreamReader,
+        stream_reader: data_streams::FileStreamReader,
     },
     E2eeStateChanged {
         participant: Participant,
@@ -380,8 +369,8 @@ pub(crate) struct RoomSession {
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
-    file_streams: RwLock<HashMap<String, FileStreamUpdater>>,
-    text_streams: RwLock<HashMap<String, TextStreamUpdater>>,
+    file_streams: RwLock<HashMap<String, data_streams::FileStreamUpdater>>,
+    text_streams: RwLock<HashMap<String, data_streams::TextStreamUpdater>>,
 }
 
 impl Debug for RoomSession {
@@ -1283,7 +1272,7 @@ impl RoomSession {
         match content_header.unwrap() {
             ContentHeader::TextHeader(text_header) => {
                 let (stream_reader, updater) =
-                    data_streams::TextStreamReader::new(TextStreamInfo {
+                    data_streams::TextStreamReader::new(data_streams::TextStreamInfo {
                         stream_id,
                         timestamp,
                         topic,
@@ -1301,7 +1290,7 @@ impl RoomSession {
             }
             ContentHeader::FileHeader(file_header) => {
                 let (stream_reader, updater) =
-                    data_streams::FileStreamReader::new(FileStreamInfo {
+                    data_streams::FileStreamReader::new(data_streams::FileStreamInfo {
                         stream_id,
                         timestamp,
                         topic,
@@ -1331,7 +1320,7 @@ impl RoomSession {
         version: i32,
     ) {
         if let Some(file_updater) = self.file_streams.read().get(&stream_id) {
-            let _ = file_updater.send_update(DataStreamChunk {
+            let _ = file_updater.send_update(data_streams::DataStreamChunk {
                 stream_id: stream_id.clone(),
                 chunk_index,
                 content,

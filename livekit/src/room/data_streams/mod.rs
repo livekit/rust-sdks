@@ -173,7 +173,7 @@ impl Stream for TextStreamReader {
                     Poll::Ready(None)
                 } else {
                     let update_clone = update.clone();
-                    let chunk_index = update.chunk_index.clone();
+                    let chunk_index = update.chunk_index;
                     let content = update.content.clone();
 
                     // Check for existing chunk version
@@ -188,8 +188,8 @@ impl Stream for TextStreamReader {
                     // Collect chunks
                     let collected = self
                         .chunks
-                        .iter()
-                        .map(|(_, chunk)| String::from_utf8(chunk.content.clone()).unwrap())
+                        .values()
+                        .map(|chunk| String::from_utf8(chunk.content.clone()).unwrap())
                         .join("");
 
                     Poll::Ready(Some(TextStreamChunk {
