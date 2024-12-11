@@ -165,10 +165,11 @@ jobs:
 
       - name: Copy/Build licenses
         run: |
-          echo "# livekit" > TEMP_LICENSE.md
-          echo "```" >> TEMP_LICENSE.md
+          echo '# livekit' > TEMP_LICENSE.md
+          echo '```' >> TEMP_LICENSE.md
           cat LICENSE >> TEMP_LICENSE.md
-          echo "```" >> TEMP_LICENSE.md
+          echo '```' >> TEMP_LICENSE.md
+          touch livekit-ffi/WEBRTC_LICENSE.md
           cat livekit-ffi/WEBRTC_LICENSE.md >> TEMP_LICENSE.md
           mv TEMP_LICENSE.md target/${{ matrix.target }}/release/LICENSE.md
         shell: bash
