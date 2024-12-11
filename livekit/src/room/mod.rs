@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    borrow::BorrowMut, collections::HashMap, fmt::Debug, ops::Deref, sync::Arc, time::Duration,
+};
 
 use data_streams::{DataStreamChunk, FileStreamInfo, FileStreamUpdater};
 use futures_util::StreamExt;
@@ -368,7 +370,7 @@ pub(crate) struct RoomSession {
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
-    file_streams: HashMap<String, FileStreamUpdater>,
+    file_streams: RwLock<HashMap<String, FileStreamUpdater>>,
 }
 
 impl Debug for RoomSession {
@@ -510,7 +512,7 @@ impl Room {
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
             room_task: Default::default(),
-            file_streams: HashMap::new(),
+            file_streams: RwLock::new(HashMap::new()),
         });
 
         e2ee_manager.on_state_changed({
@@ -659,7 +661,7 @@ impl RoomSession {
         log::debug!("room_task closed");
     }
 
-    async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
+    async fn on_engine_event(self: Arc<Self>, event: EngineEvent) -> RoomResult<()> {
         match event {
             EngineEvent::ParticipantUpdate { updates } => self.handle_participant_update(updates),
             EngineEvent::MediaTrack { track, stream, transceiver } => {
@@ -1272,7 +1274,7 @@ impl RoomSession {
             total_chunks,
         });
 
-        self.file_streams.insert(stream_reader.info.stream_id.clone(), updater);
+        self.file_streams.write().insert(stream_reader.info.stream_id.clone(), updater);
 
         let _ = self.dispatcher.dispatch(RoomEvent::FileStreamReceived { stream_reader });
 
@@ -1288,14 +1290,19 @@ impl RoomSession {
         complete: bool,
         version: i32,
     ) {
-        let file_updater = self.file_streams.get(&stream_id).unwrap();
-        let _ = file_updater.send_update(DataStreamChunk {
-            stream_id,
-            chunk_index,
-            content,
-            complete,
-            version,
-        });
+        if let Some(file_updater) = self.file_streams.read().get(&stream_id) {
+            let _ = file_updater.send_update(DataStreamChunk {
+                stream_id: stream_id.clone(),
+                chunk_index,
+                content,
+                complete,
+                version,
+            });
+
+            if complete {
+                let _ = self.file_streams.write().remove(&stream_id);
+            }
+        }
     }
 
     /// Create a new participant
