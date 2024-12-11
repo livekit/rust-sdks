@@ -30,7 +30,7 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
 };
 
-#[cfg(feature = "__signal-client-async-compatible")]
+#[cfg(any(feature = "signal-client-dispatcher", feature = "signal-client-async"))]
 use async_tungstenite::{
     async_std::connect_async,
     async_std::ClientStream as MaybeTlsStream,

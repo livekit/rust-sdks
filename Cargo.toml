@@ -18,10 +18,10 @@ members = [
 imgproc = { version = "0.3.11", path = "imgproc" }
 yuv-sys = { version = "0.3.6", path = "yuv-sys" }
 libwebrtc = { version = "0.3.7", path = "libwebrtc" }
-livekit-api = { version = "0.4.1", path = "livekit-api" }
+livekit-api = { version = "0.4.1", path = "livekit-api", default-features = false }
 livekit-ffi = { version = "0.12.3", path = "livekit-ffi" }
 livekit-protocol = { version = "0.3.6", path = "livekit-protocol" }
-livekit-runtime = { version = "0.3.1", path = "livekit-runtime" }
+livekit-runtime = { version = "0.3.1", path = "livekit-runtime", default-features = false }
 livekit = { version = "0.7.0", path = "livekit" }
 soxr-sys = { version = "0.1.0", path = "soxr-sys" }
 webrtc-sys-build = { version = "0.3.5", path = "webrtc-sys/build" }

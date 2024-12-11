@@ -13,6 +13,7 @@ default = ["tokio"]
 async = ["livekit-api/signal-client-async"]
 tokio = ["livekit-api/signal-client-tokio"]
 dispatcher = ["livekit-api/signal-client-dispatcher"]
+services-dispatcher = ["livekit-api/services-dispatcher"]
 
 
 # Note that the following features only change the behavior of tokio-tungstenite.
@@ -34,9 +35,14 @@ livekit-protocol = { workspace = true }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
+tokio = { version = "1", default-features = false, features = [
+    "sync",
+    "macros",
+] }
 parking_lot = { version = "0.12" }
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+] }
 thiserror = "1.0"
 lazy_static = "1.4"
 log = "0.4"
