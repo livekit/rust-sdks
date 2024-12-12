@@ -728,24 +728,8 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
-            EngineEvent::DataStreamHeader {
-                stream_id,
-                timestamp,
-                topic,
-                mime_type,
-                total_length,
-                total_chunks,
-                content_header,
-            } => {
-                self.handle_data_stream_header(
-                    stream_id,
-                    timestamp,
-                    topic,
-                    mime_type,
-                    total_length,
-                    total_chunks,
-                    content_header,
-                );
+            EngineEvent::DataStreamHeader { header } => {
+                self.handle_data_stream_header(header);
             }
             EngineEvent::DataStreamChunk { chunk } => {
                 self.handle_data_stream_chunk(chunk);
@@ -1259,26 +1243,17 @@ impl RoomSession {
         });
     }
 
-    fn handle_data_stream_header(
-        &self,
-        stream_id: String,
-        timestamp: i64,
-        topic: String,
-        mime_type: String,
-        total_length: Option<u64>,
-        total_chunks: Option<u64>,
-        content_header: Option<ContentHeader>,
-    ) {
-        match content_header.unwrap() {
+    fn handle_data_stream_header(&self, header: proto::data_stream::Header) {
+        match header.content_header.unwrap() {
             ContentHeader::TextHeader(text_header) => {
                 let (stream_reader, updater) =
                     data_streams::TextStreamReader::new(data_streams::TextStreamInfo {
-                        stream_id,
-                        timestamp,
-                        topic,
-                        mime_type,
-                        total_length,
-                        total_chunks,
+                        stream_id: header.stream_id,
+                        timestamp: header.timestamp,
+                        topic: header.topic,
+                        mime_type: header.mime_type,
+                        total_length: header.total_length,
+                        total_chunks: header.total_chunks,
                         attachments: text_header.attached_stream_ids,
                         version: text_header.version,
                     });
@@ -1291,12 +1266,12 @@ impl RoomSession {
             ContentHeader::FileHeader(file_header) => {
                 let (stream_reader, updater) =
                     data_streams::FileStreamReader::new(data_streams::FileStreamInfo {
-                        stream_id,
-                        timestamp,
-                        topic,
-                        mime_type,
-                        total_length,
-                        total_chunks,
+                        stream_id: header.stream_id,
+                        timestamp: header.timestamp,
+                        topic: header.topic,
+                        mime_type: header.mime_type,
+                        total_length: header.total_length,
+                        total_chunks: header.total_chunks,
                         file_name: file_header.file_name,
                     });
 
@@ -1309,19 +1284,24 @@ impl RoomSession {
     }
 
     fn handle_data_stream_chunk(&self, chunk: proto::data_stream::Chunk) {
-        let mut locked_file_streams = self.file_streams.write();
-        let mut locked_text_streams = self.text_streams.write();
-        if let Some(file_updater) = locked_file_streams.get(&chunk.stream_id) {
-            let _ = file_updater.send_update(chunk.clone());
+        let is_file_stream = self.file_streams.read().contains_key(&chunk.stream_id);
+        let is_text_stream = self.text_streams.read().contains_key(&chunk.stream_id);
 
-            if chunk.complete {
-                let _ = locked_file_streams.remove(&chunk.stream_id);
+        if is_file_stream {
+            let mut locked_file_streams = self.file_streams.write();
+            if let Some(file_updater) = locked_file_streams.get(&chunk.stream_id) {
+                let _ = file_updater.send_update(chunk.clone());
+                if chunk.complete {
+                    let _ = locked_file_streams.remove(&chunk.stream_id);
+                }
             }
-        } else if let Some(text_updater) = locked_text_streams.get(&chunk.stream_id) {
-            let _ = text_updater.send_update(chunk.clone());
-
-            if chunk.complete {
-                let _ = locked_text_streams.remove(&chunk.stream_id);
+        } else if is_text_stream {
+            let mut locked_text_streams = self.text_streams.write();
+            if let Some(text_updater) = locked_text_streams.get(&chunk.stream_id) {
+                let _ = text_updater.send_update(chunk.clone());
+                if chunk.complete {
+                    let _ = locked_text_streams.remove(&chunk.stream_id);
+                }
             }
         }
     }

@@ -162,13 +162,7 @@ pub enum EngineEvent {
         track_sid: String,
     },
     DataStreamHeader {
-        stream_id: String,
-        timestamp: i64,
-        topic: String,
-        mime_type: String,
-        total_length: Option<u64>,
-        total_chunks: Option<u64>,
-        content_header: Option<ContentHeader>,
+        header: proto::data_stream::Header,
     },
     DataStreamChunk {
         chunk: proto::data_stream::Chunk,
@@ -538,24 +532,8 @@ impl EngineInner {
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
             }
-            SessionEvent::DataStreamHeader {
-                stream_id,
-                timestamp,
-                topic,
-                mime_type,
-                total_length,
-                total_chunks,
-                content_header,
-            } => {
-                let _ = self.engine_tx.send(EngineEvent::DataStreamHeader {
-                    stream_id,
-                    timestamp,
-                    topic,
-                    mime_type,
-                    total_length,
-                    total_chunks,
-                    content_header,
-                });
+            SessionEvent::DataStreamHeader { header } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamHeader { header });
             }
             SessionEvent::DataStreamChunk { chunk } => {
                 let _ = self.engine_tx.send(EngineEvent::DataStreamChunk { chunk });

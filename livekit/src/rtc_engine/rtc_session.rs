@@ -136,13 +136,7 @@ pub enum SessionEvent {
         retry_now: bool,
     },
     DataStreamHeader {
-        stream_id: String,
-        timestamp: i64,
-        topic: String,
-        mime_type: String,
-        total_length: Option<u64>,
-        total_chunks: Option<u64>,
-        content_header: Option<ContentHeader>,
+        header: proto::data_stream::Header,
     },
     DataStreamChunk {
         chunk: proto::data_stream::Chunk,
@@ -736,15 +730,9 @@ impl SessionInner {
                             });
                         }
                         proto::data_packet::Value::StreamHeader(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamHeader {
-                                stream_id: message.stream_id.clone(),
-                                timestamp: message.timestamp.clone(),
-                                topic: message.topic.clone(),
-                                mime_type: message.mime_type.clone(),
-                                total_length: message.total_length.clone(),
-                                total_chunks: message.total_chunks.clone(),
-                                content_header: message.content_header.clone(),
-                            });
+                            let _ = self
+                                .emitter
+                                .send(SessionEvent::DataStreamHeader { header: message.clone() });
                         }
                         proto::data_packet::Value::StreamChunk(message) => {
                             let _ = self

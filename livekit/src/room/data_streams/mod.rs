@@ -49,7 +49,6 @@ impl FileStreamReader {
 
     fn close(&mut self) {
         self.is_closed = true;
-        self.update_rx.lock().close();
     }
 }
 
@@ -64,6 +63,7 @@ impl Stream for FileStreamReader {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.is_closed {
+            self.update_rx.lock().close();
             return Poll::Ready(None); // Stream is closed‚, stop yielding updates
         }
         let update_option = {
@@ -81,7 +81,15 @@ impl Stream for FileStreamReader {
                 }
             }
             Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                if self.is_closed {
+                    log::debug!("closing pending update");
+                    self.update_rx.lock().close();
+                    Poll::Ready(None)
+                } else {
+                    Poll::Pending
+                }
+            }
         }
     }
 }
@@ -198,7 +206,7 @@ impl Stream for TextStreamReader {
                     collected,
                 }))
             }
-            Poll::Ready(None) => Poll::Pending,
+            Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => {
                 if self.is_closed {
                     log::debug!("closing pending update");
@@ -212,13 +220,13 @@ impl Stream for TextStreamReader {
     }
 }
 
-/// Helper to send updates to the `FileStream`.
+/// Helper to send updates to the `TextStream`.
 pub struct TextStreamUpdater {
     update_tx: mpsc::UnboundedSender<Chunk>,
 }
 
 impl TextStreamUpdater {
-    /// Sends an update to the `FileStream`.
+    /// Sends an update to the `TextStream``.
     pub fn send_update(&self, data: Chunk) -> Result<(), mpsc::error::SendError<Chunk>> {
         self.update_tx.send(data)
     }
