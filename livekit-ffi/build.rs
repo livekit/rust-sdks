@@ -39,7 +39,9 @@ fn main() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     match target_os.as_str() {
         "windows" => {}
-        "linux" => {}
+        "linux" => {
+            println!("cargo:rustc-link-lib=static=webrtc");
+        }
         "android" => {
             webrtc_sys_build::configure_jni_symbols().unwrap();
         }
