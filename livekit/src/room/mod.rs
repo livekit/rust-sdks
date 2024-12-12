@@ -1331,6 +1331,18 @@ impl RoomSession {
             if complete {
                 let _ = self.file_streams.write().remove(&stream_id);
             }
+        } else if let Some(text_updater) = self.text_streams.read().get(&stream_id) {
+            let _ = text_updater.send_update(data_streams::DataStreamChunk {
+                stream_id: stream_id.clone(),
+                chunk_index,
+                content,
+                complete,
+                version,
+            });
+
+            if complete {
+                let _ = self.text_streams.write().remove(&stream_id);
+            }
         }
     }
 

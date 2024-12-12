@@ -142,7 +142,6 @@ impl TextStreamReader {
     fn close(&mut self) {
         self.is_closed = true;
         self.chunks.clear();
-        self.update_rx.lock().close();
     }
 }
 
@@ -157,19 +156,19 @@ impl Stream for TextStreamReader {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.is_closed {
-            self.close();
             return Poll::Ready(None); // Stream is closed‚, stop yielding updates
         }
+        log::info!("acquiring update_rx");
 
         let update_option = {
             let mut guarded = self.update_rx.lock();
             guarded.poll_recv(cx)
         };
+        log::info!("matching update_rx");
 
         match update_option {
             Poll::Ready(Some(update)) => {
                 if update.complete {
-                    self.close();
                     Poll::Ready(None)
                 } else {
                     let update_clone = update.clone();
@@ -192,6 +191,7 @@ impl Stream for TextStreamReader {
                         .map(|chunk| String::from_utf8(chunk.content.clone()).unwrap())
                         .join("");
 
+                    log::info!("new text chunk ready");
                     Poll::Ready(Some(TextStreamChunk {
                         index: chunk_index,
                         current: String::from_utf8(content).unwrap(),
@@ -199,8 +199,14 @@ impl Stream for TextStreamReader {
                     }))
                 }
             }
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => {
+                log::info!("poll none ready");
+                Poll::Pending
+            }
+            Poll::Pending => {
+                log::info!("poll pending");
+                Poll::Pending
+            }
         }
     }
 }
@@ -216,6 +222,7 @@ impl TextStreamUpdater {
         &self,
         data: DataStreamChunk,
     ) -> Result<(), mpsc::error::SendError<DataStreamChunk>> {
+        log::info!("received text chunk update");
         self.update_tx.send(data)
     }
 }
