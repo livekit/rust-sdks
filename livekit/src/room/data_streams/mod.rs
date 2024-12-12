@@ -168,36 +168,39 @@ impl Stream for TextStreamReader {
 
         match update_option {
             Poll::Ready(Some(update)) => {
-                if update.complete {
-                    Poll::Ready(None)
-                } else {
-                    let update_clone = update.clone();
-                    let chunk_index = update.chunk_index;
-                    let content = update.content.clone();
+                let update_clone = update.clone();
+                let chunk_index = update.chunk_index;
+                let content = update.content.clone();
 
-                    // Check for existing chunk version
-                    if let Some(existing_chunk) = self.chunks.get(&chunk_index) {
-                        if existing_chunk.version > update.version {
-                            return Poll::Pending;
-                        }
+                // Check for existing chunk version
+                if let Some(existing_chunk) = self.chunks.get(&chunk_index) {
+                    if existing_chunk.version > update.version {
+                        return Poll::Pending;
                     }
-                    // Insert new chunk after immutable access
-                    self.chunks.insert(chunk_index, update_clone);
-
-                    // Collect chunks
-                    let collected = self
-                        .chunks
-                        .values()
-                        .map(|chunk| String::from_utf8(chunk.content.clone()).unwrap())
-                        .join("");
-
-                    log::info!("new text chunk ready");
-                    Poll::Ready(Some(TextStreamChunk {
-                        index: chunk_index,
-                        current: String::from_utf8(content).unwrap(),
-                        collected,
-                    }))
                 }
+                // Insert new chunk after immutable access
+                self.chunks.insert(chunk_index, update_clone);
+
+                if update.complete {
+                    log::info!("should be closing stream");
+                    self.update_rx.lock().close();
+                    return Poll::Ready(None);
+                }
+
+                // Collect chunks
+                let collected = self
+                    .chunks
+                    .values()
+                    .map(|chunk| String::from_utf8(chunk.content.clone()).unwrap())
+                    .join("");
+
+                log::info!("new text chunk ready");
+
+                Poll::Ready(Some(TextStreamChunk {
+                    index: chunk_index,
+                    current: String::from_utf8(content).unwrap(),
+                    collected,
+                }))
             }
             Poll::Ready(None) => {
                 log::info!("poll none ready");
@@ -205,13 +208,20 @@ impl Stream for TextStreamReader {
             }
             Poll::Pending => {
                 log::info!("poll pending");
-                Poll::Pending
+                if self.is_closed {
+                    log::info!("closing pending update");
+                    self.update_rx.lock().close();
+                    Poll::Ready(None)
+                } else {
+                    Poll::Pending
+                }
             }
         }
     }
 }
 
 /// Helper to send updates to the `FileStream`.
+#[derive(Debug, Clone)]
 pub struct TextStreamUpdater {
     update_tx: mpsc::UnboundedSender<DataStreamChunk>,
 }
@@ -222,7 +232,7 @@ impl TextStreamUpdater {
         &self,
         data: DataStreamChunk,
     ) -> Result<(), mpsc::error::SendError<DataStreamChunk>> {
-        log::info!("received text chunk update");
+        log::info!("received text chunk update complete: {:?}", data.complete);
         self.update_tx.send(data)
     }
 }
