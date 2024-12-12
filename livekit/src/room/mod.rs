@@ -747,8 +747,8 @@ impl RoomSession {
                     content_header,
                 );
             }
-            EngineEvent::DataStreamChunk { stream_id, chunk_index, content, complete, version } => {
-                self.handle_data_stream_chunk(stream_id, chunk_index, content, complete, version);
+            EngineEvent::DataStreamChunk { chunk } => {
+                self.handle_data_stream_chunk(chunk);
             }
             _ => {}
         }
@@ -1308,39 +1308,20 @@ impl RoomSession {
         }
     }
 
-    fn handle_data_stream_chunk(
-        &self,
-        stream_id: String,
-        chunk_index: u64,
-        content: Vec<u8>,
-        complete: bool,
-        version: i32,
-    ) {
+    fn handle_data_stream_chunk(&self, chunk: proto::data_stream::Chunk) {
         let mut locked_file_streams = self.file_streams.write();
         let mut locked_text_streams = self.text_streams.write();
-        if let Some(file_updater) = locked_file_streams.get(&stream_id) {
-            let _ = file_updater.send_update(data_streams::DataStreamChunk {
-                stream_id: stream_id.clone(),
-                chunk_index,
-                content,
-                complete,
-                version,
-            });
+        if let Some(file_updater) = locked_file_streams.get(&chunk.stream_id) {
+            let _ = file_updater.send_update(chunk.clone());
 
-            if complete {
-                let _ = locked_file_streams.remove(&stream_id);
+            if chunk.complete {
+                let _ = locked_file_streams.remove(&chunk.stream_id);
             }
-        } else if let Some(text_updater) = locked_text_streams.get(&stream_id) {
-            let _ = text_updater.send_update(data_streams::DataStreamChunk {
-                stream_id: stream_id.clone(),
-                chunk_index,
-                content,
-                complete,
-                version,
-            });
+        } else if let Some(text_updater) = locked_text_streams.get(&chunk.stream_id) {
+            let _ = text_updater.send_update(chunk.clone());
 
-            if complete {
-                let _ = locked_text_streams.remove(&stream_id);
+            if chunk.complete {
+                let _ = locked_text_streams.remove(&chunk.stream_id);
             }
         }
     }

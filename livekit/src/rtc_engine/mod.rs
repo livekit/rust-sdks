@@ -16,8 +16,8 @@ use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
-use livekit_protocol as proto;
 use livekit_protocol::data_stream::header::ContentHeader;
+use livekit_protocol::{self as proto, data_stream};
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
 use thiserror::Error;
@@ -29,6 +29,7 @@ use tokio::sync::{
 pub use self::rtc_session::SessionStats;
 use crate::prelude::ParticipantIdentity;
 use crate::{
+    data_streams,
     id::ParticipantSid,
     options::TrackPublishOptions,
     prelude::LocalTrack,
@@ -170,11 +171,7 @@ pub enum EngineEvent {
         content_header: Option<ContentHeader>,
     },
     DataStreamChunk {
-        stream_id: String,
-        chunk_index: u64,
-        content: Vec<u8>,
-        complete: bool,
-        version: i32,
+        chunk: proto::data_stream::Chunk,
     },
 }
 
@@ -560,20 +557,8 @@ impl EngineInner {
                     content_header,
                 });
             }
-            SessionEvent::DataStreamChunk {
-                stream_id,
-                chunk_index,
-                content,
-                complete,
-                version,
-            } => {
-                let _ = self.engine_tx.send(EngineEvent::DataStreamChunk {
-                    stream_id,
-                    chunk_index,
-                    content,
-                    complete,
-                    version,
-                });
+            SessionEvent::DataStreamChunk { chunk } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamChunk { chunk });
             }
         }
         Ok(())

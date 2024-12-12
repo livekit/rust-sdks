@@ -10,14 +10,16 @@ use livekit_runtime::Stream;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
-#[derive(Debug, Clone)]
-pub struct DataStreamChunk {
-    pub stream_id: String,
-    pub chunk_index: u64,
-    pub content: Vec<u8>,
-    pub complete: bool,
-    pub version: i32,
-}
+use livekit_protocol::data_stream::Chunk;
+
+// #[derive(Debug, Clone)]
+// pub struct DataStreamChunk {
+//     pub stream_id: String,
+//     pub chunk_index: u64,
+//     pub content: Vec<u8>,
+//     pub complete: bool,
+//     pub version: i32,
+// }
 
 #[derive(Debug, Clone)]
 pub struct FileStreamInfo {
@@ -31,7 +33,7 @@ pub struct FileStreamInfo {
 }
 #[derive(Debug, Clone)]
 pub struct FileStreamReader {
-    update_rx: Arc<Mutex<mpsc::UnboundedReceiver<DataStreamChunk>>>,
+    update_rx: Arc<Mutex<mpsc::UnboundedReceiver<Chunk>>>,
     pub info: FileStreamInfo,
     is_closed: bool,
 }
@@ -86,15 +88,12 @@ impl Stream for FileStreamReader {
 
 /// Helper to send updates to the `FileStream`.
 pub struct FileStreamUpdater {
-    update_tx: mpsc::UnboundedSender<DataStreamChunk>,
+    update_tx: mpsc::UnboundedSender<Chunk>,
 }
 
 impl FileStreamUpdater {
     /// Sends an update to the `FileStream`.
-    pub fn send_update(
-        &self,
-        data: DataStreamChunk,
-    ) -> Result<(), mpsc::error::SendError<DataStreamChunk>> {
+    pub fn send_update(&self, data: Chunk) -> Result<(), mpsc::error::SendError<Chunk>> {
         self.update_tx.send(data)
     }
 }
@@ -119,10 +118,10 @@ pub struct TextStreamChunk {
 }
 #[derive(Debug, Clone)]
 pub struct TextStreamReader {
-    update_rx: Arc<Mutex<mpsc::UnboundedReceiver<DataStreamChunk>>>,
+    update_rx: Arc<Mutex<mpsc::UnboundedReceiver<Chunk>>>,
     pub info: TextStreamInfo,
     is_closed: bool,
-    chunks: BTreeMap<u64, DataStreamChunk>,
+    chunks: BTreeMap<u64, Chunk>,
 }
 
 impl TextStreamReader {
@@ -215,15 +214,12 @@ impl Stream for TextStreamReader {
 
 /// Helper to send updates to the `FileStream`.
 pub struct TextStreamUpdater {
-    update_tx: mpsc::UnboundedSender<DataStreamChunk>,
+    update_tx: mpsc::UnboundedSender<Chunk>,
 }
 
 impl TextStreamUpdater {
     /// Sends an update to the `FileStream`.
-    pub fn send_update(
-        &self,
-        data: DataStreamChunk,
-    ) -> Result<(), mpsc::error::SendError<DataStreamChunk>> {
+    pub fn send_update(&self, data: Chunk) -> Result<(), mpsc::error::SendError<Chunk>> {
         self.update_tx.send(data)
     }
 }
