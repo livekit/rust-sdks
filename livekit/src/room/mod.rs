@@ -27,7 +27,7 @@ use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, data_stream::header::ContentHeader};
 use livekit_runtime::JoinHandle;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
@@ -369,8 +369,8 @@ pub(crate) struct RoomSession {
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
-    file_streams: Arc<Mutex<HashMap<String, data_streams::FileStreamUpdater>>>,
-    text_streams: Arc<Mutex<HashMap<String, data_streams::TextStreamUpdater>>>,
+    file_streams: RwLock<HashMap<String, data_streams::FileStreamUpdater>>,
+    text_streams: RwLock<HashMap<String, data_streams::TextStreamUpdater>>,
 }
 
 impl Debug for RoomSession {
@@ -512,8 +512,8 @@ impl Room {
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
             room_task: Default::default(),
-            file_streams: Arc::new(Mutex::new(HashMap::new())),
-            text_streams: Arc::new(Mutex::new(HashMap::new())),
+            file_streams: RwLock::new(HashMap::new()),
+            text_streams: RwLock::new(HashMap::new()),
         });
 
         e2ee_manager.on_state_changed({
@@ -1283,7 +1283,7 @@ impl RoomSession {
                         version: text_header.version,
                     });
 
-                self.text_streams.lock().insert(stream_reader.info.stream_id.clone(), updater);
+                self.text_streams.write().insert(stream_reader.info.stream_id.clone(), updater);
 
                 let event = RoomEvent::TextStreamReceived { stream_reader };
                 self.dispatcher.dispatch(&event);
@@ -1300,15 +1300,12 @@ impl RoomSession {
                         file_name: file_header.file_name,
                     });
 
-                self.file_streams.lock().insert(stream_reader.info.stream_id.clone(), updater);
+                self.file_streams.write().insert(stream_reader.info.stream_id.clone(), updater);
 
                 let event = RoomEvent::FileStreamReceived { stream_reader };
                 self.dispatcher.dispatch(&event);
             }
         }
-
-        // create and store readable stream
-        // emit event with readable stream and info
     }
 
     fn handle_data_stream_chunk(
@@ -1319,8 +1316,8 @@ impl RoomSession {
         complete: bool,
         version: i32,
     ) {
-        let mut locked_file_streams = self.file_streams.lock();
-        let mut locked_text_streams = self.text_streams.lock();
+        let mut locked_file_streams = self.file_streams.write();
+        let mut locked_text_streams = self.text_streams.write();
         if let Some(file_updater) = locked_file_streams.get(&stream_id) {
             let _ = file_updater.send_update(data_streams::DataStreamChunk {
                 stream_id: stream_id.clone(),
