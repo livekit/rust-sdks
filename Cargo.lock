@@ -1626,6 +1626,7 @@ dependencies = [
  "livekit-runtime",
  "log",
  "parking_lot",
+ "pbjson-types",
  "prost 0.12.3",
  "reqwest",
  "scopeguard",

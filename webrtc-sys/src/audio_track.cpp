@@ -153,11 +153,11 @@ AudioTrackSource::InternalSource::InternalSource(
   buffer_.reserve(queue_size_samples_ + notify_threshold_samples_);
 
   audio_queue_ =
-      std::make_unique<rtc::TaskQueue>(task_queue_factory->CreateTaskQueue(
-          "AudioSourceCapture", webrtc::TaskQueueFactory::Priority::NORMAL));
+      task_queue_factory->CreateTaskQueue(
+          "AudioSourceCapture", webrtc::TaskQueueFactory::Priority::NORMAL);
 
   audio_task_ = webrtc::RepeatingTaskHandle::Start(
-      audio_queue_->Get(),
+      audio_queue_.get(),
       [this, samples10ms]() {
         webrtc::MutexLock lock(&mutex_);
 

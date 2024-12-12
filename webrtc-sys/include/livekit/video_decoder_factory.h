@@ -18,6 +18,7 @@
 
 #include "api/video_codecs/video_decoder.h"
 #include "api/video_codecs/video_decoder_factory.h"
+#include "absl/strings/match.h"
 
 namespace livekit {
 class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
@@ -29,8 +30,8 @@ class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
   CodecSupport QueryCodecSupport(const webrtc::SdpVideoFormat& format,
                                  bool reference_scaling) const override;
 
-  std::unique_ptr<webrtc::VideoDecoder> CreateVideoDecoder(
-      const webrtc::SdpVideoFormat& format) override;
+  std::unique_ptr<webrtc::VideoDecoder> Create(
+      const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) override;
 
  private:
   std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories_;
