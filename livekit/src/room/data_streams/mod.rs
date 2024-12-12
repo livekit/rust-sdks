@@ -156,15 +156,14 @@ impl Stream for TextStreamReader {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.is_closed {
+            self.update_rx.lock().close();
             return Poll::Ready(None); // Stream is closed‚, stop yielding updates
         }
-        log::info!("acquiring update_rx");
 
         let update_option = {
             let mut guarded = self.update_rx.lock();
             guarded.poll_recv(cx)
         };
-        log::info!("matching update_rx");
 
         match update_option {
             Poll::Ready(Some(update)) => {
@@ -182,7 +181,7 @@ impl Stream for TextStreamReader {
                 self.chunks.insert(chunk_index, update_clone);
 
                 if update.complete {
-                    log::info!("should be closing stream");
+                    log::debug!("closing stream as it's complete");
                     self.update_rx.lock().close();
                     return Poll::Ready(None);
                 }
@@ -194,22 +193,16 @@ impl Stream for TextStreamReader {
                     .map(|chunk| String::from_utf8(chunk.content.clone()).unwrap())
                     .join("");
 
-                log::info!("new text chunk ready");
-
                 Poll::Ready(Some(TextStreamChunk {
                     index: chunk_index,
                     current: String::from_utf8(content).unwrap(),
                     collected,
                 }))
             }
-            Poll::Ready(None) => {
-                log::info!("poll none ready");
-                Poll::Pending
-            }
+            Poll::Ready(None) => Poll::Pending,
             Poll::Pending => {
-                log::info!("poll pending");
                 if self.is_closed {
-                    log::info!("closing pending update");
+                    log::debug!("closing pending update");
                     self.update_rx.lock().close();
                     Poll::Ready(None)
                 } else {
@@ -221,7 +214,6 @@ impl Stream for TextStreamReader {
 }
 
 /// Helper to send updates to the `FileStream`.
-#[derive(Debug, Clone)]
 pub struct TextStreamUpdater {
     update_tx: mpsc::UnboundedSender<DataStreamChunk>,
 }
@@ -232,7 +224,6 @@ impl TextStreamUpdater {
         &self,
         data: DataStreamChunk,
     ) -> Result<(), mpsc::error::SendError<DataStreamChunk>> {
-        log::info!("received text chunk update complete: {:?}", data.complete);
         self.update_tx.send(data)
     }
 }

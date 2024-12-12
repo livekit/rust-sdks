@@ -1340,9 +1340,7 @@ impl RoomSession {
             });
 
             if complete {
-                log::info!("removing text stream");
                 let _ = locked_text_streams.remove(&stream_id);
-                log::info!("removed text stream");
             }
         }
     }
