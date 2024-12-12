@@ -16,6 +16,7 @@
 
 #include "livekit/video_decoder_factory.h"
 
+#include <modules/video_coding/codecs/av1/av1_svc_config.h>
 #include "api/environment/environment.h"
 #include "api/video_codecs/av1_profile.h"
 #include "api/video_codecs/sdp_video_format.h"
