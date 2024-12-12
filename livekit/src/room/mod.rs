@@ -1294,6 +1294,7 @@ impl RoomSession {
                 if chunk.complete {
                     let _ = locked_file_streams.remove(&chunk.stream_id);
                 }
+                return;
             }
         } else if is_text_stream {
             let mut locked_text_streams = self.text_streams.write();
@@ -1302,8 +1303,13 @@ impl RoomSession {
                 if chunk.complete {
                     let _ = locked_text_streams.remove(&chunk.stream_id);
                 }
+                return;
             }
         }
+        log::warn!(
+            "could not find matching stream header for incoming chunks, stream_id: {:?}",
+            chunk.stream_id
+        )
     }
 
     /// Create a new participant
