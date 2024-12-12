@@ -66,14 +66,9 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
        webrtc::SupportedH264DecoderCodecs())
     formats.push_back(h264_format);
 
-#if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
-  formats.push_back(webrtc::SdpVideoFormat(cricket::kAv1CodecName));
   formats.push_back(webrtc::SdpVideoFormat(
-      cricket::kAv1CodecName,
-      {{cricket::kAv1FmtpProfile,
-        AV1ProfileToString(webrtc::AV1Profile::kProfile1).data()}}));
-#endif
-
+      webrtc::SdpVideoFormat::AV1Profile0(),
+      webrtc::LibaomAv1EncoderSupportedScalabilityModes()));
   return formats;
 }
 
