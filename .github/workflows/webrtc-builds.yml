@@ -45,7 +45,7 @@ jobs:
             cmd: ./build_macos.sh
             arch: arm64
 
-          - name: linux 
+          - name: linux
             os: buildjet-8vcpu-ubuntu-2004
             cmd: ./build_linux.sh
             arch: x64
@@ -53,8 +53,8 @@ jobs:
           - name: linux
             os: buildjet-8vcpu-ubuntu-2004
             cmd: ./build_linux.sh
-            arch: arm64 
-          
+            arch: arm64
+
           - name: android
             os: buildjet-8vcpu-ubuntu-2004
             cmd: ./build_android.sh
@@ -81,10 +81,10 @@ jobs:
             os: macos-13
             cmd: ./build_ios.sh
             arch: arm64
-            buildargs: --environment simulator 
+            buildargs: --environment simulator
         profile:
           - release
-#          - debug
+    #          - debug
 
     name: Build webrtc (${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}) ${{ matrix.target.buildargs }}
     runs-on: ${{ matrix.target.os }}
@@ -104,7 +104,7 @@ jobs:
           echo "OutName: ${{ steps.setup.outputs.OUT }}"
           echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
 
@@ -135,7 +135,7 @@ jobs:
         run: echo -e "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
         shell: bash
         working-directory: webrtc-sys/libwebrtc
-        
+
       - name: Build WebRTC
         run: ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
         working-directory: webrtc-sys/libwebrtc
@@ -151,11 +151,10 @@ jobs:
         run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: webrtc-builds
           path: ${{ steps.setup.outputs.ZIP }}
-
 
   release:
     name: Release to GH (Draft)
@@ -167,10 +166,10 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: webrtc-builds
           path: ${{ github.workspace }}/webrtc-builds
