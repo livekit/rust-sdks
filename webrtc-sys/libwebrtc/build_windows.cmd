@@ -46,7 +46,7 @@ set ARTIFACTS_DIR=%cd%\win-!arch!-!profile!
 set vs2019_install=C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional
 
 if not exist src (
-  call gclient.bat sync -D --no-history
+  call gclient.bat sync -D --with_branch_heads --with_tags
 )
 
 cd src
