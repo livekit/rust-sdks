@@ -153,7 +153,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: webrtc-builds-${{ matrix.target.name }}-${{ matrix.target.arch }}
+          name: webrtc-builds-${{ steps.setup.outputs.OUT }}
           path: ${{ steps.setup.outputs.ZIP }}
 
   release:
