@@ -153,7 +153,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: webrtc-builds
+          name: webrtc-builds-${{ matrix.name }}-${{ matrix.arch }}
           path: ${{ steps.setup.outputs.ZIP }}
 
   release:
@@ -171,7 +171,8 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: webrtc-builds
+          name: webrtc-builds-*
+          merge-multiple: true
           path: ${{ github.workspace }}/webrtc-builds
 
       - name: Create draft release

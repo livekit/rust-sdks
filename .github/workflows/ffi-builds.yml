@@ -198,7 +198,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ffi-builds
+          name: ffi-builds-${{ matrix.target }}
           path: ${{ matrix.name }}.zip
 
   release:
@@ -216,7 +216,8 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ffi-builds
+          name: ffi-builds-*
+          merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
       - name: Create draft release
