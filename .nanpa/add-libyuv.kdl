@@ -1,2 +1,0 @@
-patch package="yuv-sys" type="added" "move yuv-sys to main rust-sdks monorepo"
-patch package="imgproc" type="added" "move imgproc to main rust-sdks monorepo"
