@@ -196,11 +196,10 @@ jobs:
           Get-ChildItem -Path ${{ matrix.dylib }}, livekit_ffi.h, LICENSE.md | Compress-Archive -DestinationPath ${{ github.workspace }}\${{ matrix.name }}.zip
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ffi-builds
           path: ${{ matrix.name }}.zip
-
 
   release:
     name: Release to GH (Draft)
@@ -215,7 +214,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: ffi-builds
           path: ${{ github.workspace }}/ffi-builds
