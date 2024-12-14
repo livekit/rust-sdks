@@ -171,7 +171,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: webrtc-builds-*
+          pattern: webrtc-builds-*
           merge-multiple: true
           path: ${{ github.workspace }}/webrtc-builds
 
