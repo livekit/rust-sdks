@@ -1,5 +1,0 @@
-patch package="webrtc-sys/build" type="added" "bump libwebrtc to m125"
-patch package="webrtc-sys" type="added" "bump libwebrtc to m125"
-patch package="libwebrtc" type="added" "bump libwebrtc to m125"
-patch package="livekit" type="added" "bump libwebrtc to m125"
-patch package="livekit-ffi" type="added" "bump libwebrtc to m125"
