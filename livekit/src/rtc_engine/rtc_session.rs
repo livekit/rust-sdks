@@ -135,6 +135,12 @@ pub enum SessionEvent {
         action: proto::leave_request::Action,
         retry_now: bool,
     },
+    DataStreamHeader {
+        header: proto::data_stream::Header,
+    },
+    DataStreamChunk {
+        chunk: proto::data_stream::Chunk,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -722,6 +728,16 @@ impl SessionInner {
                                 ),
                                 message: ChatMessage::from(message.clone()),
                             });
+                        }
+                        proto::data_packet::Value::StreamHeader(message) => {
+                            let _ = self
+                                .emitter
+                                .send(SessionEvent::DataStreamHeader { header: message.clone() });
+                        }
+                        proto::data_packet::Value::StreamChunk(message) => {
+                            let _ = self
+                                .emitter
+                                .send(SessionEvent::DataStreamChunk { chunk: message.clone() });
                         }
                         _ => {}
                     }

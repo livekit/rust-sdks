@@ -31,10 +31,7 @@ use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
 use thiserror::Error;
-use tokio::{
-    signal,
-    sync::{mpsc, oneshot, Mutex as AsyncMutex},
-};
+use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
 pub use self::{
     e2ee::{manager::E2eeManager, E2eeOptions},
@@ -170,6 +167,12 @@ pub enum RoomEvent {
     ChatMessage {
         message: ChatMessage,
         participant: Option<RemoteParticipant>,
+    },
+    StreamHeaderReceived {
+        header: proto::data_stream::Header,
+    },
+    StreamChunkReceived {
+        chunk: proto::data_stream::Chunk,
     },
     E2eeStateChanged {
         participant: Participant,
@@ -720,6 +723,12 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
+            EngineEvent::DataStreamHeader { header } => {
+                self.handle_data_stream_header(header);
+            }
+            EngineEvent::DataStreamChunk { chunk } => {
+                self.handle_data_stream_chunk(chunk);
+            }
             _ => {}
         }
 
@@ -1228,6 +1237,16 @@ impl RoomSession {
             track_publication,
             segments,
         });
+    }
+
+    fn handle_data_stream_header(&self, header: proto::data_stream::Header) {
+        let event = RoomEvent::StreamHeaderReceived { header };
+        self.dispatcher.dispatch(&event);
+    }
+
+    fn handle_data_stream_chunk(&self, chunk: proto::data_stream::Chunk) {
+        let event = RoomEvent::StreamChunkReceived { chunk };
+        self.dispatcher.dispatch(&event);
     }
 
     /// Create a new participant

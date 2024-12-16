@@ -159,6 +159,12 @@ pub enum EngineEvent {
     LocalTrackSubscribed {
         track_sid: String,
     },
+    DataStreamHeader {
+        header: proto::data_stream::Header,
+    },
+    DataStreamChunk {
+        chunk: proto::data_stream::Chunk,
+    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -523,6 +529,12 @@ impl EngineInner {
             }
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
+            }
+            SessionEvent::DataStreamHeader { header } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamHeader { header });
+            }
+            SessionEvent::DataStreamChunk { chunk } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamChunk { chunk });
             }
         }
         Ok(())
