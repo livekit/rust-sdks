@@ -24,8 +24,8 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
+use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
-use livekit_protocol::{self as proto};
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
