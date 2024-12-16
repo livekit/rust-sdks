@@ -25,7 +25,7 @@ use libwebrtc::{
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
 use livekit_protocol::observer::Dispatcher;
-use livekit_protocol::{self as proto, data_stream::header::ContentHeader};
+use livekit_protocol::{self as proto};
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
@@ -47,7 +47,6 @@ use crate::{
     },
 };
 
-pub mod data_streams;
 pub mod e2ee;
 pub mod id;
 pub mod options;
@@ -169,11 +168,11 @@ pub enum RoomEvent {
         message: ChatMessage,
         participant: Option<RemoteParticipant>,
     },
-    TextStreamReceived {
-        stream_reader: data_streams::TextStreamReader,
+    StreamHeaderReceived {
+        header: proto::data_stream::Header,
     },
-    FileStreamReceived {
-        stream_reader: data_streams::FileStreamReader,
+    StreamChunkReceived {
+        chunk: proto::data_stream::Chunk,
     },
     E2eeStateChanged {
         participant: Participant,
@@ -369,8 +368,6 @@ pub(crate) struct RoomSession {
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
-    file_streams: RwLock<HashMap<String, data_streams::FileStreamUpdater>>,
-    text_streams: RwLock<HashMap<String, data_streams::TextStreamUpdater>>,
 }
 
 impl Debug for RoomSession {
@@ -512,8 +509,6 @@ impl Room {
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
             room_task: Default::default(),
-            file_streams: RwLock::new(HashMap::new()),
-            text_streams: RwLock::new(HashMap::new()),
         });
 
         e2ee_manager.on_state_changed({
@@ -1244,72 +1239,13 @@ impl RoomSession {
     }
 
     fn handle_data_stream_header(&self, header: proto::data_stream::Header) {
-        match header.content_header.unwrap() {
-            ContentHeader::TextHeader(text_header) => {
-                let (stream_reader, updater) =
-                    data_streams::TextStreamReader::new(data_streams::TextStreamInfo {
-                        stream_id: header.stream_id,
-                        timestamp: header.timestamp,
-                        topic: header.topic,
-                        mime_type: header.mime_type,
-                        total_length: header.total_length,
-                        total_chunks: header.total_chunks,
-                        attachments: text_header.attached_stream_ids,
-                        version: text_header.version,
-                    });
-
-                self.text_streams.write().insert(stream_reader.info.stream_id.clone(), updater);
-
-                let event = RoomEvent::TextStreamReceived { stream_reader };
-                self.dispatcher.dispatch(&event);
-            }
-            ContentHeader::FileHeader(file_header) => {
-                let (stream_reader, updater) =
-                    data_streams::FileStreamReader::new(data_streams::FileStreamInfo {
-                        stream_id: header.stream_id,
-                        timestamp: header.timestamp,
-                        topic: header.topic,
-                        mime_type: header.mime_type,
-                        total_length: header.total_length,
-                        total_chunks: header.total_chunks,
-                        file_name: file_header.file_name,
-                    });
-
-                self.file_streams.write().insert(stream_reader.info.stream_id.clone(), updater);
-
-                let event = RoomEvent::FileStreamReceived { stream_reader };
-                self.dispatcher.dispatch(&event);
-            }
-        }
+        let event = RoomEvent::StreamHeaderReceived { header };
+        self.dispatcher.dispatch(&event);
     }
 
     fn handle_data_stream_chunk(&self, chunk: proto::data_stream::Chunk) {
-        let is_file_stream = self.file_streams.read().contains_key(&chunk.stream_id);
-        let is_text_stream = self.text_streams.read().contains_key(&chunk.stream_id);
-
-        if is_file_stream {
-            let mut locked_file_streams = self.file_streams.write();
-            if let Some(file_updater) = locked_file_streams.get(&chunk.stream_id) {
-                let _ = file_updater.send_update(chunk.clone());
-                if chunk.complete {
-                    let _ = locked_file_streams.remove(&chunk.stream_id);
-                }
-                return;
-            }
-        } else if is_text_stream {
-            let mut locked_text_streams = self.text_streams.write();
-            if let Some(text_updater) = locked_text_streams.get(&chunk.stream_id) {
-                let _ = text_updater.send_update(chunk.clone());
-                if chunk.complete {
-                    let _ = locked_text_streams.remove(&chunk.stream_id);
-                }
-                return;
-            }
-        }
-        log::warn!(
-            "could not find matching stream header for incoming chunks, stream_id: {:?}",
-            chunk.stream_id
-        )
+        let event = RoomEvent::StreamChunkReceived { chunk };
+        self.dispatcher.dispatch(&event);
     }
 
     /// Create a new participant

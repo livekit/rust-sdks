@@ -29,7 +29,6 @@ use tokio::sync::{
 pub use self::rtc_session::SessionStats;
 use crate::prelude::ParticipantIdentity;
 use crate::{
-    data_streams,
     id::ParticipantSid,
     options::TrackPublishOptions,
     prelude::LocalTrack,
