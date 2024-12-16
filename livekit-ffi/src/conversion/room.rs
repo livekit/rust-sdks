@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    proto::{self, DisposeCallback},
-    server::room::FfiRoom,
-};
+use crate::{proto, server::room::FfiRoom};
 use livekit::{
     e2ee::{
         key_provider::{KeyProvider, KeyProviderOptions},
