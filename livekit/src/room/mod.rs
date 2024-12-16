@@ -657,7 +657,7 @@ impl RoomSession {
         log::debug!("room_task closed");
     }
 
-    async fn on_engine_event(self: Arc<Self>, event: EngineEvent) -> RoomResult<()> {
+    async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
         match event {
             EngineEvent::ParticipantUpdate { updates } => self.handle_participant_update(updates),
             EngineEvent::MediaTrack { track, stream, transceiver } => {

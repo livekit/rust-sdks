@@ -129,9 +129,6 @@ pub struct CreateSIPParticipantOptions {
     /// Optionally play ringtone in the room as an audible indicator for existing participants
     pub play_ringtone: bool,
     pub hide_phone_number: bool,
-    pub enable_krisp: bool,
-    pub max_call_duration: i32,
-    pub play_dialtone: bool,
 }
 
 impl SIPClient {
