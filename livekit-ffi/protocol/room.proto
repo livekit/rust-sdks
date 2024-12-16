@@ -53,7 +53,7 @@ message ConnectCallback {
     string error = 2;
     Result result = 3;
   }
-  
+
 }
 
 // Disconnect from the a room
@@ -76,7 +76,7 @@ message PublishTrackCallback {
     string error = 2;
     OwnedTrackPublication publication = 3;
   }
- 
+
 }
 
 // Unpublish a track from the room
@@ -316,36 +316,6 @@ enum DataPacketKind {
   KIND_RELIABLE = 1;
 }
 
-enum DisconnectReason {
-  UNKNOWN_REASON = 0;
-  // the client initiated the disconnect
-  CLIENT_INITIATED = 1;
-  // another participant with the same identity has joined the room
-  DUPLICATE_IDENTITY = 2;
-  // the server instance is shutting down
-  SERVER_SHUTDOWN = 3;
-  // RoomService.RemoveParticipant was called
-  PARTICIPANT_REMOVED = 4;
-  // RoomService.DeleteRoom was called
-  ROOM_DELETED = 5;
-  // the client is attempting to resume a session, but server is not aware of it
-  STATE_MISMATCH = 6;
-  // client was unable to connect fully
-  JOIN_FAILURE = 7;
-  // Cloud-only, the server requested Participant to migrate the connection elsewhere
-  MIGRATION = 8;
-  // the signal websocket was closed unexpectedly
-  SIGNAL_CLOSE = 9;
-  // the room was closed, due to all Standard and Ingress participants having left
-  ROOM_CLOSED = 10;
-  /// SIP callee did not respond in time
-  UserUnavailable = 11;
-  /// SIP callee rejected the call (busy)
-  UserRejected = 12;
-  /// SIP protocol failure or unexpected response
-  SipTrunkFailure = 13;
-}
-
 message TranscriptionSegment {
   required string id = 1;
   required string text = 2;
@@ -415,7 +385,7 @@ message OwnedRoom {
 
 message ParticipantConnected { required OwnedParticipant info = 1; }
 
-message ParticipantDisconnected { 
+message ParticipantDisconnected {
   required string participant_identity = 1;
 }
 
@@ -479,7 +449,7 @@ message E2eeStateChanged {
 
 message ActiveSpeakersChanged { repeated string participant_identities = 1; }
 
-message RoomMetadataChanged { 
+message RoomMetadataChanged {
   required string metadata = 1;
 }
 
@@ -487,7 +457,7 @@ message RoomSidChanged {
   required string sid = 1;
 }
 
-message ParticipantMetadataChanged { 
+message ParticipantMetadataChanged {
   required string participant_identity = 1;
   required string metadata = 2;
 }
@@ -498,7 +468,7 @@ message ParticipantAttributesChanged {
   repeated AttributesEntry changed_attributes = 3;
 }
 
-message ParticipantNameChanged { 
+message ParticipantNameChanged {
   required string participant_identity = 1;
   required string name = 2;
 }

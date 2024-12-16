@@ -81,6 +81,11 @@ cd src
 # git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+cd third_party
+git apply "$COMMAND_DIR/patches/abseil_use_optional.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+cd ..
+
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -120,7 +125,7 @@ ninja -C "$OUTPUT_DIR" :default \
   api/task_queue:default_task_queue_factory \
   sdk:native_api \
   sdk:default_codec_factory_objc \
-  pc:peerconnection \
+  pc:peer_connection \
   sdk:videocapture_objc \
   sdk:framework_objc
 

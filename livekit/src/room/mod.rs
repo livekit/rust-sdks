@@ -792,6 +792,7 @@ impl RoomSession {
             let remote_participant = self.get_participant_by_sid(&participant_sid);
             if pi.state == proto::participant_info::State::Disconnected as i32 {
                 if let Some(remote_participant) = remote_participant {
+                    remote_participant.update_info(pi.clone());
                     self.clone().handle_participant_disconnect(remote_participant)
                 } else {
                     // Ignore, just received the ParticipantInfo but the participant is already

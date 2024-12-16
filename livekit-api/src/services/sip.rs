@@ -14,11 +14,13 @@
 
 use livekit_protocol as proto;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::access_token::SIPGrants;
 use crate::get_env_keys;
 use crate::services::twirp_client::TwirpClient;
 use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use pbjson_types::Duration as ProtoDuration;
 
 const SVC: &str = "SIP";
 
@@ -58,18 +60,24 @@ pub struct CreateSIPTrunkOptions {
 #[derive(Default, Clone, Debug)]
 pub struct CreateSIPInboundTrunkOptions {
     /// Optional free-form metadata.
-    pub metadata: String,
+    pub metadata: Option<String>,
     /// CIDR or IPs that traffic is accepted from
     /// An empty list means all inbound traffic is accepted.
-    pub allowed_addresses: Vec<String>,
+    pub allowed_addresses: Option<Vec<String>>,
     /// Accepted `To` values. This Trunk will only accept a call made to
     /// these numbers. This allows you to have distinct Trunks for different phone
     /// numbers at the same provider.
-    pub allowed_numbers: Vec<String>,
+    pub allowed_numbers: Option<Vec<String>>,
     /// Username and password used to authenticate inbound SIP invites
     /// May be empty to have no Authentication
-    pub auth_username: String,
-    pub auth_password: String,
+    pub auth_username: Option<String>,
+    pub auth_password: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub headers_to_attributes: Option<HashMap<String, String>>,
+    pub attributes_to_headers: Option<HashMap<String, String>>,
+    pub max_call_duration: Option<Duration>,
+    pub ringing_timeout: Option<Duration>,
+    pub krisp_enabled: Option<bool>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -81,6 +89,10 @@ pub struct CreateSIPOutboundTrunkOptions {
     /// May be empty to have no Authentication
     pub auth_username: String,
     pub auth_password: String,
+
+    pub headers: Option<HashMap<String, String>>,
+    pub headers_to_attributes: Option<HashMap<String, String>>,
+    pub attributes_to_headers: Option<HashMap<String, String>>,
 }
 
 #[deprecated]
@@ -119,16 +131,21 @@ pub struct CreateSIPParticipantOptions {
     /// Optional identity of the participant in LiveKit room
     pub participant_identity: String,
     /// Optionally set the name of the participant in a LiveKit room
-    pub participant_name: String,
+    pub participant_name: Option<String>,
     /// Optionally set the free-form metadata of the participant in a LiveKit room
-    pub participant_metadata: String,
-    pub participant_attributes: HashMap<String, String>,
+    pub participant_metadata: Option<String>,
+    pub participant_attributes: Option<HashMap<String, String>>,
+    // What number should be dialed via SIP
+    pub sip_number: Option<String>,
     /// Optionally send following DTMF digits (extension codes) when making a call.
     /// Character 'w' can be used to add a 0.5 sec delay.
-    pub dtmf: String,
-    /// Optionally play ringtone in the room as an audible indicator for existing participants
-    pub play_ringtone: bool,
-    pub hide_phone_number: bool,
+    pub dtmf: Option<String>,
+    /// Optionally play dialtone in the room as an audible indicator for existing participants
+    pub play_dialtone: Option<bool>,
+    pub hide_phone_number: Option<bool>,
+    pub ringing_timeout: Option<Duration>,
+    pub max_call_duration: Option<Duration>,
+    pub enable_krisp: Option<bool>,
 }
 
 impl SIPClient {
@@ -144,38 +161,8 @@ impl SIPClient {
         Ok(Self::with_api_key(host, &api_key, &api_secret))
     }
 
-    #[deprecated]
-    pub async fn create_sip_trunk(
-        &self,
-        number: String,
-        options: CreateSIPTrunkOptions,
-    ) -> ServiceResult<proto::SipTrunkInfo> {
-        self.client
-            .request(
-                SVC,
-                "CreateSIPTrunk",
-                proto::CreateSipTrunkRequest {
-                    name: options.name,
-                    metadata: options.metadata,
-
-                    outbound_number: number.to_owned(),
-                    outbound_address: options.outbound_address.to_owned(),
-                    outbound_username: options.outbound_username.to_owned(),
-                    outbound_password: options.outbound_password.to_owned(),
-
-                    inbound_numbers: options.inbound_numbers.to_owned(),
-                    inbound_numbers_regex: Vec::new(),
-                    inbound_addresses: options.inbound_addresses.to_owned(),
-                    inbound_username: options.inbound_username.to_owned(),
-                    inbound_password: options.inbound_password.to_owned(),
-                },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
-            )
-            .await
-            .map_err(Into::into)
+    fn duration_to_proto(d: Option<Duration>) -> Option<ProtoDuration> {
+        d.map(|d| ProtoDuration { seconds: d.as_secs() as i64, nanos: d.subsec_nanos() as i32 })
     }
 
     pub async fn create_sip_inbound_trunk(
@@ -193,19 +180,17 @@ impl SIPClient {
                         sip_trunk_id: Default::default(),
                         name,
                         numbers,
-                        metadata: options.metadata,
-
-                        allowed_numbers: options.allowed_numbers.to_owned(),
-                        allowed_addresses: options.allowed_addresses.to_owned(),
-                        auth_username: options.auth_username.to_owned(),
-                        auth_password: options.auth_password.to_owned(),
-
-                        headers: Default::default(),
-                        headers_to_attributes: Default::default(),
-                        krisp_enabled: Default::default(),
-                        attributes_to_headers: Default::default(),
-                        ringing_timeout: Default::default(),
-                        max_call_duration: Default::default(),
+                        metadata: options.metadata.unwrap_or_default(),
+                        allowed_numbers: options.allowed_numbers.unwrap_or_default(),
+                        allowed_addresses: options.allowed_addresses.unwrap_or_default(),
+                        auth_username: options.auth_username.unwrap_or_default(),
+                        auth_password: options.auth_password.unwrap_or_default(),
+                        headers: options.headers.unwrap_or_default(),
+                        headers_to_attributes: options.headers_to_attributes.unwrap_or_default(),
+                        attributes_to_headers: options.attributes_to_headers.unwrap_or_default(),
+                        krisp_enabled: options.krisp_enabled.unwrap_or(false),
+                        max_call_duration: Self::duration_to_proto(options.max_call_duration),
+                        ringing_timeout: Self::duration_to_proto(options.ringing_timeout),
                     }),
                 },
                 self.base.auth_header(
@@ -240,9 +225,9 @@ impl SIPClient {
                         auth_username: options.auth_username.to_owned(),
                         auth_password: options.auth_password.to_owned(),
 
-                        headers: Default::default(),
-                        headers_to_attributes: Default::default(),
-                        attributes_to_headers: Default::default(),
+                        headers: options.headers.unwrap_or_default(),
+                        headers_to_attributes: options.headers_to_attributes.unwrap_or_default(),
+                        attributes_to_headers: options.attributes_to_headers.unwrap_or_default(),
                     }),
                 },
                 self.base.auth_header(
@@ -411,20 +396,25 @@ impl SIPClient {
                 proto::CreateSipParticipantRequest {
                     sip_trunk_id: sip_trunk_id.to_owned(),
                     sip_call_to: call_to.to_owned(),
+                    sip_number: options.sip_number.to_owned().unwrap_or_default(),
                     room_name: room_name.to_owned(),
                     participant_identity: options.participant_identity.to_owned(),
-                    participant_name: options.participant_name.to_owned(),
-                    participant_metadata: options.participant_metadata.to_owned(),
-                    participant_attributes: options.participant_attributes.to_owned(),
-                    dtmf: options.dtmf.to_owned(),
-                    play_ringtone: options.play_ringtone,
-                    hide_phone_number: options.hide_phone_number,
-
-                    enable_krisp: Default::default(),
-                    sip_number: Default::default(),
-                    play_dialtone: Default::default(),
-                    ringing_timeout: Default::default(),
-                    max_call_duration: Default::default(),
+                    participant_name: options.participant_name.to_owned().unwrap_or_default(),
+                    participant_metadata: options
+                        .participant_metadata
+                        .to_owned()
+                        .unwrap_or_default(),
+                    participant_attributes: options
+                        .participant_attributes
+                        .to_owned()
+                        .unwrap_or_default(),
+                    dtmf: options.dtmf.to_owned().unwrap_or_default(),
+                    play_ringtone: options.play_dialtone.unwrap_or(false),
+                    play_dialtone: options.play_dialtone.unwrap_or(false),
+                    hide_phone_number: options.hide_phone_number.unwrap_or(false),
+                    max_call_duration: Self::duration_to_proto(options.max_call_duration),
+                    ringing_timeout: Self::duration_to_proto(options.ringing_timeout),
+                    enable_krisp: options.enable_krisp.unwrap_or(false),
                 },
                 self.base.auth_header(
                     Default::default(),

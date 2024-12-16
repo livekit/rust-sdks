@@ -20,6 +20,7 @@ tracing = ["tokio/tracing", "console-subscriber"]
 [dependencies]
 livekit = { workspace = true }
 soxr-sys = { path = "../soxr-sys" }
+imgproc = { path = "../imgproc" }
 livekit-protocol = { workspace = true }
 tokio = { version = "1", features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
@@ -33,7 +34,6 @@ dashmap = "5.4"
 env_logger = "0.10"
 downcast-rs = "1.2"
 console-subscriber = { version = "0.1", features = ["parking_lot"], optional = true }
-imgproc = "0.3.11"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"

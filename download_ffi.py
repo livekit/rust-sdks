@@ -74,7 +74,7 @@ def ffi_version():
 
 def download_ffi(platform, arch, version, output):
     filename = "ffi-%s-%s.zip" % (platform, arch)
-    url = "https://github.com/livekit/client-sdk-rust/releases/download/ffi-v%s/%s"
+    url = "https://github.com/livekit/client-sdk-rust/releases/download/rust-sdks/livekit-ffi@%s/%s"
     url = url % (version, filename)
 
     tmp = os.path.join(tempfile.gettempdir(), filename)

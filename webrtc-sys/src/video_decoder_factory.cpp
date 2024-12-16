@@ -16,6 +16,8 @@
 
 #include "livekit/video_decoder_factory.h"
 
+#include <modules/video_coding/codecs/av1/av1_svc_config.h>
+#include "api/environment/environment.h"
 #include "api/video_codecs/av1_profile.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "livekit/objc_video_factory.h"
@@ -65,14 +67,9 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
        webrtc::SupportedH264DecoderCodecs())
     formats.push_back(h264_format);
 
-#if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
-  formats.push_back(webrtc::SdpVideoFormat(cricket::kAv1CodecName));
   formats.push_back(webrtc::SdpVideoFormat(
-      cricket::kAv1CodecName,
-      {{webrtc::kAV1FmtpProfile,
-        AV1ProfileToString(webrtc::AV1Profile::kProfile1).data()}}));
-#endif
-
+      webrtc::SdpVideoFormat::AV1Profile0(),
+      webrtc::LibaomAv1EncoderSupportedScalabilityModes()));
   return formats;
 }
 
@@ -92,17 +89,17 @@ VideoDecoderFactory::CodecSupport VideoDecoderFactory::QueryCodecSupport(
   return codec_support;
 }
 
-std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::CreateVideoDecoder(
-    const webrtc::SdpVideoFormat& format) {
+std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
+    const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format))
-        return factory->CreateVideoDecoder(format);
+        return factory->Create(env, format);
     }
   }
 
   if (absl::EqualsIgnoreCase(format.name, cricket::kVp8CodecName))
-    return webrtc::VP8Decoder::Create();
+    return webrtc::CreateVp8Decoder(env);
   if (absl::EqualsIgnoreCase(format.name, cricket::kVp9CodecName))
     return webrtc::VP9Decoder::Create();
   if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName))

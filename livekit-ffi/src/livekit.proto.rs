@@ -1591,6 +1591,8 @@ pub struct ParticipantInfo {
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(enumeration="ParticipantKind", required, tag="6")]
     pub kind: i32,
+    #[prost(enumeration="DisconnectReason", required, tag="7")]
+    pub disconnect_reason: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1631,6 +1633,81 @@ impl ParticipantKind {
             "PARTICIPANT_KIND_EGRESS" => Some(Self::Egress),
             "PARTICIPANT_KIND_SIP" => Some(Self::Sip),
             "PARTICIPANT_KIND_AGENT" => Some(Self::Agent),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DisconnectReason {
+    UnknownReason = 0,
+    /// the client initiated the disconnect
+    ClientInitiated = 1,
+    /// another participant with the same identity has joined the room
+    DuplicateIdentity = 2,
+    /// the server instance is shutting down
+    ServerShutdown = 3,
+    /// RoomService.RemoveParticipant was called
+    ParticipantRemoved = 4,
+    /// RoomService.DeleteRoom was called
+    RoomDeleted = 5,
+    /// the client is attempting to resume a session, but server is not aware of it
+    StateMismatch = 6,
+    /// client was unable to connect fully
+    JoinFailure = 7,
+    /// Cloud-only, the server requested Participant to migrate the connection elsewhere
+    Migration = 8,
+    /// the signal websocket was closed unexpectedly
+    SignalClose = 9,
+    /// the room was closed, due to all Standard and Ingress participants having left
+    RoomClosed = 10,
+    /// SIP callee did not respond in time
+    UserUnavailable = 11,
+    /// SIP callee rejected the call (busy)
+    UserRejected = 12,
+    /// SIP protocol failure or unexpected response
+    SipTrunkFailure = 13,
+}
+impl DisconnectReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            DisconnectReason::UnknownReason => "UNKNOWN_REASON",
+            DisconnectReason::ClientInitiated => "CLIENT_INITIATED",
+            DisconnectReason::DuplicateIdentity => "DUPLICATE_IDENTITY",
+            DisconnectReason::ServerShutdown => "SERVER_SHUTDOWN",
+            DisconnectReason::ParticipantRemoved => "PARTICIPANT_REMOVED",
+            DisconnectReason::RoomDeleted => "ROOM_DELETED",
+            DisconnectReason::StateMismatch => "STATE_MISMATCH",
+            DisconnectReason::JoinFailure => "JOIN_FAILURE",
+            DisconnectReason::Migration => "MIGRATION",
+            DisconnectReason::SignalClose => "SIGNAL_CLOSE",
+            DisconnectReason::RoomClosed => "ROOM_CLOSED",
+            DisconnectReason::UserUnavailable => "USER_UNAVAILABLE",
+            DisconnectReason::UserRejected => "USER_REJECTED",
+            DisconnectReason::SipTrunkFailure => "SIP_TRUNK_FAILURE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNKNOWN_REASON" => Some(Self::UnknownReason),
+            "CLIENT_INITIATED" => Some(Self::ClientInitiated),
+            "DUPLICATE_IDENTITY" => Some(Self::DuplicateIdentity),
+            "SERVER_SHUTDOWN" => Some(Self::ServerShutdown),
+            "PARTICIPANT_REMOVED" => Some(Self::ParticipantRemoved),
+            "ROOM_DELETED" => Some(Self::RoomDeleted),
+            "STATE_MISMATCH" => Some(Self::StateMismatch),
+            "JOIN_FAILURE" => Some(Self::JoinFailure),
+            "MIGRATION" => Some(Self::Migration),
+            "SIGNAL_CLOSE" => Some(Self::SignalClose),
+            "ROOM_CLOSED" => Some(Self::RoomClosed),
+            "USER_UNAVAILABLE" => Some(Self::UserUnavailable),
+            "USER_REJECTED" => Some(Self::UserRejected),
+            "SIP_TRUNK_FAILURE" => Some(Self::SipTrunkFailure),
             _ => None,
         }
     }
@@ -3171,81 +3248,6 @@ impl DataPacketKind {
         match value {
             "KIND_LOSSY" => Some(Self::KindLossy),
             "KIND_RELIABLE" => Some(Self::KindReliable),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum DisconnectReason {
-    UnknownReason = 0,
-    /// the client initiated the disconnect
-    ClientInitiated = 1,
-    /// another participant with the same identity has joined the room
-    DuplicateIdentity = 2,
-    /// the server instance is shutting down
-    ServerShutdown = 3,
-    /// RoomService.RemoveParticipant was called
-    ParticipantRemoved = 4,
-    /// RoomService.DeleteRoom was called
-    RoomDeleted = 5,
-    /// the client is attempting to resume a session, but server is not aware of it
-    StateMismatch = 6,
-    /// client was unable to connect fully
-    JoinFailure = 7,
-    /// Cloud-only, the server requested Participant to migrate the connection elsewhere
-    Migration = 8,
-    /// the signal websocket was closed unexpectedly
-    SignalClose = 9,
-    /// the room was closed, due to all Standard and Ingress participants having left
-    RoomClosed = 10,
-    /// / SIP callee did not respond in time
-    UserUnavailable = 11,
-    /// / SIP callee rejected the call (busy)
-    UserRejected = 12,
-    /// / SIP protocol failure or unexpected response
-    SipTrunkFailure = 13,
-}
-impl DisconnectReason {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            DisconnectReason::UnknownReason => "UNKNOWN_REASON",
-            DisconnectReason::ClientInitiated => "CLIENT_INITIATED",
-            DisconnectReason::DuplicateIdentity => "DUPLICATE_IDENTITY",
-            DisconnectReason::ServerShutdown => "SERVER_SHUTDOWN",
-            DisconnectReason::ParticipantRemoved => "PARTICIPANT_REMOVED",
-            DisconnectReason::RoomDeleted => "ROOM_DELETED",
-            DisconnectReason::StateMismatch => "STATE_MISMATCH",
-            DisconnectReason::JoinFailure => "JOIN_FAILURE",
-            DisconnectReason::Migration => "MIGRATION",
-            DisconnectReason::SignalClose => "SIGNAL_CLOSE",
-            DisconnectReason::RoomClosed => "ROOM_CLOSED",
-            DisconnectReason::UserUnavailable => "UserUnavailable",
-            DisconnectReason::UserRejected => "UserRejected",
-            DisconnectReason::SipTrunkFailure => "SipTrunkFailure",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "UNKNOWN_REASON" => Some(Self::UnknownReason),
-            "CLIENT_INITIATED" => Some(Self::ClientInitiated),
-            "DUPLICATE_IDENTITY" => Some(Self::DuplicateIdentity),
-            "SERVER_SHUTDOWN" => Some(Self::ServerShutdown),
-            "PARTICIPANT_REMOVED" => Some(Self::ParticipantRemoved),
-            "ROOM_DELETED" => Some(Self::RoomDeleted),
-            "STATE_MISMATCH" => Some(Self::StateMismatch),
-            "JOIN_FAILURE" => Some(Self::JoinFailure),
-            "MIGRATION" => Some(Self::Migration),
-            "SIGNAL_CLOSE" => Some(Self::SignalClose),
-            "ROOM_CLOSED" => Some(Self::RoomClosed),
-            "UserUnavailable" => Some(Self::UserUnavailable),
-            "UserRejected" => Some(Self::UserRejected),
-            "SipTrunkFailure" => Some(Self::SipTrunkFailure),
             _ => None,
         }
     }

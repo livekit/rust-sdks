@@ -15,14 +15,14 @@
 pub use crate::{
     id::*,
     participant::{
-        ConnectionQuality, LocalParticipant, Participant, PerformRpcData, RemoteParticipant,
-        RpcError, RpcErrorCode, RpcInvocationData,
+        ConnectionQuality, DisconnectReason, LocalParticipant, Participant, PerformRpcData,
+        RemoteParticipant, RpcError, RpcErrorCode, RpcInvocationData,
     },
     publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication},
     track::{
         AudioTrack, LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteAudioTrack, RemoteTrack,
         RemoteVideoTrack, StreamState, Track, TrackDimension, TrackKind, TrackSource, VideoTrack,
     },
-    ConnectionState, DataPacket, DataPacketKind, DisconnectReason, Room, RoomError, RoomEvent,
-    RoomOptions, RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
+    ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
+    RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
 };
