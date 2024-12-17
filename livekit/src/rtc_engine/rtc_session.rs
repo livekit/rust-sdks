@@ -178,6 +178,8 @@ struct SessionInner {
     negotiation_debouncer: Mutex<Option<Debouncer>>,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
+
+    fast_publish: AtomicBool,
 }
 
 /// This struct holds a WebRTC session
@@ -264,6 +266,7 @@ impl RtcSession {
             options,
             negotiation_debouncer: Default::default(),
             pending_requests: Default::default(),
+            fast_publish: join_response.fast_publish.into(),
         });
 
         // Start session tasks
@@ -953,7 +956,9 @@ impl SessionInner {
         data: &proto::DataPacket,
         kind: DataPacketKind,
     ) -> Result<(), EngineError> {
-        self.ensure_publisher_connected(kind).await?;
+        if !self.fast_publish.load(Ordering::Acquire) {
+            self.ensure_publisher_connected(kind).await?;
+        }
         self.data_channel(SignalTarget::Publisher, kind)
             .unwrap()
             .send(&data.encode_to_vec(), true)
