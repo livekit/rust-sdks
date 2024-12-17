@@ -123,12 +123,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await
         .unwrap();
     let room = Arc::new(room);
-    log::info!("Connected to room: {} - {}", room.name(), room.sid());
+    log::info!("Connected to room: {} - {}", room.name(), room.sid().await);
 
     let source = NativeAudioSource::new(
         AudioSourceOptions::default(),
         header.sample_rate,
         header.num_channels as u32,
+        1000,
     );
 
     let track = LocalAudioTrack::create_audio_track("file", RtcAudioSource::Native(source.clone()));
