@@ -236,6 +236,28 @@ fn on_edit_chat_message(
     Ok(ffi_participant.room.edit_chat_message(server, edit_chat_message))
 }
 
+fn on_send_stream_header(
+    server: &'static FfiServer,
+    stream_header_message: proto::SendStreamHeaderRequest,
+) -> FfiResult<proto::SendStreamHeaderResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(stream_header_message.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant.room.send_stream_header(server, stream_header_message))
+}
+
+fn on_send_stream_chunk(
+    server: &'static FfiServer,
+    stream_chunk_message: proto::SendStreamChunkRequest,
+) -> FfiResult<proto::SendStreamChunkResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(stream_chunk_message.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant.room.send_stream_chunk(server, stream_chunk_message))
+}
+
 /// Create a new video track from a source
 fn on_create_video_track(
     server: &'static FfiServer,
@@ -1034,6 +1056,12 @@ pub fn handle_request(
             proto::ffi_response::Message::UpdateRemoteTrackPublicationDimension(
                 on_update_remote_track_publication_dimension(server, request)?,
             )
+        }
+        proto::ffi_request::Message::SendStreamHeader(request) => {
+            proto::ffi_response::Message::SendStreamHeader(on_send_stream_header(server, request)?)
+        }
+        proto::ffi_request::Message::SendStreamChunk(request) => {
+            proto::ffi_response::Message::SendStreamChunk(on_send_stream_chunk(server, request)?)
         }
     });
 
