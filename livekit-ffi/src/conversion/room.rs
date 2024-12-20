@@ -317,9 +317,58 @@ impl From<livekit_protocol::data_stream::Header> for proto::data_stream::Header 
     }
 }
 
+impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header {
+    fn from(msg: proto::data_stream::Header) -> Self {
+        let content_header = match msg.content_header {
+            Some(proto::data_stream::header::ContentHeader::TextHeader(text_header)) => {
+                Some(livekit_protocol::data_stream::header::ContentHeader::TextHeader(
+                    livekit_protocol::data_stream::TextHeader {
+                        operation_type: text_header.operation_type,
+                        version: text_header.version,
+                        reply_to_stream_id: text_header.reply_to_stream_id,
+                        attached_stream_ids: text_header.attached_stream_ids,
+                        generated: text_header.generated,
+                    },
+                ))
+            }
+            Some(proto::data_stream::header::ContentHeader::FileHeader(file_header)) => {
+                Some(livekit_protocol::data_stream::header::ContentHeader::FileHeader(
+                    livekit_protocol::data_stream::FileHeader { file_name: file_header.file_name },
+                ))
+            }
+            None => None,
+        };
+
+        livekit_protocol::data_stream::Header {
+            stream_id: msg.stream_id,
+            timestamp: msg.timestamp,
+            topic: msg.topic,
+            mime_type: msg.mime_type,
+            total_chunks: msg.total_chunks,
+            total_length: msg.total_length,
+            extensions: msg.extensions,
+            content_header,
+            encryption_type: 0,
+        }
+    }
+}
+
 impl From<livekit_protocol::data_stream::Chunk> for proto::data_stream::Chunk {
     fn from(msg: livekit_protocol::data_stream::Chunk) -> Self {
         proto::data_stream::Chunk {
+            stream_id: msg.stream_id,
+            content: msg.content,
+            complete: msg.complete,
+            chunk_index: msg.chunk_index,
+            version: msg.version,
+            iv: msg.iv,
+        }
+    }
+}
+
+impl From<proto::data_stream::Chunk> for livekit_protocol::data_stream::Chunk {
+    fn from(msg: proto::data_stream::Chunk) -> Self {
+        livekit_protocol::data_stream::Chunk {
             stream_id: msg.stream_id,
             content: msg.content,
             complete: msg.complete,

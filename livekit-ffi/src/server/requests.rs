@@ -239,7 +239,7 @@ fn on_edit_chat_message(
 fn on_send_stream_header(
     server: &'static FfiServer,
     stream_header_message: proto::SendStreamHeaderRequest,
-) {
+) -> FfiResult<proto::SendStreamHeaderResponse> {
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(stream_header_message.local_participant_handle)?
         .clone();
@@ -250,7 +250,7 @@ fn on_send_stream_header(
 fn on_send_stream_chunk(
     server: &'static FfiServer,
     stream_chunk_message: proto::SendStreamChunkRequest,
-) {
+) -> FfiResult<proto::SendStreamChunkResponse> {
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(stream_chunk_message.local_participant_handle)?
         .clone();
