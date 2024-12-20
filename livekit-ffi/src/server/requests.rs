@@ -113,18 +113,6 @@ fn on_publish_data(
     ffi_participant.room.publish_data(server, publish)
 }
 
-/// Publish data to the room
-fn on_publish_data(
-    server: &'static FfiServer,
-    publish: proto::PublishDataRequest,
-) -> FfiResult<proto::PublishDataResponse> {
-    // Push the data to an async queue (avoid blocking and keep the order)
-    let ffi_participant =
-        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
-
-    ffi_participant.room.publish_data(server, publish)
-}
-
 /// Publish transcription to the room
 fn on_publish_transcription(
     server: &'static FfiServer,
