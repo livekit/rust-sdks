@@ -3022,8 +3022,8 @@ pub mod data_stream {
         /// using int64 for Unix timestamp
         #[prost(int64, required, tag="2")]
         pub timestamp: i64,
-        #[prost(string, required, tag="3")]
-        pub topic: ::prost::alloc::string::String,
+        #[prost(string, optional, tag="3")]
+        pub topic: ::core::option::Option<::prost::alloc::string::String>,
         #[prost(string, required, tag="4")]
         pub mime_type: ::prost::alloc::string::String,
         /// only populated for finite streams, if it's a stream of unknown size this stays empty
@@ -3063,11 +3063,11 @@ pub mod data_stream {
         #[prost(bytes="vec", required, tag="3")]
         pub content: ::prost::alloc::vec::Vec<u8>,
         /// true only if this is the last chunk of this stream - can also be sent with empty content
-        #[prost(bool, required, tag="4")]
-        pub complete: bool,
+        #[prost(bool, optional, tag="4")]
+        pub complete: ::core::option::Option<bool>,
         /// a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
-        #[prost(int32, required, tag="5")]
-        pub version: i32,
+        #[prost(int32, optional, tag="5")]
+        pub version: ::core::option::Option<i32>,
         /// optional, initialization vector for AES-GCM encryption
         #[prost(bytes="vec", optional, tag="6")]
         pub iv: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
