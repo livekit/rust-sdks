@@ -17,6 +17,7 @@ use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
+use livekit::proto as lk_proto;
 use livekit::ChatMessage;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
@@ -98,6 +99,16 @@ struct FfiTranscriptionSegment {
     end_time: u64,
     r#final: bool,
     language: String,
+}
+
+struct FfiStreamHeader {
+    header: proto::data_stream::Header,
+    async_id: u64,
+}
+
+struct FfiStreamChunk {
+    chunk: proto::data_stream::Chunk,
+    async_id: u64,
 }
 
 struct FfiSipDtmfPacket {
@@ -666,6 +677,42 @@ impl RoomInner {
         proto::SendChatMessageResponse { async_id }
     }
 
+    pub fn send_stream_header(
+        &self,
+        server: &'static FfiServer,
+        send_stream_header: proto::SendStreamHeaderRequest,
+    ) {
+        let packet = lk_proto::DataPacket {
+            kind: lk_proto::DataPacketKind::Reliable,
+            participant_identity: send_stream_header.sender_identity,
+            destination_identities: send_stream_header.destination_identities,
+            value: send_stream_header.header,
+        };
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let res = inner.room.local_participant().publish_raw_data(packet, true).await;
+        });
+    }
+
+    pub fn send_stream_chunk(
+        &self,
+        server: &'static FfiServer,
+        send_stream_chunk: proto::SendStreamChunkRequest,
+    ) {
+        let packet = lk_proto::DataPacket {
+            kind: lk_proto::DataPacketKind::Reliable,
+            participant_identity: send_stream_header.sender_identity,
+            destination_identities: send_stream_header.destination_identities,
+            value: send_stream_header.chunk,
+        };
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let res = inner.room.local_participant().publish_raw_data(packet, true).await;
+        });
+    }
+
     pub fn store_rpc_method_invocation_waiter(
         &self,
         invocation_id: u64,
@@ -1137,11 +1184,15 @@ async fn forward_event(
                     state: proto::EncryptionState::from(state).into(),
                 }));
         }
-        RoomEvent::StreamHeaderReceived { header } => {
-            let _ = send_event(proto::room_event::Message::StreamHeader(header.into()));
+        RoomEvent::StreamHeaderReceived { header, participant_identity } => {
+            let _ = send_event(proto::room_event::Message::StreamHeaderReceived(
+                proto::DataStreamHeaderReceived { header: header.into(), participant_identity },
+            ));
         }
-        RoomEvent::StreamChunkReceived { chunk } => {
-            let _ = send_event(proto::room_event::Message::StreamChunk(chunk.into()));
+        RoomEvent::StreamChunkReceived { chunk, participant_identity } => {
+            let _ = send_event(proto::room_event::Message::StreamChunkReceived(
+                proto::DataStreamChunkReceived { chunk: chunk.into(), participant_identity },
+            ));
         }
         _ => {
             log::warn!("unhandled room event: {:?}", event);

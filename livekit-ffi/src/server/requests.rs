@@ -113,6 +113,18 @@ fn on_publish_data(
     ffi_participant.room.publish_data(server, publish)
 }
 
+/// Publish data to the room
+fn on_publish_data(
+    server: &'static FfiServer,
+    publish: proto::PublishDataRequest,
+) -> FfiResult<proto::PublishDataResponse> {
+    // Push the data to an async queue (avoid blocking and keep the order)
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+
+    ffi_participant.room.publish_data(server, publish)
+}
+
 /// Publish transcription to the room
 fn on_publish_transcription(
     server: &'static FfiServer,
@@ -229,6 +241,28 @@ fn on_edit_chat_message(
     server: &'static FfiServer,
     edit_chat_message: proto::EditChatMessageRequest,
 ) -> FfiResult<proto::SendChatMessageResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(edit_chat_message.local_participant_handle)?
+        .clone();
+
+    Ok(ffi_participant.room.edit_chat_message(server, edit_chat_message))
+}
+
+fn on_send_stream_header(
+    server: &'static FfiServer,
+    stream_header_message: proto::SendStreamHeaderRequest,
+) {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(stream_header_message.local_participant_handle)?
+        .clone();
+
+    // Ok(ffi_participant.room.publish_raw_data(server, edit_chat_message))
+}
+
+fn on_send_stream_chunk(
+    server: &'static FfiServer,
+    stream_chunk_message: proto::SendStreamChunkRequest,
+) {
     let ffi_participant = server
         .retrieve_handle::<FfiParticipant>(edit_chat_message.local_participant_handle)?
         .clone();

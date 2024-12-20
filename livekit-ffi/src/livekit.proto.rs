@@ -2702,9 +2702,9 @@ pub mod room_event {
         #[prost(message, tag="29")]
         ChatMessage(super::ChatMessageReceived),
         #[prost(message, tag="30")]
-        StreamHeader(super::data_stream::Header),
+        StreamHeaderReceived(super::DataStreamHeaderReceived),
         #[prost(message, tag="31")]
-        StreamChunk(super::data_stream::Chunk),
+        StreamChunkReceived(super::DataStreamChunkReceived),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3105,6 +3105,46 @@ pub mod data_stream {
             }
         }
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataStreamHeaderReceived {
+    #[prost(string, required, tag="1")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(message, required, tag="2")]
+    pub header: data_stream::Header,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataStreamChunkReceived {
+    #[prost(string, required, tag="1")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(message, required, tag="2")]
+    pub chunk: data_stream::Chunk,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamHeaderRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(message, required, tag="2")]
+    pub header: data_stream::Header,
+    #[prost(string, repeated, tag="3")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="4")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamChunkRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(message, required, tag="2")]
+    pub chunk: data_stream::Chunk,
+    #[prost(string, repeated, tag="3")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="4")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

@@ -367,8 +367,8 @@ message RoomEvent {
     DataPacketReceived data_packet_received = 27;
     TranscriptionReceived transcription_received = 28;
     ChatMessageReceived chat_message = 29;
-    DataStream.Header stream_header = 30;
-    DataStream.Chunk stream_chunk = 31;
+    DataStreamHeaderReceived stream_header_received = 30;
+    DataStreamChunkReceived stream_chunk_received = 31;
   }
 }
 
@@ -578,5 +578,29 @@ message DataStream {
     required int32 version = 5; // a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
     optional bytes iv = 6; // optional, initialization vector for AES-GCM encryption
   }
+}
+
+message DataStreamHeaderReceived {
+  required string participant_identity = 1;
+  required DataStream.Header header = 2;
+}
+
+message DataStreamChunkReceived {
+  required string participant_identity = 1;
+  required DataStream.Chunk chunk = 2;
+}
+
+message SendStreamHeaderRequest {
+  required uint64 local_participant_handle = 1;
+  required DataStream.Header header = 2;
+  repeated string destination_identities = 3;
+  optional string sender_identity = 4;
+}
+
+message SendStreamChunkRequest {
+  required uint64 local_participant_handle = 1;
+  required DataStream.Chunk chunk = 2;
+  repeated string destination_identities = 3;
+  optional string sender_identity = 4;
 }
 
