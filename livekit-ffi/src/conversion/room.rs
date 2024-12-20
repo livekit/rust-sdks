@@ -307,7 +307,7 @@ impl From<livekit_protocol::data_stream::Header> for proto::data_stream::Header 
         proto::data_stream::Header {
             stream_id: msg.stream_id,
             timestamp: msg.timestamp,
-            topic: msg.topic,
+            topic: Some(msg.topic),
             mime_type: msg.mime_type,
             total_chunks: msg.total_chunks,
             total_length: msg.total_length,
@@ -342,7 +342,7 @@ impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header 
         livekit_protocol::data_stream::Header {
             stream_id: msg.stream_id,
             timestamp: msg.timestamp,
-            topic: msg.topic,
+            topic: msg.topic.unwrap_or_default(),
             mime_type: msg.mime_type,
             total_chunks: msg.total_chunks,
             total_length: msg.total_length,
@@ -358,9 +358,9 @@ impl From<livekit_protocol::data_stream::Chunk> for proto::data_stream::Chunk {
         proto::data_stream::Chunk {
             stream_id: msg.stream_id,
             content: msg.content,
-            complete: msg.complete,
+            complete: Some(msg.complete),
             chunk_index: msg.chunk_index,
-            version: msg.version,
+            version: Some(msg.version),
             iv: msg.iv,
         }
     }
@@ -371,9 +371,9 @@ impl From<proto::data_stream::Chunk> for livekit_protocol::data_stream::Chunk {
         livekit_protocol::data_stream::Chunk {
             stream_id: msg.stream_id,
             content: msg.content,
-            complete: msg.complete,
+            complete: msg.complete.unwrap_or(false),
             chunk_index: msg.chunk_index,
-            version: msg.version,
+            version: msg.version.unwrap_or(0),
             iv: msg.iv,
         }
     }
