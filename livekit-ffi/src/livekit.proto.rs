@@ -3022,10 +3022,10 @@ pub mod data_stream {
         /// using int64 for Unix timestamp
         #[prost(int64, required, tag="2")]
         pub timestamp: i64,
-        #[prost(string, required, tag="3")]
+        #[prost(string, required, tag="4")]
         pub mime_type: ::prost::alloc::string::String,
-        #[prost(string, optional, tag="4")]
-        pub topic: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(string, required, tag="3")]
+        pub topic: ::prost::alloc::string::String,
         /// only populated for finite streams, if it's a stream of unknown size this stays empty
         #[prost(uint64, optional, tag="5")]
         pub total_length: ::core::option::Option<u64>,
