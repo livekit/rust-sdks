@@ -1057,6 +1057,12 @@ pub fn handle_request(
                 on_update_remote_track_publication_dimension(server, request)?,
             )
         }
+        proto::ffi_request::Message::SendStreamHeader(request) => {
+            proto::ffi_response::Message::SendStreamHeader(on_send_stream_header(server, request)?)
+        }
+        proto::ffi_request::Message::SendStreamChunk(request) => {
+            proto::ffi_response::Message::SendStreamChunk(on_send_stream_chunk(server, request)?)
+        }
     });
 
     Ok(res)

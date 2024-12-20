@@ -111,6 +111,11 @@ message FfiRequest {
     // Track Publication
     EnableRemoteTrackPublicationRequest enable_remote_track_publication = 42;
     UpdateRemoteTrackPublicationDimensionRequest update_remote_track_publication_dimension = 43;
+
+    // Data Streams
+    SendStreamHeaderRequest send_stream_header = 44;
+    SendStreamChunkRequest send_stream_chunk = 45;
+
   }
 }
 
@@ -168,6 +173,10 @@ message FfiResponse {
     // Track Publication
     EnableRemoteTrackPublicationResponse enable_remote_track_publication = 41;
     UpdateRemoteTrackPublicationDimensionResponse update_remote_track_publication_dimension = 42;
+
+     // Data Streams
+     SendStreamHeaderResponse send_stream_header = 43;
+     SendStreamChunkResponse send_stream_chunk = 44;
   }
 }
 
