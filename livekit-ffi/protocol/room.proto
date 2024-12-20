@@ -604,3 +604,10 @@ message SendStreamChunkRequest {
   optional string sender_identity = 4;
 }
 
+message SendStreamHeaderResponse {
+  required uint64 async_id = 1;
+}
+
+message SendStreamChunkResponse {
+  required uint64 async_id = 1;
+}

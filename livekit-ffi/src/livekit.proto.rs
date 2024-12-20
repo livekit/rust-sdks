@@ -3146,6 +3146,18 @@ pub struct SendStreamChunkRequest {
     #[prost(string, optional, tag="4")]
     pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamHeaderResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamChunkResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum IceTransportType {

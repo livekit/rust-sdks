@@ -244,7 +244,7 @@ fn on_send_stream_header(
         .retrieve_handle::<FfiParticipant>(stream_header_message.local_participant_handle)?
         .clone();
 
-    // Ok(ffi_participant.room.publish_raw_data(server, edit_chat_message))
+    Ok(ffi_participant.room.send_stream_header(server, stream_header_message))
 }
 
 fn on_send_stream_chunk(
@@ -252,10 +252,10 @@ fn on_send_stream_chunk(
     stream_chunk_message: proto::SendStreamChunkRequest,
 ) {
     let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(edit_chat_message.local_participant_handle)?
+        .retrieve_handle::<FfiParticipant>(stream_chunk_message.local_participant_handle)?
         .clone();
 
-    Ok(ffi_participant.room.edit_chat_message(server, edit_chat_message))
+    Ok(ffi_participant.room.send_stream_chunk(server, stream_chunk_message))
 }
 
 /// Create a new video track from a source
