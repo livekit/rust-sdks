@@ -699,16 +699,19 @@ impl RoomSession {
                     log::warn!("Received RPC request with null caller identity");
                     return Ok(());
                 }
-                self.local_participant
-                    .handle_incoming_rpc_request(
-                        caller_identity.unwrap(),
-                        request_id,
-                        method,
-                        payload,
-                        response_timeout,
-                        version,
-                    )
-                    .await;
+                let local_participant = self.local_participant.clone();
+                livekit_runtime::spawn(async move {
+                    local_participant
+                        .handle_incoming_rpc_request(
+                            caller_identity.unwrap(),
+                            request_id,
+                            method,
+                            payload,
+                            response_timeout,
+                            version,
+                        )
+                        .await;
+                });
             }
             EngineEvent::RpcResponse { request_id, payload, error } => {
                 self.local_participant.handle_incoming_rpc_response(request_id, payload, error);
