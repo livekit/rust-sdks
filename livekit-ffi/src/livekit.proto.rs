@@ -3158,6 +3158,22 @@ pub struct SendStreamChunkResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamHeaderCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamChunkCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum IceTransportType {
@@ -4138,7 +4154,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -4192,6 +4208,10 @@ pub mod ffi_event {
         PerformRpc(super::PerformRpcCallback),
         #[prost(message, tag="24")]
         RpcMethodInvocation(super::RpcMethodInvocationEvent),
+        #[prost(message, tag="25")]
+        SendStreamHeader(super::SendStreamHeaderCallback),
+        #[prost(message, tag="26")]
+        SendStreamChunk(super::SendStreamChunkCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

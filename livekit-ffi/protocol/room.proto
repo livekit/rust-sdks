@@ -611,3 +611,13 @@ message SendStreamHeaderResponse {
 message SendStreamChunkResponse {
   required uint64 async_id = 1;
 }
+
+message SendStreamHeaderCallback {
+  required uint64 async_id = 1;
+  optional string error = 2;
+}
+
+message SendStreamChunkCallback {
+  required uint64 async_id = 1;
+  optional string error = 2;
+}

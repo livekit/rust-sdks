@@ -695,6 +695,11 @@ impl RoomInner {
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res = inner.room.local_participant().publish_raw_data(packet, true).await;
+            let cb = proto::SendStreamHeaderCallback {
+                async_id,
+                error: res.err().map(|e| e.to_string()),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::SendStreamHeader(cb));
         });
         server.watch_panic(handle);
         proto::SendStreamHeaderResponse { async_id }
@@ -717,7 +722,13 @@ impl RoomInner {
         let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
-            let res = inner.room.local_participant().publish_raw_data(packet, true).await;
+            let res: Result<(), RoomError> =
+                inner.room.local_participant().publish_raw_data(packet, true).await;
+            let cb = proto::SendStreamChunkCallback {
+                async_id,
+                error: res.err().map(|e| e.to_string()),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::SendStreamChunk(cb));
         });
         server.watch_panic(handle);
         proto::SendStreamChunkResponse { async_id }
