@@ -101,16 +101,6 @@ struct FfiTranscriptionSegment {
     language: String,
 }
 
-struct FfiStreamHeader {
-    header: proto::data_stream::Header,
-    async_id: u64,
-}
-
-struct FfiStreamChunk {
-    chunk: proto::data_stream::Chunk,
-    async_id: u64,
-}
-
 struct FfiSipDtmfPacket {
     payload: SipDTMF,
     async_id: u64,

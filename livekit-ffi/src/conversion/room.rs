@@ -344,7 +344,7 @@ impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header 
             topic: msg.topic,
             mime_type: msg.mime_type,
             total_length: msg.total_length,
-            total_chunks: None(),
+            total_chunks: None,
             extensions: msg.extensions,
             content_header,
             encryption_type: 0,
