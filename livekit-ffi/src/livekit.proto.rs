@@ -3022,21 +3022,18 @@ pub mod data_stream {
         /// using int64 for Unix timestamp
         #[prost(int64, required, tag="2")]
         pub timestamp: i64,
-        #[prost(string, required, tag="4")]
-        pub mime_type: ::prost::alloc::string::String,
         #[prost(string, required, tag="3")]
+        pub mime_type: ::prost::alloc::string::String,
+        #[prost(string, required, tag="4")]
         pub topic: ::prost::alloc::string::String,
         /// only populated for finite streams, if it's a stream of unknown size this stays empty
         #[prost(uint64, optional, tag="5")]
         pub total_length: ::core::option::Option<u64>,
-        /// only populated for finite streams, if it's a stream of unknown size this stays empty
-        #[prost(uint64, optional, tag="6")]
-        pub total_chunks: ::core::option::Option<u64>,
         /// user defined extensions map that can carry additional info
-        #[prost(map="string, string", tag="7")]
+        #[prost(map="string, string", tag="6")]
         pub extensions: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
         /// oneof to choose between specific header types
-        #[prost(oneof="header::ContentHeader", tags="8, 9")]
+        #[prost(oneof="header::ContentHeader", tags="7, 8")]
         pub content_header: ::core::option::Option<header::ContentHeader>,
     }
     /// Nested message and enum types in `Header`.
@@ -3045,9 +3042,9 @@ pub mod data_stream {
         #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum ContentHeader {
-            #[prost(message, tag="8")]
+            #[prost(message, tag="7")]
             TextHeader(super::TextHeader),
-            #[prost(message, tag="9")]
+            #[prost(message, tag="8")]
             FileHeader(super::FileHeader),
         }
     }
