@@ -25,7 +25,9 @@ use std::{
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
-use parking_lot::{deadlock, Mutex};
+use parking_lot::Mutex;
+#[cfg(feature = "deadlock_detection")]
+use parking_lot::deadlock;
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
@@ -96,6 +98,7 @@ impl Default for FfiServer {
         console_subscriber::init();
 
         // Create a background thread which checks for deadlocks every 10s
+        #[cfg(feature = "deadlock_detection")]
         thread::spawn(move || loop {
             thread::sleep(Duration::from_secs(10));
             let deadlocks = deadlock::check_deadlock();

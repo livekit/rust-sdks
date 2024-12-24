@@ -1,18 +1,19 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.4"
+version = "0.12.3"
 edition = "2021"
 license = "Apache-2.0"
 description = "FFI interface for bindings in other languages"
 repository = "https://github.com/livekit/rust-sdks"
 
 [features]
-default = ["rustls-tls-native-roots"]
+default = ["rustls-tls-native-roots", "parking_lot"]
 native-tls = ["livekit/native-tls"]
 native-tls-vendored = ["livekit/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit/__rustls-tls"]
+deadlock_detection = ["parking_lot/deadlock_detection"]
 
 # Enable tokio-console to debug tasks
 tracing = ["tokio/tracing", "console-subscriber"]
@@ -24,7 +25,7 @@ imgproc = { path = "../imgproc" }
 livekit-protocol = { workspace = true }
 tokio = { version = "1", features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-parking_lot = { version = "0.12", features = ["deadlock_detection"] }
+parking_lot = { version = "0.12", optional = true }
 prost = "0.12"
 prost-types = "0.12"
 lazy_static = "1.4"
