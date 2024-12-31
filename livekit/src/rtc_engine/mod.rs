@@ -118,7 +118,7 @@ pub enum EngineEvent {
         request_id: String,
         method: String,
         payload: String,
-        response_timeout_ms: u32,
+        response_timeout: Duration,
         version: u32,
     },
     RpcResponse {
@@ -158,6 +158,12 @@ pub enum EngineEvent {
     },
     LocalTrackSubscribed {
         track_sid: String,
+    },
+    DataStreamHeader {
+        header: proto::data_stream::Header,
+    },
+    DataStreamChunk {
+        chunk: proto::data_stream::Chunk,
     },
 }
 
@@ -487,7 +493,7 @@ impl EngineInner {
                 request_id,
                 method,
                 payload,
-                response_timeout_ms,
+                response_timeout,
                 version,
             } => {
                 let _ = self.engine_tx.send(EngineEvent::RpcRequest {
@@ -495,7 +501,7 @@ impl EngineInner {
                     request_id,
                     method,
                     payload,
-                    response_timeout_ms,
+                    response_timeout,
                     version,
                 });
             }
@@ -523,6 +529,12 @@ impl EngineInner {
             }
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
+            }
+            SessionEvent::DataStreamHeader { header } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamHeader { header });
+            }
+            SessionEvent::DataStreamChunk { chunk } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamChunk { chunk });
             }
         }
         Ok(())

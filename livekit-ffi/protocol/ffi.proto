@@ -20,6 +20,7 @@ option csharp_namespace = "LiveKit.Proto";
 // import "handle.proto";
 import "e2ee.proto";
 import "track.proto";
+import "track_publication.proto";
 import "room.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
@@ -106,6 +107,10 @@ message FfiRequest {
     RegisterRpcMethodRequest register_rpc_method = 39;
     UnregisterRpcMethodRequest unregister_rpc_method = 40;
     RpcMethodInvocationResponseRequest rpc_method_invocation_response = 41;
+
+    // Track Publication
+    EnableRemoteTrackPublicationRequest enable_remote_track_publication = 42;
+    UpdateRemoteTrackPublicationDimensionRequest update_remote_track_publication_dimension = 43;
   }
 }
 
@@ -160,6 +165,9 @@ message FfiResponse {
     RegisterRpcMethodResponse register_rpc_method = 38;
     UnregisterRpcMethodResponse unregister_rpc_method = 39;
     RpcMethodInvocationResponseResponse rpc_method_invocation_response = 40;
+    // Track Publication
+    EnableRemoteTrackPublicationResponse enable_remote_track_publication = 41;
+    UpdateRemoteTrackPublicationDimensionResponse update_remote_track_publication_dimension = 42;
   }
 }
 

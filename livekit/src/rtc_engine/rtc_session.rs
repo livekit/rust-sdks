@@ -101,7 +101,7 @@ pub enum SessionEvent {
         request_id: String,
         method: String,
         payload: String,
-        response_timeout_ms: u32,
+        response_timeout: Duration,
         version: u32,
     },
     RpcResponse {
@@ -134,6 +134,12 @@ pub enum SessionEvent {
         reason: DisconnectReason,
         action: proto::leave_request::Action,
         retry_now: bool,
+    },
+    DataStreamHeader {
+        header: proto::data_stream::Header,
+    },
+    DataStreamChunk {
+        chunk: proto::data_stream::Chunk,
     },
 }
 
@@ -689,7 +695,9 @@ impl SessionInner {
                                 request_id: rpc_request.id.clone(),
                                 method: rpc_request.method.clone(),
                                 payload: rpc_request.payload.clone(),
-                                response_timeout_ms: rpc_request.response_timeout_ms,
+                                response_timeout: Duration::from_millis(
+                                    rpc_request.response_timeout_ms as u64,
+                                ),
                                 version: rpc_request.version,
                             });
                         }
@@ -720,6 +728,16 @@ impl SessionInner {
                                 ),
                                 message: ChatMessage::from(message.clone()),
                             });
+                        }
+                        proto::data_packet::Value::StreamHeader(message) => {
+                            let _ = self
+                                .emitter
+                                .send(SessionEvent::DataStreamHeader { header: message.clone() });
+                        }
+                        proto::data_packet::Value::StreamChunk(message) => {
+                            let _ = self
+                                .emitter
+                                .send(SessionEvent::DataStreamChunk { chunk: message.clone() });
                         }
                         _ => {}
                     }
@@ -819,7 +837,6 @@ impl SessionInner {
             }
 
             matched.append(&mut partial_matched);
-            matched.append(&mut unmatched);
 
             transceiver.set_codec_preferences(matched)?;
         }

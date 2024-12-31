@@ -28,6 +28,7 @@ pub enum RtcStats {
     LocalCandidate(LocalCandidateStats),
     RemoteCandidate(RemoteCandidateStats),
     Certificate(CertificateStats),
+    Stream(StreamStats),
     Track, // Deprecated
 }
 
@@ -270,6 +271,15 @@ pub struct CertificateStats {
 
     #[serde(flatten)]
     pub certificate: dictionaries::CertificateStats,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct StreamStats {
+    #[serde(flatten)]
+    pub rtc: dictionaries::RtcStats,
+
+    #[serde(flatten)]
+    pub stream: dictionaries::StreamStats,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -587,5 +597,14 @@ pub mod dictionaries {
         pub fingerprint_algorithm: String,
         pub base64_certificate: String,
         pub issuer_certificate_id: String,
+    }
+
+    #[derive(Debug, Default, Clone, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[serde(default)]
+    pub struct StreamStats {
+        pub id: String,
+        pub stream_identifier: String,
+        // pub timestamp: i64,
     }
 }

@@ -152,6 +152,36 @@ fn on_set_subscribed(
     Ok(proto::SetSubscribedResponse {})
 }
 
+fn on_enable_remote_track_publication(
+    server: &'static FfiServer,
+    request: proto::EnableRemoteTrackPublicationRequest,
+) -> FfiResult<proto::EnableRemoteTrackPublicationResponse> {
+    let ffi_publication =
+        server.retrieve_handle::<FfiPublication>(request.track_publication_handle)?;
+
+    let TrackPublication::Remote(publication) = &ffi_publication.publication else {
+        return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
+    };
+
+    publication.set_enabled(request.enabled);
+    Ok(proto::EnableRemoteTrackPublicationResponse {})
+}
+
+fn on_update_remote_track_publication_dimension(
+    server: &'static FfiServer,
+    request: proto::UpdateRemoteTrackPublicationDimensionRequest,
+) -> FfiResult<proto::UpdateRemoteTrackPublicationDimensionResponse> {
+    let ffi_publication =
+        server.retrieve_handle::<FfiPublication>(request.track_publication_handle)?;
+
+    let TrackPublication::Remote(publication) = &ffi_publication.publication else {
+        return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
+    };
+    let dimension = TrackDimension(request.width, request.height);
+    publication.update_video_dimensions(dimension);
+    Ok(proto::UpdateRemoteTrackPublicationDimensionResponse {})
+}
+
 fn on_set_local_metadata(
     server: &'static FfiServer,
     set_local_metadata: proto::SetLocalMetadataRequest,
@@ -815,7 +845,7 @@ fn on_unregister_rpc_method(
 ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
-    return ffi_participant.unregister_rpc_method(server, request);
+    return ffi_participant.unregister_rpc_method(request);
 }
 
 fn on_rpc_method_invocation_response(
@@ -993,6 +1023,16 @@ pub fn handle_request(
         proto::ffi_request::Message::RpcMethodInvocationResponse(request) => {
             proto::ffi_response::Message::RpcMethodInvocationResponse(
                 on_rpc_method_invocation_response(server, request)?,
+            )
+        }
+        proto::ffi_request::Message::EnableRemoteTrackPublication(request) => {
+            proto::ffi_response::Message::EnableRemoteTrackPublication(
+                on_enable_remote_track_publication(server, request)?,
+            )
+        }
+        proto::ffi_request::Message::UpdateRemoteTrackPublicationDimension(request) => {
+            proto::ffi_response::Message::UpdateRemoteTrackPublicationDimension(
+                on_update_remote_track_publication_dimension(server, request)?,
             )
         }
     });

@@ -127,6 +127,13 @@ impl SoxResampler {
             return Err(error_msg.to_string_lossy().to_string());
         }
 
+        let error = unsafe { soxr_sys::soxr_clear(self.soxr_ptr) };
+
+        if !error.is_null() {
+            let error_msg = unsafe { std::ffi::CStr::from_ptr(error) };
+            return Err(error_msg.to_string_lossy().to_string());
+        }
+
         Ok(&self.out_buf[..odone])
     }
 }

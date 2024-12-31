@@ -318,7 +318,7 @@ pub struct FfiOwnedHandle {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RtcStats {
-    #[prost(oneof="rtc_stats::Stats", tags="3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17")]
+    #[prost(oneof="rtc_stats::Stats", tags="3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18")]
     pub stats: ::core::option::Option<rtc_stats::Stats>,
 }
 /// Nested message and enum types in `RtcStats`.
@@ -455,6 +455,14 @@ pub mod rtc_stats {
         #[prost(message, required, tag="2")]
         pub certificate: super::CertificateStats,
     }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Stream {
+        #[prost(message, required, tag="1")]
+        pub rtc: super::RtcStatsData,
+        #[prost(message, required, tag="2")]
+        pub stream: super::StreamStats,
+    }
     /// Deprecated
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -492,6 +500,8 @@ pub mod rtc_stats {
         #[prost(message, tag="16")]
         Certificate(Certificate),
         #[prost(message, tag="17")]
+        Stream(Stream),
+        #[prost(message, tag="18")]
         Track(Track),
     }
 }
@@ -964,6 +974,15 @@ pub struct CertificateStats {
     pub base64_certificate: ::prost::alloc::string::String,
     #[prost(string, required, tag="4")]
     pub issuer_certificate_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamStats {
+    #[prost(string, required, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    /// required int64 timestamp = 3;
+    #[prost(string, required, tag="2")]
+    pub stream_identifier: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1529,6 +1548,34 @@ impl StreamState {
         }
     }
 }
+/// Enable/Disable a remote track publication
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnableRemoteTrackPublicationRequest {
+    #[prost(uint64, required, tag="1")]
+    pub track_publication_handle: u64,
+    #[prost(bool, required, tag="2")]
+    pub enabled: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnableRemoteTrackPublicationResponse {
+}
+/// update a remote track publication dimension
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateRemoteTrackPublicationDimensionRequest {
+    #[prost(uint64, required, tag="1")]
+    pub track_publication_handle: u64,
+    #[prost(uint32, required, tag="2")]
+    pub width: u32,
+    #[prost(uint32, required, tag="3")]
+    pub height: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateRemoteTrackPublicationDimensionResponse {
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantInfo {
@@ -1544,6 +1591,8 @@ pub struct ParticipantInfo {
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(enumeration="ParticipantKind", required, tag="6")]
     pub kind: i32,
+    #[prost(enumeration="DisconnectReason", required, tag="7")]
+    pub disconnect_reason: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1584,6 +1633,81 @@ impl ParticipantKind {
             "PARTICIPANT_KIND_EGRESS" => Some(Self::Egress),
             "PARTICIPANT_KIND_SIP" => Some(Self::Sip),
             "PARTICIPANT_KIND_AGENT" => Some(Self::Agent),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DisconnectReason {
+    UnknownReason = 0,
+    /// the client initiated the disconnect
+    ClientInitiated = 1,
+    /// another participant with the same identity has joined the room
+    DuplicateIdentity = 2,
+    /// the server instance is shutting down
+    ServerShutdown = 3,
+    /// RoomService.RemoveParticipant was called
+    ParticipantRemoved = 4,
+    /// RoomService.DeleteRoom was called
+    RoomDeleted = 5,
+    /// the client is attempting to resume a session, but server is not aware of it
+    StateMismatch = 6,
+    /// client was unable to connect fully
+    JoinFailure = 7,
+    /// Cloud-only, the server requested Participant to migrate the connection elsewhere
+    Migration = 8,
+    /// the signal websocket was closed unexpectedly
+    SignalClose = 9,
+    /// the room was closed, due to all Standard and Ingress participants having left
+    RoomClosed = 10,
+    /// SIP callee did not respond in time
+    UserUnavailable = 11,
+    /// SIP callee rejected the call (busy)
+    UserRejected = 12,
+    /// SIP protocol failure or unexpected response
+    SipTrunkFailure = 13,
+}
+impl DisconnectReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            DisconnectReason::UnknownReason => "UNKNOWN_REASON",
+            DisconnectReason::ClientInitiated => "CLIENT_INITIATED",
+            DisconnectReason::DuplicateIdentity => "DUPLICATE_IDENTITY",
+            DisconnectReason::ServerShutdown => "SERVER_SHUTDOWN",
+            DisconnectReason::ParticipantRemoved => "PARTICIPANT_REMOVED",
+            DisconnectReason::RoomDeleted => "ROOM_DELETED",
+            DisconnectReason::StateMismatch => "STATE_MISMATCH",
+            DisconnectReason::JoinFailure => "JOIN_FAILURE",
+            DisconnectReason::Migration => "MIGRATION",
+            DisconnectReason::SignalClose => "SIGNAL_CLOSE",
+            DisconnectReason::RoomClosed => "ROOM_CLOSED",
+            DisconnectReason::UserUnavailable => "USER_UNAVAILABLE",
+            DisconnectReason::UserRejected => "USER_REJECTED",
+            DisconnectReason::SipTrunkFailure => "SIP_TRUNK_FAILURE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNKNOWN_REASON" => Some(Self::UnknownReason),
+            "CLIENT_INITIATED" => Some(Self::ClientInitiated),
+            "DUPLICATE_IDENTITY" => Some(Self::DuplicateIdentity),
+            "SERVER_SHUTDOWN" => Some(Self::ServerShutdown),
+            "PARTICIPANT_REMOVED" => Some(Self::ParticipantRemoved),
+            "ROOM_DELETED" => Some(Self::RoomDeleted),
+            "STATE_MISMATCH" => Some(Self::StateMismatch),
+            "JOIN_FAILURE" => Some(Self::JoinFailure),
+            "MIGRATION" => Some(Self::Migration),
+            "SIGNAL_CLOSE" => Some(Self::SignalClose),
+            "ROOM_CLOSED" => Some(Self::RoomClosed),
+            "USER_UNAVAILABLE" => Some(Self::UserUnavailable),
+            "USER_REJECTED" => Some(Self::UserRejected),
+            "SIP_TRUNK_FAILURE" => Some(Self::SipTrunkFailure),
             _ => None,
         }
     }
@@ -2511,7 +2635,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, required, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2577,6 +2701,10 @@ pub mod room_event {
         TranscriptionReceived(super::TranscriptionReceived),
         #[prost(message, tag="29")]
         ChatMessage(super::ChatMessageReceived),
+        #[prost(message, tag="30")]
+        StreamHeader(super::data_stream::Header),
+        #[prost(message, tag="31")]
+        StreamChunk(super::data_stream::Chunk),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2851,6 +2979,133 @@ pub struct Reconnected {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomEos {
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataStream {
+}
+/// Nested message and enum types in `DataStream`.
+pub mod data_stream {
+    /// header properties specific to text streams
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct TextHeader {
+        #[prost(enumeration="OperationType", required, tag="1")]
+        pub operation_type: i32,
+        /// Optional: Version for updates/edits
+        #[prost(int32, required, tag="2")]
+        pub version: i32,
+        /// Optional: Reply to specific message
+        #[prost(string, required, tag="3")]
+        pub reply_to_stream_id: ::prost::alloc::string::String,
+        /// file attachments for text streams
+        #[prost(string, repeated, tag="4")]
+        pub attached_stream_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// true if the text has been generated by an agent from a participant's audio transcription
+        #[prost(bool, required, tag="5")]
+        pub generated: bool,
+    }
+    /// header properties specific to file or image streams
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct FileHeader {
+        /// name of the file
+        #[prost(string, required, tag="1")]
+        pub file_name: ::prost::alloc::string::String,
+    }
+    /// main DataStream.Header that contains a oneof for specific headers
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Header {
+        /// unique identifier for this data stream
+        #[prost(string, required, tag="1")]
+        pub stream_id: ::prost::alloc::string::String,
+        /// using int64 for Unix timestamp
+        #[prost(int64, required, tag="2")]
+        pub timestamp: i64,
+        #[prost(string, required, tag="3")]
+        pub topic: ::prost::alloc::string::String,
+        #[prost(string, required, tag="4")]
+        pub mime_type: ::prost::alloc::string::String,
+        /// only populated for finite streams, if it's a stream of unknown size this stays empty
+        #[prost(uint64, optional, tag="5")]
+        pub total_length: ::core::option::Option<u64>,
+        /// only populated for finite streams, if it's a stream of unknown size this stays empty
+        #[prost(uint64, optional, tag="6")]
+        pub total_chunks: ::core::option::Option<u64>,
+        /// user defined extensions map that can carry additional info
+        #[prost(map="string, string", tag="7")]
+        pub extensions: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+        /// oneof to choose between specific header types
+        #[prost(oneof="header::ContentHeader", tags="8, 9")]
+        pub content_header: ::core::option::Option<header::ContentHeader>,
+    }
+    /// Nested message and enum types in `Header`.
+    pub mod header {
+        /// oneof to choose between specific header types
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+        pub enum ContentHeader {
+            #[prost(message, tag="8")]
+            TextHeader(super::TextHeader),
+            #[prost(message, tag="9")]
+            FileHeader(super::FileHeader),
+        }
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Chunk {
+        /// unique identifier for this data stream to map it to the correct header
+        #[prost(string, required, tag="1")]
+        pub stream_id: ::prost::alloc::string::String,
+        #[prost(uint64, required, tag="2")]
+        pub chunk_index: u64,
+        /// content as binary (bytes)
+        #[prost(bytes="vec", required, tag="3")]
+        pub content: ::prost::alloc::vec::Vec<u8>,
+        /// true only if this is the last chunk of this stream - can also be sent with empty content
+        #[prost(bool, required, tag="4")]
+        pub complete: bool,
+        /// a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
+        #[prost(int32, required, tag="5")]
+        pub version: i32,
+        /// optional, initialization vector for AES-GCM encryption
+        #[prost(bytes="vec", optional, tag="6")]
+        pub iv: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    }
+    /// enum for operation types (specific to TextHeader)
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum OperationType {
+        Create = 0,
+        Update = 1,
+        Delete = 2,
+        Reaction = 3,
+    }
+    impl OperationType {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                OperationType::Create => "CREATE",
+                OperationType::Update => "UPDATE",
+                OperationType::Delete => "DELETE",
+                OperationType::Reaction => "REACTION",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "CREATE" => Some(Self::Create),
+                "UPDATE" => Some(Self::Update),
+                "DELETE" => Some(Self::Delete),
+                "REACTION" => Some(Self::Reaction),
+                _ => None,
+            }
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum IceTransportType {
@@ -2993,69 +3248,6 @@ impl DataPacketKind {
         match value {
             "KIND_LOSSY" => Some(Self::KindLossy),
             "KIND_RELIABLE" => Some(Self::KindReliable),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum DisconnectReason {
-    UnknownReason = 0,
-    /// the client initiated the disconnect
-    ClientInitiated = 1,
-    /// another participant with the same identity has joined the room
-    DuplicateIdentity = 2,
-    /// the server instance is shutting down
-    ServerShutdown = 3,
-    /// RoomService.RemoveParticipant was called
-    ParticipantRemoved = 4,
-    /// RoomService.DeleteRoom was called
-    RoomDeleted = 5,
-    /// the client is attempting to resume a session, but server is not aware of it
-    StateMismatch = 6,
-    /// client was unable to connect fully
-    JoinFailure = 7,
-    /// Cloud-only, the server requested Participant to migrate the connection elsewhere
-    Migration = 8,
-    /// the signal websocket was closed unexpectedly
-    SignalClose = 9,
-    /// the room was closed, due to all Standard and Ingress participants having left
-    RoomClosed = 10,
-}
-impl DisconnectReason {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            DisconnectReason::UnknownReason => "UNKNOWN_REASON",
-            DisconnectReason::ClientInitiated => "CLIENT_INITIATED",
-            DisconnectReason::DuplicateIdentity => "DUPLICATE_IDENTITY",
-            DisconnectReason::ServerShutdown => "SERVER_SHUTDOWN",
-            DisconnectReason::ParticipantRemoved => "PARTICIPANT_REMOVED",
-            DisconnectReason::RoomDeleted => "ROOM_DELETED",
-            DisconnectReason::StateMismatch => "STATE_MISMATCH",
-            DisconnectReason::JoinFailure => "JOIN_FAILURE",
-            DisconnectReason::Migration => "MIGRATION",
-            DisconnectReason::SignalClose => "SIGNAL_CLOSE",
-            DisconnectReason::RoomClosed => "ROOM_CLOSED",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "UNKNOWN_REASON" => Some(Self::UnknownReason),
-            "CLIENT_INITIATED" => Some(Self::ClientInitiated),
-            "DUPLICATE_IDENTITY" => Some(Self::DuplicateIdentity),
-            "SERVER_SHUTDOWN" => Some(Self::ServerShutdown),
-            "PARTICIPANT_REMOVED" => Some(Self::ParticipantRemoved),
-            "ROOM_DELETED" => Some(Self::RoomDeleted),
-            "STATE_MISMATCH" => Some(Self::StateMismatch),
-            "JOIN_FAILURE" => Some(Self::JoinFailure),
-            "MIGRATION" => Some(Self::Migration),
-            "SIGNAL_CLOSE" => Some(Self::SignalClose),
-            "ROOM_CLOSED" => Some(Self::RoomClosed),
             _ => None,
         }
     }
@@ -3686,7 +3878,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -3779,13 +3971,18 @@ pub mod ffi_request {
         UnregisterRpcMethod(super::UnregisterRpcMethodRequest),
         #[prost(message, tag="41")]
         RpcMethodInvocationResponse(super::RpcMethodInvocationResponseRequest),
+        /// Track Publication
+        #[prost(message, tag="42")]
+        EnableRemoteTrackPublication(super::EnableRemoteTrackPublicationRequest),
+        #[prost(message, tag="43")]
+        UpdateRemoteTrackPublicationDimension(super::UpdateRemoteTrackPublicationDimensionRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -3876,6 +4073,11 @@ pub mod ffi_response {
         UnregisterRpcMethod(super::UnregisterRpcMethodResponse),
         #[prost(message, tag="40")]
         RpcMethodInvocationResponse(super::RpcMethodInvocationResponseResponse),
+        /// Track Publication
+        #[prost(message, tag="41")]
+        EnableRemoteTrackPublication(super::EnableRemoteTrackPublicationResponse),
+        #[prost(message, tag="42")]
+        UpdateRemoteTrackPublicationDimension(super::UpdateRemoteTrackPublicationDimensionResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.

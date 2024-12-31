@@ -2,7 +2,44 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::room::participant::ParticipantIdentity;
 use livekit_protocol::RpcError as RpcError_Proto;
+use std::time::Duration;
+
+/// Parameters for performing an RPC call
+#[derive(Debug, Clone)]
+pub struct PerformRpcData {
+    pub destination_identity: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout: Duration,
+}
+
+impl Default for PerformRpcData {
+    fn default() -> Self {
+        Self {
+            destination_identity: Default::default(),
+            method: Default::default(),
+            payload: Default::default(),
+            response_timeout: Duration::from_secs(10),
+        }
+    }
+}
+
+/// Data passed to method handler for incoming RPC invocations
+///
+/// Attributes:
+///     request_id (String): The unique request ID. Will match at both sides of the call, useful for debugging or logging.
+///     caller_identity (ParticipantIdentity): The unique participant identity of the caller.
+///     payload (String): The payload of the request. User-definable format, typically JSON.
+///     response_timeout (Duration): The maximum time the caller will wait for a response.
+#[derive(Debug, Clone)]
+pub struct RpcInvocationData {
+    pub request_id: String,
+    pub caller_identity: ParticipantIdentity,
+    pub payload: String,
+    pub response_timeout: Duration,
+}
 
 /// Specialized error handling for RPC methods.
 ///
@@ -60,6 +97,7 @@ pub enum RpcErrorCode {
     RecipientNotFound = 1401,
     RequestPayloadTooLarge = 1402,
     UnsupportedServer = 1403,
+    UnsupportedVersion = 1404,
 }
 
 impl RpcErrorCode {
@@ -76,6 +114,7 @@ impl RpcErrorCode {
             Self::RecipientNotFound => "Recipient not found",
             Self::RequestPayloadTooLarge => "Request payload too large",
             Self::UnsupportedServer => "RPC not supported by server",
+            Self::UnsupportedVersion => "Unsupported RPC version",
         }
     }
 }

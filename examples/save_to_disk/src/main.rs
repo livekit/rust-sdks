@@ -12,9 +12,9 @@ const FILE_PATH: &str = "record.wav";
 
 #[derive(Debug, Clone, Copy)]
 pub struct WavHeader {
-    pub sample_rate: u32,
+    pub sample_rate: i32,
     pub bit_depth: u16,
-    pub num_channels: u32,
+    pub num_channels: i32,
 }
 
 pub struct WavWriter {
@@ -43,8 +43,8 @@ impl WavWriter {
 
     fn write_header(&mut self) -> Result<(), std::io::Error> {
         let byte_rate = self.header.sample_rate
-            * self.header.bit_depth as u32
-            * self.header.num_channels as u32;
+            * self.header.bit_depth as i32
+            * self.header.num_channels;
 
         let block_align = byte_rate as u16 / self.header.sample_rate as u16;
 
@@ -55,8 +55,8 @@ impl WavWriter {
         self.data.put_u32_le(16); // Subchunk1Size (16 for PCM)
         self.data.put_u16_le(1); // AudioFormat (1 for PCM)
         self.data.put_u16_le(self.header.num_channels as u16);
-        self.data.put_u32_le(self.header.sample_rate);
-        self.data.put_u32_le(byte_rate);
+        self.data.put_i32_le(self.header.sample_rate);
+        self.data.put_i32_le(byte_rate);
         self.data.put_u16_le(block_align);
         self.data.put_u16_le(self.header.bit_depth);
         self.data.put_slice(b"data");
@@ -118,15 +118,18 @@ async fn record_track(audio_track: RemoteAudioTrack) -> Result<(), std::io::Erro
     println!("Recording track {:?}", audio_track.sid());
     let rtc_track = audio_track.rtc_track();
 
+    let sample_rate = 48000;
+    let num_channels = 2;
+
     let header = WavHeader {
-        sample_rate: 48000,
+        sample_rate,
         bit_depth: 16,
-        num_channels: 2,
+        num_channels,
     };
 
     let mut resampler = audio_resampler::AudioResampler::default();
     let mut wav_writer = WavWriter::create(FILE_PATH, header).await?;
-    let mut audio_stream = NativeAudioStream::new(rtc_track);
+    let mut audio_stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
 
     let max_record = 5 * header.sample_rate * header.num_channels;
     let mut sample_count = 0;
@@ -136,8 +139,8 @@ async fn record_track(audio_track: RemoteAudioTrack) -> Result<(), std::io::Erro
             frame.samples_per_channel,
             frame.num_channels,
             frame.sample_rate,
-            header.num_channels,
-            header.sample_rate,
+            header.num_channels as u32,
+            header.sample_rate as u32,
         );
 
         for sample in data {

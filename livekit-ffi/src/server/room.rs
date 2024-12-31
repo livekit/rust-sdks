@@ -1137,6 +1137,12 @@ async fn forward_event(
                     state: proto::EncryptionState::from(state).into(),
                 }));
         }
+        RoomEvent::StreamHeaderReceived { header } => {
+            let _ = send_event(proto::room_event::Message::StreamHeader(header.into()));
+        }
+        RoomEvent::StreamChunkReceived { chunk } => {
+            let _ = send_event(proto::room_event::Message::StreamChunk(chunk.into()));
+        }
         _ => {
             log::warn!("unhandled room event: {:?}", event);
         }

@@ -122,14 +122,14 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     key_provider,
                 });
 
+                let mut options = RoomOptions::default();
+                options.auto_subscribe = auto_subscribe;
+                options.e2ee = e2ee;
+
                 let res = Room::connect(
                     &url,
                     &token,
-                    RoomOptions {
-                        auto_subscribe,
-                        e2ee,
-                        ..Default::default()
-                    },
+                    options,
                 )
                 .await;
 

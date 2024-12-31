@@ -384,7 +384,32 @@ impl RemoteParticipant {
                         .await
                 });
             }
-        })
+        });
+
+        publication.on_video_dimensions_changed({
+            let rtc_engine = self.inner.rtc_engine.clone();
+            move |publication, dimension| {
+                let rtc_engine = rtc_engine.clone();
+                livekit_runtime::spawn(async move {
+                    let tsid: String = publication.sid().into();
+                    let TrackDimension(width, height) = dimension;
+                    let enabled = publication.is_enabled();
+                    let update_track_settings = proto::UpdateTrackSettings {
+                        track_sids: vec![tsid.clone()],
+                        disabled: !enabled,
+                        width,
+                        height,
+                        ..Default::default()
+                    };
+
+                    rtc_engine
+                        .send_request(proto::signal_request::Message::TrackSetting(
+                            update_track_settings,
+                        ))
+                        .await
+                });
+            }
+        });
     }
 
     pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
@@ -462,5 +487,9 @@ impl RemoteParticipant {
 
     pub fn kind(&self) -> ParticipantKind {
         self.inner.info.read().kind
+    }
+
+    pub fn disconnect_reason(&self) -> DisconnectReason {
+        self.inner.info.read().disconnect_reason
     }
 }
