@@ -67,7 +67,7 @@ fn on_disconnect(
         let ffi_room =
             server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle).unwrap().clone();
 
-        ffi_room.close().await;
+        ffi_room.close(server).await;
 
         let _ =
             server.send_event(proto::ffi_event::Message::Disconnect(proto::DisconnectCallback {

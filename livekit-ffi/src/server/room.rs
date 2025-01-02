@@ -266,7 +266,14 @@ impl FfiRoom {
     }
 
     /// Close the room and stop the tasks
-    pub async fn close(&self) {
+    pub async fn close(&self, server: &'static FfiServer) {
+        log_file(&format!("ffi_room will close: {}", self.inner.handle_id));
+
+        // close associated track handles
+        for (_, &handle) in self.inner.track_handle_lookup.lock().iter() {
+            server.drop_handle(handle);
+        }
+
         let _ = self.inner.room.close().await;
 
         let handle = self.handle.lock().await.take();
