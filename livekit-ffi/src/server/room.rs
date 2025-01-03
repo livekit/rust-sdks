@@ -269,7 +269,10 @@ impl FfiRoom {
     pub async fn close(&self, server: &'static FfiServer) {
         // drop associated track handles
         for (_, &handle) in self.inner.track_handle_lookup.lock().iter() {
-            server.drop_handle(handle);
+            if server.drop_handle(handle) {
+                // Store an empty handle for the FFI client that assumes a handle exists for this id.
+                server.store_handle(handle, vec![].into_boxed_slice());
+            }
         }
 
         let _ = self.inner.room.close().await;
