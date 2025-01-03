@@ -1,0 +1,2 @@
+patch type="added" package="livekit-ffi" "Fix deadlock issue in nested RPC calls."
+patch type="added" package="livekit" "bump"
