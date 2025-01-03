@@ -5,7 +5,9 @@ use crate::{
 };
 use egui::{Rounding, Stroke};
 use livekit::{e2ee::EncryptionType, prelude::*, SimulateScenario};
+use livekit::webrtc::{audio_stream::native::NativeAudioStream};
 use std::collections::HashMap;
+use futures::StreamExt;
 
 /// The state of the application are saved on app exit and restored on app start.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -88,8 +90,15 @@ impl LkApp {
                             );
                             self.video_renderers
                                 .insert((participant.identity(), track.sid()), video_renderer);
-                        } else if let RemoteTrack::Audio(_) = track {
-                            // TODO(theomonnom): Once we support media devices, we can play audio tracks here
+                        } else if let RemoteTrack::Audio(ref audio_track) = track {
+                            let rtc_track = audio_track.rtc_track();
+                            let mut audio_stream = NativeAudioStream::new(rtc_track, 48000, 2);
+                            // Receive the audio frames in a new task
+                            self.async_runtime.spawn(async move {
+                                while let Some(frame) = audio_stream.next().await {
+                                    println!("Received audio frame {:?}", frame);
+                                }
+                            });
                         }
                     }
                     RoomEvent::TrackUnsubscribed {
