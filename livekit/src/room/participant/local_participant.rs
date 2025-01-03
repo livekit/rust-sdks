@@ -437,6 +437,19 @@ impl LocalParticipant {
         }
     }
 
+    /** internal */
+    pub async fn publish_raw_data(
+        self,
+        packet: proto::DataPacket,
+        reliable: bool,
+    ) -> RoomResult<()> {
+        let kind = match reliable {
+            true => DataPacketKind::Reliable,
+            false => DataPacketKind::Lossy,
+        };
+        self.inner.rtc_engine.publish_data(&packet, kind).await.map_err(Into::into)
+    }
+
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
         let kind = match packet.reliable {
             true => DataPacketKind::Reliable,

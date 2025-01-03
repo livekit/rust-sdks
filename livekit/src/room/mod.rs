@@ -170,9 +170,11 @@ pub enum RoomEvent {
     },
     StreamHeaderReceived {
         header: proto::data_stream::Header,
+        participant_identity: String,
     },
     StreamChunkReceived {
         chunk: proto::data_stream::Chunk,
+        participant_identity: String,
     },
     E2eeStateChanged {
         participant: Participant,
@@ -726,11 +728,11 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
-            EngineEvent::DataStreamHeader { header } => {
-                self.handle_data_stream_header(header);
+            EngineEvent::DataStreamHeader { header, participant_identity } => {
+                self.handle_data_stream_header(header, participant_identity);
             }
-            EngineEvent::DataStreamChunk { chunk } => {
-                self.handle_data_stream_chunk(chunk);
+            EngineEvent::DataStreamChunk { chunk, participant_identity } => {
+                self.handle_data_stream_chunk(chunk, participant_identity);
             }
             _ => {}
         }
@@ -1242,13 +1244,21 @@ impl RoomSession {
         });
     }
 
-    fn handle_data_stream_header(&self, header: proto::data_stream::Header) {
-        let event = RoomEvent::StreamHeaderReceived { header };
+    fn handle_data_stream_header(
+        &self,
+        header: proto::data_stream::Header,
+        participant_identity: String,
+    ) {
+        let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
         self.dispatcher.dispatch(&event);
     }
 
-    fn handle_data_stream_chunk(&self, chunk: proto::data_stream::Chunk) {
-        let event = RoomEvent::StreamChunkReceived { chunk };
+    fn handle_data_stream_chunk(
+        &self,
+        chunk: proto::data_stream::Chunk,
+        participant_identity: String,
+    ) {
+        let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
         self.dispatcher.dispatch(&event);
     }
 
