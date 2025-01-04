@@ -133,7 +133,7 @@ impl FfiServer {
         log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
     }
 
-    pub async fn dispose(&self) {
+    pub async fn dispose(&'static self) {
         self.logger.set_capture_logs(false);
         log::info!("disposing ffi server");
 
@@ -146,7 +146,7 @@ impl FfiServer {
         }
 
         for room in rooms {
-            room.close().await;
+            room.close(self).await;
         }
 
         // Drop all handles
