@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.5] - 2025-01-04
+
+### Added
+
+- Fix deadlock issue in nested RPC calls.
+
 ## [0.12.4] - 2024-12-22
 
 ### Added
