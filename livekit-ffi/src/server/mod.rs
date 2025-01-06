@@ -70,6 +70,7 @@ impl FfiHandle for Arc<Mutex<resampler::SoxResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
 impl FfiHandle for Box<[u8]> {}
+impl FfiHandle for () {}
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
@@ -133,7 +134,7 @@ impl FfiServer {
         log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
     }
 
-    pub async fn dispose(&self) {
+    pub async fn dispose(&'static self) {
         self.logger.set_capture_logs(false);
         log::info!("disposing ffi server");
 
@@ -146,7 +147,7 @@ impl FfiServer {
         }
 
         for room in rooms {
-            room.close().await;
+            room.close(self).await;
         }
 
         // Drop all handles
