@@ -271,7 +271,7 @@ impl FfiRoom {
         for (_, &handle) in self.inner.track_handle_lookup.lock().iter() {
             if server.drop_handle(handle) {
                 // Store an empty handle for the FFI client that assumes a handle exists for this id.
-                server.store_handle(handle, vec![].into_boxed_slice());
+                server.store_handle(handle, ());
             }
         }
 
