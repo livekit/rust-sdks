@@ -1,1 +1,0 @@
-patch type="fixed" package="livekit-ffi" "Automatically close audio/video stream handles when the associated room is closed"
