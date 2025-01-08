@@ -18,6 +18,7 @@ use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::prelude::*;
 use livekit::ChatMessage;
+use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -674,6 +675,63 @@ impl RoomInner {
         proto::SendChatMessageResponse { async_id }
     }
 
+    pub fn send_stream_header(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        send_stream_header: proto::SendStreamHeaderRequest,
+    ) -> proto::SendStreamHeaderResponse {
+        let packet = lk_proto::DataPacket {
+            kind: proto::DataPacketKind::KindReliable.into(),
+            participant_identity: send_stream_header.sender_identity.unwrap(),
+            destination_identities: send_stream_header.destination_identities,
+            value: livekit_protocol::data_packet::Value::StreamHeader(
+                send_stream_header.header.into(),
+            )
+            .into(),
+        };
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let res = inner.room.local_participant().publish_raw_data(packet, true).await;
+            let cb = proto::SendStreamHeaderCallback {
+                async_id,
+                error: res.err().map(|e| e.to_string()),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::SendStreamHeader(cb));
+        });
+        server.watch_panic(handle);
+        proto::SendStreamHeaderResponse { async_id }
+    }
+
+    pub fn send_stream_chunk(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        send_stream_chunk: proto::SendStreamChunkRequest,
+    ) -> proto::SendStreamChunkResponse {
+        let packet = lk_proto::DataPacket {
+            kind: proto::DataPacketKind::KindReliable.into(),
+            participant_identity: send_stream_chunk.sender_identity.unwrap(),
+            destination_identities: send_stream_chunk.destination_identities,
+            value: livekit_protocol::data_packet::Value::StreamChunk(
+                send_stream_chunk.chunk.into(),
+            )
+            .into(),
+        };
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let res: Result<(), RoomError> =
+                inner.room.local_participant().publish_raw_data(packet, true).await;
+            let cb = proto::SendStreamChunkCallback {
+                async_id,
+                error: res.err().map(|e| e.to_string()),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::SendStreamChunk(cb));
+        });
+        server.watch_panic(handle);
+        proto::SendStreamChunkResponse { async_id }
+    }
+
     pub fn store_rpc_method_invocation_waiter(
         &self,
         invocation_id: u64,
@@ -1145,11 +1203,15 @@ async fn forward_event(
                     state: proto::EncryptionState::from(state).into(),
                 }));
         }
-        RoomEvent::StreamHeaderReceived { header } => {
-            let _ = send_event(proto::room_event::Message::StreamHeader(header.into()));
+        RoomEvent::StreamHeaderReceived { header, participant_identity } => {
+            let _ = send_event(proto::room_event::Message::StreamHeaderReceived(
+                proto::DataStreamHeaderReceived { header: header.into(), participant_identity },
+            ));
         }
-        RoomEvent::StreamChunkReceived { chunk } => {
-            let _ = send_event(proto::room_event::Message::StreamChunk(chunk.into()));
+        RoomEvent::StreamChunkReceived { chunk, participant_identity } => {
+            let _ = send_event(proto::room_event::Message::StreamChunkReceived(
+                proto::DataStreamChunkReceived { chunk: chunk.into(), participant_identity },
+            ));
         }
         _ => {
             log::warn!("unhandled room event: {:?}", event);
