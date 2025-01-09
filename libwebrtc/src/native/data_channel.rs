@@ -94,6 +94,10 @@ impl DataChannel {
         self.sys_handle.close();
     }
 
+    pub fn buffered_amount(&self) -> u64 {
+        self.sys_handle.buffered_amount()
+    }
+
     pub fn on_state_change(&self, handler: Option<OnStateChange>) {
         *self.observer.state_change_handler.lock() = handler;
     }
