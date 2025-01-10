@@ -18,7 +18,7 @@ use std::{
     fmt::Debug,
     ops::Not,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -143,6 +143,9 @@ pub enum SessionEvent {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
+    DataChannelBufferedAmountChanged {
+        buffered_amount: u64,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -166,7 +169,9 @@ struct SessionInner {
     // Publisher data channels
     // used to send data to other participants (The SFU forwards the messages)
     lossy_dc: DataChannel,
+    lossy_dc_buffered_amount: AtomicU64,
     reliable_dc: DataChannel,
+    reliable_dc_buffered_amount: AtomicU64,
 
     // Keep a strong reference to the subscriber datachannels,
     // so we can receive data from other participants
@@ -247,8 +252,8 @@ impl RtcSession {
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
         rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
-        rtc_events::forward_dc_events(&mut lossy_dc, rtc_emitter.clone());
-        rtc_events::forward_dc_events(&mut reliable_dc, rtc_emitter);
+        rtc_events::forward_dc_events(&mut lossy_dc, DataPacketKind::Lossy, rtc_emitter.clone());
+        rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
         let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
@@ -258,7 +263,9 @@ impl RtcSession {
             subscriber_pc,
             pending_tracks: Default::default(),
             lossy_dc,
+            lossy_dc_buffered_amount: Default::default(),
             reliable_dc,
+            reliable_dc_buffered_amount: Default::default(),
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
             closed: Default::default(),
@@ -368,6 +375,15 @@ impl RtcSession {
 
     pub fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
         self.inner.data_channel(target, kind)
+    }
+
+    pub fn data_channel_buffered_amount(&self, kind: DataPacketKind) -> u64 {
+        match kind {
+            DataPacketKind::Lossy => self.inner.lossy_dc_buffered_amount.load(Ordering::Relaxed),
+            DataPacketKind::Reliable => {
+                self.inner.reliable_dc_buffered_amount.load(Ordering::Relaxed)
+            }
+        }
     }
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
@@ -744,6 +760,22 @@ impl SessionInner {
                             });
                         }
                         _ => {}
+                    }
+                }
+            }
+            RtcEvent::DataChannelStateChange { state } => {
+            }
+            RtcEvent::DataChannelBufferedAmountChange { sent: _, amount, kind } => {
+                match kind {
+                    DataPacketKind::Lossy => {
+                        self.lossy_dc_buffered_amount.store(amount, Ordering::Relaxed)
+                    }
+                    DataPacketKind::Reliable => {
+                        self.reliable_dc_buffered_amount.store(amount, Ordering::Relaxed);
+                        // Only reliable dc is needed this event at this time
+                        let _ = self.emitter.send(SessionEvent::DataChannelBufferedAmountChanged {
+                            buffered_amount: amount,
+                        });
                     }
                 }
             }

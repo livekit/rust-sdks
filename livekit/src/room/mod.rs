@@ -734,6 +734,12 @@ impl RoomSession {
             EngineEvent::DataStreamChunk { chunk, participant_identity } => {
                 self.handle_data_stream_chunk(chunk, participant_identity);
             }
+            EngineEvent::DataChannelBufferedAmountChanged { buffered_amount } => {
+                let local_participant = self.local_participant.clone();
+                livekit_runtime::spawn(async move {
+                    local_participant.handle_dc_buffered_amount_changed(buffered_amount).await;
+                });
+            },
             _ => {}
         }
 

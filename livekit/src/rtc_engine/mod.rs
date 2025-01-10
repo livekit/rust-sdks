@@ -167,6 +167,9 @@ pub enum EngineEvent {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
+    DataChannelBufferedAmountChanged {
+        buffered_amount: u64,
+    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -541,6 +544,11 @@ impl EngineInner {
                 let _ = self
                     .engine_tx
                     .send(EngineEvent::DataStreamChunk { chunk, participant_identity });
+            }
+            SessionEvent::DataChannelBufferedAmountChanged { buffered_amount } => {
+                let _ = self
+                    .engine_tx
+                    .send(EngineEvent::DataChannelBufferedAmountChanged { buffered_amount });
             }
         }
         Ok(())

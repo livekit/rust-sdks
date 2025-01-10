@@ -17,7 +17,7 @@ use livekit_protocol as proto;
 use tokio::sync::mpsc;
 
 use super::peer_transport::PeerTransport;
-use crate::rtc_engine::peer_transport::OnOfferCreated;
+use crate::{rtc_engine::peer_transport::OnOfferCreated, DataPacketKind};
 
 pub type RtcEmitter = mpsc::UnboundedSender<RtcEvent>;
 pub type RtcEvents = mpsc::UnboundedReceiver<RtcEvent>;
@@ -50,6 +50,14 @@ pub enum RtcEvent {
     Data {
         data: Vec<u8>,
         binary: bool,
+    },
+    DataChannelStateChange {
+        state: DataChannelState,
+    },
+    DataChannelBufferedAmountChange {
+        sent: u64,
+        amount: u64,
+        kind: DataPacketKind,
     },
 }
 
@@ -141,6 +149,25 @@ fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
     })
 }
 
-pub fn forward_dc_events(dc: &mut DataChannel, rtc_emitter: RtcEmitter) {
-    dc.on_message(Some(on_message(rtc_emitter)));
+fn on_state_change(emitter: RtcEmitter) -> rtc::data_channel::OnStateChange {
+    Box::new(move |state| {
+        let _ = emitter.send(RtcEvent::DataChannelStateChange { state });
+    })
+}
+
+fn on_buffered_amount_change(
+    emitter: RtcEmitter,
+    dc: DataChannel,
+    kind: DataPacketKind,
+) -> rtc::data_channel::OnBufferedAmountChange {
+    Box::new(move |sent| {
+        let amount = dc.buffered_amount();
+        let _ = emitter.send(RtcEvent::DataChannelBufferedAmountChange { sent, amount, kind });
+    })
+}
+
+pub fn forward_dc_events(dc: &mut DataChannel, kind: DataPacketKind, rtc_emitter: RtcEmitter) {
+    dc.on_message(Some(on_message(rtc_emitter.clone())));
+    dc.on_state_change(Some(on_state_change(rtc_emitter.clone())));
+    dc.on_buffered_amount_change(Some(on_buffered_amount_change(rtc_emitter, dc.clone(), kind)));
 }

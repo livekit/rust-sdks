@@ -17,6 +17,7 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
 use parking_lot::{Mutex, RwLock};
+use tokio::sync::oneshot;
 
 use crate::{prelude::*, rtc_engine::RtcEngine};
 
