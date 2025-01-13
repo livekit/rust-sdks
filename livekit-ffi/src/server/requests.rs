@@ -895,6 +895,21 @@ fn on_rpc_method_invocation_response(
     Ok(proto::RpcMethodInvocationResponseResponse { error })
 }
 
+fn on_set_data_channel_buffered_amount_low_threshold(
+    server: &'static FfiServer,
+    set_data_channel_buffered_amount_low_threshold: proto::SetDataChannelBufferedAmountLowThresholdRequest,
+) -> FfiResult<proto::SetDataChannelBufferedAmountLowThresholdResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(
+            set_data_channel_buffered_amount_low_threshold.local_participant_handle,
+        )?
+        .clone();
+    Ok(ffi_participant.room.set_data_channel_buffered_amount_low_threshold(
+        server,
+        set_data_channel_buffered_amount_low_threshold,
+    ))
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1062,6 +1077,11 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::SendStreamChunk(request) => {
             proto::ffi_response::Message::SendStreamChunk(on_send_stream_chunk(server, request)?)
+        }
+        proto::ffi_request::Message::SetDataChannelBufferedAmountLowThreshold(request) => {
+            proto::ffi_response::Message::SetDataChannelBufferedAmountLowThreshold(
+                on_set_data_channel_buffered_amount_low_threshold(server, request)?,
+            )
         }
     });
 

@@ -746,6 +746,26 @@ impl RoomInner {
     ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
         return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
+
+    pub fn set_data_channel_buffered_amount_low_threshold(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        set_data_channel_buffered_amount_low_threshold: proto::SetDataChannelBufferedAmountLowThresholdRequest,
+    ) -> proto::SetDataChannelBufferedAmountLowThresholdResponse {
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let _ = inner
+                .room
+                .local_participant()
+                .set_data_channel_buffered_amount_low_threshold(
+                    set_data_channel_buffered_amount_low_threshold.threshold,
+                )
+                .await;
+        });
+        server.watch_panic(handle);
+        proto::SetDataChannelBufferedAmountLowThresholdResponse { async_id }
+    }
 }
 
 // Task used to publish data without blocking the client thread

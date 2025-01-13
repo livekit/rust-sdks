@@ -391,8 +391,6 @@ impl RtcSession {
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         self.inner.get_response(request_id).await
     }
-
-
 }
 
 impl SessionInner {
@@ -774,7 +772,8 @@ impl SessionInner {
                     }
                     DataPacketKind::Reliable => {
                         self.reliable_dc_buffered_amount.store(amount, Ordering::Relaxed);
-                        let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
+                        let threshold =
+                            self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
                         if amount <= threshold {
                             self.reliable_dc_buffered_amount_low_notify.notify_one();
                         }
@@ -1007,7 +1006,7 @@ impl SessionInner {
         let amount = self.reliable_dc_buffered_amount.load(Ordering::Relaxed);
         let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
         if amount <= threshold {
-            return Ok(())
+            return Ok(());
         }
         self.reliable_dc_buffered_amount_low_notify.notified().await;
         Ok(())

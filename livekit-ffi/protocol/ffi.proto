@@ -116,6 +116,8 @@ message FfiRequest {
     SendStreamHeaderRequest send_stream_header = 44;
     SendStreamChunkRequest send_stream_chunk = 45;
 
+    // Data Channel
+    SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 46;
   }
 }
 
@@ -177,6 +179,9 @@ message FfiResponse {
      // Data Streams
      SendStreamHeaderResponse send_stream_header = 43;
      SendStreamChunkResponse send_stream_chunk = 44;
+
+    // Data Channel
+    SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 45;
   }
 }
 

@@ -620,3 +620,12 @@ message SendStreamChunkCallback {
   required uint64 async_id = 1;
   optional string error = 2;
 }
+
+message SetDataChannelBufferedAmountLowThresholdRequest {
+  required uint64 local_participant_handle = 1;
+  required uint64 threshold = 2;
+}
+
+message SetDataChannelBufferedAmountLowThresholdResponse {
+  required uint64 async_id = 1;
+}
