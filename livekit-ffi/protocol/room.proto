@@ -629,3 +629,7 @@ message SetDataChannelBufferedAmountLowThresholdRequest {
 message SetDataChannelBufferedAmountLowThresholdResponse {
   required uint64 async_id = 1;
 }
+
+message SetDataChannelBufferedAmountLowThresholdCallback {
+  required uint64 async_id = 1;
+}

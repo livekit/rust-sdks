@@ -215,6 +215,7 @@ message FfiEvent {
     RpcMethodInvocationEvent rpc_method_invocation = 24;
     SendStreamHeaderCallback send_stream_header = 25;
     SendStreamChunkCallback send_stream_chunk = 26;
+    SetDataChannelBufferedAmountLowThresholdCallback set_data_channel_buffered_amount_low_threshold = 27;
   }
 }
 

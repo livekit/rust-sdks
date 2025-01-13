@@ -3185,6 +3185,12 @@ pub struct SetDataChannelBufferedAmountLowThresholdResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetDataChannelBufferedAmountLowThresholdCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum IceTransportType {
@@ -4181,7 +4187,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -4239,6 +4245,8 @@ pub mod ffi_event {
         SendStreamHeader(super::SendStreamHeaderCallback),
         #[prost(message, tag="26")]
         SendStreamChunk(super::SendStreamChunkCallback),
+        #[prost(message, tag="27")]
+        SetDataChannelBufferedAmountLowThreshold(super::SetDataChannelBufferedAmountLowThresholdCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

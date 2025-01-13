@@ -762,6 +762,9 @@ impl RoomInner {
                     set_data_channel_buffered_amount_low_threshold.threshold,
                 )
                 .await;
+            let _ = server.send_event(proto::ffi_event::Message::SetDataChannelBufferedAmountLowThreshold(
+                proto::SetDataChannelBufferedAmountLowThresholdCallback { async_id }
+            ));
         });
         server.watch_panic(handle);
         proto::SetDataChannelBufferedAmountLowThresholdResponse { async_id }
