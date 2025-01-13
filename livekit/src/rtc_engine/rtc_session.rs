@@ -35,7 +35,7 @@ use proto::{
     SignalTarget,
 };
 use serde::{de::IntoDeserializer, Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{id::ParticipantIdentity, ChatMessage, TranscriptionSegment};
@@ -143,9 +143,6 @@ pub enum SessionEvent {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
-    DataChannelBufferedAmountChanged {
-        buffered_amount: u64,
-    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -169,9 +166,10 @@ struct SessionInner {
     // Publisher data channels
     // used to send data to other participants (The SFU forwards the messages)
     lossy_dc: DataChannel,
-    lossy_dc_buffered_amount: AtomicU64,
     reliable_dc: DataChannel,
     reliable_dc_buffered_amount: AtomicU64,
+    reliable_dc_buffered_amount_low_threshold: AtomicU64,
+    reliable_dc_buffered_amount_low_notify: Notify,
 
     // Keep a strong reference to the subscriber datachannels,
     // so we can receive data from other participants
@@ -263,9 +261,10 @@ impl RtcSession {
             subscriber_pc,
             pending_tracks: Default::default(),
             lossy_dc,
-            lossy_dc_buffered_amount: Default::default(),
             reliable_dc,
             reliable_dc_buffered_amount: Default::default(),
+            reliable_dc_buffered_amount_low_threshold: Default::default(),
+            reliable_dc_buffered_amount_low_notify: Default::default(),
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
             closed: Default::default(),
@@ -377,18 +376,23 @@ impl RtcSession {
         self.inner.data_channel(target, kind)
     }
 
-    pub fn data_channel_buffered_amount(&self, kind: DataPacketKind) -> u64 {
-        match kind {
-            DataPacketKind::Lossy => self.inner.lossy_dc_buffered_amount.load(Ordering::Relaxed),
-            DataPacketKind::Reliable => {
-                self.inner.reliable_dc_buffered_amount.load(Ordering::Relaxed)
-            }
-        }
+    pub fn data_channel_buffered_amount(&self) -> u64 {
+        self.inner.reliable_dc_buffered_amount.load(Ordering::Relaxed)
+    }
+
+    pub fn data_channel_buffered_amount_low_threshold(&self) -> u64 {
+        self.inner.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed)
+    }
+
+    pub fn set_data_channel_buffered_amount_low_threshold(&self, threshold: u64) {
+        self.inner.reliable_dc_buffered_amount_low_threshold.store(threshold, Ordering::Relaxed)
     }
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         self.inner.get_response(request_id).await
     }
+
+
 }
 
 impl SessionInner {
@@ -763,19 +767,17 @@ impl SessionInner {
                     }
                 }
             }
-            RtcEvent::DataChannelStateChange { state } => {
-            }
             RtcEvent::DataChannelBufferedAmountChange { sent: _, amount, kind } => {
                 match kind {
                     DataPacketKind::Lossy => {
-                        self.lossy_dc_buffered_amount.store(amount, Ordering::Relaxed)
+                        // Do nothing at this moment
                     }
                     DataPacketKind::Reliable => {
                         self.reliable_dc_buffered_amount.store(amount, Ordering::Relaxed);
-                        // Only reliable dc is needed this event at this time
-                        let _ = self.emitter.send(SessionEvent::DataChannelBufferedAmountChanged {
-                            buffered_amount: amount,
-                        });
+                        let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
+                        if amount <= threshold {
+                            self.reliable_dc_buffered_amount_low_notify.notify_one();
+                        }
                     }
                 }
             }
@@ -990,12 +992,25 @@ impl SessionInner {
         kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
+        if kind == DataPacketKind::Reliable {
+            self.wait_buffer_low().await?;
+        }
         self.data_channel(SignalTarget::Publisher, kind)
             .unwrap()
             .send(&data.encode_to_vec(), true)
             .map_err(|err| {
                 EngineError::Internal(format!("failed to send data packet {:?}", err).into())
             })
+    }
+
+    async fn wait_buffer_low(&self) -> Result<(), EngineError> {
+        let amount = self.reliable_dc_buffered_amount.load(Ordering::Relaxed);
+        let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
+        if amount <= threshold {
+            return Ok(())
+        }
+        self.reliable_dc_buffered_amount_low_notify.notified().await;
+        Ok(())
     }
 
     /// This reconnection if more seemless compared to the full reconnection implemented in

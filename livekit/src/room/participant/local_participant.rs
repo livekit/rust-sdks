@@ -481,48 +481,13 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data(&data, kind).await.map_err(Into::into)
     }
 
-    pub async fn wait_for_dc_buffer_low(&self) -> RoomResult<()> {
-        let threshold =
-            self.local.dc_buffered_amount_low_threshold.load(std::sync::atomic::Ordering::Relaxed);
-        let amount =
-            self.inner.rtc_engine.session().data_channel_buffered_amount(DataPacketKind::Reliable);
-
-        if amount <= threshold {
-            return Ok(());
-        }
-
-        // wait buffered amount becam low
-        let rx = {
-            let (tx, rx) = oneshot::channel();
-
-            let mut low_tx = self.local.dc_buffered_amount_low_tx.lock();
-            if low_tx.is_some() {
-                return Err(RoomError::Request {
-                    reason: Reason::NotAllowed,
-                    message: "Another wait request is already in progress.".into(),
-                });
-            }
-            *low_tx = Some(tx);
-            rx
-        };
-
-        match rx.await {
-            Ok(()) => Ok(()),
-            Err(err) => Err(RoomError::Internal(format!("failed to wait: {}", err))),
-        }
+    pub async fn set_data_channel_buffered_amount_low_threshold(&self, threshold: u64) -> RoomResult<()> {
+        self.inner.rtc_engine.session().set_data_channel_buffered_amount_low_threshold(threshold);
+        Ok(())
     }
 
-    pub(crate) async fn handle_dc_buffered_amount_changed(&self, buffered_amount: u64) {
-        let threshold =
-            self.local.dc_buffered_amount_low_threshold.load(std::sync::atomic::Ordering::Relaxed);
-        if buffered_amount > threshold {
-            return;
-        }
-        let Some(tx) = self.local.dc_buffered_amount_low_tx.lock().take() else {
-            return;
-        };
-        log::debug!("return wait_for_dc_buffer_low: buffered={}, threshold={}", buffered_amount, threshold);
-        let _ = tx.send(());
+    pub async fn data_channel_buffered_amount_low_threshold(&self) -> RoomResult<u64> {
+        Ok(self.inner.rtc_engine.session().data_channel_buffered_amount_low_threshold())
     }
 
     pub async fn publish_transcription(&self, packet: Transcription) -> RoomResult<()> {

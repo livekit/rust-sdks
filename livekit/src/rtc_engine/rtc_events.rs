@@ -51,9 +51,6 @@ pub enum RtcEvent {
         data: Vec<u8>,
         binary: bool,
     },
-    DataChannelStateChange {
-        state: DataChannelState,
-    },
     DataChannelBufferedAmountChange {
         sent: u64,
         amount: u64,
@@ -149,12 +146,6 @@ fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
     })
 }
 
-fn on_state_change(emitter: RtcEmitter) -> rtc::data_channel::OnStateChange {
-    Box::new(move |state| {
-        let _ = emitter.send(RtcEvent::DataChannelStateChange { state });
-    })
-}
-
 fn on_buffered_amount_change(
     emitter: RtcEmitter,
     dc: DataChannel,
@@ -168,6 +159,5 @@ fn on_buffered_amount_change(
 
 pub fn forward_dc_events(dc: &mut DataChannel, kind: DataPacketKind, rtc_emitter: RtcEmitter) {
     dc.on_message(Some(on_message(rtc_emitter.clone())));
-    dc.on_state_change(Some(on_state_change(rtc_emitter.clone())));
     dc.on_buffered_amount_change(Some(on_buffered_amount_change(rtc_emitter, dc.clone(), kind)));
 }
