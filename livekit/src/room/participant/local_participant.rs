@@ -12,13 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    pin::Pin,
-    sync::{atomic::AtomicU64, Arc},
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
 
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
 use crate::{
@@ -77,8 +71,6 @@ struct LocalInfo {
     events: LocalEvents,
     encryption_type: EncryptionType,
     rpc_state: Mutex<RpcState>,
-    dc_buffered_amount_low_threshold: AtomicU64,
-    dc_buffered_amount_low_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
 #[derive(Clone)]
@@ -114,8 +106,6 @@ impl LocalParticipant {
                 events: LocalEvents::default(),
                 encryption_type,
                 rpc_state: Mutex::new(RpcState::new()),
-                dc_buffered_amount_low_threshold: Default::default(),
-                dc_buffered_amount_low_tx: Default::default(),
             }),
         }
     }
