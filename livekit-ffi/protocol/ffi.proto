@@ -117,7 +117,8 @@ message FfiRequest {
     SendStreamChunkRequest send_stream_chunk = 45;
 
     // Data Channel
-    SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 46;
+    GetDataChannelBufferedAmountLowThresholdRequest get_data_channel_buffered_amount_low_threshold = 46;
+    SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 47;
   }
 }
 
@@ -181,7 +182,8 @@ message FfiResponse {
      SendStreamChunkResponse send_stream_chunk = 44;
 
     // Data Channel
-    SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 45;
+    GetDataChannelBufferedAmountLowThresholdResponse get_data_channel_buffered_amount_low_threshold = 45;
+    SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 46;
   }
 }
 
@@ -215,7 +217,6 @@ message FfiEvent {
     RpcMethodInvocationEvent rpc_method_invocation = 24;
     SendStreamHeaderCallback send_stream_header = 25;
     SendStreamChunkCallback send_stream_chunk = 26;
-    SetDataChannelBufferedAmountLowThresholdCallback set_data_channel_buffered_amount_low_threshold = 27;
   }
 }
 

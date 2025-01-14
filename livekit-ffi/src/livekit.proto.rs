@@ -3173,6 +3173,18 @@ pub struct SendStreamChunkCallback {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataChannelBufferedAmountLowThresholdRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataChannelBufferedAmountLowThresholdResponse {
+    #[prost(uint64, required, tag="1")]
+    pub threshold: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetDataChannelBufferedAmountLowThresholdRequest {
     #[prost(uint64, required, tag="1")]
     pub local_participant_handle: u64,
@@ -3182,14 +3194,6 @@ pub struct SetDataChannelBufferedAmountLowThresholdRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetDataChannelBufferedAmountLowThresholdResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetDataChannelBufferedAmountLowThresholdCallback {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -3963,7 +3967,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -4068,6 +4072,8 @@ pub mod ffi_request {
         SendStreamChunk(super::SendStreamChunkRequest),
         /// Data Channel
         #[prost(message, tag="46")]
+        GetDataChannelBufferedAmountLowThreshold(super::GetDataChannelBufferedAmountLowThresholdRequest),
+        #[prost(message, tag="47")]
         SetDataChannelBufferedAmountLowThreshold(super::SetDataChannelBufferedAmountLowThresholdRequest),
     }
 }
@@ -4075,7 +4081,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -4178,6 +4184,8 @@ pub mod ffi_response {
         SendStreamChunk(super::SendStreamChunkResponse),
         /// Data Channel
         #[prost(message, tag="45")]
+        GetDataChannelBufferedAmountLowThreshold(super::GetDataChannelBufferedAmountLowThresholdResponse),
+        #[prost(message, tag="46")]
         SetDataChannelBufferedAmountLowThreshold(super::SetDataChannelBufferedAmountLowThresholdResponse),
     }
 }
@@ -4187,7 +4195,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -4245,8 +4253,6 @@ pub mod ffi_event {
         SendStreamHeader(super::SendStreamHeaderCallback),
         #[prost(message, tag="26")]
         SendStreamChunk(super::SendStreamChunkCallback),
-        #[prost(message, tag="27")]
-        SetDataChannelBufferedAmountLowThreshold(super::SetDataChannelBufferedAmountLowThresholdCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

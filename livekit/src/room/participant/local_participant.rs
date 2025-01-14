@@ -471,15 +471,12 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data(&data, kind).await.map_err(Into::into)
     }
 
-    pub async fn set_data_channel_buffered_amount_low_threshold(
-        &self,
-        threshold: u64,
-    ) -> RoomResult<()> {
+    pub fn set_data_channel_buffered_amount_low_threshold(&self, threshold: u64) -> RoomResult<()> {
         self.inner.rtc_engine.session().set_data_channel_buffered_amount_low_threshold(threshold);
         Ok(())
     }
 
-    pub async fn data_channel_buffered_amount_low_threshold(&self) -> RoomResult<u64> {
+    pub fn data_channel_buffered_amount_low_threshold(&self) -> RoomResult<u64> {
         Ok(self.inner.rtc_engine.session().data_channel_buffered_amount_low_threshold())
     }
 

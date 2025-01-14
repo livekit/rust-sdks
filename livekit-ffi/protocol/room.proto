@@ -621,15 +621,18 @@ message SendStreamChunkCallback {
   optional string error = 2;
 }
 
+message GetDataChannelBufferedAmountLowThresholdRequest {
+  required uint64 local_participant_handle = 1;
+}
+
+message GetDataChannelBufferedAmountLowThresholdResponse {
+  required uint64 threshold = 1;
+}
+
 message SetDataChannelBufferedAmountLowThresholdRequest {
   required uint64 local_participant_handle = 1;
   required uint64 threshold = 2;
 }
 
 message SetDataChannelBufferedAmountLowThresholdResponse {
-  required uint64 async_id = 1;
-}
-
-message SetDataChannelBufferedAmountLowThresholdCallback {
-  required uint64 async_id = 1;
 }

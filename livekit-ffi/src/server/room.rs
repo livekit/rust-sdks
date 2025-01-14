@@ -747,27 +747,24 @@ impl RoomInner {
         return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
 
+    pub fn data_channel_buffered_amount_low_threshold(
+        &self,
+        _server: &'static FfiServer,
+    ) -> proto::GetDataChannelBufferedAmountLowThresholdResponse {
+        let threshold =
+            self.room.local_participant().data_channel_buffered_amount_low_threshold().unwrap();
+        proto::GetDataChannelBufferedAmountLowThresholdResponse { threshold }
+    }
+
     pub fn set_data_channel_buffered_amount_low_threshold(
-        self: &Arc<Self>,
-        server: &'static FfiServer,
+        &self,
+        _server: &'static FfiServer,
         set_data_channel_buffered_amount_low_threshold: proto::SetDataChannelBufferedAmountLowThresholdRequest,
     ) -> proto::SetDataChannelBufferedAmountLowThresholdResponse {
-        let async_id = server.next_id();
-        let inner = self.clone();
-        let handle = server.async_runtime.spawn(async move {
-            let _ = inner
-                .room
-                .local_participant()
-                .set_data_channel_buffered_amount_low_threshold(
-                    set_data_channel_buffered_amount_low_threshold.threshold,
-                )
-                .await;
-            let _ = server.send_event(proto::ffi_event::Message::SetDataChannelBufferedAmountLowThreshold(
-                proto::SetDataChannelBufferedAmountLowThresholdCallback { async_id }
-            ));
-        });
-        server.watch_panic(handle);
-        proto::SetDataChannelBufferedAmountLowThresholdResponse { async_id }
+        let _ = self.room.local_participant().set_data_channel_buffered_amount_low_threshold(
+            set_data_channel_buffered_amount_low_threshold.threshold,
+        );
+        proto::SetDataChannelBufferedAmountLowThresholdResponse {}
     }
 }
 
