@@ -904,7 +904,9 @@ fn on_get_data_channel_buffered_amount_low_threshold(
             get_data_channel_buffered_amount_low_threshold.local_participant_handle,
         )?
         .clone();
-    Ok(ffi_participant.room.data_channel_buffered_amount_low_threshold(get_data_channel_buffered_amount_low_threshold))
+    Ok(ffi_participant
+        .room
+        .data_channel_buffered_amount_low_threshold(get_data_channel_buffered_amount_low_threshold))
 }
 
 fn on_set_data_channel_buffered_amount_low_threshold(
