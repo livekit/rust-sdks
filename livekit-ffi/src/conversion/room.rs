@@ -374,3 +374,15 @@ impl From<proto::data_stream::Chunk> for livekit_protocol::data_stream::Chunk {
         }
     }
 }
+
+impl From<livekit_protocol::data_stream::Trailer> for proto::data_stream::Trailer {
+    fn from(msg: livekit_protocol::data_stream::Trailer) -> Self {
+        Self { stream_id: msg.stream_id, reason: msg.reason, extensions: msg.extensions }
+    }
+}
+
+impl From<proto::data_stream::Trailer> for livekit_protocol::data_stream::Trailer {
+    fn from(msg: proto::data_stream::Trailer) -> Self {
+        Self { stream_id: msg.stream_id, reason: msg.reason, extensions: msg.extensions }
+    }
+}

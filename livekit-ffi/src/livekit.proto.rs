@@ -3066,6 +3066,19 @@ pub mod data_stream {
         #[prost(bytes="vec", optional, tag="5")]
         pub iv: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
     }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Trailer {
+        /// unique identifier for this data stream
+        #[prost(string, required, tag="1")]
+        pub stream_id: ::prost::alloc::string::String,
+        /// reason why the stream was closed (could contain "error" / "interrupted" / empty for expected end)
+        #[prost(string, required, tag="2")]
+        pub reason: ::prost::alloc::string::String,
+        /// finalizing updates for the stream, can also include additional insights for errors or endTime for transcription
+        #[prost(map="string, string", tag="3")]
+        pub extensions: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    }
     /// enum for operation types (specific to TextHeader)
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
@@ -3142,6 +3155,18 @@ pub struct SendStreamChunkRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamTrailerRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(message, required, tag="2")]
+    pub trailer: data_stream::Trailer,
+    #[prost(string, repeated, tag="3")]
+    pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="4")]
+    pub sender_identity: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendStreamHeaderResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
@@ -3149,6 +3174,12 @@ pub struct SendStreamHeaderResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendStreamChunkResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamTrailerResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
 }
@@ -3163,6 +3194,14 @@ pub struct SendStreamHeaderCallback {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendStreamChunkCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(string, optional, tag="2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendStreamTrailerCallback {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
     #[prost(string, optional, tag="2")]
@@ -3940,7 +3979,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -4043,13 +4082,15 @@ pub mod ffi_request {
         SendStreamHeader(super::SendStreamHeaderRequest),
         #[prost(message, tag="45")]
         SendStreamChunk(super::SendStreamChunkRequest),
+        #[prost(message, tag="46")]
+        SendStreamTrailer(super::SendStreamTrailerRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -4150,6 +4191,8 @@ pub mod ffi_response {
         SendStreamHeader(super::SendStreamHeaderResponse),
         #[prost(message, tag="44")]
         SendStreamChunk(super::SendStreamChunkResponse),
+        #[prost(message, tag="45")]
+        SendStreamTrailer(super::SendStreamTrailerResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
@@ -4158,7 +4201,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -4216,6 +4259,8 @@ pub mod ffi_event {
         SendStreamHeader(super::SendStreamHeaderCallback),
         #[prost(message, tag="26")]
         SendStreamChunk(super::SendStreamChunkCallback),
+        #[prost(message, tag="27")]
+        SendStreamTrailer(super::SendStreamTrailerCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

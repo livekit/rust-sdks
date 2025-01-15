@@ -258,6 +258,16 @@ fn on_send_stream_chunk(
     Ok(ffi_participant.room.send_stream_chunk(server, stream_chunk_message))
 }
 
+fn on_send_stream_trailer(
+    server: &'static FfiServer,
+    stream_trailer_message: proto::SendStreamTrailerRequest,
+) -> FfiResult<proto::SendStreamTrailerResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(stream_trailer_message.local_participant_handle)?
+        .clone();
+    Ok(ffi_participant.room.send_stream_trailer(server, stream_trailer_message))
+}
+
 /// Create a new video track from a source
 fn on_create_video_track(
     server: &'static FfiServer,
@@ -1062,6 +1072,11 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::SendStreamChunk(request) => {
             proto::ffi_response::Message::SendStreamChunk(on_send_stream_chunk(server, request)?)
+        }
+        proto::ffi_request::Message::SendStreamTrailer(request) => {
+            proto::ffi_response::Message::SendStreamTrailer(on_send_stream_trailer(
+                server, request,
+            )?)
         }
     });
 
