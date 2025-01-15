@@ -598,21 +598,21 @@ message SendStreamHeaderRequest {
   required uint64 local_participant_handle = 1;
   required DataStream.Header header = 2;
   repeated string destination_identities = 3;
-  optional string sender_identity = 4;
+  required string sender_identity = 4;
 }
 
 message SendStreamChunkRequest {
   required uint64 local_participant_handle = 1;
   required DataStream.Chunk chunk = 2;
   repeated string destination_identities = 3;
-  optional string sender_identity = 4;
+  required string sender_identity = 4;
 }
 
 message SendStreamTrailerRequest {
   required uint64 local_participant_handle = 1;
   required DataStream.Trailer trailer = 2;
   repeated string destination_identities = 3;
-  optional string sender_identity = 4;
+  required string sender_identity = 4;
 }
 
 message SendStreamHeaderResponse {
