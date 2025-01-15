@@ -388,12 +388,32 @@ impl RtcSession {
         self.inner.data_channel(target, kind)
     }
 
-    pub fn data_channel_buffered_amount_low_threshold(&self) -> u64 {
-        self.inner.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed)
+    pub fn data_channel_buffered_amount_low_threshold(&self, kind: DataPacketKind) -> u64 {
+        match kind {
+            DataPacketKind::Lossy => {
+                self.inner.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed)
+            }
+            DataPacketKind::Reliable => {
+                self.inner.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed)
+            }
+        }
     }
 
-    pub fn set_data_channel_buffered_amount_low_threshold(&self, threshold: u64) {
-        self.inner.reliable_dc_buffered_amount_low_threshold.store(threshold, Ordering::Relaxed)
+    pub fn set_data_channel_buffered_amount_low_threshold(
+        &self,
+        threshold: u64,
+        kind: DataPacketKind,
+    ) {
+        match kind {
+            DataPacketKind::Lossy => self
+                .inner
+                .lossy_dc_buffered_amount_low_threshold
+                .store(threshold, Ordering::Relaxed),
+            DataPacketKind::Reliable => self
+                .inner
+                .reliable_dc_buffered_amount_low_threshold
+                .store(threshold, Ordering::Relaxed),
+        }
     }
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {

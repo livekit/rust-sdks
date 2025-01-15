@@ -623,6 +623,7 @@ message SendStreamChunkCallback {
 
 message GetDataChannelBufferedAmountLowThresholdRequest {
   required uint64 local_participant_handle = 1;
+  required DataPacketKind kind = 2;
 }
 
 message GetDataChannelBufferedAmountLowThresholdResponse {
@@ -632,6 +633,7 @@ message GetDataChannelBufferedAmountLowThresholdResponse {
 message SetDataChannelBufferedAmountLowThresholdRequest {
   required uint64 local_participant_handle = 1;
   required uint64 threshold = 2;
+  required DataPacketKind kind = 3;
 }
 
 message SetDataChannelBufferedAmountLowThresholdResponse {

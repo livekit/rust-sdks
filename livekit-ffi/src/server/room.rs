@@ -749,20 +749,23 @@ impl RoomInner {
 
     pub fn data_channel_buffered_amount_low_threshold(
         &self,
-        _server: &'static FfiServer,
+        request: proto::GetDataChannelBufferedAmountLowThresholdRequest,
     ) -> proto::GetDataChannelBufferedAmountLowThresholdResponse {
-        let threshold =
-            self.room.local_participant().data_channel_buffered_amount_low_threshold().unwrap();
+        let threshold = self
+            .room
+            .local_participant()
+            .data_channel_buffered_amount_low_threshold(request.kind().into())
+            .unwrap();
         proto::GetDataChannelBufferedAmountLowThresholdResponse { threshold }
     }
 
     pub fn set_data_channel_buffered_amount_low_threshold(
         &self,
-        _server: &'static FfiServer,
-        set_data_channel_buffered_amount_low_threshold: proto::SetDataChannelBufferedAmountLowThresholdRequest,
+        request: proto::SetDataChannelBufferedAmountLowThresholdRequest,
     ) -> proto::SetDataChannelBufferedAmountLowThresholdResponse {
         let _ = self.room.local_participant().set_data_channel_buffered_amount_low_threshold(
-            set_data_channel_buffered_amount_low_threshold.threshold,
+            request.threshold,
+            request.kind().into(),
         );
         proto::SetDataChannelBufferedAmountLowThresholdResponse {}
     }
