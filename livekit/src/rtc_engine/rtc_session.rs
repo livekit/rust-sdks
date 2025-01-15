@@ -548,12 +548,23 @@ impl SessionInner {
                         DataChannelEvent::BufferedAmountChange(sent, kind) => {
                             match kind {
                                 DataPacketKind::Lossy => {
-                                    lossy_buffered_amount -= sent;
+                                    if lossy_buffered_amount < sent {
+                                        // I believe never reach here but adding logs just in case
+                                        log::error!("unexpected buffer size detected: lossy_buffered_amount={}, sent={}", lossy_buffered_amount, sent);
+                                        lossy_buffered_amount = 0;
+                                    } else {
+                                        lossy_buffered_amount -= sent;
+                                    }
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
                                     self._send_until_threshold(threshold, &mut lossy_buffered_amount, &mut lossy_queue);
                                 }
                                 DataPacketKind::Reliable => {
-                                    reliable_buffered_amount -= sent;
+                                    if reliable_buffered_amount < sent {
+                                        log::error!("unexpected buffer size detected: reliable_buffered_amount={}, sent={}", reliable_buffered_amount, sent);
+                                        reliable_buffered_amount = 0;
+                                    } else {
+                                        reliable_buffered_amount -= sent;
+                                    }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
                                     self._send_until_threshold(threshold, &mut reliable_buffered_amount, &mut reliable_queue);
                                 }
