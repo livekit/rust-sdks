@@ -573,9 +573,8 @@ message DataStream {
     required string stream_id = 1;  // unique identifier for this data stream to map it to the correct header
     required uint64 chunk_index = 2;
     required bytes content = 3; // content as binary (bytes)
-    optional bool complete = 4; // true only if this is the last chunk of this stream - can also be sent with empty content
-    optional int32 version = 5; // a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
-    optional bytes iv = 6; // optional, initialization vector for AES-GCM encryption
+    optional int32 version = 4; // a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
+    optional bytes iv = 5; // optional, initialization vector for AES-GCM encryption
   }
 }
 

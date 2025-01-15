@@ -3059,14 +3059,11 @@ pub mod data_stream {
         /// content as binary (bytes)
         #[prost(bytes="vec", required, tag="3")]
         pub content: ::prost::alloc::vec::Vec<u8>,
-        /// true only if this is the last chunk of this stream - can also be sent with empty content
-        #[prost(bool, optional, tag="4")]
-        pub complete: ::core::option::Option<bool>,
         /// a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
-        #[prost(int32, optional, tag="5")]
+        #[prost(int32, optional, tag="4")]
         pub version: ::core::option::Option<i32>,
         /// optional, initialization vector for AES-GCM encryption
-        #[prost(bytes="vec", optional, tag="6")]
+        #[prost(bytes="vec", optional, tag="5")]
         pub iv: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
     }
     /// enum for operation types (specific to TextHeader)
