@@ -229,7 +229,7 @@ impl RtcEngine {
 
     pub async fn publish_data(
         &self,
-        data: &proto::DataPacket,
+        data: proto::DataPacket,
         kind: DataPacketKind,
     ) -> EngineResult<()> {
         let (session, _r_lock) = {
