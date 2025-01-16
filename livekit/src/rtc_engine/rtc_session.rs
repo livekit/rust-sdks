@@ -272,9 +272,13 @@ impl RtcSession {
             subscriber_pc,
             pending_tracks: Default::default(),
             lossy_dc,
-            lossy_dc_buffered_amount_low_threshold: AtomicU64::new(INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD),
+            lossy_dc_buffered_amount_low_threshold: AtomicU64::new(
+                INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+            ),
             reliable_dc,
-            reliable_dc_buffered_amount_low_threshold: AtomicU64::new(INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD),
+            reliable_dc_buffered_amount_low_threshold: AtomicU64::new(
+                INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+            ),
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
