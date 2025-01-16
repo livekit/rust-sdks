@@ -25,7 +25,7 @@ use tokio::sync::{
     RwLockReadGuard as AsyncRwLockReadGuard,
 };
 
-pub use self::rtc_session::SessionStats;
+pub use self::rtc_session::{SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD};
 use crate::prelude::ParticipantIdentity;
 use crate::{
     id::ParticipantSid,
@@ -166,6 +166,10 @@ pub enum EngineEvent {
     DataStreamChunk {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
+    },
+    DataChannelBufferedAmountLowThresholdChanged {
+        kind: DataPacketKind,
+        threshold: u64,
     },
 }
 
@@ -541,6 +545,11 @@ impl EngineInner {
                 let _ = self
                     .engine_tx
                     .send(EngineEvent::DataStreamChunk { chunk, participant_identity });
+            }
+            SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
+                let _ = self.engine_tx.send(
+                    EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold },
+                );
             }
         }
         Ok(())

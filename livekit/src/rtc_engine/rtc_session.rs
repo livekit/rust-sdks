@@ -58,8 +58,7 @@ pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
-
-const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
+pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
 
 pub type SessionEmitter = mpsc::UnboundedSender<SessionEvent>;
 pub type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
@@ -144,6 +143,10 @@ pub enum SessionEvent {
     DataStreamChunk {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
+    },
+    DataChannelBufferedAmountLowThresholdChanged {
+        kind: DataPacketKind,
+        threshold: u64,
     },
 }
 
@@ -420,6 +423,10 @@ impl RtcSession {
                 .reliable_dc_buffered_amount_low_threshold
                 .store(threshold, Ordering::Relaxed),
         }
+        let _ = self
+            .inner
+            .emitter
+            .send(SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold });
     }
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {

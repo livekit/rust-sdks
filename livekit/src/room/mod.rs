@@ -43,7 +43,7 @@ use crate::{
     prelude::*,
     rtc_engine::{
         EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
-        SessionStats,
+        SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
 };
 
@@ -356,6 +356,20 @@ impl Debug for Room {
 struct RoomInfo {
     metadata: String,
     state: ConnectionState,
+    lossy_dc_options: DataChannelOptions,
+    reliable_dc_options: DataChannelOptions,
+}
+
+struct DataChannelOptions {
+    buffered_amount_low_threshold: u64,
+}
+
+impl Default for DataChannelOptions {
+    fn default() -> Self {
+        Self {
+            buffered_amount_low_threshold: INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+        }
+    }
 }
 
 pub(crate) struct RoomSession {
@@ -502,6 +516,8 @@ impl Room {
             info: RwLock::new(RoomInfo {
                 state: ConnectionState::Disconnected,
                 metadata: room_info.metadata,
+                lossy_dc_options: Default::default(),
+                reliable_dc_options: Default::default(),
             }),
             remote_participants: Default::default(),
             active_speakers: Default::default(),
@@ -733,6 +749,17 @@ impl RoomSession {
             }
             EngineEvent::DataStreamChunk { chunk, participant_identity } => {
                 self.handle_data_stream_chunk(chunk, participant_identity);
+            }
+            EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
+                let mut info = self.info.write();
+                match kind {
+                    DataPacketKind::Lossy => {
+                        info.lossy_dc_options.buffered_amount_low_threshold = threshold;
+                    }
+                    DataPacketKind::Reliable => {
+                        info.reliable_dc_options.buffered_amount_low_threshold = threshold;
+                    }
+                }
             }
             _ => {}
         }
