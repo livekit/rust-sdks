@@ -905,20 +905,6 @@ fn on_rpc_method_invocation_response(
     Ok(proto::RpcMethodInvocationResponseResponse { error })
 }
 
-fn on_get_data_channel_buffered_amount_low_threshold(
-    server: &'static FfiServer,
-    get_data_channel_buffered_amount_low_threshold: proto::GetDataChannelBufferedAmountLowThresholdRequest,
-) -> FfiResult<proto::GetDataChannelBufferedAmountLowThresholdResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(
-            get_data_channel_buffered_amount_low_threshold.local_participant_handle,
-        )?
-        .clone();
-    Ok(ffi_participant
-        .room
-        .data_channel_buffered_amount_low_threshold(get_data_channel_buffered_amount_low_threshold))
-}
-
 fn on_set_data_channel_buffered_amount_low_threshold(
     server: &'static FfiServer,
     set_data_channel_buffered_amount_low_threshold: proto::SetDataChannelBufferedAmountLowThresholdRequest,
@@ -1105,11 +1091,6 @@ pub fn handle_request(
             proto::ffi_response::Message::SendStreamTrailer(on_send_stream_trailer(
                 server, request,
             )?)
-        }
-        proto::ffi_request::Message::GetDataChannelBufferedAmountLowThreshold(request) => {
-            proto::ffi_response::Message::GetDataChannelBufferedAmountLowThreshold(
-                on_get_data_channel_buffered_amount_low_threshold(server, request)?,
-            )
         }
         proto::ffi_request::Message::SetDataChannelBufferedAmountLowThreshold(request) => {
             proto::ffi_response::Message::SetDataChannelBufferedAmountLowThreshold(

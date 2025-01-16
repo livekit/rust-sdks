@@ -118,8 +118,7 @@ message FfiRequest {
     SendStreamTrailerRequest send_stream_trailer = 46;
 
     // Data Channel
-    GetDataChannelBufferedAmountLowThresholdRequest get_data_channel_buffered_amount_low_threshold = 47;
-    SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 48;
+    SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 47;
   }
 }
 
@@ -184,8 +183,7 @@ message FfiResponse {
     SendStreamTrailerResponse send_stream_trailer = 45;
 
     // Data Channel
-    GetDataChannelBufferedAmountLowThresholdResponse get_data_channel_buffered_amount_low_threshold = 46;
-    SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 47;
+    SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 46;
   }
 }
 

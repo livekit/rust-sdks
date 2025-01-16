@@ -369,6 +369,7 @@ message RoomEvent {
     ChatMessageReceived chat_message = 29;
     DataStreamHeaderReceived stream_header_received = 30;
     DataStreamChunkReceived stream_chunk_received = 31;
+    DataChannelBufferedAmountLowThresholdChanged data_channel_low_threshold_changed = 32;
   }
 }
 
@@ -376,6 +377,12 @@ message RoomInfo {
   optional string sid = 1;
   required string name = 2;
   required string metadata = 3;
+  required DataChannelOptions lossy_dc_options = 4;
+  required DataChannelOptions reliable_dc_options = 5;
+}
+
+message DataChannelOptions {
+  required uint64 buffered_amount_low_threshold = 1;
 }
 
 message OwnedRoom {
@@ -642,15 +649,6 @@ message SendStreamTrailerCallback {
   optional string error = 2;
 }
 
-message GetDataChannelBufferedAmountLowThresholdRequest {
-  required uint64 local_participant_handle = 1;
-  required DataPacketKind kind = 2;
-}
-
-message GetDataChannelBufferedAmountLowThresholdResponse {
-  required uint64 threshold = 1;
-}
-
 message SetDataChannelBufferedAmountLowThresholdRequest {
   required uint64 local_participant_handle = 1;
   required uint64 threshold = 2;
@@ -658,4 +656,9 @@ message SetDataChannelBufferedAmountLowThresholdRequest {
 }
 
 message SetDataChannelBufferedAmountLowThresholdResponse {
+}
+
+message DataChannelBufferedAmountLowThresholdChanged {
+  required DataPacketKind kind = 1;
+  required uint64 threshold = 2;
 }

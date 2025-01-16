@@ -775,18 +775,6 @@ impl RoomInner {
         return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
 
-    pub fn data_channel_buffered_amount_low_threshold(
-        &self,
-        request: proto::GetDataChannelBufferedAmountLowThresholdRequest,
-    ) -> proto::GetDataChannelBufferedAmountLowThresholdResponse {
-        let threshold = self
-            .room
-            .local_participant()
-            .data_channel_buffered_amount_low_threshold(request.kind().into())
-            .unwrap();
-        proto::GetDataChannelBufferedAmountLowThresholdResponse { threshold }
-    }
-
     pub fn set_data_channel_buffered_amount_low_threshold(
         &self,
         request: proto::SetDataChannelBufferedAmountLowThresholdRequest,
@@ -1262,6 +1250,14 @@ async fn forward_event(
         RoomEvent::StreamChunkReceived { chunk, participant_identity } => {
             let _ = send_event(proto::room_event::Message::StreamChunkReceived(
                 proto::DataStreamChunkReceived { chunk: chunk.into(), participant_identity },
+            ));
+        }
+        RoomEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
+            let _ = send_event(proto::room_event::Message::DataChannelLowThresholdChanged(
+                proto::DataChannelBufferedAmountLowThresholdChanged {
+                    kind: proto::DataPacketKind::from(kind).into(),
+                    threshold,
+                },
             ));
         }
         _ => {
