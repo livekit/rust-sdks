@@ -59,6 +59,8 @@ pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 
+const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
+
 pub type SessionEmitter = mpsc::UnboundedSender<SessionEvent>;
 pub type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
 
@@ -270,9 +272,9 @@ impl RtcSession {
             subscriber_pc,
             pending_tracks: Default::default(),
             lossy_dc,
-            lossy_dc_buffered_amount_low_threshold: Default::default(),
+            lossy_dc_buffered_amount_low_threshold: AtomicU64::new(INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD),
             reliable_dc,
-            reliable_dc_buffered_amount_low_threshold: Default::default(),
+            reliable_dc_buffered_amount_low_threshold: AtomicU64::new(INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD),
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
