@@ -1,4 +1,6 @@
 patch type="added" package="libwebrtc" "Expose DataChannel.bufferedAmount property"
 patch type="fixed" package="livekit" "Wait for the buffered amount to become low before sending data during publish_data for Reliable Data Channel"
-patch type="added" package="livekit" "Add APIs to set and get buffer_amount_low_threshold for DataChannel"
-patch type="added" package="livekit-ffi" "Add APIs to set and get buffer_amount_low_threshold for DataChannel"
+patch type="added" package="livekit" "Add an API to set buffer_amount_low_threshold for DataChannel"
+patch type="added" package="livekit" "Update RoomInfo to contain buffer_amount_low_threshold for DataChannel"
+patch type="added" package="livekit-ffi" "Add an API to set buffer_amount_low_threshold for DataChannel"
+patch type="added" package="livekit-ffi" "Update RoomInfo to contain buffer_amount_low_threshold for DataChannel"
