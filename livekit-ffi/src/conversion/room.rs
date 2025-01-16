@@ -252,8 +252,12 @@ impl From<&FfiRoom> for proto::RoomInfo {
             sid: room.maybe_sid().map(|x| x.to_string()),
             name: room.name(),
             metadata: room.metadata(),
-            lossy_dc_buffered_amount_low_threshold: room.data_channel_options(DataPacketKind::Lossy).buffered_amount_low_threshold,
-            reliable_dc_buffered_amount_low_threshold: room.data_channel_options(DataPacketKind::Reliable).buffered_amount_low_threshold,
+            lossy_dc_buffered_amount_low_threshold: room
+                .data_channel_options(DataPacketKind::Lossy)
+                .buffered_amount_low_threshold,
+            reliable_dc_buffered_amount_low_threshold: room
+                .data_channel_options(DataPacketKind::Reliable)
+                .buffered_amount_low_threshold,
         }
     }
 }
