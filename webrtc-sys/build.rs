@@ -132,9 +132,12 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dl");
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
-            // println!("cargo:rustc-link-lib=dylib=mfx"); // For Intel Media SDK
+            println!("cargo:rustc-link-lib=dylib=va");
+            println!("cargo:rustc-link-lib=dylib=va-drm");
+            //println!("cargo:rustc-link-search=/opt/intel/mediasdk/lib/mfx/");
+            //println!("cargo:rustc-link-lib=dylib=mfx_h264la_hw64"); // For Intel Media SDK
             
-            println!("cargo:rustc-link-search=/home/ggiannakaras/libvpl/_build/");
+            println!("cargo:rustc-link-search=/home/integration/libvpl/_build/");
             println!("cargo:rustc-link-lib=dylib=vpl");
 
             builder.flag("-std=c++2a");

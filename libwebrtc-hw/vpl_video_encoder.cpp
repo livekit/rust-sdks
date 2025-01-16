@@ -16,7 +16,11 @@
 // Intel VPL
 #include <mfxvideo++.h>
 #include <mfxvp8.h>
-
+#include <mfxdispatcher.h>
+#include <mfxvideo.h>
+    #include "va/va.h"
+    #include "va/va_drm.h"
+    #include <fcntl.h>
 // libyuv
 #include <libyuv.h>
 
@@ -61,7 +65,7 @@ private:
 private:
   std::mutex mutex_;
   webrtc::EncodedImageCallback *callback_ = nullptr;
-  webrtc::BitrateAdjuster bitrate_adjuster_;
+  
   uint32_t target_bitrate_bps_ = 0;
   uint32_t max_bitrate_bps_ = 0;
   bool reconfigure_needed_ = false;
@@ -83,6 +87,7 @@ private:
 
   std::shared_ptr<VplSession> session_;
   mfxU32 codec_;
+  webrtc::BitrateAdjuster bitrate_adjuster_;
   mfxFrameAllocRequest alloc_request_;
   std::unique_ptr<MFXVideoENCODE> encoder_;
   std::vector<uint8_t> bitstream_buffer_;
@@ -138,6 +143,74 @@ std::unique_ptr<MFXVideoENCODE> VplVideoEncoderImpl::CreateEncoder(
   return encoder;
 }
 
+#define ALIGN16(value)           (((value + 15) >> 4) << 4)
+
+// void *InitAcceleratorHandle(mfxSession session, int *fd) {
+//     printf("in init accel\n");
+//     mfxIMPL impl;
+//     mfxStatus sts = MFXQueryIMPL(session, &impl);
+//     if (sts != MFX_ERR_NONE)
+//         return NULL;
+
+// #ifdef LIBVA_SUPPORT
+//     printf("in libva support\n");
+//     if ((impl & MFX_IMPL_VIA_VAAPI) == MFX_IMPL_VIA_VAAPI) {
+//         if (!fd)
+//             return NULL;
+//         VADisplay va_dpy = NULL;
+//         // initialize VAAPI context and set session handle (req in Linux)
+//         *fd = open("/dev/dri/renderD128", O_RDWR);
+//         if (*fd >= 0) {
+//             va_dpy = vaGetDisplayDRM(*fd);
+//             if (va_dpy) {
+//                 int major_version = 0, minor_version = 0;
+//                 if (VA_STATUS_SUCCESS == vaInitialize(va_dpy, &major_version, &minor_version)) {
+//                     MFXVideoCORE_SetHandle(session,
+//                                            static_cast<mfxHandleType>(MFX_HANDLE_VA_DISPLAY),
+//                                            va_dpy);
+//                 }
+//             }
+//         }
+//         return va_dpy;
+//     }
+// #endif
+
+//     return NULL;
+// }
+
+void *InitAcceleratorHandle(mfxSession session, int *fd) {
+    printf("in init accel\n");
+    mfxIMPL impl;
+    mfxStatus sts = MFXQueryIMPL(session, &impl);
+    if (sts != MFX_ERR_NONE)
+        return NULL;
+
+// #ifdef LIBVA_SUPPORT
+    printf("in libva support\n");
+    if ((impl & MFX_IMPL_VIA_VAAPI) == MFX_IMPL_VIA_VAAPI) {
+        if (!fd)
+            return NULL;
+        VADisplay va_dpy = NULL;
+        // initialize VAAPI context and set session handle (req in Linux)
+        *fd = open("/dev/dri/renderD128", O_RDWR);
+        if (*fd >= 0) {
+            va_dpy = vaGetDisplayDRM(*fd);
+            if (va_dpy) {
+                int major_version = 0, minor_version = 0;
+                if (VA_STATUS_SUCCESS == vaInitialize(va_dpy, &major_version, &minor_version)) {
+                    MFXVideoCORE_SetHandle(session,
+                                           static_cast<mfxHandleType>(MFX_HANDLE_VA_DISPLAY),
+                                           va_dpy);
+                }
+            }
+        }
+        return va_dpy;
+    }
+// #endif
+
+    return NULL;
+}
+
 mfxStatus VplVideoEncoderImpl::Queries(MFXVideoENCODE *encoder, mfxU32 codec,
                                        int width, int height, int framerate,
                                        int target_kbps, int max_kbps,
@@ -145,6 +218,40 @@ mfxStatus VplVideoEncoderImpl::Queries(MFXVideoENCODE *encoder, mfxU32 codec,
   mfxStatus sts = MFX_ERR_NONE;
 
   memset(&param, 0, sizeof(param));
+
+//       // Initialize session
+//     mfxLoader loader = MFXLoad();
+//     // VERIFY(NULL != loader, "MFXLoad failed -- is implementation in path?");
+// mfxConfig cfg[2];
+// mfxVariant cfgVal[2];
+//     mfxSession session              = NULL;
+
+//     // Implementation used must be the type requested from command line
+//     cfg[0] = MFXCreateConfig(loader);
+//     // VERIFY(NULL != cfg[0], "MFXCreateConfig failed")
+//     cfgVal[0].Type     = MFX_VARIANT_TYPE_U32;
+//     cfgVal[0].Data.U32 = MFX_IMPL_TYPE_HARDWARE;
+
+//     sts = MFXSetConfigFilterProperty(cfg[0], (mfxU8 *)"mfxImplDescription.Impl", cfgVal[0]);
+//     // VERIFY(MFX_ERR_NONE == sts, "MFXSetConfigFilterProperty failed for Impl");
+
+//     // cfg[1] = MFXCreateConfig(loader);
+//     // // VERIFY(NULL != cfg[1], "MFXCreateConfig failed")
+//     // cfgVal[1].Type     = MFX_VARIANT_TYPE_U32;
+//     // cfgVal[1].Data.U32 = MFX_CODEC_AVC;
+//     // sts                = MFXSetConfigFilterProperty(
+//     //     cfg[1],
+//     //     (mfxU8 *)"mfxImplDescription.mfxEncoderDescription.encoder.CodecID",
+//     //     cfgVal[1]);
+//     // VERIFY(MFX_ERR_NONE == sts, "MFXSetConfigFilterProperty failed for encoder CodecID");
+
+//     sts = MFXCreateSession(loader, 0, &session);
+//     // VERIFY(MFX_ERR_NONE == sts,
+//     //        "Cannot create session -- no implementations meet selection criteria");
+// int accel_fd = 0;
+//            InitAcceleratorHandle(session, &accel_fd);
+
+
 
   param.mfx.CodecId = codec;
   if (codec == MFX_CODEC_VP8) {
@@ -166,6 +273,24 @@ mfxStatus VplVideoEncoderImpl::Queries(MFXVideoENCODE *encoder, mfxU32 codec,
 
   param.mfx.TargetUsage = MFX_TARGETUSAGE_BALANCED;
 
+  // param.mfx.TargetKbps = 4000;
+  // //param.mfx.MaxKbps = max_kbps;
+  // param.mfx.RateControlMethod = MFX_RATECONTROL_VBR;
+  // param.mfx.FrameInfo.FrameRateExtN = 30;
+  // param.mfx.FrameInfo.FrameRateExtD = 1;
+  // param.mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
+  // param.mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+  // param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+  // param.mfx.FrameInfo.CropX = 0;
+  // param.mfx.FrameInfo.CropY = 0;
+  // param.mfx.FrameInfo.CropW = 1280;
+  // param.mfx.FrameInfo.CropH = 720;
+  // // Width must be a multiple of 16
+  // // Height must be a multiple of 16 in case of frame picture and a multiple of
+  // // 32 in case of field picture
+  // param.mfx.FrameInfo.Width = ALIGN16(1280);
+  // param.mfx.FrameInfo.Height = ALIGN16(720);
+
   param.mfx.TargetKbps = target_kbps;
   param.mfx.MaxKbps = max_kbps;
   param.mfx.RateControlMethod = MFX_RATECONTROL_VBR;
@@ -181,14 +306,20 @@ mfxStatus VplVideoEncoderImpl::Queries(MFXVideoENCODE *encoder, mfxU32 codec,
   // Width must be a multiple of 16
   // Height must be a multiple of 16 in case of frame picture and a multiple of
   // 32 in case of field picture
-  param.mfx.FrameInfo.Width = (width + 15) / 16 * 16;
-  param.mfx.FrameInfo.Height = (height + 15) / 16 * 16;
+  param.mfx.FrameInfo.Width = ALIGN16(width);
+  param.mfx.FrameInfo.Height = ALIGN16(height);
+
+  // // sts = encoder->Query(&param, &param);
+  // sts = MFXVideoENCODE_Query(session, &param, &param);
+
+  //   // sts = MFXVideoENCODE_Query(session, &param, &param);
+  //   RTC_LOG(LS_INFO) << "===== encode query sts:" << sts;
 
   param.mfx.GopRefDist = 1;
   param.AsyncDepth = 1;
-  param.IOPattern =
-      MFX_IOPATTERN_IN_SYSTEM_MEMORY | MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
-
+  // param.IOPattern =
+  //    MFX_IOPATTERN_IN_SYSTEM_MEMORY | MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+  param.IOPattern = MFX_IOPATTERN_IN_SYSTEM_MEMORY;
   mfxExtBuffer **ext_buffers = ext.ext_buffers;
   mfxExtCodingOption &ext_coding_option = ext.ext_coding_option;
   mfxExtCodingOption2 &ext_coding_option2 = ext.ext_coding_option2;
@@ -252,48 +383,48 @@ mfxStatus VplVideoEncoderImpl::Queries(MFXVideoENCODE *encoder, mfxU32 codec,
     if (sts >= 0) {
       // デバッグ用。
       // Query によってどのパラメータが変更されたかを表示する
-      // #define F(NAME)                                           \
-      //   if (param.NAME != query_param.NAME)                     \
-      //   std::cout << "param " << #NAME << " old=" << param.NAME \
-      //             << " new=" << query_param.NAME << std::endl
-      //       F(mfx.LowPower);
-      //       F(mfx.BRCParamMultiplier);
-      //       F(mfx.FrameInfo.FrameRateExtN);
-      //       F(mfx.FrameInfo.FrameRateExtD);
-      //       F(mfx.FrameInfo.FourCC);
-      //       F(mfx.FrameInfo.ChromaFormat);
-      //       F(mfx.FrameInfo.PicStruct);
-      //       F(mfx.FrameInfo.CropX);
-      //       F(mfx.FrameInfo.CropY);
-      //       F(mfx.FrameInfo.CropW);
-      //       F(mfx.FrameInfo.CropH);
-      //       F(mfx.FrameInfo.Width);
-      //       F(mfx.FrameInfo.Height);
-      //       F(mfx.CodecId);
-      //       F(mfx.CodecProfile);
-      //       F(mfx.CodecLevel);
-      //       F(mfx.GopPicSize);
-      //       F(mfx.GopRefDist);
-      //       F(mfx.GopOptFlag);
-      //       F(mfx.IdrInterval);
-      //       F(mfx.TargetUsage);
-      //       F(mfx.RateControlMethod);
-      //       F(mfx.InitialDelayInKB);
-      //       F(mfx.TargetKbps);
-      //       F(mfx.MaxKbps);
-      //       F(mfx.BufferSizeInKB);
-      //       F(mfx.NumSlice);
-      //       F(mfx.NumRefFrame);
-      //       F(mfx.EncodedOrder);
-      //       F(mfx.DecodedOrder);
-      //       F(mfx.ExtendedPicStruct);
-      //       F(mfx.TimeStampCalc);
-      //       F(mfx.SliceGroupsPresent);
-      //       F(mfx.MaxDecFrameBuffering);
-      //       F(mfx.EnableReallocRequest);
-      //       F(AsyncDepth);
-      //       F(IOPattern);
-      // #undef F
+      #define F(NAME)                                           \
+        if (param.NAME != query_param.NAME)                     \
+        RTC_LOG(LS_VERBOSE) << "param " << #NAME << " old=" << param.NAME \
+                  << " new=" << query_param.NAME
+            F(mfx.LowPower);
+            F(mfx.BRCParamMultiplier);
+            F(mfx.FrameInfo.FrameRateExtN);
+            F(mfx.FrameInfo.FrameRateExtD);
+            F(mfx.FrameInfo.FourCC);
+            F(mfx.FrameInfo.ChromaFormat);
+            F(mfx.FrameInfo.PicStruct);
+            F(mfx.FrameInfo.CropX);
+            F(mfx.FrameInfo.CropY);
+            F(mfx.FrameInfo.CropW);
+            F(mfx.FrameInfo.CropH);
+            F(mfx.FrameInfo.Width);
+            F(mfx.FrameInfo.Height);
+            F(mfx.CodecId);
+            F(mfx.CodecProfile);
+            F(mfx.CodecLevel);
+            F(mfx.GopPicSize);
+            F(mfx.GopRefDist);
+            F(mfx.GopOptFlag);
+            F(mfx.IdrInterval);
+            F(mfx.TargetUsage);
+            F(mfx.RateControlMethod);
+            F(mfx.InitialDelayInKB);
+            F(mfx.TargetKbps);
+            F(mfx.MaxKbps);
+            F(mfx.BufferSizeInKB);
+            F(mfx.NumSlice);
+            F(mfx.NumRefFrame);
+            F(mfx.EncodedOrder);
+            F(mfx.DecodedOrder);
+            F(mfx.ExtendedPicStruct);
+            F(mfx.TimeStampCalc);
+            F(mfx.SliceGroupsPresent);
+            F(mfx.MaxDecFrameBuffering);
+            F(mfx.EnableReallocRequest);
+            F(AsyncDepth);
+            F(IOPattern);
+      #undef F
 
       memcpy(&param, &query_param, sizeof(param));
     }
