@@ -682,7 +682,7 @@ impl RoomInner {
     ) -> proto::SendStreamHeaderResponse {
         let packet = lk_proto::DataPacket {
             kind: proto::DataPacketKind::KindReliable.into(),
-            participant_identity: send_stream_header.sender_identity.unwrap(),
+            participant_identity: send_stream_header.sender_identity,
             destination_identities: send_stream_header.destination_identities,
             value: livekit_protocol::data_packet::Value::StreamHeader(
                 send_stream_header.header.into(),
@@ -710,7 +710,7 @@ impl RoomInner {
     ) -> proto::SendStreamChunkResponse {
         let packet = lk_proto::DataPacket {
             kind: proto::DataPacketKind::KindReliable.into(),
-            participant_identity: send_stream_chunk.sender_identity.unwrap(),
+            participant_identity: send_stream_chunk.sender_identity,
             destination_identities: send_stream_chunk.destination_identities,
             value: livekit_protocol::data_packet::Value::StreamChunk(
                 send_stream_chunk.chunk.into(),
@@ -730,6 +730,34 @@ impl RoomInner {
         });
         server.watch_panic(handle);
         proto::SendStreamChunkResponse { async_id }
+    }
+
+    pub fn send_stream_trailer(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        send_stream_trailer: proto::SendStreamTrailerRequest,
+    ) -> proto::SendStreamTrailerResponse {
+        let packet = lk_proto::DataPacket {
+            kind: proto::DataPacketKind::KindReliable.into(),
+            participant_identity: send_stream_trailer.sender_identity,
+            destination_identities: send_stream_trailer.destination_identities,
+            value: livekit_protocol::data_packet::Value::StreamTrailer(
+                send_stream_trailer.trailer.into(),
+            )
+            .into(),
+        };
+        let async_id = server.next_id();
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let res = inner.room.local_participant().publish_raw_data(packet, true).await;
+            let cb = proto::SendStreamTrailerCallback {
+                async_id,
+                error: res.err().map(|e| e.to_string()),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::SendStreamTrailer(cb));
+        });
+        server.watch_panic(handle);
+        proto::SendStreamTrailerResponse { async_id }
     }
 
     pub fn store_rpc_method_invocation_waiter(

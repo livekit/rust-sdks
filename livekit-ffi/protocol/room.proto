@@ -573,9 +573,14 @@ message DataStream {
     required string stream_id = 1;  // unique identifier for this data stream to map it to the correct header
     required uint64 chunk_index = 2;
     required bytes content = 3; // content as binary (bytes)
-    optional bool complete = 4; // true only if this is the last chunk of this stream - can also be sent with empty content
-    optional int32 version = 5; // a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
-    optional bytes iv = 6; // optional, initialization vector for AES-GCM encryption
+    optional int32 version = 4; // a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
+    optional bytes iv = 5; // optional, initialization vector for AES-GCM encryption
+  }
+
+  message Trailer {
+    required string stream_id = 1; // unique identifier for this data stream
+    required string reason = 2; // reason why the stream was closed (could contain "error" / "interrupted" / empty for expected end)
+    map<string, string> extensions = 3; // finalizing updates for the stream, can also include additional insights for errors or endTime for transcription
   }
 }
 
@@ -593,14 +598,21 @@ message SendStreamHeaderRequest {
   required uint64 local_participant_handle = 1;
   required DataStream.Header header = 2;
   repeated string destination_identities = 3;
-  optional string sender_identity = 4;
+  required string sender_identity = 4;
 }
 
 message SendStreamChunkRequest {
   required uint64 local_participant_handle = 1;
   required DataStream.Chunk chunk = 2;
   repeated string destination_identities = 3;
-  optional string sender_identity = 4;
+  required string sender_identity = 4;
+}
+
+message SendStreamTrailerRequest {
+  required uint64 local_participant_handle = 1;
+  required DataStream.Trailer trailer = 2;
+  repeated string destination_identities = 3;
+  required string sender_identity = 4;
 }
 
 message SendStreamHeaderResponse {
@@ -611,12 +623,21 @@ message SendStreamChunkResponse {
   required uint64 async_id = 1;
 }
 
+message SendStreamTrailerResponse {
+  required uint64 async_id = 1;
+}
+
 message SendStreamHeaderCallback {
   required uint64 async_id = 1;
   optional string error = 2;
 }
 
 message SendStreamChunkCallback {
+  required uint64 async_id = 1;
+  optional string error = 2;
+}
+
+message SendStreamTrailerCallback {
   required uint64 async_id = 1;
   optional string error = 2;
 }

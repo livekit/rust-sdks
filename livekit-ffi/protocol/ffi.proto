@@ -115,7 +115,7 @@ message FfiRequest {
     // Data Streams
     SendStreamHeaderRequest send_stream_header = 44;
     SendStreamChunkRequest send_stream_chunk = 45;
-
+    SendStreamTrailerRequest send_stream_trailer = 46;
   }
 }
 
@@ -174,9 +174,10 @@ message FfiResponse {
     EnableRemoteTrackPublicationResponse enable_remote_track_publication = 41;
     UpdateRemoteTrackPublicationDimensionResponse update_remote_track_publication_dimension = 42;
 
-     // Data Streams
-     SendStreamHeaderResponse send_stream_header = 43;
-     SendStreamChunkResponse send_stream_chunk = 44;
+    // Data Streams
+    SendStreamHeaderResponse send_stream_header = 43;
+    SendStreamChunkResponse send_stream_chunk = 44;
+    SendStreamTrailerResponse send_stream_trailer = 45;
   }
 }
 
@@ -210,6 +211,7 @@ message FfiEvent {
     RpcMethodInvocationEvent rpc_method_invocation = 24;
     SendStreamHeaderCallback send_stream_header = 25;
     SendStreamChunkCallback send_stream_chunk = 26;
+    SendStreamTrailerCallback send_stream_trailer = 27;
   }
 }
 
