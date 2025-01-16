@@ -2717,16 +2717,10 @@ pub struct RoomInfo {
     pub name: ::prost::alloc::string::String,
     #[prost(string, required, tag="3")]
     pub metadata: ::prost::alloc::string::String,
-    #[prost(message, required, tag="4")]
-    pub lossy_dc_options: DataChannelOptions,
-    #[prost(message, required, tag="5")]
-    pub reliable_dc_options: DataChannelOptions,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DataChannelOptions {
-    #[prost(uint64, required, tag="1")]
-    pub buffered_amount_low_threshold: u64,
+    #[prost(uint64, required, tag="4")]
+    pub lossy_dc_buffered_amount_low_threshold: u64,
+    #[prost(uint64, required, tag="5")]
+    pub reliable_dc_buffered_amount_low_threshold: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

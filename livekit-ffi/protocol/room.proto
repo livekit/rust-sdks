@@ -377,12 +377,8 @@ message RoomInfo {
   optional string sid = 1;
   required string name = 2;
   required string metadata = 3;
-  required DataChannelOptions lossy_dc_options = 4;
-  required DataChannelOptions reliable_dc_options = 5;
-}
-
-message DataChannelOptions {
-  required uint64 buffered_amount_low_threshold = 1;
+  required uint64 lossy_dc_buffered_amount_low_threshold = 4;
+  required uint64 reliable_dc_buffered_amount_low_threshold = 5;
 }
 
 message OwnedRoom {

@@ -252,15 +252,9 @@ impl From<&FfiRoom> for proto::RoomInfo {
             sid: room.maybe_sid().map(|x| x.to_string()),
             name: room.name(),
             metadata: room.metadata(),
-            lossy_dc_options: room.data_channel_options(DataPacketKind::Lossy).into(),
-            reliable_dc_options: room.data_channel_options(DataPacketKind::Reliable).into(),
+            lossy_dc_buffered_amount_low_threshold: room.data_channel_options(DataPacketKind::Lossy).buffered_amount_low_threshold,
+            reliable_dc_buffered_amount_low_threshold: room.data_channel_options(DataPacketKind::Reliable).buffered_amount_low_threshold,
         }
-    }
-}
-
-impl From<livekit::DataChannelOptions> for proto::DataChannelOptions {
-    fn from(value: livekit::DataChannelOptions) -> Self {
-        Self { buffered_amount_low_threshold: value.buffered_amount_low_threshold }
     }
 }
 
