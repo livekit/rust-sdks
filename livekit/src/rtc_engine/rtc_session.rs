@@ -608,9 +608,7 @@ impl SessionInner {
                     EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
                 });
 
-            if let Err(_) = tx.send(result) {
-                log::error!("failed to send publish_data result");
-            }
+            let _ = tx.send(result);
         }
     }
 
