@@ -98,8 +98,8 @@ enum VideoRotation {
   VIDEO_ROTATION_270 = 3;
 }
 
-// Value of the enum must not be changed here
-// It is used to serialize an rtc.VideoFrame on Python
+// Values of this enum must not be changed
+// It is used to serialize a rtc.VideoFrame on Python
 enum VideoBufferType {
   RGBA = 0;
   ABGR = 1;
