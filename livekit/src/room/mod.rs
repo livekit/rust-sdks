@@ -176,6 +176,10 @@ pub enum RoomEvent {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
+    StreamTrailerReceived {
+        trailer: proto::data_stream::Trailer,
+        participant_identity: String,
+    },
     E2eeStateChanged {
         participant: Participant,
         state: EncryptionState,
@@ -1259,6 +1263,15 @@ impl RoomSession {
         participant_identity: String,
     ) {
         let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
+        self.dispatcher.dispatch(&event);
+    }
+
+    fn handle_data_stream_trailer(
+        &self,
+        trailer: proto::data_stream::Trailer,
+        participant_identity: String,
+    ) {
+        let event = RoomEvent::StreamTrailerReceived { trailer, participant_identity };
         self.dispatcher.dispatch(&event);
     }
 
