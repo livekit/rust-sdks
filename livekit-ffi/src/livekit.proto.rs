@@ -2634,7 +2634,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, required, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -2705,6 +2705,8 @@ pub mod room_event {
         #[prost(message, tag="31")]
         StreamChunkReceived(super::DataStreamChunkReceived),
         #[prost(message, tag="32")]
+        StreamTrailerReceived(super::DataStreamTrailerReceived),
+        #[prost(message, tag="33")]
         DataChannelLowThresholdChanged(super::DataChannelBufferedAmountLowThresholdChanged),
     }
 }
@@ -3133,6 +3135,14 @@ pub struct DataStreamChunkReceived {
     pub participant_identity: ::prost::alloc::string::String,
     #[prost(message, required, tag="2")]
     pub chunk: data_stream::Chunk,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataStreamTrailerReceived {
+    #[prost(string, required, tag="1")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(message, required, tag="2")]
+    pub trailer: data_stream::Trailer,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -167,6 +167,10 @@ pub enum EngineEvent {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
+    DataStreamTrailer {
+        trailer: proto::data_stream::Trailer,
+        participant_identity: String,
+    },
     DataChannelBufferedAmountLowThresholdChanged {
         kind: DataPacketKind,
         threshold: u64,
@@ -545,6 +549,11 @@ impl EngineInner {
                 let _ = self
                     .engine_tx
                     .send(EngineEvent::DataStreamChunk { chunk, participant_identity });
+            }
+            SessionEvent::DataStreamTrailer { trailer, participant_identity } => {
+                let _ = self
+                    .engine_tx
+                    .send(EngineEvent::DataStreamTrailer { trailer, participant_identity });
             }
             SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
                 let _ = self.engine_tx.send(

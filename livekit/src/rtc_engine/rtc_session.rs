@@ -144,6 +144,10 @@ pub enum SessionEvent {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
+    DataStreamTrailer {
+        trailer: proto::data_stream::Trailer,
+        participant_identity: String,
+    },
     DataChannelBufferedAmountLowThresholdChanged {
         kind: DataPacketKind,
         threshold: u64,
@@ -894,6 +898,12 @@ impl SessionInner {
                         proto::data_packet::Value::StreamChunk(message) => {
                             let _ = self.emitter.send(SessionEvent::DataStreamChunk {
                                 chunk: message.clone(),
+                                participant_identity: data.participant_identity.clone(),
+                            });
+                        }
+                        proto::data_packet::Value::StreamTrailer(message) => {
+                            let _ = self.emitter.send(SessionEvent::DataStreamTrailer {
+                                trailer: message.clone(),
                                 participant_identity: data.participant_identity.clone(),
                             });
                         }
