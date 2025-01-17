@@ -738,6 +738,9 @@ impl RoomSession {
             EngineEvent::DataStreamChunk { chunk, participant_identity } => {
                 self.handle_data_stream_chunk(chunk, participant_identity);
             }
+            EngineEvent::DataStreamTrailer { trailer, participant_identity } => {
+                self.handle_data_stream_trailer(chunk, participant_identity);
+            }
             _ => {}
         }
 
