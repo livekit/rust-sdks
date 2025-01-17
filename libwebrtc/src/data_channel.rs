@@ -97,6 +97,10 @@ impl DataChannel {
         self.handle.close()
     }
 
+    pub fn buffered_amount(&self) -> u64 {
+        self.handle.buffered_amount()
+    }
+
     pub fn on_state_change(&self, callback: Option<OnStateChange>) {
         self.handle.on_state_change(callback)
     }

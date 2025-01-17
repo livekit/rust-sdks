@@ -774,6 +774,17 @@ impl RoomInner {
     ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
         return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
     }
+
+    pub fn set_data_channel_buffered_amount_low_threshold(
+        &self,
+        request: proto::SetDataChannelBufferedAmountLowThresholdRequest,
+    ) -> proto::SetDataChannelBufferedAmountLowThresholdResponse {
+        let _ = self.room.local_participant().set_data_channel_buffered_amount_low_threshold(
+            request.threshold,
+            request.kind().into(),
+        );
+        proto::SetDataChannelBufferedAmountLowThresholdResponse {}
+    }
 }
 
 // Task used to publish data without blocking the client thread
@@ -1244,6 +1255,14 @@ async fn forward_event(
         RoomEvent::StreamTrailerReceived { trailer, participant_identity } => {
             let _ = send_event(proto::room_event::Message::StreamTrailerReceived(
                 proto::DataStreamTrailerReceived { trailer: trailer.into(), participant_identity },
+            ));
+        }
+        RoomEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
+            let _ = send_event(proto::room_event::Message::DataChannelLowThresholdChanged(
+                proto::DataChannelBufferedAmountLowThresholdChanged {
+                    kind: proto::DataPacketKind::from(kind).into(),
+                    threshold,
+                },
             ));
         }
         _ => {

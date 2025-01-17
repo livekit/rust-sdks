@@ -43,7 +43,7 @@ use crate::{
     prelude::*,
     rtc_engine::{
         EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
-        SessionStats,
+        SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
 };
 
@@ -196,6 +196,10 @@ pub enum RoomEvent {
     },
     Reconnecting,
     Reconnected,
+    DataChannelBufferedAmountLowThresholdChanged {
+        kind: DataPacketKind,
+        threshold: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -360,6 +364,19 @@ impl Debug for Room {
 struct RoomInfo {
     metadata: String,
     state: ConnectionState,
+    lossy_dc_options: DataChannelOptions,
+    reliable_dc_options: DataChannelOptions,
+}
+
+#[derive(Clone)]
+pub struct DataChannelOptions {
+    pub buffered_amount_low_threshold: u64,
+}
+
+impl Default for DataChannelOptions {
+    fn default() -> Self {
+        Self { buffered_amount_low_threshold: INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD }
+    }
 }
 
 pub(crate) struct RoomSession {
@@ -506,6 +523,8 @@ impl Room {
             info: RwLock::new(RoomInfo {
                 state: ConnectionState::Disconnected,
                 metadata: room_info.metadata,
+                lossy_dc_options: Default::default(),
+                reliable_dc_options: Default::default(),
             }),
             remote_participants: Default::default(),
             active_speakers: Default::default(),
@@ -622,6 +641,13 @@ impl Room {
 
     pub fn e2ee_manager(&self) -> &E2eeManager {
         &self.inner.e2ee_manager
+    }
+
+    pub fn data_channel_options(&self, kind: DataPacketKind) -> DataChannelOptions {
+        match kind {
+            DataPacketKind::Lossy => self.inner.info.read().lossy_dc_options.clone(),
+            DataPacketKind::Reliable => self.inner.info.read().reliable_dc_options.clone(),
+        }
     }
 }
 
@@ -740,6 +766,9 @@ impl RoomSession {
             }
             EngineEvent::DataStreamTrailer { trailer, participant_identity } => {
                 self.handle_data_stream_trailer(trailer, participant_identity);
+            }
+            EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
+                self.handle_data_channel_buffered_low_threshold_change(kind, threshold);
             }
             _ => {}
         }
@@ -1275,6 +1304,24 @@ impl RoomSession {
         participant_identity: String,
     ) {
         let event = RoomEvent::StreamTrailerReceived { trailer, participant_identity };
+        self.dispatcher.dispatch(&event);
+    }
+
+    fn handle_data_channel_buffered_low_threshold_change(
+        &self,
+        kind: DataPacketKind,
+        threshold: u64,
+    ) {
+        let mut info = self.info.write();
+        match kind {
+            DataPacketKind::Lossy => {
+                info.lossy_dc_options.buffered_amount_low_threshold = threshold;
+            }
+            DataPacketKind::Reliable => {
+                info.reliable_dc_options.buffered_amount_low_threshold = threshold;
+            }
+        }
+        let event = RoomEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold };
         self.dispatcher.dispatch(&event);
     }
 

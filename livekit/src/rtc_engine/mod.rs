@@ -25,7 +25,7 @@ use tokio::sync::{
     RwLockReadGuard as AsyncRwLockReadGuard,
 };
 
-pub use self::rtc_session::SessionStats;
+pub use self::rtc_session::{SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD};
 use crate::prelude::ParticipantIdentity;
 use crate::{
     id::ParticipantSid,
@@ -171,6 +171,10 @@ pub enum EngineEvent {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
     },
+    DataChannelBufferedAmountLowThresholdChanged {
+        kind: DataPacketKind,
+        threshold: u64,
+    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -233,7 +237,7 @@ impl RtcEngine {
 
     pub async fn publish_data(
         &self,
-        data: &proto::DataPacket,
+        data: proto::DataPacket,
         kind: DataPacketKind,
     ) -> EngineResult<()> {
         let (session, _r_lock) = {
@@ -550,6 +554,11 @@ impl EngineInner {
                 let _ = self
                     .engine_tx
                     .send(EngineEvent::DataStreamTrailer { trailer, participant_identity });
+            }
+            SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
+                let _ = self.engine_tx.send(
+                    EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold },
+                );
             }
         }
         Ok(())

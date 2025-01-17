@@ -70,6 +70,7 @@ pub mod ffi {
         fn label(self: &DataChannel) -> String;
         fn state(self: &DataChannel) -> DataState;
         fn close(self: &DataChannel);
+        fn buffered_amount(self: &DataChannel) -> u64;
 
         fn _shared_data_channel() -> SharedPtr<DataChannel>; // Ignore
     }
