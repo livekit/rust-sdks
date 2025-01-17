@@ -1,2 +1,0 @@
-patch type="changed" package="livekit-protocol" "Update protocol version to v1.31.0"
-patch type="added" package="livekit-ffi" "Add DataStream.Trailer support"
