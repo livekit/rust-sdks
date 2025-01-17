@@ -369,6 +369,7 @@ message RoomEvent {
     ChatMessageReceived chat_message = 29;
     DataStreamHeaderReceived stream_header_received = 30;
     DataStreamChunkReceived stream_chunk_received = 31;
+    DataStreamTrailerReceived stream_trailer_received = 32;
   }
 }
 
@@ -592,6 +593,11 @@ message DataStreamHeaderReceived {
 message DataStreamChunkReceived {
   required string participant_identity = 1;
   required DataStream.Chunk chunk = 2;
+}
+
+message DataStreamTrailerReceived {
+  required string participant_identity = 1;
+  required DataStream.Trailer trailer = 2;
 }
 
 message SendStreamHeaderRequest {

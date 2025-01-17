@@ -167,6 +167,10 @@ pub enum EngineEvent {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
+    DataStreamTrailer {
+        trailer: proto::data_stream::Trailer,
+        participant_identity: String,
+    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -541,6 +545,11 @@ impl EngineInner {
                 let _ = self
                     .engine_tx
                     .send(EngineEvent::DataStreamChunk { chunk, participant_identity });
+            }
+            SessionEvent::DataStreamTrailer { trailer, participant_identity } => {
+                let _ = self
+                    .engine_tx
+                    .send(EngineEvent::DataStreamTrailer { trailer, participant_identity });
             }
         }
         Ok(())

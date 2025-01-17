@@ -1241,6 +1241,11 @@ async fn forward_event(
                 proto::DataStreamChunkReceived { chunk: chunk.into(), participant_identity },
             ));
         }
+        RoomEvent::StreamTrailerReceived { trailer, participant_identity } => {
+            let _ = send_event(proto::room_event::Message::StreamTrailerReceived(
+                proto::DataStreamTrailerReceived { trailer: trailer.into(), participant_identity },
+            ));
+        }
         _ => {
             log::warn!("unhandled room event: {:?}", event);
         }
