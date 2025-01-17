@@ -45,9 +45,9 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-      - name: Fetch all tags
+      - name: Resync is needed after bump
         run: |
-          git fetch --tags
+          git fetch --tags && git checkout origin/main
       - name: Publish crates
         run: |
           git tag --points-at HEAD |
