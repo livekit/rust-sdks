@@ -1,0 +1,183 @@
+diff --git org/modules/video_coding/codecs/h264/h264_encoder_impl.cc update/modules/video_coding/codecs/h264/h264_encoder_impl.cc
+index b6023ac..4eb07ce 100644
+--- org/modules/video_coding/codecs/h264/h264_encoder_impl.cc
++++ update/modules/video_coding/codecs/h264/h264_encoder_impl.cc
+@@ -12,11 +12,15 @@
+ // Everything declared/defined in this header is only required when WebRTC is
+ // build with H264 support, please do not move anything out of the
+ // #ifdef unless needed and tested.
++#ifndef WEBRTC_USE_H264
++#define WEBRTC_USE_H264
++#endif
+ #ifdef WEBRTC_USE_H264
+ 
+ #include "modules/video_coding/codecs/h264/h264_encoder_impl.h"
+ 
+ #include <algorithm>
++#include <iostream>
+ #include <limits>
+ #include <string>
+ 
+@@ -190,14 +194,36 @@ H264EncoderImpl::H264EncoderImpl(const cricket::VideoCodec& codec)
+   configurations_.reserve(kMaxSimulcastStreams);
+   tl0sync_limit_.reserve(kMaxSimulcastStreams);
+   svc_controllers_.reserve(kMaxSimulcastStreams);
++  // rtc::LogMessage::LogToDebug(rtc::LS_INFO);
++  // rtc::LogMessage::SetLogToStderr(true);
++#ifdef VPL_HW
++  vplSession_ = sora::VplSession::Create();
++  if (!vplSession_) {
++    std::cout << "Failed to create VplSession" << std::endl;
++    return;
++  }
++
++  vplVideoEncoder_ =
++      sora::VplVideoEncoder::Create(vplSession_, kVideoCodecH264);
++  if (!vplVideoEncoder_) {
++    std::cout << "Failed to create VplVideoEncoder" << std::endl;
++    return;
++  }
++  std::cout << "H264 constructor after initiallizing pointers" << std::endl;
++#endif
+ }
+ 
+ H264EncoderImpl::~H264EncoderImpl() {
++#ifndef VPL_HW
+   Release();
++#else
++  vplVideoEncoder_->Release();
++#endif
+ }
+ 
+ int32_t H264EncoderImpl::InitEncode(const VideoCodec* inst,
+                                     const VideoEncoder::Settings& settings) {
++#ifndef VPL_HW
+   ReportInit();
+   if (!inst || inst->codecType != kVideoCodecH264) {
+     ReportError();
+@@ -239,8 +265,8 @@ int32_t H264EncoderImpl::InitEncode(const VideoCodec* inst,
+   encoder_thread_limit_ = settings.encoder_thread_limit;
+   codec_ = *inst;
+ 
+-  // Code expects simulcastStream resolutions to be correct, make sure they are
+-  // filled even when there are no simulcast layers.
++  // Code expects simulcastStream resolutions to be correct, make sure they
++  // are filled even when there are no simulcast layers.
+   if (codec_.numberOfSimulcastStreams == 0) {
+     codec_.simulcastStream[0].width = codec_.width;
+     codec_.simulcastStream[0].height = codec_.height;
+@@ -336,9 +362,15 @@ int32_t H264EncoderImpl::InitEncode(const VideoCodec* inst,
+           DataRate::KilobitsPerSec(codec_.startBitrate), codec_.maxFramerate));
+   SetRates(RateControlParameters(allocation, codec_.maxFramerate));
+   return WEBRTC_VIDEO_CODEC_OK;
++#else
++  std::cout << "InitEncode" << std::endl;
++  return vplVideoEncoder_->InitEncode(inst, settings.number_of_cores,
++                                      settings.max_payload_size);
++#endif
+ }
+ 
+ int32_t H264EncoderImpl::Release() {
++#ifndef VPL_HW
+   while (!encoders_.empty()) {
+     ISVCEncoder* openh264_encoder = encoders_.back();
+     if (openh264_encoder) {
+@@ -355,15 +387,25 @@ int32_t H264EncoderImpl::Release() {
+   svc_controllers_.clear();
+   scalability_modes_.clear();
+   return WEBRTC_VIDEO_CODEC_OK;
++#else
++  std::cout << "Release" << std::endl;
++  return vplVideoEncoder_->Release();
++#endif
+ }
+ 
+ int32_t H264EncoderImpl::RegisterEncodeCompleteCallback(
+     EncodedImageCallback* callback) {
++#ifndef VPL_HW
+   encoded_image_callback_ = callback;
+   return WEBRTC_VIDEO_CODEC_OK;
++#else
++  std::cout << "RegisterEncodeCompleteCallback" << std::endl;
++  return vplVideoEncoder_->RegisterEncodeCompleteCallback(callback);
++#endif
+ }
+ 
+ void H264EncoderImpl::SetRates(const RateControlParameters& parameters) {
++#ifndef VPL_HW
+   if (encoders_.empty()) {
+     RTC_LOG(LS_WARNING) << "SetRates() while uninitialized.";
+     return;
+@@ -406,11 +448,16 @@ void H264EncoderImpl::SetRates(const RateControlParameters& parameters) {
+       configurations_[i].SetStreamState(false);
+     }
+   }
++#else
++  std::cout << "SetRates" << std::endl;
++  return vplVideoEncoder_->SetRates(parameters);
++#endif
+ }
+ 
+ int32_t H264EncoderImpl::Encode(
+     const VideoFrame& input_frame,
+     const std::vector<VideoFrameType>* frame_types) {
++#ifndef VPL_HW
+   if (encoders_.empty()) {
+     ReportError();
+     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+@@ -439,8 +486,8 @@ int32_t H264EncoderImpl::Encode(
+   for (size_t i = 0; i < configurations_.size(); ++i) {
+     if (configurations_[i].key_frame_request && configurations_[i].sending) {
+       // This is legacy behavior, generating a keyframe on all layers
+-      // when generating one for a layer that became active for the first time
+-      // or after being disabled.
++      // when generating one for a layer that became active for the first
++      // time or after being disabled.
+       is_keyframe_needed = true;
+       break;
+     }
+@@ -506,7 +553,8 @@ int32_t H264EncoderImpl::Encode(
+          (*frame_types)[simulcast_idx] == VideoFrameType::kVideoFrameKey);
+     if (send_key_frame) {
+       // API doc says ForceIntraFrame(false) does nothing, but calling this
+-      // function forces a key frame regardless of the `bIDR` argument's value.
++      // function forces a key frame regardless of the `bIDR` argument's
++      // value.
+       // (If every frame is a key frame we get lag/delays.)
+       encoders_[i]->ForceIntraFrame(true);
+       configurations_[i].key_frame_request = false;
+@@ -594,6 +642,10 @@ int32_t H264EncoderImpl::Encode(
+     }
+   }
+   return WEBRTC_VIDEO_CODEC_OK;
++#else
++  std::cout << "Encode" << std::endl;
++  return vplVideoEncoder_->Encode(input_frame, frame_types);
++#endif
+ }
+ 
+ // Initialization parameters.
+@@ -702,6 +754,7 @@ void H264EncoderImpl::ReportError() {
+ }
+ 
+ VideoEncoder::EncoderInfo H264EncoderImpl::GetEncoderInfo() const {
++#ifndef VPL_HW
+   EncoderInfo info;
+   info.supports_native_handle = false;
+   info.implementation_name = "OpenH264";
+@@ -711,6 +764,10 @@ VideoEncoder::EncoderInfo H264EncoderImpl::GetEncoderInfo() const {
+   info.supports_simulcast = true;
+   info.preferred_pixel_formats = {VideoFrameBuffer::Type::kI420};
+   return info;
++#else
++  std::cout << "GetEncoderInfo" << std::endl;
++  return vplVideoEncoder_->GetEncoderInfo();
++#endif
+ }
+ 
+ void H264EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
+@@ -724,3 +781,4 @@ void H264EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
+ }  // namespace webrtc
+ 
+ #endif  // WEBRTC_USE_H264
++
