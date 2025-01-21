@@ -192,6 +192,15 @@ impl MetricLabel {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Pagination {
+    /// list entities which IDs are greater
+    #[prost(string, tag="1")]
+    pub after_id: ::prost::alloc::string::String,
+    #[prost(int32, tag="2")]
+    pub limit: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Room {
     #[prost(string, tag="1")]
     pub sid: ::prost::alloc::string::String,
@@ -1143,13 +1152,12 @@ pub mod data_stream {
         #[prost(bool, tag="5")]
         pub generated: bool,
     }
-    /// header properties specific to file or image streams
+    /// header properties specific to byte or file streams
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct FileHeader {
-        /// name of the file
+    pub struct ByteHeader {
         #[prost(string, tag="1")]
-        pub file_name: ::prost::alloc::string::String,
+        pub name: ::prost::alloc::string::String,
     }
     /// main DataStream.Header that contains a oneof for specific headers
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1171,9 +1179,9 @@ pub mod data_stream {
         /// defaults to NONE
         #[prost(enumeration="super::encryption::Type", tag="7")]
         pub encryption_type: i32,
-        /// user defined extensions map that can carry additional info
+        /// user defined attributes map that can carry additional info
         #[prost(map="string, string", tag="8")]
-        pub extensions: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+        pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
         /// oneof to choose between specific header types
         #[prost(oneof="header::ContentHeader", tags="9, 10")]
         pub content_header: ::core::option::Option<header::ContentHeader>,
@@ -1187,7 +1195,7 @@ pub mod data_stream {
             #[prost(message, tag="9")]
             TextHeader(super::TextHeader),
             #[prost(message, tag="10")]
-            FileHeader(super::FileHeader),
+            ByteHeader(super::ByteHeader),
         }
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1219,7 +1227,7 @@ pub mod data_stream {
         pub reason: ::prost::alloc::string::String,
         /// finalizing updates for the stream, can also include additional insights for errors or endTime for transcription
         #[prost(map="string, string", tag="3")]
-        pub extensions: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+        pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     }
     /// enum for operation types (specific to TextHeader)
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -4785,6 +4793,8 @@ pub struct GetSipOutboundTrunkResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSipTrunkRequest {
+    #[prost(message, optional, tag="1")]
+    pub page: ::core::option::Option<Pagination>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4796,6 +4806,8 @@ pub struct ListSipTrunkResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSipInboundTrunkRequest {
+    #[prost(message, optional, tag="3")]
+    pub page: ::core::option::Option<Pagination>,
     /// Trunk IDs to list. If this option is set, the response will contains trunks in the same order.
     /// If any of the trunks is missing, a nil item in that position will be sent in the response.
     #[prost(string, repeated, tag="1")]
@@ -4814,6 +4826,8 @@ pub struct ListSipInboundTrunkResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSipOutboundTrunkRequest {
+    #[prost(message, optional, tag="3")]
+    pub page: ::core::option::Option<Pagination>,
     /// Trunk IDs to list. If this option is set, the response will contains trunks in the same order.
     /// If any of the trunks is missing, a nil item in that position will be sent in the response.
     #[prost(string, repeated, tag="1")]
@@ -4966,6 +4980,8 @@ pub struct SipDispatchRuleInfo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSipDispatchRuleRequest {
+    #[prost(message, optional, tag="3")]
+    pub page: ::core::option::Option<Pagination>,
     /// Rule IDs to list. If this option is set, the response will contains rules in the same order.
     /// If any of the rules is missing, a nil item in that position will be sent in the response.
     #[prost(string, repeated, tag="1")]

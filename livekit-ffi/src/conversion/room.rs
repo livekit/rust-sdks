@@ -25,6 +25,7 @@ use livekit::{
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
 };
+use prost::bytes;
 
 impl From<EncryptionState> for proto::EncryptionState {
     fn from(value: EncryptionState) -> Self {
@@ -302,9 +303,9 @@ impl From<livekit_protocol::data_stream::Header> for proto::data_stream::Header 
                     },
                 ))
             }
-            Some(livekit_protocol::data_stream::header::ContentHeader::FileHeader(file_header)) => {
-                Some(proto::data_stream::header::ContentHeader::FileHeader(
-                    proto::data_stream::FileHeader { file_name: file_header.file_name },
+            Some(livekit_protocol::data_stream::header::ContentHeader::ByteHeader(byte_header)) => {
+                Some(proto::data_stream::header::ContentHeader::ByteHeader(
+                    proto::data_stream::ByteHeader { name: byte_header.name },
                 ))
             }
             None => None,
@@ -316,7 +317,7 @@ impl From<livekit_protocol::data_stream::Header> for proto::data_stream::Header 
             topic: msg.topic,
             mime_type: msg.mime_type,
             total_length: msg.total_length,
-            extensions: msg.extensions,
+            attributes: msg.attributes,
             content_header,
         }
     }
@@ -336,9 +337,9 @@ impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header 
                     },
                 ))
             }
-            Some(proto::data_stream::header::ContentHeader::FileHeader(file_header)) => {
-                Some(livekit_protocol::data_stream::header::ContentHeader::FileHeader(
-                    livekit_protocol::data_stream::FileHeader { file_name: file_header.file_name },
+            Some(proto::data_stream::header::ContentHeader::ByteHeader(byte_header)) => {
+                Some(livekit_protocol::data_stream::header::ContentHeader::ByteHeader(
+                    livekit_protocol::data_stream::ByteHeader { name: byte_header.name },
                 ))
             }
             None => None,
@@ -350,7 +351,7 @@ impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header 
             topic: msg.topic,
             mime_type: msg.mime_type,
             total_length: msg.total_length,
-            extensions: msg.extensions,
+            attributes: msg.attributes,
             content_header,
             encryption_type: 0,
         }
@@ -383,12 +384,12 @@ impl From<proto::data_stream::Chunk> for livekit_protocol::data_stream::Chunk {
 
 impl From<livekit_protocol::data_stream::Trailer> for proto::data_stream::Trailer {
     fn from(msg: livekit_protocol::data_stream::Trailer) -> Self {
-        Self { stream_id: msg.stream_id, reason: msg.reason, extensions: msg.extensions }
+        Self { stream_id: msg.stream_id, reason: msg.reason, attributes: msg.attributes }
     }
 }
 
 impl From<proto::data_stream::Trailer> for livekit_protocol::data_stream::Trailer {
     fn from(msg: proto::data_stream::Trailer) -> Self {
-        Self { stream_id: msg.stream_id, reason: msg.reason, extensions: msg.extensions }
+        Self { stream_id: msg.stream_id, reason: msg.reason, attributes: msg.attributes }
     }
 }

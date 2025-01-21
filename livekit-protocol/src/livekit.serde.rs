@@ -5571,6 +5571,101 @@ impl<'de> serde::Deserialize<'de> for DataStream {
         deserializer.deserialize_struct("livekit.DataStream", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for data_stream::ByteHeader {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DataStream.ByteHeader", len)?;
+        if !self.name.is_empty() {
+            struct_ser.serialize_field("name", &self.name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for data_stream::ByteHeader {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "name",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Name,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "name" => Ok(GeneratedField::Name),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = data_stream::ByteHeader;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DataStream.ByteHeader")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<data_stream::ByteHeader, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut name__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Name => {
+                            if name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
+                            }
+                            name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(data_stream::ByteHeader {
+                    name: name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DataStream.ByteHeader", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for data_stream::Chunk {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -5750,102 +5845,6 @@ impl<'de> serde::Deserialize<'de> for data_stream::Chunk {
         deserializer.deserialize_struct("livekit.DataStream.Chunk", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for data_stream::FileHeader {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.file_name.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("livekit.DataStream.FileHeader", len)?;
-        if !self.file_name.is_empty() {
-            struct_ser.serialize_field("fileName", &self.file_name)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for data_stream::FileHeader {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "file_name",
-            "fileName",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            FileName,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "fileName" | "file_name" => Ok(GeneratedField::FileName),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = data_stream::FileHeader;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.DataStream.FileHeader")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<data_stream::FileHeader, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut file_name__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::FileName => {
-                            if file_name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("fileName"));
-                            }
-                            file_name__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(data_stream::FileHeader {
-                    file_name: file_name__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("livekit.DataStream.FileHeader", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for data_stream::Header {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -5872,7 +5871,7 @@ impl serde::Serialize for data_stream::Header {
         if self.encryption_type != 0 {
             len += 1;
         }
-        if !self.extensions.is_empty() {
+        if !self.attributes.is_empty() {
             len += 1;
         }
         if self.content_header.is_some() {
@@ -5903,16 +5902,16 @@ impl serde::Serialize for data_stream::Header {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.encryption_type)))?;
             struct_ser.serialize_field("encryptionType", &v)?;
         }
-        if !self.extensions.is_empty() {
-            struct_ser.serialize_field("extensions", &self.extensions)?;
+        if !self.attributes.is_empty() {
+            struct_ser.serialize_field("attributes", &self.attributes)?;
         }
         if let Some(v) = self.content_header.as_ref() {
             match v {
                 data_stream::header::ContentHeader::TextHeader(v) => {
                     struct_ser.serialize_field("textHeader", v)?;
                 }
-                data_stream::header::ContentHeader::FileHeader(v) => {
-                    struct_ser.serialize_field("fileHeader", v)?;
+                data_stream::header::ContentHeader::ByteHeader(v) => {
+                    struct_ser.serialize_field("byteHeader", v)?;
                 }
             }
         }
@@ -5936,11 +5935,11 @@ impl<'de> serde::Deserialize<'de> for data_stream::Header {
             "totalLength",
             "encryption_type",
             "encryptionType",
-            "extensions",
+            "attributes",
             "text_header",
             "textHeader",
-            "file_header",
-            "fileHeader",
+            "byte_header",
+            "byteHeader",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -5951,9 +5950,9 @@ impl<'de> serde::Deserialize<'de> for data_stream::Header {
             MimeType,
             TotalLength,
             EncryptionType,
-            Extensions,
+            Attributes,
             TextHeader,
-            FileHeader,
+            ByteHeader,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5982,9 +5981,9 @@ impl<'de> serde::Deserialize<'de> for data_stream::Header {
                             "mimeType" | "mime_type" => Ok(GeneratedField::MimeType),
                             "totalLength" | "total_length" => Ok(GeneratedField::TotalLength),
                             "encryptionType" | "encryption_type" => Ok(GeneratedField::EncryptionType),
-                            "extensions" => Ok(GeneratedField::Extensions),
+                            "attributes" => Ok(GeneratedField::Attributes),
                             "textHeader" | "text_header" => Ok(GeneratedField::TextHeader),
-                            "fileHeader" | "file_header" => Ok(GeneratedField::FileHeader),
+                            "byteHeader" | "byte_header" => Ok(GeneratedField::ByteHeader),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -6010,7 +6009,7 @@ impl<'de> serde::Deserialize<'de> for data_stream::Header {
                 let mut mime_type__ = None;
                 let mut total_length__ = None;
                 let mut encryption_type__ = None;
-                let mut extensions__ = None;
+                let mut attributes__ = None;
                 let mut content_header__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -6054,11 +6053,11 @@ impl<'de> serde::Deserialize<'de> for data_stream::Header {
                             }
                             encryption_type__ = Some(map_.next_value::<encryption::Type>()? as i32);
                         }
-                        GeneratedField::Extensions => {
-                            if extensions__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("extensions"));
+                        GeneratedField::Attributes => {
+                            if attributes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("attributes"));
                             }
-                            extensions__ = Some(
+                            attributes__ = Some(
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
@@ -6069,11 +6068,11 @@ impl<'de> serde::Deserialize<'de> for data_stream::Header {
                             content_header__ = map_.next_value::<::std::option::Option<_>>()?.map(data_stream::header::ContentHeader::TextHeader)
 ;
                         }
-                        GeneratedField::FileHeader => {
+                        GeneratedField::ByteHeader => {
                             if content_header__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("fileHeader"));
+                                return Err(serde::de::Error::duplicate_field("byteHeader"));
                             }
-                            content_header__ = map_.next_value::<::std::option::Option<_>>()?.map(data_stream::header::ContentHeader::FileHeader)
+                            content_header__ = map_.next_value::<::std::option::Option<_>>()?.map(data_stream::header::ContentHeader::ByteHeader)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -6088,7 +6087,7 @@ impl<'de> serde::Deserialize<'de> for data_stream::Header {
                     mime_type: mime_type__.unwrap_or_default(),
                     total_length: total_length__,
                     encryption_type: encryption_type__.unwrap_or_default(),
-                    extensions: extensions__.unwrap_or_default(),
+                    attributes: attributes__.unwrap_or_default(),
                     content_header: content_header__,
                 })
             }
@@ -6357,7 +6356,7 @@ impl serde::Serialize for data_stream::Trailer {
         if !self.reason.is_empty() {
             len += 1;
         }
-        if !self.extensions.is_empty() {
+        if !self.attributes.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.DataStream.Trailer", len)?;
@@ -6367,8 +6366,8 @@ impl serde::Serialize for data_stream::Trailer {
         if !self.reason.is_empty() {
             struct_ser.serialize_field("reason", &self.reason)?;
         }
-        if !self.extensions.is_empty() {
-            struct_ser.serialize_field("extensions", &self.extensions)?;
+        if !self.attributes.is_empty() {
+            struct_ser.serialize_field("attributes", &self.attributes)?;
         }
         struct_ser.end()
     }
@@ -6383,14 +6382,14 @@ impl<'de> serde::Deserialize<'de> for data_stream::Trailer {
             "stream_id",
             "streamId",
             "reason",
-            "extensions",
+            "attributes",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             StreamId,
             Reason,
-            Extensions,
+            Attributes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -6415,7 +6414,7 @@ impl<'de> serde::Deserialize<'de> for data_stream::Trailer {
                         match value {
                             "streamId" | "stream_id" => Ok(GeneratedField::StreamId),
                             "reason" => Ok(GeneratedField::Reason),
-                            "extensions" => Ok(GeneratedField::Extensions),
+                            "attributes" => Ok(GeneratedField::Attributes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -6437,7 +6436,7 @@ impl<'de> serde::Deserialize<'de> for data_stream::Trailer {
             {
                 let mut stream_id__ = None;
                 let mut reason__ = None;
-                let mut extensions__ = None;
+                let mut attributes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::StreamId => {
@@ -6452,11 +6451,11 @@ impl<'de> serde::Deserialize<'de> for data_stream::Trailer {
                             }
                             reason__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Extensions => {
-                            if extensions__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("extensions"));
+                        GeneratedField::Attributes => {
+                            if attributes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("attributes"));
                             }
-                            extensions__ = Some(
+                            attributes__ = Some(
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
@@ -6468,7 +6467,7 @@ impl<'de> serde::Deserialize<'de> for data_stream::Trailer {
                 Ok(data_stream::Trailer {
                     stream_id: stream_id__.unwrap_or_default(),
                     reason: reason__.unwrap_or_default(),
-                    extensions: extensions__.unwrap_or_default(),
+                    attributes: attributes__.unwrap_or_default(),
                 })
             }
         }
@@ -14883,6 +14882,9 @@ impl serde::Serialize for ListSipDispatchRuleRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.page.is_some() {
+            len += 1;
+        }
         if !self.dispatch_rule_ids.is_empty() {
             len += 1;
         }
@@ -14890,6 +14892,9 @@ impl serde::Serialize for ListSipDispatchRuleRequest {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.ListSIPDispatchRuleRequest", len)?;
+        if let Some(v) = self.page.as_ref() {
+            struct_ser.serialize_field("page", v)?;
+        }
         if !self.dispatch_rule_ids.is_empty() {
             struct_ser.serialize_field("dispatchRuleIds", &self.dispatch_rule_ids)?;
         }
@@ -14906,6 +14911,7 @@ impl<'de> serde::Deserialize<'de> for ListSipDispatchRuleRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "page",
             "dispatch_rule_ids",
             "dispatchRuleIds",
             "trunk_ids",
@@ -14914,6 +14920,7 @@ impl<'de> serde::Deserialize<'de> for ListSipDispatchRuleRequest {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Page,
             DispatchRuleIds,
             TrunkIds,
             __SkipField__,
@@ -14938,6 +14945,7 @@ impl<'de> serde::Deserialize<'de> for ListSipDispatchRuleRequest {
                         E: serde::de::Error,
                     {
                         match value {
+                            "page" => Ok(GeneratedField::Page),
                             "dispatchRuleIds" | "dispatch_rule_ids" => Ok(GeneratedField::DispatchRuleIds),
                             "trunkIds" | "trunk_ids" => Ok(GeneratedField::TrunkIds),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -14959,10 +14967,17 @@ impl<'de> serde::Deserialize<'de> for ListSipDispatchRuleRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut page__ = None;
                 let mut dispatch_rule_ids__ = None;
                 let mut trunk_ids__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::Page => {
+                            if page__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("page"));
+                            }
+                            page__ = map_.next_value()?;
+                        }
                         GeneratedField::DispatchRuleIds => {
                             if dispatch_rule_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("dispatchRuleIds"));
@@ -14981,6 +14996,7 @@ impl<'de> serde::Deserialize<'de> for ListSipDispatchRuleRequest {
                     }
                 }
                 Ok(ListSipDispatchRuleRequest {
+                    page: page__,
                     dispatch_rule_ids: dispatch_rule_ids__.unwrap_or_default(),
                     trunk_ids: trunk_ids__.unwrap_or_default(),
                 })
@@ -15092,6 +15108,9 @@ impl serde::Serialize for ListSipInboundTrunkRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.page.is_some() {
+            len += 1;
+        }
         if !self.trunk_ids.is_empty() {
             len += 1;
         }
@@ -15099,6 +15118,9 @@ impl serde::Serialize for ListSipInboundTrunkRequest {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.ListSIPInboundTrunkRequest", len)?;
+        if let Some(v) = self.page.as_ref() {
+            struct_ser.serialize_field("page", v)?;
+        }
         if !self.trunk_ids.is_empty() {
             struct_ser.serialize_field("trunkIds", &self.trunk_ids)?;
         }
@@ -15115,6 +15137,7 @@ impl<'de> serde::Deserialize<'de> for ListSipInboundTrunkRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "page",
             "trunk_ids",
             "trunkIds",
             "numbers",
@@ -15122,6 +15145,7 @@ impl<'de> serde::Deserialize<'de> for ListSipInboundTrunkRequest {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Page,
             TrunkIds,
             Numbers,
             __SkipField__,
@@ -15146,6 +15170,7 @@ impl<'de> serde::Deserialize<'de> for ListSipInboundTrunkRequest {
                         E: serde::de::Error,
                     {
                         match value {
+                            "page" => Ok(GeneratedField::Page),
                             "trunkIds" | "trunk_ids" => Ok(GeneratedField::TrunkIds),
                             "numbers" => Ok(GeneratedField::Numbers),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -15167,10 +15192,17 @@ impl<'de> serde::Deserialize<'de> for ListSipInboundTrunkRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut page__ = None;
                 let mut trunk_ids__ = None;
                 let mut numbers__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::Page => {
+                            if page__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("page"));
+                            }
+                            page__ = map_.next_value()?;
+                        }
                         GeneratedField::TrunkIds => {
                             if trunk_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("trunkIds"));
@@ -15189,6 +15221,7 @@ impl<'de> serde::Deserialize<'de> for ListSipInboundTrunkRequest {
                     }
                 }
                 Ok(ListSipInboundTrunkRequest {
+                    page: page__,
                     trunk_ids: trunk_ids__.unwrap_or_default(),
                     numbers: numbers__.unwrap_or_default(),
                 })
@@ -15300,6 +15333,9 @@ impl serde::Serialize for ListSipOutboundTrunkRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.page.is_some() {
+            len += 1;
+        }
         if !self.trunk_ids.is_empty() {
             len += 1;
         }
@@ -15307,6 +15343,9 @@ impl serde::Serialize for ListSipOutboundTrunkRequest {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.ListSIPOutboundTrunkRequest", len)?;
+        if let Some(v) = self.page.as_ref() {
+            struct_ser.serialize_field("page", v)?;
+        }
         if !self.trunk_ids.is_empty() {
             struct_ser.serialize_field("trunkIds", &self.trunk_ids)?;
         }
@@ -15323,6 +15362,7 @@ impl<'de> serde::Deserialize<'de> for ListSipOutboundTrunkRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "page",
             "trunk_ids",
             "trunkIds",
             "numbers",
@@ -15330,6 +15370,7 @@ impl<'de> serde::Deserialize<'de> for ListSipOutboundTrunkRequest {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Page,
             TrunkIds,
             Numbers,
             __SkipField__,
@@ -15354,6 +15395,7 @@ impl<'de> serde::Deserialize<'de> for ListSipOutboundTrunkRequest {
                         E: serde::de::Error,
                     {
                         match value {
+                            "page" => Ok(GeneratedField::Page),
                             "trunkIds" | "trunk_ids" => Ok(GeneratedField::TrunkIds),
                             "numbers" => Ok(GeneratedField::Numbers),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -15375,10 +15417,17 @@ impl<'de> serde::Deserialize<'de> for ListSipOutboundTrunkRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut page__ = None;
                 let mut trunk_ids__ = None;
                 let mut numbers__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::Page => {
+                            if page__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("page"));
+                            }
+                            page__ = map_.next_value()?;
+                        }
                         GeneratedField::TrunkIds => {
                             if trunk_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("trunkIds"));
@@ -15397,6 +15446,7 @@ impl<'de> serde::Deserialize<'de> for ListSipOutboundTrunkRequest {
                     }
                 }
                 Ok(ListSipOutboundTrunkRequest {
+                    page: page__,
                     trunk_ids: trunk_ids__.unwrap_or_default(),
                     numbers: numbers__.unwrap_or_default(),
                 })
@@ -15507,8 +15557,14 @@ impl serde::Serialize for ListSipTrunkRequest {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let len = 0;
-        let struct_ser = serializer.serialize_struct("livekit.ListSIPTrunkRequest", len)?;
+        let mut len = 0;
+        if self.page.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.ListSIPTrunkRequest", len)?;
+        if let Some(v) = self.page.as_ref() {
+            struct_ser.serialize_field("page", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -15519,10 +15575,12 @@ impl<'de> serde::Deserialize<'de> for ListSipTrunkRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "page",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Page,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -15544,7 +15602,10 @@ impl<'de> serde::Deserialize<'de> for ListSipTrunkRequest {
                     where
                         E: serde::de::Error,
                     {
-                            Ok(GeneratedField::__SkipField__)
+                        match value {
+                            "page" => Ok(GeneratedField::Page),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -15562,10 +15623,22 @@ impl<'de> serde::Deserialize<'de> for ListSipTrunkRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map_.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                let mut page__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Page => {
+                            if page__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("page"));
+                            }
+                            page__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
                 }
                 Ok(ListSipTrunkRequest {
+                    page: page__,
                 })
             }
         }
@@ -16551,6 +16624,121 @@ impl<'de> serde::Deserialize<'de> for MuteTrackRequest {
             }
         }
         deserializer.deserialize_struct("livekit.MuteTrackRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Pagination {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.after_id.is_empty() {
+            len += 1;
+        }
+        if self.limit != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.Pagination", len)?;
+        if !self.after_id.is_empty() {
+            struct_ser.serialize_field("afterId", &self.after_id)?;
+        }
+        if self.limit != 0 {
+            struct_ser.serialize_field("limit", &self.limit)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Pagination {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "after_id",
+            "afterId",
+            "limit",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AfterId,
+            Limit,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "afterId" | "after_id" => Ok(GeneratedField::AfterId),
+                            "limit" => Ok(GeneratedField::Limit),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Pagination;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.Pagination")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Pagination, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut after_id__ = None;
+                let mut limit__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::AfterId => {
+                            if after_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("afterId"));
+                            }
+                            after_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Limit => {
+                            if limit__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("limit"));
+                            }
+                            limit__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(Pagination {
+                    after_id: after_id__.unwrap_or_default(),
+                    limit: limit__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.Pagination", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ParticipantEgressRequest {

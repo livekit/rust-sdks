@@ -257,7 +257,10 @@ impl SIPClient {
             .request(
                 SVC,
                 "ListSIPTrunk",
-                proto::ListSipTrunkRequest {},
+                proto::ListSipTrunkRequest {
+                    // TODO support these attributes
+                    page: Default::default(),
+                },
                 self.base.auth_header(
                     Default::default(),
                     Some(SIPGrants { admin: true, ..Default::default() }),
@@ -279,6 +282,7 @@ impl SIPClient {
                 "ListSIPInboundTrunk",
                 proto::ListSipInboundTrunkRequest {
                     // TODO: support these attributes
+                    page: Default::default(),
                     trunk_ids: Default::default(),
                     numbers: Default::default(),
                 },
@@ -303,6 +307,7 @@ impl SIPClient {
                 "ListSIPOutboundTrunk",
                 proto::ListSipOutboundTrunkRequest {
                     // TODO: support these attributes
+                    page: Default::default(),
                     trunk_ids: Default::default(),
                     numbers: Default::default(),
                 },
@@ -373,6 +378,7 @@ impl SIPClient {
                 "ListSIPDispatchRule",
                 proto::ListSipDispatchRuleRequest {
                     // TODO: support these attributes
+                    page: Default::default(),
                     dispatch_rule_ids: Default::default(),
                     trunk_ids: Default::default(),
                 },
