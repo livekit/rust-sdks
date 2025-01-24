@@ -919,6 +919,23 @@ fn on_set_data_channel_buffered_amount_low_threshold(
     ))
 }
 
+fn on_load_audio_filter_plugin(
+    server: &'static FfiServer,
+    request: proto::LoadAudioFilterPluginRequest,
+) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
+    use crate::server::audio_plugin::FfiAudioFilterPlugin;
+    use livekit::AudioFilterPlugin;
+
+    let plugin = AudioFilterPlugin::new(&request.plugin_path)
+        .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
+
+    let handle_id = server.next_id();
+    let ffi_plugin = FfiAudioFilterPlugin { handle_id, plugin };
+    server.store_handle(handle_id, ffi_plugin);
+
+    Ok(proto::LoadAudioFilterPluginResponse { handle: proto::FfiOwnedHandle { id: handle_id } })
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1096,6 +1113,11 @@ pub fn handle_request(
             proto::ffi_response::Message::SetDataChannelBufferedAmountLowThreshold(
                 on_set_data_channel_buffered_amount_low_threshold(server, request)?,
             )
+        }
+        proto::ffi_request::Message::LoadAudioFilterPlugin(request) => {
+            proto::ffi_response::Message::LoadAudioFilterPlugin(on_load_audio_filter_plugin(
+                server, request,
+            )?)
         }
     });
 

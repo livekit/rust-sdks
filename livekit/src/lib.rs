@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod plugin;
 pub mod proto;
 mod room;
 mod rtc_engine;
@@ -31,3 +32,5 @@ pub mod dispatcher {
     pub use livekit_runtime::Dispatcher;
     pub use livekit_runtime::Runnable;
 }
+
+pub use plugin::*;

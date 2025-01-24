@@ -119,6 +119,9 @@ message FfiRequest {
 
     // Data Channel
     SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 47;
+
+    // Audio Filter Plugin
+    LoadAudioFilterPluginRequest load_audio_filter_plugin = 48;
   }
 }
 
@@ -184,6 +187,9 @@ message FfiResponse {
 
     // Data Channel
     SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 46;
+
+    // Audio Filter Plugin
+    LoadAudioFilterPluginResponse load_audio_filter_plugin = 47;
   }
 }
 
