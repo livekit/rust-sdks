@@ -18,10 +18,12 @@ use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
     webrtc::{native::audio_resampler, prelude::*},
+    AudioFilterPlugin,
 };
 use parking_lot::Mutex;
 
 use super::{
+    audio_plugin::FfiAudioFilterPlugin,
     audio_source, audio_stream, colorcvt,
     participant::FfiParticipant,
     resampler,
@@ -923,9 +925,6 @@ fn on_load_audio_filter_plugin(
     server: &'static FfiServer,
     request: proto::LoadAudioFilterPluginRequest,
 ) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
-    use crate::server::audio_plugin::FfiAudioFilterPlugin;
-    use livekit::AudioFilterPlugin;
-
     let plugin = AudioFilterPlugin::new(&request.plugin_path)
         .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
 

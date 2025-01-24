@@ -17,10 +17,10 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use livekit::AudioFilterSession;
+use livekit::AudioFilterAudioStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-use super::audio_plugin::{AudioFilterAudioStream, AudioStreamKind, FfiAudioFilterPlugin};
+use super::audio_plugin::{AudioStreamKind, FfiAudioFilterPlugin};
 use super::{room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -85,7 +85,7 @@ impl FfiAudioStream {
                         sample_rate,
                         num_channels,
                     );
-                    AudioStreamKind::Duration(stream)
+                    AudioStreamKind::Buffered(stream)
                 } else {
                     AudioStreamKind::Native(native_stream)
                 };
@@ -219,7 +219,7 @@ impl FfiAudioStream {
                         sample_rate as u32,
                         num_channels as u32,
                     );
-                    AudioStreamKind::Duration(stream)
+                    AudioStreamKind::Buffered(stream)
                 } else {
                     AudioStreamKind::Native(native_stream)
                 };
