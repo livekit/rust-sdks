@@ -28,7 +28,7 @@ pub trait AudioStream: Stream<Item = AudioFrame<'static>> + Send + Sync + Unpin 
 
 pub enum AudioStreamKind {
     Native(NativeAudioStream),
-    Buffered(AudioFilterAudioStream),
+    Filtered(AudioFilterAudioStream),
 }
 
 impl Stream for AudioStreamKind {
@@ -37,7 +37,7 @@ impl Stream for AudioStreamKind {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             AudioStreamKind::Native(native_stream) => Pin::new(native_stream).poll_next(cx),
-            AudioStreamKind::Buffered(duration_stream) => Pin::new(duration_stream).poll_next(cx),
+            AudioStreamKind::Filtered(duration_stream) => Pin::new(duration_stream).poll_next(cx),
         }
     }
 }

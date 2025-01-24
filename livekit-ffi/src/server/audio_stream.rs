@@ -85,7 +85,7 @@ impl FfiAudioStream {
                         sample_rate,
                         num_channels,
                     );
-                    AudioStreamKind::Buffered(stream)
+                    AudioStreamKind::Filtered(stream)
                 } else {
                     AudioStreamKind::Native(native_stream)
                 };
@@ -219,7 +219,7 @@ impl FfiAudioStream {
                         sample_rate as u32,
                         num_channels as u32,
                     );
-                    AudioStreamKind::Buffered(stream)
+                    AudioStreamKind::Filtered(stream)
                 } else {
                     AudioStreamKind::Native(native_stream)
                 };
