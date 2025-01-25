@@ -51,8 +51,6 @@ message NewAudioSourceRequest {
   required uint32 sample_rate = 3;
   required uint32 num_channels = 4;
   optional uint32 queue_size_ms = 5;
-  optional uint64 audio_filter_handle = 6;
-  optional string audio_filter_options = 7;
 }
 message NewAudioSourceResponse { required OwnedAudioSource source = 1; }
 
