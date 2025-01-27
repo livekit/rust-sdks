@@ -12,11 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use futures_util::StreamExt;
 use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
+use livekit::AudioFilterAudioStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+use super::audio_plugin::{AudioStreamKind, FfiAudioFilterPlugin};
 use super::{room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -52,6 +56,11 @@ impl FfiAudioStream {
             return Err(FfiError::InvalidRequest("not an audio track".into()));
         };
 
+        let audio_filter = match new_stream.audio_filter_handle {
+            Some(h) => Some(server.retrieve_handle::<FfiAudioFilterPlugin>(h)?.clone()),
+            None => None,
+        };
+
         let stream_type = new_stream.r#type();
         let handle_id = server.next_id();
         let audio_stream = match stream_type {
@@ -63,10 +72,28 @@ impl FfiAudioStream {
 
                 let native_stream =
                     NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
+
+                let stream = if let Some(audio_filter) = &audio_filter {
+                    let session = audio_filter.plugin.clone().new_session(
+                        sample_rate,
+                        new_stream.audio_filter_options.unwrap_or("".into()),
+                    );
+                    let stream = AudioFilterAudioStream::new(
+                        native_stream,
+                        session,
+                        Duration::from_millis(10),
+                        sample_rate,
+                        num_channels,
+                    );
+                    AudioStreamKind::Filtered(stream)
+                } else {
+                    AudioStreamKind::Native(native_stream)
+                };
+
                 let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     handle_id,
-                    native_stream,
+                    stream,
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
                     true,
@@ -91,6 +118,12 @@ impl FfiAudioStream {
         let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
         let handle_id = server.next_id();
         let stream_type = request.r#type();
+
+        let audio_filter = match request.audio_filter_handle {
+            Some(h) => Some(server.retrieve_handle::<FfiAudioFilterPlugin>(h)?.clone()),
+            None => None,
+        };
+
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
@@ -101,6 +134,7 @@ impl FfiAudioStream {
                     request,
                     handle_id,
                     self_dropped_rx,
+                    audio_filter,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -120,6 +154,7 @@ impl FfiAudioStream {
         request: proto::AudioStreamFromParticipantRequest,
         stream_handle: FfiHandleId,
         mut self_dropped_rx: oneshot::Receiver<()>,
+        audio_filter: Option<FfiAudioFilterPlugin>,
     ) {
         let ffi_participant =
             utils::ffi_participant_from_handle(server, request.participant_handle);
@@ -170,11 +205,30 @@ impl FfiAudioStream {
                     }
                 });
 
+                let native_stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
+
+                let stream = if let Some(audio_filter) = &audio_filter {
+                    let session = audio_filter.plugin.clone().new_session(
+                        sample_rate as u32,
+                        request.audio_filter_options.clone().unwrap_or("".into()),
+                    );
+                    let stream = AudioFilterAudioStream::new(
+                        native_stream,
+                        session,
+                        Duration::from_millis(10),
+                        sample_rate as u32,
+                        num_channels as u32,
+                    );
+                    AudioStreamKind::Filtered(stream)
+                } else {
+                    AudioStreamKind::Native(native_stream)
+                };
+
                 server.async_runtime.spawn(async move {
                     Self::native_audio_stream_task(
                         server,
                         stream_handle,
-                        NativeAudioStream::new(rtc_track, sample_rate, num_channels),
+                        stream,
                         c_rx,
                         handle_dropped_rx,
                         false,
@@ -209,7 +263,7 @@ impl FfiAudioStream {
     async fn native_audio_stream_task(
         server: &'static server::FfiServer,
         stream_handle_id: FfiHandleId,
-        mut native_stream: NativeAudioStream,
+        mut native_stream: AudioStreamKind,
         mut self_dropped_rx: oneshot::Receiver<()>,
         mut handle_dropped_rx: oneshot::Receiver<()>,
         send_eos: bool,
