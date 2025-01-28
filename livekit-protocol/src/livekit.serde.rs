@@ -17006,6 +17006,9 @@ impl serde::Serialize for ParticipantInfo {
         if self.joined_at != 0 {
             len += 1;
         }
+        if self.joined_at_ms != 0 {
+            len += 1;
+        }
         if !self.name.is_empty() {
             len += 1;
         }
@@ -17053,6 +17056,11 @@ impl serde::Serialize for ParticipantInfo {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("joinedAt", ToString::to_string(&self.joined_at).as_str())?;
         }
+        if self.joined_at_ms != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("joinedAtMs", ToString::to_string(&self.joined_at_ms).as_str())?;
+        }
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
         }
@@ -17098,6 +17106,8 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
             "metadata",
             "joined_at",
             "joinedAt",
+            "joined_at_ms",
+            "joinedAtMs",
             "name",
             "version",
             "permission",
@@ -17118,6 +17128,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
             Tracks,
             Metadata,
             JoinedAt,
+            JoinedAtMs,
             Name,
             Version,
             Permission,
@@ -17154,6 +17165,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
                             "tracks" => Ok(GeneratedField::Tracks),
                             "metadata" => Ok(GeneratedField::Metadata),
                             "joinedAt" | "joined_at" => Ok(GeneratedField::JoinedAt),
+                            "joinedAtMs" | "joined_at_ms" => Ok(GeneratedField::JoinedAtMs),
                             "name" => Ok(GeneratedField::Name),
                             "version" => Ok(GeneratedField::Version),
                             "permission" => Ok(GeneratedField::Permission),
@@ -17187,6 +17199,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
                 let mut tracks__ = None;
                 let mut metadata__ = None;
                 let mut joined_at__ = None;
+                let mut joined_at_ms__ = None;
                 let mut name__ = None;
                 let mut version__ = None;
                 let mut permission__ = None;
@@ -17232,6 +17245,14 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
                                 return Err(serde::de::Error::duplicate_field("joinedAt"));
                             }
                             joined_at__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::JoinedAtMs => {
+                            if joined_at_ms__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("joinedAtMs"));
+                            }
+                            joined_at_ms__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -17299,6 +17320,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
                     tracks: tracks__.unwrap_or_default(),
                     metadata: metadata__.unwrap_or_default(),
                     joined_at: joined_at__.unwrap_or_default(),
+                    joined_at_ms: joined_at_ms__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     version: version__.unwrap_or_default(),
                     permission: permission__,
@@ -21346,6 +21368,9 @@ impl serde::Serialize for Room {
         if self.creation_time != 0 {
             len += 1;
         }
+        if self.creation_time_ms != 0 {
+            len += 1;
+        }
         if !self.turn_password.is_empty() {
             len += 1;
         }
@@ -21388,6 +21413,11 @@ impl serde::Serialize for Room {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("creationTime", ToString::to_string(&self.creation_time).as_str())?;
         }
+        if self.creation_time_ms != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("creationTimeMs", ToString::to_string(&self.creation_time_ms).as_str())?;
+        }
         if !self.turn_password.is_empty() {
             struct_ser.serialize_field("turnPassword", &self.turn_password)?;
         }
@@ -21429,6 +21459,8 @@ impl<'de> serde::Deserialize<'de> for Room {
             "maxParticipants",
             "creation_time",
             "creationTime",
+            "creation_time_ms",
+            "creationTimeMs",
             "turn_password",
             "turnPassword",
             "enabled_codecs",
@@ -21451,6 +21483,7 @@ impl<'de> serde::Deserialize<'de> for Room {
             DepartureTimeout,
             MaxParticipants,
             CreationTime,
+            CreationTimeMs,
             TurnPassword,
             EnabledCodecs,
             Metadata,
@@ -21486,6 +21519,7 @@ impl<'de> serde::Deserialize<'de> for Room {
                             "departureTimeout" | "departure_timeout" => Ok(GeneratedField::DepartureTimeout),
                             "maxParticipants" | "max_participants" => Ok(GeneratedField::MaxParticipants),
                             "creationTime" | "creation_time" => Ok(GeneratedField::CreationTime),
+                            "creationTimeMs" | "creation_time_ms" => Ok(GeneratedField::CreationTimeMs),
                             "turnPassword" | "turn_password" => Ok(GeneratedField::TurnPassword),
                             "enabledCodecs" | "enabled_codecs" => Ok(GeneratedField::EnabledCodecs),
                             "metadata" => Ok(GeneratedField::Metadata),
@@ -21518,6 +21552,7 @@ impl<'de> serde::Deserialize<'de> for Room {
                 let mut departure_timeout__ = None;
                 let mut max_participants__ = None;
                 let mut creation_time__ = None;
+                let mut creation_time_ms__ = None;
                 let mut turn_password__ = None;
                 let mut enabled_codecs__ = None;
                 let mut metadata__ = None;
@@ -21568,6 +21603,14 @@ impl<'de> serde::Deserialize<'de> for Room {
                                 return Err(serde::de::Error::duplicate_field("creationTime"));
                             }
                             creation_time__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CreationTimeMs => {
+                            if creation_time_ms__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("creationTimeMs"));
+                            }
+                            creation_time_ms__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -21629,6 +21672,7 @@ impl<'de> serde::Deserialize<'de> for Room {
                     departure_timeout: departure_timeout__.unwrap_or_default(),
                     max_participants: max_participants__.unwrap_or_default(),
                     creation_time: creation_time__.unwrap_or_default(),
+                    creation_time_ms: creation_time_ms__.unwrap_or_default(),
                     turn_password: turn_password__.unwrap_or_default(),
                     enabled_codecs: enabled_codecs__.unwrap_or_default(),
                     metadata: metadata__.unwrap_or_default(),
@@ -27257,6 +27301,9 @@ impl serde::Serialize for SendDataRequest {
         if self.topic.is_some() {
             len += 1;
         }
+        if !self.nonce.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.SendDataRequest", len)?;
         if !self.room.is_empty() {
             struct_ser.serialize_field("room", &self.room)?;
@@ -27280,6 +27327,11 @@ impl serde::Serialize for SendDataRequest {
         if let Some(v) = self.topic.as_ref() {
             struct_ser.serialize_field("topic", v)?;
         }
+        if !self.nonce.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("nonce", pbjson::private::base64::encode(&self.nonce).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -27298,6 +27350,7 @@ impl<'de> serde::Deserialize<'de> for SendDataRequest {
             "destination_identities",
             "destinationIdentities",
             "topic",
+            "nonce",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -27308,6 +27361,7 @@ impl<'de> serde::Deserialize<'de> for SendDataRequest {
             DestinationSids,
             DestinationIdentities,
             Topic,
+            Nonce,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -27336,6 +27390,7 @@ impl<'de> serde::Deserialize<'de> for SendDataRequest {
                             "destinationSids" | "destination_sids" => Ok(GeneratedField::DestinationSids),
                             "destinationIdentities" | "destination_identities" => Ok(GeneratedField::DestinationIdentities),
                             "topic" => Ok(GeneratedField::Topic),
+                            "nonce" => Ok(GeneratedField::Nonce),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -27361,6 +27416,7 @@ impl<'de> serde::Deserialize<'de> for SendDataRequest {
                 let mut destination_sids__ = None;
                 let mut destination_identities__ = None;
                 let mut topic__ = None;
+                let mut nonce__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Room => {
@@ -27401,6 +27457,14 @@ impl<'de> serde::Deserialize<'de> for SendDataRequest {
                             }
                             topic__ = map_.next_value()?;
                         }
+                        GeneratedField::Nonce => {
+                            if nonce__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nonce"));
+                            }
+                            nonce__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -27413,6 +27477,7 @@ impl<'de> serde::Deserialize<'de> for SendDataRequest {
                     destination_sids: destination_sids__.unwrap_or_default(),
                     destination_identities: destination_identities__.unwrap_or_default(),
                     topic: topic__,
+                    nonce: nonce__.unwrap_or_default(),
                 })
             }
         }
@@ -36250,6 +36315,9 @@ impl serde::Serialize for UserPacket {
         if self.end_time.is_some() {
             len += 1;
         }
+        if !self.nonce.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.UserPacket", len)?;
         if !self.participant_sid.is_empty() {
             struct_ser.serialize_field("participantSid", &self.participant_sid)?;
@@ -36284,6 +36352,11 @@ impl serde::Serialize for UserPacket {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endTime", ToString::to_string(&v).as_str())?;
         }
+        if !self.nonce.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("nonce", pbjson::private::base64::encode(&self.nonce).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -36309,6 +36382,7 @@ impl<'de> serde::Deserialize<'de> for UserPacket {
             "startTime",
             "end_time",
             "endTime",
+            "nonce",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -36322,6 +36396,7 @@ impl<'de> serde::Deserialize<'de> for UserPacket {
             Id,
             StartTime,
             EndTime,
+            Nonce,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -36353,6 +36428,7 @@ impl<'de> serde::Deserialize<'de> for UserPacket {
                             "id" => Ok(GeneratedField::Id),
                             "startTime" | "start_time" => Ok(GeneratedField::StartTime),
                             "endTime" | "end_time" => Ok(GeneratedField::EndTime),
+                            "nonce" => Ok(GeneratedField::Nonce),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -36381,6 +36457,7 @@ impl<'de> serde::Deserialize<'de> for UserPacket {
                 let mut id__ = None;
                 let mut start_time__ = None;
                 let mut end_time__ = None;
+                let mut nonce__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ParticipantSid => {
@@ -36443,6 +36520,14 @@ impl<'de> serde::Deserialize<'de> for UserPacket {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::Nonce => {
+                            if nonce__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nonce"));
+                            }
+                            nonce__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -36458,6 +36543,7 @@ impl<'de> serde::Deserialize<'de> for UserPacket {
                     id: id__,
                     start_time: start_time__,
                     end_time: end_time__,
+                    nonce: nonce__.unwrap_or_default(),
                 })
             }
         }
