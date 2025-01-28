@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
+use rand::Rng;
 
 const SVC: &str = "RoomService";
 
@@ -288,6 +289,8 @@ impl RoomClient {
         data: Vec<u8>,
         options: SendDataOptions,
     ) -> ServiceResult<()> {
+        let mut rng = rand::rng();
+        let nonce: Vec<u8> = (0..16).map(|_| rng.random::<u8>()).collect();
         #[allow(deprecated)]
         self.client
             .request(
@@ -300,6 +303,7 @@ impl RoomClient {
                     topic: options.topic,
                     kind: options.kind as i32,
                     destination_identities: options.destination_identities,
+                    nonce,
                 },
                 self.base.auth_header(
                     VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },

@@ -1,0 +1,1 @@
+patch package="livekit-api" type="added" "Update protocol and add SendDataRequest nonce"

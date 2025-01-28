@@ -124,7 +124,7 @@ message VideoBufferInfo {
   required uint32 width = 2;
   required uint32 height = 3;
   required uint64 data_ptr = 4;
-  required uint32 stride = 6; // only for packed formats
+  optional uint32 stride = 6; // only for packed formats
   repeated ComponentInfo components = 7;
 }
 
