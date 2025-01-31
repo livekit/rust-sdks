@@ -49,6 +49,7 @@ fn main() {
         "src/android.rs",
         "src/prohibit_libsrtp_initialization.rs",
         "src/apm.rs",
+        "src/desktop_capturer.rs",
     ]);
 
     builder.files(&[
@@ -77,6 +78,7 @@ fn main() {
         "src/global_task_queue.cpp",
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
+        "src/desktop_capturer.cpp",
     ]);
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
@@ -152,6 +154,14 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dl");
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
+
+            println!("cargo:rustc-link-lib=dylib=glib-2.0");
+            println!("cargo:rustc-link-lib=dylib=gobject-2.0");
+            println!("cargo:rustc-link-lib=dylib=gio-2.0");
+            println!("cargo:rustc-link-lib=dylib=drm");
+            println!("cargo:rustc-link-lib=dylib=gbm");
+
+            add_gio_headers(&mut builder);
 
             let x86 = target_arch == "x86_64" || target_arch == "i686";
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
@@ -359,4 +369,30 @@ fn configure_android_sysroot(builder: &mut cc::Build) {
     let toolchain = webrtc_sys_build::android_ndk_toolchain().unwrap();
     let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
     builder.flag(format!("-isysroot{}", sysroot.display()).as_str());
+}
+
+fn add_gio_headers(builder: &mut cc::Build) {
+    let webrtc_dir = webrtc_sys_build::webrtc_dir();
+    let target_arch = webrtc_sys_build::target_arch();
+    let target_arch_sysroot = match target_arch.as_str() {
+        "arm64" => "arm64",
+        "x64" => "amd64",
+        _ => panic!("unsupported arch"),
+    };
+    let sysroot_path = format!("include/build/linux/debian_bullseye_{target_arch_sysroot}-sysroot");
+    let sysroot = webrtc_dir.join(sysroot_path);
+    let glib_path = sysroot.join("usr/include/glib-2.0");
+    println!("cargo:info=add_gio_headers {}", glib_path.display());
+
+    builder.include(&glib_path);
+    let arch_specific_path = match target_arch.as_str() {
+        "x64" => "x86_64-linux-gnu",
+        "arm64" => "aarch64-linux-gnu",
+        _ => panic!("unsupported target"),
+    };
+
+    let glib_path_config = sysroot.join("usr/lib");
+    let glib_path_config = glib_path_config.join(arch_specific_path);
+    let glib_path_config = glib_path_config.join("glib-2.0/include");
+    builder.include(&glib_path_config);
 }
