@@ -785,6 +785,22 @@ impl RoomInner {
         );
         proto::SetDataChannelBufferedAmountLowThresholdResponse {}
     }
+
+    pub fn set_track_subscription_permissions(
+        &self,
+        server: &'static FfiServer,
+        request: proto::SetTrackSubscriptionPermissionsRequest,
+    ) -> proto::SetTrackSubscriptionPermissionsResponse {
+        let inner = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let _ = inner.room.local_participant().set_track_subscription_permissions(
+                request.all_participants_allowed,
+                request.permissions,
+            ).await;
+        });
+        server.watch_panic(handle);
+        proto::SetTrackSubscriptionPermissionsResponse {}
+    }
 }
 
 // Task used to publish data without blocking the client thread

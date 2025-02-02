@@ -919,6 +919,17 @@ fn on_set_data_channel_buffered_amount_low_threshold(
     ))
 }
 
+fn on_set_track_subscription_permissions(
+    server: &'static FfiServer,
+    set_permissions: proto::SetTrackSubscriptionPermissionsRequest,
+) -> FfiResult<proto::SetTrackSubscriptionPermissionsResponse> {
+    let ffi_participant = server.retrieve_handle::<FfiParticipant>(set_permissions.local_participant_handle)?.clone();
+
+    Ok(ffi_participant.room.set_track_subscription_permissions(
+        server, set_permissions,
+    ))
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1095,6 +1106,11 @@ pub fn handle_request(
         proto::ffi_request::Message::SetDataChannelBufferedAmountLowThreshold(request) => {
             proto::ffi_response::Message::SetDataChannelBufferedAmountLowThreshold(
                 on_set_data_channel_buffered_amount_low_threshold(server, request)?,
+            )
+        }
+        proto::ffi_request::Message::SetTrackSubscriptionPermissions(request) => {
+            proto::ffi_response::Message::SetTrackSubscriptionPermissions(
+                on_set_track_subscription_permissions(server, request)?,
             )
         }
     });

@@ -1078,6 +1078,11 @@ impl RoomSession {
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
         let _ = tx.send(());
+
+        let local_participant = self.local_participant.clone();
+        livekit_runtime::spawn(async move {
+            local_participant.update_track_subscription_permissions().await;
+        });
     }
 
     fn handle_signal_resumed(
@@ -1156,6 +1161,12 @@ impl RoomSession {
                 session.update_connection_state(ConnectionState::Connected);
                 session.dispatcher.dispatch(&RoomEvent::Reconnected);
             }
+        });
+
+        // we need to update the track subscription permissions after reconnection
+        let local_participant = self.local_participant.clone();
+        livekit_runtime::spawn(async move {
+            local_participant.update_track_subscription_permissions().await;
         });
     }
 

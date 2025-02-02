@@ -171,3 +171,24 @@ impl From<RoomChatMessage> for ChatMessage {
         }
     }
 }
+
+impl From<participant::ParticipantTrackPermission> for TrackPermission {
+    fn from(perm: participant::ParticipantTrackPermission) -> Self {
+        TrackPermission {
+            participant_identity: perm.participant_identity.to_string(),
+            participant_sid: String::new(),
+            all_tracks: perm.allow_all,
+            track_sids: perm.allowed_track_sids.iter().map(|sid| sid.to_string()).collect(),
+        }
+    }
+}
+
+impl From<TrackPermission> for participant::ParticipantTrackPermission {
+    fn from(perm: TrackPermission) -> Self {
+        participant::ParticipantTrackPermission {
+            participant_identity: perm.participant_identity.into(),
+            allow_all: perm.all_tracks,
+            allowed_track_sids: perm.track_sids.into_iter().map(|sid| sid.try_into().unwrap()).collect(),
+        }
+    }
+}
