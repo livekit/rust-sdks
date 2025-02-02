@@ -99,7 +99,11 @@ impl From<ParticipantTrackPermission> for proto::ParticipantTrackPermission {
         proto::ParticipantTrackPermission {
             participant_identity: value.participant_identity.to_string(),
             allow_all: Some(value.allow_all),
-            allowed_track_sids: value.allowed_track_sids.into_iter().map(|sid| sid.to_string()).collect(),
+            allowed_track_sids: value
+                .allowed_track_sids
+                .into_iter()
+                .map(|sid| sid.to_string())
+                .collect(),
         }
     }
 }
@@ -109,7 +113,9 @@ impl From<proto::ParticipantTrackPermission> for ParticipantTrackPermission {
         Self {
             participant_identity: value.participant_identity.into(),
             allow_all: value.allow_all.unwrap_or(false),
-            allowed_track_sids: value.allowed_track_sids.into_iter()
+            allowed_track_sids: value
+                .allowed_track_sids
+                .into_iter()
                 .map(|sid| sid.try_into().unwrap())
                 .collect(),
         }

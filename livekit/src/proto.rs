@@ -188,7 +188,11 @@ impl From<TrackPermission> for participant::ParticipantTrackPermission {
         participant::ParticipantTrackPermission {
             participant_identity: perm.participant_identity.into(),
             allow_all: perm.all_tracks,
-            allowed_track_sids: perm.track_sids.into_iter().map(|sid| sid.try_into().unwrap()).collect(),
+            allowed_track_sids: perm
+                .track_sids
+                .into_iter()
+                .map(|sid| sid.try_into().unwrap())
+                .collect(),
         }
     }
 }

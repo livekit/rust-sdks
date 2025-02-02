@@ -923,11 +923,10 @@ fn on_set_track_subscription_permissions(
     server: &'static FfiServer,
     set_permissions: proto::SetTrackSubscriptionPermissionsRequest,
 ) -> FfiResult<proto::SetTrackSubscriptionPermissionsResponse> {
-    let ffi_participant = server.retrieve_handle::<FfiParticipant>(set_permissions.local_participant_handle)?.clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(set_permissions.local_participant_handle)?.clone();
 
-    Ok(ffi_participant.room.set_track_subscription_permissions(
-        server, set_permissions,
-    ))
+    Ok(ffi_participant.room.set_track_subscription_permissions(server, set_permissions))
 }
 
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format

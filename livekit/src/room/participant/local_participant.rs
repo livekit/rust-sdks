@@ -604,7 +604,11 @@ impl LocalParticipant {
 
     pub(crate) async fn update_track_subscription_permissions(&self) {
         let all_participants_allowed = *self.local.all_participants_allowed.lock();
-        let track_permissions = self.local.track_permissions.lock().iter()
+        let track_permissions = self
+            .local
+            .track_permissions
+            .lock()
+            .iter()
             .map(|p| proto::TrackPermission::from(p.clone()))
             .collect();
 
