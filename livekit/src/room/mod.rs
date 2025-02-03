@@ -1078,6 +1078,11 @@ impl RoomSession {
         self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
         let _ = tx.send(());
+
+        let local_participant = self.local_participant.clone();
+        livekit_runtime::spawn(async move {
+            local_participant.update_track_subscription_permissions().await;
+        });
     }
 
     fn handle_signal_resumed(
@@ -1118,6 +1123,9 @@ impl RoomSession {
         // At this time we know that the RtcSession is successfully restarted
         let published_tracks = self.local_participant.track_publications();
 
+        // we need to update the track subscription permissions after reconnection
+        let local_participant = self.local_participant.clone();
+
         // Spawining a new task because we need to wait for the RtcEngine to close the reconnection
         // lock.
         livekit_runtime::spawn({
@@ -1152,6 +1160,8 @@ impl RoomSession {
 
                 // Wait for the tracks to be republished before sending the Connect event
                 while set.join_next().await.is_some() {}
+
+                local_participant.update_track_subscription_permissions().await;
 
                 session.update_connection_state(ConnectionState::Connected);
                 session.dispatcher.dispatch(&RoomEvent::Reconnected);

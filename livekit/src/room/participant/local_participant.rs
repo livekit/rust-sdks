@@ -14,7 +14,7 @@
 
 use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind};
+use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission};
 use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
@@ -71,6 +71,8 @@ struct LocalInfo {
     events: LocalEvents,
     encryption_type: EncryptionType,
     rpc_state: Mutex<RpcState>,
+    all_participants_allowed: Mutex<bool>,
+    track_permissions: Mutex<Vec<ParticipantTrackPermission>>,
 }
 
 #[derive(Clone)]
@@ -106,6 +108,8 @@ impl LocalParticipant {
                 events: LocalEvents::default(),
                 encryption_type,
                 rpc_state: Mutex::new(RpcState::new()),
+                all_participants_allowed: Mutex::new(true),
+                track_permissions: Mutex::new(vec![]),
             }),
         }
     }
@@ -490,6 +494,17 @@ impl LocalParticipant {
         Ok(self.inner.rtc_engine.session().data_channel_buffered_amount_low_threshold(kind))
     }
 
+    pub async fn set_track_subscription_permissions(
+        &self,
+        all_participants_allowed: bool,
+        permissions: Vec<ParticipantTrackPermission>,
+    ) -> RoomResult<()> {
+        *self.local.track_permissions.lock() = permissions;
+        *self.local.all_participants_allowed.lock() = all_participants_allowed;
+        self.update_track_subscription_permissions().await;
+        Ok(())
+    }
+
     pub async fn publish_transcription(&self, packet: Transcription) -> RoomResult<()> {
         let segments: Vec<proto::TranscriptionSegment> = packet
             .segments
@@ -585,6 +600,27 @@ impl LocalParticipant {
         };
 
         self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
+    }
+
+    pub(crate) async fn update_track_subscription_permissions(&self) {
+        let all_participants_allowed = *self.local.all_participants_allowed.lock();
+        let track_permissions = self
+            .local
+            .track_permissions
+            .lock()
+            .iter()
+            .map(|p| proto::TrackPermission::from(p.clone()))
+            .collect();
+
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::SubscriptionPermission(
+                proto::SubscriptionPermission {
+                    all_participants: all_participants_allowed,
+                    track_permissions,
+                },
+            ))
+            .await;
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
