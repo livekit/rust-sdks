@@ -1,1 +1,2 @@
-patch package="livekit-rtc" type="added" "Support for track subscription permissions"
+patch package="livekit-ffi" type="added" "Support for track subscription permissions"
+patch package="livekit" type="added" "Support for track subscription permissions"
