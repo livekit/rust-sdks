@@ -16,6 +16,7 @@ pub enum PluginError {
     Library(#[from] libloading::Error),
 }
 
+type OnLoadFn = unsafe extern "C" fn(options: *const c_char);
 type CreateFn = unsafe extern "C" fn(sampling_rate: u32, options: *const c_char) -> *mut c_void;
 type DestroyFn = unsafe extern "C" fn(*const c_void);
 type ProcessI16Fn = unsafe extern "C" fn(*const c_void, usize, *const i16, *mut i16);
@@ -23,6 +24,7 @@ type ProcessF32Fn = unsafe extern "C" fn(*const c_void, usize, *const f32, *mut 
 
 pub struct AudioFilterPlugin {
     lib: Library,
+    dependencies: Vec<Library>,
     create_fn_ptr: *const c_void,
     destroy_fn_ptr: *const c_void,
     process_i16_fn_ptr: *const c_void,
@@ -30,8 +32,33 @@ pub struct AudioFilterPlugin {
 }
 
 impl AudioFilterPlugin {
-    pub fn new<P: AsRef<str>>(path: P) -> Result<Arc<Self>, PluginError> {
+    pub fn new<P: AsRef<str>>(path: P, options: P) -> Result<Arc<Self>, PluginError> {
+        Ok(Arc::new(Self::_new(path, options)?))
+    }
+
+    pub fn new_with_dependencies<P: AsRef<str>>(
+        path: P,
+        dependencies: Vec<P>,
+        options: P,
+    ) -> Result<Arc<Self>, PluginError> {
+        let mut libs = vec![];
+        for path in dependencies {
+            let lib = unsafe { Library::new(path.as_ref()) }?;
+            libs.push(lib);
+        }
+        let mut this = Self::_new(path, options)?;
+        this.dependencies = libs;
+        Ok(Arc::new(this))
+    }
+
+    fn _new<P: AsRef<str>>(path: P, options: P) -> Result<Self, PluginError> {
         let lib = unsafe { Library::new(path.as_ref()) }?;
+
+        let options = CString::new(options.as_ref()).unwrap_or(CString::new("").unwrap());
+        unsafe {
+            let on_load = lib.get::<Symbol<OnLoadFn>>(b"on_load")?;
+            on_load(options.as_ptr());
+        };
 
         let create_fn_ptr = unsafe {
             lib.get::<Symbol<CreateFn>>(b"audio_filter_create")?.try_as_raw_ptr().unwrap()
@@ -50,13 +77,14 @@ impl AudioFilterPlugin {
                 .unwrap()
         };
 
-        Ok(Arc::new(Self {
+        Ok(Self {
             lib,
+            dependencies: Default::default(),
             create_fn_ptr,
             destroy_fn_ptr,
             process_i16_fn_ptr,
             process_f32_fn_ptr,
-        }))
+        })
     }
 
     pub fn new_session<S: AsRef<str>>(

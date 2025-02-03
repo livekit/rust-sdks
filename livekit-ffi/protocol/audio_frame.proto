@@ -257,6 +257,7 @@ message OwnedSoxResampler {
 // Audio Filter Plugin
 message LoadAudioFilterPluginRequest {
   required string plugin_path = 1;
+  required string options = 2;
 }
 
 message LoadAudioFilterPluginResponse {
