@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.9] - 2025-02-03
+
+### Added
+
+- Support for track subscription permissions
+
 ## [0.12.8] - 2025-01-23
 
 ### Changed
