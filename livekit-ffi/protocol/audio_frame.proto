@@ -258,8 +258,7 @@ message OwnedSoxResampler {
 message LoadAudioFilterPluginRequest {
   required string plugin_path = 1;  // path for ffi audio filter plugin
   repeated string dependencies = 2; // Optional: paths for dependency dylibs
-  required string url = 3;
-  required string token = 4;
+  required string options = 3;      // JSON string options that is passed to on_load plugin function
 }
 
 message LoadAudioFilterPluginResponse {

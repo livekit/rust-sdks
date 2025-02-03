@@ -3741,10 +3741,9 @@ pub struct LoadAudioFilterPluginRequest {
     /// Optional: paths for dependency dylibs
     #[prost(string, repeated, tag="2")]
     pub dependencies: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// JSON string options that is passed to on_load plugin function
     #[prost(string, required, tag="3")]
-    pub url: ::prost::alloc::string::String,
-    #[prost(string, required, tag="4")]
-    pub token: ::prost::alloc::string::String,
+    pub options: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
