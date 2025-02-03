@@ -327,7 +327,7 @@ pub fn i420_info(
         r#type: proto::VideoBufferType::I420.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -378,7 +378,7 @@ pub fn i420a_info(
         r#type: proto::VideoBufferType::I420a.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -419,7 +419,7 @@ pub fn i422_info(
         r#type: proto::VideoBufferType::I422.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -460,7 +460,7 @@ pub fn i444_info(
         r#type: proto::VideoBufferType::I444.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -503,7 +503,7 @@ pub fn i010_info(
         r#type: proto::VideoBufferType::I010.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -538,7 +538,7 @@ pub fn nv12_info(
         r#type: proto::VideoBufferType::Nv12.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -554,7 +554,7 @@ pub fn rgba_info(
         r#type: r#type.into(),
         components: Vec::default(),
         data_ptr: data_ptr as u64,
-        stride: width * 4,
+        stride: Some(width * 4),
     }
 }
 
@@ -570,6 +570,6 @@ pub fn rgb_info(
         r#type: r#type.into(),
         components: Vec::default(),
         data_ptr: data_ptr as u64,
-        stride: width * 3,
+        stride: Some(width * 3),
     }
 }

@@ -1,0 +1,1 @@
+patch package="livekit-rtc" type="added" "Support for track subscription permissions"

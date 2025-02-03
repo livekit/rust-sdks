@@ -129,3 +129,21 @@ message EnableRemoteTrackRequest {
 message EnableRemoteTrackResponse {
   required bool enabled = 1;
 }
+
+message SetTrackSubscriptionPermissionsRequest {
+  required uint64 local_participant_handle = 1;
+  required bool all_participants_allowed = 2;
+  repeated ParticipantTrackPermission permissions = 3;
+}
+
+message ParticipantTrackPermission {
+  // The participant identity this permission applies to.
+  required string participant_identity = 1;
+  // Grant permission to all all tracks. Takes precedence over allowedTrackSids.
+  optional bool allow_all = 2;
+  // List of track sids to grant permission to.
+  repeated string allowed_track_sids = 3;
+}
+
+message SetTrackSubscriptionPermissionsResponse {
+}

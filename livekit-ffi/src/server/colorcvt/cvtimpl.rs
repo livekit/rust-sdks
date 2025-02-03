@@ -30,6 +30,7 @@ pub unsafe fn cvt_rgba(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
@@ -85,6 +86,7 @@ pub unsafe fn cvt_abgr(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
@@ -131,6 +133,7 @@ pub unsafe fn cvt_argb(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Argb);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
@@ -176,6 +179,7 @@ pub unsafe fn cvt_bgra(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Bgra);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
@@ -231,6 +235,7 @@ pub unsafe fn cvt_rgb24(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgb24);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 3);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
