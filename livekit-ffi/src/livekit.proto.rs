@@ -3737,8 +3737,12 @@ pub struct OwnedSoxResampler {
 pub struct LoadAudioFilterPluginRequest {
     #[prost(string, required, tag="1")]
     pub plugin_path: ::prost::alloc::string::String,
-    #[prost(string, required, tag="2")]
-    pub options: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="2")]
+    pub dependent_libs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, required, tag="3")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(string, required, tag="4")]
+    pub token: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
