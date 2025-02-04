@@ -925,7 +925,8 @@ fn on_load_audio_filter_plugin(
     server: &'static FfiServer,
     request: proto::LoadAudioFilterPluginRequest,
 ) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
-    let plugin = AudioFilterPlugin::new(&request.plugin_path)
+    let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
+    let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps, &request.options)
         .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
 
     let handle_id = server.next_id();
