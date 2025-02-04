@@ -552,9 +552,9 @@ message DataStream {
 
   }
   
-  // header properties specific to file or image streams
-  message FileHeader {
-    required string file_name = 1;  // name of the file
+  // header properties specific to byte or file streams
+  message ByteHeader {
+    required string name = 1;
   }
 
   // main DataStream.Header that contains a oneof for specific headers
@@ -564,12 +564,12 @@ message DataStream {
     required string mime_type = 3;
     required string topic = 4;
     optional uint64 total_length = 5;  // only populated for finite streams, if it's a stream of unknown size this stays empty
-    map<string, string> extensions = 6;  // user defined extensions map that can carry additional info
+    map<string, string> attributes = 6;  // user defined attributes map that can carry additional info
   
     // oneof to choose between specific header types
     oneof content_header {
       TextHeader text_header = 7;
-      FileHeader file_header = 8;
+      ByteHeader byte_header = 8;
     }
   }
 
@@ -584,7 +584,7 @@ message DataStream {
   message Trailer {
     required string stream_id = 1; // unique identifier for this data stream
     required string reason = 2; // reason why the stream was closed (could contain "error" / "interrupted" / empty for expected end)
-    map<string, string> extensions = 3; // finalizing updates for the stream, can also include additional insights for errors or endTime for transcription
+    map<string, string> attributes = 3; // finalizing updates for the stream, can also include additional insights for errors or endTime for transcription
   }
 }
 
