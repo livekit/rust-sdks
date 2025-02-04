@@ -137,6 +137,13 @@ pub(super) struct ParticipantInner {
     events: Arc<ParticipantEvents>,
 }
 
+#[derive(Clone)]
+pub struct ParticipantTrackPermission {
+    pub participant_identity: ParticipantIdentity,
+    pub allow_all: bool,
+    pub allowed_track_sids: Vec<TrackSid>,
+}
+
 pub(super) fn new_inner(
     rtc_engine: Arc<RtcEngine>,
     sid: ParticipantSid,

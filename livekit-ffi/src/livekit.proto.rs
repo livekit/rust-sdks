@@ -1454,6 +1454,33 @@ pub struct EnableRemoteTrackResponse {
     #[prost(bool, required, tag="1")]
     pub enabled: bool,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetTrackSubscriptionPermissionsRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(bool, required, tag="2")]
+    pub all_participants_allowed: bool,
+    #[prost(message, repeated, tag="3")]
+    pub permissions: ::prost::alloc::vec::Vec<ParticipantTrackPermission>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantTrackPermission {
+    /// The participant identity this permission applies to.
+    #[prost(string, required, tag="1")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// Grant permission to all all tracks. Takes precedence over allowedTrackSids.
+    #[prost(bool, optional, tag="2")]
+    pub allow_all: ::core::option::Option<bool>,
+    /// List of track sids to grant permission to.
+    #[prost(string, repeated, tag="3")]
+    pub allowed_track_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetTrackSubscriptionPermissionsResponse {
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum TrackKind {
@@ -1843,8 +1870,8 @@ pub struct VideoBufferInfo {
     #[prost(uint64, required, tag="4")]
     pub data_ptr: u64,
     /// only for packed formats
-    #[prost(uint32, required, tag="6")]
-    pub stride: u32,
+    #[prost(uint32, optional, tag="6")]
+    pub stride: ::core::option::Option<u32>,
     #[prost(message, repeated, tag="7")]
     pub components: ::prost::alloc::vec::Vec<video_buffer_info::ComponentInfo>,
 }
@@ -2007,6 +2034,8 @@ impl VideoRotation {
         }
     }
 }
+/// Values of this enum must not be changed
+/// It is used to serialize a rtc.VideoFrame on Python
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum VideoBufferType {
@@ -3011,13 +3040,12 @@ pub mod data_stream {
         #[prost(bool, optional, tag="5")]
         pub generated: ::core::option::Option<bool>,
     }
-    /// header properties specific to file or image streams
+    /// header properties specific to byte or file streams
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct FileHeader {
-        /// name of the file
+    pub struct ByteHeader {
         #[prost(string, required, tag="1")]
-        pub file_name: ::prost::alloc::string::String,
+        pub name: ::prost::alloc::string::String,
     }
     /// main DataStream.Header that contains a oneof for specific headers
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3036,9 +3064,9 @@ pub mod data_stream {
         /// only populated for finite streams, if it's a stream of unknown size this stays empty
         #[prost(uint64, optional, tag="5")]
         pub total_length: ::core::option::Option<u64>,
-        /// user defined extensions map that can carry additional info
+        /// user defined attributes map that can carry additional info
         #[prost(map="string, string", tag="6")]
-        pub extensions: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+        pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
         /// oneof to choose between specific header types
         #[prost(oneof="header::ContentHeader", tags="7, 8")]
         pub content_header: ::core::option::Option<header::ContentHeader>,
@@ -3052,7 +3080,7 @@ pub mod data_stream {
             #[prost(message, tag="7")]
             TextHeader(super::TextHeader),
             #[prost(message, tag="8")]
-            FileHeader(super::FileHeader),
+            ByteHeader(super::ByteHeader),
         }
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3084,7 +3112,7 @@ pub mod data_stream {
         pub reason: ::prost::alloc::string::String,
         /// finalizing updates for the stream, can also include additional insights for errors or endTime for transcription
         #[prost(map="string, string", tag="3")]
-        pub extensions: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+        pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     }
     /// enum for operation types (specific to TextHeader)
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -4005,7 +4033,7 @@ pub struct RpcMethodInvocationEvent {
 //    that it receives from the server.
 //
 // Therefore, the ffi client is easier to implement if there is less handles to manage.
-// 
+//
 // - We are mainly using FfiHandle on info messages (e.g: RoomInfo, TrackInfo, etc...)
 //    For this reason, info are only sent once, at creation (We're not using them for updates, we can infer them from
 //    events on the client implementation).
@@ -4016,7 +4044,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -4062,6 +4090,8 @@ pub mod ffi_request {
         EnableRemoteTrack(super::EnableRemoteTrackRequest),
         #[prost(message, tag="19")]
         GetStats(super::GetStatsRequest),
+        #[prost(message, tag="48")]
+        SetTrackSubscriptionPermissions(super::SetTrackSubscriptionPermissionsRequest),
         /// Video
         #[prost(message, tag="20")]
         NewVideoStream(super::NewVideoStreamRequest),
@@ -4130,7 +4160,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -4176,6 +4206,8 @@ pub mod ffi_response {
         EnableRemoteTrack(super::EnableRemoteTrackResponse),
         #[prost(message, tag="19")]
         GetStats(super::GetStatsResponse),
+        #[prost(message, tag="47")]
+        SetTrackSubscriptionPermissions(super::SetTrackSubscriptionPermissionsResponse),
         /// Video
         #[prost(message, tag="20")]
         NewVideoStream(super::NewVideoStreamResponse),
