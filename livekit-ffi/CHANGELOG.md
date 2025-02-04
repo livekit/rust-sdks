@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.10] - 2025-02-04
+
+### Fixed
+
+- Fix RPC invocation race bug
+
 ## [0.12.9] - 2025-02-03
 
 ### Added
