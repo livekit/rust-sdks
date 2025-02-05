@@ -21,6 +21,8 @@ dispatcher = ["dep:futures", "dep:async-io", "dep:async-std", "dep:async-task"]
 tokio = { version = "1", default-features = false, optional = true, features = [
     "rt",
     "rt-multi-thread",
+    "net",
+    "time",
 ] }
 tokio-stream = { version = "0.1.14", optional = true }
 
