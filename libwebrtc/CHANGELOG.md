@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.10] - 2025-02-05
+
+### Fixed
+
+- Fix build issue
+
 ## [0.3.9] - 2025-01-17
 
 ### Added
