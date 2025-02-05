@@ -214,6 +214,8 @@ pub struct Room {
     pub max_participants: u32,
     #[prost(int64, tag="5")]
     pub creation_time: i64,
+    #[prost(int64, tag="15")]
+    pub creation_time_ms: i64,
     #[prost(string, tag="6")]
     pub turn_password: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="7")]
@@ -298,6 +300,9 @@ pub struct ParticipantInfo {
     /// timestamp when participant joined room, in seconds
     #[prost(int64, tag="6")]
     pub joined_at: i64,
+    /// timestamp when participant joined room, in milliseconds
+    #[prost(int64, tag="17")]
+    pub joined_at_ms: i64,
     #[prost(string, tag="9")]
     pub name: ::prost::alloc::string::String,
     #[prost(uint32, tag="10")]
@@ -634,6 +639,9 @@ pub struct UserPacket {
     pub start_time: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag="10")]
     pub end_time: ::core::option::Option<u64>,
+    /// added by SDK to enable de-duping of messages, for INTERNAL USE ONLY
+    #[prost(bytes="vec", tag="11")]
+    pub nonce: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4044,6 +4052,9 @@ pub struct SendDataRequest {
     pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, optional, tag="5")]
     pub topic: ::core::option::Option<::prost::alloc::string::String>,
+    /// added by SDK to enable de-duping of messages, for INTERNAL USE ONLY
+    #[prost(bytes="vec", tag="7")]
+    pub nonce: ::prost::alloc::vec::Vec<u8>,
 }
 ///
 #[allow(clippy::derive_partial_eq_without_eq)]
