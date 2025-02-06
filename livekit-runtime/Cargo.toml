@@ -1,6 +1,6 @@
 [package]
 name = "livekit-runtime"
-version = "0.3.1"
+version = "0.4.0"
 license = "Apache-2.0"
 description = "Async runtime compatibility layer for LiveKit"
 edition = "2021"
@@ -21,6 +21,8 @@ dispatcher = ["dep:futures", "dep:async-io", "dep:async-std", "dep:async-task"]
 tokio = { version = "1", default-features = false, optional = true, features = [
     "rt",
     "rt-multi-thread",
+    "net",
+    "time",
 ] }
 tokio-stream = { version = "0.1.14", optional = true }
 

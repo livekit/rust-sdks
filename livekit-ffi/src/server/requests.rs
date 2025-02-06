@@ -936,6 +936,16 @@ fn on_load_audio_filter_plugin(
     Ok(proto::LoadAudioFilterPluginResponse { handle: proto::FfiOwnedHandle { id: handle_id } })
 }
 
+fn on_set_track_subscription_permissions(
+    server: &'static FfiServer,
+    set_permissions: proto::SetTrackSubscriptionPermissionsRequest,
+) -> FfiResult<proto::SetTrackSubscriptionPermissionsResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(set_permissions.local_participant_handle)?.clone();
+
+    Ok(ffi_participant.room.set_track_subscription_permissions(server, set_permissions))
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1118,6 +1128,11 @@ pub fn handle_request(
             proto::ffi_response::Message::LoadAudioFilterPlugin(on_load_audio_filter_plugin(
                 server, request,
             )?)
+        }
+        proto::ffi_request::Message::SetTrackSubscriptionPermissions(request) => {
+            proto::ffi_response::Message::SetTrackSubscriptionPermissions(
+                on_set_track_subscription_permissions(server, request)?,
+            )
         }
     });
 

@@ -140,6 +140,8 @@ async fn forward_rpc_method_invocation(
     let (tx, rx) = oneshot::channel();
     let invocation_id = server.next_id();
 
+    room.store_rpc_method_invocation_waiter(invocation_id, tx);
+
     let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
         proto::RpcMethodInvocationEvent {
             local_participant_handle: local_participant_handle as u64,
@@ -151,8 +153,6 @@ async fn forward_rpc_method_invocation(
             response_timeout_ms: data.response_timeout.as_millis() as u32,
         },
     ));
-
-    room.store_rpc_method_invocation_waiter(invocation_id, tx);
 
     rx.await.unwrap_or_else(|_| {
         Err(RpcError {

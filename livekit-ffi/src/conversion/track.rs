@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit::prelude::*;
+use livekit::{participant::ParticipantTrackPermission, prelude::*};
 
 use crate::{
     proto,
@@ -90,6 +90,34 @@ impl From<TrackSource> for proto::TrackSource {
             TrackSource::Microphone => proto::TrackSource::SourceMicrophone,
             TrackSource::Screenshare => proto::TrackSource::SourceScreenshare,
             TrackSource::ScreenshareAudio => proto::TrackSource::SourceScreenshareAudio,
+        }
+    }
+}
+
+impl From<ParticipantTrackPermission> for proto::ParticipantTrackPermission {
+    fn from(value: ParticipantTrackPermission) -> Self {
+        proto::ParticipantTrackPermission {
+            participant_identity: value.participant_identity.to_string(),
+            allow_all: Some(value.allow_all),
+            allowed_track_sids: value
+                .allowed_track_sids
+                .into_iter()
+                .map(|sid| sid.to_string())
+                .collect(),
+        }
+    }
+}
+
+impl From<proto::ParticipantTrackPermission> for ParticipantTrackPermission {
+    fn from(value: proto::ParticipantTrackPermission) -> Self {
+        Self {
+            participant_identity: value.participant_identity.into(),
+            allow_all: value.allow_all.unwrap_or(false),
+            allowed_track_sids: value
+                .allowed_track_sids
+                .into_iter()
+                .map(|sid| sid.try_into().unwrap())
+                .collect(),
         }
     }
 }
