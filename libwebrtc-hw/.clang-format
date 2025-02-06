@@ -1,0 +1,15 @@
+# The ANYbotics style guide is based on google: https://anybotics.github.io/styleguide/cppguide.html
+BasedOnStyle : Google
+# Maximum line with is 140 characters (default: 80)
+ColumnLimit : 140
+# Indent of two spaces, no tabs.
+IndentWidth: 2
+# Always attach braces to surrounding context.
+BreakBeforeBraces: Attach
+# Force pointer alignement with the type (left).
+DerivePointerAlignment: false
+PointerAlignment: Left
+# Only merge functions defined inside a class.
+AllowShortFunctionsOnASingleLine: Inline
+# Sort each include block separately.
+IncludeBlocks: Preserve
