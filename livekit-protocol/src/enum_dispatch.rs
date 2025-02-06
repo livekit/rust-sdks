@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2023-2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,9 +33,23 @@ macro_rules! enum_dispatch {
         }
     };
 
+    // Handle functions without a return type
+    (@fnc [$($variant:ident),+]: $vis:vis fn $fnc:ident($self:ident: $sty:ty $(, $arg:ident: $t:ty)*)) => {
+        #[inline]
+        $vis fn $fnc($self: $sty, $($arg: $t),*) {
+            enum_dispatch!(@match [$($variant),+]: $fnc, $self, ($($arg,)*))
+        }
+    };
+
     ($variants:tt; $($vis:vis fn $fnc:ident$args:tt -> $ret:ty;)+) => {
         $(
             enum_dispatch!(@fnc $variants: $vis fn $fnc$args -> $ret);
+        )+
+    };
+
+    ($variants:tt; $($vis:vis fn $fnc:ident$args:tt;)+) => {
+        $(
+            enum_dispatch!(@fnc $variants: $vis fn $fnc$args);
         )+
     };
 }
