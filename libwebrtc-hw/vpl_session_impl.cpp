@@ -1,169 +1,165 @@
-#include "vpl_session.h"
+#include "vpl_session_imp.h"
 
 #include <rtc_base/logging.h>
 
 // Intel VPL
-#include <mfxdispatcher.h>
+#include <fcntl.h>
 #include <mfxvideo.h>
-    #include "va/va.h"
-    #include "va/va_drm.h"
-    #include <fcntl.h>
-namespace sora {
+#include "va/va.h"
+#include "va/va_drm.h"
 
-struct VplSessionImpl : VplSession {
-  ~VplSessionImpl();
-
-  mfxLoader loader = nullptr;
-  mfxSession session = nullptr;
-};
-
-VplSessionImpl::~VplSessionImpl() {
-  MFXClose(session);
-  MFXUnload(loader);
+namespace {
+constexpr char* GPU_RENDER_NODE = "/dev/dri/renderD128";
 }
 
-// Shows implementation info with Intel® VPL
-void ShowImplementationInfo(mfxLoader loader, mfxU32 implnum) {
-    mfxImplDescription *idesc = nullptr;
-    mfxStatus sts;
-    //Loads info about implementation at specified list location
-    sts = MFXEnumImplementations(loader, implnum, MFX_IMPLCAPS_IMPLDESCSTRUCTURE, (mfxHDL *)&idesc);
-    if (!idesc || (sts != MFX_ERR_NONE))
-        return;
+namespace any_vpl {
 
-    printf("Implementation details:\n");
-    printf("  ApiVersion:           %hu.%hu  \n", idesc->ApiVersion.Major, idesc->ApiVersion.Minor);
-    printf("  Implementation type: HW\n");
-    printf("  AccelerationMode via: ");
-    switch (idesc->AccelerationMode) {
-        case MFX_ACCEL_MODE_NA:
-            printf("NA \n");
-            break;
-        case MFX_ACCEL_MODE_VIA_D3D9:
-            printf("D3D9\n");
-            break;
-        case MFX_ACCEL_MODE_VIA_D3D11:
-            printf("D3D11\n");
-            break;
-        case MFX_ACCEL_MODE_VIA_VAAPI:
-            printf("VAAPI\n");
-            break;
-        case MFX_ACCEL_MODE_VIA_VAAPI_DRM_MODESET:
-            printf("VAAPI_DRM_MODESET\n");
-            break;
-        case MFX_ACCEL_MODE_VIA_VAAPI_GLX:
-            printf("VAAPI_GLX\n");
-            break;
-        case MFX_ACCEL_MODE_VIA_VAAPI_X11:
-            printf("VAAPI_X11\n");
-            break;
-        case MFX_ACCEL_MODE_VIA_VAAPI_WAYLAND:
-            printf("VAAPI_WAYLAND\n");
-            break;
-        case MFX_ACCEL_MODE_VIA_HDDLUNITE:
-            printf("HDDLUNITE\n");
-            break;
-        default:
-            printf("unknown\n");
-            break;
-    }
-    printf("  DeviceID:             %s \n", idesc->Dev.DeviceID);
-    MFXDispReleaseImplDescription(loader, idesc);
+void VplSessionSingleton::ShowImplementationInfo(mfxU32 implnum) {
+  mfxImplDescription* idesc = nullptr;
+  mfxStatus sts;
+  // Loads info about implementation at specified list location
+  sts = MFXEnumImplementations(loader_, implnum, MFX_IMPLCAPS_IMPLDESCSTRUCTURE, (mfxHDL*)&idesc);
+  if (!idesc || (sts != MFX_ERR_NONE)) {
+    return;
+  }
+
+  RTC_LOG(LS_INFO) << "Implementation details:\n";
+  RTC_LOG(LS_INFO) << "  ApiVersion: " << idesc->ApiVersion.Major << "." << idesc->ApiVersion.Minor;
+  RTC_LOG(LS_INFO) << "  AccelerationMode via: ";
+  switch (idesc->AccelerationMode) {
+    case MFX_ACCEL_MODE_NA:
+      RTC_LOG(LS_INFO) << "NA";
+      break;
+    case MFX_ACCEL_MODE_VIA_D3D9:
+      RTC_LOG(LS_INFO) << "D3D9";
+      break;
+    case MFX_ACCEL_MODE_VIA_D3D11:
+      RTC_LOG(LS_INFO) << "D3D11";
+      break;
+    case MFX_ACCEL_MODE_VIA_VAAPI:
+      RTC_LOG(LS_INFO) << "VAAPI";
+      break;
+    case MFX_ACCEL_MODE_VIA_VAAPI_DRM_MODESET:
+      RTC_LOG(LS_INFO) << "VAAPI_DRM_MODESET";
+      break;
+    case MFX_ACCEL_MODE_VIA_VAAPI_GLX:
+      RTC_LOG(LS_INFO) << "VAAPI_GLX";
+      break;
+    case MFX_ACCEL_MODE_VIA_VAAPI_X11:
+      RTC_LOG(LS_INFO) << "VAAPI_X11";
+      break;
+    case MFX_ACCEL_MODE_VIA_VAAPI_WAYLAND:
+      RTC_LOG(LS_INFO) << "VAAPI_WAYLAND";
+      break;
+    case MFX_ACCEL_MODE_VIA_HDDLUNITE:
+      RTC_LOG(LS_INFO) << "HDDLUNITE";
+      break;
+    default:
+      RTC_LOG(LS_INFO) << "unknown";
+      break;
+  }
+  RTC_LOG(LS_INFO) << "  DeviceID: " << idesc->Dev.DeviceID;
+  MFXDispReleaseImplDescription(loader_, idesc);
 
 #if (MFX_VERSION >= 2004)
-    //Show implementation path, added in 2.4 API
-    mfxHDL implPath = nullptr;
-    sts             = MFXEnumImplementations(loader, implnum, MFX_IMPLCAPS_IMPLPATH, &implPath);
-    if (!implPath || (sts != MFX_ERR_NONE))
-        return;
+  // Show implementation path, added in 2.4 API
+  mfxHDL implPath = nullptr;
+  sts = MFXEnumImplementations(loader_, implnum, MFX_IMPLCAPS_IMPLPATH, &implPath);
+  if (!implPath || (sts != MFX_ERR_NONE)) {
+    return;
+  }
 
-    printf("  Path: %s\n\n", reinterpret_cast<mfxChar *>(implPath));
-    MFXDispReleaseImplDescription(loader, implPath);
+  RTC_LOG(LS_INFO) << "  Path: " << reinterpret_cast<mfxChar*>(implPath);
+  MFXDispReleaseImplDescription(loader_, implPath);
 #endif
 }
 
-void *InitAcceleratorHandle(mfxSession session, int *fd, mfxIMPL impl) {
-    // printf("in init accel\n");
-    // mfxIMPL impl;
-    // mfxStatus sts = MFXQueryIMPL(session, &impl);
-    // if (sts != MFX_ERR_NONE)
-    //     return NULL;
+void VplSessionSingleton::InitAcceleratorHandle(mfxIMPL implementation) {
+  if ((implementation & MFX_IMPL_VIA_VAAPI) != MFX_IMPL_VIA_VAAPI) {
+    return;
+  }
+  // initialize VAAPI context and set session handle (req in Linux)
+  accelratorFD_ = open(GPU_RENDER_NODE, O_RDWR);
+  if (accelratorFD_ < 0) {
+    RTC_LOG(LS_ERROR) << "Failed to open GPU render node: " << GPU_RENDER_NODE;
+    return;
+  }
 
-// #ifdef LIBVA_SUPPORT
-    // printf("in libva support\n");
-    if ((impl & MFX_IMPL_VIA_VAAPI) == MFX_IMPL_VIA_VAAPI) {
-        if (!fd)
-            return NULL;
-        VADisplay va_dpy = NULL;
-        // initialize VAAPI context and set session handle (req in Linux)
-        *fd = open("/dev/dri/renderD128", O_RDWR);
-        if (*fd >= 0) {
-            va_dpy = vaGetDisplayDRM(*fd);
-            if (va_dpy) {
-                int major_version = 0, minor_version = 0;
-                if (VA_STATUS_SUCCESS == vaInitialize(va_dpy, &major_version, &minor_version)) {
-                    MFXVideoCORE_SetHandle(session,
-                                           static_cast<mfxHandleType>(MFX_HANDLE_VA_DISPLAY),
-                                           va_dpy);
-                }
-            }
-        }
-        return va_dpy;
-    }
-// #endif
+  vaDisplay_ = vaGetDisplayDRM(accelratorFD_);
+  if (!vaDisplay_) {
+    RTC_LOG(LS_ERROR) << "Failed to get VA display from GPU render node: " << GPU_RENDER_NODE;
+    return;
+  }
 
-    return NULL;
+  int majorVersion = 0, minorVersion = 0;
+  if (VA_STATUS_SUCCESS != vaInitialize(vaDisplay_, &majorVersion, &minorVersion)) {
+    RTC_LOG(LS_ERROR) << "Failed to initialize VA library";
+    return;
+  }
+
+  RTC_LOG(LS_INFO) << "VAAPI initialized. Version: " << majorVersion << "." << minorVersion;
+  if (MFXVideoCORE_SetHandle(session_, static_cast<mfxHandleType>(MFX_HANDLE_VA_DISPLAY), vaDisplay_) != MFX_ERR_NONE) {
+    RTC_LOG(LS_ERROR) << "Failed to set VA display handle for the VA library to use";
+  }
 }
 
-std::shared_ptr<VplSession> VplSession::Create() {
-  std::shared_ptr<VplSessionImpl> session(new VplSessionImpl());
-
+bool VplSessionSingleton::Create() {
   mfxStatus sts = MFX_ERR_NONE;
 
-  session->loader = MFXLoad();
-  if (session->loader == nullptr) {
-    RTC_LOG(LS_VERBOSE) << "Failed to MFXLoad";
-    return nullptr;
+  loader_ = MFXLoad();
+  if (loader_ == nullptr) {
+    RTC_LOG(LS_ERROR) << "MFXLoad failed";
+    return false;
   }
 
-  MFX_ADD_PROPERTY_U32(session->loader, "mfxImplDescription.Impl",
-                       MFX_IMPL_TYPE_HARDWARE);
+  constexpr char* implementationDescription = "mfxImplDescription.Impl";
+  MFX_ADD_PROPERTY_U32(loader_, implementationDescription, MFX_IMPL_TYPE_HARDWARE);
 
-  sts = MFXCreateSession(session->loader, 0, &session->session);
+  sts = MFXCreateSession(loader_, 0, &session_);
   if (sts != MFX_ERR_NONE) {
-    RTC_LOG(LS_VERBOSE) << "Failed to MFXCreateSession: sts=" << sts;
-    return nullptr;
+    RTC_LOG(LS_ERROR) << "MFXCreateSession failed: sts=" << sts;
+    return false;
   }
 
-
-  // Query selected implementation and version
-  mfxIMPL impl;
-  sts = MFXQueryIMPL(session->session, &impl);
+  // Query selected implementation
+  mfxIMPL implementation;
+  sts = MFXQueryIMPL(session->session, &implementation);
   if (sts != MFX_ERR_NONE) {
-    RTC_LOG(LS_VERBOSE) << "Failed to MFXQueryIMPL: sts=" << sts;
-    return nullptr;
+    RTC_LOG(LS_ERROR) << "MFXQueryIMPL failed: sts=" << sts;
+    return false;
   }
 
-    int accel_fd = 0;
-  InitAcceleratorHandle(session->session, &accel_fd, impl);
+  InitAcceleratorHandle(implementation);
 
-  mfxVersion ver;
-  sts = MFXQueryVersion(session->session, &ver);
+  mfxVersion version;
+  sts = MFXQueryVersion(session_, &version);
   if (sts != MFX_ERR_NONE) {
-    RTC_LOG(LS_VERBOSE) << "Failed to MFXQueryVersion: sts=" << sts;
-    return nullptr;
+    RTC_LOG(LS_ERROR) << "MFXQueryVersion failed: sts=" << sts;
+    return false;
   }
 
-  RTC_LOG(LS_VERBOSE) << "Intel VPL Implementation: "
-                      << (impl == MFX_IMPL_SOFTWARE ? "SOFTWARE" : "HARDWARE");
-  RTC_LOG(LS_VERBOSE) << "Intel VPL Version: " << ver.Major << "." << ver.Minor;
-  ShowImplementationInfo(session->loader, 0);
+  RTC_LOG(LS_INFO) << "Intel VPL Implementation: " << (implementation == MFX_IMPL_SOFTWARE ? "SOFTWARE" : "HARDWARE");
+  RTC_LOG(LS_INFO) << "Intel VPL Version: " << version.Major << "." << version.Minor;
+  ShowImplementationInfo(0);
 
-  return session;
+  return true;
 }
 
-mfxSession GetVplSession(std::shared_ptr<VplSession> session) {
-  return std::static_pointer_cast<VplSessionImpl>(session)->session;
+mfxSession VplSessionSingleton::GetVplSession() const {
+  return session_;
 }
 
-} // namespace sora
+std::shared_ptr<VplSessionSingleton> VplSessionSingleton::Instance() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (instance_ == nullptr) {
+    instance_ = std::shared_ptr<VplSessionSingleton>();
+  }
+  return instance_;
+}
+
+VplSessionSingleton::~VplSessionSingleton() {
+  MFXClose(session_);
+  MFXUnload(loader_);
+}
+
+}  // namespace any_vpl
