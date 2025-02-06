@@ -9,3 +9,9 @@ members = [
     "webrtc-sys",
     "webrtc-sys/build",
 ]
+
+[profile.release]
+opt-level = 3        # Maximum optimization (0-3, or "s" for size, "z" for even smaller size)
+lto = "fat"          # Link Time Optimization (LTO): "thin" (faster) or "fat" (better optimization)
+codegen-units = 1    # Improves performance by reducing parallel compilation
+debug = false        # Remove debug symbols for smaller binaries. Set this to true for profiling with debug symbols
