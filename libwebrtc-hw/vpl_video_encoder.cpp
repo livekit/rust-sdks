@@ -26,6 +26,7 @@
 
 #include "vpl_session_impl.h"
 #include "vpl_utils.h"
+// #include "utils.h"
 
 namespace sora {
 
@@ -510,6 +511,104 @@ int32_t VplVideoEncoderImpl::RegisterEncodeCompleteCallback(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 int32_t VplVideoEncoderImpl::Release() { return ReleaseVpl(); }
+
+// void ConvertRGBToNV12(const webrtc::VideoFrame &frame, mfxFrameSurface1 *surface) {
+//     mfxU16 w = surface->Info.CropW;
+//     mfxU16 h = surface->Info.CropH;
+//     mfxU8 *y_ptr = surface->Data.Y;
+//     mfxU8 *uv_ptr = surface->Data.UV;
+//     int pitch = surface->Data.Pitch;
+
+//     const uint8_t *rgb_data = frame.video_frame_buffer()->DataRGB();
+//     int rgb_stride = frame.video_frame_buffer()->StrideRGB();
+
+//     for (mfxU16 i = 0; i < h; i++) {
+//         for (mfxU16 j = 0; j < w; j++) {
+//             int r = rgb_data[i * rgb_stride + j * 3];
+//             int g = rgb_data[i * rgb_stride + j * 3 + 1];
+//             int b = rgb_data[i * rgb_stride + j * 3 + 2];
+
+//             // Convert RGB to YUV
+//             int y = (77 * r + 150 * g + 29 * b) >> 8;
+//             int u = ((-43 * r - 85 * g + 128 * b) >> 8) + 128;
+//             int v = ((128 * r - 107 * g - 21 * b) >> 8) + 128;
+
+//             y_ptr[i * pitch + j] = static_cast<mfxU8>(y);
+//             if (i % 2 == 0 && j % 2 == 0) {
+//                 uv_ptr[(i / 2) * pitch + j] = static_cast<mfxU8>(u);
+//                 uv_ptr[(i / 2) * pitch + j + 1] = static_cast<mfxU8>(v);
+//             }
+//         }
+//     }
+// }
+
+// mfxStatus MyReadRawFrame(mfxFrameSurface1 *surface, const webrtc::VideoFrame &frame) {
+//     mfxU16 w, h, i, pitch;
+//     const uint8_t *ptr;
+//     mfxFrameInfo *info = &surface->Info;
+//     mfxFrameData *data = &surface->Data;
+
+//     w = info->CropW;
+//     h = info->CropH;
+
+//     switch (info->FourCC) {
+//         case MFX_FOURCC_I420:
+//             // read luminance plane (Y)
+//             pitch = data->Pitch;
+//             ptr   = frame.video_frame_buffer()->DataY();
+//             for (i = 0; i < h; i++) {
+//                 memcpy(data->Y + i * pitch, ptr + i * frame.video_frame_buffer()->StrideY(), w);
+//             }
+
+//             // read chrominance (U, V)
+//             pitch /= 2;
+//             h /= 2;
+//             w /= 2;
+//             ptr = frame.video_frame_buffer()->DataU();
+//             for (i = 0; i < h; i++) {
+//                 memcpy(data->U + i * pitch, ptr + i * frame.video_frame_buffer()->StrideU(), w);
+//             }
+
+//             ptr = frame.video_frame_buffer()->DataV();
+//             for (i = 0; i < h; i++) {
+//                 memcpy(data->V + i * pitch, ptr + i * frame.video_frame_buffer()->StrideV(), w);
+//             }
+//             break;
+//         case MFX_FOURCC_NV12:
+//             if (frame.video_frame_buffer()->Type() == webrtc::VideoFrameBuffer::Type::kRGB) {
+//                 // Convert RGB to NV12
+//                 ConvertRGBToNV12(frame, surface);
+//             } else {
+//                 // Y
+//                 pitch = data->Pitch;
+//                 ptr   = frame.video_frame_buffer()->DataY();
+//                 for (i = 0; i < h; i++) {
+//                     memcpy(data->Y + i * pitch, ptr + i * frame.video_frame_buffer()->StrideY(), w);
+//                 }
+//                 // UV
+//                 h /= 2;
+//                 ptr = frame.video_frame_buffer()->DataUV();
+//                 for (i = 0; i < h; i++) {
+//                     memcpy(data->UV + i * pitch, ptr + i * frame.video_frame_buffer()->StrideUV(), w);
+//                 }
+//             }
+//             break;
+//         case MFX_FOURCC_RGB4:
+//             // B
+//             pitch = data->Pitch;
+//             ptr   = frame.video_frame_buffer()->DataB();
+//             for (i = 0; i < h; i++) {
+//                 memcpy(data->B + i * pitch, ptr + i * frame.video_frame_buffer()->StrideB(), pitch);
+//             }
+//             break;
+//         default:
+//             printf("Unsupported FourCC code, skip LoadRawFrame\n");
+//             break;
+//     }
+
+//     return MFX_ERR_NONE;
+// }
+
 int32_t VplVideoEncoderImpl::Encode(
     const webrtc::VideoFrame &frame,
     const std::vector<webrtc::VideoFrameType> *frame_types) {
@@ -535,6 +634,9 @@ int32_t VplVideoEncoderImpl::Encode(
     RTC_LOG(LS_ERROR) << "Surface not found";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
+
+  // sts = ReadRawFrame_InternalMem(surface, source);
+  // libyuv::I400Copy(frame.video_frame_buffer()->GetNV12()->DataY(), frame.video_frame_buffer()->GetNV12()->StrideY(), surface->Data.Y, surface->Data.Pitch, frame.width(), frame.height());
 
   // I420 から NV12 に変換
   rtc::scoped_refptr<const webrtc::I420BufferInterface> frame_buffer =
@@ -608,7 +710,7 @@ int32_t VplVideoEncoderImpl::Encode(
   }
   VPL_CHECK_RESULT(sts, MFX_ERR_NONE, sts);
 
-  sts = MFXVideoCORE_SyncOperation(GetVplSession(session_), syncp, 600000);
+  sts = MFXVideoCORE_SyncOperation(GetVplSession(session_), syncp, 300000);
   VPL_CHECK_RESULT(sts, MFX_ERR_NONE, sts);
 
   // RTC_LOG(LS_ERROR) << "SurfaceSize=" << (surface->Data.U - surface->Data.Y);

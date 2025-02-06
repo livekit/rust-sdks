@@ -1,5 +1,5 @@
-#ifndef SORA_HWENC_VPL_VPL_VIDEO_ENCODER_H_
-#define SORA_HWENC_VPL_VPL_VIDEO_ENCODER_H_
+#ifndef ANY_VPL_VIDEO_ENCODER_H_
+#define ANY_VPL_VIDEO_ENCODER_H_
 
 #include <memory>
 
@@ -9,16 +9,18 @@
 
 #include "vpl_session.h"
 
-namespace sora {
+namespace any_vpl {
 
+/**
+ * @brief An accelerated encoder using Intel® Video Processing Library (Intel® VPL), for accelerating encoding on Intel® hardware.
+ *
+ */
 class VplVideoEncoder : public webrtc::VideoEncoder {
-public:
-  static bool IsSupported(std::shared_ptr<VplSession> session,
-                          webrtc::VideoCodecType codec);
-  static std::unique_ptr<VplVideoEncoder>
-  Create(std::shared_ptr<VplSession> session, webrtc::VideoCodecType codec);
+ public:
+  static bool IsSupported(std::shared_ptr<VplSession> session, webrtc::VideoCodecType codec);
+  static std::unique_ptr<VplVideoEncoder> Create(std::shared_ptr<VplSession> session, webrtc::VideoCodecType codec);
 };
 
-} // namespace sora
+}  // namespace any_vpl
 
 #endif

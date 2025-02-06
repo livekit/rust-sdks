@@ -90,7 +90,7 @@ void *InitAcceleratorHandle(mfxSession session, int *fd, mfxIMPL impl) {
     //     return NULL;
 
 // #ifdef LIBVA_SUPPORT
-    printf("in libva support\n");
+    // printf("in libva support\n");
     if ((impl & MFX_IMPL_VIA_VAAPI) == MFX_IMPL_VIA_VAAPI) {
         if (!fd)
             return NULL;
