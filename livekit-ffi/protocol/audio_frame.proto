@@ -27,6 +27,8 @@ message NewAudioStreamRequest {
   required AudioStreamType type = 2;
   optional uint32 sample_rate = 3;
   optional uint32 num_channels = 4;
+  optional uint64 audio_filter_handle = 5;
+  optional string audio_filter_options = 6;
 }
 message NewAudioStreamResponse { required OwnedAudioStream stream = 1; }
 
@@ -36,6 +38,8 @@ message AudioStreamFromParticipantRequest {
   optional TrackSource track_source = 3;
   optional uint32 sample_rate = 5;
   optional uint32 num_channels = 6;
+  optional uint64 audio_filter_handle = 7;
+  optional string audio_filter_options = 8;
 }
 
 message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 1; }
@@ -248,4 +252,15 @@ message SoxResamplerInfo {}
 message OwnedSoxResampler {
   required FfiOwnedHandle handle = 1;
   required SoxResamplerInfo info = 2;
+}
+
+// Audio Filter Plugin
+message LoadAudioFilterPluginRequest {
+  required string plugin_path = 1;  // path for ffi audio filter plugin
+  repeated string dependencies = 2; // Optional: paths for dependency dylibs
+  required string options = 3;      // JSON string options that is passed to on_load plugin function
+}
+
+message LoadAudioFilterPluginResponse {
+  required FfiOwnedHandle handle = 1;
 }
