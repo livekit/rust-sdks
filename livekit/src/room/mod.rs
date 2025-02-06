@@ -706,7 +706,7 @@ impl RoomSession {
             EngineEvent::SignalRestarted { join_response, tx } => {
                 self.handle_signal_restarted(join_response, tx)
             }
-            EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
+            EngineEvent::Disconnected { reason, tx } => self.handle_disconnected(reason, tx),
             EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
                 self.handle_data(payload, topic, kind, participant_sid, participant_identity);
             }
@@ -1182,7 +1182,7 @@ impl RoomSession {
         let _ = tx.send(());
     }
 
-    fn handle_disconnected(self: &Arc<Self>, reason: DisconnectReason) {
+    fn handle_disconnected(self: &Arc<Self>, reason: DisconnectReason, tx: oneshot::Sender<()>) {
         if self.update_connection_state(ConnectionState::Disconnected) {
             self.dispatcher.dispatch(&RoomEvent::Disconnected { reason });
         }
@@ -1196,6 +1196,8 @@ impl RoomSession {
                 }
             });
         }
+
+        let _ = tx.send(());
     }
 
     fn handle_data(
