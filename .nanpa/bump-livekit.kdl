@@ -1,1 +1,0 @@
-patch type="fixed" package="livekit" "Fix a dependency issue with an older version of the libwebrtc crate"
