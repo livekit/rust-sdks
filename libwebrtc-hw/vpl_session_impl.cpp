@@ -1,8 +1,7 @@
-#include "vpl_session_imp.h"
+#include "vpl_session_impl.h"
 
 #include <rtc_base/logging.h>
 
-// Intel VPL
 #include <fcntl.h>
 #include <mfxvideo.h>
 #include "va/va.h"
@@ -13,6 +12,9 @@ constexpr char* GPU_RENDER_NODE = "/dev/dri/renderD128";
 }
 
 namespace any_vpl {
+
+std::shared_ptr<VplSessionSingleton> VplSessionSingleton::instance_{nullptr};
+std::mutex VplSessionSingleton::mutex_;
 
 void VplSessionSingleton::ShowImplementationInfo(mfxU32 implnum) {
   mfxImplDescription* idesc = nullptr;
@@ -123,7 +125,7 @@ bool VplSessionSingleton::Create() {
 
   // Query selected implementation
   mfxIMPL implementation;
-  sts = MFXQueryIMPL(session->session, &implementation);
+  sts = MFXQueryIMPL(session_, &implementation);
   if (sts != MFX_ERR_NONE) {
     RTC_LOG(LS_ERROR) << "MFXQueryIMPL failed: sts=" << sts;
     return false;
@@ -152,7 +154,8 @@ mfxSession VplSessionSingleton::GetVplSession() const {
 std::shared_ptr<VplSessionSingleton> VplSessionSingleton::Instance() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (instance_ == nullptr) {
-    instance_ = std::shared_ptr<VplSessionSingleton>();
+    instance_ = std::shared_ptr<VplSessionSingleton>(new VplSessionSingleton());
+    Create();
   }
   return instance_;
 }

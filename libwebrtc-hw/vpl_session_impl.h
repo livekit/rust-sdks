@@ -1,17 +1,19 @@
-#ifndef SORA_HWENC_VPL_VPL_SESSION_IMPL_H_
-#define SORA_HWENC_VPL_VPL_SESSION_IMPL_H_
+#ifndef ANY_VPL_SESSION_IMPL_H_
+#define ANY_VPL_SESSION_IMPL_H_
 
-#include <iostream>
-
-// Intel VPL
 #include <mfxdispatcher.h>
 #include <mfxvideo++.h>
+#include <va/va.h>
+#include <iostream>
+#include <memory>
+#include <mutex>
 
 namespace any_vpl {
 
 /**
  * @brief Wraps an Intel® VPL session.
- * For now it is a singleton, because it can reduce the overhead of creating a session per encoder and context switching on the GPU.
+ * For now it is a singleton, because having one session can reduce the overhead of creating a session per encoder and context switching on
+ * the GPU.
  *
  */
 class VplSessionSingleton {
@@ -23,23 +25,21 @@ class VplSessionSingleton {
    */
   static std::shared_ptr<VplSessionSingleton> Instance();
 
+  ~VplSessionSingleton();
+
   // Delete copy constructor and assignment operator to prevent copies
   VplSessionSingleton(const VplSessionSingleton&) = delete;
   VplSessionSingleton& operator=(const VplSessionSingleton&) = delete;
 
   /**
-   * @brief Handles all the required initializations for the VPL session.
-   * MFXLoad, which enumerates and initializes all available runtimes
-   * MFXCreateSession, which creates a session for the selected runtime
-   * MFXQueryIMPL, returns the implementation type of a given session
+   * @brief Get the Vpl Session
    *
+   * @return mfxSession The Vpl Session
    */
-  bool Create();
-
-  mfxSession GetSession() const;
+  mfxSession GetVplSession() const;
 
  private:
-  static std::shared_ptr<VplSessionSingleton> instance_{nullptr};
+  static std::shared_ptr<VplSessionSingleton> instance_;
   static std::mutex mutex_;
 
   mfxLoader loader_{nullptr};
@@ -52,7 +52,15 @@ class VplSessionSingleton {
    *
    */
   VplSessionSingleton() = default;
-  ~VplSessionSingleton();
+
+  /**
+   * @brief Handles all the required initializations for the VPL session.
+   * MFXLoad, which enumerates and initializes all available runtimes
+   * MFXCreateSession, which creates a session for the selected runtime
+   * MFXQueryIMPL, returns the implementation type of a given session
+   *
+   */
+  bool Create();
 
   /**
    * @brief If the hardware acceleration goes through the Linux* VA-API infrastructure, this function initializes the VA-API context and
