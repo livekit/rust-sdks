@@ -13,10 +13,62 @@ constexpr char* GPU_RENDER_NODE = "/dev/dri/renderD128";
 
 namespace any_vpl {
 
-std::shared_ptr<VplSessionSingleton> VplSessionSingleton::instance_{nullptr};
-std::mutex VplSessionSingleton::mutex_;
+VplSession::VplSession() {
+  Create();
+}
 
-void VplSessionSingleton::ShowImplementationInfo(mfxU32 implnum) {
+VplSession::~VplSession() {
+  MFXClose(session_);
+  MFXUnload(loader_);
+}
+
+mfxSession VplSession::GetSession() const {
+  return session_;
+}
+
+bool VplSession::Create() {
+  mfxStatus sts = MFX_ERR_NONE;
+
+  loader_ = MFXLoad();
+  if (loader_ == nullptr) {
+    RTC_LOG(LS_ERROR) << "MFXLoad failed";
+    return false;
+  }
+
+  constexpr char* implementationDescription = "mfxImplDescription.Impl";
+  MFX_ADD_PROPERTY_U32(loader_, implementationDescription, MFX_IMPL_TYPE_HARDWARE);
+
+  sts = MFXCreateSession(loader_, 0, &session_);
+  if (sts != MFX_ERR_NONE) {
+    RTC_LOG(LS_ERROR) << "MFXCreateSession failed: sts=" << sts;
+    return false;
+  }
+
+  // Query selected implementation
+  mfxIMPL implementation;
+  sts = MFXQueryIMPL(session_, &implementation);
+  if (sts != MFX_ERR_NONE) {
+    RTC_LOG(LS_ERROR) << "MFXQueryIMPL failed: sts=" << sts;
+    return false;
+  }
+
+  InitAcceleratorHandle(implementation);
+
+  mfxVersion version;
+  sts = MFXQueryVersion(session_, &version);
+  if (sts != MFX_ERR_NONE) {
+    RTC_LOG(LS_ERROR) << "MFXQueryVersion failed: sts=" << sts;
+    return false;
+  }
+
+  RTC_LOG(LS_INFO) << "Intel VPL Implementation: " << (implementation == MFX_IMPL_SOFTWARE ? "SOFTWARE" : "HARDWARE");
+  RTC_LOG(LS_INFO) << "Intel VPL Version: " << version.Major << "." << version.Minor;
+  ShowImplementationInfo(0);
+
+  return true;
+}
+
+void VplSession::ShowImplementationInfo(mfxU32 implnum) {
   mfxImplDescription* idesc = nullptr;
   mfxStatus sts;
   // Loads info about implementation at specified list location
@@ -76,7 +128,7 @@ void VplSessionSingleton::ShowImplementationInfo(mfxU32 implnum) {
 #endif
 }
 
-void VplSessionSingleton::InitAcceleratorHandle(mfxIMPL implementation) {
+void VplSession::InitAcceleratorHandle(mfxIMPL implementation) {
   if ((implementation & MFX_IMPL_VIA_VAAPI) != MFX_IMPL_VIA_VAAPI) {
     return;
   }
@@ -103,66 +155,6 @@ void VplSessionSingleton::InitAcceleratorHandle(mfxIMPL implementation) {
   if (MFXVideoCORE_SetHandle(session_, static_cast<mfxHandleType>(MFX_HANDLE_VA_DISPLAY), vaDisplay_) != MFX_ERR_NONE) {
     RTC_LOG(LS_ERROR) << "Failed to set VA display handle for the VA library to use";
   }
-}
-
-bool VplSessionSingleton::Create() {
-  mfxStatus sts = MFX_ERR_NONE;
-
-  loader_ = MFXLoad();
-  if (loader_ == nullptr) {
-    RTC_LOG(LS_ERROR) << "MFXLoad failed";
-    return false;
-  }
-
-  constexpr char* implementationDescription = "mfxImplDescription.Impl";
-  MFX_ADD_PROPERTY_U32(loader_, implementationDescription, MFX_IMPL_TYPE_HARDWARE);
-
-  sts = MFXCreateSession(loader_, 0, &session_);
-  if (sts != MFX_ERR_NONE) {
-    RTC_LOG(LS_ERROR) << "MFXCreateSession failed: sts=" << sts;
-    return false;
-  }
-
-  // Query selected implementation
-  mfxIMPL implementation;
-  sts = MFXQueryIMPL(session_, &implementation);
-  if (sts != MFX_ERR_NONE) {
-    RTC_LOG(LS_ERROR) << "MFXQueryIMPL failed: sts=" << sts;
-    return false;
-  }
-
-  InitAcceleratorHandle(implementation);
-
-  mfxVersion version;
-  sts = MFXQueryVersion(session_, &version);
-  if (sts != MFX_ERR_NONE) {
-    RTC_LOG(LS_ERROR) << "MFXQueryVersion failed: sts=" << sts;
-    return false;
-  }
-
-  RTC_LOG(LS_INFO) << "Intel VPL Implementation: " << (implementation == MFX_IMPL_SOFTWARE ? "SOFTWARE" : "HARDWARE");
-  RTC_LOG(LS_INFO) << "Intel VPL Version: " << version.Major << "." << version.Minor;
-  ShowImplementationInfo(0);
-
-  return true;
-}
-
-mfxSession VplSessionSingleton::GetVplSession() const {
-  return session_;
-}
-
-std::shared_ptr<VplSessionSingleton> VplSessionSingleton::Instance() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (instance_ == nullptr) {
-    instance_ = std::shared_ptr<VplSessionSingleton>(new VplSessionSingleton());
-    Create();
-  }
-  return instance_;
-}
-
-VplSessionSingleton::~VplSessionSingleton() {
-  MFXClose(session_);
-  MFXUnload(loader_);
 }
 
 }  // namespace any_vpl
