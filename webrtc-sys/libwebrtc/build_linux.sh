@@ -103,11 +103,13 @@ args="is_debug=$debug  \
   use_rtti=true \
   rtc_use_x11=false"
 
+release_debug_symbols="false"
+
 if [ "$debug" = "true" ]; then
   args="${args} is_asan=true is_lsan=true";
-else
-  # Ensure release builds also include debug symbols. Uncomment this section only for profiling purposes
-  # args="${args} is_debug=false symbol_level=2"
+elif [ "$release_debug_symbols" = "true" ]; then
+  # Only for profiling purposes
+  args="${args} is_debug=false symbol_level=2"
 fi
 
 # generate ninja files
