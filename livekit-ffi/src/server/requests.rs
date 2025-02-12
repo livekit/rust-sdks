@@ -282,7 +282,8 @@ fn on_create_video_track(
 
     let handle_id = server.next_id();
     let video_track = LocalVideoTrack::create_video_track(&create.name, source);
-    let ffi_track = FfiTrack { handle: handle_id, track: Track::LocalVideo(video_track) };
+    let ffi_track =
+        FfiTrack { handle: handle_id, track: Track::LocalVideo(video_track), room_handle: None };
 
     let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
@@ -307,7 +308,8 @@ fn on_create_audio_track(
 
     let handle_id = server.next_id();
     let audio_track = LocalAudioTrack::create_audio_track(&create.name, source);
-    let ffi_track = FfiTrack { handle: handle_id, track: Track::LocalAudio(audio_track) };
+    let ffi_track =
+        FfiTrack { handle: handle_id, track: Track::LocalAudio(audio_track), room_handle: None };
     let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
 
@@ -926,7 +928,7 @@ fn on_load_audio_filter_plugin(
     request: proto::LoadAudioFilterPluginRequest,
 ) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
     let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
-    let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps, &request.options)
+    let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps)
         .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
 
     let handle_id = server.next_id();

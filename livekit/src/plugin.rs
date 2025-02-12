@@ -9,11 +9,14 @@ use std::{
 use futures_util::Stream;
 use libloading::{Library, Symbol};
 use libwebrtc::{audio_stream::native::NativeAudioStream, prelude::AudioFrame};
+use serde_json::json;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PluginError {
     #[error("dylib error: {0}")]
     Library(#[from] libloading::Error),
+    #[error("dylib error: {0}")]
+    NotImplemented(String),
     #[error("on_load failed with error: {0}")]
     OnLoad(i32),
 }
@@ -63,14 +66,29 @@ impl AudioFilterPlugin {
         let create_fn_ptr = unsafe {
             lib.get::<Symbol<CreateFn>>(b"audio_filter_create")?.try_as_raw_ptr().unwrap()
         };
+        if create_fn_ptr.is_null() {
+            return Err(PluginError::NotImplemented(
+                "audio_filter_create is not implemented".into(),
+            ));
+        }
         let destroy_fn_ptr = unsafe {
             lib.get::<Symbol<DestroyFn>>(b"audio_filter_destroy")?.try_as_raw_ptr().unwrap()
         };
+        if destroy_fn_ptr.is_null() {
+            return Err(PluginError::NotImplemented(
+                "audio_filter_destroy is not implemented".into(),
+            ));
+        }
         let process_i16_fn_ptr = unsafe {
             lib.get::<Symbol<ProcessI16Fn>>(b"audio_filter_process_int16")?
                 .try_as_raw_ptr()
                 .unwrap()
         };
+        if process_i16_fn_ptr.is_null() {
+            return Err(PluginError::NotImplemented(
+                "audio_filter_process_int16 is not implemented".into(),
+            ));
+        }
         let process_f32_fn_ptr = unsafe {
             lib.get::<Symbol<ProcessF32Fn>>(b"audio_filter_process_float")?
                 .try_as_raw_ptr()
@@ -88,13 +106,22 @@ impl AudioFilterPlugin {
         })
     }
 
-    pub fn on_load<S: AsRef<str>>(&self, options: S) -> Result<(), PluginError> {
+    pub fn on_load<S: AsRef<str>>(&self, url: S, token: S) -> Result<(), PluginError> {
         if self.on_load_fn_ptr.is_null() {
             // on_load is optional function
             return Ok(());
         }
 
-        let options = CString::new(options.as_ref()).unwrap_or(CString::new("").unwrap());
+        let options_json = json!({
+            "url": url.as_ref().to_string(),
+            "token": token.as_ref().to_string(),
+        });
+        let options = serde_json::to_string(&options_json).map_err(|e| {
+            eprintln!("failed to serialize option: {}", e);
+            PluginError::OnLoad(-1)
+        })?;
+
+        let options = CString::new(options).unwrap_or(CString::new("").unwrap());
         let on_load_fn: OnLoadFn = unsafe { std::mem::transmute(self.on_load_fn_ptr) };
 
         let res = unsafe { on_load_fn(options.as_ptr()) };

@@ -21,6 +21,8 @@ use livekit::AudioFilterAudioStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::audio_plugin::{AudioStreamKind, FfiAudioFilterPlugin};
+use super::participant::FfiParticipant;
+use super::room::FfiRoom;
 use super::{room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -57,7 +59,21 @@ impl FfiAudioStream {
         };
 
         let audio_filter = match new_stream.audio_filter_handle {
-            Some(h) => Some(server.retrieve_handle::<FfiAudioFilterPlugin>(h)?.clone()),
+            Some(h) => {
+                // check room has filter
+                let Some(room_handle) = ffi_track.room_handle else {
+                    return Err(FfiError::InvalidRequest(
+                        "this track has no room information".into(),
+                    ));
+                };
+                let room = server.retrieve_handle::<FfiRoom>(room_handle)?.clone();
+                if !room.inner.has_filter(h) {
+                    return Err(FfiError::InvalidRequest(
+                        "the audio filter wasn't associated with the room".into(),
+                    ));
+                }
+                Some(server.retrieve_handle::<FfiAudioFilterPlugin>(h)?.clone())
+            }
             None => None,
         };
 
@@ -120,7 +136,16 @@ impl FfiAudioStream {
         let stream_type = request.r#type();
 
         let audio_filter = match request.audio_filter_handle {
-            Some(h) => Some(server.retrieve_handle::<FfiAudioFilterPlugin>(h)?.clone()),
+            Some(h) => {
+                let p =
+                    server.retrieve_handle::<FfiParticipant>(request.participant_handle)?.clone();
+                if !p.room.has_filter(h) {
+                    return Err(FfiError::InvalidRequest(
+                        "the audio filter wasn't associated with the room".into(),
+                    ));
+                }
+                Some(server.retrieve_handle::<FfiAudioFilterPlugin>(h)?.clone())
+            }
             None => None,
         };
 

@@ -2625,6 +2625,8 @@ pub struct RoomOptions {
     pub rtc_config: ::core::option::Option<RtcConfig>,
     #[prost(uint32, optional, tag="6")]
     pub join_retries: ::core::option::Option<u32>,
+    #[prost(uint64, repeated, packed="false", tag="7")]
+    pub audio_filter_handles: ::prost::alloc::vec::Vec<u64>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3768,9 +3770,6 @@ pub struct LoadAudioFilterPluginRequest {
     /// Optional: paths for dependency dylibs
     #[prost(string, repeated, tag="2")]
     pub dependencies: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// JSON string options that is passed to on_load plugin function
-    #[prost(string, required, tag="3")]
-    pub options: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -292,6 +292,7 @@ message RoomOptions {
   optional E2eeOptions e2ee = 4;
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
   optional uint32 join_retries = 6;
+  repeated uint64 audio_filter_handles = 7;
 }
 
 //
