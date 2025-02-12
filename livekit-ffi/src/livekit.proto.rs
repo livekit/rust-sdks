@@ -2611,6 +2611,15 @@ pub struct RtcConfig {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AudioFilterModule {
+    /// unique identifier for audio filter
+    #[prost(string, required, tag="1")]
+    pub module_id: ::prost::alloc::string::String,
+    #[prost(uint64, required, tag="2")]
+    pub handle_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomOptions {
     #[prost(bool, optional, tag="1")]
     pub auto_subscribe: ::core::option::Option<bool>,
@@ -2625,8 +2634,8 @@ pub struct RoomOptions {
     pub rtc_config: ::core::option::Option<RtcConfig>,
     #[prost(uint32, optional, tag="6")]
     pub join_retries: ::core::option::Option<u32>,
-    #[prost(uint64, repeated, packed="false", tag="7")]
-    pub audio_filter_handles: ::prost::alloc::vec::Vec<u64>,
+    #[prost(message, repeated, tag="7")]
+    pub audio_filter_handles: ::prost::alloc::vec::Vec<AudioFilterModule>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3433,8 +3442,8 @@ pub struct NewAudioStreamRequest {
     pub sample_rate: ::core::option::Option<u32>,
     #[prost(uint32, optional, tag="4")]
     pub num_channels: ::core::option::Option<u32>,
-    #[prost(uint64, optional, tag="5")]
-    pub audio_filter_handle: ::core::option::Option<u64>,
+    #[prost(string, optional, tag="5")]
+    pub audio_filter_module_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="6")]
     pub audio_filter_options: ::core::option::Option<::prost::alloc::string::String>,
 }
@@ -3457,8 +3466,8 @@ pub struct AudioStreamFromParticipantRequest {
     pub sample_rate: ::core::option::Option<u32>,
     #[prost(uint32, optional, tag="6")]
     pub num_channels: ::core::option::Option<u32>,
-    #[prost(uint64, optional, tag="7")]
-    pub audio_filter_handle: ::core::option::Option<u64>,
+    #[prost(string, optional, tag="7")]
+    pub audio_filter_module_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="8")]
     pub audio_filter_options: ::core::option::Option<::prost::alloc::string::String>,
 }

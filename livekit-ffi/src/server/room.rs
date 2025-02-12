@@ -73,7 +73,7 @@ pub struct RoomInner {
     // Used to forward RPC method invocation to the FfiClient and collect their results
     rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 
-    audio_filter_handles: Mutex<Vec<FfiHandleId>>,
+    audio_filter_handles: Arc<HashMap<String, FfiHandleId>>,
 }
 
 struct Handle {
@@ -130,35 +130,37 @@ impl FfiRoom {
 
         let connect = async move {
             // initialize audio filter
-            let audio_filter_handles = req.options.audio_filter_handles.clone();
-            let result = server
+            let audio_filter_handles = server
                 .async_runtime
                 .spawn_blocking(move || {
-                    for &handle in req.options.audio_filter_handles.iter() {
+                    let mut handles = HashMap::new();
+                    for h in req.options.audio_filter_handles.iter() {
                         let filter = server
-                            .retrieve_handle::<FfiAudioFilterPlugin>(handle)
+                            .retrieve_handle::<FfiAudioFilterPlugin>(h.handle_id)
                             .map_err(|e| e.to_string())?
                             .clone();
-                        filter.plugin.on_load(&req.url, &req.token).map_err(|e| e.to_string())?
+                        filter.plugin.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
+                        handles.insert(h.module_id.clone(), h.handle_id);
                     }
-                    Ok::<(), String>(())
+                    Ok::<HashMap<String, FfiHandleId>, String>(handles)
                 })
-                .await;
-            let err = match result {
-                Err(err) => Some(err.to_string()),
-                Ok(Err(err)) => Some(err),
-                _ => None,
+                .await
+                .map_err(|e| e.to_string());
+
+            let audio_filter_handles = match audio_filter_handles {
+                Err(e) | Ok(Err(e)) => {
+                    log::error!("error while initializing audio filter: {}", e);
+                    let _ = server.send_event(proto::ffi_event::Message::Connect(
+                        proto::ConnectCallback {
+                            async_id,
+                            message: Some(proto::connect_callback::Message::Error(e.to_string())),
+                            ..Default::default()
+                        },
+                    ));
+                    return;
+                }
+                Ok(Ok(handles)) => Arc::new(handles),
             };
-            if let Some(e) = err {
-                log::error!("error while initializing audio filter: {}", e);
-                let _ =
-                    server.send_event(proto::ffi_event::Message::Connect(proto::ConnectCallback {
-                        async_id,
-                        message: Some(proto::connect_callback::Message::Error(e.to_string())),
-                        ..Default::default()
-                    }));
-                return;
-            }
 
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
@@ -186,7 +188,7 @@ impl FfiRoom {
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
                         rpc_method_invocation_waiters: Default::default(),
-                        audio_filter_handles: Mutex::new(audio_filter_handles),
+                        audio_filter_handles,
                     });
 
                     let (local_info, remote_infos) =
@@ -841,8 +843,18 @@ impl RoomInner {
         proto::SetTrackSubscriptionPermissionsResponse {}
     }
 
-    pub fn has_filter(&self, filter_handle: FfiHandleId) -> bool {
-        self.audio_filter_handles.lock().iter().any(|&h| h == filter_handle)
+    pub fn audio_filter_handle<S: AsRef<str>>(
+        &self,
+        server: &'static FfiServer,
+        module_id: S,
+    ) -> Option<FfiAudioFilterPlugin> {
+        let Some(&handle_id) = self.audio_filter_handles.get(module_id.as_ref()) else {
+            return None;
+        };
+        let Some(plugin) = server.retrieve_handle::<FfiAudioFilterPlugin>(handle_id).ok() else {
+            return None;
+        };
+        Some(plugin.clone())
     }
 }
 

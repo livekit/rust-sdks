@@ -285,6 +285,11 @@ message RtcConfig {
   repeated IceServer ice_servers = 3; // empty fallback to default
 }
 
+message AudioFilterModule {
+  required string module_id = 1; // unique identifier for audio filter
+  required uint64 handle_id = 2;
+}
+
 message RoomOptions {
   optional bool auto_subscribe = 1;
   optional bool adaptive_stream = 2;
@@ -292,7 +297,7 @@ message RoomOptions {
   optional E2eeOptions e2ee = 4;
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
   optional uint32 join_retries = 6;
-  repeated uint64 audio_filter_handles = 7;
+  repeated AudioFilterModule audio_filter_handles = 7;
 }
 
 //

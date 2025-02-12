@@ -58,8 +58,8 @@ impl FfiAudioStream {
             return Err(FfiError::InvalidRequest("not an audio track".into()));
         };
 
-        let audio_filter = match new_stream.audio_filter_handle {
-            Some(h) => {
+        let audio_filter = match &new_stream.audio_filter_module_id {
+            Some(module_id) => {
                 // check room has filter
                 let Some(room_handle) = ffi_track.room_handle else {
                     return Err(FfiError::InvalidRequest(
@@ -67,12 +67,12 @@ impl FfiAudioStream {
                     ));
                 };
                 let room = server.retrieve_handle::<FfiRoom>(room_handle)?.clone();
-                if !room.inner.has_filter(h) {
+                let Some(filter) = room.inner.audio_filter_handle(server, module_id) else {
                     return Err(FfiError::InvalidRequest(
                         "the audio filter wasn't associated with the room".into(),
                     ));
-                }
-                Some(server.retrieve_handle::<FfiAudioFilterPlugin>(h)?.clone())
+                };
+                Some(filter)
             }
             None => None,
         };
@@ -135,16 +135,16 @@ impl FfiAudioStream {
         let handle_id = server.next_id();
         let stream_type = request.r#type();
 
-        let audio_filter = match request.audio_filter_handle {
-            Some(h) => {
+        let audio_filter = match &request.audio_filter_module_id {
+            Some(module_id) => {
                 let p =
                     server.retrieve_handle::<FfiParticipant>(request.participant_handle)?.clone();
-                if !p.room.has_filter(h) {
+                let Some(filter) = p.room.audio_filter_handle(server, module_id) else {
                     return Err(FfiError::InvalidRequest(
                         "the audio filter wasn't associated with the room".into(),
                     ));
-                }
-                Some(server.retrieve_handle::<FfiAudioFilterPlugin>(h)?.clone())
+                };
+                Some(filter)
             }
             None => None,
         };
