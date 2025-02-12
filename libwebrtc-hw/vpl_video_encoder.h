@@ -18,21 +18,32 @@ namespace any_vpl {
  */
 class VplVideoEncoder : public webrtc::VideoEncoder {
  public:
+  /**
+   * @brief Construct a new Vpl Video Encoder object
+   *
+   * @param session A Vpl session
+   * @param codec The codec to use
+   */
   VplVideoEncoder(std::shared_ptr<VplSession> session, webrtc::VideoCodecType codec);
-  ~VplVideoEncoder() override;
+  virtual ~VplVideoEncoder() override;
 
-  int32_t InitEncode(const webrtc::VideoCodec* codec_settings, int32_t number_of_cores, size_t max_payload_size) override;
+  // webrtc::VideoEncoder overrides
+  int32_t InitEncode(const webrtc::VideoCodec* codecSettings, int32_t numberOfCores, size_t maxPayloadSize) override;
   int32_t RegisterEncodeCompleteCallback(webrtc::EncodedImageCallback* callback) override;
   int32_t Release() override;
-  int32_t Encode(const webrtc::VideoFrame& frame, const std::vector<webrtc::VideoFrameType>* frame_types) override;
+  int32_t Encode(const webrtc::VideoFrame& frame, const std::vector<webrtc::VideoFrameType>* frameTypes) override;
   void SetRates(const RateControlParameters& parameters) override;
   webrtc::VideoEncoder::EncoderInfo GetEncoderInfo() const override;
 
  private:
+  /**
+   * @brief Struct that aggregates variables for setting additional options for encoding
+   *
+   */
   struct ExtBuffer {
-    mfxExtBuffer* ext_buffers[10];
-    mfxExtCodingOption ext_coding_option;
-    mfxExtCodingOption2 ext_coding_option2;
+    mfxExtBuffer* extBuffers[2];
+    mfxExtCodingOption extCodingOption;
+    mfxExtCodingOption2 extCodingOption2;
   };
 
   std::mutex mutex_;
@@ -60,14 +71,22 @@ class VplVideoEncoder : public webrtc::VideoEncoder {
   mfxBitstream bitstream_;
   mfxFrameInfo frameInfo_;
 
-  int key_frame_interval_ = 0;
+  int keyFrameInterval_ = 0;
 
+  /**
+   * @brief Helper method to execute a query
+   *
+   * @param param Configuration parameters for encoding
+   * @return mfxStatus MFX_ERR_NONE if successful, otherwise an error/warning code
+   */
   mfxStatus ExecQuery(mfxVideoParam& param);
 
   /**
    * @brief Tries queries in various patterns and returns the param when successful
    *
-   * @return mfxStatus
+   * @param param Configuration parameters for encoding
+   * @param ext Additional options for encoding
+   * @return mfxStatus MFX_ERR_NONE if successful, otherwise an error/warning code
    */
   mfxStatus ExecQueries(mfxVideoParam& param, ExtBuffer& ext);
 
