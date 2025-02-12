@@ -17,6 +17,7 @@
     }                                                  \
   }
 
+#define ALIGN16(value) (((value + 15) >> 4) << 4)
 namespace any_vpl {
 
 static mfxU32 ToMfxCodec(webrtc::VideoCodecType codec) {
