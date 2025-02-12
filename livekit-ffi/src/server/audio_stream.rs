@@ -17,7 +17,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use livekit::AudioFilterAudioStream;
+use livekit::{AudioFilterAudioStream, AudioFilterSession};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::audio_plugin::{AudioStreamKind, FfiAudioFilterPlugin};
@@ -90,10 +90,14 @@ impl FfiAudioStream {
                     NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
 
                 let stream = if let Some(audio_filter) = &audio_filter {
-                    let session = audio_filter.plugin.clone().new_session(
+                    let Some(session) = audio_filter.plugin.clone().new_session(
                         sample_rate,
                         new_stream.audio_filter_options.unwrap_or("".into()),
-                    );
+                    ) else {
+                        return Err(FfiError::InvalidRequest(
+                            "audio filter is not initialized".into(),
+                        ));
+                    };
                     let stream = AudioFilterAudioStream::new(
                         native_stream,
                         session,
@@ -135,7 +139,7 @@ impl FfiAudioStream {
         let handle_id = server.next_id();
         let stream_type = request.r#type();
 
-        let audio_filter = match &request.audio_filter_module_id {
+        let audio_filter_session = match &request.audio_filter_module_id {
             Some(module_id) => {
                 let p =
                     server.retrieve_handle::<FfiParticipant>(request.participant_handle)?.clone();
@@ -144,7 +148,11 @@ impl FfiAudioStream {
                         "the audio filter wasn't associated with the room".into(),
                     ));
                 };
-                Some(filter)
+
+                filter.plugin.new_session(
+                    request.sample_rate.unwrap_or(48000),
+                    request.audio_filter_options.clone().unwrap_or("".into()),
+                )
             }
             None => None,
         };
@@ -159,7 +167,7 @@ impl FfiAudioStream {
                     request,
                     handle_id,
                     self_dropped_rx,
-                    audio_filter,
+                    audio_filter_session,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -179,7 +187,7 @@ impl FfiAudioStream {
         request: proto::AudioStreamFromParticipantRequest,
         stream_handle: FfiHandleId,
         mut self_dropped_rx: oneshot::Receiver<()>,
-        audio_filter: Option<FfiAudioFilterPlugin>,
+        mut audio_filter_session: Option<AudioFilterSession>,
     ) {
         let ffi_participant =
             utils::ffi_participant_from_handle(server, request.participant_handle);
@@ -232,11 +240,7 @@ impl FfiAudioStream {
 
                 let native_stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
 
-                let stream = if let Some(audio_filter) = &audio_filter {
-                    let session = audio_filter.plugin.clone().new_session(
-                        sample_rate as u32,
-                        request.audio_filter_options.clone().unwrap_or("".into()),
-                    );
+                let stream = if let Some(session) = audio_filter_session.take() {
                     let stream = AudioFilterAudioStream::new(
                         native_stream,
                         session,

@@ -136,13 +136,16 @@ impl AudioFilterPlugin {
         self: Arc<Self>,
         sampling_rate: u32,
         options: S,
-    ) -> AudioFilterSession {
+    ) -> Option<AudioFilterSession> {
         let create_fn: CreateFn = unsafe { std::mem::transmute(self.create_fn_ptr) };
 
         let options = CString::new(options.as_ref()).unwrap_or(CString::new("").unwrap());
         let ptr = unsafe { create_fn(sampling_rate, options.as_ptr()) };
+        if ptr.is_null() {
+            return None;
+        }
 
-        AudioFilterSession { plugin: self.clone(), ptr }
+        Some(AudioFilterSession { plugin: self.clone(), ptr })
     }
 }
 
