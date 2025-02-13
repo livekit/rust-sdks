@@ -6,12 +6,13 @@ During initialization of WebRTC encoders it is checked whether HW acceleration i
 To make use of the accelerated version of WebRTC, we need to build Livekit from source. To achieve this we need to execute the `/webrtc-sys/libwebrtc/build_linux.sh`. This script checks if the WebRTC repository has already been cloned locally. If not, it fetches it, along with all each submodules and applies some Livekit patches on it. Livekit uses a certain WebRTC version, and not the latest one.
 To fetch and build WebRTC:
 ```
-./build_linux.sh --profile release
+./build_linux.sh --arch x64 --profile release
 ```
 In case WebRTC is already present locally, after executing the above script, some warning will be shown regarding the failure of Livekit patches. That's because the patches have already been applied.
-Once WebRTC is present locally, we can apply our patches:
+Once WebRTC is present locally, we can apply our patches. Navigate to the root of the repository and execute:
 
 ```
+apply_vpl_patches.sh
 ```
 
 The implementation of the accelerated encoder is part of the Rust SDK repo, which we have forked, and it is under `libwebrtc-hw`. Ideally the implementation would be part of the WebRTC repository, but it is more complicated. WebRTC repository is huge and includes a lot of sub-modules, which we would have to fork. For now, Rust SDK repository has all the required changes to use Livekit with accelerated encoding.
@@ -45,7 +46,7 @@ The above values are indicative.
 ## Updating patches
 To update the patches, navigate to `webrtc-sys/libwebrtc/src` and execute
 ```
-git diff original_commit new_commit --src-prefix=org/ --dst-prefix=update/ ./path/file > ./../../../libwebrtc-patches/file.patch
+git diff original_commit new_commit --src-prefix=org/webrtc-sys/libwebrtc/src/ --dst-prefix=update/webrtc-sys/libwebrtc/src/ ./path/file > ./../../../libwebrtc-patches/file.patch
 ```
 
 ## Developing and testing
