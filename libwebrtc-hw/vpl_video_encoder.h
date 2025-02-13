@@ -8,7 +8,7 @@
 #include <api/video_codecs/video_encoder.h>
 #include <common_video/h264/h264_bitstream_parser.h>
 #include <common_video/include/bitrate_adjuster.h>
-#include "vpl_session_impl.h"
+#include "vpl_session.h"
 
 namespace any_vpl {
 
