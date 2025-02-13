@@ -1,32 +1,22 @@
 diff --git org/modules/video_coding/BUILD.gn update/modules/video_coding/BUILD.gn
-index 7cb713b..16e3513 100644
+index 7cb713b..3e05ee2 100644
 --- org/modules/video_coding/BUILD.gn
 +++ update/modules/video_coding/BUILD.gn
-@@ -466,9 +466,33 @@ rtc_library("webrtc_h264") {
+@@ -466,9 +466,23 @@ rtc_library("webrtc_h264") {
      "codecs/h264/h264_encoder_impl.cc",
      "codecs/h264/h264_encoder_impl.h",
      "codecs/h264/include/h264.h",
 +    "../../../../../libwebrtc-hw/vpl_video_encoder.h",
 +    "../../../../../libwebrtc-hw/vpl_video_encoder.cpp",
 +    "../../../../../libwebrtc-hw/vpl_utils.h",
++    "../../../../../libwebrtc-hw/vpl_utils.cpp",
 +    "../../../../../libwebrtc-hw/vpl_session.h",
-+    "../../../../../libwebrtc-hw/vpl_session_impl.h",
-+    "../../../../../libwebrtc-hw/vpl_session_impl.cpp"
-+  ]
++    "../../../../../libwebrtc-hw/vpl_session.cpp"
++  ] 
 +
 +  include_dirs = [
 +    "../../../../../", # Include the hw encoder implementation
-+    #"/usr/include/mfx",
 +    "/home/integration/libvpl/api/vpl/" # Include rest of the vpl headers from libvpl
-+  ]
-+
-+  defines = [
-+    "LIBVA_SUPPORT",  # Enable hardware support if applicable
-+  ]
-+
-+  libs = [
-+    "va",
-+    "vpl_dispatcher"
 +  ]
 +
 +  lib_dirs = [

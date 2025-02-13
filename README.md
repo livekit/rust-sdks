@@ -1,3 +1,17 @@
+# ANYbotics forked version of LiveKit Rust SDK
+The Rust SDK is using the Google WebRTC repository.
+The Rust SDK repository has been modified for patching WebRTC. The patches add support for accelerating the encoding process on Intel GPUs, by utilizing the libvpl, vaapi and one of the two Intel GPU runtimes (MediaSDK or Intel VPL GPU RT).
+During initialization of WebRTC encoders it is checked whether HW acceleration is possible and if HW acceleration was initialized successfuly. If so, the HW accelerated encoder will take place automatically. Otherwise, the software implementation is used.
+
+To make use of the accelerated version of WebRTC, we need to build Livekit from source.
+To do this we need to execute the
+
+## Updating patches
+To update the patches, navigate to `webrtc-sys/libwebrtc/src` and execute
+```
+git diff original_commit new_commit --src-prefix=org/ --dst-prefix=update/ ./path/file > ./../../../libwebrtc-patches/file.patch
+```
+
 <!--BEGIN_BANNER_IMAGE-->
 
 <picture>
