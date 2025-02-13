@@ -16,8 +16,17 @@ namespace any_vpl {
  */
 class VplSession {
  public:
-  VplSession();
+  VplSession() = default;
   ~VplSession();
+
+  /**
+   * @brief Handles all the required initializations for the VPL session.
+   * MFXLoad, which enumerates and initializes all available runtimes
+   * MFXCreateSession, which creates a session for the selected runtime
+   * MFXQueryIMPL, returns the implementation type of a given session
+   *
+   */
+  bool Initialize();
 
   /**
    * @brief Get the Vpl Session
@@ -31,15 +40,6 @@ class VplSession {
   mfxSession session_{nullptr};
   int accelratorFD_{0};
   VADisplay vaDisplay_{nullptr};
-
-  /**
-   * @brief Handles all the required initializations for the VPL session.
-   * MFXLoad, which enumerates and initializes all available runtimes
-   * MFXCreateSession, which creates a session for the selected runtime
-   * MFXQueryIMPL, returns the implementation type of a given session
-   *
-   */
-  bool Create();
 
   /**
    * @brief If the hardware acceleration goes through the Linux* VA-API infrastructure, this function initializes the VA-API context and

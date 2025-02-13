@@ -13,10 +13,6 @@ constexpr char* GPU_RENDER_NODE = "/dev/dri/renderD128";
 
 namespace any_vpl {
 
-VplSession::VplSession() {
-  Create();
-}
-
 VplSession::~VplSession() {
   MFXClose(session_);
   MFXUnload(loader_);
@@ -26,7 +22,7 @@ mfxSession VplSession::GetSession() const {
   return session_;
 }
 
-bool VplSession::Create() {
+bool VplSession::Initialize() {
   mfxStatus sts = MFX_ERR_NONE;
 
   loader_ = MFXLoad();

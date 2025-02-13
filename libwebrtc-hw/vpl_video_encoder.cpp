@@ -21,7 +21,6 @@
 // libyuv
 #include <libyuv.h>
 
-#include "vpl_session_impl.h"
 #include "vpl_utils.h"
 
 namespace {
