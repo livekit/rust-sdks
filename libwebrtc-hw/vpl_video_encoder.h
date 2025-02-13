@@ -24,7 +24,7 @@ class VplVideoEncoder : public webrtc::VideoEncoder {
    * @param session A Vpl session
    * @param codec The codec to use
    */
-  VplVideoEncoder(std::shared_ptr<VplSession> session, webrtc::VideoCodecType codec);
+  VplVideoEncoder(webrtc::VideoCodecType codec);
   virtual ~VplVideoEncoder() override;
 
   // webrtc::VideoEncoder overrides
@@ -62,7 +62,7 @@ class VplVideoEncoder : public webrtc::VideoEncoder {
   std::vector<uint8_t> surfaceBuffer_;
   std::vector<mfxFrameSurface1> surfaces_;
 
-  std::shared_ptr<VplSession> session_;
+  std::unique_ptr<VplSession> session_;
   mfxU32 codec_;
   webrtc::BitrateAdjuster bitrateAdjuster_;
   mfxFrameAllocRequest allocRequest_;

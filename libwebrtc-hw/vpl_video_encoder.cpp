@@ -32,8 +32,8 @@ constexpr float MAX_ADJUSTED_BITRATE_PERCENTAGE = 0.95;
 
 namespace any_vpl {
 
-VplVideoEncoder::VplVideoEncoder(std::shared_ptr<VplSession> session, webrtc::VideoCodecType codec)
-    : session_(session), codec_(ToMfxCodec(codec)), bitrateAdjuster_(MIN_ADJUSTED_BITRATE_PERCENTAGE, MAX_ADJUSTED_BITRATE_PERCENTAGE) {}
+VplVideoEncoder::VplVideoEncoder(webrtc::VideoCodecType codec)
+    : codec_(ToMfxCodec(codec)), bitrateAdjuster_(MIN_ADJUSTED_BITRATE_PERCENTAGE, MAX_ADJUSTED_BITRATE_PERCENTAGE) {}
 
 VplVideoEncoder::~VplVideoEncoder() {
   Release();
@@ -221,6 +221,17 @@ mfxStatus VplVideoEncoder::ExecQueries(mfxVideoParam& param, ExtBuffer& ext) {
 
 int32_t VplVideoEncoder::InitEncode(const webrtc::VideoCodec* codecSettings, int32_t /*numberOfCores*/, size_t /*maxPayloadSize*/) {
   RTC_DCHECK(codecSettings);
+
+  session_.reset();
+  session_ = std::make_unique<VplSession>();
+  if (!session_) {
+    RTC_LOG(LS_ERROR) << "Failed to create VplSession";
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+  if (!session_->Initialize()) {
+    RTC_LOG(LS_ERROR) << "Failed to initialize VplSession";
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
 
   Release();
 
