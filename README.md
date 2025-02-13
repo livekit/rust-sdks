@@ -1,10 +1,46 @@
 # ANYbotics forked version of LiveKit Rust SDK
-The Rust SDK is using the Google WebRTC repository.
-The Rust SDK repository has been modified for patching WebRTC. The patches add support for accelerating the encoding process on Intel GPUs, by utilizing the libvpl, vaapi and one of the two Intel GPU runtimes (MediaSDK or Intel VPL GPU RT).
+The Rust SDK is using the Google WebRTC repository. The Rust SDK repository has been modified for patching WebRTC. The patches add support for accelerating the encoding process on Intel GPUs, by utilizing the libvpl, vaapi and one of the two Intel GPU runtimes (MediaSDK or Intel VPL GPU RT).
 During initialization of WebRTC encoders it is checked whether HW acceleration is possible and if HW acceleration was initialized successfuly. If so, the HW accelerated encoder will take place automatically. Otherwise, the software implementation is used.
+**Note**: The design that includes the accelerated encoder implementation is not ideal, however the goal was to modify the Livekit stack as less as possible.
 
-To make use of the accelerated version of WebRTC, we need to build Livekit from source.
-To do this we need to execute the
+To make use of the accelerated version of WebRTC, we need to build Livekit from source. To achieve this we need to execute the `/webrtc-sys/libwebrtc/build_linux.sh`. This script checks if the WebRTC repository has already been cloned locally. If not, it fetches it, along with all each submodules and applies some Livekit patches on it. Livekit uses a certain WebRTC version, and not the latest one.
+To fetch and build WebRTC:
+```
+./build_linux.sh --profile release
+```
+In case WebRTC is already present locally, after executing the above script, some warning will be shown regarding the failure of Livekit patches. That's because the patches have already been applied.
+Once WebRTC is present locally, we can apply our patches:
+
+```
+```
+
+The implementation of the accelerated encoder is part of the Rust SDK repo, which we have forked, and it is under `libwebrtc-hw`. Ideally the implementation would be part of the WebRTC repository, but it is more complicated. WebRTC repository is huge and includes a lot of sub-modules, which we would have to fork. For now, Rust SDK repository has all the required changes to use Livekit with accelerated encoding.
+
+Once we have WebRTC patched and built, a static library is generated. The next step is to build the Rust part and link it against the generated static library.
+Under the root folder execute:
+```
+cargo clean
+cargo build --release
+```
+Whenever we build again WebRTC, we need to do a cargo clean and rebuild.
+At this point a `liblivekit_ffi.so` has been generated, and our application needs to make use of it, to have our accelerated version. To achieve this, we need to expose its path to an environment variable. Along with this environment variable, we need to expose a couple of other ones as well and the application should start in a context that can parse them:
+```
+export LIVEKIT_URL=wss://192.168.0.6/webrtc/
+export LIVEKIT_API_KEY=ads-admin
+export LIVEKIT_API_SECRET=livekit-server-secret-for-ads-server
+export LIVEKIT_LIB_PATH="/home/integration/gpu_acceleration_ws/anybotics-python-sdks/livekit-rtc/rust-sdks/target/release/liblivekit_ffi.so"
+export LD_LIBRARY_PATH=/home/integration/libvpl/_build:$LD_LIBRARY_PATH
+export LIBVA_DRIVER_NAME=iHD
+export LIBVA_DRIVERS_PATH=/home/integration/media-driver-workspace/build_media/media_driver
+```
+The above values are indicative.
+**LIVEKIT_URL** should include the IP of the desired pc.
+**LIVEKIT_API_KEY** and **LIVEKIT_API_SECRET** are the ones that we use to generate a token.
+**LIVEKIT_LIB_PATH** should be set accordingly, depending on where we have install the `liblivekit_ffi.so`.
+**LD_LIBRARY_PATH** exposes the Intel libvpl and we need to set the path to the installed location.
+**LIBVA_DRIVER_NAME** indicates the Intel driver. iHD is the appropriate one for our HW on anymal D.
+**LIBVA_DRIVERS_PATH** exposes the path in which we have installed the Intel runtimes (MediaSDK or Intel® VPL)
+
 
 ## Updating patches
 To update the patches, navigate to `webrtc-sys/libwebrtc/src` and execute
@@ -12,15 +48,32 @@ To update the patches, navigate to `webrtc-sys/libwebrtc/src` and execute
 git diff original_commit new_commit --src-prefix=org/ --dst-prefix=update/ ./path/file > ./../../../libwebrtc-patches/file.patch
 ```
 
-<!--BEGIN_BANNER_IMAGE-->
+## Developing and testing
+If the development takes place on a PC, we need to start a local server with
+```
+livekit-server --dev
+```
+Use the Livekit web client to receive the stream
+```
+https://meet.livekit.io/?tab=custom
+```
+Add the required URL of the server.
+In case we test on a PC, use the loopback IP
+```
+ws://localhost:7880
+```
+In case we test on an anymal use the corresponding IP. The example below is from dobby:
+```
+wss://192.168.0.6/webrtc/
+```
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="/.github/banner_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="/.github/banner_light.png">
-  <img style="width:100%;" alt="The LiveKit icon, the name of the repository and some sample code in the background." src="https://raw.githubusercontent.com/livekit/rust-sdks/main/.github/banner_light.png">
-</picture>
+For a token we need to use the Livekit CLI:
+```
+lk token create --api-key ads-admin --api-secret livekit-server-secret-for-ads-server --join --room dobby --identity test_user --valid-for 24h
+```
+adapt the arguments accordingly.
 
-<!--END_BANNER_IMAGE-->
+
 
 # 📹🎙️🦀 Rust Client SDK for LiveKit
 
