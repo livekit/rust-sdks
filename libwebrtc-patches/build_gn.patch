@@ -1,8 +1,8 @@
-diff --git org/modules/video_coding/BUILD.gn update/modules/video_coding/BUILD.gn
-index 7cb713b..3e05ee2 100644
---- org/modules/video_coding/BUILD.gn
-+++ update/modules/video_coding/BUILD.gn
-@@ -466,9 +466,23 @@ rtc_library("webrtc_h264") {
+diff --git org/webrtc-sys/libwebrtc/src/modules/video_coding/BUILD.gn update/webrtc-sys/libwebrtc/src/modules/video_coding/BUILD.gn
+index 7cb713b..12ba096 100644
+--- org/webrtc-sys/libwebrtc/src/modules/video_coding/BUILD.gn
++++ update/webrtc-sys/libwebrtc/src/modules/video_coding/BUILD.gn
+@@ -466,9 +466,19 @@ rtc_library("webrtc_h264") {
      "codecs/h264/h264_encoder_impl.cc",
      "codecs/h264/h264_encoder_impl.h",
      "codecs/h264/include/h264.h",
@@ -12,15 +12,11 @@ index 7cb713b..3e05ee2 100644
 +    "../../../../../libwebrtc-hw/vpl_utils.cpp",
 +    "../../../../../libwebrtc-hw/vpl_session.h",
 +    "../../../../../libwebrtc-hw/vpl_session.cpp"
-+  ] 
++  ]
 +
 +  include_dirs = [
 +    "../../../../../", # Include the hw encoder implementation
 +    "/home/integration/libvpl/api/vpl/" # Include rest of the vpl headers from libvpl
-+  ]
-+
-+  lib_dirs = [
-+        "/usr/lib/x86_64-linux-gnu/",  # Adjust the path to where libva is located
    ]
  
 -  defines = []

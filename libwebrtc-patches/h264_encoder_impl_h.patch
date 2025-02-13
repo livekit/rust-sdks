@@ -1,7 +1,7 @@
-diff --git org/modules/video_coding/codecs/h264/h264_encoder_impl.h update/modules/video_coding/codecs/h264/h264_encoder_impl.h
+diff --git org/webrtc-sys/libwebrtc/src/modules/video_coding/codecs/h264/h264_encoder_impl.h update/webrtc-sys/libwebrtc/src/modules/video_coding/codecs/h264/h264_encoder_impl.h
 index 19c16f3..af0424b 100644
---- org/modules/video_coding/codecs/h264/h264_encoder_impl.h
-+++ update/modules/video_coding/codecs/h264/h264_encoder_impl.h
+--- org/webrtc-sys/libwebrtc/src/modules/video_coding/codecs/h264/h264_encoder_impl.h
++++ update/webrtc-sys/libwebrtc/src/modules/video_coding/codecs/h264/h264_encoder_impl.h
 @@ -31,6 +31,7 @@
  #include "api/video_codecs/scalability_mode.h"
  #include "api/video_codecs/video_encoder.h"
