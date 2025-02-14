@@ -1,5 +1,6 @@
 use crate::{
     logo_track::LogoTrack,
+    screenshare_track::ScreenshareTrack,
     sine_track::{SineParameters, SineTrack},
 };
 use livekit::{
@@ -13,25 +14,14 @@ use tokio::sync::mpsc::{self, error::SendError};
 
 #[derive(Debug)]
 pub enum AsyncCmd {
-    RoomConnect {
-        url: String,
-        token: String,
-        auto_subscribe: bool,
-        enable_e2ee: bool,
-        key: String,
-    },
+    RoomConnect { url: String, token: String, auto_subscribe: bool, enable_e2ee: bool, key: String },
     RoomDisconnect,
-    SimulateScenario {
-        scenario: SimulateScenario,
-    },
+    SimulateScenario { scenario: SimulateScenario },
     ToggleLogo,
     ToggleSine,
-    SubscribeTrack {
-        publication: RemoteTrackPublication,
-    },
-    UnsubscribeTrack {
-        publication: RemoteTrackPublication,
-    },
+    ToggleScreenshare,
+    SubscribeTrack { publication: RemoteTrackPublication },
+    UnsubscribeTrack { publication: RemoteTrackPublication },
     E2eeKeyRatchet,
     LogStats,
 }
@@ -62,18 +52,10 @@ impl LkService {
         let (ui_tx, ui_rx) = mpsc::unbounded_channel();
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
-        let inner = Arc::new(ServiceInner {
-            ui_tx,
-            room: Default::default(),
-        });
+        let inner = Arc::new(ServiceInner { ui_tx, room: Default::default() });
         let handle = async_handle.spawn(service_task(inner.clone(), cmd_rx));
 
-        Self {
-            cmd_tx,
-            ui_rx,
-            handle,
-            inner,
-        }
+        Self { cmd_tx, ui_rx, handle, inner }
     }
 
     pub fn room(&self) -> Option<Arc<Room>> {
@@ -100,38 +82,26 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
         room: Arc<Room>,
         logo_track: LogoTrack,
         sine_track: SineTrack,
+        screenshare_track: ScreenshareTrack,
     }
 
     let mut running_state = None;
 
     while let Some(event) = cmd_rx.recv().await {
         match event {
-            AsyncCmd::RoomConnect {
-                url,
-                token,
-                auto_subscribe,
-                enable_e2ee,
-                key,
-            } => {
+            AsyncCmd::RoomConnect { url, token, auto_subscribe, enable_e2ee, key } => {
                 log::info!("connecting to room: {}", url);
 
                 let key_provider =
                     KeyProvider::with_shared_key(KeyProviderOptions::default(), key.into_bytes());
-                let e2ee = enable_e2ee.then_some(E2eeOptions {
-                    encryption_type: EncryptionType::Gcm,
-                    key_provider,
-                });
+                let e2ee = enable_e2ee
+                    .then_some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
 
                 let mut options = RoomOptions::default();
                 options.auto_subscribe = auto_subscribe;
                 options.e2ee = e2ee;
 
-                let res = Room::connect(
-                    &url,
-                    &token,
-                    options,
-                )
-                .await;
+                let res = Room::connect(&url, &token, options).await;
 
                 if let Ok((new_room, events)) = res {
                     log::info!("connected to room: {}", new_room.name());
@@ -141,6 +111,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     running_state = Some(RunningState {
                         room: new_room.clone(),
                         logo_track: LogoTrack::new(new_room.clone()),
+                        screenshare_track: ScreenshareTrack::new(new_room.clone()),
                         sine_track: SineTrack::new(new_room.clone(), SineParameters::default()),
                     });
 
@@ -183,6 +154,15 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                         state.sine_track.unpublish().await.unwrap();
                     } else {
                         state.sine_track.publish().await.unwrap();
+                    }
+                }
+            }
+            AsyncCmd::ToggleScreenshare => {
+                if let Some(state) = running_state.as_mut() {
+                    if state.screenshare_track.is_published() {
+                        state.screenshare_track.unpublish().await.unwrap();
+                    } else {
+                        state.screenshare_track.publish().await.unwrap();
                     }
                 }
             }

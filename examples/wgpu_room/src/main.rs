@@ -5,6 +5,7 @@ use std::time::Duration;
 
 mod app;
 mod logo_track;
+mod screenshare_track;
 mod service;
 mod sine_track;
 mod video_grid;
