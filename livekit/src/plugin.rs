@@ -9,6 +9,7 @@ use std::{
 use futures_util::Stream;
 use libloading::{Library, Symbol};
 use libwebrtc::{audio_stream::native::NativeAudioStream, prelude::AudioFrame};
+use serde::Serialize;
 use serde_json::json;
 
 #[derive(Debug, thiserror::Error)]
@@ -22,7 +23,7 @@ pub enum PluginError {
 }
 
 type OnLoadFn = unsafe extern "C" fn(options: *const c_char) -> i32;
-type CreateFn = unsafe extern "C" fn(sampling_rate: u32, options: *const c_char) -> *mut c_void;
+type CreateFn = unsafe extern "C" fn(sampling_rate: u32, options: *const c_char, stream_info: *const c_char) -> *mut c_void;
 type DestroyFn = unsafe extern "C" fn(*const c_void);
 type ProcessI16Fn = unsafe extern "C" fn(*const c_void, usize, *const i16, *mut i16);
 type ProcessF32Fn = unsafe extern "C" fn(*const c_void, usize, *const f32, *mut f32);
@@ -106,7 +107,7 @@ impl AudioFilterPlugin {
         })
     }
 
-    pub fn on_load<S: AsRef<str>>(&self, url: S, token: S) -> Result<(), PluginError> {
+    pub fn on_load<S: AsRef<str>>(&self, url: S, token: S, room_id: S, room_name: S) -> Result<(), PluginError> {
         if self.on_load_fn_ptr.is_null() {
             // on_load is optional function
             return Ok(());
@@ -115,6 +116,8 @@ impl AudioFilterPlugin {
         let options_json = json!({
             "url": url.as_ref().to_string(),
             "token": token.as_ref().to_string(),
+            "roomId": room_id.as_ref().to_string(),
+            "roomName": room_name.as_ref().to_string(),
         });
         let options = serde_json::to_string(&options_json).map_err(|e| {
             eprintln!("failed to serialize option: {}", e);
@@ -136,11 +139,16 @@ impl AudioFilterPlugin {
         self: Arc<Self>,
         sampling_rate: u32,
         options: S,
+        stream_info: AudioFilterStreamInfo,
     ) -> Option<AudioFilterSession> {
         let create_fn: CreateFn = unsafe { std::mem::transmute(self.create_fn_ptr) };
 
         let options = CString::new(options.as_ref()).unwrap_or(CString::new("").unwrap());
-        let ptr = unsafe { create_fn(sampling_rate, options.as_ptr()) };
+
+        let stream_info = serde_json::to_string( &stream_info).unwrap();
+        let stream_info = CString::new(stream_info).unwrap_or(CString::new("").unwrap());
+
+        let ptr = unsafe { create_fn(sampling_rate, options.as_ptr(), stream_info.as_ptr()) };
         if ptr.is_null() {
             return None;
         }
@@ -238,6 +246,17 @@ impl Stream for AudioFilterAudioStream {
 
         Poll::Pending
     }
+}
+
+#[derive(Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioFilterStreamInfo {
+    pub url: String,
+    pub room_id: String,
+    pub room_name: String,
+    pub participant_identity: String,
+    pub participant_id: String,
+    pub track_id: String,
 }
 
 // The function pointers in this struct are initialized only once during construction

@@ -74,6 +74,7 @@ pub struct RoomInner {
     rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 
     audio_filter_handles: Arc<HashMap<String, FfiHandleId>>,
+    url: String,
 }
 
 struct Handle {
@@ -129,39 +130,6 @@ impl FfiRoom {
         }
 
         let connect = async move {
-            // initialize audio filter
-            let audio_filter_handles = server
-                .async_runtime
-                .spawn_blocking(move || {
-                    let mut handles = HashMap::new();
-                    for h in req.options.audio_filter_handles.iter() {
-                        let filter = server
-                            .retrieve_handle::<FfiAudioFilterPlugin>(h.handle_id)
-                            .map_err(|e| e.to_string())?
-                            .clone();
-                        filter.plugin.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
-                        handles.insert(h.module_id.clone(), h.handle_id);
-                    }
-                    Ok::<HashMap<String, FfiHandleId>, String>(handles)
-                })
-                .await
-                .map_err(|e| e.to_string());
-
-            let audio_filter_handles = match audio_filter_handles {
-                Err(e) | Ok(Err(e)) => {
-                    log::error!("error while initializing audio filter: {}", e);
-                    let _ = server.send_event(proto::ffi_event::Message::Connect(
-                        proto::ConnectCallback {
-                            async_id,
-                            message: Some(proto::connect_callback::Message::Error(e.to_string())),
-                            ..Default::default()
-                        },
-                    ));
-                    return;
-                }
-                Ok(Ok(handles)) => Arc::new(handles),
-            };
-
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
                     // Successfully connected to the room
@@ -170,6 +138,42 @@ impl FfiRoom {
                         events.recv().await
                     else {
                         unreachable!("Connected event should always be the first event");
+                    };
+
+                    // initialize audio filter
+                    let room_sid: String = room.maybe_sid().map(|s| s.to_string()).unwrap_or("".into());
+                    let room_name = room.name();
+                    let audio_filter_handles = server
+                        .async_runtime
+                        .spawn_blocking(move || {
+                            let mut handles = HashMap::new();
+                            for h in req.options.audio_filter_handles.iter() {
+                                let filter = server
+                                    .retrieve_handle::<FfiAudioFilterPlugin>(h.handle_id)
+                                    .map_err(|e| e.to_string())?
+                                    .clone();
+                                filter.plugin.on_load(&req.url, &req.token, &room_sid, &room_name).map_err(|e| e.to_string())?;
+
+                                handles.insert(h.module_id.clone(), h.handle_id);
+                            }
+                            Ok::<HashMap<String, FfiHandleId>, String>(handles)
+                        })
+                        .await
+                        .map_err(|e| e.to_string());
+
+                    let audio_filter_handles = match audio_filter_handles {
+                        Err(e) | Ok(Err(e)) => {
+                            log::error!("error while initializing audio filter: {}", e);
+                            let _ = server.send_event(proto::ffi_event::Message::Connect(
+                                proto::ConnectCallback {
+                                    async_id,
+                                    message: Some(proto::connect_callback::Message::Error(e.to_string())),
+                                    ..Default::default()
+                                },
+                            ));
+                            return;
+                        }
+                        Ok(Ok(handles)) => Arc::new(handles),
                     };
 
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
@@ -189,6 +193,7 @@ impl FfiRoom {
                         track_handle_lookup: Default::default(),
                         rpc_method_invocation_waiters: Default::default(),
                         audio_filter_handles,
+                        url: connect.url,
                     });
 
                     let (local_info, remote_infos) =
@@ -855,6 +860,10 @@ impl RoomInner {
             return None;
         };
         Some(plugin.clone())
+    }
+
+    pub fn url(&self) -> String {
+        self.url.clone()
     }
 }
 
