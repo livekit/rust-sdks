@@ -141,8 +141,6 @@ impl FfiRoom {
                     };
 
                     // initialize audio filter
-                    let room_sid: String = room.maybe_sid().map(|s| s.to_string()).unwrap_or("".into());
-                    let room_name = room.name();
                     let audio_filter_handles = server
                         .async_runtime
                         .spawn_blocking(move || {
@@ -152,7 +150,7 @@ impl FfiRoom {
                                     .retrieve_handle::<FfiAudioFilterPlugin>(h.handle_id)
                                     .map_err(|e| e.to_string())?
                                     .clone();
-                                filter.plugin.on_load(&req.url, &req.token, &room_sid, &room_name).map_err(|e| e.to_string())?;
+                                filter.plugin.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
 
                                 handles.insert(h.module_id.clone(), h.handle_id);
                             }

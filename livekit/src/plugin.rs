@@ -107,7 +107,7 @@ impl AudioFilterPlugin {
         })
     }
 
-    pub fn on_load<S: AsRef<str>>(&self, url: S, token: S, room_id: S, room_name: S) -> Result<(), PluginError> {
+    pub fn on_load<S: AsRef<str>>(&self, url: S, token: S) -> Result<(), PluginError> {
         if self.on_load_fn_ptr.is_null() {
             // on_load is optional function
             return Ok(());
@@ -116,8 +116,6 @@ impl AudioFilterPlugin {
         let options_json = json!({
             "url": url.as_ref().to_string(),
             "token": token.as_ref().to_string(),
-            "roomId": room_id.as_ref().to_string(),
-            "roomName": room_name.as_ref().to_string(),
         });
         let options = serde_json::to_string(&options_json).map_err(|e| {
             eprintln!("failed to serialize option: {}", e);

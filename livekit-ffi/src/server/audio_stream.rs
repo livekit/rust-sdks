@@ -17,11 +17,10 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use livekit::{AudioFilterAudioStream, AudioFilterSession, AudioFilterStreamInfo};
+use livekit::{AudioFilterAudioStream, AudioFilterStreamInfo};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-use super::audio_plugin::{AudioStreamKind, FfiAudioFilterPlugin};
-use super::participant::FfiParticipant;
+use super::audio_plugin::AudioStreamKind;
 use super::room::FfiRoom;
 use super::{room::FfiTrack, FfiHandle};
 use crate::server::utils;
