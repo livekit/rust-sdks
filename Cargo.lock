@@ -1537,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "cxx",
  "env_logger",
@@ -1593,7 +1593,7 @@ checksum = "c4cd1a83af159aa67994778be9070f0ae1bd732942279cabb14f86f986a21456"
 
 [[package]]
 name = "livekit"
-version = "0.7.2"
+version = "0.7.4"
 dependencies = [
  "chrono",
  "futures-util",
@@ -1641,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.6"
+version = "0.12.8"
 dependencies = [
  "console-subscriber",
  "dashmap",
@@ -1666,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "futures-util",
  "livekit-runtime",
