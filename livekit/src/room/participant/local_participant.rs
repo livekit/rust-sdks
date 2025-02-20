@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2023-2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -236,6 +236,13 @@ impl LocalParticipant {
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
+
+                match options.source {
+                    TrackSource::Screenshare => {
+                        video_track.rtc_source().set_is_screencast(true);
+                    }
+                    _ => {}
+                }
             }
             LocalTrack::Audio(_audio_track) => {
                 // Setup audio encoding
