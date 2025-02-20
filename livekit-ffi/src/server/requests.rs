@@ -17,7 +17,7 @@ use std::{slice, sync::Arc};
 use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
-    webrtc::{native::audio_resampler, prelude::*},
+    webrtc::{native::aec, native::audio_resampler, prelude::*},
 };
 use parking_lot::Mutex;
 
@@ -853,6 +853,45 @@ fn on_flush_sox_resampler(
     }
 }
 
+fn on_new_aec(
+    server: &'static FfiServer,
+    new_aec: proto::NewAecRequest,
+) -> FfiResult<proto::NewAecResponse> {
+    let aec3 = aec::Aec::new(new_aec.sample_rate as i32, new_aec.num_channels as i32);
+    let aec3 = Arc::new(Mutex::new(aec3));
+
+    let handle_id = server.next_id();
+    server.store_handle(handle_id, aec3);
+
+    Ok(proto::NewAecResponse {
+        aec: proto::OwnedAec { handle: proto::FfiOwnedHandle { id: handle_id } },
+    })
+}
+
+fn on_cancel_echo(
+    server: &'static FfiServer,
+    cancel_echo: proto::CancelEchoRequest,
+) -> FfiResult<proto::CancelEchoResponse> {
+    let aec = server.retrieve_handle::<Arc<Mutex<aec::Aec>>>(cancel_echo.aec_handle)?.clone();
+
+    let cap_data = unsafe {
+        slice::from_raw_parts_mut(
+            cancel_echo.cap_ptr as *const i16 as *mut _,
+            cancel_echo.cap_size as usize / std::mem::size_of::<i16>(),
+        )
+    };
+
+    let rend_data = unsafe {
+        slice::from_raw_parts(
+            cancel_echo.rend_ptr as *const i16,
+            cancel_echo.rend_size as usize / std::mem::size_of::<i16>(),
+        )
+    };
+
+    aec.lock().cancel_echo(cap_data, rend_data);
+    Ok(proto::CancelEchoResponse { error: None })
+}
+
 fn on_perform_rpc(
     server: &'static FfiServer,
     request: proto::PerformRpcRequest,
@@ -1063,6 +1102,13 @@ pub fn handle_request(
                 server, flush_soxr,
             )?)
         }
+        proto::ffi_request::Message::NewAec(new_aec) => {
+            proto::ffi_response::Message::NewAec(on_new_aec(server, new_aec)?)
+        }
+        proto::ffi_request::Message::CancelEcho(cancel_echo) => {
+            proto::ffi_response::Message::CancelEcho(on_cancel_echo(server, cancel_echo)?)
+        }
+
         proto::ffi_request::Message::PerformRpc(request) => {
             proto::ffi_response::Message::PerformRpc(on_perform_rpc(server, request)?)
         }

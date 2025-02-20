@@ -120,7 +120,10 @@ message FfiRequest {
     // Data Channel
     SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 47;
 
-    // NEXT_ID: 49
+    NewAecRequest new_aec = 49;
+    CancelEchoRequest cancel_echo = 50;
+
+    // NEXT_ID: 51
   }
 }
 
@@ -188,7 +191,10 @@ message FfiResponse {
     // Data Channel
     SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 46;
 
-    // NEXT_ID: 48
+    NewAecResponse new_aec = 48;
+    CancelEchoResponse cancel_echo = 49;
+
+    // NEXT_ID: 50
   }
 }
 

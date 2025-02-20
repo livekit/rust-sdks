@@ -24,7 +24,7 @@ use std::{
 
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
-use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
+use livekit::webrtc::{native::aec::Aec, native::audio_resampler::AudioResampler, prelude::*};
 use parking_lot::{deadlock, Mutex};
 use tokio::{sync::oneshot, task::JoinHandle};
 
@@ -66,6 +66,7 @@ pub struct FfiDataBuffer {
 
 impl FfiHandle for FfiDataBuffer {}
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
+impl FfiHandle for Arc<Mutex<Aec>> {}
 impl FfiHandle for Arc<Mutex<resampler::SoxResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
