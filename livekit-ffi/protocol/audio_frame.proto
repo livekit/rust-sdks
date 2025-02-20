@@ -87,6 +87,28 @@ message RemixAndResampleResponse {
   required OwnedAudioFrameBuffer buffer = 1;
 }
 
+// AEC
+
+
+message NewAecRequest {
+  required uint32 sample_rate = 1;
+  required uint32 num_channels = 2;
+}
+message NewAecResponse {
+  required OwnedAec aec = 1;
+}
+
+message CancelEchoRequest {
+  required uint64 aec_handle = 1;
+  required uint64 cap_ptr = 2; // *mut i16
+  required uint32 cap_size = 3; // in bytes
+  required uint64 rend_ptr = 4; // *const i16
+  required uint32 rend_size = 5;
+}
+
+message CancelEchoResponse {
+  optional string error = 3;
+}
 
 // New resampler using SoX (much better quality)
 
@@ -237,6 +259,13 @@ message OwnedAudioResampler {
 }
 
 
+//
+// AEC
+//
+
+message OwnedAec {
+  required FfiOwnedHandle handle = 1;
+}
 
 //
 // Sox AudioResampler
