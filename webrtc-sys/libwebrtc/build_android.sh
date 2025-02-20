@@ -71,6 +71,7 @@ cd src
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/livekit_jni_prefix.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 cd third_party
 git apply "$COMMAND_DIR/patches/abseil_use_optional.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
