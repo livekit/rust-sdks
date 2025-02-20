@@ -18,10 +18,12 @@ use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
     webrtc::{native::audio_resampler, prelude::*},
+    AudioFilterPlugin,
 };
 use parking_lot::Mutex;
 
 use super::{
+    audio_plugin::FfiAudioFilterPlugin,
     audio_source, audio_stream, colorcvt,
     participant::FfiParticipant,
     resampler,
@@ -280,7 +282,8 @@ fn on_create_video_track(
 
     let handle_id = server.next_id();
     let video_track = LocalVideoTrack::create_video_track(&create.name, source);
-    let ffi_track = FfiTrack { handle: handle_id, track: Track::LocalVideo(video_track) };
+    let ffi_track =
+        FfiTrack { handle: handle_id, track: Track::LocalVideo(video_track), room_handle: None };
 
     let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
@@ -305,7 +308,8 @@ fn on_create_audio_track(
 
     let handle_id = server.next_id();
     let audio_track = LocalAudioTrack::create_audio_track(&create.name, source);
-    let ffi_track = FfiTrack { handle: handle_id, track: Track::LocalAudio(audio_track) };
+    let ffi_track =
+        FfiTrack { handle: handle_id, track: Track::LocalAudio(audio_track), room_handle: None };
     let track_info = proto::TrackInfo::from(&ffi_track);
     server.store_handle(handle_id, ffi_track);
 
@@ -919,6 +923,21 @@ fn on_set_data_channel_buffered_amount_low_threshold(
     ))
 }
 
+fn on_load_audio_filter_plugin(
+    server: &'static FfiServer,
+    request: proto::LoadAudioFilterPluginRequest,
+) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
+    let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
+    let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps)
+        .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
+
+    let handle_id = server.next_id();
+    let ffi_plugin = FfiAudioFilterPlugin { handle_id, plugin };
+    server.store_handle(handle_id, ffi_plugin);
+
+    Ok(proto::LoadAudioFilterPluginResponse { handle: proto::FfiOwnedHandle { id: handle_id } })
+}
+
 fn on_set_track_subscription_permissions(
     server: &'static FfiServer,
     set_permissions: proto::SetTrackSubscriptionPermissionsRequest,
@@ -1106,6 +1125,11 @@ pub fn handle_request(
             proto::ffi_response::Message::SetDataChannelBufferedAmountLowThreshold(
                 on_set_data_channel_buffered_amount_low_threshold(server, request)?,
             )
+        }
+        proto::ffi_request::Message::LoadAudioFilterPlugin(request) => {
+            proto::ffi_response::Message::LoadAudioFilterPlugin(on_load_audio_filter_plugin(
+                server, request,
+            )?)
         }
         proto::ffi_request::Message::SetTrackSubscriptionPermissions(request) => {
             proto::ffi_response::Message::SetTrackSubscriptionPermissions(
