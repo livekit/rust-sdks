@@ -192,6 +192,19 @@ webrtc::BiplanarYuv8Buffer* BiplanarYuv8Buffer::buffer() const {
 I420Buffer::I420Buffer(rtc::scoped_refptr<webrtc::I420BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}
 
+webrtc::I420BufferInterface* I420Buffer::buffer() const {
+  return static_cast<webrtc::I420BufferInterface*>(buffer_.get());
+}
+
+std::unique_ptr<I420Buffer> I420Buffer::scale(int scaled_width,
+                                              int scaled_height) const {
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> result =
+      buffer()->Scale(scaled_width, scaled_height);
+  return std::make_unique<I420Buffer>(
+      rtc::scoped_refptr<webrtc::I420BufferInterface>(
+          const_cast<webrtc::I420BufferInterface*>(result->GetI420())));
+}
+
 I420ABuffer::I420ABuffer(
     rtc::scoped_refptr<webrtc::I420ABufferInterface> buffer)
     : I420Buffer(buffer) {}
@@ -208,17 +221,78 @@ webrtc::I420ABufferInterface* I420ABuffer::buffer() const {
   return static_cast<webrtc::I420ABufferInterface*>(buffer_.get());
 }
 
+std::unique_ptr<I420ABuffer> I420ABuffer::scale(int scaled_width,
+                                                int scaled_height) const {
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> result =
+      buffer()->Scale(scaled_width, scaled_height);
+  return std::make_unique<I420ABuffer>(
+      rtc::scoped_refptr<webrtc::I420ABufferInterface>(
+          const_cast<webrtc::I420ABufferInterface*>(result->GetI420A())));
+}
+
 I422Buffer::I422Buffer(rtc::scoped_refptr<webrtc::I422BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}
+
+webrtc::I422BufferInterface* I422Buffer::buffer() const {
+  return static_cast<webrtc::I422BufferInterface*>(buffer_.get());
+}
+
+std::unique_ptr<I422Buffer> I422Buffer::scale(int scaled_width,
+                                              int scaled_height) const {
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> result =
+      buffer()->Scale(scaled_width, scaled_height);
+  return std::make_unique<I422Buffer>(
+      rtc::scoped_refptr<webrtc::I422BufferInterface>(
+          const_cast<webrtc::I422BufferInterface*>(result->GetI422())));
+}
 
 I444Buffer::I444Buffer(rtc::scoped_refptr<webrtc::I444BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}
 
+webrtc::I444BufferInterface* I444Buffer::buffer() const {
+  return static_cast<webrtc::I444BufferInterface*>(buffer_.get());
+}
+
+std::unique_ptr<I444Buffer> I444Buffer::scale(int scaled_width,
+                                              int scaled_height) const {
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> result =
+      buffer()->Scale(scaled_width, scaled_height);
+  return std::make_unique<I444Buffer>(
+      rtc::scoped_refptr<webrtc::I444BufferInterface>(
+          const_cast<webrtc::I444BufferInterface*>(result->GetI444())));
+}
+
 I010Buffer::I010Buffer(rtc::scoped_refptr<webrtc::I010BufferInterface> buffer)
     : PlanarYuv16BBuffer(buffer) {}
 
+webrtc::I010BufferInterface* I010Buffer::buffer() const {
+  return static_cast<webrtc::I010BufferInterface*>(buffer_.get());
+}
+
+std::unique_ptr<I010Buffer> I010Buffer::scale(int scaled_width,
+                                              int scaled_height) const {
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> result =
+      buffer()->Scale(scaled_width, scaled_height);
+  return std::make_unique<I010Buffer>(
+      rtc::scoped_refptr<webrtc::I010BufferInterface>(
+          const_cast<webrtc::I010BufferInterface*>(result->GetI010())));
+}
+
 NV12Buffer::NV12Buffer(rtc::scoped_refptr<webrtc::NV12BufferInterface> buffer)
     : BiplanarYuv8Buffer(buffer) {}
+
+webrtc::NV12BufferInterface* NV12Buffer::buffer() const {
+  return static_cast<webrtc::NV12BufferInterface*>(buffer_.get());
+}
+
+std::unique_ptr<NV12Buffer> NV12Buffer::scale(int scaled_width,
+                                              int scaled_height) const {
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> result =
+      buffer()->Scale(scaled_width, scaled_height);
+  return std::make_unique<NV12Buffer>(
+      rtc::scoped_refptr<webrtc::NV12BufferInterface>(
+          const_cast<webrtc::NV12BufferInterface*>(result->GetNV12())));
+}
 
 std::unique_ptr<I420Buffer> copy_i420_buffer(
     const std::unique_ptr<I420Buffer>& i420) {
