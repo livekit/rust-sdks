@@ -48,6 +48,7 @@ fn main() {
         "src/audio_resampler.rs",
         "src/android.rs",
         "src/prohibit_libsrtp_initialization.rs",
+        "src/aec.rs",
     ]);
 
     builder.files(&[
@@ -75,6 +76,7 @@ fn main() {
         "src/frame_cryptor.cpp",
         "src/global_task_queue.cpp",
         "src/prohibit_libsrtp_initialization.cpp",
+        "src/aec.cpp",
     ]);
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
@@ -95,6 +97,7 @@ fn main() {
         webrtc_include.join("sdk/objc"),
         webrtc_include.join("sdk/objc/base"),
     ]);
+    builder.define("WEBRTC_APM_DEBUG_DUMP", "0");
 
     println!("cargo:rustc-link-search=native={}", webrtc_lib.to_str().unwrap());
 
