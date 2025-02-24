@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2023-2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -112,5 +112,9 @@ impl NativeVideoSource {
 
     pub fn video_resolution(&self) -> VideoResolution {
         self.sys_handle.video_resolution().into()
+    }
+
+    pub fn set_is_screencast(&self, is_screencast: bool) {
+        self.sys_handle.set_is_screencast(is_screencast);
     }
 }
