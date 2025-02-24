@@ -2772,6 +2772,8 @@ pub struct ParticipantConnected {
 pub struct ParticipantDisconnected {
     #[prost(string, required, tag="1")]
     pub participant_identity: ::prost::alloc::string::String,
+    #[prost(enumeration="DisconnectReason", required, tag="2")]
+    pub disconnect_reason: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
