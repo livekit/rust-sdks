@@ -983,6 +983,10 @@ async fn forward_event(
             let _ = send_event(proto::room_event::Message::ParticipantDisconnected(
                 proto::ParticipantDisconnected {
                     participant_identity: participant.identity().into(),
+                    disconnect_reason: proto::DisconnectReason::from(
+                        participant.disconnect_reason(),
+                    )
+                    .into(),
                 },
             ));
         }

@@ -1,0 +1,1 @@
+patch type="changed" package="livekit-ffi" "fixed passing disconnect reason on ParticipantDisconnected events"
