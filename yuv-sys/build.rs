@@ -92,7 +92,7 @@ fn clone_if_needed(_output_dir: &PathBuf, libyuv_dir: &PathBuf) -> bool {
 }
 
 fn main() {
-    let output_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let output_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let libyuv_dir = output_dir.join("libyuv");
     let include_dir = libyuv_dir.join("include");
     let source_dir = libyuv_dir.join("source");
@@ -111,7 +111,7 @@ fn main() {
         .filter(|f| f.path().extension().unwrap() == "cc")
         .collect::<Vec<_>>();
 
-    let fnc_content = fs::read_to_string("yuv_functions.txt").unwrap();
+    let fnc_content = fs::read_to_string(output_dir.join("yuv_functions.txt")).unwrap();
     let fnc_list = fnc_content.lines().collect::<Vec<_>>();
 
     if cloned {
