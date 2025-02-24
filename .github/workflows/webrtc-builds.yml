@@ -54,7 +54,11 @@ jobs:
             os: ubuntu-24.04-arm
             cmd: ./build_linux.sh
             arch: arm64
-
+          - name: linux
+            os: buildjet-8vcpu-ubuntu-2004
+            cmd: ./build_linux.sh
+            arch: riscv64
+            
           - name: android
             os: ubuntu-24.04-arm
             cmd: ./build_android.sh
