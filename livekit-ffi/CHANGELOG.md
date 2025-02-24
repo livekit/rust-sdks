@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.11] - 2025-02-24
+
+### Changed
+
+- fixed passing disconnect reason on ParticipantDisconnected events
+
 ## [0.12.10] - 2025-02-04
 
 ### Fixed
