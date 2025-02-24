@@ -17,13 +17,13 @@ use std::{slice, sync::Arc};
 use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
+    register_audio_filter_plugin,
     webrtc::{native::audio_resampler, prelude::*},
     AudioFilterPlugin,
 };
 use parking_lot::Mutex;
 
 use super::{
-    audio_plugin::FfiAudioFilterPlugin,
     audio_source, audio_stream, colorcvt,
     participant::FfiParticipant,
     resampler,
@@ -924,18 +924,16 @@ fn on_set_data_channel_buffered_amount_low_threshold(
 }
 
 fn on_load_audio_filter_plugin(
-    server: &'static FfiServer,
+    _server: &'static FfiServer,
     request: proto::LoadAudioFilterPluginRequest,
 ) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
     let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
     let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps)
         .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
 
-    let handle_id = server.next_id();
-    let ffi_plugin = FfiAudioFilterPlugin { handle_id, plugin };
-    server.store_handle(handle_id, ffi_plugin);
+    register_audio_filter_plugin(request.module_id, plugin);
 
-    Ok(proto::LoadAudioFilterPluginResponse { handle: proto::FfiOwnedHandle { id: handle_id } })
+    Ok(proto::LoadAudioFilterPluginResponse { error: None })
 }
 
 fn on_set_track_subscription_permissions(

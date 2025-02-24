@@ -2634,8 +2634,6 @@ pub struct RoomOptions {
     pub rtc_config: ::core::option::Option<RtcConfig>,
     #[prost(uint32, optional, tag="6")]
     pub join_retries: ::core::option::Option<u32>,
-    #[prost(message, repeated, tag="7")]
-    pub audio_filter_handles: ::prost::alloc::vec::Vec<AudioFilterModule>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3442,6 +3440,7 @@ pub struct NewAudioStreamRequest {
     pub sample_rate: ::core::option::Option<u32>,
     #[prost(uint32, optional, tag="4")]
     pub num_channels: ::core::option::Option<u32>,
+    /// Unique identifier passed in LoadAudioFilterPluginRequest
     #[prost(string, optional, tag="5")]
     pub audio_filter_module_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="6")]
@@ -3779,12 +3778,15 @@ pub struct LoadAudioFilterPluginRequest {
     /// Optional: paths for dependency dylibs
     #[prost(string, repeated, tag="2")]
     pub dependencies: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Unique identifier of the plugin
+    #[prost(string, required, tag="3")]
+    pub module_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LoadAudioFilterPluginResponse {
-    #[prost(message, required, tag="1")]
-    pub handle: FfiOwnedHandle,
+    #[prost(string, optional, tag="1")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

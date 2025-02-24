@@ -1,7 +1,8 @@
 use std::{
+    collections::HashMap,
     ffi::{c_char, c_void, CString},
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, LazyLock},
     task::{Context, Poll},
     time::Duration,
 };
@@ -9,6 +10,7 @@ use std::{
 use futures_util::Stream;
 use libloading::{Library, Symbol};
 use libwebrtc::{audio_stream::native::NativeAudioStream, prelude::AudioFrame};
+use parking_lot::RwLock;
 use serde::Serialize;
 use serde_json::json;
 
@@ -23,10 +25,29 @@ pub enum PluginError {
 }
 
 type OnLoadFn = unsafe extern "C" fn(options: *const c_char) -> i32;
-type CreateFn = unsafe extern "C" fn(sampling_rate: u32, options: *const c_char, stream_info: *const c_char) -> *mut c_void;
+type CreateFn = unsafe extern "C" fn(
+    sampling_rate: u32,
+    options: *const c_char,
+    stream_info: *const c_char,
+) -> *mut c_void;
 type DestroyFn = unsafe extern "C" fn(*const c_void);
 type ProcessI16Fn = unsafe extern "C" fn(*const c_void, usize, *const i16, *mut i16);
 type ProcessF32Fn = unsafe extern "C" fn(*const c_void, usize, *const f32, *mut f32);
+
+static REGISTERED_PLUGINS: LazyLock<RwLock<HashMap<String, Arc<AudioFilterPlugin>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+pub fn register_audio_filter_plugin(id: String, plugin: Arc<AudioFilterPlugin>) {
+    REGISTERED_PLUGINS.write().insert(id, plugin);
+}
+
+pub fn registered_audio_filter_plugin(id: &str) -> Option<Arc<AudioFilterPlugin>> {
+    REGISTERED_PLUGINS.read().get(id).cloned()
+}
+
+pub fn registered_audio_filter_plugins() -> Vec<Arc<AudioFilterPlugin>> {
+    REGISTERED_PLUGINS.read().values().map(|v| v.clone()).collect()
+}
 
 pub struct AudioFilterPlugin {
     lib: Library,
@@ -143,7 +164,7 @@ impl AudioFilterPlugin {
 
         let options = CString::new(options.as_ref()).unwrap_or(CString::new("").unwrap());
 
-        let stream_info = serde_json::to_string( &stream_info).unwrap();
+        let stream_info = serde_json::to_string(&stream_info).unwrap();
         let stream_info = CString::new(stream_info).unwrap_or(CString::new("").unwrap());
 
         let ptr = unsafe { create_fn(sampling_rate, options.as_ptr(), stream_info.as_ptr()) };

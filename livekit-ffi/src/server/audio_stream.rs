@@ -17,7 +17,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
-use livekit::{AudioFilterAudioStream, AudioFilterStreamInfo};
+use livekit::{registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterStreamInfo};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::audio_plugin::AudioStreamKind;
@@ -66,7 +66,7 @@ impl FfiAudioStream {
                     ));
                 };
                 let room = server.retrieve_handle::<FfiRoom>(room_handle)?.clone();
-                let Some(filter) = room.inner.audio_filter_handle(server, module_id) else {
+                let Some(filter) = registered_audio_filter_plugin(module_id) else {
                     return Err(FfiError::InvalidRequest(
                         "the audio filter wasn't associated with the room".into(),
                     ));
@@ -74,7 +74,12 @@ impl FfiAudioStream {
 
                 let stream_info = AudioFilterStreamInfo {
                     url: room.inner.url(),
-                    room_id: room.inner.room.maybe_sid().map(|sid| sid.to_string()).unwrap_or("".into()),
+                    room_id: room
+                        .inner
+                        .room
+                        .maybe_sid()
+                        .map(|sid| sid.to_string())
+                        .unwrap_or("".into()),
                     room_name: room.inner.room.name(),
                     participant_identity: room.inner.room.local_participant().identity().into(),
                     participant_id: room.inner.room.local_participant().name(),
@@ -99,7 +104,7 @@ impl FfiAudioStream {
                     NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
 
                 let stream = if let Some(audio_filter) = &audio_filter {
-                    let Some(session) = audio_filter.plugin.clone().new_session(
+                    let Some(session) = audio_filter.clone().new_session(
                         sample_rate,
                         new_stream.audio_filter_options.unwrap_or("".into()),
                         stream_info,
@@ -206,7 +211,7 @@ impl FfiAudioStream {
         let participant_identity = ffi_participant.participant.identity();
         let participant_id = ffi_participant.participant.sid();
         let filter = match &request.audio_filter_module_id {
-            Some(module_id) => ffi_participant.room.audio_filter_handle(server, module_id),
+            Some(module_id) => registered_audio_filter_plugin(module_id),
             None => None,
         };
 
@@ -241,26 +246,23 @@ impl FfiAudioStream {
                 });
 
                 let mut audio_filter_session = match &filter {
-                    Some(filter) => {
-                        match &request.audio_filter_options {
-                            Some(options) => {
-                                let stream_info = AudioFilterStreamInfo {
-                                    url: url.clone(),
-                                    room_id: room_sid.clone().into(),
-                                    room_name: room_name.clone(),
-                                    participant_identity: participant_identity.clone().into(),
-                                    participant_id: participant_id.clone().into(),
-                                    track_id: track.sid().into(),
-                                };
+                    Some(filter) => match &request.audio_filter_options {
+                        Some(options) => {
+                            let stream_info = AudioFilterStreamInfo {
+                                url: url.clone(),
+                                room_id: room_sid.clone().into(),
+                                room_name: room_name.clone(),
+                                participant_identity: participant_identity.clone().into(),
+                                participant_id: participant_id.clone().into(),
+                                track_id: track.sid().into(),
+                            };
 
-                                filter.plugin.clone().new_session(sample_rate as u32, &options, stream_info)
-                            },
-                            None => None,
+                            filter.clone().new_session(sample_rate as u32, &options, stream_info)
                         }
-                    }
+                        None => None,
+                    },
                     None => None,
                 };
-
 
                 let native_stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
 

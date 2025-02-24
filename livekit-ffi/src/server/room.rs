@@ -16,14 +16,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::prelude::*;
 use livekit::ChatMessage;
+use livekit::{prelude::*, registered_audio_filter_plugins};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
-use super::audio_plugin::FfiAudioFilterPlugin;
 use super::FfiDataBuffer;
 use crate::{
     proto,
@@ -73,7 +72,7 @@ pub struct RoomInner {
     // Used to forward RPC method invocation to the FfiClient and collect their results
     rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 
-    audio_filter_handles: Arc<HashMap<String, FfiHandleId>>,
+    // ws url associated with this room
     url: String,
 }
 
@@ -140,38 +139,32 @@ impl FfiRoom {
                         unreachable!("Connected event should always be the first event");
                     };
 
-                    // initialize audio filter
-                    let audio_filter_handles = server
+                    // initialize audio filters
+                    let result = server
                         .async_runtime
                         .spawn_blocking(move || {
-                            let mut handles = HashMap::new();
-                            for h in req.options.audio_filter_handles.iter() {
-                                let filter = server
-                                    .retrieve_handle::<FfiAudioFilterPlugin>(h.handle_id)
-                                    .map_err(|e| e.to_string())?
-                                    .clone();
-                                filter.plugin.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
-
-                                handles.insert(h.module_id.clone(), h.handle_id);
+                            for filter in registered_audio_filter_plugins().into_iter() {
+                                filter.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
                             }
-                            Ok::<HashMap<String, FfiHandleId>, String>(handles)
+                            Ok::<(), String>(())
                         })
                         .await
                         .map_err(|e| e.to_string());
-
-                    let audio_filter_handles = match audio_filter_handles {
+                    match result {
                         Err(e) | Ok(Err(e)) => {
                             log::error!("error while initializing audio filter: {}", e);
                             let _ = server.send_event(proto::ffi_event::Message::Connect(
                                 proto::ConnectCallback {
                                     async_id,
-                                    message: Some(proto::connect_callback::Message::Error(e.to_string())),
+                                    message: Some(proto::connect_callback::Message::Error(
+                                        e.to_string(),
+                                    )),
                                     ..Default::default()
                                 },
                             ));
                             return;
                         }
-                        Ok(Ok(handles)) => Arc::new(handles),
+                        Ok(Ok(_)) => (),
                     };
 
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
@@ -190,7 +183,6 @@ impl FfiRoom {
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
                         rpc_method_invocation_waiters: Default::default(),
-                        audio_filter_handles,
                         url: connect.url,
                     });
 
@@ -844,20 +836,6 @@ impl RoomInner {
         });
         server.watch_panic(handle);
         proto::SetTrackSubscriptionPermissionsResponse {}
-    }
-
-    pub fn audio_filter_handle<S: AsRef<str>>(
-        &self,
-        server: &'static FfiServer,
-        module_id: S,
-    ) -> Option<FfiAudioFilterPlugin> {
-        let Some(&handle_id) = self.audio_filter_handles.get(module_id.as_ref()) else {
-            return None;
-        };
-        let Some(plugin) = server.retrieve_handle::<FfiAudioFilterPlugin>(handle_id).ok() else {
-            return None;
-        };
-        Some(plugin.clone())
     }
 
     pub fn url(&self) -> String {

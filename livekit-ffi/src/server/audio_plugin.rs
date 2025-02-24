@@ -1,25 +1,13 @@
 use std::{
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 
 use futures_util::Stream;
 use livekit::{
     webrtc::{audio_stream::native::NativeAudioStream, prelude::AudioFrame},
-    AudioFilterAudioStream, AudioFilterPlugin,
+    AudioFilterAudioStream,
 };
-
-use super::FfiHandle;
-use crate::FfiHandleId;
-
-#[derive(Clone)]
-pub struct FfiAudioFilterPlugin {
-    pub handle_id: FfiHandleId,
-    pub plugin: Arc<AudioFilterPlugin>,
-}
-
-impl FfiHandle for FfiAudioFilterPlugin {}
 
 pub trait AudioStream: Stream<Item = AudioFrame<'static>> + Send + Sync + Unpin {
     fn close(&mut self);
