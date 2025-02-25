@@ -2611,15 +2611,6 @@ pub struct RtcConfig {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AudioFilterModule {
-    /// unique identifier for audio filter
-    #[prost(string, required, tag="1")]
-    pub module_id: ::prost::alloc::string::String,
-    #[prost(uint64, required, tag="2")]
-    pub handle_id: u64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomOptions {
     #[prost(bool, optional, tag="1")]
     pub auto_subscribe: ::core::option::Option<bool>,
