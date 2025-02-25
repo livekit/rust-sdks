@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::ChatMessage;
@@ -131,14 +131,6 @@ impl FfiRoom {
         let connect = async move {
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
-                    // Successfully connected to the room
-                    // Forward the initial state for the FfiClient
-                    let Some(RoomEvent::Connected { participants_with_tracks }) =
-                        events.recv().await
-                    else {
-                        unreachable!("Connected event should always be the first event");
-                    };
-
                     // initialize audio filters
                     let result = server
                         .async_runtime
@@ -165,6 +157,14 @@ impl FfiRoom {
                             return;
                         }
                         Ok(Ok(_)) => (),
+                    };
+
+                    // Successfully connected to the room
+                    // Forward the initial state for the FfiClient
+                    let Some(RoomEvent::Connected { participants_with_tracks }) =
+                        events.recv().await
+                    else {
+                        unreachable!("Connected event should always be the first event");
                     };
 
                     let (data_tx, data_rx) = mpsc::unbounded_channel();
