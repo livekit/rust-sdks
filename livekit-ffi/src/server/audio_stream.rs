@@ -66,9 +66,7 @@ impl FfiAudioStream {
                 };
                 let room = server.retrieve_handle::<FfiRoom>(room_handle)?.clone();
                 let Some(filter) = registered_audio_filter_plugin(module_id) else {
-                    return Err(FfiError::InvalidRequest(
-                        "the audio filter is not found".into(),
-                    ));
+                    return Err(FfiError::InvalidRequest("the audio filter is not found".into()));
                 };
 
                 let stream_info = AudioFilterStreamInfo {
