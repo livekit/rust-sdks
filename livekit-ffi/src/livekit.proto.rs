@@ -3433,6 +3433,11 @@ pub struct NewAudioStreamRequest {
     pub sample_rate: ::core::option::Option<u32>,
     #[prost(uint32, optional, tag="4")]
     pub num_channels: ::core::option::Option<u32>,
+    /// Unique identifier passed in LoadAudioFilterPluginRequest
+    #[prost(string, optional, tag="5")]
+    pub audio_filter_module_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="6")]
+    pub audio_filter_options: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3453,6 +3458,10 @@ pub struct AudioStreamFromParticipantRequest {
     pub sample_rate: ::core::option::Option<u32>,
     #[prost(uint32, optional, tag="6")]
     pub num_channels: ::core::option::Option<u32>,
+    #[prost(string, optional, tag="7")]
+    pub audio_filter_module_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="8")]
+    pub audio_filter_options: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3752,6 +3761,26 @@ pub struct OwnedSoxResampler {
     #[prost(message, required, tag="2")]
     pub info: SoxResamplerInfo,
 }
+/// Audio Filter Plugin
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LoadAudioFilterPluginRequest {
+    /// path for ffi audio filter plugin
+    #[prost(string, required, tag="1")]
+    pub plugin_path: ::prost::alloc::string::String,
+    /// Optional: paths for dependency dylibs
+    #[prost(string, repeated, tag="2")]
+    pub dependencies: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Unique identifier of the plugin
+    #[prost(string, required, tag="3")]
+    pub module_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LoadAudioFilterPluginResponse {
+    #[prost(string, optional, tag="1")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum SoxResamplerDataType {
@@ -4046,7 +4075,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -4156,13 +4185,16 @@ pub mod ffi_request {
         /// Data Channel
         #[prost(message, tag="47")]
         SetDataChannelBufferedAmountLowThreshold(super::SetDataChannelBufferedAmountLowThresholdRequest),
+        /// Audio Filter Plugin
+        #[prost(message, tag="49")]
+        LoadAudioFilterPlugin(super::LoadAudioFilterPluginRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -4270,6 +4302,9 @@ pub mod ffi_response {
         /// Data Channel
         #[prost(message, tag="46")]
         SetDataChannelBufferedAmountLowThreshold(super::SetDataChannelBufferedAmountLowThresholdResponse),
+        /// Audio Filter Plugin
+        #[prost(message, tag="48")]
+        LoadAudioFilterPlugin(super::LoadAudioFilterPluginResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.

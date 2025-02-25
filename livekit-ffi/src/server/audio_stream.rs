@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use futures_util::StreamExt;
 use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
+use livekit::{registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterStreamInfo};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+use super::audio_plugin::AudioStreamKind;
+use super::room::FfiRoom;
 use super::{room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -52,6 +57,37 @@ impl FfiAudioStream {
             return Err(FfiError::InvalidRequest("not an audio track".into()));
         };
 
+        let (audio_filter, stream_info) = match &new_stream.audio_filter_module_id {
+            Some(module_id) => {
+                let Some(room_handle) = ffi_track.room_handle else {
+                    return Err(FfiError::InvalidRequest(
+                        "this track has no room information".into(),
+                    ));
+                };
+                let room = server.retrieve_handle::<FfiRoom>(room_handle)?.clone();
+                let Some(filter) = registered_audio_filter_plugin(module_id) else {
+                    return Err(FfiError::InvalidRequest("the audio filter is not found".into()));
+                };
+
+                let stream_info = AudioFilterStreamInfo {
+                    url: room.inner.url(),
+                    room_id: room
+                        .inner
+                        .room
+                        .maybe_sid()
+                        .map(|sid| sid.to_string())
+                        .unwrap_or("".into()),
+                    room_name: room.inner.room.name(),
+                    participant_identity: room.inner.room.local_participant().identity().into(),
+                    participant_id: room.inner.room.local_participant().name(),
+                    track_id: rtc_track.id(),
+                };
+
+                (Some(filter), stream_info)
+            }
+            None => (None, AudioFilterStreamInfo::default()),
+        };
+
         let stream_type = new_stream.r#type();
         let handle_id = server.next_id();
         let audio_stream = match stream_type {
@@ -63,10 +99,33 @@ impl FfiAudioStream {
 
                 let native_stream =
                     NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
+
+                let stream = if let Some(audio_filter) = &audio_filter {
+                    let Some(session) = audio_filter.clone().new_session(
+                        sample_rate,
+                        new_stream.audio_filter_options.unwrap_or("".into()),
+                        stream_info,
+                    ) else {
+                        return Err(FfiError::InvalidRequest(
+                            "audio filter is not initialized".into(),
+                        ));
+                    };
+                    let stream = AudioFilterAudioStream::new(
+                        native_stream,
+                        session,
+                        Duration::from_millis(10),
+                        sample_rate,
+                        num_channels,
+                    );
+                    AudioStreamKind::Filtered(stream)
+                } else {
+                    AudioStreamKind::Native(native_stream)
+                };
+
                 let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
                     server,
                     handle_id,
-                    native_stream,
+                    stream,
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
                     true,
@@ -91,6 +150,7 @@ impl FfiAudioStream {
         let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
         let handle_id = server.next_id();
         let stream_type = request.r#type();
+
         let audio_stream = match stream_type {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
@@ -135,12 +195,22 @@ impl FfiAudioStream {
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
         let (track_finished_tx, _) = broadcast::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
-            ffi_participant,
+            ffi_participant.clone(),
             track_source.into(),
             track_tx,
             track_finished_tx.clone(),
         ));
         // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
+
+        let url = ffi_participant.room.url();
+        let room_sid = ffi_participant.room.room.sid().await;
+        let room_name = ffi_participant.room.room.name();
+        let participant_identity = ffi_participant.participant.identity();
+        let participant_id = ffi_participant.participant.sid();
+        let filter = match &request.audio_filter_module_id {
+            Some(module_id) => registered_audio_filter_plugin(module_id),
+            None => None,
+        };
 
         loop {
             let track = track_rx.recv().await;
@@ -149,11 +219,13 @@ impl FfiAudioStream {
                 let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
                     continue;
                 };
+
                 let (c_tx, c_rx) = oneshot::channel::<()>();
                 let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
                 let sample_rate = request.sample_rate.unwrap_or(48000) as i32;
                 let num_channels = request.num_channels.unwrap_or(1) as i32;
+                let track_sid = track.sid();
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {
@@ -162,7 +234,7 @@ impl FfiAudioStream {
                             let Ok(t) = t else {
                                 return
                             };
-                            if t.sid() == track.sid() {
+                            if t.sid() == track_sid {
                                 handle_dropped_tx.send(()).ok();
                                 return
                             }
@@ -170,11 +242,45 @@ impl FfiAudioStream {
                     }
                 });
 
+                let mut audio_filter_session = match &filter {
+                    Some(filter) => match &request.audio_filter_options {
+                        Some(options) => {
+                            let stream_info = AudioFilterStreamInfo {
+                                url: url.clone(),
+                                room_id: room_sid.clone().into(),
+                                room_name: room_name.clone(),
+                                participant_identity: participant_identity.clone().into(),
+                                participant_id: participant_id.clone().into(),
+                                track_id: track.sid().into(),
+                            };
+
+                            filter.clone().new_session(sample_rate as u32, &options, stream_info)
+                        }
+                        None => None,
+                    },
+                    None => None,
+                };
+
+                let native_stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
+
+                let stream = if let Some(session) = audio_filter_session.take() {
+                    let stream = AudioFilterAudioStream::new(
+                        native_stream,
+                        session,
+                        Duration::from_millis(10),
+                        sample_rate as u32,
+                        num_channels as u32,
+                    );
+                    AudioStreamKind::Filtered(stream)
+                } else {
+                    AudioStreamKind::Native(native_stream)
+                };
+
                 server.async_runtime.spawn(async move {
                     Self::native_audio_stream_task(
                         server,
                         stream_handle,
-                        NativeAudioStream::new(rtc_track, sample_rate, num_channels),
+                        stream,
                         c_rx,
                         handle_dropped_rx,
                         false,
@@ -209,7 +315,7 @@ impl FfiAudioStream {
     async fn native_audio_stream_task(
         server: &'static server::FfiServer,
         stream_handle_id: FfiHandleId,
-        mut native_stream: NativeAudioStream,
+        mut native_stream: AudioStreamKind,
         mut self_dropped_rx: oneshot::Receiver<()>,
         mut handle_dropped_rx: oneshot::Receiver<()>,
         send_eos: bool,
