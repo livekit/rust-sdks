@@ -82,7 +82,7 @@ mkdir -p "$ARTIFACTS_DIR/lib"
 if [[ "$arch" == "riscv64" ]]
 then
 # somehow you have to configure ffmpeg manually for riscv64
-cd src/third_party/ffmpeg && ./configure --arch=riscv64 && make -j16 || true && cd ../../../
+cd src/third_party/ffmpeg && ./configure --arch=riscv64 --no-asm && make -j16 || true && cd ../../../
 
 # Manually create a sysroot
 sudo apt-get install libasound2-dev libpulse-dev libavutil-dev g++-riscv64-linux-gnu debootstrap
