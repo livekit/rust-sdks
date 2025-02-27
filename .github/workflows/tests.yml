@@ -31,11 +31,11 @@ jobs:
       matrix:
         include:
           # Platform supports is limited for tests (no aarch64)
-          - os: windows-2019
+          - os: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
 
     name: Test (${{ matrix.target }})
@@ -47,7 +47,7 @@ jobs:
           rustup target add ${{ matrix.target }} --toolchain nightly
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-20.04' }}
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
           sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev

@@ -35,30 +35,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-2019
+          - os: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: windows-2019
+          - os: windows-latest
             target: aarch64-pc-windows-msvc
             #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
-          - os: macos-13
+          - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-latest
             target: aarch64-apple-ios
-          - os: macos-13
+          - os: macos-latest
             target: aarch64-apple-ios-sim
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: buildjet-4vcpu-ubuntu-2204-arm
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             target: aarch64-linux-android
             ndk_arch: aarch64-unknown-linux-musl
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             target: armv7-linux-androideabi
             ndk_arch: arm-unknown-linux-musleabihf
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             target: x86_64-linux-android
             ndk_arch: x86_64-unknown-linux-musl
 
@@ -70,7 +70,7 @@ jobs:
           submodules: true
 
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-20.04' || matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm'}}
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'}}
         run: |
           sudo apt update -y
           sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev

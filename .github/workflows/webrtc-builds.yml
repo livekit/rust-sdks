@@ -26,59 +26,59 @@ jobs:
       matrix:
         target:
           - name: win
-            os: windows-2019
+            os: windows-latest
             cmd: .\build_windows.cmd
             arch: x64
 
           - name: win
-            os: windows-2019
+            os: windows-latest
             cmd: .\build_windows.cmd
             arch: arm64
 
           - name: mac
-            os: macos-13
+            os: macos-latest
             cmd: ./build_macos.sh
             arch: x64
 
           - name: mac
-            os: macos-13
+            os: macos-latest
             cmd: ./build_macos.sh
             arch: arm64
 
           - name: linux
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-latest
             cmd: ./build_linux.sh
             arch: x64
 
           - name: linux
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-24.04-arm
             cmd: ./build_linux.sh
             arch: arm64
 
           - name: android
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-24.04-arm
             cmd: ./build_android.sh
             arch: arm64
 
           - name: android
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-24.04-arm
             cmd: ./build_android.sh
             arch: arm
 
           - name: android
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-latest
             cmd: ./build_android.sh
             arch: x64
 
           - name: ios
             out: ios-device-arm64
-            os: macos-13
+            os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
 
           - name: ios
             out: ios-simulator-arm64
-            os: macos-13
+            os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
             buildargs: --environment simulator
@@ -112,17 +112,17 @@ jobs:
       - run: pip3 install setuptools # pkg_resources is sometimes not found?
 
       - name: Install linux dependencies
-        if: ${{ matrix.target.os == 'ubuntu-20.04' || matrix.target.os == 'ubuntu-latest' || matrix.target.os == 'buildjet-8vcpu-ubuntu-2004' }}
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
       - name: Install macos dependencies
-        if: ${{ matrix.target.os == 'macos-13' }}
+        if: ${{ matrix.target.os == 'macos-latest' }}
         run: brew install ninja
 
       - name: Install windows dependencies
-        if: ${{ matrix.target.os == 'windows-2019' }}
+        if: ${{ matrix.target.os == 'windows-latest' }}
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ${{ github.workspace }}\ninja
@@ -141,13 +141,13 @@ jobs:
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)
-        if: ${{ matrix.target.os != 'windows-2019' }}
+        if: ${{ matrix.target.os != 'windows-latest' }}
         run: |
           cd webrtc-sys/libwebrtc
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ steps.setup.outputs.OUT }} -r
 
       - name: Zip artifact (Windows)
-        if: ${{ matrix.target.os == 'windows-2019' }}
+        if: ${{ matrix.target.os == 'windows-latest' }}
         run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
 
       - name: Upload artifacts

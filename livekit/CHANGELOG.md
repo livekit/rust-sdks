@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.5] - 2025-02-06
+
+### Fixed
+
+- Fix a dependency issue with an older version of the libwebrtc crate
+
 ## [0.7.4] - 2025-02-03
 
 ### Added
