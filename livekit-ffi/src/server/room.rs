@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::ChatMessage;
