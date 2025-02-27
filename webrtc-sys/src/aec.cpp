@@ -47,14 +47,13 @@ void Aec::cancel_echo(int16_t* cap,
 
   if (SampleRateSupportsMultiBand(options_.sample_rate)) {
     cap_buf_->MergeFrequencyBands();
-    rend_buf_->SplitIntoFrequencyBands();
   }
 
   cap_buf_->CopyTo(stream_cfg, cap);
 }
 
 std::unique_ptr<Aec> create_aec(int sample_rate, int num_channels) {
-  if (sample_rate != 16000 && sample_rate != 32000 && sample_rate != 48000)
+  if (sample_rate != 8000 && sample_rate != 16000 && sample_rate != 32000 && sample_rate != 48000)
     return nullptr;
 
   return std::make_unique<Aec>(AecOptions{sample_rate, num_channels});
