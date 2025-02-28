@@ -30,6 +30,7 @@ use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
+pub mod audio_plugin;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod colorcvt;

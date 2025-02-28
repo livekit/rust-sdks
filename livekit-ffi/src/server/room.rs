@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::prelude::*;
 use livekit::ChatMessage;
+use livekit::{prelude::*, registered_audio_filter_plugins};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
@@ -41,6 +41,7 @@ pub struct FfiPublication {
 pub struct FfiTrack {
     pub handle: FfiHandleId,
     pub track: Track,
+    pub room_handle: Option<FfiHandleId>,
 }
 
 impl FfiHandle for FfiTrack {}
@@ -70,6 +71,9 @@ pub struct RoomInner {
 
     // Used to forward RPC method invocation to the FfiClient and collect their results
     rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
+
+    // ws url associated with this room
+    url: String,
 }
 
 struct Handle {
@@ -113,6 +117,7 @@ impl FfiRoom {
     ) -> proto::ConnectResponse {
         let async_id = server.next_id();
 
+        let req = connect.clone();
         let mut options: RoomOptions = connect.options.into();
 
         {
@@ -126,6 +131,34 @@ impl FfiRoom {
         let connect = async move {
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
+                    // initialize audio filters
+                    let result = server
+                        .async_runtime
+                        .spawn_blocking(move || {
+                            for filter in registered_audio_filter_plugins().into_iter() {
+                                filter.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
+                            }
+                            Ok::<(), String>(())
+                        })
+                        .await
+                        .map_err(|e| e.to_string());
+                    match result {
+                        Err(e) | Ok(Err(e)) => {
+                            log::error!("error while initializing audio filter: {}", e);
+                            let _ = server.send_event(proto::ffi_event::Message::Connect(
+                                proto::ConnectCallback {
+                                    async_id,
+                                    message: Some(proto::connect_callback::Message::Error(
+                                        e.to_string(),
+                                    )),
+                                    ..Default::default()
+                                },
+                            ));
+                            return;
+                        }
+                        Ok(Ok(_)) => (),
+                    };
+
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
                     let Some(RoomEvent::Connected { participants_with_tracks }) =
@@ -150,6 +183,7 @@ impl FfiRoom {
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
                         rpc_method_invocation_waiters: Default::default(),
+                        url: connect.url,
                     });
 
                     let (local_info, remote_infos) =
@@ -803,6 +837,10 @@ impl RoomInner {
         server.watch_panic(handle);
         proto::SetTrackSubscriptionPermissionsResponse {}
     }
+
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
 }
 
 // Task used to publish data without blocking the client thread
@@ -1058,7 +1096,11 @@ async fn forward_event(
         RoomEvent::TrackSubscribed { track, publication: _, participant } => {
             let handle_id = server.next_id();
             let track_sid = track.sid();
-            let ffi_track = FfiTrack { handle: handle_id, track: track.into() };
+            let ffi_track = FfiTrack {
+                handle: handle_id,
+                track: track.into(),
+                room_handle: Some(inner.handle_id),
+            };
 
             let track_info = proto::TrackInfo::from(&ffi_track);
             server.store_handle(ffi_track.handle, ffi_track);

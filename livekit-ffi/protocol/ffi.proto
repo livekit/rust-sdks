@@ -120,7 +120,8 @@ message FfiRequest {
     // Data Channel
     SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 47;
 
-    // NEXT_ID: 49
+    // Audio Filter Plugin
+    LoadAudioFilterPluginRequest load_audio_filter_plugin = 49;
   }
 }
 
@@ -188,7 +189,8 @@ message FfiResponse {
     // Data Channel
     SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 46;
 
-    // NEXT_ID: 48
+    // Audio Filter Plugin
+    LoadAudioFilterPluginResponse load_audio_filter_plugin = 48;
   }
 }
 
