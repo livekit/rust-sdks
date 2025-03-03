@@ -55,6 +55,6 @@ impl<T: Clone> Promise<T> {
     }
 
     pub fn try_result(&self) -> Option<T> {
-        self.result.try_read().unwrap().clone()
+        self.result.try_read().ok().and_then(|result| result.clone())
     }
 }
