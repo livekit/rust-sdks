@@ -1655,7 +1655,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.12"
+version = "0.12.13"
 dependencies = [
  "console-subscriber",
  "dashmap",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "futures-util",
  "livekit-runtime",
