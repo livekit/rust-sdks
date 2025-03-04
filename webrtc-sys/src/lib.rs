@@ -14,6 +14,7 @@
 
 #[cfg(target_os = "android")]
 pub mod android;
+pub mod apm;
 pub mod audio_resampler;
 pub mod audio_track;
 pub mod candidate;
@@ -36,7 +37,6 @@ pub mod video_frame_buffer;
 pub mod video_track;
 pub mod webrtc;
 pub mod yuv_helper;
-pub mod apm;
 
 pub const MEDIA_TYPE_VIDEO: &str = "video";
 pub const MEDIA_TYPE_AUDIO: &str = "audio";
