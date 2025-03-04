@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.6] - 2025-02-28
+
+### Added
+
+- Add audio filter support
+
 ## [0.7.5] - 2025-02-06
 
 ### Fixed

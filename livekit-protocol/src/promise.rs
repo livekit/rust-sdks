@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex, RwLock};
 
 pub struct Promise<T> {
     tx: Mutex<Option<oneshot::Sender<T>>>,
     rx: Mutex<Option<oneshot::Receiver<T>>>,
-    result: Mutex<Option<T>>,
+    result: RwLock<Option<T>>,
 }
 
 impl<T: Clone> Promise<T> {
@@ -37,14 +37,24 @@ impl<T: Clone> Promise<T> {
     }
 
     pub async fn result(&self) -> T {
-        let mut rx = self.rx.lock().await;
-        if rx.is_some() {
-            self.result.lock().await.replace(rx.take().unwrap().await.unwrap());
+        {
+            let result_read = self.result.read().await;
+            if let Some(result) = result_read.clone() {
+                return result;
+            }
         }
-        self.result.lock().await.clone().unwrap()
+
+        let mut rx = self.rx.lock().await;
+        if let Some(rx) = rx.take() {
+            let result = rx.await.unwrap();
+            *self.result.write().await = Some(result.clone());
+            result
+        } else {
+            self.result.read().await.clone().unwrap()
+        }
     }
 
     pub fn try_result(&self) -> Option<T> {
-        self.result.try_lock().unwrap().clone()
+        self.result.try_read().ok().and_then(|result| result.clone())
     }
 }
