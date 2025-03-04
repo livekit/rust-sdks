@@ -91,6 +91,42 @@ message RemixAndResampleResponse {
   required OwnedAudioFrameBuffer buffer = 1;
 }
 
+// AEC
+
+
+message NewApmRequest {
+  required bool echo_canceller_enabled = 1;
+  required bool gain_controller_enabled = 2;
+  required bool high_pass_filter_enabled = 3;
+  required bool noise_suppression_enabled = 4;
+}
+message NewApmResponse {
+  required OwnedApm apm = 1;
+}
+
+message ApmProcessStreamRequest {
+  required uint64 apm_handle = 1;
+  required uint64 data_ptr = 2; // *mut i16
+  required uint32 size = 3; // in bytes
+  required uint32 sample_rate = 4;
+  required uint32 num_channels = 5;
+}
+
+message ApmProcessStreamResponse {
+  optional string error = 1;
+}
+
+message ApmProcessReverseStreamRequest {
+  required uint64 apm_handle = 1;
+  required uint64 data_ptr = 2; // *mut i16
+  required uint32 size = 3; // in bytes
+  required uint32 sample_rate = 4;
+  required uint32 num_channels = 5;
+}
+
+message ApmProcessReverseStreamResponse {
+  optional string error = 1;
+}
 
 // New resampler using SoX (much better quality)
 
@@ -241,6 +277,13 @@ message OwnedAudioResampler {
 }
 
 
+//
+// AEC
+//
+
+message OwnedApm {
+  required FfiOwnedHandle handle = 1;
+}
 
 //
 // Sox AudioResampler

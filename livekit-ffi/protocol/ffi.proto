@@ -122,6 +122,12 @@ message FfiRequest {
 
     // Audio Filter Plugin
     LoadAudioFilterPluginRequest load_audio_filter_plugin = 49;
+
+    NewApmRequest new_apm = 50;
+    ApmProcessStreamRequest apm_process_stream = 51;
+    ApmProcessReverseStreamRequest apm_process_reverse_stream = 52;
+
+    // NEXT_ID: 53
   }
 }
 
@@ -191,6 +197,12 @@ message FfiResponse {
 
     // Audio Filter Plugin
     LoadAudioFilterPluginResponse load_audio_filter_plugin = 48;
+
+    NewApmResponse new_apm = 49;
+    ApmProcessStreamResponse apm_process_stream = 50;
+    ApmProcessReverseStreamResponse apm_process_reverse_stream = 51;
+
+    // NEXT_ID: 52
   }
 }
 

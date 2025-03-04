@@ -498,6 +498,8 @@ pub struct TrackInfo {
     pub version: ::core::option::Option<TimedVersion>,
     #[prost(enumeration="AudioTrackFeature", repeated, tag="19")]
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="BackupCodecPolicy", tag="20")]
+    pub backup_codec_policy: i32,
 }
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1361,6 +1363,35 @@ impl ImageCodec {
         }
     }
 }
+/// Policy for publisher to handle subscribers that are unable to support the primary codec of a track
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum BackupCodecPolicy {
+    /// default behavior, regress to backup codec and all subscribers will receive the backup codec
+    Regression = 0,
+    /// encoding/send the primary and backup codec simultaneously
+    Simulcast = 1,
+}
+impl BackupCodecPolicy {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            BackupCodecPolicy::Regression => "REGRESSION",
+            BackupCodecPolicy::Simulcast => "SIMULCAST",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "REGRESSION" => Some(Self::Regression),
+            "SIMULCAST" => Some(Self::Simulcast),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum TrackType {
@@ -1708,6 +1739,9 @@ pub struct RoomCompositeEgressRequest {
     /// (default false)
     #[prost(bool, tag="3")]
     pub audio_only: bool,
+    /// only applies to audio_only egress (default DEFAULT_MIXING)
+    #[prost(enumeration="AudioMixing", tag="15")]
+    pub audio_mixing: i32,
     /// (default false)
     #[prost(bool, tag="4")]
     pub video_only: bool,
@@ -2591,6 +2625,38 @@ impl StreamProtocol {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum AudioMixing {
+    /// all users are mixed together
+    DefaultMixing = 0,
+    /// agent audio in the left channel, all other audio in the right channel
+    DualChannelAgent = 1,
+    /// each new audio track alternates between left and right channels
+    DualChannelAlternate = 2,
+}
+impl AudioMixing {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            AudioMixing::DefaultMixing => "DEFAULT_MIXING",
+            AudioMixing::DualChannelAgent => "DUAL_CHANNEL_AGENT",
+            AudioMixing::DualChannelAlternate => "DUAL_CHANNEL_ALTERNATE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DEFAULT_MIXING" => Some(Self::DefaultMixing),
+            "DUAL_CHANNEL_AGENT" => Some(Self::DualChannelAgent),
+            "DUAL_CHANNEL_ALTERNATE" => Some(Self::DualChannelAlternate),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum EncodingOptionsPreset {
     ///   1280x720, 30fps, 3000kpbs, H.264_MAIN / OPUS
     H264720p30 = 0,
@@ -2903,6 +2969,8 @@ pub struct AddTrackRequest {
     /// if not specified, server will infer it from track source to bundle camera/microphone, screenshare/audio together
     #[prost(string, tag="15")]
     pub stream: ::prost::alloc::string::String,
+    #[prost(enumeration="BackupCodecPolicy", tag="16")]
+    pub backup_codec_policy: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3711,6 +3779,7 @@ pub struct JobTermination {
 pub enum JobType {
     JtRoom = 0,
     JtPublisher = 1,
+    JtParticipant = 2,
 }
 impl JobType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3721,6 +3790,7 @@ impl JobType {
         match self {
             JobType::JtRoom => "JT_ROOM",
             JobType::JtPublisher => "JT_PUBLISHER",
+            JobType::JtParticipant => "JT_PARTICIPANT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3728,6 +3798,7 @@ impl JobType {
         match value {
             "JT_ROOM" => Some(Self::JtRoom),
             "JT_PUBLISHER" => Some(Self::JtPublisher),
+            "JT_PARTICIPANT" => Some(Self::JtParticipant),
             _ => None,
         }
     }
@@ -4540,6 +4611,15 @@ pub struct WebhookEvent {
     #[prost(int32, tag="11")]
     pub num_dropped: i32,
 }
+/// SIPStatus is returned as an error detail in CreateSIPParticipant.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipStatus {
+    #[prost(enumeration="SipStatusCode", tag="1")]
+    pub code: i32,
+    #[prost(string, tag="2")]
+    pub status: ::prost::alloc::string::String,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateSipTrunkRequest {
@@ -5013,6 +5093,30 @@ pub struct DeleteSipDispatchRuleRequest {
     #[prost(string, tag="1")]
     pub sip_dispatch_rule_id: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipOutboundConfig {
+    /// SIP server address
+    #[prost(string, tag="1")]
+    pub hostname: ::prost::alloc::string::String,
+    /// SIP Transport used for outbound call.
+    #[prost(enumeration="SipTransport", tag="2")]
+    pub transport: i32,
+    /// Username and password used to authenticate with SIP server.
+    /// May be empty to have no authentication.
+    #[prost(string, tag="3")]
+    pub auth_username: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub auth_password: ::prost::alloc::string::String,
+    /// Map SIP X-* headers from 200 OK to SIP participant attributes.
+    /// Keys are the names of X-* headers and values are the names of attributes they will be mapped to.
+    #[prost(map="string, string", tag="5")]
+    pub headers_to_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Map LiveKit attributes to SIP X-* headers when sending BYE or REFER requests.
+    /// Keys are the names of attributes and values are the names of X-* headers they will be mapped to.
+    #[prost(map="string, string", tag="6")]
+    pub attributes_to_headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
 /// A SIP Participant is a singular SIP session connected to a LiveKit room via
 /// a SIP Trunk into a SIP DispatchRule
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -5021,6 +5125,8 @@ pub struct CreateSipParticipantRequest {
     /// What SIP Trunk should be used to dial the user
     #[prost(string, tag="1")]
     pub sip_trunk_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="20")]
+    pub trunk: ::core::option::Option<SipOutboundConfig>,
     /// What number should be dialed via SIP
     #[prost(string, tag="2")]
     pub sip_call_to: ::prost::alloc::string::String,
@@ -5076,9 +5182,13 @@ pub struct CreateSipParticipantRequest {
     /// Enable voice isolation for the callee.
     #[prost(bool, tag="14")]
     pub krisp_enabled: bool,
-    /// NEXT ID: 19
     #[prost(enumeration="SipMediaEncryption", tag="18")]
     pub media_encryption: i32,
+    /// Wait for the answer for the call before returning.
+    ///
+    /// NEXT ID: 21
+    #[prost(bool, tag="19")]
+    pub wait_until_answered: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5115,6 +5225,10 @@ pub struct SipCallInfo {
     pub call_id: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub trunk_id: ::prost::alloc::string::String,
+    #[prost(string, tag="16")]
+    pub dispatch_rule_id: ::prost::alloc::string::String,
+    #[prost(string, tag="17")]
+    pub region: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub room_name: ::prost::alloc::string::String,
     /// ID of the current/previous room published to
@@ -5122,26 +5236,43 @@ pub struct SipCallInfo {
     pub room_id: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub participant_identity: ::prost::alloc::string::String,
+    #[prost(map="string, string", tag="18")]
+    pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(message, optional, tag="6")]
     pub from_uri: ::core::option::Option<SipUri>,
     #[prost(message, optional, tag="7")]
     pub to_uri: ::core::option::Option<SipUri>,
+    #[deprecated]
+    #[prost(int64, tag="9")]
+    pub created_at: i64,
+    #[deprecated]
+    #[prost(int64, tag="10")]
+    pub started_at: i64,
+    #[deprecated]
+    #[prost(int64, tag="11")]
+    pub ended_at: i64,
     #[prost(enumeration="SipFeature", repeated, tag="14")]
     pub enabled_features: ::prost::alloc::vec::Vec<i32>,
     #[prost(enumeration="SipCallDirection", tag="15")]
     pub call_direction: i32,
     #[prost(enumeration="SipCallStatus", tag="8")]
     pub call_status: i32,
-    #[prost(int64, tag="9")]
-    pub created_at: i64,
-    #[prost(int64, tag="10")]
-    pub started_at: i64,
-    #[prost(int64, tag="11")]
-    pub ended_at: i64,
+    #[prost(int64, tag="22")]
+    pub created_at_ns: i64,
+    #[prost(int64, tag="23")]
+    pub started_at_ns: i64,
+    #[prost(int64, tag="24")]
+    pub ended_at_ns: i64,
     #[prost(enumeration="DisconnectReason", tag="12")]
     pub disconnect_reason: i32,
     #[prost(string, tag="13")]
     pub error: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="19")]
+    pub call_status_code: ::core::option::Option<SipStatus>,
+    #[prost(string, tag="20")]
+    pub audio_codec: ::prost::alloc::string::String,
+    #[prost(string, tag="21")]
+    pub media_encryption: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5156,6 +5287,173 @@ pub struct SipUri {
     pub port: u32,
     #[prost(enumeration="SipTransport", tag="5")]
     pub transport: i32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipStatusCode {
+    SipStatusUnknown = 0,
+    SipStatusTrying = 100,
+    SipStatusRinging = 180,
+    SipStatusCallIsForwarded = 181,
+    SipStatusQueued = 182,
+    SipStatusSessionProgress = 183,
+    SipStatusOk = 200,
+    SipStatusAccepted = 202,
+    SipStatusMovedPermanently = 301,
+    SipStatusMovedTemporarily = 302,
+    SipStatusUseProxy = 305,
+    SipStatusBadRequest = 400,
+    SipStatusUnauthorized = 401,
+    SipStatusPaymentRequired = 402,
+    SipStatusForbidden = 403,
+    SipStatusNotfound = 404,
+    SipStatusMethodNotAllowed = 405,
+    SipStatusNotAcceptable = 406,
+    SipStatusProxyAuthRequired = 407,
+    SipStatusRequestTimeout = 408,
+    SipStatusConflict = 409,
+    SipStatusGone = 410,
+    SipStatusRequestEntityTooLarge = 413,
+    SipStatusRequestUriTooLong = 414,
+    SipStatusUnsupportedMediaType = 415,
+    SipStatusRequestedRangeNotSatisfiable = 416,
+    SipStatusBadExtension = 420,
+    SipStatusExtensionRequired = 421,
+    SipStatusIntervalTooBrief = 423,
+    SipStatusTemporarilyUnavailable = 480,
+    SipStatusCallTransactionDoesNotExists = 481,
+    SipStatusLoopDetected = 482,
+    SipStatusTooManyHops = 483,
+    SipStatusAddressIncomplete = 484,
+    SipStatusAmbiguous = 485,
+    SipStatusBusyHere = 486,
+    SipStatusRequestTerminated = 487,
+    SipStatusNotAcceptableHere = 488,
+    SipStatusInternalServerError = 500,
+    SipStatusNotImplemented = 501,
+    SipStatusBadGateway = 502,
+    SipStatusServiceUnavailable = 503,
+    SipStatusGatewayTimeout = 504,
+    SipStatusVersionNotSupported = 505,
+    SipStatusMessageTooLarge = 513,
+    SipStatusGlobalBusyEverywhere = 600,
+    SipStatusGlobalDecline = 603,
+    SipStatusGlobalDoesNotExistAnywhere = 604,
+    SipStatusGlobalNotAcceptable = 606,
+}
+impl SipStatusCode {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipStatusCode::SipStatusUnknown => "SIP_STATUS_UNKNOWN",
+            SipStatusCode::SipStatusTrying => "SIP_STATUS_TRYING",
+            SipStatusCode::SipStatusRinging => "SIP_STATUS_RINGING",
+            SipStatusCode::SipStatusCallIsForwarded => "SIP_STATUS_CALL_IS_FORWARDED",
+            SipStatusCode::SipStatusQueued => "SIP_STATUS_QUEUED",
+            SipStatusCode::SipStatusSessionProgress => "SIP_STATUS_SESSION_PROGRESS",
+            SipStatusCode::SipStatusOk => "SIP_STATUS_OK",
+            SipStatusCode::SipStatusAccepted => "SIP_STATUS_ACCEPTED",
+            SipStatusCode::SipStatusMovedPermanently => "SIP_STATUS_MOVED_PERMANENTLY",
+            SipStatusCode::SipStatusMovedTemporarily => "SIP_STATUS_MOVED_TEMPORARILY",
+            SipStatusCode::SipStatusUseProxy => "SIP_STATUS_USE_PROXY",
+            SipStatusCode::SipStatusBadRequest => "SIP_STATUS_BAD_REQUEST",
+            SipStatusCode::SipStatusUnauthorized => "SIP_STATUS_UNAUTHORIZED",
+            SipStatusCode::SipStatusPaymentRequired => "SIP_STATUS_PAYMENT_REQUIRED",
+            SipStatusCode::SipStatusForbidden => "SIP_STATUS_FORBIDDEN",
+            SipStatusCode::SipStatusNotfound => "SIP_STATUS_NOTFOUND",
+            SipStatusCode::SipStatusMethodNotAllowed => "SIP_STATUS_METHOD_NOT_ALLOWED",
+            SipStatusCode::SipStatusNotAcceptable => "SIP_STATUS_NOT_ACCEPTABLE",
+            SipStatusCode::SipStatusProxyAuthRequired => "SIP_STATUS_PROXY_AUTH_REQUIRED",
+            SipStatusCode::SipStatusRequestTimeout => "SIP_STATUS_REQUEST_TIMEOUT",
+            SipStatusCode::SipStatusConflict => "SIP_STATUS_CONFLICT",
+            SipStatusCode::SipStatusGone => "SIP_STATUS_GONE",
+            SipStatusCode::SipStatusRequestEntityTooLarge => "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE",
+            SipStatusCode::SipStatusRequestUriTooLong => "SIP_STATUS_REQUEST_URI_TOO_LONG",
+            SipStatusCode::SipStatusUnsupportedMediaType => "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE",
+            SipStatusCode::SipStatusRequestedRangeNotSatisfiable => "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE",
+            SipStatusCode::SipStatusBadExtension => "SIP_STATUS_BAD_EXTENSION",
+            SipStatusCode::SipStatusExtensionRequired => "SIP_STATUS_EXTENSION_REQUIRED",
+            SipStatusCode::SipStatusIntervalTooBrief => "SIP_STATUS_INTERVAL_TOO_BRIEF",
+            SipStatusCode::SipStatusTemporarilyUnavailable => "SIP_STATUS_TEMPORARILY_UNAVAILABLE",
+            SipStatusCode::SipStatusCallTransactionDoesNotExists => "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS",
+            SipStatusCode::SipStatusLoopDetected => "SIP_STATUS_LOOP_DETECTED",
+            SipStatusCode::SipStatusTooManyHops => "SIP_STATUS_TOO_MANY_HOPS",
+            SipStatusCode::SipStatusAddressIncomplete => "SIP_STATUS_ADDRESS_INCOMPLETE",
+            SipStatusCode::SipStatusAmbiguous => "SIP_STATUS_AMBIGUOUS",
+            SipStatusCode::SipStatusBusyHere => "SIP_STATUS_BUSY_HERE",
+            SipStatusCode::SipStatusRequestTerminated => "SIP_STATUS_REQUEST_TERMINATED",
+            SipStatusCode::SipStatusNotAcceptableHere => "SIP_STATUS_NOT_ACCEPTABLE_HERE",
+            SipStatusCode::SipStatusInternalServerError => "SIP_STATUS_INTERNAL_SERVER_ERROR",
+            SipStatusCode::SipStatusNotImplemented => "SIP_STATUS_NOT_IMPLEMENTED",
+            SipStatusCode::SipStatusBadGateway => "SIP_STATUS_BAD_GATEWAY",
+            SipStatusCode::SipStatusServiceUnavailable => "SIP_STATUS_SERVICE_UNAVAILABLE",
+            SipStatusCode::SipStatusGatewayTimeout => "SIP_STATUS_GATEWAY_TIMEOUT",
+            SipStatusCode::SipStatusVersionNotSupported => "SIP_STATUS_VERSION_NOT_SUPPORTED",
+            SipStatusCode::SipStatusMessageTooLarge => "SIP_STATUS_MESSAGE_TOO_LARGE",
+            SipStatusCode::SipStatusGlobalBusyEverywhere => "SIP_STATUS_GLOBAL_BUSY_EVERYWHERE",
+            SipStatusCode::SipStatusGlobalDecline => "SIP_STATUS_GLOBAL_DECLINE",
+            SipStatusCode::SipStatusGlobalDoesNotExistAnywhere => "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE",
+            SipStatusCode::SipStatusGlobalNotAcceptable => "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SIP_STATUS_UNKNOWN" => Some(Self::SipStatusUnknown),
+            "SIP_STATUS_TRYING" => Some(Self::SipStatusTrying),
+            "SIP_STATUS_RINGING" => Some(Self::SipStatusRinging),
+            "SIP_STATUS_CALL_IS_FORWARDED" => Some(Self::SipStatusCallIsForwarded),
+            "SIP_STATUS_QUEUED" => Some(Self::SipStatusQueued),
+            "SIP_STATUS_SESSION_PROGRESS" => Some(Self::SipStatusSessionProgress),
+            "SIP_STATUS_OK" => Some(Self::SipStatusOk),
+            "SIP_STATUS_ACCEPTED" => Some(Self::SipStatusAccepted),
+            "SIP_STATUS_MOVED_PERMANENTLY" => Some(Self::SipStatusMovedPermanently),
+            "SIP_STATUS_MOVED_TEMPORARILY" => Some(Self::SipStatusMovedTemporarily),
+            "SIP_STATUS_USE_PROXY" => Some(Self::SipStatusUseProxy),
+            "SIP_STATUS_BAD_REQUEST" => Some(Self::SipStatusBadRequest),
+            "SIP_STATUS_UNAUTHORIZED" => Some(Self::SipStatusUnauthorized),
+            "SIP_STATUS_PAYMENT_REQUIRED" => Some(Self::SipStatusPaymentRequired),
+            "SIP_STATUS_FORBIDDEN" => Some(Self::SipStatusForbidden),
+            "SIP_STATUS_NOTFOUND" => Some(Self::SipStatusNotfound),
+            "SIP_STATUS_METHOD_NOT_ALLOWED" => Some(Self::SipStatusMethodNotAllowed),
+            "SIP_STATUS_NOT_ACCEPTABLE" => Some(Self::SipStatusNotAcceptable),
+            "SIP_STATUS_PROXY_AUTH_REQUIRED" => Some(Self::SipStatusProxyAuthRequired),
+            "SIP_STATUS_REQUEST_TIMEOUT" => Some(Self::SipStatusRequestTimeout),
+            "SIP_STATUS_CONFLICT" => Some(Self::SipStatusConflict),
+            "SIP_STATUS_GONE" => Some(Self::SipStatusGone),
+            "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE" => Some(Self::SipStatusRequestEntityTooLarge),
+            "SIP_STATUS_REQUEST_URI_TOO_LONG" => Some(Self::SipStatusRequestUriTooLong),
+            "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE" => Some(Self::SipStatusUnsupportedMediaType),
+            "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE" => Some(Self::SipStatusRequestedRangeNotSatisfiable),
+            "SIP_STATUS_BAD_EXTENSION" => Some(Self::SipStatusBadExtension),
+            "SIP_STATUS_EXTENSION_REQUIRED" => Some(Self::SipStatusExtensionRequired),
+            "SIP_STATUS_INTERVAL_TOO_BRIEF" => Some(Self::SipStatusIntervalTooBrief),
+            "SIP_STATUS_TEMPORARILY_UNAVAILABLE" => Some(Self::SipStatusTemporarilyUnavailable),
+            "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS" => Some(Self::SipStatusCallTransactionDoesNotExists),
+            "SIP_STATUS_LOOP_DETECTED" => Some(Self::SipStatusLoopDetected),
+            "SIP_STATUS_TOO_MANY_HOPS" => Some(Self::SipStatusTooManyHops),
+            "SIP_STATUS_ADDRESS_INCOMPLETE" => Some(Self::SipStatusAddressIncomplete),
+            "SIP_STATUS_AMBIGUOUS" => Some(Self::SipStatusAmbiguous),
+            "SIP_STATUS_BUSY_HERE" => Some(Self::SipStatusBusyHere),
+            "SIP_STATUS_REQUEST_TERMINATED" => Some(Self::SipStatusRequestTerminated),
+            "SIP_STATUS_NOT_ACCEPTABLE_HERE" => Some(Self::SipStatusNotAcceptableHere),
+            "SIP_STATUS_INTERNAL_SERVER_ERROR" => Some(Self::SipStatusInternalServerError),
+            "SIP_STATUS_NOT_IMPLEMENTED" => Some(Self::SipStatusNotImplemented),
+            "SIP_STATUS_BAD_GATEWAY" => Some(Self::SipStatusBadGateway),
+            "SIP_STATUS_SERVICE_UNAVAILABLE" => Some(Self::SipStatusServiceUnavailable),
+            "SIP_STATUS_GATEWAY_TIMEOUT" => Some(Self::SipStatusGatewayTimeout),
+            "SIP_STATUS_VERSION_NOT_SUPPORTED" => Some(Self::SipStatusVersionNotSupported),
+            "SIP_STATUS_MESSAGE_TOO_LARGE" => Some(Self::SipStatusMessageTooLarge),
+            "SIP_STATUS_GLOBAL_BUSY_EVERYWHERE" => Some(Self::SipStatusGlobalBusyEverywhere),
+            "SIP_STATUS_GLOBAL_DECLINE" => Some(Self::SipStatusGlobalDecline),
+            "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE" => Some(Self::SipStatusGlobalDoesNotExistAnywhere),
+            "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE" => Some(Self::SipStatusGlobalNotAcceptable),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

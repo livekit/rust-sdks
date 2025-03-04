@@ -14,6 +14,7 @@
 -DWEBRTC_ANDROID
 -DNDEBUG
 -DWEBRTC_ENABLE_SYMBOL_EXPORT
+-DWEBRTC_APM_DEBUG_DUMP=0
 -D__ANDROID_API__=29
 -DWEBRTC_LIBRARY_IMPL
 --sysroot=/Users/theomonnom/Library/Android/sdk/ndk-bundle/toolchains/llvm/prebuilt/darwin-x86_64/sysroot

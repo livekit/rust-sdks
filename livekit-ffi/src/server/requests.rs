@@ -18,7 +18,7 @@ use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
     register_audio_filter_plugin,
-    webrtc::{native::audio_resampler, prelude::*},
+    webrtc::{native::apm, native::audio_resampler, prelude::*},
     AudioFilterPlugin,
 };
 use parking_lot::Mutex;
@@ -857,6 +857,90 @@ fn on_flush_sox_resampler(
     }
 }
 
+fn on_new_apm(
+    server: &'static FfiServer,
+    new_apm: proto::NewApmRequest,
+) -> FfiResult<proto::NewApmResponse> {
+    let apm = apm::AudioProcessingModule::new(
+        new_apm.echo_canceller_enabled,
+        new_apm.gain_controller_enabled,
+        new_apm.high_pass_filter_enabled,
+        new_apm.noise_suppression_enabled,
+    );
+
+    let apm = Arc::new(Mutex::new(apm));
+    let handle_id = server.next_id();
+    server.store_handle(handle_id, apm);
+
+    Ok(proto::NewApmResponse {
+        apm: proto::OwnedApm { handle: proto::FfiOwnedHandle { id: handle_id } },
+    })
+}
+
+fn on_apm_process_stream(
+    server: &'static FfiServer,
+    request: proto::ApmProcessStreamRequest,
+) -> FfiResult<proto::ApmProcessStreamResponse> {
+    let aec = server
+        .retrieve_handle::<Arc<Mutex<apm::AudioProcessingModule>>>(request.apm_handle)?
+        .clone();
+
+    // make sure data is aligned for i16
+    if request.data_ptr as usize % std::mem::size_of::<i16>() != 0 {
+        return Ok(proto::ApmProcessStreamResponse {
+            error: Some("data_ptr must be aligned for i16".into()),
+        });
+    }
+
+    let mut aec = aec.lock();
+    let data = unsafe {
+        slice::from_raw_parts_mut(
+            request.data_ptr as *mut i16,
+            request.size as usize / std::mem::size_of::<i16>(),
+        )
+    };
+
+    if let Err(e) =
+        aec.process_stream(data, request.sample_rate as i32, request.num_channels as i32)
+    {
+        return Ok(proto::ApmProcessStreamResponse { error: Some(e.to_string()) });
+    }
+
+    Ok(proto::ApmProcessStreamResponse { error: None })
+}
+
+fn on_apm_process_reverse_stream(
+    server: &'static FfiServer,
+    request: proto::ApmProcessReverseStreamRequest,
+) -> FfiResult<proto::ApmProcessReverseStreamResponse> {
+    let aec = server
+        .retrieve_handle::<Arc<Mutex<apm::AudioProcessingModule>>>(request.apm_handle)?
+        .clone();
+
+    // make sure data is aligned for i16
+    if request.data_ptr as usize % std::mem::size_of::<i16>() != 0 {
+        return Ok(proto::ApmProcessReverseStreamResponse {
+            error: Some("data_ptr must be aligned for i16".into()),
+        });
+    }
+
+    let mut aec = aec.lock();
+    let data = unsafe {
+        slice::from_raw_parts_mut(
+            request.data_ptr as *mut i16,
+            request.size as usize / std::mem::size_of::<i16>(),
+        )
+    };
+
+    if let Err(e) =
+        aec.process_reverse_stream(data, request.sample_rate as i32, request.num_channels as i32)
+    {
+        return Ok(proto::ApmProcessReverseStreamResponse { error: Some(e.to_string()) });
+    }
+
+    Ok(proto::ApmProcessReverseStreamResponse { error: None })
+}
+
 fn on_perform_rpc(
     server: &'static FfiServer,
     request: proto::PerformRpcRequest,
@@ -864,6 +948,19 @@ fn on_perform_rpc(
     let ffi_participant =
         server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
     return ffi_participant.perform_rpc(server, request);
+}
+
+fn on_load_audio_filter_plugin(
+    _server: &'static FfiServer,
+    request: proto::LoadAudioFilterPluginRequest,
+) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
+    let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
+    let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps)
+        .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
+
+    register_audio_filter_plugin(request.module_id, plugin);
+
+    Ok(proto::LoadAudioFilterPluginResponse { error: None })
 }
 
 fn on_register_rpc_method(
@@ -921,19 +1018,6 @@ fn on_set_data_channel_buffered_amount_low_threshold(
     Ok(ffi_participant.room.set_data_channel_buffered_amount_low_threshold(
         set_data_channel_buffered_amount_low_threshold,
     ))
-}
-
-fn on_load_audio_filter_plugin(
-    _server: &'static FfiServer,
-    request: proto::LoadAudioFilterPluginRequest,
-) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
-    let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
-    let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps)
-        .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
-
-    register_audio_filter_plugin(request.module_id, plugin);
-
-    Ok(proto::LoadAudioFilterPluginResponse { error: None })
 }
 
 fn on_set_track_subscription_permissions(
@@ -1078,6 +1162,19 @@ pub fn handle_request(
         proto::ffi_request::Message::FlushSoxResampler(flush_soxr) => {
             proto::ffi_response::Message::FlushSoxResampler(on_flush_sox_resampler(
                 server, flush_soxr,
+            )?)
+        }
+        proto::ffi_request::Message::NewApm(new_apm) => {
+            proto::ffi_response::Message::NewApm(on_new_apm(server, new_apm)?)
+        }
+
+        proto::ffi_request::Message::ApmProcessStream(request) => {
+            proto::ffi_response::Message::ApmProcessStream(on_apm_process_stream(server, request)?)
+        }
+
+        proto::ffi_request::Message::ApmProcessReverseStream(request) => {
+            proto::ffi_response::Message::ApmProcessReverseStream(on_apm_process_reverse_stream(
+                server, request,
             )?)
         }
         proto::ffi_request::Message::PerformRpc(request) => {
