@@ -59,16 +59,19 @@ jobs:
             os: ubuntu-24.04-arm
             cmd: ./build_android.sh
             arch: arm64
+            ndk_arch: aarch64-unknown-linux-musl
 
           - name: android
             os: ubuntu-24.04-arm
             cmd: ./build_android.sh
             arch: arm
+            ndk_arch: arm-unknown-linux-musleabihf
 
           - name: android
             os: ubuntu-latest
             cmd: ./build_android.sh
             arch: x64
+            ndk_arch: x86_64-unknown-linux-musl
 
           - name: ios
             out: ios-device-arm64
@@ -116,6 +119,11 @@ jobs:
         run: |
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
+
+      - name: Fix NDK issue for Android build
+        if: ${{ contains(matrix.target.name, 'android') }}
+        run: |
+           ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so,libc++abi.a} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
 
       - name: Install macos dependencies
         if: ${{ matrix.target.os == 'macos-latest' }}
