@@ -1,14 +1,16 @@
 #include "livekit/apm.h"
 
+#include <iostream>
 #include <memory>
 
 namespace livekit {
 
 AudioProcessingModule::AudioProcessingModule(
     const AudioProcessingConfig& config) {
-  apm_ = webrtc::AudioProcessingBuilder()
-             .SetConfig(config.ToWebrtcConfig())
-             .Create();
+  apm_ = webrtc::AudioProcessingBuilder().Create();
+
+  apm_->ApplyConfig(config.ToWebrtcConfig());
+  apm_->Initialize();
 }
 
 int AudioProcessingModule::process_stream(const int16_t* src,
