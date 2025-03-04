@@ -192,6 +192,15 @@ impl MetricLabel {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Pagination {
+    /// list entities which IDs are greater
+    #[prost(string, tag="1")]
+    pub after_id: ::prost::alloc::string::String,
+    #[prost(int32, tag="2")]
+    pub limit: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Room {
     #[prost(string, tag="1")]
     pub sid: ::prost::alloc::string::String,
@@ -205,6 +214,8 @@ pub struct Room {
     pub max_participants: u32,
     #[prost(int64, tag="5")]
     pub creation_time: i64,
+    #[prost(int64, tag="15")]
+    pub creation_time_ms: i64,
     #[prost(string, tag="6")]
     pub turn_password: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="7")]
@@ -289,6 +300,9 @@ pub struct ParticipantInfo {
     /// timestamp when participant joined room, in seconds
     #[prost(int64, tag="6")]
     pub joined_at: i64,
+    /// timestamp when participant joined room, in milliseconds
+    #[prost(int64, tag="17")]
+    pub joined_at_ms: i64,
     #[prost(string, tag="9")]
     pub name: ::prost::alloc::string::String,
     #[prost(uint32, tag="10")]
@@ -484,6 +498,8 @@ pub struct TrackInfo {
     pub version: ::core::option::Option<TimedVersion>,
     #[prost(enumeration="AudioTrackFeature", repeated, tag="19")]
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="BackupCodecPolicy", tag="20")]
+    pub backup_codec_policy: i32,
 }
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -515,7 +531,7 @@ pub struct DataPacket {
     /// identities of participants who will receive the message (sent to all by default)
     #[prost(string, repeated, tag="5")]
     pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(oneof="data_packet::Value", tags="2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14")]
+    #[prost(oneof="data_packet::Value", tags="2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15")]
     pub value: ::core::option::Option<data_packet::Value>,
 }
 /// Nested message and enum types in `DataPacket`.
@@ -571,6 +587,8 @@ pub mod data_packet {
         StreamHeader(super::data_stream::Header),
         #[prost(message, tag="14")]
         StreamChunk(super::data_stream::Chunk),
+        #[prost(message, tag="15")]
+        StreamTrailer(super::data_stream::Trailer),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -623,6 +641,9 @@ pub struct UserPacket {
     pub start_time: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag="10")]
     pub end_time: ::core::option::Option<u64>,
+    /// added by SDK to enable de-duping of messages, for INTERNAL USE ONLY
+    #[prost(bytes="vec", tag="11")]
+    pub nonce: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1141,13 +1162,12 @@ pub mod data_stream {
         #[prost(bool, tag="5")]
         pub generated: bool,
     }
-    /// header properties specific to file or image streams
+    /// header properties specific to byte or file streams
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct FileHeader {
-        /// name of the file
+    pub struct ByteHeader {
         #[prost(string, tag="1")]
-        pub file_name: ::prost::alloc::string::String,
+        pub name: ::prost::alloc::string::String,
     }
     /// main DataStream.Header that contains a oneof for specific headers
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1166,15 +1186,12 @@ pub mod data_stream {
         /// only populated for finite streams, if it's a stream of unknown size this stays empty
         #[prost(uint64, optional, tag="5")]
         pub total_length: ::core::option::Option<u64>,
-        /// only populated for finite streams, if it's a stream of unknown size this stays empty
-        #[prost(uint64, optional, tag="6")]
-        pub total_chunks: ::core::option::Option<u64>,
         /// defaults to NONE
         #[prost(enumeration="super::encryption::Type", tag="7")]
         pub encryption_type: i32,
-        /// user defined extensions map that can carry additional info
+        /// user defined attributes map that can carry additional info
         #[prost(map="string, string", tag="8")]
-        pub extensions: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+        pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
         /// oneof to choose between specific header types
         #[prost(oneof="header::ContentHeader", tags="9, 10")]
         pub content_header: ::core::option::Option<header::ContentHeader>,
@@ -1188,7 +1205,7 @@ pub mod data_stream {
             #[prost(message, tag="9")]
             TextHeader(super::TextHeader),
             #[prost(message, tag="10")]
-            FileHeader(super::FileHeader),
+            ByteHeader(super::ByteHeader),
         }
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1202,15 +1219,25 @@ pub mod data_stream {
         /// content as binary (bytes)
         #[prost(bytes="vec", tag="3")]
         pub content: ::prost::alloc::vec::Vec<u8>,
-        /// true only if this is the last chunk of this stream - can also be sent with empty content
-        #[prost(bool, tag="4")]
-        pub complete: bool,
         /// a version indicating that this chunk_index has been retroactively modified and the original one needs to be replaced
-        #[prost(int32, tag="5")]
+        #[prost(int32, tag="4")]
         pub version: i32,
         /// optional, initialization vector for AES-GCM encryption
-        #[prost(bytes="vec", optional, tag="6")]
+        #[prost(bytes="vec", optional, tag="5")]
         pub iv: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Trailer {
+        /// unique identifier for this data stream
+        #[prost(string, tag="1")]
+        pub stream_id: ::prost::alloc::string::String,
+        /// reason why the stream was closed (could contain "error" / "interrupted" / empty for expected end)
+        #[prost(string, tag="2")]
+        pub reason: ::prost::alloc::string::String,
+        /// finalizing updates for the stream, can also include additional insights for errors or endTime for transcription
+        #[prost(map="string, string", tag="3")]
+        pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     }
     /// enum for operation types (specific to TextHeader)
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -1332,6 +1359,35 @@ impl ImageCodec {
         match value {
             "IC_DEFAULT" => Some(Self::IcDefault),
             "IC_JPEG" => Some(Self::IcJpeg),
+            _ => None,
+        }
+    }
+}
+/// Policy for publisher to handle subscribers that are unable to support the primary codec of a track
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum BackupCodecPolicy {
+    /// default behavior, regress to backup codec and all subscribers will receive the backup codec
+    Regression = 0,
+    /// encoding/send the primary and backup codec simultaneously
+    Simulcast = 1,
+}
+impl BackupCodecPolicy {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            BackupCodecPolicy::Regression => "REGRESSION",
+            BackupCodecPolicy::Simulcast => "SIMULCAST",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "REGRESSION" => Some(Self::Regression),
+            "SIMULCAST" => Some(Self::Simulcast),
             _ => None,
         }
     }
@@ -1683,6 +1739,9 @@ pub struct RoomCompositeEgressRequest {
     /// (default false)
     #[prost(bool, tag="3")]
     pub audio_only: bool,
+    /// only applies to audio_only egress (default DEFAULT_MIXING)
+    #[prost(enumeration="AudioMixing", tag="15")]
+    pub audio_mixing: i32,
     /// (default false)
     #[prost(bool, tag="4")]
     pub video_only: bool,
@@ -2209,6 +2268,8 @@ pub struct EgressInfo {
     pub room_id: ::prost::alloc::string::String,
     #[prost(string, tag="13")]
     pub room_name: ::prost::alloc::string::String,
+    #[prost(enumeration="EgressSourceType", tag="26")]
+    pub source_type: i32,
     #[prost(enumeration="EgressStatus", tag="3")]
     pub status: i32,
     #[prost(int64, tag="10")]
@@ -2233,7 +2294,7 @@ pub struct EgressInfo {
     pub image_results: ::prost::alloc::vec::Vec<ImagesInfo>,
     #[prost(string, tag="23")]
     pub manifest_location: ::prost::alloc::string::String,
-    /// next ID: 26
+    /// next ID: 27
     #[prost(bool, tag="25")]
     pub backup_storage_used: bool,
     #[prost(oneof="egress_info::Request", tags="4, 14, 19, 5, 6")]
@@ -2564,6 +2625,38 @@ impl StreamProtocol {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum AudioMixing {
+    /// all users are mixed together
+    DefaultMixing = 0,
+    /// agent audio in the left channel, all other audio in the right channel
+    DualChannelAgent = 1,
+    /// each new audio track alternates between left and right channels
+    DualChannelAlternate = 2,
+}
+impl AudioMixing {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            AudioMixing::DefaultMixing => "DEFAULT_MIXING",
+            AudioMixing::DualChannelAgent => "DUAL_CHANNEL_AGENT",
+            AudioMixing::DualChannelAlternate => "DUAL_CHANNEL_ALTERNATE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DEFAULT_MIXING" => Some(Self::DefaultMixing),
+            "DUAL_CHANNEL_AGENT" => Some(Self::DualChannelAgent),
+            "DUAL_CHANNEL_ALTERNATE" => Some(Self::DualChannelAlternate),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum EncodingOptionsPreset {
     ///   1280x720, 30fps, 3000kpbs, H.264_MAIN / OPUS
     H264720p30 = 0,
@@ -2651,6 +2744,32 @@ impl EgressStatus {
             "EGRESS_FAILED" => Some(Self::EgressFailed),
             "EGRESS_ABORTED" => Some(Self::EgressAborted),
             "EGRESS_LIMIT_REACHED" => Some(Self::EgressLimitReached),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum EgressSourceType {
+    Web = 0,
+    Sdk = 1,
+}
+impl EgressSourceType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            EgressSourceType::Web => "EGRESS_SOURCE_TYPE_WEB",
+            EgressSourceType::Sdk => "EGRESS_SOURCE_TYPE_SDK",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "EGRESS_SOURCE_TYPE_WEB" => Some(Self::Web),
+            "EGRESS_SOURCE_TYPE_SDK" => Some(Self::Sdk),
             _ => None,
         }
     }
@@ -2850,6 +2969,8 @@ pub struct AddTrackRequest {
     /// if not specified, server will infer it from track source to bundle camera/microphone, screenshare/audio together
     #[prost(string, tag="15")]
     pub stream: ::prost::alloc::string::String,
+    #[prost(enumeration="BackupCodecPolicy", tag="16")]
+    pub backup_codec_policy: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3658,6 +3779,7 @@ pub struct JobTermination {
 pub enum JobType {
     JtRoom = 0,
     JtPublisher = 1,
+    JtParticipant = 2,
 }
 impl JobType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3668,6 +3790,7 @@ impl JobType {
         match self {
             JobType::JtRoom => "JT_ROOM",
             JobType::JtPublisher => "JT_PUBLISHER",
+            JobType::JtParticipant => "JT_PARTICIPANT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3675,6 +3798,7 @@ impl JobType {
         match value {
             "JT_ROOM" => Some(Self::JtRoom),
             "JT_PUBLISHER" => Some(Self::JtPublisher),
+            "JT_PARTICIPANT" => Some(Self::JtParticipant),
             _ => None,
         }
     }
@@ -3999,6 +4123,9 @@ pub struct SendDataRequest {
     pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, optional, tag="5")]
     pub topic: ::core::option::Option<::prost::alloc::string::String>,
+    /// added by SDK to enable de-duping of messages, for INTERNAL USE ONLY
+    #[prost(bytes="vec", tag="7")]
+    pub nonce: ::prost::alloc::vec::Vec<u8>,
 }
 ///
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4079,6 +4206,9 @@ pub struct CreateIngressRequest {
     pub audio: ::core::option::Option<IngressAudioOptions>,
     #[prost(message, optional, tag="7")]
     pub video: ::core::option::Option<IngressVideoOptions>,
+    /// The default value is true and when set to false, the new connection attempts will be rejected
+    #[prost(bool, optional, tag="12")]
+    pub enabled: ::core::option::Option<bool>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4186,6 +4316,9 @@ pub struct IngressInfo {
     /// Description of error/stream non compliance and debug info for publisher otherwise (received bitrate, resolution, bandwidth)
     #[prost(message, optional, tag="12")]
     pub state: ::core::option::Option<IngressState>,
+    /// The default value is true and when set to false, the new connection attempts will be rejected
+    #[prost(bool, optional, tag="16")]
+    pub enabled: ::core::option::Option<bool>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4301,6 +4434,9 @@ pub struct UpdateIngressRequest {
     pub audio: ::core::option::Option<IngressAudioOptions>,
     #[prost(message, optional, tag="7")]
     pub video: ::core::option::Option<IngressVideoOptions>,
+    /// The default value is true and when set to false, the new connection attempts will be rejected
+    #[prost(bool, optional, tag="11")]
+    pub enabled: ::core::option::Option<bool>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4475,6 +4611,15 @@ pub struct WebhookEvent {
     #[prost(int32, tag="11")]
     pub num_dropped: i32,
 }
+/// SIPStatus is returned as an error detail in CreateSIPParticipant.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipStatus {
+    #[prost(enumeration="SipStatusCode", tag="1")]
+    pub code: i32,
+    #[prost(string, tag="2")]
+    pub status: ::prost::alloc::string::String,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateSipTrunkRequest {
@@ -4636,6 +4781,14 @@ pub struct SipInboundTrunkInfo {
     /// Keys are the names of attributes and values are the names of X-* headers they will be mapped to.
     #[prost(map="string, string", tag="14")]
     pub attributes_to_headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Map SIP headers from INVITE to sip.h.* participant attributes automatically.
+    ///
+    /// When the names of required headers is known, using headers_to_attributes is strongly recommended.
+    ///
+    /// When mapping INVITE headers to response headers with attributes_to_headers map,
+    /// lowercase header names should be used, for example: sip.h.x-custom-header.
+    #[prost(enumeration="SipHeaderOptions", tag="15")]
+    pub include_headers: i32,
     /// Max time for the caller to wait for track subscription.
     #[prost(message, optional, tag="11")]
     pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
@@ -4644,6 +4797,8 @@ pub struct SipInboundTrunkInfo {
     pub max_call_duration: ::core::option::Option<::pbjson_types::Duration>,
     #[prost(bool, tag="13")]
     pub krisp_enabled: bool,
+    #[prost(enumeration="SipMediaEncryption", tag="16")]
+    pub media_encryption: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4691,6 +4846,16 @@ pub struct SipOutboundTrunkInfo {
     /// Keys are the names of attributes and values are the names of X-* headers they will be mapped to.
     #[prost(map="string, string", tag="11")]
     pub attributes_to_headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Map SIP headers from 200 OK to sip.h.* participant attributes automatically.
+    ///
+    /// When the names of required headers is known, using headers_to_attributes is strongly recommended.
+    ///
+    /// When mapping 200 OK headers to follow-up request headers with attributes_to_headers map,
+    /// lowercase header names should be used, for example: sip.h.x-custom-header.
+    #[prost(enumeration="SipHeaderOptions", tag="12")]
+    pub include_headers: i32,
+    #[prost(enumeration="SipMediaEncryption", tag="13")]
+    pub media_encryption: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4719,6 +4884,8 @@ pub struct GetSipOutboundTrunkResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSipTrunkRequest {
+    #[prost(message, optional, tag="1")]
+    pub page: ::core::option::Option<Pagination>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4726,9 +4893,19 @@ pub struct ListSipTrunkResponse {
     #[prost(message, repeated, tag="1")]
     pub items: ::prost::alloc::vec::Vec<SipTrunkInfo>,
 }
+/// ListSIPInboundTrunkRequest lists inbound trunks for given filters. If no filters are set, all trunks are listed.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSipInboundTrunkRequest {
+    #[prost(message, optional, tag="3")]
+    pub page: ::core::option::Option<Pagination>,
+    /// Trunk IDs to list. If this option is set, the response will contains trunks in the same order.
+    /// If any of the trunks is missing, a nil item in that position will be sent in the response.
+    #[prost(string, repeated, tag="1")]
+    pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Only list trunks that contain one of the numbers, including wildcard trunks.
+    #[prost(string, repeated, tag="2")]
+    pub numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4736,9 +4913,19 @@ pub struct ListSipInboundTrunkResponse {
     #[prost(message, repeated, tag="1")]
     pub items: ::prost::alloc::vec::Vec<SipInboundTrunkInfo>,
 }
+/// ListSIPOutboundTrunkRequest lists outbound trunks for given filters. If no filters are set, all trunks are listed.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSipOutboundTrunkRequest {
+    #[prost(message, optional, tag="3")]
+    pub page: ::core::option::Option<Pagination>,
+    /// Trunk IDs to list. If this option is set, the response will contains trunks in the same order.
+    /// If any of the trunks is missing, a nil item in that position will be sent in the response.
+    #[prost(string, repeated, tag="1")]
+    pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Only list trunks that contain one of the numbers, including wildcard trunks.
+    #[prost(string, repeated, tag="2")]
+    pub numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4836,6 +5023,12 @@ pub struct CreateSipDispatchRuleRequest {
     /// Participants created by this rule will inherit these attributes.
     #[prost(map="string, string", tag="7")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Cloud-only, config preset to use
+    #[prost(string, tag="8")]
+    pub room_preset: ::prost::alloc::string::String,
+    /// RoomConfiguration to use if the participant initiates the room
+    #[prost(message, optional, tag="9")]
+    pub room_config: ::core::option::Option<RoomConfiguration>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4862,10 +5055,31 @@ pub struct SipDispatchRuleInfo {
     /// Participants created by this rule will inherit these attributes.
     #[prost(map="string, string", tag="8")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Cloud-only, config preset to use
+    #[prost(string, tag="9")]
+    pub room_preset: ::prost::alloc::string::String,
+    /// RoomConfiguration to use if the participant initiates the room
+    #[prost(message, optional, tag="10")]
+    pub room_config: ::core::option::Option<RoomConfiguration>,
+    #[prost(bool, tag="11")]
+    pub krisp_enabled: bool,
+    /// NEXT ID: 13
+    #[prost(enumeration="SipMediaEncryption", tag="12")]
+    pub media_encryption: i32,
 }
+/// ListSIPDispatchRuleRequest lists dispatch rules for given filters. If no filters are set, all rules are listed.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSipDispatchRuleRequest {
+    #[prost(message, optional, tag="3")]
+    pub page: ::core::option::Option<Pagination>,
+    /// Rule IDs to list. If this option is set, the response will contains rules in the same order.
+    /// If any of the rules is missing, a nil item in that position will be sent in the response.
+    #[prost(string, repeated, tag="1")]
+    pub dispatch_rule_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Only list rules that contain one of the Trunk IDs, including wildcard rules.
+    #[prost(string, repeated, tag="2")]
+    pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4879,6 +5093,30 @@ pub struct DeleteSipDispatchRuleRequest {
     #[prost(string, tag="1")]
     pub sip_dispatch_rule_id: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipOutboundConfig {
+    /// SIP server address
+    #[prost(string, tag="1")]
+    pub hostname: ::prost::alloc::string::String,
+    /// SIP Transport used for outbound call.
+    #[prost(enumeration="SipTransport", tag="2")]
+    pub transport: i32,
+    /// Username and password used to authenticate with SIP server.
+    /// May be empty to have no authentication.
+    #[prost(string, tag="3")]
+    pub auth_username: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub auth_password: ::prost::alloc::string::String,
+    /// Map SIP X-* headers from 200 OK to SIP participant attributes.
+    /// Keys are the names of X-* headers and values are the names of attributes they will be mapped to.
+    #[prost(map="string, string", tag="5")]
+    pub headers_to_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Map LiveKit attributes to SIP X-* headers when sending BYE or REFER requests.
+    /// Keys are the names of attributes and values are the names of X-* headers they will be mapped to.
+    #[prost(map="string, string", tag="6")]
+    pub attributes_to_headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
 /// A SIP Participant is a singular SIP session connected to a LiveKit room via
 /// a SIP Trunk into a SIP DispatchRule
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4887,6 +5125,8 @@ pub struct CreateSipParticipantRequest {
     /// What SIP Trunk should be used to dial the user
     #[prost(string, tag="1")]
     pub sip_trunk_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="20")]
+    pub trunk: ::core::option::Option<SipOutboundConfig>,
     /// What number should be dialed via SIP
     #[prost(string, tag="2")]
     pub sip_call_to: ::prost::alloc::string::String,
@@ -4922,6 +5162,17 @@ pub struct CreateSipParticipantRequest {
     /// If true, a random value for identity will be used and numbers will be omitted from attributes.
     #[prost(bool, tag="10")]
     pub hide_phone_number: bool,
+    /// These headers are sent as-is and may help identify this call as coming from LiveKit for the other SIP endpoint.
+    #[prost(map="string, string", tag="16")]
+    pub headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Map SIP headers from 200 OK to sip.h.* participant attributes automatically.
+    ///
+    /// When the names of required headers is known, using headers_to_attributes is strongly recommended.
+    ///
+    /// When mapping 200 OK headers to follow-up request headers with attributes_to_headers map,
+    /// lowercase header names should be used, for example: sip.h.x-custom-header.
+    #[prost(enumeration="SipHeaderOptions", tag="17")]
+    pub include_headers: i32,
     /// Max time for the callee to answer the call.
     #[prost(message, optional, tag="11")]
     pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
@@ -4929,10 +5180,15 @@ pub struct CreateSipParticipantRequest {
     #[prost(message, optional, tag="12")]
     pub max_call_duration: ::core::option::Option<::pbjson_types::Duration>,
     /// Enable voice isolation for the callee.
-    ///
-    /// NEXT ID: 16
     #[prost(bool, tag="14")]
-    pub enable_krisp: bool,
+    pub krisp_enabled: bool,
+    #[prost(enumeration="SipMediaEncryption", tag="18")]
+    pub media_encryption: i32,
+    /// Wait for the answer for the call before returning.
+    ///
+    /// NEXT ID: 21
+    #[prost(bool, tag="19")]
+    pub wait_until_answered: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4958,6 +5214,9 @@ pub struct TransferSipParticipantRequest {
     /// Optionally play dialtone to the SIP participant as an audible indicator of being transferred
     #[prost(bool, tag="4")]
     pub play_dialtone: bool,
+    /// Add the following headers to the REFER SIP request.
+    #[prost(map="string, string", tag="5")]
+    pub headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4966,6 +5225,10 @@ pub struct SipCallInfo {
     pub call_id: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub trunk_id: ::prost::alloc::string::String,
+    #[prost(string, tag="16")]
+    pub dispatch_rule_id: ::prost::alloc::string::String,
+    #[prost(string, tag="17")]
+    pub region: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub room_name: ::prost::alloc::string::String,
     /// ID of the current/previous room published to
@@ -4973,24 +5236,43 @@ pub struct SipCallInfo {
     pub room_id: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub participant_identity: ::prost::alloc::string::String,
+    #[prost(map="string, string", tag="18")]
+    pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(message, optional, tag="6")]
     pub from_uri: ::core::option::Option<SipUri>,
     #[prost(message, optional, tag="7")]
     pub to_uri: ::core::option::Option<SipUri>,
-    #[prost(enumeration="SipFeature", repeated, tag="14")]
-    pub enabled_features: ::prost::alloc::vec::Vec<i32>,
-    #[prost(enumeration="SipCallStatus", tag="8")]
-    pub call_status: i32,
+    #[deprecated]
     #[prost(int64, tag="9")]
     pub created_at: i64,
+    #[deprecated]
     #[prost(int64, tag="10")]
     pub started_at: i64,
+    #[deprecated]
     #[prost(int64, tag="11")]
     pub ended_at: i64,
+    #[prost(enumeration="SipFeature", repeated, tag="14")]
+    pub enabled_features: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="SipCallDirection", tag="15")]
+    pub call_direction: i32,
+    #[prost(enumeration="SipCallStatus", tag="8")]
+    pub call_status: i32,
+    #[prost(int64, tag="22")]
+    pub created_at_ns: i64,
+    #[prost(int64, tag="23")]
+    pub started_at_ns: i64,
+    #[prost(int64, tag="24")]
+    pub ended_at_ns: i64,
     #[prost(enumeration="DisconnectReason", tag="12")]
     pub disconnect_reason: i32,
     #[prost(string, tag="13")]
     pub error: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="19")]
+    pub call_status_code: ::core::option::Option<SipStatus>,
+    #[prost(string, tag="20")]
+    pub audio_codec: ::prost::alloc::string::String,
+    #[prost(string, tag="21")]
+    pub media_encryption: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5005,6 +5287,173 @@ pub struct SipUri {
     pub port: u32,
     #[prost(enumeration="SipTransport", tag="5")]
     pub transport: i32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipStatusCode {
+    SipStatusUnknown = 0,
+    SipStatusTrying = 100,
+    SipStatusRinging = 180,
+    SipStatusCallIsForwarded = 181,
+    SipStatusQueued = 182,
+    SipStatusSessionProgress = 183,
+    SipStatusOk = 200,
+    SipStatusAccepted = 202,
+    SipStatusMovedPermanently = 301,
+    SipStatusMovedTemporarily = 302,
+    SipStatusUseProxy = 305,
+    SipStatusBadRequest = 400,
+    SipStatusUnauthorized = 401,
+    SipStatusPaymentRequired = 402,
+    SipStatusForbidden = 403,
+    SipStatusNotfound = 404,
+    SipStatusMethodNotAllowed = 405,
+    SipStatusNotAcceptable = 406,
+    SipStatusProxyAuthRequired = 407,
+    SipStatusRequestTimeout = 408,
+    SipStatusConflict = 409,
+    SipStatusGone = 410,
+    SipStatusRequestEntityTooLarge = 413,
+    SipStatusRequestUriTooLong = 414,
+    SipStatusUnsupportedMediaType = 415,
+    SipStatusRequestedRangeNotSatisfiable = 416,
+    SipStatusBadExtension = 420,
+    SipStatusExtensionRequired = 421,
+    SipStatusIntervalTooBrief = 423,
+    SipStatusTemporarilyUnavailable = 480,
+    SipStatusCallTransactionDoesNotExists = 481,
+    SipStatusLoopDetected = 482,
+    SipStatusTooManyHops = 483,
+    SipStatusAddressIncomplete = 484,
+    SipStatusAmbiguous = 485,
+    SipStatusBusyHere = 486,
+    SipStatusRequestTerminated = 487,
+    SipStatusNotAcceptableHere = 488,
+    SipStatusInternalServerError = 500,
+    SipStatusNotImplemented = 501,
+    SipStatusBadGateway = 502,
+    SipStatusServiceUnavailable = 503,
+    SipStatusGatewayTimeout = 504,
+    SipStatusVersionNotSupported = 505,
+    SipStatusMessageTooLarge = 513,
+    SipStatusGlobalBusyEverywhere = 600,
+    SipStatusGlobalDecline = 603,
+    SipStatusGlobalDoesNotExistAnywhere = 604,
+    SipStatusGlobalNotAcceptable = 606,
+}
+impl SipStatusCode {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipStatusCode::SipStatusUnknown => "SIP_STATUS_UNKNOWN",
+            SipStatusCode::SipStatusTrying => "SIP_STATUS_TRYING",
+            SipStatusCode::SipStatusRinging => "SIP_STATUS_RINGING",
+            SipStatusCode::SipStatusCallIsForwarded => "SIP_STATUS_CALL_IS_FORWARDED",
+            SipStatusCode::SipStatusQueued => "SIP_STATUS_QUEUED",
+            SipStatusCode::SipStatusSessionProgress => "SIP_STATUS_SESSION_PROGRESS",
+            SipStatusCode::SipStatusOk => "SIP_STATUS_OK",
+            SipStatusCode::SipStatusAccepted => "SIP_STATUS_ACCEPTED",
+            SipStatusCode::SipStatusMovedPermanently => "SIP_STATUS_MOVED_PERMANENTLY",
+            SipStatusCode::SipStatusMovedTemporarily => "SIP_STATUS_MOVED_TEMPORARILY",
+            SipStatusCode::SipStatusUseProxy => "SIP_STATUS_USE_PROXY",
+            SipStatusCode::SipStatusBadRequest => "SIP_STATUS_BAD_REQUEST",
+            SipStatusCode::SipStatusUnauthorized => "SIP_STATUS_UNAUTHORIZED",
+            SipStatusCode::SipStatusPaymentRequired => "SIP_STATUS_PAYMENT_REQUIRED",
+            SipStatusCode::SipStatusForbidden => "SIP_STATUS_FORBIDDEN",
+            SipStatusCode::SipStatusNotfound => "SIP_STATUS_NOTFOUND",
+            SipStatusCode::SipStatusMethodNotAllowed => "SIP_STATUS_METHOD_NOT_ALLOWED",
+            SipStatusCode::SipStatusNotAcceptable => "SIP_STATUS_NOT_ACCEPTABLE",
+            SipStatusCode::SipStatusProxyAuthRequired => "SIP_STATUS_PROXY_AUTH_REQUIRED",
+            SipStatusCode::SipStatusRequestTimeout => "SIP_STATUS_REQUEST_TIMEOUT",
+            SipStatusCode::SipStatusConflict => "SIP_STATUS_CONFLICT",
+            SipStatusCode::SipStatusGone => "SIP_STATUS_GONE",
+            SipStatusCode::SipStatusRequestEntityTooLarge => "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE",
+            SipStatusCode::SipStatusRequestUriTooLong => "SIP_STATUS_REQUEST_URI_TOO_LONG",
+            SipStatusCode::SipStatusUnsupportedMediaType => "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE",
+            SipStatusCode::SipStatusRequestedRangeNotSatisfiable => "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE",
+            SipStatusCode::SipStatusBadExtension => "SIP_STATUS_BAD_EXTENSION",
+            SipStatusCode::SipStatusExtensionRequired => "SIP_STATUS_EXTENSION_REQUIRED",
+            SipStatusCode::SipStatusIntervalTooBrief => "SIP_STATUS_INTERVAL_TOO_BRIEF",
+            SipStatusCode::SipStatusTemporarilyUnavailable => "SIP_STATUS_TEMPORARILY_UNAVAILABLE",
+            SipStatusCode::SipStatusCallTransactionDoesNotExists => "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS",
+            SipStatusCode::SipStatusLoopDetected => "SIP_STATUS_LOOP_DETECTED",
+            SipStatusCode::SipStatusTooManyHops => "SIP_STATUS_TOO_MANY_HOPS",
+            SipStatusCode::SipStatusAddressIncomplete => "SIP_STATUS_ADDRESS_INCOMPLETE",
+            SipStatusCode::SipStatusAmbiguous => "SIP_STATUS_AMBIGUOUS",
+            SipStatusCode::SipStatusBusyHere => "SIP_STATUS_BUSY_HERE",
+            SipStatusCode::SipStatusRequestTerminated => "SIP_STATUS_REQUEST_TERMINATED",
+            SipStatusCode::SipStatusNotAcceptableHere => "SIP_STATUS_NOT_ACCEPTABLE_HERE",
+            SipStatusCode::SipStatusInternalServerError => "SIP_STATUS_INTERNAL_SERVER_ERROR",
+            SipStatusCode::SipStatusNotImplemented => "SIP_STATUS_NOT_IMPLEMENTED",
+            SipStatusCode::SipStatusBadGateway => "SIP_STATUS_BAD_GATEWAY",
+            SipStatusCode::SipStatusServiceUnavailable => "SIP_STATUS_SERVICE_UNAVAILABLE",
+            SipStatusCode::SipStatusGatewayTimeout => "SIP_STATUS_GATEWAY_TIMEOUT",
+            SipStatusCode::SipStatusVersionNotSupported => "SIP_STATUS_VERSION_NOT_SUPPORTED",
+            SipStatusCode::SipStatusMessageTooLarge => "SIP_STATUS_MESSAGE_TOO_LARGE",
+            SipStatusCode::SipStatusGlobalBusyEverywhere => "SIP_STATUS_GLOBAL_BUSY_EVERYWHERE",
+            SipStatusCode::SipStatusGlobalDecline => "SIP_STATUS_GLOBAL_DECLINE",
+            SipStatusCode::SipStatusGlobalDoesNotExistAnywhere => "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE",
+            SipStatusCode::SipStatusGlobalNotAcceptable => "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SIP_STATUS_UNKNOWN" => Some(Self::SipStatusUnknown),
+            "SIP_STATUS_TRYING" => Some(Self::SipStatusTrying),
+            "SIP_STATUS_RINGING" => Some(Self::SipStatusRinging),
+            "SIP_STATUS_CALL_IS_FORWARDED" => Some(Self::SipStatusCallIsForwarded),
+            "SIP_STATUS_QUEUED" => Some(Self::SipStatusQueued),
+            "SIP_STATUS_SESSION_PROGRESS" => Some(Self::SipStatusSessionProgress),
+            "SIP_STATUS_OK" => Some(Self::SipStatusOk),
+            "SIP_STATUS_ACCEPTED" => Some(Self::SipStatusAccepted),
+            "SIP_STATUS_MOVED_PERMANENTLY" => Some(Self::SipStatusMovedPermanently),
+            "SIP_STATUS_MOVED_TEMPORARILY" => Some(Self::SipStatusMovedTemporarily),
+            "SIP_STATUS_USE_PROXY" => Some(Self::SipStatusUseProxy),
+            "SIP_STATUS_BAD_REQUEST" => Some(Self::SipStatusBadRequest),
+            "SIP_STATUS_UNAUTHORIZED" => Some(Self::SipStatusUnauthorized),
+            "SIP_STATUS_PAYMENT_REQUIRED" => Some(Self::SipStatusPaymentRequired),
+            "SIP_STATUS_FORBIDDEN" => Some(Self::SipStatusForbidden),
+            "SIP_STATUS_NOTFOUND" => Some(Self::SipStatusNotfound),
+            "SIP_STATUS_METHOD_NOT_ALLOWED" => Some(Self::SipStatusMethodNotAllowed),
+            "SIP_STATUS_NOT_ACCEPTABLE" => Some(Self::SipStatusNotAcceptable),
+            "SIP_STATUS_PROXY_AUTH_REQUIRED" => Some(Self::SipStatusProxyAuthRequired),
+            "SIP_STATUS_REQUEST_TIMEOUT" => Some(Self::SipStatusRequestTimeout),
+            "SIP_STATUS_CONFLICT" => Some(Self::SipStatusConflict),
+            "SIP_STATUS_GONE" => Some(Self::SipStatusGone),
+            "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE" => Some(Self::SipStatusRequestEntityTooLarge),
+            "SIP_STATUS_REQUEST_URI_TOO_LONG" => Some(Self::SipStatusRequestUriTooLong),
+            "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE" => Some(Self::SipStatusUnsupportedMediaType),
+            "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE" => Some(Self::SipStatusRequestedRangeNotSatisfiable),
+            "SIP_STATUS_BAD_EXTENSION" => Some(Self::SipStatusBadExtension),
+            "SIP_STATUS_EXTENSION_REQUIRED" => Some(Self::SipStatusExtensionRequired),
+            "SIP_STATUS_INTERVAL_TOO_BRIEF" => Some(Self::SipStatusIntervalTooBrief),
+            "SIP_STATUS_TEMPORARILY_UNAVAILABLE" => Some(Self::SipStatusTemporarilyUnavailable),
+            "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS" => Some(Self::SipStatusCallTransactionDoesNotExists),
+            "SIP_STATUS_LOOP_DETECTED" => Some(Self::SipStatusLoopDetected),
+            "SIP_STATUS_TOO_MANY_HOPS" => Some(Self::SipStatusTooManyHops),
+            "SIP_STATUS_ADDRESS_INCOMPLETE" => Some(Self::SipStatusAddressIncomplete),
+            "SIP_STATUS_AMBIGUOUS" => Some(Self::SipStatusAmbiguous),
+            "SIP_STATUS_BUSY_HERE" => Some(Self::SipStatusBusyHere),
+            "SIP_STATUS_REQUEST_TERMINATED" => Some(Self::SipStatusRequestTerminated),
+            "SIP_STATUS_NOT_ACCEPTABLE_HERE" => Some(Self::SipStatusNotAcceptableHere),
+            "SIP_STATUS_INTERNAL_SERVER_ERROR" => Some(Self::SipStatusInternalServerError),
+            "SIP_STATUS_NOT_IMPLEMENTED" => Some(Self::SipStatusNotImplemented),
+            "SIP_STATUS_BAD_GATEWAY" => Some(Self::SipStatusBadGateway),
+            "SIP_STATUS_SERVICE_UNAVAILABLE" => Some(Self::SipStatusServiceUnavailable),
+            "SIP_STATUS_GATEWAY_TIMEOUT" => Some(Self::SipStatusGatewayTimeout),
+            "SIP_STATUS_VERSION_NOT_SUPPORTED" => Some(Self::SipStatusVersionNotSupported),
+            "SIP_STATUS_MESSAGE_TOO_LARGE" => Some(Self::SipStatusMessageTooLarge),
+            "SIP_STATUS_GLOBAL_BUSY_EVERYWHERE" => Some(Self::SipStatusGlobalBusyEverywhere),
+            "SIP_STATUS_GLOBAL_DECLINE" => Some(Self::SipStatusGlobalDecline),
+            "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE" => Some(Self::SipStatusGlobalDoesNotExistAnywhere),
+            "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE" => Some(Self::SipStatusGlobalNotAcceptable),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -5034,6 +5483,70 @@ impl SipTransport {
             "SIP_TRANSPORT_UDP" => Some(Self::Udp),
             "SIP_TRANSPORT_TCP" => Some(Self::Tcp),
             "SIP_TRANSPORT_TLS" => Some(Self::Tls),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipHeaderOptions {
+    /// do not map any headers, except ones mapped explicitly
+    SipNoHeaders = 0,
+    /// map all X-* headers to sip.h.x-* attributes
+    SipXHeaders = 1,
+    /// map all headers to sip.h.* attributes
+    SipAllHeaders = 2,
+}
+impl SipHeaderOptions {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipHeaderOptions::SipNoHeaders => "SIP_NO_HEADERS",
+            SipHeaderOptions::SipXHeaders => "SIP_X_HEADERS",
+            SipHeaderOptions::SipAllHeaders => "SIP_ALL_HEADERS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SIP_NO_HEADERS" => Some(Self::SipNoHeaders),
+            "SIP_X_HEADERS" => Some(Self::SipXHeaders),
+            "SIP_ALL_HEADERS" => Some(Self::SipAllHeaders),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipMediaEncryption {
+    /// do not enable encryption
+    SipMediaEncryptDisable = 0,
+    /// use encryption if available
+    SipMediaEncryptAllow = 1,
+    /// require encryption
+    SipMediaEncryptRequire = 2,
+}
+impl SipMediaEncryption {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipMediaEncryption::SipMediaEncryptDisable => "SIP_MEDIA_ENCRYPT_DISABLE",
+            SipMediaEncryption::SipMediaEncryptAllow => "SIP_MEDIA_ENCRYPT_ALLOW",
+            SipMediaEncryption::SipMediaEncryptRequire => "SIP_MEDIA_ENCRYPT_REQUIRE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SIP_MEDIA_ENCRYPT_DISABLE" => Some(Self::SipMediaEncryptDisable),
+            "SIP_MEDIA_ENCRYPT_ALLOW" => Some(Self::SipMediaEncryptAllow),
+            "SIP_MEDIA_ENCRYPT_REQUIRE" => Some(Self::SipMediaEncryptRequire),
             _ => None,
         }
     }
@@ -5100,6 +5613,35 @@ impl SipFeature {
         match value {
             "NONE" => Some(Self::None),
             "KRISP_ENABLED" => Some(Self::KrispEnabled),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipCallDirection {
+    ScdUnknown = 0,
+    ScdInbound = 1,
+    ScdOutbound = 2,
+}
+impl SipCallDirection {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipCallDirection::ScdUnknown => "SCD_UNKNOWN",
+            SipCallDirection::ScdInbound => "SCD_INBOUND",
+            SipCallDirection::ScdOutbound => "SCD_OUTBOUND",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SCD_UNKNOWN" => Some(Self::ScdUnknown),
+            "SCD_INBOUND" => Some(Self::ScdInbound),
+            "SCD_OUTBOUND" => Some(Self::ScdOutbound),
             _ => None,
         }
     }

@@ -120,6 +120,7 @@ impl EgressClient {
                     segment_outputs,
                     image_outputs,
                     output: None, // Deprecated
+                    ..Default::default()
                 },
                 self.base
                     .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,

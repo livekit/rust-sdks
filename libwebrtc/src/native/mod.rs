@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod aec;
+pub mod apm;
 #[cfg(target_os = "android")]
 pub mod android;
 pub mod audio_resampler;

@@ -94,24 +94,38 @@ message RemixAndResampleResponse {
 // AEC
 
 
-message NewAecRequest {
-  required uint32 sample_rate = 1;
-  required uint32 num_channels = 2;
+message NewApmRequest {
+  required bool echo_canceller_enabled = 1;
+  required bool gain_controller_enabled = 2;
+  required bool high_pass_filter_enabled = 3;
+  required bool noise_suppression_enabled = 4;
 }
-message NewAecResponse {
-  required OwnedAec aec = 1;
-}
-
-message CancelEchoRequest {
-  required uint64 aec_handle = 1;
-  required uint64 cap_ptr = 2; // *mut i16
-  required uint32 cap_size = 3; // in bytes
-  required uint64 rend_ptr = 4; // *const i16
-  required uint32 rend_size = 5;
+message NewApmResponse {
+  required OwnedApm apm = 1;
 }
 
-message CancelEchoResponse {
-  optional string error = 3;
+message ApmProcessStreamRequest {
+  required uint64 apm_handle = 1;
+  required uint64 data_ptr = 2; // *mut i16
+  required uint32 size = 3; // in bytes
+  required uint32 sample_rate = 4;
+  required uint32 num_channels = 5;
+}
+
+message ApmProcessStreamResponse {
+  optional string error = 1;
+}
+
+message ApmProcessReverseStreamRequest {
+  required uint64 apm_handle = 1;
+  required uint64 data_ptr = 2; // *mut i16
+  required uint32 size = 3; // in bytes
+  required uint32 sample_rate = 4;
+  required uint32 num_channels = 5;
+}
+
+message ApmProcessReverseStreamResponse {
+  optional string error = 1;
 }
 
 // New resampler using SoX (much better quality)
@@ -267,7 +281,7 @@ message OwnedAudioResampler {
 // AEC
 //
 
-message OwnedAec {
+message OwnedApm {
   required FfiOwnedHandle handle = 1;
 }
 

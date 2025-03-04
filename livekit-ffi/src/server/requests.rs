@@ -17,7 +17,7 @@ use std::{slice, sync::Arc};
 use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
-    webrtc::{native::aec, native::audio_resampler, prelude::*},
+    webrtc::{native::apm, native::audio_resampler, prelude::*},
 };
 use parking_lot::Mutex;
 
@@ -892,6 +892,90 @@ fn on_cancel_echo(
     Ok(proto::CancelEchoResponse { error: None })
 }
 
+fn on_new_apm(
+    server: &'static FfiServer,
+    new_apm: proto::NewApmRequest,
+) -> FfiResult<proto::NewApmResponse> {
+    let apm = apm::AudioProcessingModule::new(
+        new_apm.echo_canceller_enabled,
+        new_apm.gain_controller_enabled,
+        new_apm.high_pass_filter_enabled,
+        new_apm.noise_suppression_enabled,
+    );
+
+    let apm = Arc::new(Mutex::new(apm));
+    let handle_id = server.next_id();
+    server.store_handle(handle_id, apm);
+
+    Ok(proto::NewApmResponse {
+        apm: proto::OwnedApm { handle: proto::FfiOwnedHandle { id: handle_id } },
+    })
+}
+
+fn on_apm_process_stream(
+    server: &'static FfiServer,
+    request: proto::ApmProcessStreamRequest,
+) -> FfiResult<proto::ApmProcessStreamResponse> {
+    let aec = server
+        .retrieve_handle::<Arc<Mutex<apm::AudioProcessingModule>>>(request.apm_handle)?
+        .clone();
+
+    // make sure data is aligned for i16
+    if request.data_ptr as usize % std::mem::size_of::<i16>() != 0 {
+        return Ok(proto::ApmProcessStreamResponse {
+            error: Some("data_ptr must be aligned for i16".into()),
+        });
+    }
+
+    let mut aec = aec.lock();
+    let data = unsafe {
+        slice::from_raw_parts_mut(
+            request.data_ptr as *mut i16,
+            request.size as usize / std::mem::size_of::<i16>(),
+        )
+    };
+
+    if let Err(e) =
+        aec.process_stream(data, request.sample_rate as i32, request.num_channels as i32)
+    {
+        return Ok(proto::ApmProcessStreamResponse { error: Some(e.to_string()) });
+    }
+
+    Ok(proto::ApmProcessStreamResponse { error: None })
+}
+
+fn on_apm_process_reverse_stream(
+    server: &'static FfiServer,
+    request: proto::ApmProcessReverseStreamRequest,
+) -> FfiResult<proto::ApmProcessReverseStreamResponse> {
+    let aec = server
+        .retrieve_handle::<Arc<Mutex<apm::AudioProcessingModule>>>(request.apm_handle)?
+        .clone();
+
+    // make sure data is aligned for i16
+    if request.data_ptr as usize % std::mem::size_of::<i16>() != 0 {
+        return Ok(proto::ApmProcessReverseStreamResponse {
+            error: Some("data_ptr must be aligned for i16".into()),
+        });
+    }
+
+    let mut aec = aec.lock();
+    let data = unsafe {
+        slice::from_raw_parts_mut(
+            request.data_ptr as *mut i16,
+            request.size as usize / std::mem::size_of::<i16>(),
+        )
+    };
+
+    if let Err(e) =
+        aec.process_reverse_stream(data, request.sample_rate as i32, request.num_channels as i32)
+    {
+        return Ok(proto::ApmProcessReverseStreamResponse { error: Some(e.to_string()) });
+    }
+
+    Ok(proto::ApmProcessReverseStreamResponse { error: None })
+}
+
 fn on_perform_rpc(
     server: &'static FfiServer,
     request: proto::PerformRpcRequest,
@@ -1102,13 +1186,19 @@ pub fn handle_request(
                 server, flush_soxr,
             )?)
         }
-        proto::ffi_request::Message::NewAec(new_aec) => {
-            proto::ffi_response::Message::NewAec(on_new_aec(server, new_aec)?)
-        }
-        proto::ffi_request::Message::CancelEcho(cancel_echo) => {
-            proto::ffi_response::Message::CancelEcho(on_cancel_echo(server, cancel_echo)?)
+        proto::ffi_request::Message::NewApm(new_apm) => {
+            proto::ffi_response::Message::NewApm(on_new_apm(server, new_apm)?)
         }
 
+        proto::ffi_request::Message::ApmProcessStream(request) => {
+            proto::ffi_response::Message::ApmProcessStream(on_apm_process_stream(server, request)?)
+        }
+
+        proto::ffi_request::Message::ApmProcessReverseStream(request) => {
+            proto::ffi_response::Message::ApmProcessReverseStream(on_apm_process_reverse_stream(
+                server, request,
+            )?)
+        }
         proto::ffi_request::Message::PerformRpc(request) => {
             proto::ffi_response::Message::PerformRpc(on_perform_rpc(server, request)?)
         }

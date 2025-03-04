@@ -452,6 +452,7 @@ impl SIPClient {
                     headers: Default::default(),
                     include_headers: Default::default(),
                     media_encryption: Default::default(),
+                    ..Default::default()
                 },
                 self.base.auth_header(
                     Default::default(),
