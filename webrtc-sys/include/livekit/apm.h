@@ -45,7 +45,6 @@ struct AudioProcessingConfig {
 class AudioProcessingModule {
  public:
   AudioProcessingModule(const AudioProcessingConfig& config);
-  ~AudioProcessingModule();
 
   int process_stream(const int16_t* src,
                      size_t src_len,
