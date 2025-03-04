@@ -56,12 +56,12 @@ jobs:
             arch: arm64
 
           - name: android
-            os: ubuntu-24.04-arm
+            os: ubuntu-latest
             cmd: ./build_android.sh
             arch: arm64
 
           - name: android
-            os: ubuntu-24.04-arm
+            os: ubuntu-latest
             cmd: ./build_android.sh
             arch: arm
 
