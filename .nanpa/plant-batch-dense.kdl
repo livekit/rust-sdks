@@ -1,2 +1,0 @@
-patch type="fixed" package="livekit-protocol" "Fixed the crashing issue in Promise::try_result"
-patch type="fixed" package="livekit-ffi" "Depends the latest version of livekit-protocol"

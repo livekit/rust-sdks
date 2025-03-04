@@ -65,7 +65,7 @@ rustls-tls-webpki-roots = [
 __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
 [dependencies]
-livekit-protocol = { path = "../livekit-protocol", version = "0.3.8" }
+livekit-protocol = { path = "../livekit-protocol", version = "0.3.9" }
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"

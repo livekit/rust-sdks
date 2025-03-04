@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.13] - 2025-03-04
+
+### Fixed
+
+- Depends the latest version of livekit-protocol
+
 ## [0.12.12] - 2025-02-28
 
 ### Added
