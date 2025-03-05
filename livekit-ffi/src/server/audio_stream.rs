@@ -117,7 +117,7 @@ impl FfiAudioStream {
                                 num_channels,
                             );
                             AudioStreamKind::Filtered(stream)
-                        },
+                        }
                         None => {
                             log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
                             AudioStreamKind::Native(native_stream)
@@ -259,7 +259,11 @@ impl FfiAudioStream {
                                 track_id: track.sid().into(),
                             };
 
-                            let session = filter.clone().new_session(sample_rate as u32, &options, stream_info);
+                            let session = filter.clone().new_session(
+                                sample_rate as u32,
+                                &options,
+                                stream_info,
+                            );
                             if session.is_none() {
                                 log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
                             }
