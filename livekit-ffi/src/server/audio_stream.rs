@@ -101,23 +101,28 @@ impl FfiAudioStream {
                     NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
 
                 let stream = if let Some(audio_filter) = &audio_filter {
-                    let Some(session) = audio_filter.clone().new_session(
+                    let session = audio_filter.clone().new_session(
                         sample_rate,
                         new_stream.audio_filter_options.unwrap_or("".into()),
                         stream_info,
-                    ) else {
-                        return Err(FfiError::InvalidRequest(
-                            "audio filter is not initialized".into(),
-                        ));
-                    };
-                    let stream = AudioFilterAudioStream::new(
-                        native_stream,
-                        session,
-                        Duration::from_millis(10),
-                        sample_rate,
-                        num_channels,
                     );
-                    AudioStreamKind::Filtered(stream)
+
+                    match session {
+                        Some(session) => {
+                            let stream = AudioFilterAudioStream::new(
+                                native_stream,
+                                session,
+                                Duration::from_millis(10),
+                                sample_rate,
+                                num_channels,
+                            );
+                            AudioStreamKind::Filtered(stream)
+                        },
+                        None => {
+                            log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
+                            AudioStreamKind::Native(native_stream)
+                        }
+                    }
                 } else {
                     AudioStreamKind::Native(native_stream)
                 };
@@ -254,7 +259,11 @@ impl FfiAudioStream {
                                 track_id: track.sid().into(),
                             };
 
-                            filter.clone().new_session(sample_rate as u32, &options, stream_info)
+                            let session = filter.clone().new_session(sample_rate as u32, &options, stream_info);
+                            if session.is_none() {
+                                log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
+                            }
+                            session
                         }
                         None => None,
                     },
