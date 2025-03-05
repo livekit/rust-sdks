@@ -145,16 +145,8 @@ impl FfiRoom {
                     match result {
                         Err(e) | Ok(Err(e)) => {
                             log::error!("error while initializing audio filter: {}", e);
-                            let _ = server.send_event(proto::ffi_event::Message::Connect(
-                                proto::ConnectCallback {
-                                    async_id,
-                                    message: Some(proto::connect_callback::Message::Error(
-                                        e.to_string(),
-                                    )),
-                                    ..Default::default()
-                                },
-                            ));
-                            return;
+                            // Skip returning an error here to keep the rtc session alive
+                            // But in this case, the filter isn't enabled in the session.
                         }
                         Ok(Ok(_)) => (),
                     };
