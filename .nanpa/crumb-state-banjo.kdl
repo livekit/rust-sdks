@@ -1,1 +1,0 @@
-patch package="livekit-ffi" type="fixed" "Ensure RTC session continues even if audio filter initialization fails"

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.15] - 2025-03-05
+
+### Fixed
+
+- Ensure RTC session continues even if audio filter initialization fails
+
 ## [0.12.14] - 2025-03-04
 
 ### Added
