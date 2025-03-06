@@ -56,7 +56,7 @@ pub struct FfiRoom {
 
 pub struct RoomInner {
     pub room: Room,
-    handle_id: FfiHandleId,
+    pub(crate) handle_id: FfiHandleId,
     data_tx: mpsc::UnboundedSender<FfiDataPacket>,
     transcription_tx: mpsc::UnboundedSender<FfiTranscription>,
     dtmf_tx: mpsc::UnboundedSender<FfiSipDtmfPacket>,

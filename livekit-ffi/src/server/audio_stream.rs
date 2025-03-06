@@ -57,7 +57,7 @@ impl FfiAudioStream {
             return Err(FfiError::InvalidRequest("not an audio track".into()));
         };
 
-        let (audio_filter, stream_info) = match &new_stream.audio_filter_module_id {
+        let (audio_filter, info) = match &new_stream.audio_filter_module_id {
             Some(module_id) => {
                 let Some(room_handle) = ffi_track.room_handle else {
                     return Err(FfiError::InvalidRequest(
@@ -83,9 +83,9 @@ impl FfiAudioStream {
                     track_id: rtc_track.id(),
                 };
 
-                (Some(filter), stream_info)
+                (Some(filter), Some(AudioFilterInfo { stream_info, room_handle }))
             }
-            None => (None, AudioFilterStreamInfo::default()),
+            None => (None, None),
         };
 
         let stream_type = new_stream.r#type();
@@ -104,7 +104,7 @@ impl FfiAudioStream {
                     let session = audio_filter.clone().new_session(
                         sample_rate,
                         new_stream.audio_filter_options.unwrap_or("".into()),
-                        stream_info,
+                        info.as_ref().map(|i| i.stream_info.clone()).unwrap(),
                     );
 
                     match session {
@@ -134,6 +134,7 @@ impl FfiAudioStream {
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
                     true,
+                    info,
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -208,7 +209,8 @@ impl FfiAudioStream {
         // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
 
         let url = ffi_participant.room.url();
-        let room_sid = ffi_participant.room.room.sid().await;
+        let room_sid =
+            ffi_participant.room.room.maybe_sid().map(|id| id.to_string()).unwrap_or("".into());
         let room_name = ffi_participant.room.room.name();
         let participant_identity = ffi_participant.participant.identity();
         let participant_id = ffi_participant.participant.sid();
@@ -247,7 +249,7 @@ impl FfiAudioStream {
                     }
                 });
 
-                let mut audio_filter_session = match &filter {
+                let (mut audio_filter_session, info) = match &filter {
                     Some(filter) => match &request.audio_filter_options {
                         Some(options) => {
                             let stream_info = AudioFilterStreamInfo {
@@ -259,19 +261,24 @@ impl FfiAudioStream {
                                 track_id: track.sid().into(),
                             };
 
+                            let info = AudioFilterInfo {
+                                stream_info,
+                                room_handle: ffi_participant.room.handle_id,
+                            };
+
                             let session = filter.clone().new_session(
                                 sample_rate as u32,
                                 &options,
-                                stream_info,
+                                info.stream_info.clone(),
                             );
                             if session.is_none() {
                                 log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
                             }
-                            session
+                            (session, Some(info))
                         }
-                        None => None,
+                        None => (None, None),
                     },
-                    None => None,
+                    None => (None, None),
                 };
 
                 let native_stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
@@ -297,6 +304,7 @@ impl FfiAudioStream {
                         c_rx,
                         handle_dropped_rx,
                         false,
+                        info,
                     )
                     .await;
                     let _ = done_tx.send(());
@@ -332,6 +340,7 @@ impl FfiAudioStream {
         mut self_dropped_rx: oneshot::Receiver<()>,
         mut handle_dropped_rx: oneshot::Receiver<()>,
         send_eos: bool,
+        mut filter_info: Option<AudioFilterInfo>,
     ) {
         loop {
             tokio::select! {
@@ -345,6 +354,21 @@ impl FfiAudioStream {
                     let Some(frame) = frame else {
                         break;
                     };
+
+                    if let Some(ref mut info) = filter_info {
+                        if info.stream_info.room_id == "" {
+                            // check if room_id is updated
+                            if info.update_room_id(server) {
+                                if info.stream_info.room_id != "" {
+                                    if let AudioStreamKind::Filtered(ref mut filter) = native_stream {
+                                        filter.update_stream_info(info.stream_info.clone());
+                                    }
+                                    // room_id is updated, this check is no longer needed.
+                                    filter_info = None;
+                                }
+                            }
+                        }
+                    }
 
                     let handle_id = server.next_id();
                     let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
@@ -381,5 +405,26 @@ impl FfiAudioStream {
                 log::warn!("failed to send audio eos: {}", err);
             }
         }
+    }
+}
+
+// Used to update audio filter session when the stream info is changed. (Mainly room_id
+#[derive(Default)]
+struct AudioFilterInfo {
+    stream_info: AudioFilterStreamInfo,
+    room_handle: FfiHandleId,
+}
+
+impl AudioFilterInfo {
+    fn update_room_id(&mut self, server: &'static server::FfiServer) -> bool {
+        let Ok(room) = server.retrieve_handle::<FfiRoom>(self.room_handle) else {
+            return false;
+        };
+        let room_id = room.inner.room.maybe_sid().map(|id| id.to_string()).unwrap_or("".into());
+        if room_id != "" {
+            self.stream_info.room_id = room_id.into();
+            return true;
+        }
+        false
     }
 }

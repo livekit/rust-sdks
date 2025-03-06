@@ -33,6 +33,7 @@ type CreateFn = unsafe extern "C" fn(
 type DestroyFn = unsafe extern "C" fn(*const c_void);
 type ProcessI16Fn = unsafe extern "C" fn(*const c_void, usize, *const i16, *mut i16);
 type ProcessF32Fn = unsafe extern "C" fn(*const c_void, usize, *const f32, *mut f32);
+type UpdateStreamInfoFn = unsafe extern "C" fn(*const c_void, *const c_char);
 
 static REGISTERED_PLUGINS: LazyLock<RwLock<HashMap<String, Arc<AudioFilterPlugin>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
@@ -57,6 +58,7 @@ pub struct AudioFilterPlugin {
     destroy_fn_ptr: *const c_void,
     process_i16_fn_ptr: *const c_void,
     process_f32_fn_ptr: *const c_void,
+    update_stream_info_fn_ptr: *const c_void,
 }
 
 impl AudioFilterPlugin {
@@ -116,6 +118,11 @@ impl AudioFilterPlugin {
                 .try_as_raw_ptr()
                 .unwrap()
         };
+        let update_stream_info_fn_ptr = unsafe {
+            lib.get::<Symbol<UpdateStreamInfoFn>>(b"audio_filter_update_stream_info")?
+                .try_as_raw_ptr()
+                .unwrap()
+        };
 
         Ok(Self {
             lib,
@@ -125,6 +132,7 @@ impl AudioFilterPlugin {
             destroy_fn_ptr,
             process_i16_fn_ptr,
             process_f32_fn_ptr,
+            update_stream_info_fn_ptr,
         })
     }
 
@@ -196,6 +204,17 @@ impl AudioFilterSession {
         let process: ProcessF32Fn = unsafe { std::mem::transmute(self.plugin.process_f32_fn_ptr) };
         unsafe { process(self.ptr, num_samples, input.as_ptr(), output.as_mut_ptr()) };
     }
+
+    pub fn update_stream_info(&self, info: AudioFilterStreamInfo) {
+        if self.plugin.update_stream_info_fn_ptr.is_null() {
+            return;
+        }
+        let update_stream_info_fn: UpdateStreamInfoFn =
+            unsafe { std::mem::transmute(self.plugin.update_stream_info_fn_ptr) };
+        let info_json = serde_json::to_string(&info).unwrap();
+        let info_json = CString::new(info_json).unwrap_or(CString::new("").unwrap());
+        unsafe { update_stream_info_fn(self.ptr, info_json.as_ptr()) }
+    }
 }
 
 impl Drop for AudioFilterSession {
@@ -234,6 +253,10 @@ impl AudioFilterAudioStream {
             frame_size,
         }
     }
+
+    pub fn update_stream_info(&mut self, info: AudioFilterStreamInfo) {
+        self.session.update_stream_info(info);
+    }
 }
 
 impl Stream for AudioFilterAudioStream {
@@ -267,7 +290,7 @@ impl Stream for AudioFilterAudioStream {
     }
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioFilterStreamInfo {
     pub url: String,
