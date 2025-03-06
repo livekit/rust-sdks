@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.16] - 2025-03-06
+
+### Fixed
+
+- Fixed metric report issue on audio filter where room_id is sometimes empty
+
 ## [0.12.15] - 2025-03-05
 
 ### Fixed
