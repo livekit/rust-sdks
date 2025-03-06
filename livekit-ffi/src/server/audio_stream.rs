@@ -83,10 +83,7 @@ impl FfiAudioStream {
                     track_id: rtc_track.id(),
                 };
 
-                (Some(filter), Some(AudioFilterInfo {
-                    stream_info,
-                    room_handle,
-                }))
+                (Some(filter), Some(AudioFilterInfo { stream_info, room_handle }))
             }
             None => (None, None),
         };
@@ -212,7 +209,8 @@ impl FfiAudioStream {
         // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
 
         let url = ffi_participant.room.url();
-        let room_sid = ffi_participant.room.room.maybe_sid().map(|id| id.to_string()).unwrap_or("".into());
+        let room_sid =
+            ffi_participant.room.room.maybe_sid().map(|id| id.to_string()).unwrap_or("".into());
         let room_name = ffi_participant.room.room.name();
         let participant_identity = ffi_participant.participant.identity();
         let participant_id = ffi_participant.participant.sid();
@@ -408,7 +406,6 @@ impl FfiAudioStream {
             }
         }
     }
-
 }
 
 // Used to update audio filter session when the stream info is changed. (Mainly room_id
@@ -426,7 +423,7 @@ impl AudioFilterInfo {
         let room_id = room.inner.room.maybe_sid().map(|id| id.to_string()).unwrap_or("".into());
         if room_id != "" {
             self.stream_info.room_id = room_id.into();
-            return true
+            return true;
         }
         false
     }

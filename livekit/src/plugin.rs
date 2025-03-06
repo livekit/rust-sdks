@@ -209,7 +209,8 @@ impl AudioFilterSession {
         if self.plugin.update_stream_info_fn_ptr.is_null() {
             return;
         }
-        let update_stream_info_fn: UpdateStreamInfoFn = unsafe { std::mem::transmute(self.plugin.update_stream_info_fn_ptr) };
+        let update_stream_info_fn: UpdateStreamInfoFn =
+            unsafe { std::mem::transmute(self.plugin.update_stream_info_fn_ptr) };
         let info_json = serde_json::to_string(&info).unwrap();
         let info_json = CString::new(info_json).unwrap_or(CString::new("").unwrap());
         unsafe { update_stream_info_fn(self.ptr, info_json.as_ptr()) }
