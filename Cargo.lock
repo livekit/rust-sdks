@@ -1655,7 +1655,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.14"
+version = "0.12.15"
 dependencies = [
  "console-subscriber",
  "dashmap",
