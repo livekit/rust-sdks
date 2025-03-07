@@ -119,7 +119,14 @@ impl LocalParticipant {
     }
 
     pub(crate) fn update_info(&self, info: proto::ParticipantInfo) {
-        super::update_info(&self.inner, &Participant::Local(self.clone()), info);
+        super::update_info(&self.inner, &Participant::Local(self.clone()), info.clone());
+
+        for track in info.tracks {
+            let track_sid = track.sid.clone().try_into().unwrap();
+            if let Some(publication) = self.get_track_publication(&track_sid) {
+                publication.update_info(track.clone());
+            }
+        }
     }
 
     pub(crate) fn set_speaking(&self, speaking: bool) {
