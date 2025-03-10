@@ -52,48 +52,12 @@ jobs:
             target: aarch64-apple-darwin
             macosx_deployment_target: "11.0" # aarch64 requires 11
             name: ffi-macos-arm64
-          - os: macos-13
-            platform: ios
-            dylib: liblivekit_ffi.a
-            target: aarch64-apple-ios
-            iphoneos_deployment_target: "13.0"
-            name: ffi-ios-arm64
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
-          - os: macos-13
-            platform: ios
-            dylib: liblivekit_ffi.a
-            target: aarch64-apple-ios-sim
-            iphoneos_deployment_target: "13.0"
-            name: ffi-ios-sim-arm64
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
             platform: linux
             build_image: quay.io/pypa/manylinux_2_28_x86_64
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
             name: ffi-linux-x86_64
-          - os: buildjet-4vcpu-ubuntu-2204-arm
-            platform: linux
-            build_image: quay.io/pypa/manylinux_2_28_aarch64
-            dylib: liblivekit_ffi.so
-            target: aarch64-unknown-linux-gnu
-            name: ffi-linux-arm64
-          - os: ubuntu-20.04
-            platform: android
-            dylib: liblivekit_ffi.so
-            jar: libwebrtc.jar
-            target: aarch64-linux-android
-            ndk_arch: aarch64-unknown-linux-musl
-            name: ffi-android-arm64
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
-          - os: ubuntu-20.04
-            platform: android
-            dylib: liblivekit_ffi.so
-            jar: libwebrtc.jar
-            target: armv7-linux-androideabi
-            ndk_arch: arm-unknown-linux-musleabihf
-            name: ffi-android-armv7
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-20.04
             platform: android
             dylib: liblivekit_ffi.so
