@@ -54,9 +54,6 @@ jobs:
             target: aarch64-linux-android
             ndk_arch: aarch64-unknown-linux-musl
           - os: ubuntu-20.04
-            target: armv7-linux-androideabi
-            ndk_arch: arm-unknown-linux-musleabihf
-          - os: ubuntu-20.04
             target: x86_64-linux-android
             ndk_arch: x86_64-unknown-linux-musl
 
