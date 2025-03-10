@@ -39,6 +39,7 @@ static void RINT_CLIP(RINT_T * const dest, FLOATX const * const src,
   COPY_SEED
   DITHER_VARS;
   for (; i < n; ++i) {
+    fe_clear_invalid();
     FLOATD const d = src[i] DITHERING;
     RINT(dest[stride * i], d);
     if (fe_test_invalid()) {
@@ -62,6 +63,7 @@ static size_t LSX_RINT_CLIP(void * * const dest0, FLOATX const * const src,
 #if defined FE_INVALID && defined FPU_RINT
 #define _ RINT(dest[i], src[i] DITHERING); ++i
   for (i = 0; i < (n & ~15u);) {
+    fe_clear_invalid();
     COPY_SEED1;
     DITHER_VARS;
     DO_16;
@@ -105,6 +107,7 @@ static size_t LSX_RINT_CLIP_2(void * * dest0, FLOATX const * const * srcs,
   for (j = 0; j < stride; ++j, ++dest) {
     FLOATX const * const src = srcs[j];
     for (i = 0; i < (n & ~15u);) {
+      fe_clear_invalid();
       COPY_SEED1;
       DITHER_VARS;
       DO_16;
