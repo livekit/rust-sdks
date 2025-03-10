@@ -7,7 +7,7 @@ fn main() {
     build.define("SOXR_LIB", "0");
 
     build
-        .flag_if_supported("-std=gnu89")
+        .flag_if_supported("-std=gnu99")
         .flag_if_supported("-Wnested-externs")
         .flag_if_supported("-Wmissing-prototypes")
         .flag_if_supported("-Wstrict-prototypes")
