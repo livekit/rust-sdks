@@ -15,6 +15,8 @@
 name: Bump and publish crates
 
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
     inputs:
       packages:
@@ -41,20 +43,35 @@ jobs:
       - name: Prepare packages for ilo
         id: prepare_packages
         run: |
-          # Create an array from comma-separated list
-          IFS=',' read -ra PKG_ARRAY <<< "${{ github.event.inputs.packages }}"
+          # Check if this is a manual workflow run or push trigger
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Create an array from comma-separated list provided by user
+            IFS=',' read -ra PKG_ARRAY <<< "${{ github.event.inputs.packages }}"
+            
+            # Convert to JSON format with explicit wrapping
+            JSON_ARRAY=$(printf '%s\n' "${PKG_ARRAY[@]}" | jq -R . | jq -s .)
+            echo "Workflow dispatch with packages: ${PKG_ARRAY[*]}"
+          else
+            # For push events, use an empty array (no packages to bump)
+            # This effectively makes the workflow run but not perform any version bumps
+            JSON_ARRAY="[]"
+            echo "Push trigger - using empty package list"
+          fi
           
-          # Convert to JSON format
-          JSON_ARRAY=$(printf '%s\n' "${PKG_ARRAY[@]}" | jq -R . | jq -s .)
           echo "Formatted packages JSON: $JSON_ARRAY"
           
-          # Save to a file that ilo can read
+          # Save to a file that ilo can read - ensure we preserve quotes and formatting
           echo "$JSON_ARRAY" > packages.json
           
       - name: Debug packages.json content
-        run: cat packages.json
+        run: |
+          echo "Raw file content:"
+          cat packages.json
+          echo "JSON validation check:"
+          jq '.' packages.json || echo "Invalid JSON detected"
           
-      - uses: nbsp/ilo@v1
+      - name: Use ilo with packages file
+        uses: nbsp/ilo@v1
         with:
           packages-file: ./packages.json
   publish:
