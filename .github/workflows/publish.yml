@@ -80,7 +80,7 @@ jobs:
     permissions:
       contents: write
     outputs:
-      published_crates: ${{ steps.collect_published.outputs.published_crates }}
+      published_crates: ${{ steps.publish.outputs.published_crates }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -101,14 +101,8 @@ jobs:
           git tag --points-at HEAD || echo "No tags found"
           echo "CARGO_REGISTRY_TOKEN exists: ${{ env.CARGO_REGISTRY_TOKEN != '' }}"
           
-      - name: List crates to publish
-        id: collect_published
-        run: |
-          CRATES=$(git tag --points-at HEAD | sed 's|^[^/]*@|@|' | sed 's|^[^/]*/||' | sed 's|@.*||' | tr '\n' ' ')
-          echo "Found crates to publish: ${CRATES}"
-          echo "published_crates=${CRATES}" >> $GITHUB_OUTPUT
-          
       - name: Publish crates
+        id: publish
         run: |
           # Set a default exit code
           EXIT_CODE=0
@@ -117,13 +111,21 @@ jobs:
           CRATES_TO_PUBLISH=$(git tag --points-at HEAD | sed 's|^[^/]*@|@|' | sed 's|^[^/]*/||' | sed 's|@.*||')
           
           if [ -z "$CRATES_TO_PUBLISH" ]; then
-            echo "No crates found to publish"
-            # Create a dummy crate just for testing
-            echo "TESTING: Would publish livekit to quantum-forge"
-            # Uncomment the line below for actual testing
-            # cd livekit && cargo publish --no-verify --registry quantum-forge || EXIT_CODE=$?
+            echo "No crates found to publish from tags"
+            
+            # Check if this is a push to main (automated run)
+            if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+              echo "This is a push to main branch - publishing livekit to registry"
+              # For push events, we'll publish the livekit crate for testing
+              cd livekit && cargo publish --no-verify --registry quantum-forge --allow-dirty || EXIT_CODE=$?
+              
+              # Record that we published livekit
+              echo "published_crates=livekit" >> $GITHUB_OUTPUT
+            else
+              echo "Skipping publishing for non-push or non-main branch events"
+            fi
           else
-            # Publish each crate individually
+            # Publish crates based on tags
             for CRATE in $CRATES_TO_PUBLISH; do
               echo "Publishing crate: $CRATE"
               cd "$CRATE" && cargo publish --no-verify --registry quantum-forge || EXIT_CODE=$?
