@@ -73,7 +73,7 @@ jobs:
       - name: Use ilo with packages file
         uses: nbsp/ilo@v1
         with:
-          packages-file: ./packages.json
+          packages: '[]'
   publish:
     runs-on: ubuntu-latest
     needs: bump
