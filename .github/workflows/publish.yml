@@ -41,6 +41,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     needs: bump
+    permissions:
+      contents: write
+    outputs:
+      published_crates: ${{ steps.collect_published.outputs.published_crates }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -53,6 +57,11 @@ jobs:
           mkdir -p ~/.cargo
           echo '[registries.quantum-forge]' >> ~/.cargo/config.toml
           echo 'index = "https://crate-registry.quantum-forge.io"' >> ~/.cargo/config.toml
+      - name: Collect crates to publish
+        id: collect_published
+        run: |
+          CRATES=$(git tag --points-at HEAD | sed 's|^[^/]*@|@|' | sed 's|^[^/]*/||' | sed 's|@.*||' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "published_crates=${CRATES}" >> $GITHUB_OUTPUT
       - name: Publish crates
         run: |
           git tag --points-at HEAD |
@@ -60,3 +69,34 @@ jobs:
           sed 's|^[^/]*/||' |
           sed 's|@.*||' |
           xargs -I _ sh -c 'cd ./_ && cargo publish --no-verify --registry quantum-forge'
+  
+  create_releases:
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: write
+    if: ${{ needs.publish.outputs.published_crates != '[]' && needs.publish.outputs.published_crates != '' }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Create GitHub releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISHED_CRATES: ${{ needs.publish.outputs.published_crates }}
+        run: |
+          echo "$PUBLISHED_CRATES" | jq -c '.[]' | while read -r crate; do
+            crate=$(echo "$crate" | tr -d '"')
+            if [ -f "$crate/CHANGELOG.md" ]; then
+              version=$(grep -m 1 "^##" "$crate/CHANGELOG.md" | sed 's/^## //')
+              changelog=$(awk '/^## /{if (p) {exit}; p=1; next} p' "$crate/CHANGELOG.md")
+            else
+              version=$(grep -m 1 "version" "$crate/Cargo.toml" | cut -d'"' -f2)
+              changelog="Release of $crate version $version to quantum-forge registry"
+            fi
+            
+            echo "Creating release for $crate@$version"
+            
+            gh release create "$crate@$version" \
+              --title "$crate $version" \
+              --notes "$changelog" \
+              --target main
+          done
