@@ -33,12 +33,12 @@ message PerformRpcRequest {
 }
 
 message RegisterRpcMethodRequest {
-  required uint64 local_participant_handle = 1;
+  required uint64 room_handle = 1;
   required string method = 2;
 }
 
 message UnregisterRpcMethodRequest {
-  required uint64 local_participant_handle = 1;
+  required uint64 room_handle = 1;
   required string method = 2;
 }
 
