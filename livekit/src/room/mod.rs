@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc, pin::Pin, time::Duration};
+use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
 
+use futures_util::Future;
 use libwebrtc::{
     native::{create_random_uuid, frame_cryptor::EncryptionState},
     prelude::{
@@ -34,7 +35,6 @@ use proto::{promise::Promise, SignalTarget};
 use semver::Version;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
-use futures_util::Future;
 
 pub use self::{
     e2ee::{manager::E2eeManager, E2eeOptions},

@@ -12,9 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, sync::{Arc, Weak}, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission, RoomSession};
+use super::{
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission, RoomSession,
+};
 use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
@@ -31,7 +38,6 @@ use livekit_protocol as proto;
 use livekit_runtime::timeout;
 use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
-
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -678,5 +684,4 @@ impl LocalParticipant {
         let session = self.session().unwrap();
         session.perform_rpc(data).await
     }
-
 }

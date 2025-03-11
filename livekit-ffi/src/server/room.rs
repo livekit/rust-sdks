@@ -801,15 +801,7 @@ impl RoomInner {
             Box::pin({
                 let room = room.clone();
                 let method = method.clone();
-                async move {
-                    forward_rpc_method_invocation(
-                        server,
-                        room,
-                        method,
-                        data,
-                    )
-                    .await
-                }
+                async move { forward_rpc_method_invocation(server, room, method, data).await }
             })
         });
         Ok(proto::RegisterRpcMethodResponse {})
