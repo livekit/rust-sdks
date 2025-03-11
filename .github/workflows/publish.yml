@@ -24,7 +24,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+  CARGO_REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
 
 jobs:
   bump:
@@ -48,10 +48,15 @@ jobs:
       - name: Resync is needed after bump
         run: |
           git fetch --tags && git checkout origin/main
+      - name: Configure Cargo Registry
+        run: |
+          mkdir -p ~/.cargo
+          echo '[registries.quantum-forge]' >> ~/.cargo/config.toml
+          echo 'index = "https://crate-registry.quantum-forge.io"' >> ~/.cargo/config.toml
       - name: Publish crates
         run: |
           git tag --points-at HEAD |
           sed 's|^[^/]*@|@|' |
           sed 's|^[^/]*/||' |
           sed 's|@.*||' |
-          xargs -I _ sh -c 'cd ./_ && cargo publish --no-verify'
+          xargs -I _ sh -c 'cd ./_ && cargo publish --no-verify --registry quantum-forge'
