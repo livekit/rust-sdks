@@ -23,6 +23,9 @@ on:
         description: "packages to bump (comma-separated list)"
         type: string
         required: true
+  pull_request:
+    types: [closed]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -113,7 +116,7 @@ jobs:
           if [ -z "$CRATES_TO_PUBLISH" ]; then
             echo "No crates found to publish from tags"
             
-            # Check if this is a push to main (automated run)
+            # Check if this is a push to main or a merged PR
             if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
               echo "This is a push to main branch - publishing livekit to registry"
               # For push events, we'll publish the livekit crate for testing
@@ -121,8 +124,14 @@ jobs:
               
               # Record that we published livekit
               echo "published_crates=livekit" >> $GITHUB_OUTPUT
+            elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
+              echo "This is a merged PR to main branch - publishing livekit to registry"
+              cd livekit && cargo publish --no-verify --registry quantum-forge --allow-dirty || EXIT_CODE=$?
+              
+              # Record that we published livekit
+              echo "published_crates=livekit" >> $GITHUB_OUTPUT
             else
-              echo "Skipping publishing for non-push or non-main branch events"
+              echo "Skipping publishing for non-push, non-merged PR, or non-main branch events"
             fi
           else
             # Publish crates based on tags
