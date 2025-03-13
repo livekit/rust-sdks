@@ -3856,23 +3856,32 @@ pub struct StreamUnregisterTopicRequest {
 }
 /// Reads an incoming stream incrementally.
 /// Client will receive StreamEvent.ChunkReceived events as data arrives.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamReadIncrementalRequest {
+    /// ID of the stream.
+    #[prost(string, required, tag="1")]
+    pub id: ::prost::alloc::string::String,
 }
 /// Reads an incoming stream in its entirety.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamReadAllRequest {
+    /// ID of the stream.
+    #[prost(string, required, tag="1")]
+    pub id: ::prost::alloc::string::String,
 }
 /// Writes data from an incoming stream to a file as it arrives.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamWriteToFileRequest {
-    /// Directory to write the file in (must be writable by the current process).
+    /// ID of the stream.
     #[prost(string, required, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    /// Directory to write the file in (must be writable by the current process).
+    #[prost(string, required, tag="2")]
     pub directory: ::prost::alloc::string::String,
     /// Name to use for the written file.
     /// If not provided, the file's name and extension will be inferred from
     /// the stream's info.
-    #[prost(string, optional, tag="2")]
+    #[prost(string, optional, tag="3")]
     pub name_override: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Sends the contents of a file over a data stream.

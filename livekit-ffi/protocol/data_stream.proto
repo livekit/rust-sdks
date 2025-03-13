@@ -37,20 +37,29 @@ message StreamUnregisterTopicRequest {
 
 // Reads an incoming stream incrementally.
 // Client will receive StreamEvent.ChunkReceived events as data arrives.
-message StreamReadIncrementalRequest {}
+message StreamReadIncrementalRequest {
+    // ID of the stream.
+    required string id = 1;
+}
 
 // Reads an incoming stream in its entirety.
-message StreamReadAllRequest {}
+message StreamReadAllRequest {
+    // ID of the stream.
+    required string id = 1;
+}
 
 // Writes data from an incoming stream to a file as it arrives.
 message StreamWriteToFileRequest {
+    // ID of the stream.
+    required string id = 1;
+
     // Directory to write the file in (must be writable by the current process).
-    required string directory = 1;
+    required string directory = 2;
 
     // Name to use for the written file.
     // If not provided, the file's name and extension will be inferred from
     // the stream's info.
-    optional string name_override = 2;
+    optional string name_override = 3;
 }
 
 // Sends the contents of a file over a data stream.
