@@ -3839,15 +3839,19 @@ pub struct RpcMethodInvocationEvent {
 /// matching the registered topic.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamRegisterTopicRequest {
+    #[prost(uint64, required, tag="1")]
+    pub room_handle: u64,
     /// Topic to register.
-    #[prost(string, required, tag="1")]
+    #[prost(string, required, tag="2")]
     pub topic: ::prost::alloc::string::String,
 }
 /// Unregisters a topic for incoming streams to be handled.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamUnregisterTopicRequest {
+    #[prost(uint64, required, tag="1")]
+    pub room_handle: u64,
     /// Topic to unregister.
-    #[prost(string, required, tag="1")]
+    #[prost(string, required, tag="2")]
     pub topic: ::prost::alloc::string::String,
 }
 /// Reads an incoming stream incrementally.
@@ -3874,29 +3878,35 @@ pub struct StreamWriteToFileRequest {
 /// Sends the contents of a file over a data stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamSendFileRequest {
+    #[prost(uint64, required, tag="1")]
+    pub room_handle: u64,
     /// Options to use for opening the stream.
-    #[prost(message, required, tag="1")]
+    #[prost(message, required, tag="2")]
     pub options: StreamOptions,
     /// Path to the file to send (must be readable by the current process).
-    #[prost(string, required, tag="2")]
+    #[prost(string, required, tag="3")]
     pub file_path: ::prost::alloc::string::String,
 }
 /// Sends text over a data stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamSendTextRequest {
+    #[prost(uint64, required, tag="1")]
+    pub room_handle: u64,
     /// Options to use for opening the stream.
-    #[prost(message, required, tag="1")]
+    #[prost(message, required, tag="2")]
     pub options: StreamOptions,
     /// Text to send.
-    #[prost(string, required, tag="2")]
+    #[prost(string, required, tag="3")]
     pub text: ::prost::alloc::string::String,
 }
 /// Opens an outgoing stream.
 /// Call must be balanced with a StreamCloseRequest.
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StreamOpenRequest {
+    #[prost(uint64, required, tag="1")]
+    pub room_handle: u64,
     /// Options to use for opening the stream.
-    #[prost(message, required, tag="1")]
+    #[prost(message, required, tag="2")]
     pub options: StreamOptions,
 }
 /// Writes data to an outgoing stream opened with StreamOpenRequest.
