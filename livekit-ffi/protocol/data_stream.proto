@@ -114,17 +114,12 @@ message StreamCloseRequest {
 // FFI Responses
 
 message StreamRegisterTopicResponse {
-    required uint64 async_id = 1;
-    optional StreamError error = 2;
+    optional StreamError error = 1;
 }
 
-message StreamUnregisterTopicResponse {
-    required uint64 async_id = 1;
-}
+message StreamUnregisterTopicResponse {}
 
-message StreamReadIncrementalResponse {
-    required uint64 async_id = 1;
-}
+message StreamReadIncrementalResponse {}
 
 message StreamReadAllResponse {
     required uint64 async_id = 1;
@@ -156,12 +151,10 @@ message StreamSendTextResponse {
 }
 
 message StreamOpenResponse {
-    required uint64 async_id = 1;
-
     oneof result {
         // ID of the opened stream to use for subsequent operations.
-        string id = 2;
-        StreamError error = 3;
+        string id = 1;
+        StreamError error = 2;
     }
 }
 

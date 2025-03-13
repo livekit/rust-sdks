@@ -3950,20 +3950,14 @@ pub struct StreamCloseRequest {
 
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamRegisterTopicResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag="1")]
     pub error: ::core::option::Option<StreamError>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StreamUnregisterTopicResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StreamReadIncrementalResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamReadAllResponse {
@@ -4016,9 +4010,7 @@ pub struct StreamSendTextResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamOpenResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-    #[prost(oneof="stream_open_response::Result", tags="2, 3")]
+    #[prost(oneof="stream_open_response::Result", tags="1, 2")]
     pub result: ::core::option::Option<stream_open_response::Result>,
 }
 /// Nested message and enum types in `StreamOpenResponse`.
@@ -4026,9 +4018,9 @@ pub mod stream_open_response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
         /// ID of the opened stream to use for subsequent operations.
-        #[prost(string, tag="2")]
+        #[prost(string, tag="1")]
         Id(::prost::alloc::string::String),
-        #[prost(message, tag="3")]
+        #[prost(message, tag="2")]
         Error(super::StreamError),
     }
 }
