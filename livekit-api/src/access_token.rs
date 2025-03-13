@@ -185,16 +185,8 @@ impl AccessToken {
     }
 
     #[cfg(test)]
-    pub fn from_parts(
-        api_key: &str,
-        api_secret: &str,
-        claims: Claims,
-    ) -> Self {
-        Self {
-            api_key: api_key.to_owned(),
-            api_secret: api_secret.to_owned(),
-            claims,
-        }
+    pub fn from_parts(api_key: &str, api_secret: &str, claims: Claims) -> Self {
+        Self { api_key: api_key.to_owned(), api_secret: api_secret.to_owned(), claims }
     }
 
     pub fn new() -> Result<Self, AccessTokenError> {
@@ -317,12 +309,10 @@ mod tests {
     fn test_access_token() {
         let room_config = livekit_protocol::RoomConfiguration {
             name: "name".to_string(),
-            agents: vec![
-                livekit_protocol::RoomAgentDispatch {
-                    agent_name: "test-agent".to_string(),
-                    metadata: "test-metadata".to_string(),
-                }
-            ],
+            agents: vec![livekit_protocol::RoomAgentDispatch {
+                agent_name: "test-agent".to_string(),
+                metadata: "test-metadata".to_string(),
+            }],
             ..Default::default()
         };
 
@@ -356,21 +346,20 @@ mod tests {
         // This token was generated using the Python SDK.
         let claims = verifier.verify(TEST_TOKEN).expect("Failed to verify token.");
 
-        assert_eq!(super::Claims {
-            sub: "identity".to_string(),
-            name: "name".to_string(),
-            room_config: Some(
-                livekit_protocol::RoomConfiguration {
-                    agents: vec![
-                        livekit_protocol::RoomAgentDispatch {
-                            agent_name: "test-agent".to_string(),
-                            metadata: "test-metadata".to_string(),
-                        }
-                    ],
+        assert_eq!(
+            super::Claims {
+                sub: "identity".to_string(),
+                name: "name".to_string(),
+                room_config: Some(livekit_protocol::RoomConfiguration {
+                    agents: vec![livekit_protocol::RoomAgentDispatch {
+                        agent_name: "test-agent".to_string(),
+                        metadata: "test-metadata".to_string(),
+                    }],
                     ..Default::default()
-                }
-            ),
-            ..claims.clone()
-        }, claims);
+                }),
+                ..claims.clone()
+            },
+            claims
+        );
     }
 }
