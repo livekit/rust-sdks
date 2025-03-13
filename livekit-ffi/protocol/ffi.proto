@@ -25,6 +25,7 @@ import "room.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
 import "rpc.proto";
+import "data_stream.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -112,7 +113,7 @@ message FfiRequest {
     EnableRemoteTrackPublicationRequest enable_remote_track_publication = 42;
     UpdateRemoteTrackPublicationDimensionRequest update_remote_track_publication_dimension = 43;
 
-    // Data Streams
+    // Data Streams (low level)
     SendStreamHeaderRequest send_stream_header = 44;
     SendStreamChunkRequest send_stream_chunk = 45;
     SendStreamTrailerRequest send_stream_trailer = 46;
@@ -127,7 +128,20 @@ message FfiRequest {
     ApmProcessStreamRequest apm_process_stream = 51;
     ApmProcessReverseStreamRequest apm_process_reverse_stream = 52;
 
-    // NEXT_ID: 53
+    // Data Streams (high level)
+    StreamRegisterTopicRequest register_topic = 53;
+    StreamUnregisterTopicRequest unregister_topic = 54;
+    StreamReadIncrementalRequest read_incremental = 55;
+    StreamReadAllRequest read_all = 56;
+    StreamWriteToFileRequest write_to_file = 57;
+
+    StreamSendFileRequest send_file = 58;
+    StreamSendTextRequest send_text = 59;
+    StreamOpenRequest stream_open = 60;
+    StreamWriteRequest stream_write = 61;
+    StreamCloseRequest stream_close = 62;
+
+    // NEXT_ID: 63
   }
 }
 
@@ -202,7 +216,20 @@ message FfiResponse {
     ApmProcessStreamResponse apm_process_stream = 50;
     ApmProcessReverseStreamResponse apm_process_reverse_stream = 51;
 
-    // NEXT_ID: 52
+    // Data Streams (high level)
+    StreamRegisterTopicResponse register_topic = 52;
+    StreamUnregisterTopicResponse unregister_topic = 53;
+    StreamReadIncrementalResponse read_incremental = 54;
+    StreamReadAllResponse read_all = 55;
+    StreamWriteToFileResponse write_to_file = 56;
+
+    StreamSendFileResponse send_file = 57;
+    StreamSendTextResponse send_text = 58;
+    StreamOpenResponse stream_open = 59;
+    StreamWriteResponse stream_write = 60;
+    StreamCloseResponse stream_close = 61;
+
+    // NEXT_ID: 62
   }
 }
 
@@ -234,9 +261,14 @@ message FfiEvent {
     SendChatMessageCallback chat_message = 22;
     PerformRpcCallback perform_rpc = 23;
     RpcMethodInvocationEvent rpc_method_invocation = 24;
+
+    // Data Streams (low level)
     SendStreamHeaderCallback send_stream_header = 25;
     SendStreamChunkCallback send_stream_chunk = 26;
     SendStreamTrailerCallback send_stream_trailer = 27;
+
+    // Data Streams (high level)
+    StreamEvent stream_event = 28;
   }
 }
 
