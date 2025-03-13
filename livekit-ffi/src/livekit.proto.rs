@@ -3858,37 +3858,43 @@ pub struct StreamUnregisterTopicRequest {
 /// Client will receive StreamEvent.ChunkReceived events as data arrives.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamReadIncrementalRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
     /// ID of the stream.
-    #[prost(string, required, tag="1")]
+    #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
 }
 /// Reads an incoming stream in its entirety.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamReadAllRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
     /// ID of the stream.
-    #[prost(string, required, tag="1")]
+    #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
 }
 /// Writes data from an incoming stream to a file as it arrives.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamWriteToFileRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
     /// ID of the stream.
-    #[prost(string, required, tag="1")]
+    #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
     /// Directory to write the file in (must be writable by the current process).
-    #[prost(string, required, tag="2")]
+    #[prost(string, required, tag="3")]
     pub directory: ::prost::alloc::string::String,
     /// Name to use for the written file.
     /// If not provided, the file's name and extension will be inferred from
     /// the stream's info.
-    #[prost(string, optional, tag="3")]
+    #[prost(string, optional, tag="4")]
     pub name_override: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Sends the contents of a file over a data stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamSendFileRequest {
     #[prost(uint64, required, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     /// Options to use for opening the stream.
     #[prost(message, required, tag="2")]
     pub options: StreamOptions,
@@ -3900,7 +3906,7 @@ pub struct StreamSendFileRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamSendTextRequest {
     #[prost(uint64, required, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     /// Options to use for opening the stream.
     #[prost(message, required, tag="2")]
     pub options: StreamOptions,
@@ -3913,7 +3919,7 @@ pub struct StreamSendTextRequest {
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StreamOpenRequest {
     #[prost(uint64, required, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     /// Options to use for opening the stream.
     #[prost(message, required, tag="2")]
     pub options: StreamOptions,
@@ -3921,11 +3927,13 @@ pub struct StreamOpenRequest {
 /// Writes data to an outgoing stream opened with StreamOpenRequest.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamWriteRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
     /// ID of the stream to write to.
-    #[prost(string, required, tag="1")]
+    #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
     /// Payload to write (type much be consistent with the stream type).
-    #[prost(oneof="stream_write_request::Payload", tags="2, 3")]
+    #[prost(oneof="stream_write_request::Payload", tags="3, 4")]
     pub payload: ::core::option::Option<stream_write_request::Payload>,
 }
 /// Nested message and enum types in `StreamWriteRequest`.
@@ -3933,17 +3941,19 @@ pub mod stream_write_request {
     /// Payload to write (type much be consistent with the stream type).
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Payload {
-        #[prost(bytes, tag="2")]
+        #[prost(bytes, tag="3")]
         Bytes(::prost::alloc::vec::Vec<u8>),
-        #[prost(string, tag="3")]
+        #[prost(string, tag="4")]
         Text(::prost::alloc::string::String),
     }
 }
 /// Closes an outgoing stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamCloseRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
     /// ID of the stream to close.
-    #[prost(string, required, tag="1")]
+    #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
 }
 // FFI Responses
@@ -4042,11 +4052,13 @@ pub struct StreamCloseResponse {
 
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamEvent {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
     /// ID of the stream this event pertains to.
-    #[prost(string, required, tag="1")]
+    #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
     /// The kind of event that occurred.
-    #[prost(oneof="stream_event::Kind", tags="2, 3, 4, 5")]
+    #[prost(oneof="stream_event::Kind", tags="3, 4, 5, 6")]
     pub kind: ::core::option::Option<stream_event::Kind>,
 }
 /// Nested message and enum types in `StreamEvent`.
@@ -4097,13 +4109,13 @@ pub mod stream_event {
     /// The kind of event that occurred.
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
-        #[prost(message, tag="2")]
-        Opened(Opened),
         #[prost(message, tag="3")]
-        ChunkReceived(ChunkReceived),
+        Opened(Opened),
         #[prost(message, tag="4")]
-        ChunkSent(ChunkSent),
+        ChunkReceived(ChunkReceived),
         #[prost(message, tag="5")]
+        ChunkSent(ChunkSent),
+        #[prost(message, tag="6")]
         Closed(Closed),
     }
 }

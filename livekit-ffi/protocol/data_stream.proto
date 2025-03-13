@@ -38,33 +38,37 @@ message StreamUnregisterTopicRequest {
 // Reads an incoming stream incrementally.
 // Client will receive StreamEvent.ChunkReceived events as data arrives.
 message StreamReadIncrementalRequest {
+    required uint64 local_participant_handle = 1;
     // ID of the stream.
-    required string id = 1;
+    required string id = 2;
 }
 
 // Reads an incoming stream in its entirety.
 message StreamReadAllRequest {
+    required uint64 local_participant_handle = 1;
     // ID of the stream.
-    required string id = 1;
+    required string id = 2;
 }
 
 // Writes data from an incoming stream to a file as it arrives.
 message StreamWriteToFileRequest {
+    required uint64 local_participant_handle = 1;
+
     // ID of the stream.
-    required string id = 1;
+    required string id = 2;
 
     // Directory to write the file in (must be writable by the current process).
-    required string directory = 2;
+    required string directory = 3;
 
     // Name to use for the written file.
     // If not provided, the file's name and extension will be inferred from
     // the stream's info.
-    optional string name_override = 3;
+    optional string name_override = 4;
 }
 
 // Sends the contents of a file over a data stream.
 message StreamSendFileRequest {
-    required uint64 room_handle = 1;
+    required uint64 local_participant_handle = 1;
 
     // Options to use for opening the stream.
     required StreamOptions options = 2;
@@ -75,7 +79,7 @@ message StreamSendFileRequest {
 
 // Sends text over a data stream.
 message StreamSendTextRequest {
-    required uint64 room_handle = 1;
+    required uint64 local_participant_handle = 1;
 
     // Options to use for opening the stream.
     required StreamOptions options = 2;
@@ -87,7 +91,7 @@ message StreamSendTextRequest {
 // Opens an outgoing stream.
 // Call must be balanced with a StreamCloseRequest.
 message StreamOpenRequest {
-    required uint64 room_handle = 1;
+    required uint64 local_participant_handle = 1;
 
     // Options to use for opening the stream.
     required StreamOptions options = 2;
@@ -95,20 +99,24 @@ message StreamOpenRequest {
 
 // Writes data to an outgoing stream opened with StreamOpenRequest.
 message StreamWriteRequest {
+    required uint64 local_participant_handle = 1;
+
     // ID of the stream to write to.
-    required string id = 1;
+    required string id = 2;
 
     // Payload to write (type much be consistent with the stream type).
     oneof payload {
-        bytes bytes = 2;
-        string text = 3;
+        bytes bytes = 3;
+        string text = 4;
     }
 }
 
 // Closes an outgoing stream.
 message StreamCloseRequest {
+    required uint64 local_participant_handle = 1;
+
     // ID of the stream to close.
-    required string id = 1;
+    required string id = 2;
 }
 
 // FFI Responses
@@ -211,15 +219,17 @@ message StreamEvent {
         optional StreamError error = 1;
     }
 
+    required uint64 local_participant_handle = 1;
+
     // ID of the stream this event pertains to.
-    required string id = 1;
+    required string id = 2;
 
     // The kind of event that occurred.
     oneof kind {
-        Opened opened = 2;
-        ChunkReceived chunk_received = 3;
-        ChunkSent chunk_sent = 4;
-        Closed closed = 5;
+        Opened opened = 3;
+        ChunkReceived chunk_received = 4;
+        ChunkSent chunk_sent = 5;
+        Closed closed = 6;
     }
 }
 
