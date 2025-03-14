@@ -184,7 +184,6 @@ jobs:
           index = "https://crate-registry.quantum-forge.io"
           
           [net]
-          git-fetch-with-cli = true
           retry = 5
           
           [http]
