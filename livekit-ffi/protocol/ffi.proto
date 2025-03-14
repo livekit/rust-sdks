@@ -131,15 +131,15 @@ message FfiRequest {
     // Data Streams (high level)
     StreamRegisterTopicRequest register_topic = 53;
     StreamUnregisterTopicRequest unregister_topic = 54;
-    StreamReadIncrementalRequest read_incremental = 55;
-    StreamReadAllRequest read_all = 56;
-    StreamWriteToFileRequest write_to_file = 57;
+    StreamReaderReadIncrementalRequest read_incremental = 55;
+    StreamReaderReadAllRequest read_all = 56;
+    StreamReaderWriteToFileRequest write_to_file = 57;
 
     StreamSendFileRequest send_file = 58;
     StreamSendTextRequest send_text = 59;
     StreamOpenRequest stream_open = 60;
-    StreamWriteRequest stream_write = 61;
-    StreamCloseRequest stream_close = 62;
+    StreamWriterWriteRequest stream_write = 61;
+    StreamWriterCloseRequest stream_close = 62;
 
     // NEXT_ID: 63
   }
@@ -219,15 +219,15 @@ message FfiResponse {
     // Data Streams (high level)
     StreamRegisterTopicResponse register_topic = 52;
     StreamUnregisterTopicResponse unregister_topic = 53;
-    StreamReadIncrementalResponse read_incremental = 54;
-    StreamReadAllResponse read_all = 55;
-    StreamWriteToFileResponse write_to_file = 56;
+    StreamReaderReadIncrementalResponse read_incremental = 54;
+    StreamReaderReadAllResponse read_all = 55;
+    StreamReaderWriteToFileResponse write_to_file = 56;
 
     StreamSendFileResponse send_file = 57;
     StreamSendTextResponse send_text = 58;
     StreamOpenResponse stream_open = 59;
-    StreamWriteResponse stream_write = 60;
-    StreamCloseResponse stream_close = 61;
+    StreamWriterWriteResponse stream_write = 60;
+    StreamWriterCloseResponse stream_close = 61;
 
     // NEXT_ID: 62
   }

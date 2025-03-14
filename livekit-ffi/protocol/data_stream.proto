@@ -17,6 +17,10 @@ syntax = "proto2";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
+import "handle.proto";
+
+// Incoming streams
+
 // Registers a topic for incoming streams to be handled.
 // Once registered, the client will receive StreamEvent.Opened events as streams are opened
 // matching the registered topic.
@@ -39,20 +43,16 @@ message StreamUnregisterTopicResponse {}
 
 // Reads an incoming stream incrementally.
 // Client will receive StreamEvent.ChunkReceived events as data arrives.
-message StreamReadIncrementalRequest {
-    required uint64 local_participant_handle = 1;
-    // ID of the stream.
-    required string id = 2;
+message StreamReaderReadIncrementalRequest {
+    required uint64 reader_handle = 1;
 }
-message StreamReadIncrementalResponse {}
+message StreamReaderReadIncrementalResponse {}
 
 // Reads an incoming stream in its entirety.
-message StreamReadAllRequest {
-    required uint64 local_participant_handle = 1;
-    // ID of the stream.
-    required string id = 2;
+message StreamReaderReadAllRequest {
+    required uint64 reader_handle = 1;
 }
-message StreamReadAllResponse {
+message StreamReaderReadAllResponse {
     required uint64 async_id = 1;
 
     oneof result {
@@ -62,11 +62,8 @@ message StreamReadAllResponse {
 }
 
 // Writes data from an incoming stream to a file as it arrives.
-message StreamWriteToFileRequest {
-    required uint64 local_participant_handle = 1;
-
-    // ID of the stream.
-    required string id = 2;
+message StreamReaderWriteToFileRequest {
+    required uint64 reader_handle = 1;
 
     // Directory to write the file in (must be writable by the current process).
     required string directory = 3;
@@ -76,7 +73,7 @@ message StreamWriteToFileRequest {
     // the stream's info.
     optional string name_override = 4;
 }
-message StreamWriteToFileResponse {
+message StreamReaderWriteToFileResponse {
     required uint64 async_id = 1;
 
     oneof result {
@@ -86,6 +83,8 @@ message StreamWriteToFileResponse {
     }
 }
 
+// Outgoing streams
+
 // Sends the contents of a file over a data stream.
 message StreamSendFileRequest {
     required uint64 local_participant_handle = 1;
@@ -93,7 +92,7 @@ message StreamSendFileRequest {
     // Options to use for opening the stream.
     required StreamOptions options = 2;
 
-    // Path to the file to send (must be readable by the current process).
+    // Path of the file to send (must be readable by the current process).
     required string file_path = 3;
 }
 message StreamSendFileResponse {
@@ -116,7 +115,6 @@ message StreamSendTextResponse {
     optional StreamError error = 2;
 }
 
-
 // Opens an outgoing stream.
 // Call must be balanced with a StreamCloseRequest.
 message StreamOpenRequest {
@@ -127,15 +125,14 @@ message StreamOpenRequest {
 }
 message StreamOpenResponse {
     oneof result {
-        // ID of the opened stream to use for subsequent operations.
-        string id = 1;
+        OwnedStreamWriter writer = 1;
         StreamError error = 2;
     }
 }
 
-// Writes data to an outgoing stream opened with StreamOpenRequest.
-message StreamWriteRequest {
-    required uint64 local_participant_handle = 1;
+// Writes data to a stream writer.
+message StreamWriterWriteRequest {
+    required uint64 writer_handle = 1;
 
     // ID of the stream to write to.
     required string id = 2;
@@ -146,31 +143,31 @@ message StreamWriteRequest {
         string text = 4;
     }
 }
-message StreamWriteResponse {
+message StreamWriterWriteResponse {
     required uint64 async_id = 1;
     optional StreamError error = 2;
 }
 
-// Closes an outgoing stream.
-message StreamCloseRequest {
-    required uint64 local_participant_handle = 1;
+// Closes a stream writer.
+message StreamWriterCloseRequest {
+    required uint64 writer_handle = 1;
 
     // ID of the stream to close.
     required string id = 2;
 }
-message StreamCloseResponse {
+message StreamWriterCloseResponse {
     required uint64 async_id = 1;
     optional StreamError error = 2;
 }
 
-// FFI Events
+// Events
 
 message StreamEvent {
 
     // Stream was opened.
     message Opened {
-        // Information about the stream derived from its header.
-        required StreamInfo info = 1;
+        // Reader for the stream.
+        required OwnedStreamReader reader = 1;
 
         // Identity of the remote participant that opened the stream.
         required string participant_identity = 2;
@@ -220,7 +217,19 @@ message StreamEvent {
     }
 }
 
-// FFI Structures
+// Structures
+
+// A reader for an incoming stream.
+message OwnedStreamReader {
+    required FfiOwnedHandle handle = 1;
+    required StreamInfo info = 2;
+}
+
+// A writer for an outgoing stream.
+message OwnedStreamWriter {
+    required FfiOwnedHandle handle = 1;
+    required StreamInfo info = 2;
+}
 
 // Contains a subset of the fields from the stream header.
 // Protocol-level fields not relevant to the FFI client are omitted (e.g. encryption info).

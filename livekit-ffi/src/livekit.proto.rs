@@ -3832,6 +3832,8 @@ pub struct RpcMethodInvocationEvent {
     #[prost(uint32, required, tag="7")]
     pub response_timeout_ms: u32,
 }
+// Incoming streams
+
 /// Registers a topic for incoming streams to be handled.
 /// Once registered, the client will receive StreamEvent.Opened events as streams are opened
 /// matching the registered topic.
@@ -3862,35 +3864,29 @@ pub struct StreamUnregisterTopicResponse {
 }
 /// Reads an incoming stream incrementally.
 /// Client will receive StreamEvent.ChunkReceived events as data arrives.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamReadIncrementalRequest {
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct StreamReaderReadIncrementalRequest {
     #[prost(uint64, required, tag="1")]
-    pub local_participant_handle: u64,
-    /// ID of the stream.
-    #[prost(string, required, tag="2")]
-    pub id: ::prost::alloc::string::String,
+    pub reader_handle: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct StreamReadIncrementalResponse {
+pub struct StreamReaderReadIncrementalResponse {
 }
 /// Reads an incoming stream in its entirety.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamReadAllRequest {
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct StreamReaderReadAllRequest {
     #[prost(uint64, required, tag="1")]
-    pub local_participant_handle: u64,
-    /// ID of the stream.
-    #[prost(string, required, tag="2")]
-    pub id: ::prost::alloc::string::String,
+    pub reader_handle: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamReadAllResponse {
+pub struct StreamReaderReadAllResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
-    #[prost(oneof="stream_read_all_response::Result", tags="2, 3")]
-    pub result: ::core::option::Option<stream_read_all_response::Result>,
+    #[prost(oneof="stream_reader_read_all_response::Result", tags="2, 3")]
+    pub result: ::core::option::Option<stream_reader_read_all_response::Result>,
 }
-/// Nested message and enum types in `StreamReadAllResponse`.
-pub mod stream_read_all_response {
+/// Nested message and enum types in `StreamReaderReadAllResponse`.
+pub mod stream_reader_read_all_response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
         #[prost(message, tag="2")]
@@ -3901,12 +3897,9 @@ pub mod stream_read_all_response {
 }
 /// Writes data from an incoming stream to a file as it arrives.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamWriteToFileRequest {
+pub struct StreamReaderWriteToFileRequest {
     #[prost(uint64, required, tag="1")]
-    pub local_participant_handle: u64,
-    /// ID of the stream.
-    #[prost(string, required, tag="2")]
-    pub id: ::prost::alloc::string::String,
+    pub reader_handle: u64,
     /// Directory to write the file in (must be writable by the current process).
     #[prost(string, required, tag="3")]
     pub directory: ::prost::alloc::string::String,
@@ -3917,14 +3910,14 @@ pub struct StreamWriteToFileRequest {
     pub name_override: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamWriteToFileResponse {
+pub struct StreamReaderWriteToFileResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
-    #[prost(oneof="stream_write_to_file_response::Result", tags="2, 3")]
-    pub result: ::core::option::Option<stream_write_to_file_response::Result>,
+    #[prost(oneof="stream_reader_write_to_file_response::Result", tags="2, 3")]
+    pub result: ::core::option::Option<stream_reader_write_to_file_response::Result>,
 }
-/// Nested message and enum types in `StreamWriteToFileResponse`.
-pub mod stream_write_to_file_response {
+/// Nested message and enum types in `StreamReaderWriteToFileResponse`.
+pub mod stream_reader_write_to_file_response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
         /// Path the file was written to.
@@ -3934,6 +3927,8 @@ pub mod stream_write_to_file_response {
         Error(super::StreamError),
     }
 }
+// Outgoing streams
+
 /// Sends the contents of a file over a data stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamSendFileRequest {
@@ -3942,7 +3937,7 @@ pub struct StreamSendFileRequest {
     /// Options to use for opening the stream.
     #[prost(message, required, tag="2")]
     pub options: StreamOptions,
-    /// Path to the file to send (must be readable by the current process).
+    /// Path of the file to send (must be readable by the current process).
     #[prost(string, required, tag="3")]
     pub file_path: ::prost::alloc::string::String,
 }
@@ -3991,27 +3986,26 @@ pub struct StreamOpenResponse {
 pub mod stream_open_response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
-        /// ID of the opened stream to use for subsequent operations.
-        #[prost(string, tag="1")]
-        Id(::prost::alloc::string::String),
+        #[prost(message, tag="1")]
+        Writer(super::OwnedStreamWriter),
         #[prost(message, tag="2")]
         Error(super::StreamError),
     }
 }
-/// Writes data to an outgoing stream opened with StreamOpenRequest.
+/// Writes data to a stream writer.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamWriteRequest {
+pub struct StreamWriterWriteRequest {
     #[prost(uint64, required, tag="1")]
-    pub local_participant_handle: u64,
+    pub writer_handle: u64,
     /// ID of the stream to write to.
     #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
     /// Payload to write (type much be consistent with the stream type).
-    #[prost(oneof="stream_write_request::Payload", tags="3, 4")]
-    pub payload: ::core::option::Option<stream_write_request::Payload>,
+    #[prost(oneof="stream_writer_write_request::Payload", tags="3, 4")]
+    pub payload: ::core::option::Option<stream_writer_write_request::Payload>,
 }
-/// Nested message and enum types in `StreamWriteRequest`.
-pub mod stream_write_request {
+/// Nested message and enum types in `StreamWriterWriteRequest`.
+pub mod stream_writer_write_request {
     /// Payload to write (type much be consistent with the stream type).
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Payload {
@@ -4022,29 +4016,29 @@ pub mod stream_write_request {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamWriteResponse {
+pub struct StreamWriterWriteResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
     #[prost(message, optional, tag="2")]
     pub error: ::core::option::Option<StreamError>,
 }
-/// Closes an outgoing stream.
+/// Closes a stream writer.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamCloseRequest {
+pub struct StreamWriterCloseRequest {
     #[prost(uint64, required, tag="1")]
-    pub local_participant_handle: u64,
+    pub writer_handle: u64,
     /// ID of the stream to close.
     #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamCloseResponse {
+pub struct StreamWriterCloseResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
     #[prost(message, optional, tag="2")]
     pub error: ::core::option::Option<StreamError>,
 }
-// FFI Events
+// Events
 
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamEvent {
@@ -4062,9 +4056,9 @@ pub mod stream_event {
     /// Stream was opened.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
-        /// Information about the stream derived from its header.
+        /// Reader for the stream.
         #[prost(message, required, tag="1")]
-        pub info: super::StreamInfo,
+        pub reader: super::OwnedStreamReader,
         /// Identity of the remote participant that opened the stream.
         #[prost(string, required, tag="2")]
         pub participant_identity: ::prost::alloc::string::String,
@@ -4115,8 +4109,24 @@ pub mod stream_event {
         Closed(Closed),
     }
 }
-// FFI Structures
+// Structures
 
+/// A reader for an incoming stream.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OwnedStreamReader {
+    #[prost(message, required, tag="1")]
+    pub handle: FfiOwnedHandle,
+    #[prost(message, required, tag="2")]
+    pub info: StreamInfo,
+}
+/// A writer for an outgoing stream.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OwnedStreamWriter {
+    #[prost(message, required, tag="1")]
+    pub handle: FfiOwnedHandle,
+    #[prost(message, required, tag="2")]
+    pub info: StreamInfo,
+}
 /// Contains a subset of the fields from the stream header.
 /// Protocol-level fields not relevant to the FFI client are omitted (e.g. encryption info).
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4400,11 +4410,11 @@ pub mod ffi_request {
         #[prost(message, tag="54")]
         UnregisterTopic(super::StreamUnregisterTopicRequest),
         #[prost(message, tag="55")]
-        ReadIncremental(super::StreamReadIncrementalRequest),
+        ReadIncremental(super::StreamReaderReadIncrementalRequest),
         #[prost(message, tag="56")]
-        ReadAll(super::StreamReadAllRequest),
+        ReadAll(super::StreamReaderReadAllRequest),
         #[prost(message, tag="57")]
-        WriteToFile(super::StreamWriteToFileRequest),
+        WriteToFile(super::StreamReaderWriteToFileRequest),
         #[prost(message, tag="58")]
         SendFile(super::StreamSendFileRequest),
         #[prost(message, tag="59")]
@@ -4412,9 +4422,9 @@ pub mod ffi_request {
         #[prost(message, tag="60")]
         StreamOpen(super::StreamOpenRequest),
         #[prost(message, tag="61")]
-        StreamWrite(super::StreamWriteRequest),
+        StreamWrite(super::StreamWriterWriteRequest),
         #[prost(message, tag="62")]
-        StreamClose(super::StreamCloseRequest),
+        StreamClose(super::StreamWriterCloseRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
@@ -4542,11 +4552,11 @@ pub mod ffi_response {
         #[prost(message, tag="53")]
         UnregisterTopic(super::StreamUnregisterTopicResponse),
         #[prost(message, tag="54")]
-        ReadIncremental(super::StreamReadIncrementalResponse),
+        ReadIncremental(super::StreamReaderReadIncrementalResponse),
         #[prost(message, tag="55")]
-        ReadAll(super::StreamReadAllResponse),
+        ReadAll(super::StreamReaderReadAllResponse),
         #[prost(message, tag="56")]
-        WriteToFile(super::StreamWriteToFileResponse),
+        WriteToFile(super::StreamReaderWriteToFileResponse),
         #[prost(message, tag="57")]
         SendFile(super::StreamSendFileResponse),
         #[prost(message, tag="58")]
@@ -4554,9 +4564,9 @@ pub mod ffi_response {
         #[prost(message, tag="59")]
         StreamOpen(super::StreamOpenResponse),
         #[prost(message, tag="60")]
-        StreamWrite(super::StreamWriteResponse),
+        StreamWrite(super::StreamWriterWriteResponse),
         #[prost(message, tag="61")]
-        StreamClose(super::StreamCloseResponse),
+        StreamClose(super::StreamWriterCloseResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
