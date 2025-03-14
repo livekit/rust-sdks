@@ -15,6 +15,8 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
+    future::Future,
+    pin::Pin,
     sync::{Arc, Weak},
     time::Duration,
 };
@@ -591,6 +593,25 @@ impl LocalParticipant {
         };
 
         self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
+    }
+
+    #[deprecated(note = "Use `room.register_rpc_method` instead.")]
+    pub fn register_rpc_method(
+        &self,
+        method: String,
+        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    ) {
+        let Some(session) = self.session() else { return };
+        session.register_rpc_method(method, handler);
+    }
+
+    #[deprecated(note = "Use `room.unregister_rpc_method` instead.")]
+    pub fn unregister_rpc_method(&self, method: String) {
+        let Some(session) = self.session() else { return };
+        session.unregister_rpc_method(method);
     }
 
     pub(crate) async fn update_track_subscription_permissions(&self) {

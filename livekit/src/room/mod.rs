@@ -686,11 +686,11 @@ impl Room {
             + Sync
             + 'static,
     ) {
-        self.inner.rpc_state.lock().handlers.insert(method, Arc::new(handler));
+        self.inner.register_rpc_method(method, handler);
     }
 
     pub fn unregister_rpc_method(&self, method: String) {
-        self.inner.rpc_state.lock().handlers.remove(&method);
+        self.inner.unregister_rpc_method(method);
     }
 }
 
@@ -1532,6 +1532,21 @@ impl RoomSession {
             return Some(Participant::Local(self.local_participant.clone()));
         }
         return self.get_participant_by_identity(identity).map(Participant::Remote);
+    }
+
+    pub(crate) fn register_rpc_method(
+        &self,
+        method: String,
+        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    ) {
+        self.rpc_state.lock().handlers.insert(method, Arc::new(handler));
+    }
+
+    pub(crate) fn unregister_rpc_method(&self, method: String) {
+        self.rpc_state.lock().handlers.remove(&method);
     }
 
     pub(crate) async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
