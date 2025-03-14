@@ -4129,9 +4129,12 @@ pub struct RpcMethodInvocationEvent {
 pub struct StreamRegisterTopicRequest {
     #[prost(uint64, required, tag="1")]
     pub room_handle: u64,
-    /// Topic to register.
+    /// Topic to handle.
     #[prost(string, required, tag="2")]
     pub topic: ::prost::alloc::string::String,
+    /// Kind of stream to handle.
+    #[prost(enumeration="StreamKind", required, tag="3")]
+    pub kind: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4145,9 +4148,12 @@ pub struct StreamRegisterTopicResponse {
 pub struct StreamUnregisterTopicRequest {
     #[prost(uint64, required, tag="1")]
     pub room_handle: u64,
-    /// Topic to unregister.
+    /// Topic of the handler to unregister.
     #[prost(string, required, tag="2")]
     pub topic: ::prost::alloc::string::String,
+    /// Kind of handler to unregister.
+    #[prost(enumeration="StreamKind", required, tag="3")]
+    pub kind: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4583,6 +4589,33 @@ pub struct StreamError {
     /// TODO: make this an enum.
     #[prost(string, required, tag="1")]
     pub description: ::prost::alloc::string::String,
+}
+/// The kind of stream (currently byte or text).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum StreamKind {
+    Byte = 0,
+    Text = 1,
+}
+impl StreamKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            StreamKind::Byte => "BYTE",
+            StreamKind::Text => "TEXT",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "BYTE" => Some(Self::Byte),
+            "TEXT" => Some(Self::Text),
+            _ => None,
+        }
+    }
 }
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we

@@ -25,9 +25,14 @@ import "handle.proto";
 // Once registered, the client will receive StreamEvent.Opened events as streams are opened
 // matching the registered topic.
 message StreamRegisterTopicRequest {
+
     required uint64 room_handle = 1;
-    // Topic to register.
+
+    // Topic to handle.
     required string topic = 2;
+
+    // Kind of stream to handle.
+    required StreamKind kind = 3;
 }
 message StreamRegisterTopicResponse {
     optional StreamError error = 1;
@@ -36,8 +41,12 @@ message StreamRegisterTopicResponse {
 // Unregisters a topic for incoming streams to be handled.
 message StreamUnregisterTopicRequest {
     required uint64 room_handle = 1;
-    // Topic to unregister.
+
+    // Topic of the handler to unregister.
     required string topic = 2;
+
+    // Kind of handler to unregister.
+    required StreamKind kind = 3;
 }
 message StreamUnregisterTopicResponse {}
 
@@ -229,6 +238,12 @@ message OwnedStreamReader {
 message OwnedStreamWriter {
     required FfiOwnedHandle handle = 1;
     required StreamInfo info = 2;
+}
+
+// The kind of stream (currently byte or text).
+enum StreamKind {
+    BYTE = 0;
+    TEXT = 1;
 }
 
 // Contains a subset of the fields from the stream header.
