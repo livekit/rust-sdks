@@ -3928,8 +3928,8 @@ pub mod stream_write_to_file_response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
         /// Path the file was written to.
-        #[prost(message, tag="2")]
-        FilePath(super::StreamPayload),
+        #[prost(string, tag="2")]
+        FilePath(::prost::alloc::string::String),
         #[prost(message, tag="3")]
         Error(super::StreamError),
     }

@@ -81,7 +81,7 @@ message StreamWriteToFileResponse {
 
     oneof result {
         // Path the file was written to.
-        StreamPayload file_path = 2;
+        string file_path = 2;
         StreamError error = 3;
     }
 }
