@@ -3832,8 +3832,6 @@ pub struct RpcMethodInvocationEvent {
     #[prost(uint32, required, tag="7")]
     pub response_timeout_ms: u32,
 }
-// FFI Requests
-
 /// Registers a topic for incoming streams to be handled.
 /// Once registered, the client will receive StreamEvent.Opened events as streams are opened
 /// matching the registered topic.
@@ -3845,6 +3843,11 @@ pub struct StreamRegisterTopicRequest {
     #[prost(string, required, tag="2")]
     pub topic: ::prost::alloc::string::String,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamRegisterTopicResponse {
+    #[prost(message, optional, tag="1")]
+    pub error: ::core::option::Option<StreamError>,
+}
 /// Unregisters a topic for incoming streams to be handled.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamUnregisterTopicRequest {
@@ -3853,6 +3856,9 @@ pub struct StreamUnregisterTopicRequest {
     /// Topic to unregister.
     #[prost(string, required, tag="2")]
     pub topic: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct StreamUnregisterTopicResponse {
 }
 /// Reads an incoming stream incrementally.
 /// Client will receive StreamEvent.ChunkReceived events as data arrives.
@@ -3864,6 +3870,9 @@ pub struct StreamReadIncrementalRequest {
     #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct StreamReadIncrementalResponse {
+}
 /// Reads an incoming stream in its entirety.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamReadAllRequest {
@@ -3872,6 +3881,23 @@ pub struct StreamReadAllRequest {
     /// ID of the stream.
     #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamReadAllResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(oneof="stream_read_all_response::Result", tags="2, 3")]
+    pub result: ::core::option::Option<stream_read_all_response::Result>,
+}
+/// Nested message and enum types in `StreamReadAllResponse`.
+pub mod stream_read_all_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag="2")]
+        Payload(super::StreamPayload),
+        #[prost(message, tag="3")]
+        Error(super::StreamError),
+    }
 }
 /// Writes data from an incoming stream to a file as it arrives.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3890,6 +3916,24 @@ pub struct StreamWriteToFileRequest {
     #[prost(string, optional, tag="4")]
     pub name_override: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamWriteToFileResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(oneof="stream_write_to_file_response::Result", tags="2, 3")]
+    pub result: ::core::option::Option<stream_write_to_file_response::Result>,
+}
+/// Nested message and enum types in `StreamWriteToFileResponse`.
+pub mod stream_write_to_file_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        /// Path the file was written to.
+        #[prost(message, tag="2")]
+        FilePath(super::StreamPayload),
+        #[prost(message, tag="3")]
+        Error(super::StreamError),
+    }
+}
 /// Sends the contents of a file over a data stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamSendFileRequest {
@@ -3901,6 +3945,13 @@ pub struct StreamSendFileRequest {
     /// Path to the file to send (must be readable by the current process).
     #[prost(string, required, tag="3")]
     pub file_path: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamSendFileResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(message, optional, tag="2")]
+    pub error: ::core::option::Option<StreamError>,
 }
 /// Sends text over a data stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3914,6 +3965,13 @@ pub struct StreamSendTextRequest {
     #[prost(string, required, tag="3")]
     pub text: ::prost::alloc::string::String,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamSendTextResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(message, optional, tag="2")]
+    pub error: ::core::option::Option<StreamError>,
+}
 /// Opens an outgoing stream.
 /// Call must be balanced with a StreamCloseRequest.
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -3923,6 +3981,22 @@ pub struct StreamOpenRequest {
     /// Options to use for opening the stream.
     #[prost(message, required, tag="2")]
     pub options: StreamOptions,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamOpenResponse {
+    #[prost(oneof="stream_open_response::Result", tags="1, 2")]
+    pub result: ::core::option::Option<stream_open_response::Result>,
+}
+/// Nested message and enum types in `StreamOpenResponse`.
+pub mod stream_open_response {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        /// ID of the opened stream to use for subsequent operations.
+        #[prost(string, tag="1")]
+        Id(::prost::alloc::string::String),
+        #[prost(message, tag="2")]
+        Error(super::StreamError),
+    }
 }
 /// Writes data to an outgoing stream opened with StreamOpenRequest.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3947,6 +4021,13 @@ pub mod stream_write_request {
         Text(::prost::alloc::string::String),
     }
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamWriteResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(message, optional, tag="2")]
+    pub error: ::core::option::Option<StreamError>,
+}
 /// Closes an outgoing stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamCloseRequest {
@@ -3955,91 +4036,6 @@ pub struct StreamCloseRequest {
     /// ID of the stream to close.
     #[prost(string, required, tag="2")]
     pub id: ::prost::alloc::string::String,
-}
-// FFI Responses
-
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamRegisterTopicResponse {
-    #[prost(message, optional, tag="1")]
-    pub error: ::core::option::Option<StreamError>,
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct StreamUnregisterTopicResponse {
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct StreamReadIncrementalResponse {
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamReadAllResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-    #[prost(oneof="stream_read_all_response::Result", tags="2, 3")]
-    pub result: ::core::option::Option<stream_read_all_response::Result>,
-}
-/// Nested message and enum types in `StreamReadAllResponse`.
-pub mod stream_read_all_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        #[prost(message, tag="2")]
-        Payload(super::StreamPayload),
-        #[prost(message, tag="3")]
-        Error(super::StreamError),
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamWriteToFileResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-    #[prost(oneof="stream_write_to_file_response::Result", tags="2, 3")]
-    pub result: ::core::option::Option<stream_write_to_file_response::Result>,
-}
-/// Nested message and enum types in `StreamWriteToFileResponse`.
-pub mod stream_write_to_file_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        /// Path the file was written to.
-        #[prost(message, tag="2")]
-        FilePath(super::StreamPayload),
-        #[prost(message, tag="3")]
-        Error(super::StreamError),
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamSendFileResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-    #[prost(message, optional, tag="2")]
-    pub error: ::core::option::Option<StreamError>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamSendTextResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-    #[prost(message, optional, tag="2")]
-    pub error: ::core::option::Option<StreamError>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamOpenResponse {
-    #[prost(oneof="stream_open_response::Result", tags="1, 2")]
-    pub result: ::core::option::Option<stream_open_response::Result>,
-}
-/// Nested message and enum types in `StreamOpenResponse`.
-pub mod stream_open_response {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        /// ID of the opened stream to use for subsequent operations.
-        #[prost(string, tag="1")]
-        Id(::prost::alloc::string::String),
-        #[prost(message, tag="2")]
-        Error(super::StreamError),
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamWriteResponse {
-    #[prost(uint64, required, tag="1")]
-    pub async_id: u64,
-    #[prost(message, optional, tag="2")]
-    pub error: ::core::option::Option<StreamError>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamCloseResponse {

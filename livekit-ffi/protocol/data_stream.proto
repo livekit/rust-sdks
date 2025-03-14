@@ -17,8 +17,6 @@ syntax = "proto2";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
-// FFI Requests
-
 // Registers a topic for incoming streams to be handled.
 // Once registered, the client will receive StreamEvent.Opened events as streams are opened
 // matching the registered topic.
@@ -27,6 +25,9 @@ message StreamRegisterTopicRequest {
     // Topic to register.
     required string topic = 2;
 }
+message StreamRegisterTopicResponse {
+    optional StreamError error = 1;
+}
 
 // Unregisters a topic for incoming streams to be handled.
 message StreamUnregisterTopicRequest {
@@ -34,6 +35,7 @@ message StreamUnregisterTopicRequest {
     // Topic to unregister.
     required string topic = 2;
 }
+message StreamUnregisterTopicResponse {}
 
 // Reads an incoming stream incrementally.
 // Client will receive StreamEvent.ChunkReceived events as data arrives.
@@ -42,12 +44,21 @@ message StreamReadIncrementalRequest {
     // ID of the stream.
     required string id = 2;
 }
+message StreamReadIncrementalResponse {}
 
 // Reads an incoming stream in its entirety.
 message StreamReadAllRequest {
     required uint64 local_participant_handle = 1;
     // ID of the stream.
     required string id = 2;
+}
+message StreamReadAllResponse {
+    required uint64 async_id = 1;
+
+    oneof result {
+        StreamPayload payload = 2;
+        StreamError error = 3;
+    }
 }
 
 // Writes data from an incoming stream to a file as it arrives.
@@ -65,6 +76,15 @@ message StreamWriteToFileRequest {
     // the stream's info.
     optional string name_override = 4;
 }
+message StreamWriteToFileResponse {
+    required uint64 async_id = 1;
+
+    oneof result {
+        // Path the file was written to.
+        StreamPayload file_path = 2;
+        StreamError error = 3;
+    }
+}
 
 // Sends the contents of a file over a data stream.
 message StreamSendFileRequest {
@@ -75,6 +95,10 @@ message StreamSendFileRequest {
 
     // Path to the file to send (must be readable by the current process).
     required string file_path = 3;
+}
+message StreamSendFileResponse {
+    required uint64 async_id = 1;
+    optional StreamError error = 2;
 }
 
 // Sends text over a data stream.
@@ -87,6 +111,11 @@ message StreamSendTextRequest {
     // Text to send.
     required string text = 3;
 }
+message StreamSendTextResponse {
+    required uint64 async_id = 1;
+    optional StreamError error = 2;
+}
+
 
 // Opens an outgoing stream.
 // Call must be balanced with a StreamCloseRequest.
@@ -95,6 +124,13 @@ message StreamOpenRequest {
 
     // Options to use for opening the stream.
     required StreamOptions options = 2;
+}
+message StreamOpenResponse {
+    oneof result {
+        // ID of the opened stream to use for subsequent operations.
+        string id = 1;
+        StreamError error = 2;
+    }
 }
 
 // Writes data to an outgoing stream opened with StreamOpenRequest.
@@ -110,6 +146,10 @@ message StreamWriteRequest {
         string text = 4;
     }
 }
+message StreamWriteResponse {
+    required uint64 async_id = 1;
+    optional StreamError error = 2;
+}
 
 // Closes an outgoing stream.
 message StreamCloseRequest {
@@ -118,59 +158,6 @@ message StreamCloseRequest {
     // ID of the stream to close.
     required string id = 2;
 }
-
-// FFI Responses
-
-message StreamRegisterTopicResponse {
-    optional StreamError error = 1;
-}
-
-message StreamUnregisterTopicResponse {}
-
-message StreamReadIncrementalResponse {}
-
-message StreamReadAllResponse {
-    required uint64 async_id = 1;
-
-    oneof result {
-        StreamPayload payload = 2;
-        StreamError error = 3;
-    }
-}
-
-message StreamWriteToFileResponse {
-    required uint64 async_id = 1;
-
-    oneof result {
-        // Path the file was written to.
-        StreamPayload file_path = 2;
-        StreamError error = 3;
-    }
-}
-
-message StreamSendFileResponse {
-    required uint64 async_id = 1;
-    optional StreamError error = 2;
-}
-
-message StreamSendTextResponse {
-    required uint64 async_id = 1;
-    optional StreamError error = 2;
-}
-
-message StreamOpenResponse {
-    oneof result {
-        // ID of the opened stream to use for subsequent operations.
-        string id = 1;
-        StreamError error = 2;
-    }
-}
-
-message StreamWriteResponse {
-    required uint64 async_id = 1;
-    optional StreamError error = 2;
-}
-
 message StreamCloseResponse {
     required uint64 async_id = 1;
     optional StreamError error = 2;
