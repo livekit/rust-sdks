@@ -211,7 +211,10 @@ jobs:
           
           # Show config for debugging
           cat ~/.cargo/config.toml
-      
+          
+      - name: Check registry accessibility
+        run: curl -I https://crate-registry.quantum-forge.io/ || exit 1
+
       - name: Debug Git Tags and Environment
         run: |
           echo "Current git tags at HEAD:"
