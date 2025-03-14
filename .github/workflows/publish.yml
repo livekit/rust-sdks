@@ -91,21 +91,50 @@ jobs:
       - name: Resync is needed after bump
         run: |
           git fetch --tags && git checkout origin/main
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
       - name: Configure Cargo Registry
         run: |
           mkdir -p ~/.cargo
-          echo '[registries.quantum-forge]' >> ~/.cargo/config.toml
-          echo 'index = "https://crate-registry.quantum-forge.io"' >> ~/.cargo/config.toml
-          # Configure registry credentials
-          mkdir -p ~/.cargo/credentials.d
-          echo "[registries]" >> ~/.cargo/credentials
-          echo "quantum-forge = \"$CARGO_REGISTRY_TOKEN\"" >> ~/.cargo/credentials
-          # Set up git protocol for fetching
-          echo 'net.git-fetch-with-cli = true' >> ~/.cargo/config.toml
-          echo '[http]' >> ~/.cargo/config.toml
-          echo 'timeout = 60' >> ~/.cargo/config.toml
-          cat ~/.cargo/config.toml
+          # Create main config file
+          cat > ~/.cargo/config.toml << EOF
+          [registries.quantum-forge]
+          index = "https://crate-registry.quantum-forge.io"
           
+          [net]
+          git-fetch-with-cli = true
+          retry = 5
+          
+          [http]
+          timeout = 120
+          check-revoke = false
+          multiplexing = false
+          
+          [term]
+          verbose = true
+          EOF
+          
+          # Create credentials file
+          mkdir -p ~/.cargo/credentials.d
+          cat > ~/.cargo/credentials << EOF
+          [registry]
+          token = "$CARGO_REGISTRY_TOKEN"
+          
+          [registries]
+          quantum-forge = "$CARGO_REGISTRY_TOKEN"
+          EOF
+          
+          # Secure the credentials file
+          chmod 600 ~/.cargo/credentials
+          
+          # Show config for debugging
+          cat ~/.cargo/config.toml
+      
       - name: Debug Git Tags and Environment
         run: |
           echo "Current git tags at HEAD:"
