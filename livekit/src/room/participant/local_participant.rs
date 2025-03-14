@@ -12,34 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission};
+use super::{
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission, RoomSession,
+};
 use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
+    room::participant::rpc::RpcError,
     rtc_engine::{EngineError, RtcEngine},
     ChatMessage, DataPacket, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
 };
 use chrono::Utc;
-use futures_util::Future;
 
 use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
-use semver::Version;
-use tokio::sync::oneshot;
-
-type RpcHandler = Arc<
-    dyn Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
-        + Send
-        + Sync,
->;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -52,27 +52,12 @@ struct LocalEvents {
     local_track_unpublished: Mutex<Option<LocalTrackUnpublishedHandler>>,
 }
 
-struct RpcState {
-    pending_acks: HashMap<String, oneshot::Sender<()>>,
-    pending_responses: HashMap<String, oneshot::Sender<Result<String, RpcError>>>,
-    handlers: HashMap<String, RpcHandler>,
-}
-
-impl RpcState {
-    fn new() -> Self {
-        Self {
-            pending_acks: HashMap::new(),
-            pending_responses: HashMap::new(),
-            handlers: HashMap::new(),
-        }
-    }
-}
 struct LocalInfo {
     events: LocalEvents,
     encryption_type: EncryptionType,
-    rpc_state: Mutex<RpcState>,
     all_participants_allowed: Mutex<bool>,
     track_permissions: Mutex<Vec<ParticipantTrackPermission>>,
+    session: RwLock<Option<Weak<RoomSession>>>,
 }
 
 #[derive(Clone)]
@@ -107,11 +92,19 @@ impl LocalParticipant {
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
                 encryption_type,
-                rpc_state: Mutex::new(RpcState::new()),
                 all_participants_allowed: Mutex::new(true),
                 track_permissions: Mutex::new(vec![]),
+                session: Default::default(),
             }),
         }
+    }
+
+    pub(crate) fn set_session(&self, session: Weak<RoomSession>) {
+        *self.local.session.write() = Some(session);
+    }
+
+    pub(crate) fn session(&self) -> Option<Arc<RoomSession>> {
+        self.local.session.read().as_ref().and_then(|s| s.upgrade())
     }
 
     pub(crate) fn internal_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
@@ -544,7 +537,7 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
     }
 
-    async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
+    pub(crate) async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
         let destination_identities = vec![rpc_request.destination_identity];
         let rpc_request_message = proto::RpcRequest {
             id: rpc_request.id,
@@ -564,7 +557,7 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
     }
 
-    async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
+    pub(crate) async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
         let destination_identities = vec![rpc_response.destination_identity];
         let rpc_response_message = proto::RpcResponse {
             request_id: rpc_response.request_id,
@@ -588,7 +581,7 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
     }
 
-    async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
+    pub(crate) async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
         let destination_identities = vec![rpc_ack.destination_identity];
         let rpc_ack_message =
             proto::RpcAck { request_id: rpc_ack.request_id, ..Default::default() };
@@ -600,6 +593,25 @@ impl LocalParticipant {
         };
 
         self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
+    }
+
+    #[deprecated(note = "Use `room.register_rpc_method` instead.")]
+    pub fn register_rpc_method(
+        &self,
+        method: String,
+        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    ) {
+        let Some(session) = self.session() else { return };
+        session.register_rpc_method(method, handler);
+    }
+
+    #[deprecated(note = "Use `room.unregister_rpc_method` instead.")]
+    pub fn unregister_rpc_method(&self, method: String) {
+        let Some(session) = self.session() else { return };
+        session.unregister_rpc_method(method);
     }
 
     pub(crate) async fn update_track_subscription_permissions(&self) {
@@ -690,198 +702,7 @@ impl LocalParticipant {
     }
 
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
-        let max_round_trip_latency = Duration::from_millis(2000);
-
-        if data.payload.len() > MAX_PAYLOAD_BYTES {
-            return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
-        }
-
-        if let Some(server_info) =
-            self.inner.rtc_engine.session().signal_client().join_response().server_info
-        {
-            if !server_info.version.is_empty() {
-                let server_version = Version::parse(&server_info.version).unwrap();
-                let min_required_version = Version::parse("1.8.0").unwrap();
-                if server_version < min_required_version {
-                    return Err(RpcError::built_in(RpcErrorCode::UnsupportedServer, None));
-                }
-            }
-        }
-
-        let id = create_random_uuid();
-        let (ack_tx, ack_rx) = oneshot::channel();
-        let (response_tx, response_rx) = oneshot::channel();
-
-        match self
-            .publish_rpc_request(RpcRequest {
-                destination_identity: data.destination_identity.clone(),
-                id: id.clone(),
-                method: data.method.clone(),
-                payload: data.payload.clone(),
-                response_timeout: data.response_timeout - max_round_trip_latency,
-                version: 1,
-            })
-            .await
-        {
-            Ok(_) => {
-                let mut rpc_state = self.local.rpc_state.lock();
-                rpc_state.pending_acks.insert(id.clone(), ack_tx);
-                rpc_state.pending_responses.insert(id.clone(), response_tx);
-            }
-            Err(e) => {
-                log::error!("Failed to publish RPC request: {}", e);
-                return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
-            }
-        }
-
-        // Wait for ack timeout
-        match tokio::time::timeout(max_round_trip_latency, ack_rx).await {
-            Err(_) => {
-                let mut rpc_state = self.local.rpc_state.lock();
-                rpc_state.pending_acks.remove(&id);
-                rpc_state.pending_responses.remove(&id);
-                return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
-            }
-            Ok(_) => {
-                // Ack received, continue to wait for response
-            }
-        }
-
-        // Wait for response timout
-        let response = match tokio::time::timeout(data.response_timeout, response_rx).await {
-            Err(_) => {
-                self.local.rpc_state.lock().pending_responses.remove(&id);
-                return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
-            }
-            Ok(result) => result,
-        };
-
-        match response {
-            Err(_) => {
-                // Something went wrong locally
-                Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
-            }
-            Ok(Err(e)) => {
-                // RPC error from remote, forward it
-                Err(e)
-            }
-            Ok(Ok(payload)) => {
-                // Successful response
-                Ok(payload)
-            }
-        }
-    }
-
-    pub fn register_rpc_method(
-        &self,
-        method: String,
-        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    ) {
-        self.local.rpc_state.lock().handlers.insert(method, Arc::new(handler));
-    }
-
-    pub fn unregister_rpc_method(&self, method: String) {
-        self.local.rpc_state.lock().handlers.remove(&method);
-    }
-
-    pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
-        let mut rpc_state = self.local.rpc_state.lock();
-        if let Some(tx) = rpc_state.pending_acks.remove(&request_id) {
-            let _ = tx.send(());
-        } else {
-            log::error!("Ack received for unexpected RPC request: {}", request_id);
-        }
-    }
-
-    pub(crate) fn handle_incoming_rpc_response(
-        &self,
-        request_id: String,
-        payload: Option<String>,
-        error: Option<proto::RpcError>,
-    ) {
-        let mut rpc_state = self.local.rpc_state.lock();
-        if let Some(tx) = rpc_state.pending_responses.remove(&request_id) {
-            let _ = tx.send(match error {
-                Some(e) => Err(RpcError::from_proto(e)),
-                None => Ok(payload.unwrap_or_default()),
-            });
-        } else {
-            log::error!("Response received for unexpected RPC request: {}", request_id);
-        }
-    }
-
-    pub(crate) async fn handle_incoming_rpc_request(
-        &self,
-        caller_identity: ParticipantIdentity,
-        request_id: String,
-        method: String,
-        payload: String,
-        response_timeout: Duration,
-        version: u32,
-    ) {
-        if let Err(e) = self
-            .publish_rpc_ack(RpcAck {
-                destination_identity: caller_identity.to_string(),
-                request_id: request_id.clone(),
-            })
-            .await
-        {
-            log::error!("Failed to publish RPC ACK: {:?}", e);
-        }
-
-        let caller_identity_2 = caller_identity.clone();
-        let request_id_2 = request_id.clone();
-
-        let response = if version != 1 {
-            Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
-        } else {
-            let handler = self.local.rpc_state.lock().handlers.get(&method).cloned();
-
-            match handler {
-                Some(handler) => {
-                    match tokio::task::spawn(async move {
-                        handler(RpcInvocationData {
-                            request_id: request_id.clone(),
-                            caller_identity: caller_identity.clone(),
-                            payload: payload.clone(),
-                            response_timeout,
-                        })
-                        .await
-                    })
-                    .await
-                    {
-                        Ok(result) => result,
-                        Err(e) => {
-                            log::error!("RPC method handler returned an error: {:?}", e);
-                            Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
-                        }
-                    }
-                }
-                None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
-            }
-        };
-
-        let (payload, error) = match response {
-            Ok(response_payload) if response_payload.len() <= MAX_PAYLOAD_BYTES => {
-                (Some(response_payload), None)
-            }
-            Ok(_) => (None, Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None))),
-            Err(e) => (None, Some(e.into())),
-        };
-
-        if let Err(e) = self
-            .publish_rpc_response(RpcResponse {
-                destination_identity: caller_identity_2.to_string(),
-                request_id: request_id_2,
-                payload,
-                error: error.map(|e| e.to_proto()),
-            })
-            .await
-        {
-            log::error!("Failed to publish RPC response: {:?}", e);
-        }
+        let session = self.session().unwrap();
+        session.perform_rpc(data).await
     }
 }

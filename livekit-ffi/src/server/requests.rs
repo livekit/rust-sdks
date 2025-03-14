@@ -27,7 +27,7 @@ use super::{
     audio_source, audio_stream, colorcvt,
     participant::FfiParticipant,
     resampler,
-    room::{self, FfiPublication, FfiTrack},
+    room::{self, FfiPublication, FfiRoom, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
@@ -967,18 +967,16 @@ fn on_register_rpc_method(
     server: &'static FfiServer,
     request: proto::RegisterRpcMethodRequest,
 ) -> FfiResult<proto::RegisterRpcMethodResponse> {
-    let ffi_participant =
-        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
-    return ffi_participant.register_rpc_method(server, request);
+    let ffi_room = server.retrieve_handle::<FfiRoom>(request.room_handle)?.clone();
+    ffi_room.inner.register_rpc_method(server, request)
 }
 
 fn on_unregister_rpc_method(
     server: &'static FfiServer,
     request: proto::UnregisterRpcMethodRequest,
 ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
-    let ffi_participant =
-        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
-    return ffi_participant.unregister_rpc_method(request);
+    let ffi_room = server.retrieve_handle::<FfiRoom>(request.room_handle)?.clone();
+    ffi_room.inner.unregister_rpc_method(request)
 }
 
 fn on_rpc_method_invocation_response(
