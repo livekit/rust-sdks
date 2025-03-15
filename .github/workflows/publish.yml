@@ -181,7 +181,7 @@ jobs:
           # Create main config file
           cat > ~/.cargo/config.toml << EOF
           [registries.quantum-forge]
-          index = "sparse+https://crate-registry.quantum-forge.io"
+          index = "sparse+https://crate-registry.quantum-forge.io/api/v1/crates/"
           
           [net]
           retry = 5
