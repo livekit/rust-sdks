@@ -1,5 +1,5 @@
 [registries.quantum-forge]
-index = "https://crate-registry.quantum-forge.io"
+index = "https://crate-registry.quantum-forge.io/api/v1/crates/"
 
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
