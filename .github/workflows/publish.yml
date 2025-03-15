@@ -261,6 +261,42 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISHED_CRATES: ${{ needs.publish.outputs.published_crates }}
         run: |
+          # Set a default exit code
+          EXIT_CODE=0
+                
+          # Check if this is a push to main or a merged PR
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "This is a push to main branch - publishing livekit to registry"
+            # For push events, we'll publish the livekit crate for testing
+            cd livekit && cargo publish --no-verify --registry quantum-forge --allow-dirty --token "$CARGO_REGISTRY_TOKEN" || EXIT_CODE=$?
+            
+            # Record that we published livekit
+            echo "published_crates=livekit" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            echo "This is a merged PR to main branch - publishing livekit to registry"
+            cd livekit && cargo publish --no-verify --registry quantum-forge --allow-dirty --token "$CARGO_REGISTRY_TOKEN" || EXIT_CODE=$?
+            
+            # Record that we published livekit
+            echo "published_crates=livekit" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping publishing for non-push, non-merged PR, or non-main branch events"
+          fi
+          
+          exit $EXIT_CODE
+  
+  create_releases:
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: write
+    # This job will always run and create at least a test release
+    steps:
+      - uses: actions/checkout@v3
+      - name: Create GitHub releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISHED_CRATES: ${{ needs.publish.outputs.published_crates }}
+        run: |
           echo "Crates from previous job: ${PUBLISHED_CRATES}"
           
           # Always create a test release with a timestamp to ensure the workflow is working
