@@ -19,7 +19,7 @@ option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
 
-// Incoming streams
+// MARK: - Registration
 
 // Registers a topic for incoming streams to be handled.
 // Once registered, the client will receive StreamEvent.Opened events as streams are opened
@@ -50,28 +50,64 @@ message StreamUnregisterTopicRequest {
 }
 message StreamUnregisterTopicResponse {}
 
-// Reads an incoming stream incrementally.
-// Client will receive StreamEvent.ChunkReceived events as data arrives.
-message StreamReaderReadIncrementalRequest {
-    required uint64 reader_handle = 1;
-}
-message StreamReaderReadIncrementalResponse {}
+// MARK: - Text stream reader
 
-// Reads an incoming stream in its entirety.
-message StreamReaderReadAllRequest {
+// A reader for an incoming stream.
+message OwnedTextStreamReader {
+    required FfiOwnedHandle handle = 1;
+    required BaseStreamInfo base_info = 2;
+    required TextStreamInfo text_info = 3;
+}
+
+// Reads an incoming text stream incrementally.
+message TextStreamReaderReadIncrementalRequest {
     required uint64 reader_handle = 1;
 }
-message StreamReaderReadAllResponse {
+message TextStreamReaderReadIncrementalResponse {}
+
+// Reads an incoming text stream in its entirety.
+message TextStreamReaderReadAllRequest {
+    required uint64 reader_handle = 1;
+}
+message TextStreamReaderReadAllResponse {
     required uint64 async_id = 1;
 
     oneof result {
-        StreamPayload payload = 2;
+        string content = 2;
+        StreamError error = 3;
+    }
+}
+
+// MARK: - Byte stream reader
+
+// A reader for an incoming stream.
+message OwnedByteStreamReader {
+    required FfiOwnedHandle handle = 1;
+    required BaseStreamInfo base_info = 2;
+    required ByteStreamInfo byte_info = 3;
+}
+
+// Reads an incoming byte stream incrementally.
+message ByteStreamReaderReadIncrementalRequest {
+    required uint64 reader_handle = 1;
+}
+message ByteStreamReaderReadIncrementalResponse {}
+
+// Reads an incoming byte stream in its entirety.
+message ByteStreamReaderReadAllRequest {
+    required uint64 reader_handle = 1;
+}
+message ByteStreamReaderReadAllResponse {
+    required uint64 async_id = 1;
+
+    oneof result {
+        bytes content = 2;
         StreamError error = 3;
     }
 }
 
 // Writes data from an incoming stream to a file as it arrives.
-message StreamReaderWriteToFileRequest {
+message ByteStreamReaderWriteToFileRequest {
     required uint64 reader_handle = 1;
 
     // Directory to write the file in (must be writable by the current process).
@@ -82,7 +118,7 @@ message StreamReaderWriteToFileRequest {
     // the stream's info.
     optional string name_override = 4;
 }
-message StreamReaderWriteToFileResponse {
+message ByteStreamReaderWriteToFileResponse {
     required uint64 async_id = 1;
 
     oneof result {
@@ -92,14 +128,13 @@ message StreamReaderWriteToFileResponse {
     }
 }
 
-// Outgoing streams
+// MARK: - Send file
 
 // Sends the contents of a file over a data stream.
 message StreamSendFileRequest {
     required uint64 local_participant_handle = 1;
 
-    // Options to use for opening the stream.
-    required StreamOptions options = 2;
+    optional BaseStreamOptions base_options = 2;
 
     // Path of the file to send (must be readable by the current process).
     required string file_path = 3;
@@ -109,62 +144,103 @@ message StreamSendFileResponse {
     optional StreamError error = 2;
 }
 
+// MARK: - Send text
+
 // Sends text over a data stream.
 message StreamSendTextRequest {
     required uint64 local_participant_handle = 1;
 
-    // Options to use for opening the stream.
-    required StreamOptions options = 2;
+    optional BaseStreamOptions base_options = 2;
+    optional TextStreamOptions text_options = 3;
 
     // Text to send.
-    required string text = 3;
+    required string text = 4;
 }
 message StreamSendTextResponse {
     required uint64 async_id = 1;
     optional StreamError error = 2;
 }
 
+// MARK: - Byte stream writer
+
+message OwnedByteStreamWriter {
+    required FfiOwnedHandle handle = 1;
+    required BaseStreamInfo base_info = 2;
+    required ByteStreamInfo byte_info = 3;
+}
+
 // Opens an outgoing stream.
 // Call must be balanced with a StreamCloseRequest.
-message StreamOpenRequest {
+message ByteStreamOpenRequest {
     required uint64 local_participant_handle = 1;
 
     // Options to use for opening the stream.
-    required StreamOptions options = 2;
+    required BaseStreamOptions options = 2;
 }
-message StreamOpenResponse {
+message ByteStreamOpenResponse {
     oneof result {
-        OwnedStreamWriter writer = 1;
+        OwnedByteStreamWriter writer = 1;
         StreamError error = 2;
     }
 }
 
 // Writes data to a stream writer.
-message StreamWriterWriteRequest {
+message ByteStreamWriterWriteRequest {
     required uint64 writer_handle = 1;
-
-    // ID of the stream to write to.
-    required string id = 2;
-
-    // Payload to write (type much be consistent with the stream type).
-    oneof payload {
-        bytes bytes = 3;
-        string text = 4;
-    }
+    required bytes bytes = 2;
 }
-message StreamWriterWriteResponse {
+message ByteStreamWriterWriteResponse {
     required uint64 async_id = 1;
     optional StreamError error = 2;
 }
 
 // Closes a stream writer.
-message StreamWriterCloseRequest {
+message ByteStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
-
-    // ID of the stream to close.
-    required string id = 2;
 }
-message StreamWriterCloseResponse {
+message ByteStreamWriterCloseResponse {
+    required uint64 async_id = 1;
+    optional StreamError error = 2;
+}
+
+// MARK: - Text stream writer
+
+message OwnedTextStreamWriter {
+    required FfiOwnedHandle handle = 1;
+    required BaseStreamInfo base_info = 2;
+    required TextStreamInfo text_info = 3;
+}
+
+// Opens an outgoing text stream.
+// Call must be balanced with a TextStreamCloseRequest.
+message TextStreamOpenRequest {
+    required uint64 local_participant_handle = 1;
+
+    required BaseStreamOptions base_options = 2;
+    required TextStreamOptions text_options = 3;
+}
+message TextStreamOpenResponse {
+    oneof result {
+        OwnedTextStreamWriter writer = 1;
+        StreamError error = 2;
+    }
+}
+
+// Writes text to a text stream writer.
+message TextStreamWriterWriteRequest {
+    required uint64 writer_handle = 1;
+    required string text = 2;
+}
+message TextStreamWriterWriteResponse {
+    required uint64 async_id = 1;
+    optional StreamError error = 2;
+}
+
+// Closes a text stream writer.
+message TextStreamWriterCloseRequest {
+    required uint64 writer_handle = 1;
+}
+message TextStreamWriterCloseResponse {
     required uint64 async_id = 1;
     optional StreamError error = 2;
 }
@@ -173,36 +249,42 @@ message StreamWriterCloseResponse {
 
 message StreamEvent {
 
-    // Stream was opened.
-    message Opened {
-        // Reader for the stream.
-        required OwnedStreamReader reader = 1;
-
-        // Identity of the remote participant that opened the stream.
+    message TextStreamOpened {
+        required OwnedTextStreamReader reader = 1;
         required string participant_identity = 2;
     }
 
-    // A chunk was received.
+    message ByteStreamOpened {
+        required OwnedByteStreamReader reader = 1;
+        required string participant_identity = 2;
+    }
+
+    // A text chunk was received.
     // This event is only emitted for incremental reads.
-    message ChunkReceived {
-        // Index of the chunk.
-        required uint64 index = 1;
+    message TextChunkReceived {
+        required uint64 reader_handle = 1;
+        required string content = 2;
+        required StreamProgress progress = 3;
+    }
 
-        // Content of the chunk.
-        required StreamPayload payload = 2;
-
-        // Overall progress of the stream.
+    // A byte chunk was received.
+    // This event is only emitted for incremental reads.
+    message ByteChunkReceived {
+        required uint64 reader_handle = 1;
+        required bytes content = 2;
         required StreamProgress progress = 3;
     }
 
     // A chunk was sent.
     // This event is emitted as chunks are sent for an outgoing stream.
     message ChunkSent {
+        required uint64 writer_handle = 1;
+
         // Index of the chunk.
-        required uint64 index = 1;
+        required uint64 index = 2;
 
         // Overall progress of the stream.
-        required StreamProgress progress = 2;
+        required StreamProgress progress = 3;
     }
 
     // Stream was closed, either as the result of an error or normal completion.
@@ -219,26 +301,16 @@ message StreamEvent {
 
     // The kind of event that occurred.
     oneof kind {
-        Opened opened = 3;
-        ChunkReceived chunk_received = 4;
-        ChunkSent chunk_sent = 5;
-        Closed closed = 6;
+        TextStreamOpened text_stream_opened = 3;
+        ByteStreamOpened byte_stream_opened = 4;
+        TextChunkReceived text_chunk_received = 5;
+        ByteChunkReceived byte_chunk_received = 6;
+        ChunkSent chunk_sent = 7;
+        Closed closed = 8;
     }
 }
 
 // Structures
-
-// A reader for an incoming stream.
-message OwnedStreamReader {
-    required FfiOwnedHandle handle = 1;
-    required StreamInfo info = 2;
-}
-
-// A writer for an outgoing stream.
-message OwnedStreamWriter {
-    required FfiOwnedHandle handle = 1;
-    required StreamInfo info = 2;
-}
 
 // The kind of stream (currently byte or text).
 enum StreamKind {
@@ -248,42 +320,42 @@ enum StreamKind {
 
 // Contains a subset of the fields from the stream header.
 // Protocol-level fields not relevant to the FFI client are omitted (e.g. encryption info).
-message StreamInfo {
+
+message BaseStreamInfo {
     required string stream_id = 1; // unique identifier for this data stream
     required int64 timestamp = 2;  // using int64 for Unix timestamp
     required string mime_type = 3;
     required string topic = 4;
     optional uint64 total_length = 5;  // only populated for finite streams, if it's a stream of unknown size this stays empty
     map<string, string> attributes = 6;  // user defined attributes map that can carry additional info
-
-    oneof content_info {
-        TextInfo text_info = 7;
-        ByteInfo byte_info = 8;
+}
+message ByteStreamInfo {
+    required string name = 1;
+}
+message TextStreamInfo {
+    enum OperationType {
+        CREATE = 0;
+        UPDATE = 1;
+        DELETE = 2;
+        REACTION = 3;
     }
 
-    message TextInfo {
-        enum OperationType {
-            CREATE = 0;
-            UPDATE = 1;
-            DELETE = 2;
-            REACTION = 3;
-        }
-
-        required OperationType operation_type = 1;
-        optional int32 version = 2;  // Optional: Version for updates/edits
-        optional string reply_to_stream_id = 3;  // Optional: Reply to specific message
-        repeated string attached_stream_ids = 4; // file attachments for text streams
-        optional bool generated = 5; // true if the text has been generated by an agent from a participant's audio transcription
-    }
-
-    message ByteInfo {
-        required string name = 1;
-    }
+    required OperationType operation_type = 1;
+    optional int32 version = 2;  // Optional: Version for updates/edits
+    optional string reply_to_stream_id = 3;  // Optional: Reply to specific message
+    repeated string attached_stream_ids = 4; // file attachments for text streams
+    optional bool generated = 5; // true if the text has been generated by an agent from a participant's audio transcription
 }
 
 // Options to use for opening an outgoing stream.
-message StreamOptions {
+message BaseStreamOptions {
     // TODO: define stream options.
+}
+message TextStreamOptions {
+     // TODO: define stream options.
+}
+message ByteStreamOptions {
+     // TODO: define stream options.
 }
 
 // Progress of a stream.
@@ -293,14 +365,6 @@ message StreamProgress {
 
     // Total number of bytes that are expected to be read or written (finite streams only).
     optional uint64 bytes_total = 2;
-}
-
-// Data read from or written to a stream.
-message StreamPayload {
-    oneof content {
-        bytes bytes = 1;
-        string text = 2;
-    }
 }
 
 // Error pertaining to a stream.
