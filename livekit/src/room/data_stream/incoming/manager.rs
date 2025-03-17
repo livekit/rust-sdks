@@ -14,11 +14,7 @@
 
 use super::{handler::HandlerRegistry, ChunkSender};
 use crate::{
-    data_stream::{
-        incoming::AnyStreamReader,
-        info::{AnyStreamInfo, StreamInfo},
-        StreamError, StreamProgress,
-    },
+    data_stream::{incoming::AnyStreamReader, info::AnyStreamInfo, StreamError, StreamProgress},
     id::ParticipantIdentity,
 };
 use bytes::Bytes;

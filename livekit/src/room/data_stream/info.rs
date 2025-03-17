@@ -38,30 +38,6 @@ pub trait StreamInfo {
     fn mime_type(&self) -> &str;
 }
 
-macro_rules! info_dispatch {
-    ([$($variant:ident),+]) => {
-        enum_dispatch!(
-            [$($variant),+];
-            fn id(self: &Self) -> &str;
-            fn topic(self: &Self) -> &str;
-            fn timestamp(self: &Self) -> DateTime<Utc>;
-            fn total_length(self: &Self) -> Option<u64>;
-            fn attributes(self: &Self) -> &HashMap<String, String>;
-            fn mime_type(self: &Self) -> &str;
-        );
-    };
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AnyStreamInfo {
-    Byte(ByteStreamInfo),
-    Text(TextStreamInfo),
-}
-
-impl StreamInfo for AnyStreamInfo {
-    info_dispatch!([Byte, Text]);
-}
-
 /// Information about a byte data stream.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ByteStreamInfo {
@@ -152,6 +128,26 @@ impl TextStreamInfo {
     pub fn generated(&self) -> bool {
         self.text.generated
     }
+}
+
+macro_rules! info_dispatch {
+    ([$($variant:ident),+]) => {
+        enum_dispatch!(
+            [$($variant),+];
+            pub fn id(self: &Self) -> &str;
+            pub fn total_length(self: &Self) -> Option<u64>;
+        );
+    };
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AnyStreamInfo {
+    Byte(ByteStreamInfo),
+    Text(TextStreamInfo),
+}
+
+impl AnyStreamInfo {
+    info_dispatch!([Byte, Text]);
 }
 
 // MARK: - Protocol type conversion
