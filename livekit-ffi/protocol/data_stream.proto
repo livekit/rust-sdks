@@ -70,7 +70,9 @@ message TextStreamReaderReadAllRequest {
 }
 message TextStreamReaderReadAllResponse {
     required uint64 async_id = 1;
-
+}
+message TextStreamReaderReadAllCallback {
+    required uint64 async_id = 1;
     oneof result {
         string content = 2;
         StreamError error = 3;
@@ -119,7 +121,9 @@ message ByteStreamReaderReadAllRequest {
 }
 message ByteStreamReaderReadAllResponse {
     required uint64 async_id = 1;
-
+}
+message ByteStreamReaderReadAllCallback {
+    required uint64 async_id = 1;
     oneof result {
         bytes content = 2;
         StreamError error = 3;
@@ -140,7 +144,9 @@ message ByteStreamReaderWriteToFileRequest {
 }
 message ByteStreamReaderWriteToFileResponse {
     required uint64 async_id = 1;
-
+}
+message ByteStreamReaderWriteToFileCallback {
+    required uint64 async_id = 1;
     oneof result {
         // Path the file was written to.
         string file_path = 2;
@@ -183,6 +189,9 @@ message StreamSendFileRequest {
 }
 message StreamSendFileResponse {
     required uint64 async_id = 1;
+}
+message StreamSendFileCallback {
+    required uint64 async_id = 1;
     optional StreamError error = 2;
 }
 
@@ -199,6 +208,9 @@ message StreamSendTextRequest {
     required string text = 4;
 }
 message StreamSendTextResponse {
+    required uint64 async_id = 1;
+}
+message StreamSendTextCallback {
     required uint64 async_id = 1;
     optional StreamError error = 2;
 }
@@ -232,6 +244,9 @@ message ByteStreamWriterWriteRequest {
 }
 message ByteStreamWriterWriteResponse {
     required uint64 async_id = 1;
+}
+message ByteStreamWriterWriteCallback {
+    required uint64 async_id = 1;
     optional StreamError error = 2;
 }
 
@@ -240,6 +255,9 @@ message ByteStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
 }
 message ByteStreamWriterCloseResponse {
+    required uint64 async_id = 1;
+}
+message ByteStreamWriterCloseCallback {
     required uint64 async_id = 1;
     optional StreamError error = 2;
 }
@@ -273,6 +291,9 @@ message TextStreamWriterWriteRequest {
 }
 message TextStreamWriterWriteResponse {
     required uint64 async_id = 1;
+}
+message TextStreamWriterWriteCallback {
+    required uint64 async_id = 1;
     optional StreamError error = 2;
 }
 
@@ -281,6 +302,9 @@ message TextStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
 }
 message TextStreamWriterCloseResponse {
+    required uint64 async_id = 1;
+}
+message TextStreamWriterCloseCallback {
     required uint64 async_id = 1;
     optional StreamError error = 2;
 }

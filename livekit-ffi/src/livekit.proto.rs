@@ -4193,11 +4193,17 @@ pub struct TextStreamReaderReadAllRequest {
 pub struct TextStreamReaderReadAllResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
-    #[prost(oneof="text_stream_reader_read_all_response::Result", tags="2, 3")]
-    pub result: ::core::option::Option<text_stream_reader_read_all_response::Result>,
 }
-/// Nested message and enum types in `TextStreamReaderReadAllResponse`.
-pub mod text_stream_reader_read_all_response {
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextStreamReaderReadAllCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(oneof="text_stream_reader_read_all_callback::Result", tags="2, 3")]
+    pub result: ::core::option::Option<text_stream_reader_read_all_callback::Result>,
+}
+/// Nested message and enum types in `TextStreamReaderReadAllCallback`.
+pub mod text_stream_reader_read_all_callback {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
@@ -4282,11 +4288,17 @@ pub struct ByteStreamReaderReadAllRequest {
 pub struct ByteStreamReaderReadAllResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
-    #[prost(oneof="byte_stream_reader_read_all_response::Result", tags="2, 3")]
-    pub result: ::core::option::Option<byte_stream_reader_read_all_response::Result>,
 }
-/// Nested message and enum types in `ByteStreamReaderReadAllResponse`.
-pub mod byte_stream_reader_read_all_response {
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamReaderReadAllCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(oneof="byte_stream_reader_read_all_callback::Result", tags="2, 3")]
+    pub result: ::core::option::Option<byte_stream_reader_read_all_callback::Result>,
+}
+/// Nested message and enum types in `ByteStreamReaderReadAllCallback`.
+pub mod byte_stream_reader_read_all_callback {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
@@ -4316,11 +4328,17 @@ pub struct ByteStreamReaderWriteToFileRequest {
 pub struct ByteStreamReaderWriteToFileResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
-    #[prost(oneof="byte_stream_reader_write_to_file_response::Result", tags="2, 3")]
-    pub result: ::core::option::Option<byte_stream_reader_write_to_file_response::Result>,
 }
-/// Nested message and enum types in `ByteStreamReaderWriteToFileResponse`.
-pub mod byte_stream_reader_write_to_file_response {
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamReaderWriteToFileCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(oneof="byte_stream_reader_write_to_file_callback::Result", tags="2, 3")]
+    pub result: ::core::option::Option<byte_stream_reader_write_to_file_callback::Result>,
+}
+/// Nested message and enum types in `ByteStreamReaderWriteToFileCallback`.
+pub mod byte_stream_reader_write_to_file_callback {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
@@ -4391,6 +4409,12 @@ pub struct StreamSendFileRequest {
 pub struct StreamSendFileResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamSendFileCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
     #[prost(message, optional, tag="2")]
     pub error: ::core::option::Option<StreamError>,
 }
@@ -4413,6 +4437,12 @@ pub struct StreamSendTextRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamSendTextResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamSendTextCallback {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
     #[prost(message, optional, tag="2")]
@@ -4470,6 +4500,12 @@ pub struct ByteStreamWriterWriteRequest {
 pub struct ByteStreamWriterWriteResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamWriterWriteCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
     #[prost(message, optional, tag="2")]
     pub error: ::core::option::Option<StreamError>,
 }
@@ -4483,6 +4519,12 @@ pub struct ByteStreamWriterCloseRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ByteStreamWriterCloseResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamWriterCloseCallback {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
     #[prost(message, optional, tag="2")]
@@ -4541,6 +4583,12 @@ pub struct TextStreamWriterWriteRequest {
 pub struct TextStreamWriterWriteResponse {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextStreamWriterWriteCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
     #[prost(message, optional, tag="2")]
     pub error: ::core::option::Option<StreamError>,
 }
@@ -4554,6 +4602,12 @@ pub struct TextStreamWriterCloseRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TextStreamWriterCloseResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextStreamWriterCloseCallback {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
     #[prost(message, optional, tag="2")]
@@ -5061,7 +5115,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -5127,10 +5181,22 @@ pub mod ffi_event {
         ByteStreamOpened(super::ByteStreamOpenedEvent),
         #[prost(message, tag="29")]
         ByteStreamReaderEvent(super::ByteStreamReaderEvent),
+        #[prost(message, tag="30")]
+        ByteStreamReaderReadAll(super::ByteStreamReaderReadAllCallback),
         #[prost(message, tag="31")]
-        TextStreamOpened(super::TextStreamOpenedEvent),
+        ByteStreamWriterWrite(super::ByteStreamWriterWriteCallback),
         #[prost(message, tag="32")]
+        ByteStreamWriterClose(super::ByteStreamWriterCloseCallback),
+        #[prost(message, tag="33")]
+        TextStreamOpened(super::TextStreamOpenedEvent),
+        #[prost(message, tag="34")]
         TextStreamReaderEvent(super::TextStreamReaderEvent),
+        #[prost(message, tag="35")]
+        TextStreamReaderReadAll(super::TextStreamReaderReadAllCallback),
+        #[prost(message, tag="36")]
+        TextStreamWriterWrite(super::TextStreamWriterWriteCallback),
+        #[prost(message, tag="37")]
+        TextStreamWriterClose(super::TextStreamWriterCloseCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

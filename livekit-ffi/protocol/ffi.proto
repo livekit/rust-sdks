@@ -288,9 +288,15 @@ message FfiEvent {
     // Data Streams (high level)
     ByteStreamOpenedEvent byte_stream_opened = 28;
     ByteStreamReaderEvent byte_stream_reader_event = 29;
+    ByteStreamReaderReadAllCallback byte_stream_reader_read_all = 30;
+    ByteStreamWriterWriteCallback byte_stream_writer_write = 31;
+    ByteStreamWriterCloseCallback byte_stream_writer_close = 32;
 
-    TextStreamOpenedEvent text_stream_opened = 31;
-    TextStreamReaderEvent text_stream_reader_event = 32;
+    TextStreamOpenedEvent text_stream_opened = 33;
+    TextStreamReaderEvent text_stream_reader_event = 34;
+    TextStreamReaderReadAllCallback text_stream_reader_read_all = 35;
+    TextStreamWriterWriteCallback text_stream_writer_write = 36;
+    TextStreamWriterCloseCallback text_stream_writer_close = 37;
   }
 }
 
