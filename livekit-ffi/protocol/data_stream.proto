@@ -77,6 +77,28 @@ message TextStreamReaderReadAllResponse {
     }
 }
 
+message TextStreamOpenedEvent {
+    required OwnedTextStreamReader reader = 1;
+    required string participant_identity = 2;
+}
+
+message TextStreamReaderEvent {
+    required uint64 reader_handle = 1;
+    oneof kind {
+        TextStreamReaderChunkReceived chunk_received = 2;
+        TextStreamReaderEOS eos = 3;
+    }
+}
+
+message TextStreamReaderChunkReceived {
+    required string content = 1;
+    required StreamProgress progress = 2;
+}
+
+message TextStreamReaderEOS {
+    optional StreamError error = 1;
+}
+
 // MARK: - Byte stream reader
 
 // A reader for an incoming stream.
@@ -124,6 +146,28 @@ message ByteStreamReaderWriteToFileResponse {
         string file_path = 2;
         StreamError error = 3;
     }
+}
+
+message ByteStreamOpenedEvent {
+    required OwnedByteStreamReader reader = 1;
+    required string participant_identity = 2;
+}
+
+message ByteStreamReaderEvent {
+    required uint64 reader_handle = 1;
+    oneof kind {
+        ByteStreamReaderChunkReceived chunk_received = 2;
+        ByteStreamReaderEOS eos = 3;
+    }
+}
+
+message ByteStreamReaderChunkReceived {
+    required bytes content = 1;
+    required StreamProgress progress = 2;
+}
+
+message ByteStreamReaderEOS {
+    optional StreamError error = 1;
 }
 
 // MARK: - Send file
@@ -239,71 +283,6 @@ message TextStreamWriterCloseRequest {
 message TextStreamWriterCloseResponse {
     required uint64 async_id = 1;
     optional StreamError error = 2;
-}
-
-// Events
-
-message StreamEvent {
-
-    message TextStreamOpened {
-        required OwnedTextStreamReader reader = 1;
-        required string participant_identity = 2;
-    }
-
-    message ByteStreamOpened {
-        required OwnedByteStreamReader reader = 1;
-        required string participant_identity = 2;
-    }
-
-    // A text chunk was received.
-    // This event is only emitted for incremental reads.
-    message TextChunkReceived {
-        required uint64 reader_handle = 1;
-        required string content = 2;
-        required StreamProgress progress = 3;
-    }
-
-    // A byte chunk was received.
-    // This event is only emitted for incremental reads.
-    message ByteChunkReceived {
-        required uint64 reader_handle = 1;
-        required bytes content = 2;
-        required StreamProgress progress = 3;
-    }
-
-    // A chunk was sent.
-    // This event is emitted as chunks are sent for an outgoing stream.
-    message ChunkSent {
-        required uint64 writer_handle = 1;
-
-        // Index of the chunk.
-        required uint64 index = 2;
-
-        // Overall progress of the stream.
-        required StreamProgress progress = 3;
-    }
-
-    // Stream was closed, either as the result of an error or normal completion.
-    message Closed {
-        // A description of the error that occurred that caused the stream to be closed.
-        // This is only present if the stream was not closed normally.
-        optional StreamError error = 1;
-    }
-
-    required uint64 local_participant_handle = 1;
-
-    // ID of the stream this event pertains to.
-    required string id = 2;
-
-    // The kind of event that occurred.
-    oneof kind {
-        TextStreamOpened text_stream_opened = 3;
-        ByteStreamOpened byte_stream_opened = 4;
-        TextChunkReceived text_chunk_received = 5;
-        ByteChunkReceived byte_chunk_received = 6;
-        ChunkSent chunk_sent = 7;
-        Closed closed = 8;
-    }
 }
 
 // Structures

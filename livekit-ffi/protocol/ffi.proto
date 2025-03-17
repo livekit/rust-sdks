@@ -286,7 +286,11 @@ message FfiEvent {
     SendStreamTrailerCallback send_stream_trailer = 27;
 
     // Data Streams (high level)
-    StreamEvent stream_event = 28;
+    ByteStreamOpenedEvent byte_stream_opened = 28;
+    ByteStreamReaderEvent byte_stream_reader_event = 29;
+
+    TextStreamOpenedEvent text_stream_opened = 31;
+    TextStreamReaderEvent text_stream_reader_event = 32;
   }
 }
 

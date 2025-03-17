@@ -4207,6 +4207,47 @@ pub mod text_stream_reader_read_all_response {
         Error(super::StreamError),
     }
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextStreamOpenedEvent {
+    #[prost(message, required, tag="1")]
+    pub reader: OwnedTextStreamReader,
+    #[prost(string, required, tag="2")]
+    pub participant_identity: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextStreamReaderEvent {
+    #[prost(uint64, required, tag="1")]
+    pub reader_handle: u64,
+    #[prost(oneof="text_stream_reader_event::Kind", tags="2, 3")]
+    pub kind: ::core::option::Option<text_stream_reader_event::Kind>,
+}
+/// Nested message and enum types in `TextStreamReaderEvent`.
+pub mod text_stream_reader_event {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(message, tag="2")]
+        ChunkReceived(super::TextStreamReaderChunkReceived),
+        #[prost(message, tag="3")]
+        Eos(super::TextStreamReaderEos),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextStreamReaderChunkReceived {
+    #[prost(string, required, tag="1")]
+    pub content: ::prost::alloc::string::String,
+    #[prost(message, required, tag="2")]
+    pub progress: StreamProgress,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextStreamReaderEos {
+    #[prost(message, optional, tag="1")]
+    pub error: ::core::option::Option<StreamError>,
+}
 // MARK: - Byte stream reader
 
 /// A reader for an incoming stream.
@@ -4289,6 +4330,47 @@ pub mod byte_stream_reader_write_to_file_response {
         #[prost(message, tag="3")]
         Error(super::StreamError),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamOpenedEvent {
+    #[prost(message, required, tag="1")]
+    pub reader: OwnedByteStreamReader,
+    #[prost(string, required, tag="2")]
+    pub participant_identity: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamReaderEvent {
+    #[prost(uint64, required, tag="1")]
+    pub reader_handle: u64,
+    #[prost(oneof="byte_stream_reader_event::Kind", tags="2, 3")]
+    pub kind: ::core::option::Option<byte_stream_reader_event::Kind>,
+}
+/// Nested message and enum types in `ByteStreamReaderEvent`.
+pub mod byte_stream_reader_event {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(message, tag="2")]
+        ChunkReceived(super::ByteStreamReaderChunkReceived),
+        #[prost(message, tag="3")]
+        Eos(super::ByteStreamReaderEos),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamReaderChunkReceived {
+    #[prost(bytes="vec", required, tag="1")]
+    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, required, tag="2")]
+    pub progress: StreamProgress,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamReaderEos {
+    #[prost(message, optional, tag="1")]
+    pub error: ::core::option::Option<StreamError>,
 }
 // MARK: - Send file
 
@@ -4476,103 +4558,6 @@ pub struct TextStreamWriterCloseResponse {
     pub async_id: u64,
     #[prost(message, optional, tag="2")]
     pub error: ::core::option::Option<StreamError>,
-}
-// Events
-
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamEvent {
-    #[prost(uint64, required, tag="1")]
-    pub local_participant_handle: u64,
-    /// ID of the stream this event pertains to.
-    #[prost(string, required, tag="2")]
-    pub id: ::prost::alloc::string::String,
-    /// The kind of event that occurred.
-    #[prost(oneof="stream_event::Kind", tags="3, 4, 5, 6, 7, 8")]
-    pub kind: ::core::option::Option<stream_event::Kind>,
-}
-/// Nested message and enum types in `StreamEvent`.
-pub mod stream_event {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct TextStreamOpened {
-        #[prost(message, required, tag="1")]
-        pub reader: super::OwnedTextStreamReader,
-        #[prost(string, required, tag="2")]
-        pub participant_identity: ::prost::alloc::string::String,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct ByteStreamOpened {
-        #[prost(message, required, tag="1")]
-        pub reader: super::OwnedByteStreamReader,
-        #[prost(string, required, tag="2")]
-        pub participant_identity: ::prost::alloc::string::String,
-    }
-    /// A text chunk was received.
-    /// This event is only emitted for incremental reads.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct TextChunkReceived {
-        #[prost(uint64, required, tag="1")]
-        pub reader_handle: u64,
-        #[prost(string, required, tag="2")]
-        pub content: ::prost::alloc::string::String,
-        #[prost(message, required, tag="3")]
-        pub progress: super::StreamProgress,
-    }
-    /// A byte chunk was received.
-    /// This event is only emitted for incremental reads.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct ByteChunkReceived {
-        #[prost(uint64, required, tag="1")]
-        pub reader_handle: u64,
-        #[prost(bytes="vec", required, tag="2")]
-        pub content: ::prost::alloc::vec::Vec<u8>,
-        #[prost(message, required, tag="3")]
-        pub progress: super::StreamProgress,
-    }
-    /// A chunk was sent.
-    /// This event is emitted as chunks are sent for an outgoing stream.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct ChunkSent {
-        #[prost(uint64, required, tag="1")]
-        pub writer_handle: u64,
-        /// Index of the chunk.
-        #[prost(uint64, required, tag="2")]
-        pub index: u64,
-        /// Overall progress of the stream.
-        #[prost(message, required, tag="3")]
-        pub progress: super::StreamProgress,
-    }
-    /// Stream was closed, either as the result of an error or normal completion.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Closed {
-        /// A description of the error that occurred that caused the stream to be closed.
-        /// This is only present if the stream was not closed normally.
-        #[prost(message, optional, tag="1")]
-        pub error: ::core::option::Option<super::StreamError>,
-    }
-    /// The kind of event that occurred.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Kind {
-        #[prost(message, tag="3")]
-        TextStreamOpened(TextStreamOpened),
-        #[prost(message, tag="4")]
-        ByteStreamOpened(ByteStreamOpened),
-        #[prost(message, tag="5")]
-        TextChunkReceived(TextChunkReceived),
-        #[prost(message, tag="6")]
-        ByteChunkReceived(ByteChunkReceived),
-        #[prost(message, tag="7")]
-        ChunkSent(ChunkSent),
-        #[prost(message, tag="8")]
-        Closed(Closed),
-    }
 }
 // Contains a subset of the fields from the stream header.
 // Protocol-level fields not relevant to the FFI client are omitted (e.g. encryption info).
@@ -5076,7 +5061,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -5139,7 +5124,13 @@ pub mod ffi_event {
         SendStreamTrailer(super::SendStreamTrailerCallback),
         /// Data Streams (high level)
         #[prost(message, tag="28")]
-        StreamEvent(super::StreamEvent),
+        ByteStreamOpened(super::ByteStreamOpenedEvent),
+        #[prost(message, tag="29")]
+        ByteStreamReaderEvent(super::ByteStreamReaderEvent),
+        #[prost(message, tag="31")]
+        TextStreamOpened(super::TextStreamOpenedEvent),
+        #[prost(message, tag="32")]
+        TextStreamReaderEvent(super::TextStreamReaderEvent),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).
