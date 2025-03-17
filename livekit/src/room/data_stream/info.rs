@@ -14,140 +14,47 @@
 
 use super::StreamError;
 use chrono::{DateTime, Utc};
-use livekit_protocol::{data_stream as proto, enum_dispatch};
+use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 
-/// Information about a data stream.
-pub trait StreamInfo {
-    /// Unique identifier of the stream.
-    fn id(&self) -> &str;
-
-    /// Topic name used to route the stream to the appropriate handler.
-    fn topic(&self) -> &str;
-
-    /// When the stream was created.
-    fn timestamp(&self) -> DateTime<Utc>;
-
-    /// Total expected size in bytes (UTF-8 for text), if known.
-    fn total_length(&self) -> Option<u64>;
-
-    /// Additional attributes as needed for your application.
-    fn attributes(&self) -> &HashMap<String, String>;
-
-    /// MIME type.
-    fn mime_type(&self) -> &str;
-}
-
 /// Information about a byte data stream.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ByteStreamInfo {
-    base: BaseInfo,
-    byte: ByteSpecificInfo,
+    pub id: String,
+    pub topic: String,
+    pub timestamp: DateTime<Utc>,
+    pub total_length: Option<u64>,
+    pub attributes: HashMap<String, String>,
+    pub mime_type: String,
+    pub name: String,
 }
 
 /// Information about a text data stream.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct TextStreamInfo {
-    base: BaseInfo,
-    text: TextSpecificInfo,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct BaseInfo {
-    id: String,
-    topic: String,
-    timestamp: DateTime<Utc>,
-    total_length: Option<u64>,
-    attributes: HashMap<String, String>,
-    mime_type: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ByteSpecificInfo {
-    name: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct TextSpecificInfo {
-    operation_type: OperationType,
-    version: i32,
-    reply_to_stream_id: Option<String>,
-    attached_stream_ids: Vec<String>,
-    generated: bool,
+    pub id: String,
+    pub topic: String,
+    pub timestamp: DateTime<Utc>,
+    pub total_length: Option<u64>,
+    pub attributes: HashMap<String, String>,
+    pub mime_type: String,
+    pub operation_type: OperationType,
+    pub version: i32,
+    pub reply_to_stream_id: Option<String>,
+    pub attached_stream_ids: Vec<String>,
+    pub generated: bool,
 }
 
 /// Operation type for text streams.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum OperationType {
     Create,
     Update,
     Delete,
     Reaction,
-}
-
-#[rustfmt::skip]
-impl StreamInfo for ByteStreamInfo {
-    fn id(&self) -> &str { &self.base.id }
-    fn topic(&self) -> &str { &self.base.topic }
-    fn timestamp(&self) -> DateTime<Utc> { self.base.timestamp }
-    fn total_length(&self) -> Option<u64> { self.base.total_length }
-    fn attributes(&self) -> &HashMap<String, String> { &self.base.attributes }
-    fn mime_type(&self) -> &str { &self.base.mime_type }
-}
-
-impl ByteStreamInfo {
-    pub fn name(&self) -> &str {
-        &self.byte.name
-    }
-}
-
-#[rustfmt::skip]
-impl StreamInfo for TextStreamInfo {
-    fn id(&self) -> &str { &self.base.id }
-    fn topic(&self) -> &str { &self.base.topic }
-    fn timestamp(&self) -> DateTime<Utc> { self.base.timestamp }
-    fn total_length(&self) -> Option<u64> { self.base.total_length }
-    fn attributes(&self) -> &HashMap<String, String> { &self.base.attributes }
-    fn mime_type(&self) -> &str { &self.base.mime_type }
-}
-
-impl TextStreamInfo {
-    pub fn operation_type(&self) -> OperationType {
-        self.text.operation_type
-    }
-    pub fn version(&self) -> i32 {
-        self.text.version
-    }
-    pub fn reply_to_stream_id(&self) -> Option<&String> {
-        self.text.reply_to_stream_id.as_ref()
-    }
-    pub fn attached_stream_ids(&self) -> &[String] {
-        &self.text.attached_stream_ids
-    }
-    pub fn generated(&self) -> bool {
-        self.text.generated
-    }
-}
-
-macro_rules! info_dispatch {
-    ([$($variant:ident),+]) => {
-        enum_dispatch!(
-            [$($variant),+];
-            pub fn id(self: &Self) -> &str;
-            pub fn total_length(self: &Self) -> Option<u64>;
-        );
-    };
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AnyStreamInfo {
-    Byte(ByteStreamInfo),
-    Text(TextStreamInfo),
-}
-
-impl AnyStreamInfo {
-    info_dispatch!([Byte, Text]);
 }
 
 // MARK: - Protocol type conversion
@@ -159,48 +66,34 @@ impl TryFrom<proto::Header> for AnyStreamInfo {
         let Some(content_header) = header.content_header.take() else {
             Err(StreamError::InvalidHeader)?
         };
+        let timestamp =
+            DateTime::<Utc>::from_timestamp_millis(header.timestamp).unwrap_or_else(|| Utc::now());
         let info = match content_header {
-            proto::header::ContentHeader::ByteHeader(byte_header) => {
-                Self::Byte(ByteStreamInfo { byte: byte_header.into(), base: header.into() })
-            }
-            proto::header::ContentHeader::TextHeader(text_header) => {
-                Self::Text(TextStreamInfo { text: text_header.into(), base: header.into() })
-            }
+            proto::header::ContentHeader::ByteHeader(byte_header) => Self::Byte(ByteStreamInfo {
+                id: header.stream_id,
+                topic: header.topic,
+                timestamp,
+                total_length: header.total_length,
+                attributes: header.attributes,
+                mime_type: header.mime_type,
+                name: byte_header.name,
+            }),
+            proto::header::ContentHeader::TextHeader(text_header) => Self::Text(TextStreamInfo {
+                id: header.stream_id,
+                topic: header.topic,
+                timestamp,
+                total_length: header.total_length,
+                attributes: header.attributes,
+                mime_type: header.mime_type,
+                operation_type: text_header.operation_type().into(),
+                version: text_header.version,
+                reply_to_stream_id: (!text_header.reply_to_stream_id.is_empty())
+                    .then_some(text_header.reply_to_stream_id),
+                attached_stream_ids: text_header.attached_stream_ids,
+                generated: text_header.generated,
+            }),
         };
         Ok(info)
-    }
-}
-
-impl From<proto::Header> for BaseInfo {
-    fn from(header: proto::Header) -> Self {
-        BaseInfo {
-            id: header.stream_id,
-            topic: header.topic,
-            timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
-                .unwrap_or_else(|| Utc::now()),
-            total_length: header.total_length,
-            attributes: header.attributes,
-            mime_type: header.mime_type,
-        }
-    }
-}
-
-impl From<proto::ByteHeader> for ByteSpecificInfo {
-    fn from(header: proto::ByteHeader) -> Self {
-        ByteSpecificInfo { name: header.name }
-    }
-}
-
-impl From<proto::TextHeader> for TextSpecificInfo {
-    fn from(header: proto::TextHeader) -> Self {
-        TextSpecificInfo {
-            operation_type: header.operation_type().into(),
-            version: header.version,
-            reply_to_stream_id: (!header.reply_to_stream_id.is_empty())
-                .then_some(header.reply_to_stream_id),
-            attached_stream_ids: header.attached_stream_ids,
-            generated: header.generated,
-        }
     }
 }
 
@@ -215,16 +108,25 @@ impl From<proto::OperationType> for OperationType {
     }
 }
 
-impl From<ByteStreamInfo> for AnyStreamInfo {
-    /// Converts to enum variant [StreamInfo::Byte].
-    fn from(info: ByteStreamInfo) -> Self {
-        Self::Byte(info)
-    }
+// MARK: - Dispatch
+
+#[derive(Clone, Debug)]
+pub(super) enum AnyStreamInfo {
+    Byte(ByteStreamInfo),
+    Text(TextStreamInfo),
 }
 
-impl From<TextStreamInfo> for AnyStreamInfo {
-    /// Converts to enum variant [StreamInfo::Text].
-    fn from(info: TextStreamInfo) -> Self {
-        Self::Text(info)
+impl AnyStreamInfo {
+    pub(super) fn id(&self) -> &str {
+        match self {
+            AnyStreamInfo::Byte(info) => &info.id,
+            AnyStreamInfo::Text(info) => &info.id,
+        }
+    }
+    pub(super) fn total_length(&self) -> Option<u64> {
+        match self {
+            AnyStreamInfo::Byte(info) => info.total_length,
+            AnyStreamInfo::Text(info) => info.total_length,
+        }
     }
 }

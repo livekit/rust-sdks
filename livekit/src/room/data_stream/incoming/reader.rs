@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::manager::IncomingChunk;
-use crate::data_stream::info::{AnyStreamInfo, StreamInfo};
+use crate::data_stream::info::AnyStreamInfo;
 use crate::data_stream::{
     ByteStreamInfo, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
@@ -29,7 +29,7 @@ pub trait StreamReader: Stream<Item = StreamResult<(Self::Output, StreamProgress
     type Output;
 
     /// Information about the underlying data stream.
-    type Info: StreamInfo;
+    type Info;
 
     /// Returns a reference to the stream info.
     fn info(&self) -> &Self::Info;
@@ -87,7 +87,7 @@ impl ByteStreamReader {
     ) -> StreamResult<std::path::PathBuf> {
         let directory =
             directory.map(|d| d.as_ref().to_path_buf()).unwrap_or_else(|| std::env::temp_dir());
-        let name = name_override.unwrap_or_else(|| self.info.name());
+        let name = name_override.unwrap_or_else(|| &self.info.name);
         let file_path = directory.join(name);
 
         let mut file = tokio::fs::File::create(&file_path).await.map_err(StreamError::Io)?;
@@ -150,15 +150,13 @@ impl Stream for TextStreamReader {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         match Pin::new(&mut this.rx).poll_recv(cx) {
-            Poll::Ready(Some(Ok(chunk))) => {
-                match String::from_utf8(chunk.content.into()) {
-                    Ok(content) => Poll::Ready(Some(Ok((content, chunk.progress)))),
-                    Err(e) => {
-                        this.rx.close();
-                        Poll::Ready(Some(Err(StreamError::from(e))))
-                    }
+            Poll::Ready(Some(Ok(chunk))) => match String::from_utf8(chunk.content.into()) {
+                Ok(content) => Poll::Ready(Some(Ok((content, chunk.progress)))),
+                Err(e) => {
+                    this.rx.close();
+                    Poll::Ready(Some(Err(StreamError::from(e))))
                 }
-            }
+            },
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,

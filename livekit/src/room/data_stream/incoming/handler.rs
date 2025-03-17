@@ -17,7 +17,7 @@ use super::{
     AnyStreamReader, StreamReader,
 };
 use crate::{
-    data_stream::{info::StreamInfo, StreamError, StreamResult},
+    data_stream::{StreamError, StreamResult},
     id::ParticipantIdentity,
 };
 use std::{collections::HashMap, error::Error, future::Future, pin::Pin, sync::Arc};
@@ -73,16 +73,14 @@ impl HandlerRegistry {
     pub(super) fn dispatch(&self, reader: AnyStreamReader, identity: ParticipantIdentity) -> bool {
         match reader {
             AnyStreamReader::Byte(reader) => {
-                let topic = reader.info().topic();
-                let Some(handler) = self.byte_handlers.get(topic) else {
+                let Some(handler) = self.byte_handlers.get(&reader.info().topic) else {
                     return false;
                 };
                 tokio::spawn(handler(reader, identity));
                 true
             }
             AnyStreamReader::Text(reader) => {
-                let topic = reader.info().topic();
-                let Some(handler) = self.text_handlers.get(topic) else {
+                let Some(handler) = self.text_handlers.get(&reader.info().topic) else {
                     return false;
                 };
                 tokio::spawn(handler(reader, identity));
