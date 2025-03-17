@@ -39,26 +39,34 @@ pub struct HandlerRegistry {
 impl HandlerRegistry {
     pub fn register_byte_stream_handler(
         &mut self,
-        topic: String,
+        topic: &str,
         handler: ByteStreamHandler,
     ) -> StreamResult<()> {
-        if self.byte_handlers.contains_key(&topic) {
+        if self.byte_handlers.contains_key(topic) {
             Err(StreamError::HandlerAlreadyRegistered)?
         }
-        self.byte_handlers.insert(topic, handler);
+        self.byte_handlers.insert(topic.to_owned(), handler);
         Ok(())
     }
 
     pub fn register_text_stream_handler(
         &mut self,
-        topic: String,
+        topic: &str,
         handler: TextStreamHandler,
     ) -> StreamResult<()> {
-        if self.text_handlers.contains_key(&topic) {
+        if self.text_handlers.contains_key(topic) {
             Err(StreamError::HandlerAlreadyRegistered)?
         }
-        self.text_handlers.insert(topic, handler);
+        self.text_handlers.insert(topic.to_owned(), handler);
         Ok(())
+    }
+
+    pub fn unregister_byte_stream_handler(&mut self, topic: &str) {
+        self.byte_handlers.remove(topic);
+    }
+
+    pub fn unregister_text_stream_handler(&mut self, topic: &str) {
+        self.text_handlers.remove(topic);
     }
 
     /// Dispatch the given stream reader to a registered handler (if one is registered).

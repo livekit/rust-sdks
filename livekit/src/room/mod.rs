@@ -33,9 +33,9 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
 pub use self::{
+    data_stream::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
     participant::ParticipantKind,
-    data_stream::*
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
@@ -46,7 +46,6 @@ use crate::{
         SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
 };
-
 
 pub mod data_stream;
 pub mod e2ee;
@@ -672,7 +671,7 @@ impl Room {
     ///
     pub fn register_byte_stream_handler(
         &self,
-        topic: String,
+        topic: &str,
         handler: impl Fn(ByteStreamReader, ParticipantIdentity) -> StreamHandlerFuture
             + Send
             + Sync
@@ -694,13 +693,31 @@ impl Room {
     ///
     pub fn register_text_stream_handler(
         &self,
-        topic: String,
+        topic: &str,
         handler: impl Fn(TextStreamReader, ParticipantIdentity) -> StreamHandlerFuture
             + Send
             + Sync
             + 'static,
     ) -> StreamResult<()> {
         self.inner.register_text_stream_handler(topic, handler)
+    }
+
+    /// Unregisters a handler for incoming byte streams matching the given topic.
+    ///
+    /// # Parameters
+    /// * `topic` - Topic identifier for which the handler should be unregistered.
+    ///
+    pub fn unregister_byte_stream_handler(&self, topic: &str) {
+        self.inner.unregister_byte_stream_handler(topic)
+    }
+
+    /// Unregisters a handler for incoming text streams matching the given topic.
+    ///
+    /// # Parameters
+    /// * `topic` - Topic identifier for which the handler should be unregistered.
+    ///
+    pub fn unregister_text_stream_handler(&self, topic: &str) {
+        self.inner.unregister_text_stream_handler(topic)
     }
 }
 
@@ -1557,7 +1574,7 @@ impl RoomSession {
 
     pub(crate) fn register_byte_stream_handler(
         &self,
-        topic: String,
+        topic: &str,
         handler: impl Fn(ByteStreamReader, ParticipantIdentity) -> StreamHandlerFuture
             + Send
             + Sync
@@ -1571,7 +1588,7 @@ impl RoomSession {
 
     pub(crate) fn register_text_stream_handler(
         &self,
-        topic: String,
+        topic: &str,
         handler: impl Fn(TextStreamReader, ParticipantIdentity) -> StreamHandlerFuture
             + Send
             + Sync
@@ -1581,6 +1598,14 @@ impl RoomSession {
             .lock()
             .handlers
             .register_text_stream_handler(topic, Arc::new(handler))
+    }
+
+    pub(crate) fn unregister_byte_stream_handler(&self, topic: &str) {
+        self.incoming_stream_manager.lock().handlers.unregister_byte_stream_handler(topic);
+    }
+
+    pub(crate) fn unregister_text_stream_handler(&self, topic: &str) {
+        self.incoming_stream_manager.lock().handlers.unregister_text_stream_handler(topic);
     }
 }
 
