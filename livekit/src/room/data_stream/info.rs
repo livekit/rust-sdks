@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{StreamError, StreamId};
+use super::StreamError;
 use chrono::{DateTime, Utc};
 use livekit_protocol::{data_stream as proto, enum_dispatch};
 use std::collections::HashMap;
@@ -20,7 +20,7 @@ use std::collections::HashMap;
 /// Information about a data stream.
 pub trait StreamInfo {
     /// Unique identifier of the stream.
-    fn id(&self) -> &StreamId;
+    fn id(&self) -> &str;
 
     /// Topic name used to route the stream to the appropriate handler.
     fn topic(&self) -> &str;
@@ -42,7 +42,7 @@ macro_rules! info_dispatch {
     ([$($variant:ident),+]) => {
         enum_dispatch!(
             [$($variant),+];
-            fn id(self: &Self) -> &StreamId;
+            fn id(self: &Self) -> &str;
             fn topic(self: &Self) -> &str;
             fn timestamp(self: &Self) -> DateTime<Utc>;
             fn total_length(self: &Self) -> Option<u64>;
@@ -78,7 +78,7 @@ pub struct TextStreamInfo {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BaseInfo {
-    id: StreamId,
+    id: String,
     topic: String,
     timestamp: DateTime<Utc>,
     total_length: Option<u64>,
@@ -95,8 +95,8 @@ struct ByteSpecificInfo {
 struct TextSpecificInfo {
     operation_type: OperationType,
     version: i32,
-    reply_to_stream_id: Option<StreamId>,
-    attached_stream_ids: Vec<StreamId>,
+    reply_to_stream_id: Option<String>,
+    attached_stream_ids: Vec<String>,
     generated: bool,
 }
 
@@ -107,12 +107,12 @@ pub enum OperationType {
     Create,
     Update,
     Delete,
-    Reaction
+    Reaction,
 }
 
 #[rustfmt::skip]
 impl StreamInfo for ByteStreamInfo {
-    fn id(&self) -> &StreamId { &self.base.id }
+    fn id(&self) -> &str { &self.base.id }
     fn topic(&self) -> &str { &self.base.topic }
     fn timestamp(&self) -> DateTime<Utc> { self.base.timestamp }
     fn total_length(&self) -> Option<u64> { self.base.total_length }
@@ -128,7 +128,7 @@ impl ByteStreamInfo {
 
 #[rustfmt::skip]
 impl StreamInfo for TextStreamInfo {
-    fn id(&self) -> &StreamId { &self.base.id }
+    fn id(&self) -> &str { &self.base.id }
     fn topic(&self) -> &str { &self.base.topic }
     fn timestamp(&self) -> DateTime<Utc> { self.base.timestamp }
     fn total_length(&self) -> Option<u64> { self.base.total_length }
@@ -143,10 +143,10 @@ impl TextStreamInfo {
     pub fn version(&self) -> i32 {
         self.text.version
     }
-    pub fn reply_to_stream_id(&self) -> Option<&StreamId> {
+    pub fn reply_to_stream_id(&self) -> Option<&String> {
         self.text.reply_to_stream_id.as_ref()
     }
-    pub fn attached_stream_ids(&self) -> &[StreamId] {
+    pub fn attached_stream_ids(&self) -> &[String] {
         &self.text.attached_stream_ids
     }
     pub fn generated(&self) -> bool {
@@ -178,7 +178,7 @@ impl TryFrom<proto::Header> for AnyStreamInfo {
 impl From<proto::Header> for BaseInfo {
     fn from(header: proto::Header) -> Self {
         BaseInfo {
-            id: StreamId(header.stream_id),
+            id: header.stream_id,
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
                 .unwrap_or_else(|| Utc::now()),
@@ -201,8 +201,8 @@ impl From<proto::TextHeader> for TextSpecificInfo {
             operation_type: header.operation_type().into(),
             version: header.version,
             reply_to_stream_id: (!header.reply_to_stream_id.is_empty())
-                .then_some(StreamId(header.reply_to_stream_id)),
-            attached_stream_ids: header.attached_stream_ids.into_iter().map(StreamId).collect(),
+                .then_some(header.reply_to_stream_id),
+            attached_stream_ids: header.attached_stream_ids,
             generated: header.generated,
         }
     }

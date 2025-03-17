@@ -17,7 +17,7 @@ use crate::{
     data_stream::{
         incoming::AnyStreamReader,
         info::{AnyStreamInfo, StreamInfo},
-        StreamError, StreamId, StreamProgress,
+        StreamError, StreamProgress,
     },
     id::ParticipantIdentity,
 };
@@ -38,7 +38,7 @@ struct Descriptor {
 
 #[derive(Default)]
 pub struct IncomingStreamManager {
-    open_streams: HashMap<StreamId, Descriptor>,
+    open_streams: HashMap<String, Descriptor>,
     pub(crate) handlers: HandlerRegistry,
 }
 
@@ -51,11 +51,11 @@ impl IncomingStreamManager {
             return;
         };
 
-        let id = info.id().clone();
+        let id = info.id().to_owned();
         let bytes_total = info.total_length();
 
         if self.open_streams.contains_key(&id) {
-            log::error!("Stream '{}' already open", id.0);
+            log::error!("Stream '{}' already open", id);
             return;
         }
 
@@ -70,7 +70,7 @@ impl IncomingStreamManager {
 
     /// Handles an incoming chunk packet.
     pub fn handle_chunk(&mut self, chunk: proto::Chunk) {
-        let id = StreamId(chunk.stream_id);
+        let id = chunk.stream_id;
         let Some(descriptor) = self.open_streams.get_mut(&id) else {
             return;
         };
@@ -98,7 +98,7 @@ impl IncomingStreamManager {
 
     /// Handles an incoming trailer packet.
     pub fn handle_trailer(&mut self, trailer: proto::Trailer) {
-        let id = StreamId(trailer.stream_id);
+        let id = trailer.stream_id;
         let Some(descriptor) = self.open_streams.get_mut(&id) else {
             return;
         };
@@ -117,7 +117,7 @@ impl IncomingStreamManager {
         self.close_stream(&id);
     }
 
-    fn yield_chunk(&mut self, id: &StreamId, chunk: IncomingChunk) {
+    fn yield_chunk(&mut self, id: &str, chunk: IncomingChunk) {
         let Some(descriptor) = self.open_streams.get_mut(id) else {
             return;
         };
@@ -127,12 +127,12 @@ impl IncomingStreamManager {
         }
     }
 
-    fn close_stream(&mut self, id: &StreamId) {
+    fn close_stream(&mut self, id: &str) {
         // Dropping the sender closes the channel.
         self.open_streams.remove(id);
     }
 
-    fn close_stream_with_error(&mut self, id: &StreamId, error: StreamError) {
+    fn close_stream_with_error(&mut self, id: &str, error: StreamError) {
         if let Some(descriptor) = self.open_streams.remove(id) {
             let _ = descriptor.chunk_tx.send(Err(error));
         }

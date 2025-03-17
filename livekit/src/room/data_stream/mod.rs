@@ -13,25 +13,14 @@
 // limitations under the License.
 
 use thiserror::Error;
-use libwebrtc::native::create_random_uuid;
 
 mod info;
 mod incoming;
 // mod outgoing;
 
 pub use info::{ByteStreamInfo, TextStreamInfo};
-pub use incoming::{ByteStreamReader, TextStreamReader, StreamReader};
+pub use incoming::{ByteStreamReader, TextStreamReader, StreamReader, AnyStreamReader};
 pub(crate) use incoming::{IncomingStreamManager, StreamHandlerFuture};
-
-/// Unique identifier of a data stream.
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct StreamId(String);
-
-impl StreamId {
-    pub(crate) fn new() -> Self {
-        Self(create_random_uuid())
-    }
-}
 
 /// Progress of an incoming or outgoing data stream.
 #[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]
