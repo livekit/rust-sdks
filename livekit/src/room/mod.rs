@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
-
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -27,15 +25,17 @@ use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
+use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
 pub use self::{
     e2ee::{manager::E2eeManager, E2eeOptions},
     participant::ParticipantKind,
+    data_stream::*
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
@@ -47,6 +47,8 @@ use crate::{
     },
 };
 
+
+pub mod data_stream;
 pub mod e2ee;
 pub mod id;
 pub mod options;
@@ -168,14 +170,17 @@ pub enum RoomEvent {
         message: ChatMessage,
         participant: Option<RemoteParticipant>,
     },
+    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamHeaderReceived {
         header: proto::data_stream::Header,
         participant_identity: String,
     },
+    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamChunkReceived {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
+    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamTrailerReceived {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
@@ -390,6 +395,8 @@ pub(crate) struct RoomSession {
     local_participant: LocalParticipant,
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
+    incoming_stream_manager: Mutex<IncomingStreamManager>,
+    // outgoing_stream_manager: Mutex<IncomingStreamManager>,
     room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
@@ -533,6 +540,8 @@ impl Room {
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
+            incoming_stream_manager: Mutex::new(Default::default()),
+            //outgoing_stream_manager: Mutex::new(Default::default()),
             room_task: Default::default(),
         });
 
@@ -648,6 +657,50 @@ impl Room {
             DataPacketKind::Lossy => self.inner.info.read().lossy_dc_options.clone(),
             DataPacketKind::Reliable => self.inner.info.read().reliable_dc_options.clone(),
         }
+    }
+
+    /// Registers a handler for incoming byte streams matching the given topic.
+    ///
+    /// # Parameters
+    ///
+    /// * `topic` - Topic identifier that filters which streams will be handled.
+    ///   Only streams with a matching topic will trigger the handler.
+    /// * `handler` - Handler that is invoked whenever a remote participant
+    ///   opens a new stream with the matching topic. The handler receives a
+    ///   `ByteStreamReader` for consuming the stream data and the identity of
+    ///   the remote participant who initiated the stream.
+    ///
+    pub fn register_byte_stream_handler(
+        &self,
+        topic: String,
+        handler: impl Fn(ByteStreamReader, ParticipantIdentity) -> StreamHandlerFuture
+            + Send
+            + Sync
+            + 'static,
+    ) -> StreamResult<()> {
+        self.inner.register_byte_stream_handler(topic, handler)
+    }
+
+    /// Registers a handler for incoming text streams matching the given topic.
+    ///
+    /// # Parameters
+    ///
+    /// * `topic` - Topic identifier that filters which streams will be handled.
+    ///   Only streams with a matching topic will trigger the handler.
+    /// * `handler` - Handler that is invoked whenever a remote participant
+    ///   opens a new stream with the matching topic. The handler receives a
+    ///   `TextStreamReader` for consuming the stream data and the identity of
+    ///   the remote participant who initiated the stream.
+    ///
+    pub fn register_text_stream_handler(
+        &self,
+        topic: String,
+        handler: impl Fn(TextStreamReader, ParticipantIdentity) -> StreamHandlerFuture
+            + Send
+            + Sync
+            + 'static,
+    ) -> StreamResult<()> {
+        self.inner.register_text_stream_handler(topic, handler)
     }
 }
 
@@ -1296,6 +1349,11 @@ impl RoomSession {
         header: proto::data_stream::Header,
         participant_identity: String,
     ) {
+        self.incoming_stream_manager
+            .lock()
+            .handle_header(header.clone(), participant_identity.clone());
+
+        // For backwards compatibly
         let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1305,6 +1363,9 @@ impl RoomSession {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     ) {
+        self.incoming_stream_manager.lock().handle_chunk(chunk.clone());
+
+        // For backwards compatibly
         let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1314,6 +1375,9 @@ impl RoomSession {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
     ) {
+        self.incoming_stream_manager.lock().handle_trailer(trailer.clone());
+
+        // For backwards compatibly
         let event = RoomEvent::StreamTrailerReceived { trailer, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1489,6 +1553,34 @@ impl RoomSession {
             return Some(Participant::Local(self.local_participant.clone()));
         }
         return self.get_participant_by_identity(identity).map(Participant::Remote);
+    }
+
+    pub(crate) fn register_byte_stream_handler(
+        &self,
+        topic: String,
+        handler: impl Fn(ByteStreamReader, ParticipantIdentity) -> StreamHandlerFuture
+            + Send
+            + Sync
+            + 'static,
+    ) -> StreamResult<()> {
+        self.incoming_stream_manager
+            .lock()
+            .handlers
+            .register_byte_stream_handler(topic, Arc::new(handler))
+    }
+
+    pub(crate) fn register_text_stream_handler(
+        &self,
+        topic: String,
+        handler: impl Fn(TextStreamReader, ParticipantIdentity) -> StreamHandlerFuture
+            + Send
+            + Sync
+            + 'static,
+    ) -> StreamResult<()> {
+        self.incoming_stream_manager
+            .lock()
+            .handlers
+            .register_text_stream_handler(topic, Arc::new(handler))
     }
 }
 
