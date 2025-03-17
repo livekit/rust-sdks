@@ -18,7 +18,7 @@ mod info;
 mod incoming;
 // mod outgoing;
 
-pub use info::{ByteStreamInfo, TextStreamInfo};
+pub use info::{ByteStreamInfo, TextStreamInfo, OperationType};
 pub use incoming::{ByteStreamReader, TextStreamReader, StreamReader, AnyStreamReader};
 pub(crate) use incoming::{IncomingStreamManager, StreamHandlerFuture};
 
