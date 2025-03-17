@@ -49,7 +49,6 @@ pub struct TextStreamInfo {
 
 /// Operation type for text streams.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
-#[non_exhaustive]
 pub enum OperationType {
     Create,
     Update,
