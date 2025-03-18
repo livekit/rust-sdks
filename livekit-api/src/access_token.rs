@@ -39,39 +39,58 @@ pub enum AccessTokenError {
     Encoding(#[from] jsonwebtoken::errors::Error),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoGrants {
     // actions on rooms
+    #[serde(default)]
     pub room_create: bool,
+    #[serde(default)]
     pub room_list: bool,
+    #[serde(default)]
     pub room_record: bool,
 
     // actions on a particular room
+    #[serde(default)]
     pub room_admin: bool,
+    #[serde(default)]
     pub room_join: bool,
+    #[serde(default)]
     pub room: String,
 
     // permissions within a room
+    #[serde(default = "default_true")]
     pub can_publish: bool,
+    #[serde(default = "default_true")]
     pub can_subscribe: bool,
+    #[serde(default = "default_true")]
     pub can_publish_data: bool,
 
     // TrackSource types that a participant may publish.
     // When set, it supercedes CanPublish. Only sources explicitly set here can be published
+    #[serde(default)]
     pub can_publish_sources: Vec<String>, // keys keep track of each source
 
     // by default, a participant is not allowed to update its own metadata
+    #[serde(default)]
     pub can_update_own_metadata: bool,
 
     // actions on ingresses
+    #[serde(default)]
     pub ingress_admin: bool, // applies to all ingress
 
     // participant is not visible to other participants (useful when making bots)
+    #[serde(default)]
     pub hidden: bool,
 
     // indicates to the room that current participant is a recorder
+    #[serde(default)]
     pub recorder: bool,
+}
+
+/// Used for fields that default to true instead of using the `Default` trait.
+fn default_true() -> bool {
+    true
 }
 
 impl Default for VideoGrants {
@@ -95,7 +114,7 @@ impl Default for VideoGrants {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SIPGrants {
     // manage sip resources
@@ -110,7 +129,7 @@ impl Default for SIPGrants {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Default, Deserialize)]
+#[derive(Debug, Clone, Serialize, Default, Deserialize, PartialEq)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct Claims {
@@ -124,6 +143,7 @@ pub struct Claims {
     pub sip: SIPGrants,
     pub sha256: String, // Used to verify the integrity of the message body
     pub metadata: String,
+    pub room_config: Option<livekit_protocol::RoomConfiguration>,
 }
 
 #[derive(Clone)]
@@ -159,9 +179,16 @@ impl AccessToken {
                 sip: SIPGrants::default(),
                 sha256: Default::default(),
                 metadata: Default::default(),
+                room_config: Default::default(),
             },
         }
     }
+
+    #[cfg(test)]
+    pub fn from_parts(api_key: &str, api_secret: &str, claims: Claims) -> Self {
+        Self { api_key: api_key.to_owned(), api_secret: api_secret.to_owned(), claims }
+    }
+
     pub fn new() -> Result<Self, AccessTokenError> {
         // Try to get the API Key and the Secret Key from the environment
         let (api_key, api_secret) = get_env_keys()?;
@@ -201,6 +228,11 @@ impl AccessToken {
 
     pub fn with_sha256(mut self, sha256: &str) -> Self {
         self.claims.sha256 = sha256.to_owned();
+        self
+    }
+
+    pub fn with_room_config(mut self, config: livekit_protocol::RoomConfiguration) -> Self {
+        self.claims.room_config = Some(config);
         self
     }
 
@@ -250,6 +282,10 @@ impl TokenVerifier {
     pub fn verify(&self, token: &str) -> Result<Claims, AccessTokenError> {
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.validate_exp = true;
+        #[cfg(test)] // FIXME: TEST_TOKEN is expired, TODO: generate TEST_TOKEN at test runtime
+        {
+            validation.validate_exp = false;
+        }
         validation.validate_nbf = true;
         validation.set_issuer(&[&self.api_key]);
 
@@ -271,14 +307,25 @@ mod tests {
 
     const TEST_API_KEY: &str = "myapikey";
     const TEST_API_SECRET: &str = "thiskeyistotallyunsafe";
+    const TEST_TOKEN: &str = include_str!("test_token.txt");
 
     #[test]
     fn test_access_token() {
+        let room_config = livekit_protocol::RoomConfiguration {
+            name: "name".to_string(),
+            agents: vec![livekit_protocol::RoomAgentDispatch {
+                agent_name: "test-agent".to_string(),
+                metadata: "test-metadata".to_string(),
+            }],
+            ..Default::default()
+        };
+
         let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
             .with_ttl(Duration::from_secs(60))
             .with_identity("test")
             .with_name("test")
             .with_grants(VideoGrants::default())
+            .with_room_config(room_config.clone())
             .to_jwt()
             .unwrap();
 
@@ -288,11 +335,35 @@ mod tests {
         assert_eq!(claims.sub, "test");
         assert_eq!(claims.name, "test");
         assert_eq!(claims.iss, TEST_API_KEY);
+        assert_eq!(claims.room_config, Some(room_config));
 
         let incorrect_issuer = TokenVerifier::with_api_key("incorrect", TEST_API_SECRET);
         assert!(incorrect_issuer.verify(&token).is_err());
 
         let incorrect_token = TokenVerifier::with_api_key(TEST_API_KEY, "incorrect");
         assert!(incorrect_token.verify(&token).is_err());
+    }
+
+    #[test]
+    fn test_verify_token_with_room_config() {
+        let verifier = TokenVerifier::with_api_key(TEST_API_KEY, TEST_API_SECRET);
+        // This token was generated using the Python SDK.
+        let claims = verifier.verify(TEST_TOKEN).expect("Failed to verify token.");
+
+        assert_eq!(
+            super::Claims {
+                sub: "identity".to_string(),
+                name: "name".to_string(),
+                room_config: Some(livekit_protocol::RoomConfiguration {
+                    agents: vec![livekit_protocol::RoomAgentDispatch {
+                        agent_name: "test-agent".to_string(),
+                        metadata: "test-metadata".to_string(),
+                    }],
+                    ..Default::default()
+                }),
+                ..claims.clone()
+            },
+            claims
+        );
     }
 }

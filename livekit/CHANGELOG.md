@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.7] - 2025-03-18
+
+### Fixed
+
+- Move RPC handlers to room
+
 ## [0.7.6] - 2025-02-28
 
 ### Added
