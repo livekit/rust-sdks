@@ -164,6 +164,23 @@ static void nv12_to_i420(const uint8_t* src_y,
                                     dst_v, dst_stride_v, width, height));
 }
 
+static void i420_to_nv12(const uint8_t* src_y,
+                         int src_stride_y,
+                         const uint8_t* src_u,
+                         int src_stride_u,
+                         uint8_t* src_v,
+                         int src_stride_v,
+                         uint8_t* dst_y,
+                         int dst_stride_y,
+                         uint8_t* dst_uv,
+                         int dst_stride_uv,
+                         int width,
+                         int height) {
+  THROW_ON_ERROR(webrtc::NV12ToI420(src_y, src_stride_y, src_u, src_stride_u,
+                                    src_v, src_stride_v, dst_y, dst_stride_y,
+                                    dst_uv, dst_stride_uv, width, height));
+}
+
 static void i444_to_i420(const uint8_t* src_y,
                          int src_stride_y,
                          const uint8_t* src_u,
