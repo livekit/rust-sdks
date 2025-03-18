@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn register_receiver_methods(greeters_room: Arc<Room>, math_genius_room: Arc<Room>) {
-    greeters_room.local_participant().register_rpc_method("arrival".to_string(), |data| {
+    greeters_room.register_rpc_method("arrival".to_string(), |data| {
         Box::pin(async move {
             println!(
                 "[{}] [Greeter] Oh {} arrived and said \"{}\"",
@@ -94,7 +94,7 @@ async fn register_receiver_methods(greeters_room: Arc<Room>, math_genius_room: A
         })
     });
 
-    math_genius_room.local_participant().register_rpc_method(
+    math_genius_room.register_rpc_method(
         "square-root".to_string(),
         |data| {
             Box::pin(async move {
@@ -118,7 +118,7 @@ async fn register_receiver_methods(greeters_room: Arc<Room>, math_genius_room: A
         },
     );
 
-    math_genius_room.local_participant().register_rpc_method("divide".to_string(), |data| {
+    math_genius_room.register_rpc_method("divide".to_string(), |data| {
         Box::pin(async move {
             let json_data: Value = serde_json::from_str(&data.payload).unwrap();
             let dividend = json_data["dividend"].as_i64().unwrap();
@@ -137,8 +137,9 @@ async fn register_receiver_methods(greeters_room: Arc<Room>, math_genius_room: A
         })
     });
 
-    math_genius_room.local_participant().register_rpc_method("nested-calculation".to_string(), move |data| {
-        let math_genius_room = math_genius_room.clone();
+    let inner = math_genius_room.clone();
+    math_genius_room.register_rpc_method("nested-calculation".to_string(), move |data| {
+        let math_genius_room = inner.clone();
         Box::pin(async move {
             let json_data: Value = serde_json::from_str(&data.payload).unwrap();
             let number = json_data["number"].as_f64().unwrap();
@@ -269,7 +270,7 @@ async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
 }
 
 async fn perform_nested_calculation(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
-    room.local_participant().register_rpc_method("provide-intermediate".to_string(), |data| {
+    room.register_rpc_method("provide-intermediate".to_string(), |data| {
         Box::pin(async move {
             let json_data: Value = serde_json::from_str(&data.payload).unwrap();
             let original = json_data["original"].as_f64().unwrap();

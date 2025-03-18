@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Weak;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use livekit_protocol as proto;
@@ -28,6 +29,8 @@ use crate::room::utils;
 pub use local_participant::*;
 pub use remote_participant::*;
 pub use rpc::*;
+
+use super::RoomSession;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionQuality {
