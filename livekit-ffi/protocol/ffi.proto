@@ -289,14 +289,15 @@ message FfiEvent {
     ByteStreamOpenedEvent byte_stream_opened = 28;
     ByteStreamReaderEvent byte_stream_reader_event = 29;
     ByteStreamReaderReadAllCallback byte_stream_reader_read_all = 30;
-    ByteStreamWriterWriteCallback byte_stream_writer_write = 31;
-    ByteStreamWriterCloseCallback byte_stream_writer_close = 32;
+    ByteStreamReaderWriteToFileCallback byte_stream_reader_write_to_file = 31;
+    ByteStreamWriterWriteCallback byte_stream_writer_write = 32;
+    ByteStreamWriterCloseCallback byte_stream_writer_close = 33;
 
-    TextStreamOpenedEvent text_stream_opened = 33;
-    TextStreamReaderEvent text_stream_reader_event = 34;
-    TextStreamReaderReadAllCallback text_stream_reader_read_all = 35;
-    TextStreamWriterWriteCallback text_stream_writer_write = 36;
-    TextStreamWriterCloseCallback text_stream_writer_close = 37;
+    TextStreamOpenedEvent text_stream_opened = 34;
+    TextStreamReaderEvent text_stream_reader_event = 35;
+    TextStreamReaderReadAllCallback text_stream_reader_read_all = 36;
+    TextStreamWriterWriteCallback text_stream_writer_write = 37;
+    TextStreamWriterCloseCallback text_stream_writer_close = 38;
   }
 }
 

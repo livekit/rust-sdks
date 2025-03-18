@@ -4226,14 +4226,14 @@ pub struct TextStreamOpenedEvent {
 pub struct TextStreamReaderEvent {
     #[prost(uint64, required, tag="1")]
     pub reader_handle: u64,
-    #[prost(oneof="text_stream_reader_event::Kind", tags="2, 3")]
-    pub kind: ::core::option::Option<text_stream_reader_event::Kind>,
+    #[prost(oneof="text_stream_reader_event::Detail", tags="2, 3")]
+    pub detail: ::core::option::Option<text_stream_reader_event::Detail>,
 }
 /// Nested message and enum types in `TextStreamReaderEvent`.
 pub mod text_stream_reader_event {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Kind {
+    pub enum Detail {
         #[prost(message, tag="2")]
         ChunkReceived(super::TextStreamReaderChunkReceived),
         #[prost(message, tag="3")]
@@ -4263,7 +4263,7 @@ pub struct OwnedByteStreamReader {
     #[prost(message, required, tag="1")]
     pub handle: FfiOwnedHandle,
     #[prost(message, required, tag="2")]
-    pub info: TextStreamInfo,
+    pub info: ByteStreamInfo,
 }
 /// Reads an incoming byte stream incrementally.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4315,8 +4315,9 @@ pub struct ByteStreamReaderWriteToFileRequest {
     #[prost(uint64, required, tag="1")]
     pub reader_handle: u64,
     /// Directory to write the file in (must be writable by the current process).
-    #[prost(string, required, tag="3")]
-    pub directory: ::prost::alloc::string::String,
+    /// If not provided, the file will be written to the system's temp directory.
+    #[prost(string, optional, tag="3")]
+    pub directory: ::core::option::Option<::prost::alloc::string::String>,
     /// Name to use for the written file.
     /// If not provided, the file's name and extension will be inferred from
     /// the stream's info.
@@ -4362,14 +4363,14 @@ pub struct ByteStreamOpenedEvent {
 pub struct ByteStreamReaderEvent {
     #[prost(uint64, required, tag="1")]
     pub reader_handle: u64,
-    #[prost(oneof="byte_stream_reader_event::Kind", tags="2, 3")]
-    pub kind: ::core::option::Option<byte_stream_reader_event::Kind>,
+    #[prost(oneof="byte_stream_reader_event::Detail", tags="2, 3")]
+    pub detail: ::core::option::Option<byte_stream_reader_event::Detail>,
 }
 /// Nested message and enum types in `ByteStreamReaderEvent`.
 pub mod byte_stream_reader_event {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Kind {
+    pub enum Detail {
         #[prost(message, tag="2")]
         ChunkReceived(super::ByteStreamReaderChunkReceived),
         #[prost(message, tag="3")]
@@ -5115,7 +5116,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -5184,18 +5185,20 @@ pub mod ffi_event {
         #[prost(message, tag="30")]
         ByteStreamReaderReadAll(super::ByteStreamReaderReadAllCallback),
         #[prost(message, tag="31")]
-        ByteStreamWriterWrite(super::ByteStreamWriterWriteCallback),
+        ByteStreamReaderWriteToFile(super::ByteStreamReaderWriteToFileCallback),
         #[prost(message, tag="32")]
-        ByteStreamWriterClose(super::ByteStreamWriterCloseCallback),
+        ByteStreamWriterWrite(super::ByteStreamWriterWriteCallback),
         #[prost(message, tag="33")]
-        TextStreamOpened(super::TextStreamOpenedEvent),
+        ByteStreamWriterClose(super::ByteStreamWriterCloseCallback),
         #[prost(message, tag="34")]
-        TextStreamReaderEvent(super::TextStreamReaderEvent),
+        TextStreamOpened(super::TextStreamOpenedEvent),
         #[prost(message, tag="35")]
-        TextStreamReaderReadAll(super::TextStreamReaderReadAllCallback),
+        TextStreamReaderEvent(super::TextStreamReaderEvent),
         #[prost(message, tag="36")]
-        TextStreamWriterWrite(super::TextStreamWriterWriteCallback),
+        TextStreamReaderReadAll(super::TextStreamReaderReadAllCallback),
         #[prost(message, tag="37")]
+        TextStreamWriterWrite(super::TextStreamWriterWriteCallback),
+        #[prost(message, tag="38")]
         TextStreamWriterClose(super::TextStreamWriterCloseCallback),
     }
 }

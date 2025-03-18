@@ -86,7 +86,7 @@ message TextStreamOpenedEvent {
 
 message TextStreamReaderEvent {
     required uint64 reader_handle = 1;
-    oneof kind {
+    oneof detail {
         TextStreamReaderChunkReceived chunk_received = 2;
         TextStreamReaderEOS eos = 3;
     }
@@ -106,7 +106,7 @@ message TextStreamReaderEOS {
 // A reader for an incoming stream.
 message OwnedByteStreamReader {
     required FfiOwnedHandle handle = 1;
-    required TextStreamInfo info = 2;
+    required ByteStreamInfo info = 2;
 }
 
 // Reads an incoming byte stream incrementally.
@@ -135,7 +135,8 @@ message ByteStreamReaderWriteToFileRequest {
     required uint64 reader_handle = 1;
 
     // Directory to write the file in (must be writable by the current process).
-    required string directory = 3;
+    // If not provided, the file will be written to the system's temp directory.
+    optional string directory = 3;
 
     // Name to use for the written file.
     // If not provided, the file's name and extension will be inferred from
@@ -161,7 +162,7 @@ message ByteStreamOpenedEvent {
 
 message ByteStreamReaderEvent {
     required uint64 reader_handle = 1;
-    oneof kind {
+    oneof detail {
         ByteStreamReaderChunkReceived chunk_received = 2;
         ByteStreamReaderEOS eos = 3;
     }
