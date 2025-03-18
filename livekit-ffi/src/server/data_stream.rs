@@ -62,7 +62,7 @@ impl FfiByteStreamReader {
         server: &'static FfiServer,
         _request: proto::ByteStreamReaderReadIncrementalRequest,
     ) -> FfiResult<proto::ByteStreamReaderReadIncrementalResponse> {
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             let mut stream = self.inner;
             while let Some(result) = stream.next().await {
                 match result {
@@ -98,6 +98,7 @@ impl FfiByteStreamReader {
             };
             let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
         });
+        server.watch_panic(handle);
         Ok(proto::ByteStreamReaderReadIncrementalResponse {})
     }
 
@@ -107,12 +108,13 @@ impl FfiByteStreamReader {
         _request: proto::ByteStreamReaderReadAllRequest,
     ) -> FfiResult<proto::ByteStreamReaderReadAllResponse> {
         let async_id = server.next_id();
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             let result = self.inner.read_all().await.into();
             let callback =
                 proto::ByteStreamReaderReadAllCallback { async_id, result: Some(result) };
             let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderReadAll(callback));
         });
+        server.watch_panic(handle);
         Ok(proto::ByteStreamReaderReadAllResponse { async_id })
     }
 
@@ -123,7 +125,7 @@ impl FfiByteStreamReader {
     ) -> FfiResult<proto::ByteStreamReaderWriteToFileResponse> {
         let async_id = server.next_id();
 
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             let result = self
                 .inner
                 .write_to_file(request.directory, request.name_override.as_deref())
@@ -133,6 +135,7 @@ impl FfiByteStreamReader {
                 proto::ByteStreamReaderWriteToFileCallback { async_id, result: Some(result) };
             let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderWriteToFile(callback));
         });
+        server.watch_panic(handle);
 
         Ok(proto::ByteStreamReaderWriteToFileResponse { async_id })
     }
@@ -166,7 +169,7 @@ impl FfiTextStreamReader {
         server: &'static FfiServer,
         _request: proto::TextStreamReaderReadIncrementalRequest,
     ) -> FfiResult<proto::TextStreamReaderReadIncrementalResponse> {
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             let mut stream = self.inner;
             while let Some(result) = stream.next().await {
                 match result {
@@ -202,6 +205,7 @@ impl FfiTextStreamReader {
             };
             let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
         });
+        server.watch_panic(handle);
         Ok(proto::TextStreamReaderReadIncrementalResponse {})
     }
 
@@ -211,12 +215,13 @@ impl FfiTextStreamReader {
         _request: proto::TextStreamReaderReadAllRequest,
     ) -> FfiResult<proto::TextStreamReaderReadAllResponse> {
         let async_id = server.next_id();
-        server.async_runtime.spawn(async move {
+        let handle = server.async_runtime.spawn(async move {
             let result = self.inner.read_all().await.into();
             let callback =
                 proto::TextStreamReaderReadAllCallback { async_id, result: Some(result) };
             let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderReadAll(callback));
         });
+        server.watch_panic(handle);
         Ok(proto::TextStreamReaderReadAllResponse { async_id })
     }
 }
