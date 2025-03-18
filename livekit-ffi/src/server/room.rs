@@ -27,6 +27,7 @@ use super::FfiDataBuffer;
 use crate::{
     proto,
     server::participant::FfiParticipant,
+    server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
     server::{FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
 };
@@ -701,6 +702,8 @@ impl RoomInner {
         proto::SendChatMessageResponse { async_id }
     }
 
+    // Data Streams (low level)
+
     pub fn send_stream_header(
         self: &Arc<Self>,
         server: &'static FfiServer,
@@ -784,6 +787,45 @@ impl RoomInner {
         });
         server.watch_panic(handle);
         proto::SendStreamTrailerResponse { async_id }
+    }
+
+    // Data Streams (high level)
+
+    pub fn stream_register_topic(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        request: proto::StreamRegisterTopicRequest,
+    ) -> proto::StreamRegisterTopicResponse {
+        let registration_result = match request.kind() {
+            proto::StreamKind::Byte => {
+                self.room.register_byte_stream_handler(&request.topic, move |reader, identity| {
+                    Box::pin(async move {
+                        FfiByteStreamReader::from_handler(server, reader, identity);
+                        Ok(())
+                    })
+                })
+            }
+            proto::StreamKind::Text => {
+                self.room.register_text_stream_handler(&request.topic, move |reader, identity| {
+                    Box::pin(async move {
+                        FfiTextStreamReader::from_handler(server, reader, identity);
+                        Ok(())
+                    })
+                })
+            }
+        };
+        proto::StreamRegisterTopicResponse { error: registration_result.err().map(|e| e.into()) }
+    }
+
+    pub fn stream_unregister_topic(
+        self: &Arc<Self>,
+        request: proto::StreamUnregisterTopicRequest,
+    ) -> proto::StreamUnregisterTopicResponse {
+        match request.kind() {
+            proto::StreamKind::Byte => self.room.unregister_byte_stream_handler(&request.topic),
+            proto::StreamKind::Text => self.room.unregister_text_stream_handler(&request.topic),
+        };
+        proto::StreamUnregisterTopicResponse {}
     }
 
     pub fn store_rpc_method_invocation_waiter(

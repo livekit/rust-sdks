@@ -24,7 +24,7 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt,
+    audio_source, audio_stream, colorcvt, data_stream,
     participant::FfiParticipant,
     resampler,
     room::{self, FfiPublication, FfiTrack},
@@ -1030,6 +1030,67 @@ fn on_set_track_subscription_permissions(
     Ok(ffi_participant.room.set_track_subscription_permissions(server, set_permissions))
 }
 
+fn on_stream_register_topic(
+    server: &'static FfiServer,
+    request: proto::StreamRegisterTopicRequest,
+) -> FfiResult<proto::StreamRegisterTopicResponse> {
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?;
+    Ok(ffi_room.inner.stream_register_topic(server, request))
+}
+
+fn on_stream_unregister_topic(
+    server: &'static FfiServer,
+    request: proto::StreamUnregisterTopicRequest,
+) -> FfiResult<proto::StreamUnregisterTopicResponse> {
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?;
+    Ok(ffi_room.inner.stream_unregister_topic(request))
+}
+
+fn on_byte_stream_reader_read_incremental(
+    server: &'static FfiServer,
+    request: proto::ByteStreamReaderReadIncrementalRequest,
+) -> FfiResult<proto::ByteStreamReaderReadIncrementalResponse> {
+    let reader =
+        server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    reader.read_incremental(server, request)
+}
+
+fn on_byte_stream_reader_read_all(
+    server: &'static FfiServer,
+    request: proto::ByteStreamReaderReadAllRequest,
+) -> FfiResult<proto::ByteStreamReaderReadAllResponse> {
+    let reader =
+        server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    reader.read_all(server, request)
+}
+
+fn on_byte_stream_reader_write_to_file(
+    server: &'static FfiServer,
+    request: proto::ByteStreamReaderWriteToFileRequest,
+) -> FfiResult<proto::ByteStreamReaderWriteToFileResponse> {
+    let reader =
+        server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    reader.write_to_file(server, request)
+}
+
+fn on_text_stream_reader_read_incremental(
+    server: &'static FfiServer,
+    request: proto::TextStreamReaderReadIncrementalRequest,
+) -> FfiResult<proto::TextStreamReaderReadIncrementalResponse> {
+    let reader =
+        server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
+    reader.read_incremental(server, request)
+}
+
+fn on_text_stream_reader_read_all(
+    server: &'static FfiServer,
+    request: proto::TextStreamReaderReadAllRequest,
+) -> FfiResult<proto::TextStreamReaderReadAllResponse> {
+    let reader =
+        server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
+    reader.read_all(server, request)
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1167,11 +1228,9 @@ pub fn handle_request(
         proto::ffi_request::Message::NewApm(new_apm) => {
             proto::ffi_response::Message::NewApm(on_new_apm(server, new_apm)?)
         }
-
         proto::ffi_request::Message::ApmProcessStream(request) => {
             proto::ffi_response::Message::ApmProcessStream(on_apm_process_stream(server, request)?)
         }
-
         proto::ffi_request::Message::ApmProcessReverseStream(request) => {
             proto::ffi_response::Message::ApmProcessReverseStream(on_apm_process_reverse_stream(
                 server, request,
@@ -1221,6 +1280,47 @@ pub fn handle_request(
                 on_set_data_channel_buffered_amount_low_threshold(server, request)?,
             )
         }
+        proto::ffi_request::Message::RegisterTopic(request) => {
+            proto::ffi_response::Message::RegisterTopic(on_stream_register_topic(server, request)?)
+        }
+        proto::ffi_request::Message::UnregisterTopic(request) => {
+            proto::ffi_response::Message::UnregisterTopic(on_stream_unregister_topic(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::ByteReadIncremental(
+            request,
+        ) => {
+            proto::ffi_response::Message::ByteReadIncremental(on_byte_stream_reader_read_incremental(server, request)?)
+        }
+        proto::ffi_request::Message::ByteReadAll(request) => {
+            proto::ffi_response::Message::ByteReadAll(on_byte_stream_reader_read_all(
+                server, request,
+            )?)
+        },
+        proto::ffi_request::Message::ByteWriteToFile(request) => {
+            proto::ffi_response::Message::ByteWriteToFile(on_byte_stream_reader_write_to_file(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::TextReadIncremental(request) => {
+            proto::ffi_response::Message::TextReadIncremental(
+                on_text_stream_reader_read_incremental(server, request)?,
+            )
+        }
+        proto::ffi_request::Message::TextReadAll(request) => {
+            proto::ffi_response::Message::TextReadAll(on_text_stream_reader_read_all(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::SendFile(stream_send_file_request) => todo!(),
+        proto::ffi_request::Message::SendText(stream_send_text_request) => todo!(),
+        proto::ffi_request::Message::ByteStreamOpen(byte_stream_open_request) => todo!(),
+        proto::ffi_request::Message::ByteStreamWrite(byte_stream_writer_write_request) => todo!(),
+        proto::ffi_request::Message::ByteStreamClose(byte_stream_writer_close_request) => todo!(),
+        proto::ffi_request::Message::TextStreamOpen(text_stream_open_request) => todo!(),
+        proto::ffi_request::Message::TextStreamWrite(text_stream_writer_write_request) => todo!(),
+        proto::ffi_request::Message::TextStreamClose(text_stream_writer_close_request) => todo!(),
         proto::ffi_request::Message::LoadAudioFilterPlugin(request) => {
             proto::ffi_response::Message::LoadAudioFilterPlugin(on_load_audio_filter_plugin(
                 server, request,

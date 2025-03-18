@@ -398,9 +398,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.5.0"
+version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2bd12c1caf447e69cd4528f47f94d203fd2582878ecb9e9465484c4148a8223"
+checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "bzip2"
@@ -1607,6 +1607,7 @@ checksum = "c4cd1a83af159aa67994778be9070f0ae1bd732942279cabb14f86f986a21456"
 name = "livekit"
 version = "0.7.6"
 dependencies = [
+ "bytes",
  "chrono",
  "futures-util",
  "lazy_static",
@@ -1655,8 +1656,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.15"
+version = "0.12.16"
 dependencies = [
+ "bytes",
  "console-subscriber",
  "dashmap",
  "downcast-rs",
