@@ -26,8 +26,8 @@ pub(crate) use incoming::{IncomingStreamManager, StreamHandlerFuture};
 #[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]
 pub struct StreamProgress {
     chunk_index: u64,
-    bytes_processed: u64,
-    bytes_total: Option<u64>
+    pub bytes_processed: u64,
+    pub bytes_total: Option<u64>
 }
 
 impl StreamProgress {
