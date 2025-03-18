@@ -54,7 +54,7 @@ impl FfiByteStreamReader {
             participant_identity: identity.to_string(),
         };
 
-        server.send_event(proto::ffi_event::Message::ByteStreamOpened(open_event));
+        let _ = server.send_event(proto::ffi_event::Message::ByteStreamOpened(open_event));
     }
 
     pub fn read_incremental(
@@ -77,7 +77,7 @@ impl FfiByteStreamReader {
                                 detail,
                             )),
                         };
-                        server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
+                        let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
                     }
                     Err(err) => {
                         let detail = proto::ByteStreamReaderEos { error: Some(err.into()) };
@@ -85,7 +85,7 @@ impl FfiByteStreamReader {
                             reader_handle: self.handle_id,
                             detail: Some(proto::byte_stream_reader_event::Detail::Eos(detail)),
                         };
-                        server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
+                        let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
                         return;
                     }
                 }
@@ -96,7 +96,7 @@ impl FfiByteStreamReader {
                 reader_handle: self.handle_id,
                 detail: Some(proto::byte_stream_reader_event::Detail::Eos(detail)),
             };
-            server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
+            let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
         });
         Ok(proto::ByteStreamReaderReadIncrementalResponse {})
     }
@@ -111,7 +111,7 @@ impl FfiByteStreamReader {
             let result = self.inner.read_all().await.into();
             let callback =
                 proto::ByteStreamReaderReadAllCallback { async_id, result: Some(result) };
-            server.send_event(proto::ffi_event::Message::ByteStreamReaderReadAll(callback));
+            let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderReadAll(callback));
         });
         Ok(proto::ByteStreamReaderReadAllResponse { async_id })
     }
@@ -131,7 +131,7 @@ impl FfiByteStreamReader {
                 .into();
             let callback =
                 proto::ByteStreamReaderWriteToFileCallback { async_id, result: Some(result) };
-            server.send_event(proto::ffi_event::Message::ByteStreamReaderWriteToFile(callback));
+            let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderWriteToFile(callback));
         });
 
         Ok(proto::ByteStreamReaderWriteToFileResponse { async_id })
@@ -158,7 +158,7 @@ impl FfiTextStreamReader {
             },
             participant_identity: identity.to_string(),
         };
-        server.send_event(proto::ffi_event::Message::TextStreamOpened(open_event));
+        let _ = server.send_event(proto::ffi_event::Message::TextStreamOpened(open_event));
     }
 
     pub fn read_incremental(
@@ -181,7 +181,7 @@ impl FfiTextStreamReader {
                                 detail,
                             )),
                         };
-                        server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
+                        let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
                     }
                     Err(err) => {
                         let detail = proto::TextStreamReaderEos { error: Some(err.into()) };
@@ -189,7 +189,7 @@ impl FfiTextStreamReader {
                             reader_handle: self.handle_id,
                             detail: Some(proto::text_stream_reader_event::Detail::Eos(detail)),
                         };
-                        server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
+                        let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
                         return;
                     }
                 }
@@ -200,7 +200,7 @@ impl FfiTextStreamReader {
                 reader_handle: self.handle_id,
                 detail: Some(proto::text_stream_reader_event::Detail::Eos(detail)),
             };
-            server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
+            let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
         });
         Ok(proto::TextStreamReaderReadIncrementalResponse {})
     }
@@ -215,7 +215,7 @@ impl FfiTextStreamReader {
             let result = self.inner.read_all().await.into();
             let callback =
                 proto::TextStreamReaderReadAllCallback { async_id, result: Some(result) };
-            server.send_event(proto::ffi_event::Message::TextStreamReaderReadAll(callback));
+            let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderReadAll(callback));
         });
         Ok(proto::TextStreamReaderReadAllResponse { async_id })
     }
