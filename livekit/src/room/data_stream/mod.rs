@@ -23,21 +23,6 @@ mod outgoing;
 pub use incoming::*;
 pub use outgoing::*;
 
-/// Progress of a data stream.
-#[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]
-pub struct StreamProgress {
-    chunk_index: u64,
-    pub bytes_processed: u64,
-    pub bytes_total: Option<u64>
-}
-
-impl StreamProgress {
-    fn percentage(&self) -> Option<f32> {
-        self.bytes_total
-            .map(|total| self.bytes_processed as f32 / total as f32)
-    }
-}
-
 /// Result type for data stream operations.
 pub type StreamResult<T> = Result<T, StreamError>;
 
@@ -85,6 +70,21 @@ pub enum StreamError {
 
     #[error("internal error")]
     Internal
+}
+
+/// Progress of a data stream.
+#[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]
+pub struct StreamProgress {
+    chunk_index: u64,
+    pub bytes_processed: u64,
+    pub bytes_total: Option<u64>
+}
+
+impl StreamProgress {
+    fn percentage(&self) -> Option<f32> {
+        self.bytes_total
+            .map(|total| self.bytes_processed as f32 / total as f32)
+    }
 }
 
 /// Information about a byte data stream.
