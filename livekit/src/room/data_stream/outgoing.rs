@@ -15,7 +15,7 @@
 use super::{
     ByteStreamInfo, OperationType, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
-use crate::{id::ParticipantIdentity, rtc_engine::EngineError};
+use crate::{id::ParticipantIdentity, rtc_engine::EngineError, utils::Utf8AwareChunkExt};
 use bmrng::unbounded::{UnboundedRequestReceiver, UnboundedRequestSender};
 use chrono::Utc;
 use libwebrtc::native::create_random_uuid;
@@ -105,12 +105,10 @@ impl<'a> StreamWriter<'a> for TextStreamWriter {
     }
 
     async fn write(&self, text: &str) -> StreamResult<()> {
-        todo!()
-        // let utf8 = text.bytes();
-        // for chunk in utf8.chunks(CHUNK_SIZE) {
-        //     self.stream.write_chunk(chunk).await?;
-        // }
-        // Ok(())
+        for chunk in text.as_bytes().utf8_aware_chunks(CHUNK_SIZE) {
+            self.stream.write_chunk(chunk).await?;
+        }
+        Ok(())
     }
 
     async fn close(self) -> StreamResult<()> {
