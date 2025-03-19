@@ -421,7 +421,7 @@ pub(crate) struct RoomSession {
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     incoming_stream_manager: Mutex<IncomingStreamManager>,
-    // outgoing_stream_manager: Mutex<IncomingStreamManager>,
+    outgoing_stream_manager: OutgoingStreamManager,
     room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
     rpc_state: Mutex<RpcState>,
 }
@@ -459,6 +459,16 @@ impl Room {
         )
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
+
+        let (outgoing_stream_manager, mut packet_rx) = OutgoingStreamManager::new();
+        let engine = rtc_engine.clone();
+        tokio::task::spawn(async move {
+            // Receive packets from the outgoing stream manager and send them.
+            while let Ok((packet, responder)) = packet_rx.recv().await {
+                let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
+                let _ = responder.respond(result);
+            }
+        });
 
         if let Some(key_provider) = e2ee_manager.key_provider() {
             key_provider.set_sif_trailer(join_response.sif_trailer);
@@ -567,7 +577,7 @@ impl Room {
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
             incoming_stream_manager: Mutex::new(Default::default()),
-            //outgoing_stream_manager: Mutex::new(Default::default()),
+            outgoing_stream_manager,
             room_task: Default::default(),
             rpc_state: Mutex::new(RpcState::new()),
         });
