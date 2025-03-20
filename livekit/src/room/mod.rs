@@ -460,16 +460,6 @@ impl Room {
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
 
-        let (outgoing_stream_manager, mut packet_rx) = OutgoingStreamManager::new();
-        let engine = rtc_engine.clone();
-        tokio::task::spawn(async move {
-            // Receive packets from the outgoing stream manager and send them.
-            while let Ok((packet, responder)) = packet_rx.recv().await {
-                let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
-                let _ = responder.respond(result);
-            }
-        });
-
         if let Some(key_provider) = e2ee_manager.key_provider() {
             key_provider.set_sif_trailer(join_response.sif_trailer);
         }
@@ -485,6 +475,19 @@ impl Room {
             pi.attributes,
             e2ee_manager.encryption_type(),
         );
+
+        let (outgoing_stream_manager, mut packet_rx) = OutgoingStreamManager::new();
+        let engine = rtc_engine.clone();
+        let identity = local_participant.identity().clone();
+        tokio::task::spawn(async move {
+            // Receive packets from the outgoing stream manager and send them.
+            while let Ok((mut packet, responder)) = packet_rx.recv().await {
+                // Set packet's participant identity field
+                packet.participant_identity = identity.0.clone();
+                let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
+                let _ = responder.respond(result);
+            }
+        });
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
         local_participant.on_local_track_published({
