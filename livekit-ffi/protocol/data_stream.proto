@@ -183,7 +183,7 @@ message ByteStreamReaderEOS {
 message StreamSendFileRequest {
     required uint64 local_participant_handle = 1;
 
-    optional BaseStreamOptions base_options = 2;
+    required StreamByteOptions options = 2;
 
     // Path of the file to send (must be readable by the current process).
     required string file_path = 3;
@@ -202,11 +202,10 @@ message StreamSendFileCallback {
 message StreamSendTextRequest {
     required uint64 local_participant_handle = 1;
 
-    optional BaseStreamOptions base_options = 2;
-    optional TextStreamOptions text_options = 3;
+    required StreamTextOptions options = 2;
 
     // Text to send.
-    required string text = 4;
+    required string text = 3;
 }
 message StreamSendTextResponse {
     required uint64 async_id = 1;
@@ -229,7 +228,7 @@ message ByteStreamOpenRequest {
     required uint64 local_participant_handle = 1;
 
     // Options to use for opening the stream.
-    required BaseStreamOptions options = 2;
+    required StreamByteOptions options = 2;
 }
 message ByteStreamOpenResponse {
     oneof result {
@@ -275,8 +274,8 @@ message OwnedTextStreamWriter {
 message TextStreamOpenRequest {
     required uint64 local_participant_handle = 1;
 
-    required BaseStreamOptions base_options = 2;
-    required TextStreamOptions text_options = 3;
+    // Options to use for opening the stream.
+    required StreamTextOptions options = 2;
 }
 message TextStreamOpenResponse {
     oneof result {
@@ -353,15 +352,26 @@ message ByteStreamInfo {
     required string name = 7;
 }
 
-// Options to use for opening an outgoing stream.
-message BaseStreamOptions {
-    // TODO: define stream options.
+message StreamTextOptions {
+    required string topic = 1;
+    map<string, string> attributes = 2;
+    repeated string destination_identities = 3;
+    optional string id = 4;
+    optional TextStreamInfo.OperationType operation_type = 5;
+    optional int32 version = 6;
+    optional string reply_to_stream_id = 7;
+    repeated string attached_stream_ids = 8;
+    optional bool generated = 9;
+
 }
-message TextStreamOptions {
-     // TODO: define stream options.
-}
-message ByteStreamOptions {
-     // TODO: define stream options.
+message StreamByteOptions {
+    required string topic = 1;
+    map<string, string> attributes = 2;
+    repeated string destination_identities = 3;
+    optional string id = 4;
+    optional string name = 5;
+    optional string mime_type = 6;
+    optional uint64 total_length = 7;
 }
 
 // Progress of a stream.

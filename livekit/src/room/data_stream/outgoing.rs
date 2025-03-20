@@ -259,7 +259,7 @@ pub struct StreamTextOptions {
     pub version: Option<i32>,
     pub reply_to_stream_id: Option<String>,
     pub attached_stream_ids: Vec<String>,
-    pub generated: bool,
+    pub generated: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -281,7 +281,7 @@ impl OutgoingStreamManager {
             version: options.version.unwrap_or_default(),
             reply_to_stream_id: options.reply_to_stream_id.unwrap_or_default(),
             attached_stream_ids: options.attached_stream_ids,
-            generated: options.generated,
+            generated: options.generated.unwrap_or_default(),
         };
         let header = proto::data_stream::Header {
             stream_id: options.id.unwrap_or_else(|| create_random_uuid()),
