@@ -959,7 +959,7 @@ fn on_load_audio_filter_plugin(
         Ok(p) => p,
         Err(err) => {
             return Ok(proto::LoadAudioFilterPluginResponse { error: Some(err.to_string()) });
-        },
+        }
     };
 
     register_audio_filter_plugin(request.module_id, plugin);
