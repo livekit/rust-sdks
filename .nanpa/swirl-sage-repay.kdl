@@ -1,0 +1,2 @@
+patch package="livekit" type="fixed" "Revert the RPC change, need more robust way"
+patch package="livekit-ffi" type="fixed" "Revert the RPC change, need more robust way"
