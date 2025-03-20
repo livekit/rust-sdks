@@ -1,7 +1,10 @@
-use livekit::{Room, RoomOptions, StreamReader};
-use std::{env, error::Error, sync::Arc};
+use futures_util::TryStreamExt;
+use livekit::{Room, RoomOptions, StreamTextOptions, StreamWriter};
+use std::{env, error::Error, time::Duration};
+use tokio::time::sleep;
 
-const TOPIC: &str = "my-topic";
+static TOPIC: &str = "my-topic";
+static WORDS: &[&str] = &["This", "text", "will", "be", "sent", "incrementally."];
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -10,41 +13,46 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     let token = env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is not set");
 
-    let is_sender = env::args()
-        .nth(1)
-        .map_or(false, |arg| arg == "sender");
-    log::info!("Running as {}", if is_sender { "sender" } else { "receiver" });
+    let is_sender = env::args().nth(1).map_or(false, |arg| arg == "sender");
 
     let (room, _) = Room::connect(&url, &token, RoomOptions::default()).await?;
-    log::info!("Connected to room: {} - {}", room.name(), room.sid().await);
+    println!("Connected to room: {} - {}", room.name(), room.sid().await);
 
-    tokio::select! {
-        result = async {
-            if is_sender {
-                run_sender(&room).await
-            } else {
-                run_receiver(&room).await
-            }
-        } => result,
-        _ = tokio::signal::ctrl_c() => {
-            log::info!("Received Ctrl+C, shutting down");
-            Ok(())
-        }
+    if is_sender {
+        run_sender(&room).await
+    } else {
+        run_receiver(&room).await
     }
 }
 
 async fn run_sender(room: &Room) -> Result<(), Box<dyn Error>> {
-    // TODO:
-    Ok(())
+    println!("Running as sender");
+    loop {
+        let options = StreamTextOptions { topic: TOPIC.to_string(), ..Default::default() };
+        let writer = room.local_participant().stream_text(options).await?;
+        println!("Opened new stream");
+
+        for word in WORDS.iter() {
+            writer.write(*word).await?;
+            println!("Sent '{}'", word);
+            sleep(Duration::from_millis(500)).await;
+        }
+        writer.close().await?;
+        println!("Stream complete");
+    }
 }
 
 async fn run_receiver(room: &Room) -> Result<(), Box<dyn Error>> {
-    room.register_text_stream_handler(TOPIC.into(), |reader, identity| {
+    println!("Running as receiver");
+    println!("Waiting for incoming streams…");
+    room.register_text_stream_handler(TOPIC, |mut reader, identity| {
+        println!("New stream from {}", identity);
         Box::pin(async move {
-            let full_message = reader.read_all().await?;
-            log::info!("Message from {}: {}", identity, full_message);
+            while let Some((chunk, _)) = reader.try_next().await? {
+                println!("Chunk received from {}: '{}'", identity, chunk);
+            }
             Ok(())
         })
     })?;
-    Ok(())
+    Ok(tokio::signal::ctrl_c().await?)
 }

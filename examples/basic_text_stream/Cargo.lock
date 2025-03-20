@@ -145,6 +145,7 @@ name = "basic_text_stream"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "futures-util",
  "livekit",
  "log",
  "tokio",
@@ -169,6 +170,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "bmrng"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d54df9073108f1558f90ae6c5bf5ab9c917c4185f5527b280c87a993cbead0ac"
+dependencies = [
+ "futures-core",
+ "tokio",
 ]
 
 [[package]]
@@ -961,8 +972,9 @@ checksum = "01cda141df6706de531b6c46c3a33ecca755538219bd484262fa09410c13539c"
 
 [[package]]
 name = "livekit"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
+ "bmrng",
  "bytes",
  "chrono",
  "futures-util",
