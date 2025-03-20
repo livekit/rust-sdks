@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
 use crate::proto::{self};
 use bytes::Bytes;
 use livekit::{
-    ByteStreamInfo, OperationType, StreamError, StreamProgress, StreamResult, TextStreamInfo,
+    ByteStreamInfo, OperationType, StreamByteOptions, StreamError, StreamProgress, StreamResult,
+    StreamTextOptions, TextStreamInfo,
 };
+use std::path::PathBuf;
 
 impl From<TextStreamInfo> for proto::TextStreamInfo {
     fn from(info: TextStreamInfo) -> Self {
@@ -53,6 +53,45 @@ impl From<ByteStreamInfo> for proto::ByteStreamInfo {
     }
 }
 
+impl From<proto::StreamTextOptions> for StreamTextOptions {
+    fn from(options: proto::StreamTextOptions) -> Self {
+        let operation_type = options.operation_type().into();
+        Self {
+            topic: options.topic,
+            attributes: options.attributes,
+            destination_identities: options
+                .destination_identities
+                .into_iter()
+                .map(|id| id.into())
+                .collect(),
+            id: options.id,
+            operation_type: Some(operation_type),
+            version: options.version,
+            reply_to_stream_id: options.reply_to_stream_id,
+            attached_stream_ids: options.attached_stream_ids,
+            generated: options.generated,
+        }
+    }
+}
+
+impl From<proto::StreamByteOptions> for StreamByteOptions {
+    fn from(options: proto::StreamByteOptions) -> Self {
+        Self {
+            topic: options.topic,
+            attributes: options.attributes,
+            destination_identities: options
+                .destination_identities
+                .into_iter()
+                .map(|id| id.into())
+                .collect(),
+            id: options.id,
+            name: options.name,
+            mime_type: options.mime_type,
+            total_length: options.total_length,
+        }
+    }
+}
+
 impl From<StreamResult<Bytes>> for proto::byte_stream_reader_read_all_callback::Result {
     fn from(result: StreamResult<Bytes>) -> Self {
         match result {
@@ -62,11 +101,13 @@ impl From<StreamResult<Bytes>> for proto::byte_stream_reader_read_all_callback::
     }
 }
 
-impl From<Result<PathBuf, StreamError>> for proto::byte_stream_reader_write_to_file_callback::Result {
+impl From<Result<PathBuf, StreamError>>
+    for proto::byte_stream_reader_write_to_file_callback::Result
+{
     fn from(result: Result<PathBuf, StreamError>) -> Self {
         match result {
             Ok(path) => Self::FilePath(path.to_string_lossy().to_string()),
-            Err(error) => Self::Error(error.into())
+            Err(error) => Self::Error(error.into()),
         }
     }
 }
@@ -79,7 +120,6 @@ impl From<StreamResult<String>> for proto::text_stream_reader_read_all_callback:
         }
     }
 }
-
 
 impl From<StreamProgress> for proto::StreamProgress {
     fn from(progress: StreamProgress) -> Self {
@@ -94,6 +134,17 @@ impl From<OperationType> for proto::text_stream_info::OperationType {
             OperationType::Update => Self::Update,
             OperationType::Delete => Self::Delete,
             OperationType::Reaction => Self::Reaction,
+        }
+    }
+}
+
+impl From<proto::text_stream_info::OperationType> for OperationType {
+    fn from(value: proto::text_stream_info::OperationType) -> Self {
+        match value {
+            proto::text_stream_info::OperationType::Create => Self::Create,
+            proto::text_stream_info::OperationType::Update => Self::Update,
+            proto::text_stream_info::OperationType::Delete => Self::Delete,
+            proto::text_stream_info::OperationType::Reaction => Self::Reaction,
         }
     }
 }

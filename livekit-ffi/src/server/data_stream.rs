@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
-use livekit::{id::ParticipantIdentity, ByteStreamReader, StreamReader, TextStreamReader};
+use livekit::{
+    id::ParticipantIdentity, ByteStreamReader, ByteStreamWriter, StreamReader, StreamWriter,
+    TextStreamReader, TextStreamWriter,
+};
 
 use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
@@ -29,9 +32,22 @@ pub struct FfiTextStreamReader {
     pub handle_id: FfiHandleId,
     inner: TextStreamReader,
 }
+/// FFI wrapper around [ByteStreamWriter].
+pub struct FfiByteStreamWriter {
+    pub handle_id: FfiHandleId,
+    inner: ByteStreamWriter,
+}
+
+/// FFI wrapper around [TextStreamWriter].
+pub struct FfiTextStreamWriter {
+    pub handle_id: FfiHandleId,
+    inner: TextStreamWriter,
+}
 
 impl FfiHandle for FfiByteStreamReader {}
 impl FfiHandle for FfiTextStreamReader {}
+impl FfiHandle for FfiByteStreamWriter {}
+impl FfiHandle for FfiTextStreamWriter {}
 
 impl FfiByteStreamReader {
     pub fn from_handler(
@@ -77,7 +93,8 @@ impl FfiByteStreamReader {
                                 detail,
                             )),
                         };
-                        let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
+                        let _ = server
+                            .send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
                     }
                     Err(err) => {
                         let detail = proto::ByteStreamReaderEos { error: Some(err.into()) };
@@ -85,7 +102,8 @@ impl FfiByteStreamReader {
                             reader_handle: self.handle_id,
                             detail: Some(proto::byte_stream_reader_event::Detail::Eos(detail)),
                         };
-                        let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
+                        let _ = server
+                            .send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
                         return;
                     }
                 }
@@ -133,7 +151,8 @@ impl FfiByteStreamReader {
                 .into();
             let callback =
                 proto::ByteStreamReaderWriteToFileCallback { async_id, result: Some(result) };
-            let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderWriteToFile(callback));
+            let _ =
+                server.send_event(proto::ffi_event::Message::ByteStreamReaderWriteToFile(callback));
         });
         server.watch_panic(handle);
 
@@ -184,7 +203,8 @@ impl FfiTextStreamReader {
                                 detail,
                             )),
                         };
-                        let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
+                        let _ = server
+                            .send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
                     }
                     Err(err) => {
                         let detail = proto::TextStreamReaderEos { error: Some(err.into()) };
@@ -192,7 +212,8 @@ impl FfiTextStreamReader {
                             reader_handle: self.handle_id,
                             detail: Some(proto::text_stream_reader_event::Detail::Eos(detail)),
                         };
-                        let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
+                        let _ = server
+                            .send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
                         return;
                     }
                 }
@@ -223,5 +244,111 @@ impl FfiTextStreamReader {
         });
         server.watch_panic(handle);
         Ok(proto::TextStreamReaderReadAllResponse { async_id })
+    }
+}
+
+impl FfiByteStreamWriter {
+    pub fn from_writer(
+        server: &'static FfiServer,
+        writer: ByteStreamWriter,
+    ) -> proto::OwnedByteStreamWriter {
+        let handle_id = server.next_id();
+        let info = writer.info().clone();
+        let writer = Self { handle_id, inner: writer };
+        server.store_handle(handle_id, writer);
+        proto::OwnedByteStreamWriter {
+            handle: proto::FfiOwnedHandle { id: handle_id },
+            info: info.into()
+        }
+    }
+
+    pub fn write(
+        &self,
+        server: &'static FfiServer,
+        request: proto::ByteStreamWriterWriteRequest,
+    ) -> FfiResult<proto::ByteStreamWriterWriteResponse> {
+        let async_id = server.next_id();
+        let inner = self.inner.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let result = inner.write(&request.bytes).await;
+            let callback = proto::ByteStreamWriterWriteCallback {
+                async_id,
+                error: result.map_err(|e| e.into()).err(),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::ByteStreamWriterWrite(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::ByteStreamWriterWriteResponse { async_id })
+    }
+
+    pub fn close(
+        self,
+        server: &'static FfiServer,
+        _request: proto::ByteStreamWriterCloseRequest,
+    ) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
+        let async_id = server.next_id();
+        let handle = server.async_runtime.spawn(async move {
+            let result = self.inner.close().await;
+            let callback = proto::ByteStreamWriterCloseCallback {
+                async_id,
+                error: result.map_err(|e| e.into()).err(),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::ByteStreamWriterClose(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::ByteStreamWriterCloseResponse { async_id })
+    }
+}
+
+impl FfiTextStreamWriter {
+    pub fn from_writer(
+        server: &'static FfiServer,
+        writer: TextStreamWriter,
+    ) -> proto::OwnedTextStreamWriter {
+        let handle_id = server.next_id();
+        let info = writer.info().clone();
+        let writer = Self { handle_id, inner: writer };
+        server.store_handle(handle_id, writer);
+        proto::OwnedTextStreamWriter {
+            handle: proto::FfiOwnedHandle { id: handle_id },
+            info: info.into()
+        }
+    }
+
+    pub fn write(
+        &self,
+        server: &'static FfiServer,
+        request: proto::TextStreamWriterWriteRequest,
+    ) -> FfiResult<proto::TextStreamWriterWriteResponse> {
+        let async_id = server.next_id();
+        let inner = self.inner.clone();
+        let handle = server.async_runtime.spawn(async move {
+            let result = inner.write(&request.text).await;
+            let callback = proto::TextStreamWriterWriteCallback {
+                async_id,
+                error: result.map_err(|e| e.into()).err(),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::TextStreamWriterWrite(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::TextStreamWriterWriteResponse { async_id })
+    }
+
+    pub fn close(
+        self,
+        server: &'static FfiServer,
+        _request: proto::TextStreamWriterCloseRequest,
+    ) -> FfiResult<proto::TextStreamWriterCloseResponse> {
+        let async_id = server.next_id();
+        let handle = server.async_runtime.spawn(async move {
+            let result = self.inner.close().await;
+            let callback = proto::TextStreamWriterCloseCallback {
+                async_id,
+                error: result.map_err(|e| e.into()).err(),
+            };
+            let _ = server.send_event(proto::ffi_event::Message::TextStreamWriterClose(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::TextStreamWriterCloseResponse { async_id })
     }
 }

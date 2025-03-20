@@ -1089,6 +1089,82 @@ fn on_text_stream_reader_read_all(
     reader.read_all(server, request)
 }
 
+fn on_send_file(
+    server: &'static FfiServer,
+    request: proto::StreamSendFileRequest,
+) -> FfiResult<proto::StreamSendFileResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
+        .clone();
+    ffi_participant.send_file(server, request)
+}
+
+fn on_send_text(
+    server: &'static FfiServer,
+    request: proto::StreamSendTextRequest,
+) -> FfiResult<proto::StreamSendTextResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
+        .clone();
+    ffi_participant.send_text(server, request)
+}
+
+fn on_byte_stream_open(
+    server: &'static FfiServer,
+    request: proto::ByteStreamOpenRequest,
+) -> FfiResult<proto::ByteStreamOpenResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
+        .clone();
+    ffi_participant.stream_bytes(server, request)
+}
+
+fn on_byte_stream_write(
+    server: &'static FfiServer,
+    request: proto::ByteStreamWriterWriteRequest,
+) -> FfiResult<proto::ByteStreamWriterWriteResponse> {
+    let writer =
+        server.retrieve_handle::<data_stream::FfiByteStreamWriter>(request.writer_handle)?;
+    writer.write(server, request)
+}
+
+fn on_byte_stream_close(
+    server: &'static FfiServer,
+    request: proto::ByteStreamWriterCloseRequest,
+) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
+    let writer =
+        server.take_handle::<data_stream::FfiByteStreamWriter>(request.writer_handle)?;
+    writer.close(server, request)
+}
+
+fn on_text_stream_open(
+    server: &'static FfiServer,
+    request: proto::TextStreamOpenRequest,
+) -> FfiResult<proto::TextStreamOpenResponse> {
+    let ffi_participant = server
+        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
+        .clone();
+    ffi_participant.stream_text(server, request)
+}
+
+fn on_text_stream_write(
+    server: &'static FfiServer,
+    request: proto::TextStreamWriterWriteRequest,
+) -> FfiResult<proto::TextStreamWriterWriteResponse> {
+    let writer =
+        server.retrieve_handle::<data_stream::FfiTextStreamWriter>(request.writer_handle)?;
+    writer.write(server, request)
+}
+
+fn on_text_stream_close(
+    server: &'static FfiServer,
+    request: proto::TextStreamWriterCloseRequest,
+) -> FfiResult<proto::TextStreamWriterCloseResponse> {
+    let writer =
+        server.take_handle::<data_stream::FfiTextStreamWriter>(request.writer_handle)?;
+    writer.close(server, request)
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1311,14 +1387,30 @@ pub fn handle_request(
                 server, request,
             )?)
         }
-        proto::ffi_request::Message::SendFile(stream_send_file_request) => todo!(),
-        proto::ffi_request::Message::SendText(stream_send_text_request) => todo!(),
-        proto::ffi_request::Message::ByteStreamOpen(byte_stream_open_request) => todo!(),
-        proto::ffi_request::Message::ByteStreamWrite(byte_stream_writer_write_request) => todo!(),
-        proto::ffi_request::Message::ByteStreamClose(byte_stream_writer_close_request) => todo!(),
-        proto::ffi_request::Message::TextStreamOpen(text_stream_open_request) => todo!(),
-        proto::ffi_request::Message::TextStreamWrite(text_stream_writer_write_request) => todo!(),
-        proto::ffi_request::Message::TextStreamClose(text_stream_writer_close_request) => todo!(),
+        proto::ffi_request::Message::SendFile(request) => {
+            proto::ffi_response::Message::SendFile(on_send_file(server, request)?)
+        }
+        proto::ffi_request::Message::SendText(request) => {
+            proto::ffi_response::Message::SendText(on_send_text(server, request)?)
+        }
+        proto::ffi_request::Message::ByteStreamOpen(request) => {
+            proto::ffi_response::Message::ByteStreamOpen(on_byte_stream_open(server, request)?)
+        }
+        proto::ffi_request::Message::ByteStreamWrite(request) => {
+            proto::ffi_response::Message::ByteStreamWrite(on_byte_stream_write(server, request)?)
+        }
+        proto::ffi_request::Message::ByteStreamClose(request) => {
+            proto::ffi_response::Message::ByteStreamClose(on_byte_stream_close(server, request)?)
+        }
+        proto::ffi_request::Message::TextStreamOpen(request) => {
+            proto::ffi_response::Message::TextStreamOpen(on_text_stream_open(server, request)?)
+        }
+        proto::ffi_request::Message::TextStreamWrite(request) => {
+            proto::ffi_response::Message::TextStreamWrite(on_text_stream_write(server, request)?)
+        }
+        proto::ffi_request::Message::TextStreamClose(request) => {
+            proto::ffi_response::Message::TextStreamClose(on_text_stream_close(server, request)?)
+        }
         proto::ffi_request::Message::LoadAudioFilterPlugin(request) => {
             proto::ffi_response::Message::LoadAudioFilterPlugin(on_load_audio_filter_plugin(
                 server, request,
