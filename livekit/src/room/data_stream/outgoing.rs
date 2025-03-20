@@ -20,9 +20,8 @@ use bmrng::unbounded::{UnboundedRequestReceiver, UnboundedRequestSender};
 use chrono::Utc;
 use libwebrtc::native::create_random_uuid;
 use livekit_protocol as proto;
-use parking_lot::Mutex;
-use std::{collections::HashMap, path::Path};
-use tokio::io::AsyncReadExt;
+use std::{collections::HashMap, path::Path, sync::Arc};
+use tokio::{io::AsyncReadExt, sync::Mutex};
 
 /// Writer for an open data stream.
 pub trait StreamWriter<'a> {
@@ -45,16 +44,18 @@ pub trait StreamWriter<'a> {
     async fn close_with_reason(self, reason: &str) -> StreamResult<()>;
 }
 
+#[derive(Clone)]
 /// Writer for an open byte data stream.
 pub struct ByteStreamWriter {
-    info: ByteStreamInfo,
-    stream: RawStream,
+    info: Arc<ByteStreamInfo>,
+    stream: Arc<Mutex<RawStream>>,
 }
 
+#[derive(Clone)]
 /// Writer for an open text data stream.
 pub struct TextStreamWriter {
-    info: TextStreamInfo,
-    stream: RawStream,
+    info: Arc<TextStreamInfo>,
+    stream: Arc<Mutex<RawStream>>,
 }
 
 impl<'a> StreamWriter<'a> for ByteStreamWriter {
@@ -66,24 +67,26 @@ impl<'a> StreamWriter<'a> for ByteStreamWriter {
     }
 
     async fn write(&self, bytes: &[u8]) -> StreamResult<()> {
+        let mut stream = self.stream.lock().await;
         for chunk in bytes.chunks(CHUNK_SIZE) {
-            self.stream.write_chunk(chunk).await?;
+            stream.write_chunk(chunk).await?;
         }
         Ok(())
     }
 
     async fn close(self) -> StreamResult<()> {
-        self.stream.close(None).await
+        self.stream.lock().await.close(None).await
     }
 
     async fn close_with_reason(self, reason: &str) -> StreamResult<()> {
-        self.stream.close(Some(reason.to_owned())).await
+        self.stream.lock().await.close(Some(reason)).await
     }
 }
 
 impl ByteStreamWriter {
     /// Writes the contents of the file incrementally.
     async fn write_file_contents(&self, path: impl AsRef<Path>) -> StreamResult<()> {
+        let mut stream = self.stream.lock().await;
         let mut file = tokio::fs::File::open(path).await?;
         let mut buffer = vec![0; 8192]; // 8KB
         loop {
@@ -91,7 +94,7 @@ impl ByteStreamWriter {
             if bytes_read == 0 {
                 break;
             }
-            self.write(&buffer[..bytes_read]).await?;
+            stream.write_chunk(&buffer[..bytes_read]).await?;
         }
         Ok(())
     }
@@ -106,18 +109,19 @@ impl<'a> StreamWriter<'a> for TextStreamWriter {
     }
 
     async fn write(&self, text: &str) -> StreamResult<()> {
+        let mut stream = self.stream.lock().await;
         for chunk in text.as_bytes().utf8_aware_chunks(CHUNK_SIZE) {
-            self.stream.write_chunk(chunk).await?;
+            stream.write_chunk(chunk).await?;
         }
         Ok(())
     }
 
     async fn close(self) -> StreamResult<()> {
-        self.stream.close(None).await
+        self.stream.lock().await.close(None).await
     }
 
     async fn close_with_reason(self, reason: &str) -> StreamResult<()> {
-        self.stream.close(Some(reason.to_owned())).await
+        self.stream.lock().await.close(Some(reason)).await
     }
 }
 
@@ -129,7 +133,8 @@ struct RawStreamOpenOptions {
 
 struct RawStream {
     id: String,
-    progress: Mutex<StreamProgress>,
+    progress: StreamProgress,
+    is_closed: bool,
     packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
 }
 
@@ -138,60 +143,33 @@ impl RawStream {
         let id = options.header.stream_id.to_string();
         let bytes_total = options.header.total_length;
 
-        let packet = proto::DataPacket {
-            kind: proto::data_packet::Kind::Reliable.into(),
-            participant_identity: String::new(), // populate later
-            destination_identities: options
-                .destination_identities
-                .into_iter()
-                .map(|id| id.0)
-                .collect(),
-            value: Some(livekit_protocol::data_packet::Value::StreamHeader(options.header)),
-        };
+        let packet = Self::create_header_packet(options.header, options.destination_identities);
         Self::send_packet(&options.packet_tx, packet).await?;
 
         Ok(Self {
             id,
-            progress: Mutex::new(StreamProgress { bytes_total, ..Default::default() }),
+            progress: StreamProgress { bytes_total, ..Default::default() },
+            is_closed: false,
             packet_tx: options.packet_tx,
         })
     }
 
-    async fn write_chunk(&self, bytes: &[u8]) -> StreamResult<()> {
-        let chunk_length = bytes.len();
-        let chunk = proto::data_stream::Chunk {
-            stream_id: self.id.to_owned(),
-            chunk_index: self.progress.lock().chunk_index,
-            content: bytes.to_vec(),
-            ..Default::default()
-        };
-        let packet = proto::DataPacket {
-            kind: proto::data_packet::Kind::Reliable.into(),
-            participant_identity: String::new(), // populate later
-            value: Some(livekit_protocol::data_packet::Value::StreamChunk(chunk)),
-            ..Default::default()
-        };
-
-        let mut progress = self.progress.lock();
-        progress.bytes_processed += chunk_length as u64;
-        progress.chunk_index += 1;
-
-        Self::send_packet(&self.packet_tx, packet).await
+    async fn write_chunk(&mut self, bytes: &[u8]) -> StreamResult<()> {
+        let packet = Self::create_chunk_packet(&self.id, self.progress.chunk_index, bytes);
+        Self::send_packet(&self.packet_tx, packet).await?;
+        self.progress.bytes_processed += bytes.len() as u64;
+        self.progress.chunk_index += 1;
+        Ok(())
     }
 
-    async fn close(self, reason: Option<String>) -> StreamResult<()> {
-        let trailer = proto::data_stream::Trailer {
-            stream_id: self.id,
-            reason: reason.unwrap_or_default(),
-            ..Default::default()
-        };
-        let packet = proto::DataPacket {
-            kind: proto::data_packet::Kind::Reliable.into(),
-            participant_identity: String::new(), // populate later
-            value: Some(livekit_protocol::data_packet::Value::StreamTrailer(trailer)),
-            ..Default::default()
-        };
-        Self::send_packet(&self.packet_tx, packet).await
+    async fn close(&mut self, reason: Option<&str>) -> StreamResult<()> {
+        if self.is_closed {
+            Err(StreamError::AlreadyClosed)?
+        }
+        let packet = Self::create_trailer_packet(&self.id, reason);
+        Self::send_packet(&self.packet_tx, packet).await?;
+        self.is_closed = true;
+        Ok(())
     }
 
     async fn send_packet(
@@ -200,8 +178,61 @@ impl RawStream {
     ) -> StreamResult<()> {
         tx.send_receive(packet)
             .await
-            .map_err(|_| StreamError::Internal)?
-            .map_err(|_| StreamError::SendFailed)
+            .map_err(|_| StreamError::Internal)? // request channel closed
+            .map_err(|_| StreamError::SendFailed) // data channel error
+    }
+
+    fn create_header_packet(
+        header: proto::data_stream::Header,
+        destination_identities: Vec<ParticipantIdentity>,
+    ) -> proto::DataPacket {
+        proto::DataPacket {
+            kind: proto::data_packet::Kind::Reliable.into(),
+            participant_identity: String::new(), // populate later
+            destination_identities: destination_identities.into_iter().map(|id| id.0).collect(),
+            value: Some(livekit_protocol::data_packet::Value::StreamHeader(header)),
+        }
+    }
+
+    fn create_chunk_packet(id: &str, chunk_index: u64, content: &[u8]) -> proto::DataPacket {
+        let chunk = proto::data_stream::Chunk {
+            stream_id: id.to_string(),
+            chunk_index,
+            content: content.to_vec(),
+            ..Default::default()
+        };
+        proto::DataPacket {
+            kind: proto::data_packet::Kind::Reliable.into(),
+            participant_identity: String::new(), // populate later
+            value: Some(livekit_protocol::data_packet::Value::StreamChunk(chunk)),
+            ..Default::default()
+        }
+    }
+
+    fn create_trailer_packet(id: &str, reason: Option<&str>) -> proto::DataPacket {
+        let trailer = proto::data_stream::Trailer {
+            stream_id: id.to_string(),
+            reason: reason.unwrap_or_default().to_owned(),
+            ..Default::default()
+        };
+        proto::DataPacket {
+            kind: proto::data_packet::Kind::Reliable.into(),
+            participant_identity: String::new(), // populate later
+            value: Some(livekit_protocol::data_packet::Value::StreamTrailer(trailer)),
+            ..Default::default()
+        }
+    }
+}
+
+impl Drop for RawStream {
+    /// Close stream normally if not already closed.
+    fn drop(&mut self) {
+        if self.is_closed {
+            return;
+        }
+        let packet = Self::create_trailer_packet(&self.id, None);
+        let packet_tx = self.packet_tx.clone();
+        tokio::spawn(async move { Self::send_packet(&packet_tx, packet).await });
     }
 }
 
@@ -270,8 +301,8 @@ impl OutgoingStreamManager {
             packet_tx: self.packet_tx.clone(),
         };
         let writer = TextStreamWriter {
-            info: TextStreamInfo::from_headers(header, text_header),
-            stream: RawStream::open(open_options).await?,
+            info: Arc::new(TextStreamInfo::from_headers(header, text_header)),
+            stream: Arc::new(Mutex::new(RawStream::open(open_options).await?)),
         };
         Ok(writer)
     }
@@ -297,8 +328,8 @@ impl OutgoingStreamManager {
             packet_tx: self.packet_tx.clone(),
         };
         let writer = ByteStreamWriter {
-            info: ByteStreamInfo::from_headers(header, byte_header),
-            stream: RawStream::open(open_options).await?,
+            info: Arc::new(ByteStreamInfo::from_headers(header, byte_header)),
+            stream: Arc::new(Mutex::new(RawStream::open(open_options).await?)),
         };
         Ok(writer)
     }
@@ -333,11 +364,11 @@ impl OutgoingStreamManager {
             packet_tx: self.packet_tx.clone(),
         };
         let writer = TextStreamWriter {
-            info: TextStreamInfo::from_headers(header, text_header),
-            stream: RawStream::open(open_options).await?,
+            info: Arc::new(TextStreamInfo::from_headers(header, text_header)),
+            stream: Arc::new(Mutex::new(RawStream::open(open_options).await?)),
         };
 
-        let info = writer.info.clone();
+        let info = (*writer.info).clone();
         writer.write(text).await?;
         writer.close().await?;
 
@@ -376,11 +407,11 @@ impl OutgoingStreamManager {
             packet_tx: self.packet_tx.clone(),
         };
         let writer = ByteStreamWriter {
-            info: ByteStreamInfo::from_headers(header, byte_header),
-            stream: RawStream::open(open_options).await?,
+            info: Arc::new(ByteStreamInfo::from_headers(header, byte_header)),
+            stream: Arc::new(Mutex::new(RawStream::open(open_options).await?)),
         };
 
-        let info = writer.info.clone();
+        let info = (*writer.info).clone();
         writer.write_file_contents(path).await?;
         writer.close().await?;
 
