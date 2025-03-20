@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use thiserror::Error;
 use chrono::{DateTime, Utc};
 use livekit_protocol::{data_stream as proto, enum_dispatch};
 use std::collections::HashMap;
+use thiserror::Error;
 
 mod incoming;
 mod outgoing;
@@ -72,44 +72,59 @@ pub enum StreamError {
     Io(#[from] std::io::Error),
 
     #[error("internal error")]
-    Internal
+    Internal,
 }
 
 /// Progress of a data stream.
 #[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]
 pub struct StreamProgress {
     chunk_index: u64,
+    /// Number of bytes read or written so far.
     pub bytes_processed: u64,
-    pub bytes_total: Option<u64>
+    /// Total number of bytes expected to be read or written for finite streams.
+    pub bytes_total: Option<u64>,
 }
 
 impl StreamProgress {
-    fn percentage(&self) -> Option<f32> {
-        self.bytes_total
-            .map(|total| self.bytes_processed as f32 / total as f32)
+    /// Returns the completion percentage for finite streams.
+    pub fn percentage(&self) -> Option<f32> {
+        self.bytes_total.map(|total| self.bytes_processed as f32 / total as f32)
     }
 }
 
 /// Information about a byte data stream.
 #[derive(Clone, Debug)]
 pub struct ByteStreamInfo {
+    /// Unique identifier of the stream.
     pub id: String,
+    /// Topic name used to route the stream to the appropriate handler.
     pub topic: String,
+    /// When the stream was created.
     pub timestamp: DateTime<Utc>,
+    /// Total expected size in bytes, if known.
     pub total_length: Option<u64>,
+    /// Additional attributes as needed for your application.
     pub attributes: HashMap<String, String>,
+    /// The MIME type of the stream data.
     pub mime_type: String,
+    /// The name of the file being sent.
     pub name: String,
 }
 
 /// Information about a text data stream.
 #[derive(Clone, Debug)]
 pub struct TextStreamInfo {
+    /// Unique identifier of the stream.
     pub id: String,
+    /// Topic name used to route the stream to the appropriate handler.
     pub topic: String,
+    /// When the stream was created.
     pub timestamp: DateTime<Utc>,
+    /// Total expected size in bytes, if known.
     pub total_length: Option<u64>,
+    /// Additional attributes as needed for your application.
     pub attributes: HashMap<String, String>,
+    /// The MIME type of the stream data.
     pub mime_type: String,
     pub operation_type: OperationType,
     pub version: i32,

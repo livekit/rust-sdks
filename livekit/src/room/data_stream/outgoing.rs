@@ -135,6 +135,7 @@ struct RawStream {
     id: String,
     progress: StreamProgress,
     is_closed: bool,
+    /// Request channel for sending packets.
     packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
 }
 
