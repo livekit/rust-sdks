@@ -4471,17 +4471,25 @@ pub struct ByteStreamOpenRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ByteStreamOpenResponse {
-    #[prost(oneof="byte_stream_open_response::Result", tags="1, 2")]
-    pub result: ::core::option::Option<byte_stream_open_response::Result>,
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
 }
-/// Nested message and enum types in `ByteStreamOpenResponse`.
-pub mod byte_stream_open_response {
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ByteStreamOpenCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(oneof="byte_stream_open_callback::Result", tags="2, 3")]
+    pub result: ::core::option::Option<byte_stream_open_callback::Result>,
+}
+/// Nested message and enum types in `ByteStreamOpenCallback`.
+pub mod byte_stream_open_callback {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
-        #[prost(message, tag="1")]
-        Writer(super::OwnedByteStreamWriter),
         #[prost(message, tag="2")]
+        Writer(super::OwnedByteStreamWriter),
+        #[prost(message, tag="3")]
         Error(super::StreamError),
     }
 }
@@ -4553,17 +4561,25 @@ pub struct TextStreamOpenRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TextStreamOpenResponse {
-    #[prost(oneof="text_stream_open_response::Result", tags="1, 2")]
-    pub result: ::core::option::Option<text_stream_open_response::Result>,
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
 }
-/// Nested message and enum types in `TextStreamOpenResponse`.
-pub mod text_stream_open_response {
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextStreamOpenCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(oneof="text_stream_open_callback::Result", tags="2, 3")]
+    pub result: ::core::option::Option<text_stream_open_callback::Result>,
+}
+/// Nested message and enum types in `TextStreamOpenCallback`.
+pub mod text_stream_open_callback {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
-        #[prost(message, tag="1")]
-        Writer(super::OwnedTextStreamWriter),
         #[prost(message, tag="2")]
+        Writer(super::OwnedTextStreamWriter),
+        #[prost(message, tag="3")]
         Error(super::StreamError),
     }
 }
@@ -5136,7 +5152,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -5207,19 +5223,27 @@ pub mod ffi_event {
         #[prost(message, tag="31")]
         ByteStreamReaderWriteToFile(super::ByteStreamReaderWriteToFileCallback),
         #[prost(message, tag="32")]
-        ByteStreamWriterWrite(super::ByteStreamWriterWriteCallback),
+        ByteStreamOpen(super::ByteStreamOpenCallback),
         #[prost(message, tag="33")]
-        ByteStreamWriterClose(super::ByteStreamWriterCloseCallback),
+        ByteStreamWriterWrite(super::ByteStreamWriterWriteCallback),
         #[prost(message, tag="34")]
-        TextStreamOpened(super::TextStreamOpenedEvent),
+        ByteStreamWriterClose(super::ByteStreamWriterCloseCallback),
         #[prost(message, tag="35")]
-        TextStreamReaderEvent(super::TextStreamReaderEvent),
+        SendFile(super::StreamSendFileCallback),
         #[prost(message, tag="36")]
-        TextStreamReaderReadAll(super::TextStreamReaderReadAllCallback),
+        TextStreamOpened(super::TextStreamOpenedEvent),
         #[prost(message, tag="37")]
-        TextStreamWriterWrite(super::TextStreamWriterWriteCallback),
+        TextStreamReaderEvent(super::TextStreamReaderEvent),
         #[prost(message, tag="38")]
+        TextStreamReaderReadAll(super::TextStreamReaderReadAllCallback),
+        #[prost(message, tag="39")]
+        TextStreamOpen(super::TextStreamOpenCallback),
+        #[prost(message, tag="40")]
+        TextStreamWriterWrite(super::TextStreamWriterWriteCallback),
+        #[prost(message, tag="41")]
         TextStreamWriterClose(super::TextStreamWriterCloseCallback),
+        #[prost(message, tag="42")]
+        SendText(super::StreamSendTextCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

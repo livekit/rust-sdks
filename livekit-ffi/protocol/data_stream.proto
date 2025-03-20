@@ -231,9 +231,13 @@ message ByteStreamOpenRequest {
     required StreamByteOptions options = 2;
 }
 message ByteStreamOpenResponse {
+    required uint64 async_id = 1;
+}
+message ByteStreamOpenCallback {
+    required uint64 async_id = 1;
     oneof result {
-        OwnedByteStreamWriter writer = 1;
-        StreamError error = 2;
+        OwnedByteStreamWriter writer = 2;
+        StreamError error = 3;
     }
 }
 
@@ -278,9 +282,13 @@ message TextStreamOpenRequest {
     required StreamTextOptions options = 2;
 }
 message TextStreamOpenResponse {
+    required uint64 async_id = 1;
+}
+message TextStreamOpenCallback {
+    required uint64 async_id = 1;
     oneof result {
-        OwnedTextStreamWriter writer = 1;
-        StreamError error = 2;
+        OwnedTextStreamWriter writer = 2;
+        StreamError error = 3;
     }
 }
 

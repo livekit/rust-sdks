@@ -290,14 +290,20 @@ message FfiEvent {
     ByteStreamReaderEvent byte_stream_reader_event = 29;
     ByteStreamReaderReadAllCallback byte_stream_reader_read_all = 30;
     ByteStreamReaderWriteToFileCallback byte_stream_reader_write_to_file = 31;
-    ByteStreamWriterWriteCallback byte_stream_writer_write = 32;
-    ByteStreamWriterCloseCallback byte_stream_writer_close = 33;
 
-    TextStreamOpenedEvent text_stream_opened = 34;
-    TextStreamReaderEvent text_stream_reader_event = 35;
-    TextStreamReaderReadAllCallback text_stream_reader_read_all = 36;
-    TextStreamWriterWriteCallback text_stream_writer_write = 37;
-    TextStreamWriterCloseCallback text_stream_writer_close = 38;
+    ByteStreamOpenCallback byte_stream_open = 32;
+    ByteStreamWriterWriteCallback byte_stream_writer_write = 33;
+    ByteStreamWriterCloseCallback byte_stream_writer_close = 34;
+    StreamSendFileCallback send_file = 35;
+
+    TextStreamOpenedEvent text_stream_opened = 36;
+    TextStreamReaderEvent text_stream_reader_event = 37;
+    TextStreamReaderReadAllCallback text_stream_reader_read_all = 38;
+
+    TextStreamOpenCallback text_stream_open = 39;
+    TextStreamWriterWriteCallback text_stream_writer_write = 40;
+    TextStreamWriterCloseCallback text_stream_writer_close = 41;
+    StreamSendTextCallback send_text = 42;
   }
 }
 
