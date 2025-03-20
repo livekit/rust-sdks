@@ -232,21 +232,19 @@ impl AnyStreamInfo {
 #[rustfmt::skip]
 macro_rules! stream_info {
     () => {
-        pub fn id(&self) -> &str { &self.id }
-        pub fn topic(&self) -> &str { &self.topic }
-        pub fn timestamp(&self) -> &DateTime<Utc> { &self.timestamp }
-        pub fn total_length(&self) -> Option<u64> { self.total_length }
-        pub fn attributes(&self) -> &HashMap<String, String> { &self.attributes }
-        pub fn mime_type(&self) -> &str { &self.mime_type }
+        fn id(&self) -> &str { &self.id }
+        fn topic(&self) -> &str { &self.topic }
+        fn timestamp(&self) -> &DateTime<Utc> { &self.timestamp }
+        fn total_length(&self) -> Option<u64> { self.total_length }
+        fn attributes(&self) -> &HashMap<String, String> { &self.attributes }
+        fn mime_type(&self) -> &str { &self.mime_type }
     };
 }
 
-#[rustfmt::skip]
 impl ByteStreamInfo {
     stream_info!();
 }
 
-#[rustfmt::skip]
 impl TextStreamInfo {
     stream_info!();
 }

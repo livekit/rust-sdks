@@ -264,7 +264,7 @@ pub struct StreamTextOptions {
 }
 
 #[derive(Clone)]
-pub struct OutgoingStreamManager {
+pub(crate) struct OutgoingStreamManager {
     /// Request channel for sending packets.
     packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
 }
