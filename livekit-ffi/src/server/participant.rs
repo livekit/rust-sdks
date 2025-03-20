@@ -19,8 +19,11 @@ use std::time::Duration;
 
 use crate::{
     proto,
-    server::room::RoomInner,
-    server::{FfiHandle, FfiServer},
+    server::{
+        data_stream::{FfiByteStreamWriter, FfiTextStreamWriter},
+        room::RoomInner,
+        FfiHandle, FfiServer,
+    },
     FfiError, FfiHandleId, FfiResult,
 };
 
@@ -34,6 +37,16 @@ pub struct FfiParticipant {
 impl FfiHandle for FfiParticipant {}
 
 impl FfiParticipant {
+    fn guard_local_participant(&self) -> FfiResult<LocalParticipant> {
+        let local = match &self.participant {
+            Participant::Local(local) => local.clone(),
+            Participant::Remote(_) => {
+                Err(FfiError::InvalidRequest("Expected local participant".into()))?
+            }
+        };
+        Ok(local)
+    }
+
     pub fn perform_rpc(
         &self,
         server: &'static FfiServer,
@@ -41,12 +54,7 @@ impl FfiParticipant {
     ) -> FfiResult<proto::PerformRpcResponse> {
         let async_id = server.next_id();
 
-        let local = match &self.participant {
-            Participant::Local(local) => local.clone(),
-            Participant::Remote(_) => {
-                return Err(FfiError::InvalidRequest("Expected local participant".into()))
-            }
-        };
+        let local = self.guard_local_participant()?;
 
         let handle = server.async_runtime.spawn(async move {
             let result = local
@@ -75,5 +83,91 @@ impl FfiParticipant {
         });
         server.watch_panic(handle);
         Ok(proto::PerformRpcResponse { async_id })
+    }
+
+    pub fn send_file(
+        &self,
+        server: &'static FfiServer,
+        request: proto::StreamSendFileRequest,
+    ) -> FfiResult<proto::StreamSendFileResponse> {
+        let async_id = server.next_id();
+        let local = self.guard_local_participant()?;
+
+        let handle = server.async_runtime.spawn(async move {
+            let result = match local.send_file(&request.file_path, request.options.into()).await {
+                Ok(info) => proto::stream_send_file_callback::Result::Info(info.into()),
+                Err(err) => proto::stream_send_file_callback::Result::Error(err.into()),
+            };
+            let callback = proto::StreamSendFileCallback { async_id, result: Some(result) };
+            let _ = server.send_event(proto::ffi_event::Message::SendFile(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::StreamSendFileResponse { async_id })
+    }
+
+    pub fn send_text(
+        &self,
+        server: &'static FfiServer,
+        request: proto::StreamSendTextRequest,
+    ) -> FfiResult<proto::StreamSendTextResponse> {
+        let async_id = server.next_id();
+        let local = self.guard_local_participant()?;
+
+        let handle = server.async_runtime.spawn(async move {
+            let result = match local.send_text(&request.text, request.options.into()).await {
+                Ok(info) => proto::stream_send_text_callback::Result::Info(info.into()),
+                Err(err) => proto::stream_send_text_callback::Result::Error(err.into()),
+            };
+            let callback = proto::StreamSendTextCallback { async_id, result: Some(result) };
+            let _ = server.send_event(proto::ffi_event::Message::SendText(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::StreamSendTextResponse { async_id })
+    }
+
+    pub fn stream_bytes(
+        &self,
+        server: &'static FfiServer,
+        request: proto::ByteStreamOpenRequest,
+    ) -> FfiResult<proto::ByteStreamOpenResponse> {
+        let async_id = server.next_id();
+        let local = self.guard_local_participant()?;
+
+        let handle = server.async_runtime.spawn(async move {
+            let result = match local.stream_bytes(request.options.into()).await {
+                Ok(writer) => {
+                    let ffi_writer = FfiByteStreamWriter::from_writer(server, writer);
+                    proto::byte_stream_open_callback::Result::Writer(ffi_writer)
+                }
+                Err(err) => proto::byte_stream_open_callback::Result::Error(err.into()),
+            };
+            let callback = proto::ByteStreamOpenCallback { async_id, result: Some(result) };
+            let _ = server.send_event(proto::ffi_event::Message::ByteStreamOpen(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::ByteStreamOpenResponse { async_id })
+    }
+
+    pub fn stream_text(
+        &self,
+        server: &'static FfiServer,
+        request: proto::TextStreamOpenRequest,
+    ) -> FfiResult<proto::TextStreamOpenResponse> {
+        let async_id = server.next_id();
+        let local = self.guard_local_participant()?;
+
+        let handle = server.async_runtime.spawn(async move {
+            let result = match local.stream_text(request.options.into()).await {
+                Ok(writer) => {
+                    let ffi_writer = FfiTextStreamWriter::from_writer(server, writer);
+                    proto::text_stream_open_callback::Result::Writer(ffi_writer)
+                }
+                Err(err) => proto::text_stream_open_callback::Result::Error(err.into()),
+            };
+            let callback = proto::TextStreamOpenCallback { async_id, result: Some(result) };
+            let _ = server.send_event(proto::ffi_event::Message::TextStreamOpen(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::TextStreamOpenResponse { async_id })
     }
 }

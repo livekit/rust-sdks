@@ -16,6 +16,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     future::Future,
+    path::Path,
     pin::Pin,
     sync::{Arc, Weak},
     time::Duration,
@@ -25,6 +26,10 @@ use super::{
     ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission, RoomSession,
 };
 use crate::{
+    data_stream::{
+        ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
+        TextStreamInfo, TextStreamWriter,
+    },
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
@@ -704,5 +709,75 @@ impl LocalParticipant {
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
         let session = self.session().unwrap();
         session.perform_rpc(data).await
+    }
+
+    /// Send text to participants in the room.
+    ///
+    /// This method sends a complete text string to participants in the room as a text stream.
+    /// The text is sent in a single operation, and the method returns information about the
+    /// stream used to send the text.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text content to send.
+    /// * `options` - Configuration options for the text stream, including topic and
+    ///   destination participants.
+    ///
+    pub async fn send_text(
+        &self,
+        text: &str,
+        options: StreamTextOptions,
+    ) -> StreamResult<TextStreamInfo> {
+        self.session().unwrap().outgoing_stream_manager.send_text(text, options).await
+    }
+
+    /// Send a file on disk to participants in the room.
+    ///
+    /// This method reads a file from the specified path and sends its contents
+    /// to participants in the room as a byte stream, and the method returns information
+    /// the stream used to send the file.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file to be sent.
+    /// * `options` - Configuration options for the byte stream, including topic and
+    ///   destination participants.
+    ///
+    pub async fn send_file(
+        &self,
+        path: impl AsRef<Path>,
+        options: StreamByteOptions,
+    ) -> StreamResult<ByteStreamInfo> {
+        self.session().unwrap().outgoing_stream_manager.send_file(path, options).await
+    }
+
+    /// Stream text incrementally to participants in the room.
+    ///
+    /// This method allows sending text data in chunks as it becomes available.
+    /// Unlike `send_text`, which sends the entire text at once, this method returns
+    /// a writer that can be used to send text incrementally.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Configuration options for the text stream, including topic and
+    ///   destination participants.
+    ///
+    pub async fn stream_text(&self, options: StreamTextOptions) -> StreamResult<TextStreamWriter> {
+        self.session().unwrap().outgoing_stream_manager.stream_text(options).await
+    }
+
+    /// Stream bytes incrementally to participants in the room.
+    ///
+    /// This method allows sending binary data in chunks as it becomes available.
+    /// Unlike `send_file`, which sends the entire file at once, this method returns
+    /// a writer that can be used to send binary data incrementally.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Configuration options for the byte stream, including topic and
+    ///   destination participants.
+    ///
+    pub async fn stream_bytes(&self, options: StreamByteOptions) -> StreamResult<ByteStreamWriter> {
+        self.session().unwrap().outgoing_stream_manager.stream_bytes(options).await
     }
 }

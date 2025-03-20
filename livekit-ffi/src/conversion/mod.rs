@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod audio_frame;
+pub mod data_stream;
 pub mod participant;
 pub mod resampler;
 pub mod room;

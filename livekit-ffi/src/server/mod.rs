@@ -36,6 +36,7 @@ pub mod audio_plugin;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod colorcvt;
+pub mod data_stream;
 pub mod logger;
 pub mod participant;
 pub mod requests;
@@ -202,6 +203,27 @@ impl FfiServer {
 
         let handle = handle.map(|v| v.downcast_ref::<T>().unwrap());
         Ok(handle)
+    }
+
+    pub fn take_handle<T>(&self, id: FfiHandleId) -> FfiResult<T>
+    where
+        T: FfiHandle,
+    {
+        if id == INVALID_HANDLE {
+            return Err(FfiError::InvalidRequest("handle is invalid".into()));
+        }
+
+        let (_, handle) = self
+            .ffi_handles
+            .remove(&id)
+            .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
+
+        let handle = handle.downcast::<T>().map_err(|_| {
+            let tyname = std::any::type_name::<T>();
+            let msg = format!("handle is not a {}", tyname);
+            FfiError::InvalidRequest(msg.into())
+        })?;
+        Ok(*handle)
     }
 
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
