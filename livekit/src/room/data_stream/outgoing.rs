@@ -344,7 +344,7 @@ impl OutgoingStreamManager {
             version: options.version.unwrap_or_default(),
             reply_to_stream_id: options.reply_to_stream_id.unwrap_or_default(),
             attached_stream_ids: options.attached_stream_ids,
-            generated: options.generated,
+            generated: options.generated.unwrap_or_default(),
         };
         let header = proto::data_stream::Header {
             stream_id: options.id.unwrap_or_else(|| create_random_uuid()),
