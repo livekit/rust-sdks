@@ -4416,8 +4416,19 @@ pub struct StreamSendFileResponse {
 pub struct StreamSendFileCallback {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
-    #[prost(message, optional, tag="2")]
-    pub error: ::core::option::Option<StreamError>,
+    #[prost(oneof="stream_send_file_callback::Result", tags="2, 3")]
+    pub result: ::core::option::Option<stream_send_file_callback::Result>,
+}
+/// Nested message and enum types in `StreamSendFileCallback`.
+pub mod stream_send_file_callback {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag="2")]
+        Info(super::ByteStreamInfo),
+        #[prost(message, tag="3")]
+        Error(super::StreamError),
+    }
 }
 // MARK: - Send text
 
@@ -4444,8 +4455,19 @@ pub struct StreamSendTextResponse {
 pub struct StreamSendTextCallback {
     #[prost(uint64, required, tag="1")]
     pub async_id: u64,
-    #[prost(message, optional, tag="2")]
-    pub error: ::core::option::Option<StreamError>,
+    #[prost(oneof="stream_send_text_callback::Result", tags="2, 3")]
+    pub result: ::core::option::Option<stream_send_text_callback::Result>,
+}
+/// Nested message and enum types in `StreamSendTextCallback`.
+pub mod stream_send_text_callback {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag="2")]
+        Info(super::TextStreamInfo),
+        #[prost(message, tag="3")]
+        Error(super::StreamError),
+    }
 }
 // MARK: - Byte stream writer
 

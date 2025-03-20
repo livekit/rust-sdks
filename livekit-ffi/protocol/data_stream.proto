@@ -193,7 +193,10 @@ message StreamSendFileResponse {
 }
 message StreamSendFileCallback {
     required uint64 async_id = 1;
-    optional StreamError error = 2;
+    oneof result {
+        ByteStreamInfo info = 2;
+        StreamError error = 3;
+    }
 }
 
 // MARK: - Send text
@@ -212,7 +215,10 @@ message StreamSendTextResponse {
 }
 message StreamSendTextCallback {
     required uint64 async_id = 1;
-    optional StreamError error = 2;
+    oneof result {
+        TextStreamInfo info = 2;
+        StreamError error = 3;
+    }
 }
 
 // MARK: - Byte stream writer
