@@ -20,7 +20,8 @@ use bmrng::unbounded::{UnboundedRequestReceiver, UnboundedRequestSender};
 use chrono::Utc;
 use libwebrtc::native::create_random_uuid;
 use livekit_protocol as proto;
-use std::{cell::RefCell, collections::HashMap, path::Path};
+use parking_lot::Mutex;
+use std::{collections::HashMap, path::Path};
 use tokio::io::AsyncReadExt;
 
 /// Writer for an open data stream.
@@ -128,7 +129,7 @@ struct RawStreamOpenOptions {
 
 struct RawStream {
     id: String,
-    progress: RefCell<StreamProgress>,
+    progress: Mutex<StreamProgress>,
     packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
 }
 
@@ -151,7 +152,7 @@ impl RawStream {
 
         Ok(Self {
             id,
-            progress: RefCell::new(StreamProgress { bytes_total, ..Default::default() }),
+            progress: Mutex::new(StreamProgress { bytes_total, ..Default::default() }),
             packet_tx: options.packet_tx,
         })
     }
@@ -160,7 +161,7 @@ impl RawStream {
         let chunk_length = bytes.len();
         let chunk = proto::data_stream::Chunk {
             stream_id: self.id.to_owned(),
-            chunk_index: self.progress.borrow().chunk_index,
+            chunk_index: self.progress.lock().chunk_index,
             content: bytes.to_vec(),
             ..Default::default()
         };
@@ -171,7 +172,7 @@ impl RawStream {
             ..Default::default()
         };
 
-        let mut progress = self.progress.borrow_mut();
+        let mut progress = self.progress.lock();
         progress.bytes_processed += chunk_length as u64;
         progress.chunk_index += 1;
 
