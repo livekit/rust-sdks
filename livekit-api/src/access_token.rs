@@ -286,7 +286,7 @@ impl TokenVerifier {
         {
             validation.validate_exp = false;
         }
-         validation.validate_nbf = true;
+        validation.validate_nbf = true;
         validation.set_issuer(&[&self.api_key]);
 
         let token = jsonwebtoken::decode::<Claims>(
