@@ -32,6 +32,9 @@ pub enum StreamError {
     #[error("stream with this ID is already opened")]
     AlreadyOpened,
 
+    #[error("stream has already been closed")]
+    AlreadyClosed,
+
     #[error("stream closed abnormally: {0}")]
     AbnormalEnd(String),
 
