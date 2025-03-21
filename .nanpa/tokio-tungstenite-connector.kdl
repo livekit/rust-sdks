@@ -1,0 +1,1 @@
+minor type="added" "Add ability to pass rustls Connector to tokio-tungstenite"
