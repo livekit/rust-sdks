@@ -4,3 +4,6 @@
 [submodule "yuv-sys/libyuv"]
 	path = yuv-sys/libyuv
 	url = https://chromium.googlesource.com/libyuv/libyuv
+[submodule "soxr-sys/soxr"]
+	path = soxr-sys/soxr
+	url = https://github.com/dofuuz/soxr/

@@ -1,1 +1,1 @@
-bindgen src/soxr.h -o src/soxr.rs
+bindgen soxr/src/soxr.h -o src/soxr.rs

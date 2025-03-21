@@ -5,11 +5,9 @@ authors = ["Theo Monnom <theo.8bits@gmail.com"]
 edition = "2021"
 license = "Apache-2.0"
 
-[dependencies]
-
 
 [build-dependencies]
-cc = "1.0"
+cmake = "0.1"
 
 [dev-dependencies]
 hound = "3.4"
