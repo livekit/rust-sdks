@@ -955,8 +955,12 @@ fn on_load_audio_filter_plugin(
     request: proto::LoadAudioFilterPluginRequest,
 ) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
     let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
-    let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps)
-        .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
+    let plugin = match AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps) {
+        Ok(p) => p,
+        Err(err) => {
+            return Ok(proto::LoadAudioFilterPluginResponse { error: Some(err.to_string()) });
+        }
+    };
 
     register_audio_filter_plugin(request.module_id, plugin);
 
