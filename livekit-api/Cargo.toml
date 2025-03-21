@@ -16,22 +16,22 @@ signal-client-tokio = [
     "dep:futures-util",
     "dep:reqwest",
     "dep:livekit-runtime",
-    "livekit-runtime/tokio"
+    "livekit-runtime/tokio",
 ]
 
 signal-client-async = [
     "__signal-client-async-compatible",
-    "livekit-runtime/async"
+    "livekit-runtime/async",
 ]
 
 signal-client-dispatcher = [
     "__signal-client-async-compatible",
-    "livekit-runtime/dispatcher"
+    "livekit-runtime/dispatcher",
 ]
 
 __signal-client-async-compatible = [
     "dep:async-tungstenite",
-    "dep:tokio", # For macros and sync
+    "dep:tokio",             # For macros and sync
     "dep:futures-util",
     "dep:isahc",
     "dep:livekit-runtime",
@@ -48,7 +48,7 @@ webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 native-tls = [
     "tokio-tungstenite?/native-tls",
     "async-tungstenite?/async-native-tls",
-    "reqwest?/native-tls"
+    "reqwest?/native-tls",
 ]
 native-tls-vendored = [
     "tokio-tungstenite?/native-tls-vendored",
@@ -83,16 +83,30 @@ base64 = { version = "0.21", optional = true }
 jsonwebtoken = { version = "9", default-features = false, optional = true }
 
 # signal_client
-livekit-runtime = { path = "../livekit-runtime", version = "0.4.0", optional = true}
-tokio-tungstenite = { version = "0.20", optional = true }
-async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
-tokio = { version = "1", default-features = false, features = ["sync", "macros", "signal"], optional = true }
-futures-util = { version = "0.3", default-features = false, features = [ "sink" ], optional = true }
+livekit-runtime = { path = "../livekit-runtime", version = "0.4.0", optional = true }
+tokio-tungstenite = { version = "0.26", optional = true }
+async-tungstenite = { version = "0.25.0", features = [
+    "async-std-runtime",
+    "async-native-tls",
+], optional = true }
+tokio = { version = "1", default-features = false, features = [
+    "sync",
+    "macros",
+    "signal",
+], optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+], optional = true }
 
 # This dependency must be kept in sync with reqwest's version
 http = "0.2.1"
-reqwest = { version = "0.11", default-features = false, features = [ "json" ], optional = true }
-isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
+reqwest = { version = "0.11", default-features = false, features = [
+    "json",
+], optional = true }
+isahc = { version = "1.7.2", default-features = false, features = [
+    "json",
+    "text-decoding",
+], optional = true }
 
 scopeguard = "1.2.0"
 rand = "0.9.0"
