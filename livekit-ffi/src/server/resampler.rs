@@ -43,7 +43,7 @@ impl SoxResampler {
         _quality_spec: QualitySpec, // ignored – using default soxr options
         _runtime_spec: RuntimeSpec, // ignored – using default soxr options
     ) -> Result<Self, String> {
-        let mut err: *const c_char = std::ptr::null();
+        let mut err: *mut *const c_char = std::ptr::null_mut();
 
         let soxr_ptr = unsafe {
             // Create io_spec from our types.
@@ -58,7 +58,7 @@ impl SoxResampler {
                 input_rate,
                 output_rate,
                 num_channels,
-                &mut err,
+                err,
                 &io_spec,
                 std::ptr::null(), // default quality
                 std::ptr::null(), // default runtime
@@ -66,7 +66,7 @@ impl SoxResampler {
         };
 
         if !err.is_null() || soxr_ptr.is_null() {
-            let error_msg = unsafe { std::ffi::CStr::from_ptr(err) };
+            let error_msg = unsafe { std::ffi::CStr::from_ptr(*err) };
             return Err(error_msg.to_string_lossy().to_string());
         }
 
@@ -77,11 +77,6 @@ impl SoxResampler {
     /// This version verifies that the input length is a multiple of the number of channels
     /// and uses valid pointers for tracking the number of frames consumed and produced.
     pub fn push(&mut self, input: &[i16]) -> Result<&[i16], String> {
-        // Ensure the input length is a multiple of the channel count.
-        if input.len() % self.num_channels as usize != 0 {
-            return Err("Input length must be a multiple of num_channels".to_string());
-        }
-
         let input_length = input.len() / self.num_channels as usize;
         let ratio = self.output_rate / self.input_rate;
         let delay = unsafe { soxr_sys::soxr_delay(self.soxr_ptr) };
@@ -96,6 +91,7 @@ impl SoxResampler {
         }
 
         // Using valid pointers for both consumed input (idone) and produced output (odone)
+        let mut idone: usize = 0;
         let mut odone: usize = 0;
 
         let error = unsafe {
@@ -103,7 +99,7 @@ impl SoxResampler {
                 self.soxr_ptr,
                 input.as_ptr() as *const c_void,
                 input_length,
-                std::ptr::null_mut(),
+                &mut idone,
                 self.out_buf.as_mut_ptr() as *mut c_void,
                 max_out_len,
                 &mut odone,
