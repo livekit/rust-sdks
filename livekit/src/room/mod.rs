@@ -14,6 +14,7 @@
 
 use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
 
+use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::Future;
 use libwebrtc::{
     native::{create_random_uuid, frame_cryptor::EncryptionState},
@@ -476,18 +477,12 @@ impl Room {
             e2ee_manager.encryption_type(),
         );
 
-        let (outgoing_stream_manager, mut packet_rx) = OutgoingStreamManager::new();
-        let engine = rtc_engine.clone();
-        let identity = local_participant.identity().clone();
-        tokio::task::spawn(async move {
-            // Receive packets from the outgoing stream manager and send them.
-            while let Ok((mut packet, responder)) = packet_rx.recv().await {
-                // Set packet's participant identity field
-                packet.participant_identity = identity.0.clone();
-                let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
-                let _ = responder.respond(result);
-            }
-        });
+        let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
+        tokio::task::spawn(outgoing_data_stream_task(
+            packet_rx,
+            local_participant.identity().clone(),
+            rtc_engine.clone(),
+        ));
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
         local_participant.on_local_track_published({
@@ -1862,6 +1857,20 @@ impl RoomSession {
         {
             log::error!("Failed to publish RPC response: {:?}", e);
         }
+    }
+}
+
+/// Receive packets from the outgoing stream manager and send them.
+async fn outgoing_data_stream_task(
+    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
+    participant_identity: ParticipantIdentity,
+    engine: Arc<RtcEngine>,
+) {
+    while let Ok((mut packet, responder)) = packet_rx.recv().await {
+        // Set packet's participant identity field
+        packet.participant_identity = participant_identity.0.clone();
+        let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
+        let _ = responder.respond(result);
     }
 }
 
