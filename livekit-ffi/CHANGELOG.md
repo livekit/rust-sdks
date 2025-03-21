@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.18] - 2025-03-21
+
+### Fixed
+
+- Fix several minor issues
+- Revert the RPC change, need more robust way
+
 ## [0.12.17] - 2025-03-18
 
 ### Fixed
