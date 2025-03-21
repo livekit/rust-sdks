@@ -7,7 +7,7 @@ fn main() {
     build.define("SOXR_LIB", "0");
 
     build
-        .flag_if_supported("-std=gnu99")
+        .flag_if_supported("-std=gnu89")
         .flag_if_supported("-Wnested-externs")
         .flag_if_supported("-Wmissing-prototypes")
         .flag_if_supported("-Wstrict-prototypes")
@@ -16,8 +16,8 @@ fn main() {
         .flag_if_supported("-Wextra")
         .flag_if_supported("-pedantic")
         .flag_if_supported("-Wundef")
-        .flag_if_supported("-Wpointer-arith")
-        .flag_if_supported("-Wno-long-long");
+        .flag_if_supported("-Wpointer-arith");
+    //.flag_if_supported("-Wno-long-long");
 
     // TODO(theomonnom): Add SIMD support
     let sources = [
