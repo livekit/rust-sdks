@@ -19,7 +19,7 @@ use std::{collections::HashSet, slice, sync::Arc};
 use livekit::ChatMessage;
 use livekit::{prelude::*, registered_audio_filter_plugins};
 use livekit_protocol as lk_proto;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
@@ -71,7 +71,6 @@ pub struct RoomInner {
 
     // Used to forward RPC method invocation to the FfiClient and collect their results
     rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
-    local_participant_handle: RwLock<Option<FfiHandleId>>,
 
     // ws url associated with this room
     url: String,
@@ -176,13 +175,11 @@ impl FfiRoom {
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
                         rpc_method_invocation_waiters: Default::default(),
-                        local_participant_handle: Default::default(),
                         url: connect.url,
                     });
 
                     let (local_info, remote_infos) =
                         build_initial_states(server, &inner, participants_with_tracks);
-                    *inner.local_participant_handle.write() = Some(local_info.handle.id);
 
                     // Send callback
                     let ffi_room = Self { inner: inner.clone(), handle: Default::default() };
@@ -789,32 +786,6 @@ impl RoomInner {
         proto::SendStreamTrailerResponse { async_id }
     }
 
-    pub fn register_rpc_method(
-        self: &Arc<Self>,
-        server: &'static FfiServer,
-        request: proto::RegisterRpcMethodRequest,
-    ) -> FfiResult<proto::RegisterRpcMethodResponse> {
-        let method = request.method.clone();
-
-        let room = self.clone();
-        self.room.register_rpc_method(method.clone(), move |data| {
-            Box::pin({
-                let room = room.clone();
-                let method = method.clone();
-                async move { forward_rpc_method_invocation(server, room, method, data).await }
-            })
-        });
-        Ok(proto::RegisterRpcMethodResponse {})
-    }
-
-    pub fn unregister_rpc_method(
-        &self,
-        request: proto::UnregisterRpcMethodRequest,
-    ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
-        self.room.unregister_rpc_method(request.method);
-        Ok(proto::UnregisterRpcMethodResponse {})
-    }
-
     pub fn store_rpc_method_invocation_waiter(
         &self,
         invocation_id: u64,
@@ -1419,37 +1390,4 @@ fn build_initial_states(
         },
         remote_infos,
     )
-}
-
-async fn forward_rpc_method_invocation(
-    server: &'static FfiServer,
-    room: Arc<RoomInner>,
-    method: String,
-    data: RpcInvocationData,
-) -> Result<String, RpcError> {
-    let (tx, rx) = oneshot::channel();
-    let invocation_id = server.next_id();
-    let local_participant_handle = room.local_participant_handle.read().unwrap();
-
-    room.store_rpc_method_invocation_waiter(invocation_id, tx);
-
-    let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
-        proto::RpcMethodInvocationEvent {
-            local_participant_handle,
-            invocation_id,
-            method,
-            request_id: data.request_id,
-            caller_identity: data.caller_identity.into(),
-            payload: data.payload,
-            response_timeout_ms: data.response_timeout.as_millis() as u32,
-        },
-    ));
-
-    rx.await.unwrap_or_else(|_| {
-        Err(RpcError {
-            code: RpcErrorCode::ApplicationError as u32,
-            message: "Error from method handler".to_string(),
-            data: None,
-        })
-    })
 }
