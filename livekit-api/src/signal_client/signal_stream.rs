@@ -34,12 +34,12 @@ use tokio::{
 
 #[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::{
-    connect_async,
+    client_async_with_config, connect_async_tls_with_config,
     tungstenite::client::IntoClientRequest,
     tungstenite::error::ProtocolError,
     tungstenite::http::{header::AUTHORIZATION, HeaderValue},
     tungstenite::{Error as WsError, Message},
-    MaybeTlsStream, WebSocketStream,
+    Connector, MaybeTlsStream, WebSocketStream,
 };
 
 #[cfg(feature = "__signal-client-async-compatible")]
@@ -88,6 +88,7 @@ impl SignalStream {
     pub async fn connect(
         url: url::Url,
         token: &str,
+        tls_connector: Option<Connector>,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
         log::info!("connecting to {}", url);
         let mut request = url.clone().into_client_request()?;
@@ -288,17 +289,18 @@ impl SignalStream {
                     };
 
                     // Now perform WebSocket handshake over the established connection
-                    let (ws_stream, _) =
-                        tokio_tungstenite::client_async_with_config(request, stream, None).await?;
+                    let (ws_stream, _) = client_async_with_config(request, stream, None).await?;
                     ws_stream
                 } else {
                     // No proxy specified, connect directly
-                    let (ws_stream, _) = connect_async(request).await?;
+                    let (ws_stream, _) =
+                        connect_async_tls_with_config(request, None, false, tls_connector).await?;
                     ws_stream
                 }
             } else {
                 // Non-tokio build or no proxy - connect directly
-                let (ws_stream, _) = connect_async(request).await?;
+                let (ws_stream, _) =
+                    connect_async_tls_with_config(request, None, false, tls_connector).await?;
                 ws_stream
             };
 
@@ -307,6 +309,9 @@ impl SignalStream {
 
         #[cfg(not(feature = "signal-client-tokio"))]
         let (ws_stream, _) = connect_async(request).await?;
+        #[cfg(not(feature = "signal-client-tokio"))]
+        let _ = tls_connector;
+
         let (ws_writer, ws_reader) = ws_stream.split();
 
         let (emitter, events) = mpsc::unbounded_channel();
