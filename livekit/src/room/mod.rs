@@ -314,7 +314,7 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
@@ -324,8 +324,24 @@ pub struct RoomOptions {
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
+    pub signal_options: SignalOptions,
+    pub connector: Option<livekit_api::signal_client::Connector>,
 }
-
+impl Debug for RoomOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoomOptions")
+            .field("auto_subscribe", &self.auto_subscribe)
+            .field("adaptive_stream", &self.adaptive_stream)
+            .field("dynacast", &self.dynacast)
+            .field("e2ee", &self.e2ee)
+            .field("rtc_config", &self.rtc_config)
+            .field("join_retries", &self.join_retries)
+            .field("sdk_options", &self.sdk_options)
+            .field("signal_options", &self.signal_options)
+            // Exclude connector field as it's not Debug
+            .finish()
+    }
+}
 impl Default for RoomOptions {
     fn default() -> Self {
         Self {
@@ -343,6 +359,8 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
+            signal_options: SignalOptions::default(),
+            connector: None,
         }
     }
 }
@@ -415,6 +433,7 @@ impl Room {
         signal_options.sdk_options = options.sdk_options.clone().into();
         signal_options.auto_subscribe = options.auto_subscribe;
         signal_options.adaptive_stream = options.adaptive_stream;
+        signal_options.connector = options.connector.clone();
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -968,7 +987,7 @@ impl RoomSession {
     }
 
     async fn send_sync_state(self: &Arc<Self>) {
-        let auto_subscribe = self.options.auto_subscribe;
+        let auto_subscribe = self.options.signal_options.auto_subscribe;
         let session = self.rtc_engine.session();
 
         if session.subscriber().peer_connection().current_local_description().is_none() {
@@ -1355,7 +1374,7 @@ impl RoomSession {
             name,
             metadata,
             attributes,
-            self.options.auto_subscribe,
+            self.options.signal_options.auto_subscribe,
         );
 
         participant.on_track_published({
