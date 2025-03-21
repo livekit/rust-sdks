@@ -172,7 +172,7 @@ void _soxr_deinterleave_f(float * * dest, /* Round/clipping not needed here */
 
 #if WITH_CR64 || WITH_CR64S
 size_t /* clips */ _soxr_interleave(soxr_datatype_t data_type, void * * dest0,
-  double const * const * src, size_t n, unsigned ch, unsigned long * seed)
+  double const * const * src, size_t n, unsigned ch, unsigned long long * seed)
 {
   switch (data_type & 3) {
     case SOXR_FLOAT32: INTERLEAVE_TO(float, 0);
@@ -198,7 +198,7 @@ size_t /* clips */ _soxr_interleave(soxr_datatype_t data_type, void * * dest0,
 
 #if WITH_CR32 || WITH_CR32S || WITH_VR32
 size_t /* clips */ _soxr_interleave_f(soxr_datatype_t data_type, void * * dest0,
-  float const * const * src, size_t n, unsigned ch, unsigned long * seed)
+  float const * const * src, size_t n, unsigned ch, unsigned long long * seed)
 {
   switch (data_type & 3) {
     case SOXR_FLOAT32: INTERLEAVE_TO(float, 1);

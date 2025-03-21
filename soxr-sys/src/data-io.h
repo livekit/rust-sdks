@@ -26,7 +26,7 @@ size_t /* clips */ _soxr_interleave(
     double const * const * src,
     size_t n,
     unsigned ch,
-    unsigned long * seed);
+    unsigned long long * seed);
 
 size_t /* clips */ _soxr_interleave_f(
     soxr_datatype_t data_type,
@@ -34,6 +34,6 @@ size_t /* clips */ _soxr_interleave_f(
     float const * const * src,
     size_t n,
     unsigned ch,
-    unsigned long * seed);
+    unsigned long long * seed);
 
 #endif

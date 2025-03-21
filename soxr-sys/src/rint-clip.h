@@ -4,12 +4,12 @@
 #if defined DITHER
 
 #define DITHERING + (1./32)*(int)(((ran1>>=3)&31)-((ran2>>=3)&31))
-#define DITHER_RAND (seed = 1664525UL * seed + 1013904223UL) >> 3
-#define DITHER_VARS unsigned long ran1 = DITHER_RAND, ran2 = DITHER_RAND
-#define SEED_ARG , unsigned long * seed0
+#define DITHER_RAND (seed = 1664525ULL * seed + 1013904223ULL) >> 3
+#define DITHER_VARS unsigned long long ran1 = DITHER_RAND, ran2 = DITHER_RAND
+#define SEED_ARG , unsigned long long * seed0
 #define SAVE_SEED *seed0 = seed
-#define COPY_SEED unsigned long seed = *seed0;
-#define COPY_SEED1 unsigned long seed1 = seed
+#define COPY_SEED unsigned long long seed = *seed0;
+#define COPY_SEED1 unsigned long long seed1 = seed
 #define PASS_SEED1 , &seed1
 #define PASS_SEED  , &seed
 #define FLOATD double

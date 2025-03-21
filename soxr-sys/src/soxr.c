@@ -64,7 +64,7 @@ typedef void * resampler_shared_t; /* Between channels. */
 typedef void (* deinterleave_t)(sample_t * * dest,
     soxr_datatype_t data_type, void const * * src0, size_t n, unsigned ch);
 typedef size_t (* interleave_t)(soxr_datatype_t data_type, void * * dest,
-    sample_t const * const * src, size_t, unsigned, unsigned long *);
+    sample_t const * const * src, size_t, unsigned, unsigned long long *);
 
 struct soxr {
   unsigned num_channels;
@@ -86,7 +86,7 @@ struct soxr {
 
   void * * channel_ptrs;
   size_t clips;
-  unsigned long seed;
+  unsigned long long seed;
   int flushing;
 };
 
@@ -428,7 +428,8 @@ soxr_t soxr_create(
     p->io_spec.scale *= datatype_full_scale[p->io_spec.otype & 3] /
                         datatype_full_scale[p->io_spec.itype & 3];
 
-    p->seed = (unsigned long)time(0) ^ (unsigned long)(size_t)p;
+    //p->seed = (unsigned long)time(0) ^ (unsigned long)(size_t)p;
+    p->seed = 0xc2ec33ef97a5ULL; /* Fixed dithering seed for deterministic int16 output */
 
 #if WITH_CR32 || WITH_CR32S || WITH_VR32
     if (0
