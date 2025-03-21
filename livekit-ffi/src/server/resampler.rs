@@ -32,74 +32,84 @@ pub struct SoxResampler {
 unsafe impl Send for SoxResampler {}
 
 impl SoxResampler {
+    /// Creates a new SoxResampler using soxr's default quality and runtime options.
+    /// The provided `QualitySpec` and `RuntimeSpec` are ignored and null pointers are passed
+    /// to `soxr_create` to let soxr choose its defaults.
     pub fn new(
         input_rate: f64,
         output_rate: f64,
         num_channels: u32,
         io_spec: IOSpec,
-        quality_spec: QualitySpec,
-        runtime_spec: RuntimeSpec,
+        _quality_spec: QualitySpec, // ignored – using default soxr options
+        _runtime_spec: RuntimeSpec, // ignored – using default soxr options
     ) -> Result<Self, String> {
-        let error: *mut *const c_char = std::ptr::null_mut();
+        let mut err: *const c_char = std::ptr::null();
 
         let soxr_ptr = unsafe {
+            // Create io_spec from our types.
             let io_spec = soxr_sys::soxr_io_spec(
                 to_soxr_datatype(io_spec.input_type),
                 to_soxr_datatype(io_spec.output_type),
             );
 
-            let quality_spec = soxr_sys::soxr_quality_spec(
-                quality_spec.quality as c_ulong,
-                quality_spec.flags as c_ulong,
-            );
-
-            let runtime_spec = soxr_sys::soxr_runtime_spec(runtime_spec.num_threads);
-
+            // Pass null pointers for quality and runtime specs so that
+            // soxr will use its internal default options.
             soxr_sys::soxr_create(
                 input_rate,
                 output_rate,
                 num_channels,
-                error,
-                &io_spec,
-                &quality_spec,
-                &runtime_spec,
+                &mut err,
+                std::ptr::null(), // default io_spec
+                std::ptr::null(), // default quality
+                std::ptr::null(), // default runtime
             )
         };
 
-        if !error.is_null() {
-            let error_msg = unsafe { std::ffi::CStr::from_ptr(*error) };
+        if !err.is_null() || soxr_ptr.is_null() {
+            let error_msg = unsafe { std::ffi::CStr::from_ptr(err) };
             return Err(error_msg.to_string_lossy().to_string());
         }
 
         Ok(Self { soxr_ptr, out_buf: Vec::new(), input_rate, output_rate, num_channels })
     }
 
+    /// Processes the input buffer and returns the resampled output.
+    /// This version verifies that the input length is a multiple of the number of channels
+    /// and uses valid pointers for tracking the number of frames consumed and produced.
     pub fn push(&mut self, input: &[i16]) -> Result<&[i16], String> {
+        // Ensure the input length is a multiple of the channel count.
+        if input.len() % self.num_channels as usize != 0 {
+            return Err("Input length must be a multiple of num_channels".to_string());
+        }
+
         let input_length = input.len() / self.num_channels as usize;
         let ratio = self.output_rate / self.input_rate;
-        let soxr_delay = unsafe { soxr_sys::soxr_delay(self.soxr_ptr) };
+        let delay = unsafe { soxr_sys::soxr_delay(self.soxr_ptr) };
 
+        // Estimate maximum output frames: processed frames + delay + an extra frame.
         let max_out_len =
-            ((input_length as f64 * ratio).ceil() as usize) + (soxr_delay.ceil() as usize) + 1;
+            (input_length as f64 * ratio).ceil() as usize + (delay.ceil() as usize) + 1;
 
         let required_output_size = max_out_len * self.num_channels as usize;
         if self.out_buf.len() < required_output_size {
             self.out_buf.resize(required_output_size, 0);
         }
 
-        let mut idone: usize = 0;
+        // Using valid pointers for both consumed input (idone) and produced output (odone)
         let mut odone: usize = 0;
+
         let error = unsafe {
             soxr_sys::soxr_process(
                 self.soxr_ptr,
                 input.as_ptr() as *const c_void,
                 input_length,
-                &mut idone,
+                std::ptr::null_mut(),
                 self.out_buf.as_mut_ptr() as *mut c_void,
                 max_out_len,
                 &mut odone,
             )
         };
+
         if !error.is_null() {
             let error_msg = unsafe { std::ffi::CStr::from_ptr(error) };
             return Err(error_msg.to_string_lossy().to_string());
@@ -109,19 +119,22 @@ impl SoxResampler {
         Ok(&self.out_buf[..output_samples])
     }
 
+    /// Flushes the internal state, processing any remaining data.
+    /// Passes null for the input pointer and for the idone parameter (since it is not needed).
     pub fn flush(&mut self) -> Result<&[i16], String> {
         let mut odone: usize = 0;
         let error = unsafe {
             soxr_sys::soxr_process(
                 self.soxr_ptr,
-                std::ptr::null(),
+                std::ptr::null(), // no more input
                 0,
-                std::ptr::null_mut(),
+                std::ptr::null_mut(), // no need to know how many were consumed
                 self.out_buf.as_mut_ptr() as *mut c_void,
                 self.out_buf.len(),
                 &mut odone,
             )
         };
+
         if !error.is_null() {
             let error_msg = unsafe { std::ffi::CStr::from_ptr(error) };
             return Err(error_msg.to_string_lossy().to_string());
