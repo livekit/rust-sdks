@@ -16,8 +16,8 @@ fn main() {
         .flag_if_supported("-Wextra")
         .flag_if_supported("-pedantic")
         .flag_if_supported("-Wundef")
-        .flag_if_supported("-Wpointer-arith")
-        .flag_if_supported("-Wno-long-long");
+        .flag_if_supported("-Wpointer-arith");
+    //.flag_if_supported("-Wno-long-long");
 
     // TODO(theomonnom): Add SIMD support
     let sources = [

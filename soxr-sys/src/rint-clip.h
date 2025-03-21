@@ -4,12 +4,12 @@
 #if defined DITHER
 
 #define DITHERING + (1./32)*(int)(((ran1>>=3)&31)-((ran2>>=3)&31))
-#define DITHER_RAND (seed = 1664525UL * seed + 1013904223UL) >> 3
-#define DITHER_VARS unsigned long ran1 = DITHER_RAND, ran2 = DITHER_RAND
-#define SEED_ARG , unsigned long * seed0
+#define DITHER_RAND (seed = 1664525ULL * seed + 1013904223ULL) >> 3
+#define DITHER_VARS unsigned long long ran1 = DITHER_RAND, ran2 = DITHER_RAND
+#define SEED_ARG , unsigned long long * seed0
 #define SAVE_SEED *seed0 = seed
-#define COPY_SEED unsigned long seed = *seed0;
-#define COPY_SEED1 unsigned long seed1 = seed
+#define COPY_SEED unsigned long long seed = *seed0;
+#define COPY_SEED1 unsigned long long seed1 = seed
 #define PASS_SEED1 , &seed1
 #define PASS_SEED  , &seed
 #define FLOATD double
@@ -39,6 +39,7 @@ static void RINT_CLIP(RINT_T * const dest, FLOATX const * const src,
   COPY_SEED
   DITHER_VARS;
   for (; i < n; ++i) {
+    fe_clear_invalid();
     FLOATD const d = src[i] DITHERING;
     RINT(dest[stride * i], d);
     if (fe_test_invalid()) {
@@ -62,6 +63,7 @@ static size_t LSX_RINT_CLIP(void * * const dest0, FLOATX const * const src,
 #if defined FE_INVALID && defined FPU_RINT
 #define _ RINT(dest[i], src[i] DITHERING); ++i
   for (i = 0; i < (n & ~15u);) {
+    fe_clear_invalid();
     COPY_SEED1;
     DITHER_VARS;
     DO_16;
@@ -105,6 +107,7 @@ static size_t LSX_RINT_CLIP_2(void * * dest0, FLOATX const * const * srcs,
   for (j = 0; j < stride; ++j, ++dest) {
     FLOATX const * const src = srcs[j];
     for (i = 0; i < (n & ~15u);) {
+      fe_clear_invalid();
       COPY_SEED1;
       DITHER_VARS;
       DO_16;

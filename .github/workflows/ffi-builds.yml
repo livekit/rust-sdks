@@ -68,13 +68,13 @@ jobs:
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-latest
             platform: linux
-            build_image: quay.io/pypa/manylinux_2_28_x86_64
+            build_image: quay.io/pypa/manylinux_2_34_x86_64
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
             name: ffi-linux-x86_64
           - os: ubuntu-24.04-arm
             platform: linux
-            build_image: quay.io/pypa/manylinux_2_28_aarch64
+            build_image: quay.io/pypa/manylinux_2_34_aarch64
             dylib: liblivekit_ffi.so
             target: aarch64-unknown-linux-gnu
             name: ffi-linux-arm64
