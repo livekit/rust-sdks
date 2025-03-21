@@ -59,7 +59,7 @@ impl SoxResampler {
                 output_rate,
                 num_channels,
                 &mut err,
-                std::ptr::null(), // default io_spec
+                &io_spec,
                 std::ptr::null(), // default quality
                 std::ptr::null(), // default runtime
             )
