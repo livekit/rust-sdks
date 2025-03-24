@@ -50,6 +50,7 @@ fn main() {
         "src/prohibit_libsrtp_initialization.rs",
         "src/apm.rs",
         "src/desktop_capturer.rs",
+        "src/audio_mixer.rs",
     ]);
 
     builder.files(&[
@@ -79,6 +80,7 @@ fn main() {
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
         "src/desktop_capturer.cpp",
+        "src/audio_mixer.cpp",
     ]);
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
