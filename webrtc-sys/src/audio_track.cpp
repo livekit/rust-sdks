@@ -132,7 +132,8 @@ AudioTrackSource::InternalSource::InternalSource(
     int num_channels,
     int queue_size_ms,  // must be a multiple of 10ms
     webrtc::TaskQueueFactory* task_queue_factory)
-    : sample_rate_(sample_rate),
+    : options_(options),
+      sample_rate_(sample_rate),
       num_channels_(num_channels),
       capture_userdata_(nullptr),
       on_complete_(nullptr) {
