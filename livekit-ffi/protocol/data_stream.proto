@@ -263,6 +263,7 @@ message ByteStreamWriterWriteCallback {
 // Closes a stream writer.
 message ByteStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
+    optional string reason = 2;
 }
 message ByteStreamWriterCloseResponse {
     required uint64 async_id = 1;
@@ -314,6 +315,7 @@ message TextStreamWriterWriteCallback {
 // Closes a text stream writer.
 message TextStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
+    optional string reason = 2;
 }
 message TextStreamWriterCloseResponse {
     required uint64 async_id = 1;

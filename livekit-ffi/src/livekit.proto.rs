@@ -4544,6 +4544,8 @@ pub struct ByteStreamWriterWriteCallback {
 pub struct ByteStreamWriterCloseRequest {
     #[prost(uint64, required, tag="1")]
     pub writer_handle: u64,
+    #[prost(string, optional, tag="2")]
+    pub reason: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4634,6 +4636,8 @@ pub struct TextStreamWriterWriteCallback {
 pub struct TextStreamWriterCloseRequest {
     #[prost(uint64, required, tag="1")]
     pub writer_handle: u64,
+    #[prost(string, optional, tag="2")]
+    pub reason: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

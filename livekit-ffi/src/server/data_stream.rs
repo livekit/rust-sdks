@@ -284,11 +284,14 @@ impl FfiByteStreamWriter {
     pub fn close(
         self,
         server: &'static FfiServer,
-        _request: proto::ByteStreamWriterCloseRequest,
+        request: proto::ByteStreamWriterCloseRequest,
     ) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
         let async_id = server.next_id();
         let handle = server.async_runtime.spawn(async move {
-            let result = self.inner.close().await;
+            let result = match request.reason {
+                Some(reason) => self.inner.close_with_reason(&reason).await,
+                None => self.inner.close().await
+            };
             let callback = proto::ByteStreamWriterCloseCallback {
                 async_id,
                 error: result.map_err(|e| e.into()).err(),
@@ -337,11 +340,14 @@ impl FfiTextStreamWriter {
     pub fn close(
         self,
         server: &'static FfiServer,
-        _request: proto::TextStreamWriterCloseRequest,
+        request: proto::TextStreamWriterCloseRequest,
     ) -> FfiResult<proto::TextStreamWriterCloseResponse> {
         let async_id = server.next_id();
         let handle = server.async_runtime.spawn(async move {
-            let result = self.inner.close().await;
+            let result = match request.reason {
+                Some(reason) => self.inner.close_with_reason(&reason).await,
+                None => self.inner.close().await
+            };
             let callback = proto::TextStreamWriterCloseCallback {
                 async_id,
                 error: result.map_err(|e| e.into()).err(),
