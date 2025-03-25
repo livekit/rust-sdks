@@ -35,7 +35,7 @@ pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
 use semver::Version;
 use thiserror::Error;
-use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 
 pub use self::{
     data_stream::*,
@@ -423,8 +423,14 @@ pub(crate) struct RoomSession {
     e2ee_manager: E2eeManager,
     incoming_stream_manager: Mutex<IncomingStreamManager>,
     outgoing_stream_manager: OutgoingStreamManager,
-    room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
+    handle: AsyncMutex<Option<Handle>>,
     rpc_state: Mutex<RpcState>,
+}
+
+struct Handle {
+    room_handle: JoinHandle<()>,
+    outgoing_stream_handle: JoinHandle<()>,
+    close_tx: broadcast::Sender<()>,
 }
 
 impl Debug for RoomSession {
@@ -476,13 +482,6 @@ impl Room {
             pi.attributes,
             e2ee_manager.encryption_type(),
         );
-
-        let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
-        tokio::task::spawn(outgoing_data_stream_task(
-            packet_rx,
-            local_participant.identity().clone(),
-            rtc_engine.clone(),
-        ));
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
         local_participant.on_local_track_published({
@@ -557,6 +556,9 @@ impl Room {
             }
         });
 
+        let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
+        let identity = local_participant.identity().clone();
+
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
             sid: Promise::new(),
@@ -576,7 +578,7 @@ impl Room {
             e2ee_manager: e2ee_manager.clone(),
             incoming_stream_manager: Mutex::new(Default::default()),
             outgoing_stream_manager,
-            room_task: Default::default(),
+            handle: Default::default(),
             rpc_state: Mutex::new(RpcState::new()),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
@@ -633,9 +635,19 @@ impl Room {
         inner.dispatcher.dispatch(&RoomEvent::Connected { participants_with_tracks });
         inner.update_connection_state(ConnectionState::Connected);
 
-        let (close_tx, close_rx) = oneshot::channel();
-        let room_task = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
-        inner.room_task.lock().await.replace((room_task, close_tx));
+        let (close_tx, close_rx) = broadcast::channel(1);
+
+        let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
+            packet_rx,
+            identity,
+            rtc_engine.clone(),
+            close_rx.resubscribe(),
+        ));
+
+        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+
+        let handle = Handle { room_handle, outgoing_stream_handle, close_tx };
+        inner.handle.lock().await.replace(handle);
 
         Ok((Self { inner }, events))
     }
@@ -777,7 +789,7 @@ impl RoomSession {
     async fn room_task(
         self: Arc<Self>,
         mut engine_events: EngineEvents,
-        mut close_receiver: oneshot::Receiver<()>,
+        mut close_rx: broadcast::Receiver<()>,
     ) {
         loop {
             tokio::select! {
@@ -802,7 +814,7 @@ impl RoomSession {
 
                     task.await;
                 },
-                 _ = &mut close_receiver => {
+                _ = close_rx.recv() => {
                     break;
                 }
             }
@@ -899,18 +911,17 @@ impl RoomSession {
     }
 
     async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
-        if let Some((room_task, close_tx)) = self.room_task.lock().await.take() {
-            self.rtc_engine.close(reason).await;
-            self.e2ee_manager.cleanup();
+        let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
 
-            let _ = close_tx.send(());
-            let _ = room_task.await;
+        self.rtc_engine.close(reason).await;
+        self.e2ee_manager.cleanup();
 
-            self.dispatcher.clear();
-            Ok(())
-        } else {
-            Err(RoomError::AlreadyClosed)
-        }
+        let _ = handle.close_tx.send(());
+        let _ = handle.outgoing_stream_handle.await;
+        let _ = handle.room_handle.await;
+
+        self.dispatcher.clear();
+        Ok(())
     }
 
     /// Change the connection state and emit an event
@@ -1865,12 +1876,20 @@ async fn outgoing_data_stream_task(
     mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
     participant_identity: ParticipantIdentity,
     engine: Arc<RtcEngine>,
+    mut close_rx: broadcast::Receiver<()>,
 ) {
-    while let Ok((mut packet, responder)) = packet_rx.recv().await {
-        // Set packet's participant identity field
-        packet.participant_identity = participant_identity.0.clone();
-        let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
-        let _ = responder.respond(result);
+    loop {
+        tokio::select! {
+            Ok((mut packet, responder)) = packet_rx.recv() => {
+                // Set packet's participant identity field
+                packet.participant_identity = participant_identity.0.clone();
+                let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
+                let _ = responder.respond(result);
+            },
+            _ = close_rx.recv() => {
+                break;
+            }
+        }
     }
 }
 
