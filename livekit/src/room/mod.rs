@@ -355,6 +355,14 @@ pub struct RoomOptions {
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
+    pub preregistration: Option<PreRegistration>,
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PreRegistration {
+    text_stream_topics: Vec<String>,
+    byte_stream_topics: Vec<String>,
 }
 
 impl Default for RoomOptions {
@@ -374,6 +382,7 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
+            preregistration: None,
         }
     }
 }
@@ -556,6 +565,16 @@ impl Room {
             }
         });
 
+        let mut incoming_stream_manager = IncomingStreamManager::default();
+        if let Some(preregistration) = &options.preregistration {
+            incoming_stream_manager
+                .handlers
+                .preregister_text_topics(&preregistration.text_stream_topics);
+            incoming_stream_manager
+                .handlers
+                .preregister_byte_topics(&preregistration.byte_stream_topics);
+        }
+
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
         let identity = local_participant.identity().clone();
 
@@ -576,7 +595,7 @@ impl Room {
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
-            incoming_stream_manager: Mutex::new(Default::default()),
+            incoming_stream_manager: Mutex::new(incoming_stream_manager),
             outgoing_stream_manager,
             handle: Default::default(),
             rpc_state: Mutex::new(RpcState::new()),
@@ -721,10 +740,7 @@ impl Room {
     pub fn register_byte_stream_handler(
         &self,
         topic: &str,
-        handler: impl Fn(ByteStreamReader, ParticipantIdentity) -> StreamHandlerFuture
-            + Send
-            + Sync
-            + 'static,
+        handler: impl ByteStreamHandler,
     ) -> StreamResult<()> {
         self.inner.register_byte_stream_handler(topic, handler)
     }
@@ -743,10 +759,7 @@ impl Room {
     pub fn register_text_stream_handler(
         &self,
         topic: &str,
-        handler: impl Fn(TextStreamReader, ParticipantIdentity) -> StreamHandlerFuture
-            + Send
-            + Sync
-            + 'static,
+        handler: impl TextStreamHandler,
     ) -> StreamResult<()> {
         self.inner.register_text_stream_handler(topic, handler)
     }
@@ -1638,37 +1651,25 @@ impl RoomSession {
     pub(crate) fn register_byte_stream_handler(
         &self,
         topic: &str,
-        handler: impl Fn(ByteStreamReader, ParticipantIdentity) -> StreamHandlerFuture
-            + Send
-            + Sync
-            + 'static,
+        handler: impl ByteStreamHandler,
     ) -> StreamResult<()> {
-        self.incoming_stream_manager
-            .lock()
-            .handlers
-            .register_byte_stream_handler(topic, Arc::new(handler))
+        self.incoming_stream_manager.lock().handlers.register_byte_handler(topic, handler)
     }
 
     pub(crate) fn register_text_stream_handler(
         &self,
         topic: &str,
-        handler: impl Fn(TextStreamReader, ParticipantIdentity) -> StreamHandlerFuture
-            + Send
-            + Sync
-            + 'static,
+        handler: impl TextStreamHandler,
     ) -> StreamResult<()> {
-        self.incoming_stream_manager
-            .lock()
-            .handlers
-            .register_text_stream_handler(topic, Arc::new(handler))
+        self.incoming_stream_manager.lock().handlers.register_text_handler(topic, handler)
     }
 
     pub(crate) fn unregister_byte_stream_handler(&self, topic: &str) {
-        self.incoming_stream_manager.lock().handlers.unregister_byte_stream_handler(topic);
+        self.incoming_stream_manager.lock().handlers.unregister_byte_handler(topic);
     }
 
     pub(crate) fn unregister_text_stream_handler(&self, topic: &str) {
-        self.incoming_stream_manager.lock().handlers.unregister_text_stream_handler(topic);
+        self.incoming_stream_manager.lock().handlers.unregister_text_handler(topic);
     }
 
     pub(crate) fn register_rpc_method(

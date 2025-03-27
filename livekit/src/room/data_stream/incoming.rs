@@ -16,6 +16,7 @@ use super::{
     AnyStreamInfo, ByteStreamInfo, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
 use crate::id::ParticipantIdentity;
+use crate::utils::handler::AsyncHandlerRegistry;
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use livekit_protocol::data_stream as proto;
@@ -23,7 +24,6 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
@@ -299,69 +299,80 @@ impl IncomingStreamManager {
     }
 }
 
+type StreamHandlerArgs<R> = (R, ParticipantIdentity);
 type StreamHandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
-pub type StreamHandlerFuture = Pin<Box<dyn Future<Output = StreamHandlerResult> + Send>>;
 
-type StreamHandler<R> = Arc<dyn Fn(R, ParticipantIdentity) -> StreamHandlerFuture + Send + Sync>;
-type TextStreamHandler = StreamHandler<TextStreamReader>;
-type ByteStreamHandler = StreamHandler<ByteStreamReader>;
+pub trait StreamHandler<R>:
+    Fn(
+        R,
+        ParticipantIdentity,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+    + Send
+    + Sync
+    + 'static
+{
+}
+pub trait TextStreamHandler: StreamHandler<TextStreamReader> {}
+pub trait ByteStreamHandler: StreamHandler<ByteStreamReader> {}
+
+impl<F, R> StreamHandler<R> for F where F: StreamHandler<R> {}
 
 /// Registry for incoming data stream handlers.
 #[derive(Default)]
 pub(crate) struct HandlerRegistry {
-    byte_handlers: HashMap<String, ByteStreamHandler>,
-    text_handlers: HashMap<String, TextStreamHandler>,
+    byte_handlers:
+        AsyncHandlerRegistry<(ByteStreamReader, ParticipantIdentity), StreamHandlerResult>,
+    text_handlers:
+        AsyncHandlerRegistry<(TextStreamReader, ParticipantIdentity), StreamHandlerResult>,
 }
 
 impl HandlerRegistry {
-    pub fn register_byte_stream_handler(
+    pub fn preregister_text_topics(&mut self, topics: &[String]) {
+        topics.into_iter().for_each(|topic| _ = self.text_handlers.preregister(&topic));
+    }
+
+    pub fn preregister_byte_topics(&mut self, topics: &[String]) {
+        topics.into_iter().for_each(|topic| _ = self.byte_handlers.preregister(&topic));
+    }
+
+    pub fn register_text_handler(
         &mut self,
         topic: &str,
-        handler: ByteStreamHandler,
+        handler: impl TextStreamHandler,
     ) -> StreamResult<()> {
-        if self.byte_handlers.contains_key(topic) {
+        // TODO: apply feature fn_traits (29625) once stabilized.
+        if !self.text_handlers.register(topic, move |args| handler(args.0, args.1)) {
             Err(StreamError::HandlerAlreadyRegistered)?
         }
-        self.byte_handlers.insert(topic.to_owned(), handler);
         Ok(())
     }
 
-    pub fn register_text_stream_handler(
+    pub fn register_byte_handler(
         &mut self,
         topic: &str,
-        handler: TextStreamHandler,
+        handler: impl ByteStreamHandler,
     ) -> StreamResult<()> {
-        if self.text_handlers.contains_key(topic) {
+        if !self.byte_handlers.register(topic, move |args| handler(args.0, args.1)) {
             Err(StreamError::HandlerAlreadyRegistered)?
         }
-        self.text_handlers.insert(topic.to_owned(), handler);
         Ok(())
     }
 
-    pub fn unregister_byte_stream_handler(&mut self, topic: &str) {
-        self.byte_handlers.remove(topic);
+    pub fn unregister_text_handler(&mut self, topic: &str) {
+        self.text_handlers.unregister(topic);
     }
 
-    pub fn unregister_text_stream_handler(&mut self, topic: &str) {
-        self.text_handlers.remove(topic);
+    pub fn unregister_byte_handler(&mut self, topic: &str) {
+        self.byte_handlers.unregister(topic);
     }
 
-    /// Dispatch the given stream reader to a registered handler (if one is registered).
-    fn dispatch(&self, reader: AnyStreamReader, identity: ParticipantIdentity) -> bool {
+    fn dispatch(&mut self, reader: AnyStreamReader, identity: ParticipantIdentity) -> bool {
         match reader {
             AnyStreamReader::Byte(reader) => {
-                let Some(handler) = self.byte_handlers.get(&reader.info().topic) else {
-                    return false;
-                };
-                tokio::spawn(handler(reader, identity));
-                true
+                self.byte_handlers.dispatch(&reader.info().topic.to_string(), (reader, identity))
             }
             AnyStreamReader::Text(reader) => {
-                let Some(handler) = self.text_handlers.get(&reader.info().topic) else {
-                    return false;
-                };
-                tokio::spawn(handler(reader, identity));
-                true
+                self.text_handlers.dispatch(&reader.info().topic.to_string(), (reader, identity))
             }
         }
     }

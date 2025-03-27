@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+pub mod handler;
+
 pub fn calculate_changed_attributes(
     old_attributes: HashMap<String, String>,
     new_attributes: HashMap<String, String>,
