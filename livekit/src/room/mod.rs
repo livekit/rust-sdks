@@ -30,7 +30,6 @@ use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
-use semver::Version;
 use std::{collections::HashMap, error::Error, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
@@ -570,6 +569,7 @@ impl Room {
             outgoing_stream_manager,
             handle: Default::default(),
         });
+        inner.local_participant.set_session(Arc::downgrade(&inner));
 
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();

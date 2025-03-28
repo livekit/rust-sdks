@@ -27,20 +27,14 @@ use crate::{
     data_stream::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
-    },
-    e2ee::EncryptionType,
-    options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
-    prelude::*,
-    room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
-    rtc_engine::{EngineError, RtcEngine},
-    ChatMessage, DataPacket, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
+    }, e2ee::EncryptionType, options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions}, prelude::*, room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES}, rtc_engine::{EngineError, RtcEngine}, ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription
 };
 use chrono::Utc;
 use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
 use semver::Version;
 use tokio::sync::oneshot;
@@ -83,6 +77,7 @@ struct LocalInfo {
     rpc_state: Mutex<RpcState>,
     all_participants_allowed: Mutex<bool>,
     track_permissions: Mutex<Vec<ParticipantTrackPermission>>,
+    session: RwLock<Option<Weak<RoomSession>>>,
 }
 
 #[derive(Clone)]
@@ -120,8 +115,17 @@ impl LocalParticipant {
                 rpc_state: Mutex::new(RpcState::new()),
                 all_participants_allowed: Mutex::new(true),
                 track_permissions: Mutex::new(vec![]),
+                session: Default::default(),
             }),
         }
+    }
+
+    pub(crate) fn set_session(&self, session: Weak<RoomSession>) {
+        *self.local.session.write() = Some(session);
+    }
+
+    pub(crate) fn session(&self) -> Option<Arc<RoomSession>> {
+        self.local.session.read().as_ref().and_then(|s| s.upgrade())
     }
 
     pub(crate) fn internal_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
