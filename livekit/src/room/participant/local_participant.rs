@@ -12,25 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    future::Future,
+    path::Path,
+    pin::Pin,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission};
 use crate::{
+    data_stream::{
+        ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
+        TextStreamInfo, TextStreamWriter,
+    },
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
     rtc_engine::{EngineError, RtcEngine},
-    ChatMessage, DataPacket, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
+    ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
 };
 use chrono::Utc;
-use futures_util::Future;
-
 use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
 use semver::Version;
 use tokio::sync::oneshot;
@@ -73,6 +83,7 @@ struct LocalInfo {
     rpc_state: Mutex<RpcState>,
     all_participants_allowed: Mutex<bool>,
     track_permissions: Mutex<Vec<ParticipantTrackPermission>>,
+    session: RwLock<Option<Weak<RoomSession>>>,
 }
 
 #[derive(Clone)]
@@ -110,8 +121,17 @@ impl LocalParticipant {
                 rpc_state: Mutex::new(RpcState::new()),
                 all_participants_allowed: Mutex::new(true),
                 track_permissions: Mutex::new(vec![]),
+                session: Default::default(),
             }),
         }
+    }
+
+    pub(crate) fn set_session(&self, session: Weak<RoomSession>) {
+        *self.local.session.write() = Some(session);
+    }
+
+    pub(crate) fn session(&self) -> Option<Arc<RoomSession>> {
+        self.local.session.read().as_ref().and_then(|s| s.upgrade())
     }
 
     pub(crate) fn internal_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
@@ -883,5 +903,75 @@ impl LocalParticipant {
         {
             log::error!("Failed to publish RPC response: {:?}", e);
         }
+    }
+
+    /// Send text to participants in the room.
+    ///
+    /// This method sends a complete text string to participants in the room as a text stream.
+    /// The text is sent in a single operation, and the method returns information about the
+    /// stream used to send the text.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text content to send.
+    /// * `options` - Configuration options for the text stream, including topic and
+    ///   destination participants.
+    ///
+    pub async fn send_text(
+        &self,
+        text: &str,
+        options: StreamTextOptions,
+    ) -> StreamResult<TextStreamInfo> {
+        self.session().unwrap().outgoing_stream_manager.send_text(text, options).await
+    }
+
+    /// Send a file on disk to participants in the room.
+    ///
+    /// This method reads a file from the specified path and sends its contents
+    /// to participants in the room as a byte stream, and the method returns information
+    /// the stream used to send the file.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file to be sent.
+    /// * `options` - Configuration options for the byte stream, including topic and
+    ///   destination participants.
+    ///
+    pub async fn send_file(
+        &self,
+        path: impl AsRef<Path>,
+        options: StreamByteOptions,
+    ) -> StreamResult<ByteStreamInfo> {
+        self.session().unwrap().outgoing_stream_manager.send_file(path, options).await
+    }
+
+    /// Stream text incrementally to participants in the room.
+    ///
+    /// This method allows sending text data in chunks as it becomes available.
+    /// Unlike `send_text`, which sends the entire text at once, this method returns
+    /// a writer that can be used to send text incrementally.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Configuration options for the text stream, including topic and
+    ///   destination participants.
+    ///
+    pub async fn stream_text(&self, options: StreamTextOptions) -> StreamResult<TextStreamWriter> {
+        self.session().unwrap().outgoing_stream_manager.stream_text(options).await
+    }
+
+    /// Stream bytes incrementally to participants in the room.
+    ///
+    /// This method allows sending binary data in chunks as it becomes available.
+    /// Unlike `send_file`, which sends the entire file at once, this method returns
+    /// a writer that can be used to send binary data incrementally.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Configuration options for the byte stream, including topic and
+    ///   destination participants.
+    ///
+    pub async fn stream_bytes(&self, options: StreamByteOptions) -> StreamResult<ByteStreamWriter> {
+        self.session().unwrap().outgoing_stream_manager.stream_bytes(options).await
     }
 }

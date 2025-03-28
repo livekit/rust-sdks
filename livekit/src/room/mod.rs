@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
-
+use bmrng::unbounded::UnboundedRequestReceiver;
+use futures_util::Future;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -30,10 +30,12 @@ use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
+use std::{collections::HashMap, error::Error, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 
 pub use self::{
+    data_stream::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
     participant::ParticipantKind,
 };
@@ -47,6 +49,7 @@ use crate::{
     },
 };
 
+pub mod data_stream;
 pub mod e2ee;
 pub mod id;
 pub mod options;
@@ -168,14 +171,17 @@ pub enum RoomEvent {
         message: ChatMessage,
         participant: Option<RemoteParticipant>,
     },
+    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamHeaderReceived {
         header: proto::data_stream::Header,
         participant_identity: String,
     },
+    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamChunkReceived {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
+    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamTrailerReceived {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
@@ -324,6 +330,14 @@ pub struct RoomOptions {
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
+    pub preregistration: Option<PreRegistration>,
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PreRegistration {
+    text_stream_topics: Vec<String>,
+    byte_stream_topics: Vec<String>,
 }
 
 impl Default for RoomOptions {
@@ -343,6 +357,7 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
+            preregistration: None,
         }
     }
 }
@@ -390,7 +405,15 @@ pub(crate) struct RoomSession {
     local_participant: LocalParticipant,
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
-    room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
+    incoming_stream_manager: IncomingStreamManager,
+    outgoing_stream_manager: OutgoingStreamManager,
+    handle: AsyncMutex<Option<Handle>>,
+}
+
+struct Handle {
+    room_handle: JoinHandle<()>,
+    outgoing_stream_handle: JoinHandle<()>,
+    close_tx: broadcast::Sender<()>,
 }
 
 impl Debug for RoomSession {
@@ -516,6 +539,15 @@ impl Room {
             }
         });
 
+        let mut incoming_stream_manager = IncomingStreamManager::new();
+        if let Some(preregistration) = &options.preregistration {
+            incoming_stream_manager.preregister_text_topics(&preregistration.text_stream_topics);
+            incoming_stream_manager.preregister_byte_topics(&preregistration.byte_stream_topics);
+        }
+
+        let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
+        let identity = local_participant.identity().clone();
+
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
             sid: Promise::new(),
@@ -533,8 +565,11 @@ impl Room {
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
-            room_task: Default::default(),
+            incoming_stream_manager,
+            outgoing_stream_manager,
+            handle: Default::default(),
         });
+        inner.local_participant.set_session(Arc::downgrade(&inner));
 
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
@@ -588,9 +623,19 @@ impl Room {
         inner.dispatcher.dispatch(&RoomEvent::Connected { participants_with_tracks });
         inner.update_connection_state(ConnectionState::Connected);
 
-        let (close_tx, close_rx) = oneshot::channel();
-        let room_task = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
-        inner.room_task.lock().await.replace((room_task, close_tx));
+        let (close_tx, close_rx) = broadcast::channel(1);
+
+        let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
+            packet_rx,
+            identity,
+            rtc_engine.clone(),
+            close_rx.resubscribe(),
+        ));
+
+        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+
+        let handle = Handle { room_handle, outgoing_stream_handle, close_tx };
+        inner.handle.lock().await.replace(handle);
 
         Ok((Self { inner }, events))
     }
@@ -649,13 +694,83 @@ impl Room {
             DataPacketKind::Reliable => self.inner.info.read().reliable_dc_options.clone(),
         }
     }
+
+    /// Registers a handler for incoming byte streams matching the given topic.
+    ///
+    /// # Parameters
+    ///
+    /// * `topic` - Topic identifier that filters which streams will be handled.
+    ///   Only streams with a matching topic will trigger the handler.
+    /// * `handler` - Handler that is invoked whenever a remote participant
+    ///   opens a new stream with the matching topic. The handler receives a
+    ///   `ByteStreamReader` for consuming the stream data and the identity of
+    ///   the remote participant who initiated the stream.
+    ///
+    pub fn register_byte_stream_handler(
+        &self,
+        topic: &str,
+        handler: impl Fn(
+                ByteStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    ) -> StreamResult<()> {
+        self.inner.register_byte_stream_handler(topic, handler)
+    }
+
+    /// Registers a handler for incoming text streams matching the given topic.
+    ///
+    /// # Parameters
+    ///
+    /// * `topic` - Topic identifier that filters which streams will be handled.
+    ///   Only streams with a matching topic will trigger the handler.
+    /// * `handler` - Handler that is invoked whenever a remote participant
+    ///   opens a new stream with the matching topic. The handler receives a
+    ///   `TextStreamReader` for consuming the stream data and the identity of
+    ///   the remote participant who initiated the stream.
+    ///
+    pub fn register_text_stream_handler(
+        &self,
+        topic: &str,
+        handler: impl Fn(
+                TextStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    ) -> StreamResult<()> {
+        self.inner.register_text_stream_handler(topic, handler)
+    }
+
+    /// Unregisters a handler for incoming byte streams matching the given topic.
+    ///
+    /// # Parameters
+    /// * `topic` - Topic identifier for which the handler should be unregistered.
+    ///
+    pub fn unregister_byte_stream_handler(&self, topic: &str) {
+        self.inner.unregister_byte_stream_handler(topic)
+    }
+
+    /// Unregisters a handler for incoming text streams matching the given topic.
+    ///
+    /// # Parameters
+    /// * `topic` - Topic identifier for which the handler should be unregistered.
+    ///
+    pub fn unregister_text_stream_handler(&self, topic: &str) {
+        self.inner.unregister_text_stream_handler(topic)
+    }
 }
 
 impl RoomSession {
     async fn room_task(
         self: Arc<Self>,
         mut engine_events: EngineEvents,
-        mut close_receiver: oneshot::Receiver<()>,
+        mut close_rx: broadcast::Receiver<()>,
     ) {
         loop {
             tokio::select! {
@@ -680,7 +795,7 @@ impl RoomSession {
 
                     task.await;
                 },
-                 _ = &mut close_receiver => {
+                _ = close_rx.recv() => {
                     break;
                 }
             }
@@ -777,18 +892,17 @@ impl RoomSession {
     }
 
     async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
-        if let Some((room_task, close_tx)) = self.room_task.lock().await.take() {
-            self.rtc_engine.close(reason).await;
-            self.e2ee_manager.cleanup();
+        let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
 
-            let _ = close_tx.send(());
-            let _ = room_task.await;
+        self.rtc_engine.close(reason).await;
+        self.e2ee_manager.cleanup();
 
-            self.dispatcher.clear();
-            Ok(())
-        } else {
-            Err(RoomError::AlreadyClosed)
-        }
+        let _ = handle.close_tx.send(());
+        let _ = handle.outgoing_stream_handle.await;
+        let _ = handle.room_handle.await;
+
+        self.dispatcher.clear();
+        Ok(())
     }
 
     /// Change the connection state and emit an event
@@ -1296,6 +1410,9 @@ impl RoomSession {
         header: proto::data_stream::Header,
         participant_identity: String,
     ) {
+        self.incoming_stream_manager.handle_header(header.clone(), participant_identity.clone());
+
+        // For backwards compatibly
         let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1305,6 +1422,9 @@ impl RoomSession {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     ) {
+        self.incoming_stream_manager.handle_chunk(chunk.clone());
+
+        // For backwards compatibly
         let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1314,6 +1434,9 @@ impl RoomSession {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
     ) {
+        self.incoming_stream_manager.handle_trailer(trailer.clone());
+
+        // For backwards compatibly
         let event = RoomEvent::StreamTrailerReceived { trailer, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1489,6 +1612,66 @@ impl RoomSession {
             return Some(Participant::Local(self.local_participant.clone()));
         }
         return self.get_participant_by_identity(identity).map(Participant::Remote);
+    }
+
+    pub(crate) fn register_byte_stream_handler(
+        &self,
+        topic: &str,
+        handler: impl Fn(
+                ByteStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    ) -> StreamResult<()> {
+        self.incoming_stream_manager.register_byte_handler(topic, handler)
+    }
+
+    pub(crate) fn register_text_stream_handler(
+        &self,
+        topic: &str,
+        handler: impl Fn(
+                TextStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    ) -> StreamResult<()> {
+        self.incoming_stream_manager.register_text_handler(topic, handler)
+    }
+
+    pub(crate) fn unregister_byte_stream_handler(&self, topic: &str) {
+        self.incoming_stream_manager.unregister_byte_handler(topic);
+    }
+
+    pub(crate) fn unregister_text_stream_handler(&self, topic: &str) {
+        self.incoming_stream_manager.unregister_text_handler(topic);
+    }
+}
+
+/// Receive packets from the outgoing stream manager and send them.
+async fn outgoing_data_stream_task(
+    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
+    participant_identity: ParticipantIdentity,
+    engine: Arc<RtcEngine>,
+    mut close_rx: broadcast::Receiver<()>,
+) {
+    loop {
+        tokio::select! {
+            Ok((mut packet, responder)) = packet_rx.recv() => {
+                // Set packet's participant identity field
+                packet.participant_identity = participant_identity.0.clone();
+                let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
+                let _ = responder.respond(result);
+            },
+            _ = close_rx.recv() => {
+                break;
+            }
+        }
     }
 }
 
