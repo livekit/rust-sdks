@@ -20,10 +20,12 @@ use crate::utils::handler::AsyncHandlerRegistry;
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use livekit_protocol::data_stream as proto;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
@@ -196,15 +198,24 @@ struct Descriptor {
     // TODO: keep track of open time.
 }
 
-#[derive(Default)]
+#[derive(Clone)]
 pub(crate) struct IncomingStreamManager {
+    inner: Arc<Mutex<ManagerInner>>,
+}
+
+#[derive(Default)]
+struct ManagerInner {
     open_streams: HashMap<String, Descriptor>,
-    pub(crate) handlers: HandlerRegistry,
+    handlers: Handlers,
 }
 
 impl IncomingStreamManager {
+    pub fn new() -> Self {
+        Self { inner: Arc::new(Mutex::new(Default::default())) }
+    }
+
     /// Handles an incoming header packet.
-    pub fn handle_header(&mut self, header: proto::Header, identity: String) {
+    pub fn handle_header(&self, header: proto::Header, identity: String) {
         let Ok(info) =
             AnyStreamInfo::try_from(header).inspect_err(|e| log::error!("Invalid header: {}", e))
         else {
@@ -214,29 +225,31 @@ impl IncomingStreamManager {
         let id = info.id().to_owned();
         let bytes_total = info.total_length();
 
-        if self.open_streams.contains_key(&id) {
+        let mut inner = self.inner.lock();
+        if inner.open_streams.contains_key(&id) {
             log::error!("Stream '{}' already open", id);
             return;
         }
 
         let (reader, chunk_tx) = AnyStreamReader::from(info);
-        self.handlers.dispatch(reader, ParticipantIdentity(identity));
+        inner.dispatch_reader(reader, ParticipantIdentity(identity));
         // TODO: log unhandled stream, once per topic
 
         let descriptor =
             Descriptor { progress: StreamProgress { bytes_total, ..Default::default() }, chunk_tx };
-        self.open_streams.insert(id, descriptor);
+        inner.open_streams.insert(id, descriptor);
     }
 
     /// Handles an incoming chunk packet.
-    pub fn handle_chunk(&mut self, chunk: proto::Chunk) {
+    pub fn handle_chunk(&self, chunk: proto::Chunk) {
         let id = chunk.stream_id;
-        let Some(descriptor) = self.open_streams.get_mut(&id) else {
+        let mut inner = self.inner.lock();
+        let Some(descriptor) = inner.open_streams.get_mut(&id) else {
             return;
         };
 
         if descriptor.progress.chunk_index != chunk.chunk_index {
-            self.close_stream_with_error(&id, StreamError::MissedChunk);
+            inner.close_stream_with_error(&id, StreamError::MissedChunk);
             return;
         }
 
@@ -247,19 +260,20 @@ impl IncomingStreamManager {
             Some(total) => descriptor.progress.bytes_processed > total as u64,
             None => false,
         } {
-            self.close_stream_with_error(&id, StreamError::LengthExceeded);
+            inner.close_stream_with_error(&id, StreamError::LengthExceeded);
             return;
         }
 
         let chunk =
             IncomingChunk { progress: descriptor.progress, content: Bytes::from(chunk.content) };
-        self.yield_chunk(&id, chunk);
+        inner.yield_chunk(&id, chunk);
     }
 
     /// Handles an incoming trailer packet.
-    pub fn handle_trailer(&mut self, trailer: proto::Trailer) {
+    pub fn handle_trailer(&self, trailer: proto::Trailer) {
         let id = trailer.stream_id;
-        let Some(descriptor) = self.open_streams.get_mut(&id) else {
+        let mut inner = self.inner.lock();
+        let Some(descriptor) = inner.open_streams.get_mut(&id) else {
             return;
         };
 
@@ -267,16 +281,61 @@ impl IncomingStreamManager {
             Some(total) => descriptor.progress.bytes_processed >= total as u64,
             None => true,
         } {
-            self.close_stream_with_error(&id, StreamError::Incomplete);
+            inner.close_stream_with_error(&id, StreamError::Incomplete);
             return;
         }
         if !trailer.reason.is_empty() {
-            self.close_stream_with_error(&id, StreamError::AbnormalEnd(trailer.reason));
+            inner.close_stream_with_error(&id, StreamError::AbnormalEnd(trailer.reason));
             return;
         }
-        self.close_stream(&id);
+        inner.close_stream(&id);
     }
 
+    pub fn preregister_text_topics(&self, topics: &[String]) {
+        let mut inner = self.inner.lock();
+        topics.into_iter().for_each(|topic| _ = inner.handlers.text.preregister(&topic));
+    }
+
+    pub fn preregister_byte_topics(&self, topics: &[String]) {
+        let mut inner = self.inner.lock();
+        topics.into_iter().for_each(|topic| _ = inner.handlers.byte.preregister(&topic));
+    }
+
+    pub fn register_text_handler(
+        &self,
+        topic: &str,
+        handler: impl TextStreamHandler,
+    ) -> StreamResult<()> {
+        // TODO: apply feature fn_traits (29625) once stabilized.
+        let mut inner = self.inner.lock();
+        if !inner.handlers.text.register(topic, move |args| handler(args.0, args.1)) {
+            Err(StreamError::HandlerAlreadyRegistered)?
+        }
+        Ok(())
+    }
+
+    pub fn register_byte_handler(
+        &self,
+        topic: &str,
+        handler: impl ByteStreamHandler,
+    ) -> StreamResult<()> {
+        let mut inner = self.inner.lock();
+        if !inner.handlers.byte.register(topic, move |args| handler(args.0, args.1)) {
+            Err(StreamError::HandlerAlreadyRegistered)?
+        }
+        Ok(())
+    }
+
+    pub fn unregister_text_handler(&self, topic: &str) {
+        self.inner.lock().handlers.text.unregister(topic);
+    }
+
+    pub fn unregister_byte_handler(&self, topic: &str) {
+        self.inner.lock().handlers.byte.unregister(topic);
+    }
+}
+
+impl ManagerInner {
     fn yield_chunk(&mut self, id: &str, chunk: IncomingChunk) {
         let Some(descriptor) = self.open_streams.get_mut(id) else {
             return;
@@ -295,6 +354,17 @@ impl IncomingStreamManager {
     fn close_stream_with_error(&mut self, id: &str, error: StreamError) {
         if let Some(descriptor) = self.open_streams.remove(id) {
             let _ = descriptor.chunk_tx.send(Err(error));
+        }
+    }
+
+    fn dispatch_reader(&mut self, reader: AnyStreamReader, identity: ParticipantIdentity) -> bool {
+        match reader {
+            AnyStreamReader::Byte(reader) => {
+                self.handlers.byte.dispatch(&reader.info().topic.to_string(), (reader, identity))
+            }
+            AnyStreamReader::Text(reader) => {
+                self.handlers.text.dispatch(&reader.info().topic.to_string(), (reader, identity))
+            }
         }
     }
 }
@@ -317,63 +387,8 @@ pub trait ByteStreamHandler: StreamHandler<ByteStreamReader> {}
 
 impl<F, R> StreamHandler<R> for F where F: StreamHandler<R> {}
 
-/// Registry for incoming data stream handlers.
 #[derive(Default)]
-pub(crate) struct HandlerRegistry {
-    byte_handlers:
-        AsyncHandlerRegistry<(ByteStreamReader, ParticipantIdentity), StreamHandlerResult>,
-    text_handlers:
-        AsyncHandlerRegistry<(TextStreamReader, ParticipantIdentity), StreamHandlerResult>,
-}
-
-impl HandlerRegistry {
-    pub fn preregister_text_topics(&mut self, topics: &[String]) {
-        topics.into_iter().for_each(|topic| _ = self.text_handlers.preregister(&topic));
-    }
-
-    pub fn preregister_byte_topics(&mut self, topics: &[String]) {
-        topics.into_iter().for_each(|topic| _ = self.byte_handlers.preregister(&topic));
-    }
-
-    pub fn register_text_handler(
-        &mut self,
-        topic: &str,
-        handler: impl TextStreamHandler,
-    ) -> StreamResult<()> {
-        // TODO: apply feature fn_traits (29625) once stabilized.
-        if !self.text_handlers.register(topic, move |args| handler(args.0, args.1)) {
-            Err(StreamError::HandlerAlreadyRegistered)?
-        }
-        Ok(())
-    }
-
-    pub fn register_byte_handler(
-        &mut self,
-        topic: &str,
-        handler: impl ByteStreamHandler,
-    ) -> StreamResult<()> {
-        if !self.byte_handlers.register(topic, move |args| handler(args.0, args.1)) {
-            Err(StreamError::HandlerAlreadyRegistered)?
-        }
-        Ok(())
-    }
-
-    pub fn unregister_text_handler(&mut self, topic: &str) {
-        self.text_handlers.unregister(topic);
-    }
-
-    pub fn unregister_byte_handler(&mut self, topic: &str) {
-        self.byte_handlers.unregister(topic);
-    }
-
-    fn dispatch(&mut self, reader: AnyStreamReader, identity: ParticipantIdentity) -> bool {
-        match reader {
-            AnyStreamReader::Byte(reader) => {
-                self.byte_handlers.dispatch(&reader.info().topic.to_string(), (reader, identity))
-            }
-            AnyStreamReader::Text(reader) => {
-                self.text_handlers.dispatch(&reader.info().topic.to_string(), (reader, identity))
-            }
-        }
-    }
+pub struct Handlers {
+    byte: AsyncHandlerRegistry<(ByteStreamReader, ParticipantIdentity), StreamHandlerResult>,
+    text: AsyncHandlerRegistry<(TextStreamReader, ParticipantIdentity), StreamHandlerResult>,
 }

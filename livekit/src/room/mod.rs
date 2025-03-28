@@ -430,7 +430,7 @@ pub(crate) struct RoomSession {
     local_participant: LocalParticipant,
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
-    incoming_stream_manager: Mutex<IncomingStreamManager>,
+    incoming_stream_manager: IncomingStreamManager,
     outgoing_stream_manager: OutgoingStreamManager,
     handle: AsyncMutex<Option<Handle>>,
     rpc_state: Mutex<RpcState>,
@@ -565,14 +565,10 @@ impl Room {
             }
         });
 
-        let mut incoming_stream_manager = IncomingStreamManager::default();
+        let mut incoming_stream_manager = IncomingStreamManager::new();
         if let Some(preregistration) = &options.preregistration {
-            incoming_stream_manager
-                .handlers
-                .preregister_text_topics(&preregistration.text_stream_topics);
-            incoming_stream_manager
-                .handlers
-                .preregister_byte_topics(&preregistration.byte_stream_topics);
+            incoming_stream_manager.preregister_text_topics(&preregistration.text_stream_topics);
+            incoming_stream_manager.preregister_byte_topics(&preregistration.byte_stream_topics);
         }
 
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
@@ -595,7 +591,7 @@ impl Room {
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
-            incoming_stream_manager: Mutex::new(incoming_stream_manager),
+            incoming_stream_manager,
             outgoing_stream_manager,
             handle: Default::default(),
             rpc_state: Mutex::new(RpcState::new()),
@@ -1442,9 +1438,7 @@ impl RoomSession {
         header: proto::data_stream::Header,
         participant_identity: String,
     ) {
-        self.incoming_stream_manager
-            .lock()
-            .handle_header(header.clone(), participant_identity.clone());
+        self.incoming_stream_manager.handle_header(header.clone(), participant_identity.clone());
 
         // For backwards compatibly
         let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
@@ -1456,7 +1450,7 @@ impl RoomSession {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     ) {
-        self.incoming_stream_manager.lock().handle_chunk(chunk.clone());
+        self.incoming_stream_manager.handle_chunk(chunk.clone());
 
         // For backwards compatibly
         let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
@@ -1468,7 +1462,7 @@ impl RoomSession {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
     ) {
-        self.incoming_stream_manager.lock().handle_trailer(trailer.clone());
+        self.incoming_stream_manager.handle_trailer(trailer.clone());
 
         // For backwards compatibly
         let event = RoomEvent::StreamTrailerReceived { trailer, participant_identity };
@@ -1653,7 +1647,7 @@ impl RoomSession {
         topic: &str,
         handler: impl ByteStreamHandler,
     ) -> StreamResult<()> {
-        self.incoming_stream_manager.lock().handlers.register_byte_handler(topic, handler)
+        self.incoming_stream_manager.register_byte_handler(topic, handler)
     }
 
     pub(crate) fn register_text_stream_handler(
@@ -1661,15 +1655,15 @@ impl RoomSession {
         topic: &str,
         handler: impl TextStreamHandler,
     ) -> StreamResult<()> {
-        self.incoming_stream_manager.lock().handlers.register_text_handler(topic, handler)
+        self.incoming_stream_manager.register_text_handler(topic, handler)
     }
 
     pub(crate) fn unregister_byte_stream_handler(&self, topic: &str) {
-        self.incoming_stream_manager.lock().handlers.unregister_byte_handler(topic);
+        self.incoming_stream_manager.unregister_byte_handler(topic);
     }
 
     pub(crate) fn unregister_text_stream_handler(&self, topic: &str) {
-        self.incoming_stream_manager.lock().handlers.unregister_text_handler(topic);
+        self.incoming_stream_manager.unregister_text_handler(topic);
     }
 
     pub(crate) fn register_rpc_method(
