@@ -16,6 +16,7 @@
 pub mod android;
 pub mod apm;
 pub mod audio_resampler;
+pub mod audio_mixer;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;

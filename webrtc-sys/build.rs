@@ -49,6 +49,7 @@ fn main() {
         "src/android.rs",
         "src/prohibit_libsrtp_initialization.rs",
         "src/apm.rs",
+        "src/audio_mixer.rs",
     ]);
 
     builder.files(&[
@@ -77,6 +78,7 @@ fn main() {
         "src/global_task_queue.cpp",
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
+        "src/audio_mixer.cpp",
     ]);
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
