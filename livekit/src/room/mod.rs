@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
-
 use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::Future;
 use libwebrtc::{
@@ -34,6 +32,7 @@ use participant::MAX_PAYLOAD_BYTES;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
 use semver::Version;
+use std::{collections::HashMap, error::Error, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 
@@ -736,7 +735,14 @@ impl Room {
     pub fn register_byte_stream_handler(
         &self,
         topic: &str,
-        handler: impl ByteStreamHandler,
+        handler: impl Fn(
+                ByteStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> StreamResult<()> {
         self.inner.register_byte_stream_handler(topic, handler)
     }
@@ -755,7 +761,14 @@ impl Room {
     pub fn register_text_stream_handler(
         &self,
         topic: &str,
-        handler: impl TextStreamHandler,
+        handler: impl Fn(
+                TextStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> StreamResult<()> {
         self.inner.register_text_stream_handler(topic, handler)
     }
@@ -1645,7 +1658,14 @@ impl RoomSession {
     pub(crate) fn register_byte_stream_handler(
         &self,
         topic: &str,
-        handler: impl ByteStreamHandler,
+        handler: impl Fn(
+                ByteStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> StreamResult<()> {
         self.incoming_stream_manager.register_byte_handler(topic, handler)
     }
@@ -1653,7 +1673,14 @@ impl RoomSession {
     pub(crate) fn register_text_stream_handler(
         &self,
         topic: &str,
-        handler: impl TextStreamHandler,
+        handler: impl Fn(
+                TextStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> StreamResult<()> {
         self.incoming_stream_manager.register_text_handler(topic, handler)
     }

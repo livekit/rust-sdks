@@ -26,8 +26,8 @@ use tokio::task::JoinHandle;
 use super::FfiDataBuffer;
 use crate::{
     proto,
-    server::participant::FfiParticipant,
     server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
+    server::participant::FfiParticipant,
     server::{FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
 };

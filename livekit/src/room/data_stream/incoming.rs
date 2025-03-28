@@ -304,7 +304,14 @@ impl IncomingStreamManager {
     pub fn register_text_handler(
         &self,
         topic: &str,
-        handler: impl TextStreamHandler,
+        handler: impl Fn(
+            TextStreamReader,
+            ParticipantIdentity,
+        )
+            -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+        + Send
+        + Sync
+        + 'static,
     ) -> StreamResult<()> {
         // TODO: apply feature fn_traits (29625) once stabilized.
         let mut inner = self.inner.lock();
@@ -317,7 +324,14 @@ impl IncomingStreamManager {
     pub fn register_byte_handler(
         &self,
         topic: &str,
-        handler: impl ByteStreamHandler,
+        handler: impl Fn(
+                ByteStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> StreamResult<()> {
         let mut inner = self.inner.lock();
         if !inner.handlers.byte.register(topic, move |args| handler(args.0, args.1)) {
@@ -371,21 +385,6 @@ impl ManagerInner {
 
 type StreamHandlerArgs<R> = (R, ParticipantIdentity);
 type StreamHandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
-
-pub trait StreamHandler<R>:
-    Fn(
-        R,
-        ParticipantIdentity,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
-    + Send
-    + Sync
-    + 'static
-{
-}
-pub trait TextStreamHandler: StreamHandler<TextStreamReader> {}
-pub trait ByteStreamHandler: StreamHandler<ByteStreamReader> {}
-
-impl<F, R> StreamHandler<R> for F where F: StreamHandler<R> {}
 
 #[derive(Default)]
 pub struct Handlers {
