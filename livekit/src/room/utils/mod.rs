@@ -94,12 +94,7 @@ mod tests {
         let chunks: Vec<&[u8]> = test_string.utf8_aware_chunks(4).collect();
         assert_eq!(
             chunks,
-            [
-                &[72, 101, 108, 108],
-                &[111, 44, 32, 87],
-                &[111, 114, 108, 100],
-                &[33][..]
-            ]
+            [&[72, 101, 108, 108], &[111, 44, 32, 87], &[111, 114, 108, 100], &[33][..]]
         );
     }
 
@@ -123,11 +118,7 @@ mod tests {
         let chunks: Vec<&[u8]> = mixed_string.utf8_aware_chunks(4).collect();
         assert_eq!(
             chunks,
-            [
-                &[0x48, 0x65, 0x6C, 0x6C],
-                &[0x6F, 0x20][..],
-                &[0xF0, 0x9F, 0x91, 0x8B]
-            ]
+            [&[0x48, 0x65, 0x6C, 0x6C], &[0x6F, 0x20][..], &[0xF0, 0x9F, 0x91, 0x8B]]
         );
     }
 }

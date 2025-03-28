@@ -305,13 +305,13 @@ impl IncomingStreamManager {
         &self,
         topic: &str,
         handler: impl Fn(
-            TextStreamReader,
-            ParticipantIdentity,
-        )
-            -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
-        + Send
-        + Sync
-        + 'static,
+                TextStreamReader,
+                ParticipantIdentity,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     ) -> StreamResult<()> {
         // TODO: apply feature fn_traits (29625) once stabilized.
         let mut inner = self.inner.lock();

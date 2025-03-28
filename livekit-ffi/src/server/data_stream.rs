@@ -258,7 +258,7 @@ impl FfiByteStreamWriter {
         server.store_handle(handle_id, writer);
         proto::OwnedByteStreamWriter {
             handle: proto::FfiOwnedHandle { id: handle_id },
-            info: info.into()
+            info: info.into(),
         }
     }
 
@@ -290,7 +290,7 @@ impl FfiByteStreamWriter {
         let handle = server.async_runtime.spawn(async move {
             let result = match request.reason {
                 Some(reason) => self.inner.close_with_reason(&reason).await,
-                None => self.inner.close().await
+                None => self.inner.close().await,
             };
             let callback = proto::ByteStreamWriterCloseCallback {
                 async_id,
@@ -314,7 +314,7 @@ impl FfiTextStreamWriter {
         server.store_handle(handle_id, writer);
         proto::OwnedTextStreamWriter {
             handle: proto::FfiOwnedHandle { id: handle_id },
-            info: info.into()
+            info: info.into(),
         }
     }
 
@@ -346,7 +346,7 @@ impl FfiTextStreamWriter {
         let handle = server.async_runtime.spawn(async move {
             let result = match request.reason {
                 Some(reason) => self.inner.close_with_reason(&reason).await,
-                None => self.inner.close().await
+                None => self.inner.close().await,
             };
             let callback = proto::TextStreamWriterCloseCallback {
                 async_id,

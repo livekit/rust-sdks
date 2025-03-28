@@ -1054,8 +1054,7 @@ fn on_byte_stream_reader_read_incremental(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderReadIncrementalRequest,
 ) -> FfiResult<proto::ByteStreamReaderReadIncrementalResponse> {
-    let reader =
-        server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
     reader.read_incremental(server, request)
 }
 
@@ -1063,8 +1062,7 @@ fn on_byte_stream_reader_read_all(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderReadAllRequest,
 ) -> FfiResult<proto::ByteStreamReaderReadAllResponse> {
-    let reader =
-        server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
     reader.read_all(server, request)
 }
 
@@ -1072,8 +1070,7 @@ fn on_byte_stream_reader_write_to_file(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderWriteToFileRequest,
 ) -> FfiResult<proto::ByteStreamReaderWriteToFileResponse> {
-    let reader =
-        server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
     reader.write_to_file(server, request)
 }
 
@@ -1081,8 +1078,7 @@ fn on_text_stream_reader_read_incremental(
     server: &'static FfiServer,
     request: proto::TextStreamReaderReadIncrementalRequest,
 ) -> FfiResult<proto::TextStreamReaderReadIncrementalResponse> {
-    let reader =
-        server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
+    let reader = server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
     reader.read_incremental(server, request)
 }
 
@@ -1090,8 +1086,7 @@ fn on_text_stream_reader_read_all(
     server: &'static FfiServer,
     request: proto::TextStreamReaderReadAllRequest,
 ) -> FfiResult<proto::TextStreamReaderReadAllResponse> {
-    let reader =
-        server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
+    let reader = server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
     reader.read_all(server, request)
 }
 
@@ -1099,9 +1094,8 @@ fn on_send_file(
     server: &'static FfiServer,
     request: proto::StreamSendFileRequest,
 ) -> FfiResult<proto::StreamSendFileResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
     ffi_participant.send_file(server, request)
 }
 
@@ -1109,9 +1103,8 @@ fn on_send_text(
     server: &'static FfiServer,
     request: proto::StreamSendTextRequest,
 ) -> FfiResult<proto::StreamSendTextResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
     ffi_participant.send_text(server, request)
 }
 
@@ -1119,9 +1112,8 @@ fn on_byte_stream_open(
     server: &'static FfiServer,
     request: proto::ByteStreamOpenRequest,
 ) -> FfiResult<proto::ByteStreamOpenResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
     ffi_participant.stream_bytes(server, request)
 }
 
@@ -1138,8 +1130,7 @@ fn on_byte_stream_close(
     server: &'static FfiServer,
     request: proto::ByteStreamWriterCloseRequest,
 ) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
-    let writer =
-        server.take_handle::<data_stream::FfiByteStreamWriter>(request.writer_handle)?;
+    let writer = server.take_handle::<data_stream::FfiByteStreamWriter>(request.writer_handle)?;
     writer.close(server, request)
 }
 
@@ -1147,9 +1138,8 @@ fn on_text_stream_open(
     server: &'static FfiServer,
     request: proto::TextStreamOpenRequest,
 ) -> FfiResult<proto::TextStreamOpenResponse> {
-    let ffi_participant = server
-        .retrieve_handle::<FfiParticipant>(request.local_participant_handle)?
-        .clone();
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
     ffi_participant.stream_text(server, request)
 }
 
@@ -1166,8 +1156,7 @@ fn on_text_stream_close(
     server: &'static FfiServer,
     request: proto::TextStreamWriterCloseRequest,
 ) -> FfiResult<proto::TextStreamWriterCloseResponse> {
-    let writer =
-        server.take_handle::<data_stream::FfiTextStreamWriter>(request.writer_handle)?;
+    let writer = server.take_handle::<data_stream::FfiTextStreamWriter>(request.writer_handle)?;
     writer.close(server, request)
 }
 
@@ -1368,16 +1357,16 @@ pub fn handle_request(
                 server, request,
             )?)
         }
-        proto::ffi_request::Message::ByteReadIncremental(
-            request,
-        ) => {
-            proto::ffi_response::Message::ByteReadIncremental(on_byte_stream_reader_read_incremental(server, request)?)
+        proto::ffi_request::Message::ByteReadIncremental(request) => {
+            proto::ffi_response::Message::ByteReadIncremental(
+                on_byte_stream_reader_read_incremental(server, request)?,
+            )
         }
         proto::ffi_request::Message::ByteReadAll(request) => {
             proto::ffi_response::Message::ByteReadAll(on_byte_stream_reader_read_all(
                 server, request,
             )?)
-        },
+        }
         proto::ffi_request::Message::ByteWriteToFile(request) => {
             proto::ffi_response::Message::ByteWriteToFile(on_byte_stream_reader_write_to_file(
                 server, request,
