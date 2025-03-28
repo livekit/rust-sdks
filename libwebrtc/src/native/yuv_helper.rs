@@ -245,6 +245,51 @@ i420_to_rgba!(i420_to_bgra);
 i420_to_rgba!(i420_to_abgr);
 i420_to_rgba!(i420_to_rgba);
 
+pub fn i420_to_nv12(
+    src_y: &[u8],
+    src_stride_y: u32,
+    src_u: &[u8],
+    src_stride_u: u32,
+    src_v: &[u8],
+    src_stride_v: u32,
+    dst_y: &mut [u8],
+    dst_stride_y: u32,
+    dst_uv: &mut [u8],
+    dst_stride_uv: u32,
+    width: i32,
+    height: i32,
+) {
+    i420_assert_safety(
+        src_y,
+        src_stride_y,
+        src_u,
+        src_stride_u,
+        src_v,
+        src_stride_v,
+        width,
+        height,
+    );
+    nv12_assert_safety(dst_y, dst_stride_y, dst_uv, dst_stride_uv, width, height);
+
+    unsafe {
+        yuv_sys::ffi::i420_to_nv12(
+            src_y.as_ptr(),
+            src_stride_y as i32,
+            src_u.as_ptr(),
+            src_stride_u as i32,
+            src_v.as_ptr(),
+            src_stride_v as i32,
+            dst_y.as_mut_ptr(),
+            dst_stride_y as i32,
+            dst_uv.as_mut_ptr(),
+            dst_stride_uv as i32,
+            width,
+            height,
+        )
+        .unwrap();
+    }
+}
+
 pub fn nv12_to_i420(
     src_y: &[u8],
     src_stride_y: u32,

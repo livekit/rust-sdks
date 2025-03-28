@@ -121,6 +121,21 @@ pub mod ffi {
             height: i32,
         ) -> Result<()>;
 
+        unsafe fn i420_to_nv12(
+            src_y: *const u8,
+            src_stride_y: i32,
+            src_u: *const u8,
+            src_stride_u: i32,
+            src_v: *const u8,
+            src_stride_v: i32,
+            dst_y: *mut u8,
+            dst_stride_y: i32,
+            dst_uv: *mut u8,
+            dst_stride_uv: i32,
+            width: i32,
+            height: i32,
+        ) -> Result<()>;
+
         unsafe fn i444_to_i420(
             src_y: *const u8,
             src_stride_y: i32,

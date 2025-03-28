@@ -27,7 +27,7 @@ use super::{
     audio_source, audio_stream, colorcvt, data_stream,
     participant::FfiParticipant,
     resampler,
-    room::{self, FfiPublication, FfiRoom, FfiTrack},
+    room::{self, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
@@ -955,8 +955,12 @@ fn on_load_audio_filter_plugin(
     request: proto::LoadAudioFilterPluginRequest,
 ) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
     let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
-    let plugin = AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps)
-        .map_err(|e| FfiError::InvalidRequest(format!("plugin error: {}", e).into()))?;
+    let plugin = match AudioFilterPlugin::new_with_dependencies(&request.plugin_path, deps) {
+        Ok(p) => p,
+        Err(err) => {
+            return Ok(proto::LoadAudioFilterPluginResponse { error: Some(err.to_string()) });
+        }
+    };
 
     register_audio_filter_plugin(request.module_id, plugin);
 
@@ -967,16 +971,18 @@ fn on_register_rpc_method(
     server: &'static FfiServer,
     request: proto::RegisterRpcMethodRequest,
 ) -> FfiResult<proto::RegisterRpcMethodResponse> {
-    let ffi_room = server.retrieve_handle::<FfiRoom>(request.room_handle)?.clone();
-    ffi_room.inner.register_rpc_method(server, request)
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    return ffi_participant.register_rpc_method(server, request);
 }
 
 fn on_unregister_rpc_method(
     server: &'static FfiServer,
     request: proto::UnregisterRpcMethodRequest,
 ) -> FfiResult<proto::UnregisterRpcMethodResponse> {
-    let ffi_room = server.retrieve_handle::<FfiRoom>(request.room_handle)?.clone();
-    ffi_room.inner.unregister_rpc_method(request)
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    return ffi_participant.unregister_rpc_method(request);
 }
 
 fn on_rpc_method_invocation_response(

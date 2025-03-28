@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.8] - 2025-03-21
+
+### Fixed
+
+- Revert the RPC change, need more robust way
+
 ## [0.7.7] - 2025-03-18
 
 ### Fixed

@@ -4044,7 +4044,7 @@ pub struct PerformRpcRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterRpcMethodRequest {
     #[prost(uint64, required, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     #[prost(string, required, tag="2")]
     pub method: ::prost::alloc::string::String,
 }
@@ -4052,7 +4052,7 @@ pub struct RegisterRpcMethodRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnregisterRpcMethodRequest {
     #[prost(uint64, required, tag="1")]
-    pub room_handle: u64,
+    pub local_participant_handle: u64,
     #[prost(string, required, tag="2")]
     pub method: ::prost::alloc::string::String,
 }
