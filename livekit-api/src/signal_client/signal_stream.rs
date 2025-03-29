@@ -18,13 +18,14 @@ use futures_util::{
 };
 use livekit_protocol as proto;
 use livekit_runtime::{JoinHandle, TcpStream};
-use prost::Message as ProtoMessage;
+use prost::{bytes::Bytes, Message as ProtoMessage};
 
 use tokio::sync::{mpsc, oneshot};
 
+use tokio_tungstenite::Connector;
 #[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::{
-    connect_async,
+    connect_async_tls_with_config,
     tungstenite::error::ProtocolError,
     tungstenite::{Error as WsError, Message},
     MaybeTlsStream, WebSocketStream,
@@ -50,7 +51,7 @@ enum InternalMessage {
         response_chn: oneshot::Sender<SignalResult<()>>,
     },
     Pong {
-        ping_data: Vec<u8>,
+        ping_data: Bytes,
     },
     Close,
 }
@@ -73,6 +74,7 @@ impl SignalStream {
     /// closed.
     pub async fn connect(
         url: url::Url,
+        tls_connector: Option<Connector>,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
         {
             // Don't log sensitive info
@@ -96,7 +98,9 @@ impl SignalStream {
             log::info!("connecting to {}", url);
         }
 
-        let (ws_stream, _) = connect_async(url).await?;
+        let url = url.to_string();
+
+        let (ws_stream, _) = connect_async_tls_with_config(url, None, false, tls_connector).await?;
         let (ws_writer, ws_reader) = ws_stream.split();
 
         let (emitter, events) = mpsc::unbounded_channel();
@@ -138,7 +142,7 @@ impl SignalStream {
                 InternalMessage::Signal { signal, response_chn } => {
                     let data = proto::SignalRequest { message: Some(signal) }.encode_to_vec();
 
-                    if let Err(err) = ws_writer.send(Message::Binary(data)).await {
+                    if let Err(err) = ws_writer.send(Message::Binary(data.into())).await {
                         let _ = response_chn.send(Err(err.into()));
                         break;
                     }
@@ -169,7 +173,7 @@ impl SignalStream {
         while let Some(msg) = ws_reader.next().await {
             match msg {
                 Ok(Message::Binary(data)) => {
-                    let res = proto::SignalResponse::decode(data.as_slice())
+                    let res = proto::SignalResponse::decode(data)
                         .expect("failed to decode SignalResponse");
 
                     if let Some(msg) = res.message {

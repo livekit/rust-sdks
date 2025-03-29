@@ -39,6 +39,11 @@ use crate::{http_client, signal_client::signal_stream::SignalStream};
 
 mod signal_stream;
 
+#[cfg(feature = "signal-client-tokio")]
+pub use tokio_tungstenite::Connector;
+#[cfg(not(feature = "signal-client-tokio"))]
+pub enum Connector {}
+
 pub type SignalEmitter = mpsc::UnboundedSender<SignalEvent>;
 pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
 pub type SignalResult<T> = Result<T, SignalError>;
@@ -77,11 +82,12 @@ impl Default for SignalSdkOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
+    pub connector: Option<Connector>,
     pub sdk_options: SignalSdkOptions,
 }
 
@@ -90,8 +96,20 @@ impl Default for SignalOptions {
         Self {
             auto_subscribe: true,
             adaptive_stream: false,
+            connector: None,
             sdk_options: SignalSdkOptions::default(),
         }
+    }
+}
+
+impl Debug for SignalOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignalClient")
+            .field("auto_subscribe", &self.auto_subscribe)
+            .field("adaptive_stream", &self.adaptive_stream)
+            .field("connector", &self.connector.is_some())
+            .field("sdk_options", &self.sdk_options)
+            .finish()
     }
 }
 
@@ -218,14 +236,15 @@ impl SignalInner {
         let lk_url = get_livekit_url(url, token, &options)?;
 
         // Try to connect to the SignalClient
-        let (stream, mut events) = match SignalStream::connect(lk_url.clone()).await {
-            Ok(stream) => stream,
-            Err(err) => {
-                // Connection failed, try to retrieve more informations
-                Self::validate(lk_url).await?;
-                return Err(err);
-            }
-        };
+        let (stream, mut events) =
+            match SignalStream::connect(lk_url.clone(), options.connector.clone()).await {
+                Ok(stream) => stream,
+                Err(err) => {
+                    // Connection failed, try to retrieve more informations
+                    Self::validate(lk_url).await?;
+                    return Err(err);
+                }
+            };
 
         let join_response = get_join_response(&mut events).await?;
 
@@ -287,7 +306,8 @@ impl SignalInner {
         let mut lk_url = get_livekit_url(&self.url, &token, &self.options).unwrap();
         lk_url.query_pairs_mut().append_pair("reconnect", "1").append_pair("sid", sid);
 
-        let (new_stream, mut events) = SignalStream::connect(lk_url).await?;
+        let (new_stream, mut events) =
+            SignalStream::connect(lk_url, self.options.connector.clone()).await?;
         let reconnect_response = get_reconnect_response(&mut events).await?;
         *stream = Some(new_stream);
 
