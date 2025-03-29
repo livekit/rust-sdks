@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 LiveKit
+ * Copyright 2023-2025 LiveKit
  *
  * Licensed under the Apache License, Version 2.0 (the “License”);
  * you may not use this file except in compliance with the License.
@@ -87,10 +87,11 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
 class VideoTrackSource {
   class InternalSource : public rtc::AdaptedVideoTrackSource {
    public:
-    InternalSource(const VideoResolution&
-                       resolution);  // (0, 0) means no resolution/optional, the
-                                     // source will guess the resolution at the
-                                     // first captured frame
+    /*
+     * resolution set to (0, 0) means no resolution/optional, the source will
+     * guess the resolution at the first captured frame.
+     */
+    InternalSource(const VideoResolution& resolution);
     ~InternalSource() override;
 
     bool is_screencast() const override;
@@ -99,11 +100,13 @@ class VideoTrackSource {
     bool remote() const override;
     VideoResolution video_resolution() const;
     bool on_captured_frame(const webrtc::VideoFrame& frame);
+    void set_is_screencast(bool is_screencast);
 
    private:
     mutable webrtc::Mutex mutex_;
     rtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
+    bool is_screencast_;
   };
 
  public:
@@ -115,6 +118,8 @@ class VideoTrackSource {
       const;  // frames pushed from Rust (+interior mutability)
 
   rtc::scoped_refptr<InternalSource> get() const;
+
+  void set_is_screencast(bool is_screencast) const;
 
  private:
   rtc::scoped_refptr<InternalSource> source_;
