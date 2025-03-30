@@ -126,8 +126,9 @@ message FfiRequest {
     NewApmRequest new_apm = 50;
     ApmProcessStreamRequest apm_process_stream = 51;
     ApmProcessReverseStreamRequest apm_process_reverse_stream = 52;
+    ApmSetStreamDelayRequest apm_set_stream_delay = 53;
 
-    // NEXT_ID: 53
+    // NEXT_ID: 54
   }
 }
 
@@ -201,8 +202,9 @@ message FfiResponse {
     NewApmResponse new_apm = 49;
     ApmProcessStreamResponse apm_process_stream = 50;
     ApmProcessReverseStreamResponse apm_process_reverse_stream = 51;
+    ApmSetStreamDelayResponse apm_set_stream_delay = 52;
 
-    // NEXT_ID: 52
+    // NEXT_ID: 53
   }
 }
 

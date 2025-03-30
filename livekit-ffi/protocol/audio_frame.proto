@@ -128,6 +128,16 @@ message ApmProcessReverseStreamResponse {
   optional string error = 1;
 }
 
+message ApmSetStreamDelayRequest {
+  required uint64 apm_handle = 1;
+  required int32 delay_ms = 2;
+}
+
+message ApmSetStreamDelayResponse {
+  optional string error = 1;
+}
+
+
 // New resampler using SoX (much better quality)
 
 message NewSoxResamplerRequest {
