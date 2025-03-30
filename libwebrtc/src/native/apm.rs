@@ -99,4 +99,15 @@ impl AudioProcessingModule {
             })
         }
     }
+
+    pub fn set_stream_delay_ms(&mut self, delay_ms: i32) -> Result<(), RtcError> {
+        if self.sys_handle.pin_mut().set_stream_delay_ms(delay_ms) == 0 {
+            Ok(())
+        } else {
+            Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: "Failed to set stream delay".to_string(),
+            })
+        }
+    }
 }
