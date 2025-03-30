@@ -3619,6 +3619,20 @@ pub struct ApmProcessReverseStreamResponse {
     #[prost(string, optional, tag="1")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApmSetStreamDelayRequest {
+    #[prost(uint64, required, tag="1")]
+    pub apm_handle: u64,
+    #[prost(int32, required, tag="2")]
+    pub delay_ms: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApmSetStreamDelayResponse {
+    #[prost(string, optional, tag="1")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
 // New resampler using SoX (much better quality)
 
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4150,7 +4164,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -4269,13 +4283,15 @@ pub mod ffi_request {
         ApmProcessStream(super::ApmProcessStreamRequest),
         #[prost(message, tag="52")]
         ApmProcessReverseStream(super::ApmProcessReverseStreamRequest),
+        #[prost(message, tag="53")]
+        ApmSetStreamDelay(super::ApmSetStreamDelayRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -4392,6 +4408,8 @@ pub mod ffi_response {
         ApmProcessStream(super::ApmProcessStreamResponse),
         #[prost(message, tag="51")]
         ApmProcessReverseStream(super::ApmProcessReverseStreamResponse),
+        #[prost(message, tag="52")]
+        ApmSetStreamDelay(super::ApmSetStreamDelayResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.

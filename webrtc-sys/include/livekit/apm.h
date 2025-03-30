@@ -60,6 +60,8 @@ class AudioProcessingModule {
                              int sample_rate,
                              int num_channels);
 
+  int set_stream_delay_ms(int delay_ms);
+
  private:
   rtc::scoped_refptr<webrtc::AudioProcessing> apm_;
 };
