@@ -151,9 +151,9 @@ pub struct Claims {
 
 #[derive(Clone)]
 pub struct AccessToken {
-    api_key: String,
-    api_secret: String,
-    claims: Claims,
+    pub api_key: String,
+    pub api_secret: String,
+    pub claims: Claims,
 }
 
 impl Debug for AccessToken {
