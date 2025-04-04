@@ -155,6 +155,7 @@ pub enum EngineEvent {
     },
     Disconnected {
         reason: DisconnectReason,
+        tx: oneshot::Sender<()>,
     },
     LocalTrackSubscribed {
         track_sid: String,
@@ -577,10 +578,12 @@ impl EngineInner {
         };
 
         if let Some((engine_task, close_tx)) = engine_task {
+            let (tx, rx) = oneshot::channel();
             session.close().await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
-            let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
+            let _ = self.engine_tx.send(EngineEvent::Disconnected { reason, tx });
+            let _ = rx.await;
         }
     }
 
