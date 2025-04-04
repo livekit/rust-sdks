@@ -173,13 +173,19 @@ impl Stream for TextStreamReader {
 
 impl Debug for ByteStreamReader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ByteStreamReader").field("stream_id", &self.info.id()).finish()
+        f.debug_struct("ByteStreamReader")
+            .field("id", &self.info.id())
+            .field("topic", &self.info.topic)
+            .finish()
     }
 }
 
 impl Debug for TextStreamReader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TextStreamReader").field("stream_id", &self.info.id()).finish()
+        f.debug_struct("TextStreamReader")
+            .field("id", &self.info.id())
+            .field("topic", &self.info.topic)
+            .finish()
     }
 }
 
@@ -219,7 +225,7 @@ pub(crate) struct IncomingStreamManager {
 
 #[derive(Default)]
 struct ManagerInner {
-    open_streams: HashMap<String, Descriptor>
+    open_streams: HashMap<String, Descriptor>,
 }
 
 impl IncomingStreamManager {
