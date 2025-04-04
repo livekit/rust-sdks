@@ -1034,22 +1034,6 @@ fn on_set_track_subscription_permissions(
     Ok(ffi_participant.room.set_track_subscription_permissions(server, set_permissions))
 }
 
-fn on_stream_register_topic(
-    server: &'static FfiServer,
-    request: proto::StreamRegisterTopicRequest,
-) -> FfiResult<proto::StreamRegisterTopicResponse> {
-    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?;
-    Ok(ffi_room.inner.stream_register_topic(server, request))
-}
-
-fn on_stream_unregister_topic(
-    server: &'static FfiServer,
-    request: proto::StreamUnregisterTopicRequest,
-) -> FfiResult<proto::StreamUnregisterTopicResponse> {
-    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?;
-    Ok(ffi_room.inner.stream_unregister_topic(request))
-}
-
 fn on_byte_stream_reader_read_incremental(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderReadIncrementalRequest,
@@ -1348,14 +1332,6 @@ pub fn handle_request(
             proto::ffi_response::Message::SetDataChannelBufferedAmountLowThreshold(
                 on_set_data_channel_buffered_amount_low_threshold(server, request)?,
             )
-        }
-        proto::ffi_request::Message::RegisterTopic(request) => {
-            proto::ffi_response::Message::RegisterTopic(on_stream_register_topic(server, request)?)
-        }
-        proto::ffi_request::Message::UnregisterTopic(request) => {
-            proto::ffi_response::Message::UnregisterTopic(on_stream_unregister_topic(
-                server, request,
-            )?)
         }
         proto::ffi_request::Message::ByteReadIncremental(request) => {
             proto::ffi_response::Message::ByteReadIncremental(

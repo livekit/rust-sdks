@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use bmrng::unbounded::UnboundedRequestReceiver;
-use futures_util::Future;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -30,9 +29,14 @@ use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
-use std::{collections::HashMap, error::Error, fmt::Debug, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::sync::{
+    broadcast,
+    mpsc::{self, UnboundedReceiver},
+    oneshot, Mutex as AsyncMutex,
+};
+pub use utils::take_cell::TakeCell;
 
 pub use self::{
     data_stream::*,
@@ -170,6 +174,14 @@ pub enum RoomEvent {
     ChatMessage {
         message: ChatMessage,
         participant: Option<RemoteParticipant>,
+    },
+    ByteStreamOpened {
+        reader: TakeCell<ByteStreamReader>,
+        participant_identity: ParticipantIdentity,
+    },
+    TextStreamOpened {
+        reader: TakeCell<TextStreamReader>,
+        participant_identity: ParticipantIdentity,
     },
     #[deprecated(note = "Use high-level data streams API instead.")]
     StreamHeaderReceived {
@@ -412,6 +424,7 @@ pub(crate) struct RoomSession {
 
 struct Handle {
     room_handle: JoinHandle<()>,
+    incoming_stream_handle: JoinHandle<()>,
     outgoing_stream_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
 }
@@ -539,13 +552,9 @@ impl Room {
             }
         });
 
-        let mut incoming_stream_manager = IncomingStreamManager::new();
-        if let Some(preregistration) = &options.preregistration {
-            incoming_stream_manager.preregister_text_topics(&preregistration.text_stream_topics);
-            incoming_stream_manager.preregister_byte_topics(&preregistration.byte_stream_topics);
-        }
-
+        let (incoming_stream_manager, open_rx) = IncomingStreamManager::new();
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
+
         let identity = local_participant.identity().clone();
 
         let room_info = join_response.room.unwrap();
@@ -625,6 +634,11 @@ impl Room {
 
         let (close_tx, close_rx) = broadcast::channel(1);
 
+        let incoming_stream_handle = livekit_runtime::spawn(incoming_data_stream_task(
+            open_rx,
+            dispatcher.clone(),
+            close_rx.resubscribe(),
+        ));
         let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
             packet_rx,
             identity,
@@ -634,7 +648,8 @@ impl Room {
 
         let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
 
-        let handle = Handle { room_handle, outgoing_stream_handle, close_tx };
+        let handle =
+            Handle { room_handle, incoming_stream_handle, outgoing_stream_handle, close_tx };
         inner.handle.lock().await.replace(handle);
 
         Ok((Self { inner }, events))
@@ -693,76 +708,6 @@ impl Room {
             DataPacketKind::Lossy => self.inner.info.read().lossy_dc_options.clone(),
             DataPacketKind::Reliable => self.inner.info.read().reliable_dc_options.clone(),
         }
-    }
-
-    /// Registers a handler for incoming byte streams matching the given topic.
-    ///
-    /// # Parameters
-    ///
-    /// * `topic` - Topic identifier that filters which streams will be handled.
-    ///   Only streams with a matching topic will trigger the handler.
-    /// * `handler` - Handler that is invoked whenever a remote participant
-    ///   opens a new stream with the matching topic. The handler receives a
-    ///   `ByteStreamReader` for consuming the stream data and the identity of
-    ///   the remote participant who initiated the stream.
-    ///
-    pub fn register_byte_stream_handler(
-        &self,
-        topic: &str,
-        handler: impl Fn(
-                ByteStreamReader,
-                ParticipantIdentity,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    ) -> StreamResult<()> {
-        self.inner.register_byte_stream_handler(topic, handler)
-    }
-
-    /// Registers a handler for incoming text streams matching the given topic.
-    ///
-    /// # Parameters
-    ///
-    /// * `topic` - Topic identifier that filters which streams will be handled.
-    ///   Only streams with a matching topic will trigger the handler.
-    /// * `handler` - Handler that is invoked whenever a remote participant
-    ///   opens a new stream with the matching topic. The handler receives a
-    ///   `TextStreamReader` for consuming the stream data and the identity of
-    ///   the remote participant who initiated the stream.
-    ///
-    pub fn register_text_stream_handler(
-        &self,
-        topic: &str,
-        handler: impl Fn(
-                TextStreamReader,
-                ParticipantIdentity,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    ) -> StreamResult<()> {
-        self.inner.register_text_stream_handler(topic, handler)
-    }
-
-    /// Unregisters a handler for incoming byte streams matching the given topic.
-    ///
-    /// # Parameters
-    /// * `topic` - Topic identifier for which the handler should be unregistered.
-    ///
-    pub fn unregister_byte_stream_handler(&self, topic: &str) {
-        self.inner.unregister_byte_stream_handler(topic)
-    }
-
-    /// Unregisters a handler for incoming text streams matching the given topic.
-    ///
-    /// # Parameters
-    /// * `topic` - Topic identifier for which the handler should be unregistered.
-    ///
-    pub fn unregister_text_stream_handler(&self, topic: &str) {
-        self.inner.unregister_text_stream_handler(topic)
     }
 }
 
@@ -898,6 +843,7 @@ impl RoomSession {
         self.e2ee_manager.cleanup();
 
         let _ = handle.close_tx.send(());
+        let _ = handle.incoming_stream_handle.await;
         let _ = handle.outgoing_stream_handle.await;
         let _ = handle.room_handle.await;
 
@@ -1613,47 +1559,36 @@ impl RoomSession {
         }
         return self.get_participant_by_identity(identity).map(Participant::Remote);
     }
+}
 
-    pub(crate) fn register_byte_stream_handler(
-        &self,
-        topic: &str,
-        handler: impl Fn(
-                ByteStreamReader,
-                ParticipantIdentity,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    ) -> StreamResult<()> {
-        self.incoming_stream_manager.register_byte_handler(topic, handler)
-    }
-
-    pub(crate) fn register_text_stream_handler(
-        &self,
-        topic: &str,
-        handler: impl Fn(
-                TextStreamReader,
-                ParticipantIdentity,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    ) -> StreamResult<()> {
-        self.incoming_stream_manager.register_text_handler(topic, handler)
-    }
-
-    pub(crate) fn unregister_byte_stream_handler(&self, topic: &str) {
-        self.incoming_stream_manager.unregister_byte_handler(topic);
-    }
-
-    pub(crate) fn unregister_text_stream_handler(&self, topic: &str) {
-        self.incoming_stream_manager.unregister_text_handler(topic);
+/// Receives stream readers for newly-opened streams and dispatches room events.
+async fn incoming_data_stream_task(
+    mut open_rx: UnboundedReceiver<(AnyStreamReader, String)>,
+    dispatcher: Dispatcher<RoomEvent>,
+    mut close_rx: broadcast::Receiver<()>,
+) {
+    loop {
+        tokio::select! {
+            Some((reader, identity)) = open_rx.recv() => {
+                match reader {
+                    AnyStreamReader::Byte(reader) => dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
+                        reader: TakeCell::new(reader),
+                        participant_identity: ParticipantIdentity(identity)
+                    }),
+                    AnyStreamReader::Text(reader) => dispatcher.dispatch(&RoomEvent::TextStreamOpened {
+                        reader: TakeCell::new(reader),
+                        participant_identity: ParticipantIdentity(identity)
+                    }),
+                }
+            },
+            _ = close_rx.recv() => {
+                break;
+            }
+        }
     }
 }
 
-/// Receive packets from the outgoing stream manager and send them.
+/// Receives packets from the outgoing stream manager and send them.
 async fn outgoing_data_stream_task(
     mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
     participant_identity: ParticipantIdentity,

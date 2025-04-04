@@ -139,6 +139,11 @@ impl FfiServer {
         log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
     }
 
+    /// Returns whether the server has been setup.
+    pub fn is_setup(&self) -> bool {
+        self.config.lock().is_some()
+    }
+
     pub async fn dispose(&'static self) {
         self.logger.set_capture_logs(false);
         log::info!("disposing ffi server");

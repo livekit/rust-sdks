@@ -129,28 +129,25 @@ message FfiRequest {
     ApmProcessReverseStreamRequest apm_process_reverse_stream = 52;
 
     // Data Streams (high level)
-    StreamRegisterTopicRequest register_topic = 53;
-    StreamUnregisterTopicRequest unregister_topic = 54;
+    ByteStreamReaderReadIncrementalRequest byte_read_incremental = 53;
+    ByteStreamReaderReadAllRequest byte_read_all = 54;
+    ByteStreamReaderWriteToFileRequest byte_write_to_file = 55;
 
-    ByteStreamReaderReadIncrementalRequest byte_read_incremental = 55;
-    ByteStreamReaderReadAllRequest byte_read_all = 56;
-    ByteStreamReaderWriteToFileRequest byte_write_to_file = 57;
+    TextStreamReaderReadIncrementalRequest text_read_incremental = 56;
+    TextStreamReaderReadAllRequest text_read_all = 57;
 
-    TextStreamReaderReadIncrementalRequest text_read_incremental = 58;
-    TextStreamReaderReadAllRequest text_read_all = 59;
+    StreamSendFileRequest send_file = 58;
+    StreamSendTextRequest send_text = 59;
 
-    StreamSendFileRequest send_file = 60;
-    StreamSendTextRequest send_text = 61;
+    ByteStreamOpenRequest byte_stream_open = 60;
+    ByteStreamWriterWriteRequest byte_stream_write = 61;
+    ByteStreamWriterCloseRequest byte_stream_close = 62;
 
-    ByteStreamOpenRequest byte_stream_open = 62;
-    ByteStreamWriterWriteRequest byte_stream_write = 63;
-    ByteStreamWriterCloseRequest byte_stream_close = 64;
+    TextStreamOpenRequest text_stream_open = 63;
+    TextStreamWriterWriteRequest text_stream_write = 64;
+    TextStreamWriterCloseRequest text_stream_close = 65;
 
-    TextStreamOpenRequest text_stream_open = 65;
-    TextStreamWriterWriteRequest text_stream_write = 66;
-    TextStreamWriterCloseRequest text_stream_close = 67;
-
-    // NEXT_ID: 68
+    // NEXT_ID: 66
   }
 }
 
@@ -226,28 +223,25 @@ message FfiResponse {
     ApmProcessReverseStreamResponse apm_process_reverse_stream = 51;
 
     // Data Streams (high level)
-    StreamRegisterTopicResponse register_topic = 52;
-    StreamUnregisterTopicResponse unregister_topic = 53;
+    ByteStreamReaderReadIncrementalResponse byte_read_incremental = 52;
+    ByteStreamReaderReadAllResponse byte_read_all = 53;
+    ByteStreamReaderWriteToFileResponse byte_write_to_file = 54;
 
-    ByteStreamReaderReadIncrementalResponse byte_read_incremental = 54;
-    ByteStreamReaderReadAllResponse byte_read_all = 55;
-    ByteStreamReaderWriteToFileResponse byte_write_to_file = 56;
+    TextStreamReaderReadIncrementalResponse text_read_incremental = 55;
+    TextStreamReaderReadAllResponse text_read_all = 56;
 
-    TextStreamReaderReadIncrementalResponse text_read_incremental = 57;
-    TextStreamReaderReadAllResponse text_read_all = 58;
+    StreamSendFileResponse send_file = 57;
+    StreamSendTextResponse send_text = 58;
 
-    StreamSendFileResponse send_file = 59;
-    StreamSendTextResponse send_text = 60;
+    ByteStreamOpenResponse byte_stream_open = 59;
+    ByteStreamWriterWriteResponse byte_stream_write = 60;
+    ByteStreamWriterCloseResponse byte_stream_close = 61;
 
-    ByteStreamOpenResponse byte_stream_open = 61;
-    ByteStreamWriterWriteResponse byte_stream_write = 62;
-    ByteStreamWriterCloseResponse byte_stream_close = 63;
+    TextStreamOpenResponse text_stream_open = 62;
+    TextStreamWriterWriteResponse text_stream_write = 63;
+    TextStreamWriterCloseResponse text_stream_close = 64;
 
-    TextStreamOpenResponse text_stream_open = 64;
-    TextStreamWriterWriteResponse text_stream_write = 65;
-    TextStreamWriterCloseResponse text_stream_close = 66;
-
-    // NEXT_ID: 67
+    // NEXT_ID: 65
   }
 }
 
@@ -286,24 +280,22 @@ message FfiEvent {
     SendStreamTrailerCallback send_stream_trailer = 27;
 
     // Data Streams (high level)
-    ByteStreamOpenedEvent byte_stream_opened = 28;
-    ByteStreamReaderEvent byte_stream_reader_event = 29;
-    ByteStreamReaderReadAllCallback byte_stream_reader_read_all = 30;
-    ByteStreamReaderWriteToFileCallback byte_stream_reader_write_to_file = 31;
+    ByteStreamReaderEvent byte_stream_reader_event = 28;
+    ByteStreamReaderReadAllCallback byte_stream_reader_read_all = 29;
+    ByteStreamReaderWriteToFileCallback byte_stream_reader_write_to_file = 30;
 
-    ByteStreamOpenCallback byte_stream_open = 32;
-    ByteStreamWriterWriteCallback byte_stream_writer_write = 33;
-    ByteStreamWriterCloseCallback byte_stream_writer_close = 34;
-    StreamSendFileCallback send_file = 35;
+    ByteStreamOpenCallback byte_stream_open = 31;
+    ByteStreamWriterWriteCallback byte_stream_writer_write = 32;
+    ByteStreamWriterCloseCallback byte_stream_writer_close = 33;
+    StreamSendFileCallback send_file = 34;
 
-    TextStreamOpenedEvent text_stream_opened = 36;
-    TextStreamReaderEvent text_stream_reader_event = 37;
-    TextStreamReaderReadAllCallback text_stream_reader_read_all = 38;
+    TextStreamReaderEvent text_stream_reader_event = 35;
+    TextStreamReaderReadAllCallback text_stream_reader_read_all = 36;
 
-    TextStreamOpenCallback text_stream_open = 39;
-    TextStreamWriterWriteCallback text_stream_writer_write = 40;
-    TextStreamWriterCloseCallback text_stream_writer_close = 41;
-    StreamSendTextCallback send_text = 42;
+    TextStreamOpenCallback text_stream_open = 37;
+    TextStreamWriterWriteCallback text_stream_writer_write = 38;
+    TextStreamWriterCloseCallback text_stream_writer_close = 39;
+    StreamSendTextCallback send_text = 40;
   }
 }
 

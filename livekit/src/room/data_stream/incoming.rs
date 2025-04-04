@@ -15,21 +15,22 @@
 use super::{
     AnyStreamInfo, ByteStreamInfo, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
-use crate::id::ParticipantIdentity;
-use crate::utils::handler::AsyncHandlerRegistry;
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use livekit_protocol::data_stream as proto;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::error::Error;
-use std::future::Future;
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 /// Reader for an incoming data stream.
+///
+/// The stream being read from is kept open as long as its reader exists;
+/// dropping the reader will close the stream.
+///
 pub trait StreamReader: Stream<Item = StreamResult<(Self::Output, StreamProgress)>> {
     /// Type of output this reader produces.
     type Output;
@@ -170,7 +171,19 @@ impl Stream for TextStreamReader {
     }
 }
 
-pub enum AnyStreamReader {
+impl Debug for ByteStreamReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ByteStreamReader").field("stream_id", &self.info.id()).finish()
+    }
+}
+
+impl Debug for TextStreamReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TextStreamReader").field("stream_id", &self.info.id()).finish()
+    }
+}
+
+pub(crate) enum AnyStreamReader {
     Byte(ByteStreamReader),
     Text(TextStreamReader),
 }
@@ -201,17 +214,18 @@ struct Descriptor {
 #[derive(Clone)]
 pub(crate) struct IncomingStreamManager {
     inner: Arc<Mutex<ManagerInner>>,
+    open_tx: mpsc::UnboundedSender<(AnyStreamReader, String)>,
 }
 
 #[derive(Default)]
 struct ManagerInner {
-    open_streams: HashMap<String, Descriptor>,
-    handlers: Handlers,
+    open_streams: HashMap<String, Descriptor>
 }
 
 impl IncomingStreamManager {
-    pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(Default::default())) }
+    pub fn new() -> (Self, mpsc::UnboundedReceiver<(AnyStreamReader, String)>) {
+        let (open_tx, open_rx) = mpsc::unbounded_channel();
+        (Self { inner: Arc::new(Mutex::new(Default::default())), open_tx }, open_rx)
     }
 
     /// Handles an incoming header packet.
@@ -232,8 +246,7 @@ impl IncomingStreamManager {
         }
 
         let (reader, chunk_tx) = AnyStreamReader::from(info);
-        inner.dispatch_reader(reader, ParticipantIdentity(identity));
-        // TODO: log unhandled stream, once per topic
+        let _ = self.open_tx.send((reader, identity));
 
         let descriptor =
             Descriptor { progress: StreamProgress { bytes_total, ..Default::default() }, chunk_tx };
@@ -290,63 +303,6 @@ impl IncomingStreamManager {
         }
         inner.close_stream(&id);
     }
-
-    pub fn preregister_text_topics(&self, topics: &[String]) {
-        let mut inner = self.inner.lock();
-        topics.into_iter().for_each(|topic| _ = inner.handlers.text.preregister(&topic));
-    }
-
-    pub fn preregister_byte_topics(&self, topics: &[String]) {
-        let mut inner = self.inner.lock();
-        topics.into_iter().for_each(|topic| _ = inner.handlers.byte.preregister(&topic));
-    }
-
-    pub fn register_text_handler(
-        &self,
-        topic: &str,
-        handler: impl Fn(
-                TextStreamReader,
-                ParticipantIdentity,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    ) -> StreamResult<()> {
-        // TODO: apply feature fn_traits (29625) once stabilized.
-        let mut inner = self.inner.lock();
-        if !inner.handlers.text.register(topic, move |args| handler(args.0, args.1)) {
-            Err(StreamError::HandlerAlreadyRegistered)?
-        }
-        Ok(())
-    }
-
-    pub fn register_byte_handler(
-        &self,
-        topic: &str,
-        handler: impl Fn(
-                ByteStreamReader,
-                ParticipantIdentity,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    ) -> StreamResult<()> {
-        let mut inner = self.inner.lock();
-        if !inner.handlers.byte.register(topic, move |args| handler(args.0, args.1)) {
-            Err(StreamError::HandlerAlreadyRegistered)?
-        }
-        Ok(())
-    }
-
-    pub fn unregister_text_handler(&self, topic: &str) {
-        self.inner.lock().handlers.text.unregister(topic);
-    }
-
-    pub fn unregister_byte_handler(&self, topic: &str) {
-        self.inner.lock().handlers.byte.unregister(topic);
-    }
 }
 
 impl ManagerInner {
@@ -370,24 +326,4 @@ impl ManagerInner {
             let _ = descriptor.chunk_tx.send(Err(error));
         }
     }
-
-    fn dispatch_reader(&mut self, reader: AnyStreamReader, identity: ParticipantIdentity) -> bool {
-        match reader {
-            AnyStreamReader::Byte(reader) => {
-                self.handlers.byte.dispatch(&reader.info().topic.to_string(), (reader, identity))
-            }
-            AnyStreamReader::Text(reader) => {
-                self.handlers.text.dispatch(&reader.info().topic.to_string(), (reader, identity))
-            }
-        }
-    }
-}
-
-type StreamHandlerArgs<R> = (R, ParticipantIdentity);
-type StreamHandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
-
-#[derive(Default)]
-pub struct Handlers {
-    byte: AsyncHandlerRegistry<(ByteStreamReader, ParticipantIdentity), StreamHandlerResult>,
-    text: AsyncHandlerRegistry<(TextStreamReader, ParticipantIdentity), StreamHandlerResult>,
 }

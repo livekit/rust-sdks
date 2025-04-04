@@ -14,7 +14,7 @@
 
 use futures_util::StreamExt;
 use livekit::{
-    id::ParticipantIdentity, ByteStreamReader, ByteStreamWriter, StreamReader, StreamWriter,
+    ByteStreamReader, ByteStreamWriter, StreamReader, StreamWriter,
     TextStreamReader, TextStreamWriter,
 };
 
@@ -24,13 +24,13 @@ use crate::{proto, FfiHandleId, FfiResult};
 /// FFI wrapper around [ByteStreamReader].
 pub struct FfiByteStreamReader {
     pub handle_id: FfiHandleId,
-    inner: ByteStreamReader,
+    pub inner: ByteStreamReader,
 }
 
 /// FFI wrapper around [TextStreamReader].
 pub struct FfiTextStreamReader {
     pub handle_id: FfiHandleId,
-    inner: TextStreamReader,
+    pub inner: TextStreamReader,
 }
 /// FFI wrapper around [ByteStreamWriter].
 pub struct FfiByteStreamWriter {
@@ -50,29 +50,6 @@ impl FfiHandle for FfiByteStreamWriter {}
 impl FfiHandle for FfiTextStreamWriter {}
 
 impl FfiByteStreamReader {
-    pub fn from_handler(
-        server: &'static FfiServer,
-        reader: ByteStreamReader,
-        identity: ParticipantIdentity,
-    ) {
-        let handle_id = server.next_id();
-
-        let info = reader.info().clone();
-        let reader = Self { handle_id, inner: reader.into() };
-
-        server.store_handle(reader.handle_id, reader);
-
-        let open_event = proto::ByteStreamOpenedEvent {
-            reader: proto::OwnedByteStreamReader {
-                handle: proto::FfiOwnedHandle { id: handle_id },
-                info: info.into(),
-            },
-            participant_identity: identity.to_string(),
-        };
-
-        let _ = server.send_event(proto::ffi_event::Message::ByteStreamOpened(open_event));
-    }
-
     pub fn read_incremental(
         self,
         server: &'static FfiServer,
@@ -161,28 +138,6 @@ impl FfiByteStreamReader {
 }
 
 impl FfiTextStreamReader {
-    pub fn from_handler(
-        server: &'static FfiServer,
-        reader: TextStreamReader,
-        identity: ParticipantIdentity,
-    ) {
-        let handle_id = server.next_id();
-
-        let info = reader.info().clone();
-        let reader = Self { handle_id, inner: reader.into() };
-
-        server.store_handle(reader.handle_id, reader);
-
-        let open_event = proto::TextStreamOpenedEvent {
-            reader: proto::OwnedTextStreamReader {
-                handle: proto::FfiOwnedHandle { id: handle_id },
-                info: info.into(),
-            },
-            participant_identity: identity.to_string(),
-        };
-        let _ = server.send_event(proto::ffi_event::Message::TextStreamOpened(open_event));
-    }
-
     pub fn read_incremental(
         self,
         server: &'static FfiServer,

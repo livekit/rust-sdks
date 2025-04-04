@@ -1,7 +1,7 @@
 use futures_util::TryStreamExt;
-use livekit::{Room, RoomOptions, StreamTextOptions, StreamWriter};
+use livekit::{Room, RoomEvent, RoomOptions, StreamReader, StreamTextOptions, StreamWriter};
 use std::{env, error::Error, time::Duration};
-use tokio::time::sleep;
+use tokio::{sync::mpsc::UnboundedReceiver, time::sleep};
 
 static TOPIC: &str = "my-topic";
 static WORDS: &[&str] = &["This", "text", "will", "be", "sent", "incrementally."];
@@ -15,17 +15,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let is_sender = env::args().nth(1).map_or(false, |arg| arg == "sender");
 
-    let (room, _) = Room::connect(&url, &token, RoomOptions::default()).await?;
+    let (room, rx) = Room::connect(&url, &token, RoomOptions::default()).await?;
     println!("Connected to room: {} - {}", room.name(), room.sid().await);
 
     if is_sender {
-        run_sender(&room).await
+        run_sender(room).await
     } else {
-        run_receiver(&room).await
+        run_receiver(room, rx).await
     }
 }
 
-async fn run_sender(room: &Room) -> Result<(), Box<dyn Error>> {
+async fn run_sender(room: Room) -> Result<(), Box<dyn Error>> {
     println!("Running as sender");
     loop {
         let options = StreamTextOptions { topic: TOPIC.to_string(), ..Default::default() };
@@ -42,17 +42,21 @@ async fn run_sender(room: &Room) -> Result<(), Box<dyn Error>> {
     }
 }
 
-async fn run_receiver(room: &Room) -> Result<(), Box<dyn Error>> {
+async fn run_receiver(_room: Room, mut rx: UnboundedReceiver<RoomEvent>) -> Result<(), Box<dyn Error>> {
     println!("Running as receiver");
     println!("Waiting for incoming streams…");
-    room.register_text_stream_handler(TOPIC, |mut reader, identity| {
-        println!("New stream from {}", identity);
-        Box::pin(async move {
-            while let Some((chunk, _)) = reader.try_next().await? {
-                println!("Chunk received from {}: '{}'", identity, chunk);
-            }
-            Ok(())
-        })
-    })?;
-    Ok(tokio::signal::ctrl_c().await?)
+    while let Some(msg) = rx.recv().await {
+        log::info!("Event: {:?}", msg);
+        match msg {
+            RoomEvent::TextStreamOpened { reader, participant_identity } => {
+                let Some(mut reader) = reader.take() else { continue };
+                if reader.info().topic != TOPIC { continue };
+                while let Some((chunk, _)) = reader.try_next().await? {
+                    println!("Chunk received from {}: '{}'", participant_identity, chunk);
+                }
+            },
+            _ => {}
+        }
+    }
+    Ok(())
 }

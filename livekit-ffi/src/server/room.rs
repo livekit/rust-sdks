@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::ChatMessage;
 use livekit::{prelude::*, registered_audio_filter_plugins};
+use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
@@ -792,45 +792,6 @@ impl RoomInner {
         proto::SendStreamTrailerResponse { async_id }
     }
 
-    // Data Streams (high level)
-
-    pub fn stream_register_topic(
-        self: &Arc<Self>,
-        server: &'static FfiServer,
-        request: proto::StreamRegisterTopicRequest,
-    ) -> proto::StreamRegisterTopicResponse {
-        let registration_result = match request.kind() {
-            proto::StreamKind::Byte => {
-                self.room.register_byte_stream_handler(&request.topic, move |reader, identity| {
-                    Box::pin(async move {
-                        FfiByteStreamReader::from_handler(server, reader, identity);
-                        Ok(())
-                    })
-                })
-            }
-            proto::StreamKind::Text => {
-                self.room.register_text_stream_handler(&request.topic, move |reader, identity| {
-                    Box::pin(async move {
-                        FfiTextStreamReader::from_handler(server, reader, identity);
-                        Ok(())
-                    })
-                })
-            }
-        };
-        proto::StreamRegisterTopicResponse { error: registration_result.err().map(|e| e.into()) }
-    }
-
-    pub fn stream_unregister_topic(
-        self: &Arc<Self>,
-        request: proto::StreamUnregisterTopicRequest,
-    ) -> proto::StreamUnregisterTopicResponse {
-        match request.kind() {
-            proto::StreamKind::Byte => self.room.unregister_byte_stream_handler(&request.topic),
-            proto::StreamKind::Text => self.room.unregister_text_stream_handler(&request.topic),
-        };
-        proto::StreamUnregisterTopicResponse {}
-    }
-
     pub fn store_rpc_method_invocation_waiter(
         &self,
         invocation_id: u64,
@@ -1341,6 +1302,38 @@ async fn forward_event(
                 send_event(proto::room_event::Message::E2eeStateChanged(proto::E2eeStateChanged {
                     participant_identity: participant.identity().to_string(),
                     state: proto::EncryptionState::from(state).into(),
+                }));
+        }
+        RoomEvent::ByteStreamOpened { reader, participant_identity } => {
+            let Some(reader) = reader.take() else { return };
+            let handle_id = server.next_id();
+            let info = reader.info().clone();
+            let ffi_reader = FfiByteStreamReader { handle_id, inner: reader };
+            server.store_handle(ffi_reader.handle_id, ffi_reader);
+
+            let _ =
+                send_event(proto::room_event::Message::ByteStreamOpened(proto::ByteStreamOpened {
+                    reader: proto::OwnedByteStreamReader {
+                        handle: proto::FfiOwnedHandle { id: handle_id },
+                        info: info.into(),
+                    },
+                    participant_identity: participant_identity.0,
+                }));
+        }
+        RoomEvent::TextStreamOpened { reader, participant_identity } => {
+            let Some(reader) = reader.take() else { return };
+            let handle_id = server.next_id();
+            let info = reader.info().clone();
+            let ffi_reader = FfiTextStreamReader { handle_id, inner: reader };
+            server.store_handle(ffi_reader.handle_id, ffi_reader);
+
+            let _ =
+                send_event(proto::room_event::Message::TextStreamOpened(proto::TextStreamOpened {
+                    reader: proto::OwnedTextStreamReader {
+                        handle: proto::FfiOwnedHandle { id: handle_id },
+                        info: info.into(),
+                    },
+                    participant_identity: participant_identity.0,
                 }));
         }
         RoomEvent::StreamHeaderReceived { header, participant_identity } => {

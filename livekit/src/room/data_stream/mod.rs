@@ -29,6 +29,7 @@ pub type StreamResult<T> = Result<T, StreamError>;
 /// Error type for data stream operations.
 #[derive(Debug, Error)]
 pub enum StreamError {
+    // TODO(ladvoc): standardize error cases and expose over FFI.
     #[error("stream with this ID is already opened")]
     AlreadyOpened,
 

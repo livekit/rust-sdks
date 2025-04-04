@@ -19,37 +19,6 @@ option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
 
-// MARK: - Registration
-
-// Registers a topic for incoming streams to be handled.
-// Once registered, the client will receive StreamEvent.Opened events as streams are opened
-// matching the registered topic.
-message StreamRegisterTopicRequest {
-
-    required uint64 room_handle = 1;
-
-    // Topic to handle.
-    required string topic = 2;
-
-    // Kind of stream to handle.
-    required StreamKind kind = 3;
-}
-message StreamRegisterTopicResponse {
-    optional StreamError error = 1;
-}
-
-// Unregisters a topic for incoming streams to be handled.
-message StreamUnregisterTopicRequest {
-    required uint64 room_handle = 1;
-
-    // Topic of the handler to unregister.
-    required string topic = 2;
-
-    // Kind of handler to unregister.
-    required StreamKind kind = 3;
-}
-message StreamUnregisterTopicResponse {}
-
 // MARK: - Text stream reader
 
 // A reader for an incoming stream.
@@ -77,11 +46,6 @@ message TextStreamReaderReadAllCallback {
         string content = 2;
         StreamError error = 3;
     }
-}
-
-message TextStreamOpenedEvent {
-    required OwnedTextStreamReader reader = 1;
-    required string participant_identity = 2;
 }
 
 message TextStreamReaderEvent {
@@ -153,11 +117,6 @@ message ByteStreamReaderWriteToFileCallback {
         string file_path = 2;
         StreamError error = 3;
     }
-}
-
-message ByteStreamOpenedEvent {
-    required OwnedByteStreamReader reader = 1;
-    required string participant_identity = 2;
 }
 
 message ByteStreamReaderEvent {
@@ -326,12 +285,6 @@ message TextStreamWriterCloseCallback {
 }
 
 // Structures
-
-// The kind of stream (currently byte or text).
-enum StreamKind {
-    BYTE = 0;
-    TEXT = 1;
-}
 
 // Contains a subset of the fields from the stream header.
 // Protocol-level fields not relevant to the FFI client are omitted (e.g. encryption info).
