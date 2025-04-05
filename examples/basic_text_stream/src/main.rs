@@ -42,19 +42,24 @@ async fn run_sender(room: Room) -> Result<(), Box<dyn Error>> {
     }
 }
 
-async fn run_receiver(_room: Room, mut rx: UnboundedReceiver<RoomEvent>) -> Result<(), Box<dyn Error>> {
+async fn run_receiver(
+    _room: Room,
+    mut rx: UnboundedReceiver<RoomEvent>,
+) -> Result<(), Box<dyn Error>> {
     println!("Running as receiver");
     println!("Waiting for incoming streams…");
     while let Some(msg) = rx.recv().await {
         log::info!("Event: {:?}", msg);
         match msg {
             RoomEvent::TextStreamOpened { reader, participant_identity } => {
-                let Some(mut reader) = reader.take() else { continue };
-                if reader.info().topic != TOPIC { continue };
+                let Some(mut reader) = reader.take_if(|info| *info.topic == *TOPIC)
+                else {
+                    continue;
+                };
                 while let Some((chunk, _)) = reader.try_next().await? {
                     println!("Chunk received from {}: '{}'", participant_identity, chunk);
                 }
-            },
+            }
             _ => {}
         }
     }

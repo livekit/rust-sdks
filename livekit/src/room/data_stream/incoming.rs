@@ -15,6 +15,7 @@
 use super::{
     AnyStreamInfo, ByteStreamInfo, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
+use crate::TakeCell;
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use livekit_protocol::data_stream as proto;
@@ -47,6 +48,23 @@ pub trait StreamReader: Stream<Item = StreamResult<(Self::Output, StreamProgress
     /// Returns the data consisting of all concatenated chunks.
     ///
     fn read_all(self) -> impl std::future::Future<Output = StreamResult<Self::Output>> + Send;
+}
+
+impl<T> TakeCell<T>
+where
+    T: StreamReader,
+{
+    /// Takes the reader out of the cell if its info matches the given predicate.
+    ///
+    /// Use this method to conditionally handle incoming streams based on info fields
+    /// such as topic or attributes.
+    ///
+    /// This method will only take the reader if the provided predicate returns `true` when called with the reader's info.
+    /// If the predicate returns `false` or the reader has already been taken, this method returns `None`.
+    ///
+    pub fn take_if(&self, predicate: impl FnOnce(&T::Info) -> bool) -> Option<T> {
+        self.take_if_raw(|reader| predicate(reader.info()))
+    }
 }
 
 pub(super) type ChunkSender = UnboundedSender<StreamResult<IncomingChunk>>;
