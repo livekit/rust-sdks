@@ -7,4 +7,5 @@ members = [
     "webhooks",
     "api",
     "rpc",
+    "leak_test",
 ]

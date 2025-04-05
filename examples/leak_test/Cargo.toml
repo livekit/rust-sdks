@@ -1,0 +1,8 @@
+[package]
+name = "leak_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+livekit = { path = "../../livekit" }
+tokio = { version = "1", features = ["full"] }
