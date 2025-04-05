@@ -1,5 +1,5 @@
 use futures_util::TryStreamExt;
-use livekit::{Room, RoomEvent, RoomOptions, StreamReader, StreamTextOptions, StreamWriter};
+use livekit::{Room, RoomEvent, RoomOptions, StreamTextOptions, StreamWriter};
 use std::{env, error::Error, time::Duration};
 use tokio::{sync::mpsc::UnboundedReceiver, time::sleep};
 

@@ -73,6 +73,7 @@ struct StreamProgress {
 
 impl StreamProgress {
     /// Returns the completion percentage for finite streams.
+    #[allow(dead_code)]
     fn percentage(&self) -> Option<f32> {
         self.bytes_total.map(|total| self.bytes_processed as f32 / total as f32)
     }

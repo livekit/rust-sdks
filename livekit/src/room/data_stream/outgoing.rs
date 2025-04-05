@@ -35,13 +35,19 @@ pub trait StreamWriter<'a> {
     fn info(&self) -> &Self::Info;
 
     /// Writes to the stream.
-    async fn write(&self, input: Self::Input) -> StreamResult<()>;
+    fn write(
+        &self,
+        input: Self::Input,
+    ) -> impl std::future::Future<Output = StreamResult<()>> + Send;
 
     /// Closes the stream normally.
-    async fn close(self) -> StreamResult<()>;
+    fn close(self) -> impl std::future::Future<Output = StreamResult<()>> + Send;
 
     /// Closes the stream abnormally, specifying the reason for closure.
-    async fn close_with_reason(self, reason: &str) -> StreamResult<()>;
+    fn close_with_reason(
+        self,
+        reason: &str,
+    ) -> impl std::future::Future<Output = StreamResult<()>> + Send;
 }
 
 #[derive(Clone)]
