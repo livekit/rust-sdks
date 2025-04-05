@@ -20,11 +20,13 @@ use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use livekit_protocol::data_stream as proto;
 use parking_lot::Mutex;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 /// Reader for an incoming data stream.
@@ -32,7 +34,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 /// The stream being read from is kept open as long as its reader exists;
 /// dropping the reader will close the stream.
 ///
-pub trait StreamReader: Stream<Item = StreamResult<(Self::Output, StreamProgress)>> {
+pub trait StreamReader: Stream<Item = StreamResult<Self::Output>> {
     /// Type of output this reader produces.
     type Output;
 
@@ -67,19 +69,16 @@ where
     }
 }
 
-pub(super) type ChunkSender = UnboundedSender<StreamResult<IncomingChunk>>;
-type ChunkReceiver = UnboundedReceiver<StreamResult<IncomingChunk>>;
-
 /// Reader for an incoming byte data stream.
 pub struct ByteStreamReader {
     info: ByteStreamInfo,
-    rx: ChunkReceiver,
+    chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
 }
 
 /// Reader for an incoming text data stream.
 pub struct TextStreamReader {
     info: TextStreamInfo,
-    rx: ChunkReceiver,
+    chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
 }
 
 impl StreamReader for ByteStreamReader {
@@ -94,7 +93,7 @@ impl StreamReader for ByteStreamReader {
         let mut buffer = BytesMut::new();
         while let Some(result) = self.next().await {
             match result {
-                Ok((bytes, _)) => buffer.extend_from_slice(&bytes),
+                Ok(bytes) => buffer.extend_from_slice(&bytes),
                 Err(e) => return Err(e),
             }
         }
@@ -124,7 +123,7 @@ impl ByteStreamReader {
         let mut file = tokio::fs::File::create(&file_path).await.map_err(StreamError::Io)?;
 
         while let Some(result) = self.next().await {
-            let (bytes, _) = result?;
+            let bytes = result?;
             tokio::io::AsyncWriteExt::write_all(&mut file, &bytes)
                 .await
                 .map_err(StreamError::Io)?;
@@ -136,12 +135,12 @@ impl ByteStreamReader {
 }
 
 impl Stream for ByteStreamReader {
-    type Item = StreamResult<(Bytes, StreamProgress)>;
+    type Item = StreamResult<Bytes>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        match Pin::new(&mut this.rx).poll_recv(cx) {
-            Poll::Ready(Some(Ok(chunk))) => Poll::Ready(Some(Ok((chunk.content, chunk.progress)))),
+        match Pin::new(&mut this.chunk_rx).poll_recv(cx) {
+            Poll::Ready(Some(Ok(chunk))) => Poll::Ready(Some(Ok(chunk))),
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
@@ -161,7 +160,7 @@ impl StreamReader for TextStreamReader {
         let mut result = String::new();
         while let Some(chunk) = self.next().await {
             match chunk {
-                Ok((text, _)) => result.push_str(&text),
+                Ok(text) => result.push_str(&text),
                 Err(e) => return Err(e),
             }
         }
@@ -170,15 +169,15 @@ impl StreamReader for TextStreamReader {
 }
 
 impl Stream for TextStreamReader {
-    type Item = StreamResult<(String, StreamProgress)>;
+    type Item = StreamResult<String>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        match Pin::new(&mut this.rx).poll_recv(cx) {
-            Poll::Ready(Some(Ok(chunk))) => match String::from_utf8(chunk.content.into()) {
-                Ok(content) => Poll::Ready(Some(Ok((content, chunk.progress)))),
+        match Pin::new(&mut this.chunk_rx).poll_recv(cx) {
+            Poll::Ready(Some(Ok(chunk))) => match String::from_utf8(chunk.into()) {
+                Ok(content) => Poll::Ready(Some(Ok(content))),
                 Err(e) => {
-                    this.rx.close();
+                    this.chunk_rx.close();
                     Poll::Ready(Some(Err(StreamError::from(e))))
                 }
             },
@@ -214,31 +213,25 @@ pub(crate) enum AnyStreamReader {
 
 impl AnyStreamReader {
     /// Creates a stream reader for the stream with the given info.
-    pub(super) fn from(info: AnyStreamInfo) -> (Self, ChunkSender) {
-        let (tx, rx) = mpsc::unbounded_channel();
+    pub(super) fn from(info: AnyStreamInfo) -> (Self, UnboundedSender<StreamResult<Bytes>>) {
+        let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
         let reader = match info {
-            AnyStreamInfo::Byte(info) => Self::Byte(ByteStreamReader { info, rx }),
-            AnyStreamInfo::Text(info) => Self::Text(TextStreamReader { info, rx }),
+            AnyStreamInfo::Byte(info) => Self::Byte(ByteStreamReader { info, chunk_rx }),
+            AnyStreamInfo::Text(info) => Self::Text(TextStreamReader { info, chunk_rx }),
         };
-        return (reader, tx);
+        return (reader, chunk_tx);
     }
 }
-
-pub struct IncomingChunk {
-    pub progress: StreamProgress,
-    pub content: Bytes,
-}
-
 struct Descriptor {
     progress: StreamProgress,
-    chunk_tx: ChunkSender,
-    // TODO: keep track of open time.
+    chunk_tx: UnboundedSender<StreamResult<Bytes>>,
+    // TODO(ladvoc): keep track of open time.
 }
 
 #[derive(Clone)]
 pub(crate) struct IncomingStreamManager {
     inner: Arc<Mutex<ManagerInner>>,
-    open_tx: mpsc::UnboundedSender<(AnyStreamReader, String)>,
+    open_tx: UnboundedSender<(AnyStreamReader, String)>,
 }
 
 #[derive(Default)]
@@ -247,7 +240,7 @@ struct ManagerInner {
 }
 
 impl IncomingStreamManager {
-    pub fn new() -> (Self, mpsc::UnboundedReceiver<(AnyStreamReader, String)>) {
+    pub fn new() -> (Self, UnboundedReceiver<(AnyStreamReader, String)>) {
         let (open_tx, open_rx) = mpsc::unbounded_channel();
         (Self { inner: Arc::new(Mutex::new(Default::default())), open_tx }, open_rx)
     }
@@ -300,10 +293,8 @@ impl IncomingStreamManager {
             inner.close_stream_with_error(&id, StreamError::LengthExceeded);
             return;
         }
-
-        let chunk =
-            IncomingChunk { progress: descriptor.progress, content: Bytes::from(chunk.content) };
-        inner.yield_chunk(&id, chunk);
+        inner.yield_chunk(&id, Bytes::from(chunk.content));
+        // TODO: also yield progress
     }
 
     /// Handles an incoming trailer packet.
@@ -330,7 +321,7 @@ impl IncomingStreamManager {
 }
 
 impl ManagerInner {
-    fn yield_chunk(&mut self, id: &str, chunk: IncomingChunk) {
+    fn yield_chunk(&mut self, id: &str, chunk: Bytes) {
         let Some(descriptor) = self.open_streams.get_mut(id) else {
             return;
         };

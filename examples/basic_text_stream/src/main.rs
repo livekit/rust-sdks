@@ -56,7 +56,7 @@ async fn run_receiver(
                 else {
                     continue;
                 };
-                while let Some((chunk, _)) = reader.try_next().await? {
+                while let Some(chunk) = reader.try_next().await? {
                     println!("Chunk received from {}: '{}'", participant_identity, chunk);
                 }
             }

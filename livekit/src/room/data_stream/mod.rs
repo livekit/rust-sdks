@@ -64,17 +64,17 @@ pub enum StreamError {
 
 /// Progress of a data stream.
 #[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]
-pub struct StreamProgress {
+struct StreamProgress {
     chunk_index: u64,
     /// Number of bytes read or written so far.
-    pub bytes_processed: u64,
+    bytes_processed: u64,
     /// Total number of bytes expected to be read or written for finite streams.
-    pub bytes_total: Option<u64>,
+    bytes_total: Option<u64>,
 }
 
 impl StreamProgress {
     /// Returns the completion percentage for finite streams.
-    pub fn percentage(&self) -> Option<f32> {
+    fn percentage(&self) -> Option<f32> {
         self.bytes_total.map(|total| self.bytes_processed as f32 / total as f32)
     }
 }
