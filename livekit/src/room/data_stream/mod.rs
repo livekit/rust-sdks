@@ -199,7 +199,7 @@ impl From<proto::OperationType> for OperationType {
 // MARK: - Dispatch
 
 #[derive(Clone, Debug)]
-pub enum AnyStreamInfo {
+pub(crate) enum AnyStreamInfo {
     Byte(ByteStreamInfo),
     Text(TextStreamInfo),
 }
@@ -208,11 +208,7 @@ impl AnyStreamInfo {
     enum_dispatch!(
         [Byte, Text];
         pub fn id(self: &Self) -> &str;
-        pub fn topic(self: &Self) -> &str;
-        pub fn timestamp(self: &Self) -> &DateTime<Utc>;
         pub fn total_length(self: &Self) -> Option<u64>;
-        pub fn attributes(self: &Self) -> &HashMap<String, String>;
-        pub fn mime_type(self: &Self) -> &str;
     );
 }
 
@@ -220,11 +216,7 @@ impl AnyStreamInfo {
 macro_rules! stream_info {
     () => {
         fn id(&self) -> &str { &self.id }
-        fn topic(&self) -> &str { &self.topic }
-        fn timestamp(&self) -> &DateTime<Utc> { &self.timestamp }
         fn total_length(&self) -> Option<u64> { self.total_length }
-        fn attributes(&self) -> &HashMap<String, String> { &self.attributes }
-        fn mime_type(&self) -> &str { &self.mime_type }
     };
 }
 
