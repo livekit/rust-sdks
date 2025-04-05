@@ -30,7 +30,6 @@ pub type StreamResult<T> = Result<T, StreamError>;
 #[derive(Debug, Error)]
 pub enum StreamError {
     // TODO(ladvoc): standardize error cases and expose over FFI.
-
     #[error("stream has already been closed")]
     AlreadyClosed,
 

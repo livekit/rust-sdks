@@ -14,8 +14,8 @@
 
 use futures_util::StreamExt;
 use livekit::{
-    ByteStreamReader, ByteStreamWriter, StreamReader, StreamWriter,
-    TextStreamReader, TextStreamWriter,
+    ByteStreamReader, ByteStreamWriter, StreamReader, StreamWriter, TextStreamReader,
+    TextStreamWriter,
 };
 
 use super::{FfiHandle, FfiServer};

@@ -52,10 +52,8 @@ async fn run_receiver(
         log::info!("Event: {:?}", msg);
         match msg {
             RoomEvent::TextStreamOpened { reader, participant_identity } => {
-                let Some(mut reader) = reader.take_if(|info| *info.topic == *TOPIC)
-                else {
-                    continue;
-                };
+                let Some(mut reader) = reader
+                    .take_if(|info| info.topic == TOPIC) else { continue };
                 while let Some(chunk) = reader.try_next().await? {
                     println!("Chunk received from {}: '{}'", participant_identity, chunk);
                 }
