@@ -1304,7 +1304,7 @@ async fn forward_event(
                     state: proto::EncryptionState::from(state).into(),
                 }));
         }
-        RoomEvent::ByteStreamOpened { reader, participant_identity } => {
+        RoomEvent::ByteStreamOpened { reader, topic: _, participant_identity } => {
             let Some(reader) = reader.take() else { return };
             let handle_id = server.next_id();
             let info = reader.info().clone();
@@ -1320,7 +1320,7 @@ async fn forward_event(
                     participant_identity: participant_identity.0,
                 }));
         }
-        RoomEvent::TextStreamOpened { reader, participant_identity } => {
+        RoomEvent::TextStreamOpened { reader, topic: _, participant_identity } => {
             let Some(reader) = reader.take() else { return };
             let handle_id = server.next_id();
             let info = reader.info().clone();

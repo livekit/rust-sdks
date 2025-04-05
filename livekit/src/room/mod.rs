@@ -177,10 +177,12 @@ pub enum RoomEvent {
     },
     ByteStreamOpened {
         reader: TakeCell<ByteStreamReader>,
+        topic: String,
         participant_identity: ParticipantIdentity,
     },
     TextStreamOpened {
         reader: TakeCell<TextStreamReader>,
+        topic: String,
         participant_identity: ParticipantIdentity,
     },
     #[deprecated(note = "Use high-level data streams API instead.")]
@@ -1572,10 +1574,12 @@ async fn incoming_data_stream_task(
             Some((reader, identity)) = open_rx.recv() => {
                 match reader {
                     AnyStreamReader::Byte(reader) => dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
+                        topic: reader.info().topic.clone(),
                         reader: TakeCell::new(reader),
                         participant_identity: ParticipantIdentity(identity)
                     }),
                     AnyStreamReader::Text(reader) => dispatcher.dispatch(&RoomEvent::TextStreamOpened {
+                        topic: reader.info().topic.clone(),
                         reader: TakeCell::new(reader),
                         participant_identity: ParticipantIdentity(identity)
                     }),
