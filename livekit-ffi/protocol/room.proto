@@ -23,6 +23,7 @@ import "participant.proto";
 import "track.proto";
 import "video_frame.proto";
 import "stats.proto";
+import "data_stream.proto";
 
 // Connect to a new LiveKit room
 message ConnectRequest {
@@ -367,10 +368,14 @@ message RoomEvent {
     DataPacketReceived data_packet_received = 27;
     TranscriptionReceived transcription_received = 28;
     ChatMessageReceived chat_message = 29;
+    // Data stream (low level)
     DataStreamHeaderReceived stream_header_received = 30;
     DataStreamChunkReceived stream_chunk_received = 31;
     DataStreamTrailerReceived stream_trailer_received = 32;
     DataChannelBufferedAmountLowThresholdChanged data_channel_low_threshold_changed = 33;
+    // Data stream (high level)
+    ByteStreamOpened byte_stream_opened = 34;
+    TextStreamOpened text_stream_opened = 35;
   }
 }
 
@@ -664,4 +669,14 @@ message SetDataChannelBufferedAmountLowThresholdResponse {
 message DataChannelBufferedAmountLowThresholdChanged {
   required DataPacketKind kind = 1;
   required uint64 threshold = 2;
+}
+
+message ByteStreamOpened {
+  required OwnedByteStreamReader reader = 1;
+  required string participant_identity = 2;
+}
+
+message TextStreamOpened {
+  required OwnedTextStreamReader reader = 1;
+  required string participant_identity = 2;
 }
