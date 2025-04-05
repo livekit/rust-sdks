@@ -60,9 +60,8 @@ impl FfiByteStreamReader {
             while let Some(result) = stream.next().await {
                 match result {
                     Ok(bytes) => {
-                        let detail = proto::ByteStreamReaderChunkReceived {
-                            content: bytes.to_vec()
-                        };
+                        let detail =
+                            proto::ByteStreamReaderChunkReceived { content: bytes.to_vec() };
                         let event = proto::ByteStreamReaderEvent {
                             reader_handle: self.handle_id,
                             detail: Some(proto::byte_stream_reader_event::Detail::ChunkReceived(
@@ -147,9 +146,7 @@ impl FfiTextStreamReader {
             while let Some(result) = stream.next().await {
                 match result {
                     Ok(text) => {
-                        let detail = proto::TextStreamReaderChunkReceived {
-                            content: text
-                        };
+                        let detail = proto::TextStreamReaderChunkReceived { content: text };
                         let event = proto::TextStreamReaderEvent {
                             reader_handle: self.handle_id,
                             detail: Some(proto::text_stream_reader_event::Detail::ChunkReceived(

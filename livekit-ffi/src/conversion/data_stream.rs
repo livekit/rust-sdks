@@ -15,8 +15,8 @@
 use crate::proto::{self};
 use bytes::Bytes;
 use livekit::{
-    ByteStreamInfo, OperationType, StreamByteOptions, StreamError, StreamResult,
-    StreamTextOptions, TextStreamInfo,
+    ByteStreamInfo, OperationType, StreamByteOptions, StreamError, StreamResult, StreamTextOptions,
+    TextStreamInfo,
 };
 use std::path::PathBuf;
 
