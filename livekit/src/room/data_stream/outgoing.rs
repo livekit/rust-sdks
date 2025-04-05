@@ -15,7 +15,9 @@
 use super::{
     ByteStreamInfo, OperationType, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
-use crate::{id::ParticipantIdentity, rtc_engine::EngineError, utils::Utf8AwareChunkExt};
+use crate::{
+    id::ParticipantIdentity, rtc_engine::EngineError, utils::utf8_chunk::Utf8AwareChunkExt,
+};
 use bmrng::unbounded::{UnboundedRequestReceiver, UnboundedRequestSender};
 use chrono::Utc;
 use libwebrtc::native::create_random_uuid;
