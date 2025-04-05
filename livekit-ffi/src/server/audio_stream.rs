@@ -198,6 +198,7 @@ impl FfiAudioStream {
         };
 
         let track_source = request.track_source();
+
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
         let (track_finished_tx, _) = broadcast::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
@@ -220,7 +221,13 @@ impl FfiAudioStream {
         };
 
         loop {
-            let track = track_rx.recv().await;
+            let track = tokio::select! {
+                track = track_rx.recv() => track,
+                _ = &mut self_dropped_rx => {
+                    break;
+                }
+            };
+
             if let Some(track) = track {
                 let rtc_track = track.rtc_track();
                 let MediaStreamTrack::Audio(rtc_track) = rtc_track else {
@@ -312,7 +319,7 @@ impl FfiAudioStream {
                 tokio::select! {
                     _ = &mut self_dropped_rx => {
                         let _ = c_tx.send(());
-                        return
+                        break
                     }
                     _ = &mut done_rx => {
                         continue

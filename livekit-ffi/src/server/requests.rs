@@ -941,6 +941,23 @@ fn on_apm_process_reverse_stream(
     Ok(proto::ApmProcessReverseStreamResponse { error: None })
 }
 
+fn on_apm_set_stream_delay(
+    server: &'static FfiServer,
+    request: proto::ApmSetStreamDelayRequest,
+) -> FfiResult<proto::ApmSetStreamDelayResponse> {
+    let aec = server
+        .retrieve_handle::<Arc<Mutex<apm::AudioProcessingModule>>>(request.apm_handle)?
+        .clone();
+
+    let mut aec = aec.lock();
+
+    if let Err(e) = aec.set_stream_delay_ms(request.delay_ms) {
+        return Ok(proto::ApmSetStreamDelayResponse { error: Some(e.to_string()) });
+    }
+
+    Ok(proto::ApmSetStreamDelayResponse { error: None })
+}
+
 fn on_perform_rpc(
     server: &'static FfiServer,
     request: proto::PerformRpcRequest,
@@ -1286,6 +1303,11 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::ApmProcessReverseStream(request) => {
             proto::ffi_response::Message::ApmProcessReverseStream(on_apm_process_reverse_stream(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::ApmSetStreamDelay(request) => {
+            proto::ffi_response::Message::ApmSetStreamDelay(on_apm_set_stream_delay(
                 server, request,
             )?)
         }

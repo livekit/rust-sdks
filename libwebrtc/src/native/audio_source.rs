@@ -42,7 +42,7 @@ impl NativeAudioSource {
             queue_size_ms.try_into().unwrap(),
         );
 
-        let queue_size_samples = (queue_size_ms * sample_rate / 1000) * num_channels;
+        let queue_size_samples = queue_size_ms * (sample_rate / 1000) * num_channels;
         Self { sys_handle, sample_rate, num_channels, queue_size_samples }
     }
 

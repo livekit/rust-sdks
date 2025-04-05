@@ -33,6 +33,10 @@ int AudioProcessingModule::process_reverse_stream(const int16_t* src,
   return apm_->ProcessReverseStream(src, stream_cfg, stream_cfg, dst);
 }
 
+int AudioProcessingModule::set_stream_delay_ms(int delay_ms) {
+  return apm_->set_stream_delay_ms(delay_ms);
+}
+
 std::unique_ptr<AudioProcessingModule> create_apm(
     bool echo_canceller_enabled,
     bool gain_controller_enabled,

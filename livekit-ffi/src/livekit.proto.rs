@@ -4274,6 +4274,20 @@ pub struct ApmProcessReverseStreamResponse {
     #[prost(string, optional, tag="1")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApmSetStreamDelayRequest {
+    #[prost(uint64, required, tag="1")]
+    pub apm_handle: u64,
+    #[prost(int32, required, tag="2")]
+    pub delay_ms: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApmSetStreamDelayResponse {
+    #[prost(string, optional, tag="1")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
 // New resampler using SoX (much better quality)
 
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4805,7 +4819,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -4924,32 +4938,34 @@ pub mod ffi_request {
         ApmProcessStream(super::ApmProcessStreamRequest),
         #[prost(message, tag="52")]
         ApmProcessReverseStream(super::ApmProcessReverseStreamRequest),
-        /// Data Streams (high level)
         #[prost(message, tag="53")]
-        ByteReadIncremental(super::ByteStreamReaderReadIncrementalRequest),
+        ApmSetStreamDelay(super::ApmSetStreamDelayRequest),
+        /// Data Streams (high level)
         #[prost(message, tag="54")]
-        ByteReadAll(super::ByteStreamReaderReadAllRequest),
+        ByteReadIncremental(super::ByteStreamReaderReadIncrementalRequest),
         #[prost(message, tag="55")]
-        ByteWriteToFile(super::ByteStreamReaderWriteToFileRequest),
+        ByteReadAll(super::ByteStreamReaderReadAllRequest),
         #[prost(message, tag="56")]
-        TextReadIncremental(super::TextStreamReaderReadIncrementalRequest),
+        ByteWriteToFile(super::ByteStreamReaderWriteToFileRequest),
         #[prost(message, tag="57")]
-        TextReadAll(super::TextStreamReaderReadAllRequest),
+        TextReadIncremental(super::TextStreamReaderReadIncrementalRequest),
         #[prost(message, tag="58")]
-        SendFile(super::StreamSendFileRequest),
+        TextReadAll(super::TextStreamReaderReadAllRequest),
         #[prost(message, tag="59")]
-        SendText(super::StreamSendTextRequest),
+        SendFile(super::StreamSendFileRequest),
         #[prost(message, tag="60")]
-        ByteStreamOpen(super::ByteStreamOpenRequest),
+        SendText(super::StreamSendTextRequest),
         #[prost(message, tag="61")]
-        ByteStreamWrite(super::ByteStreamWriterWriteRequest),
+        ByteStreamOpen(super::ByteStreamOpenRequest),
         #[prost(message, tag="62")]
-        ByteStreamClose(super::ByteStreamWriterCloseRequest),
+        ByteStreamWrite(super::ByteStreamWriterWriteRequest),
         #[prost(message, tag="63")]
-        TextStreamOpen(super::TextStreamOpenRequest),
+        ByteStreamClose(super::ByteStreamWriterCloseRequest),
         #[prost(message, tag="64")]
-        TextStreamWrite(super::TextStreamWriterWriteRequest),
+        TextStreamOpen(super::TextStreamOpenRequest),
         #[prost(message, tag="65")]
+        TextStreamWrite(super::TextStreamWriterWriteRequest),
+        #[prost(message, tag="66")]
         TextStreamClose(super::TextStreamWriterCloseRequest),
     }
 }
@@ -4957,7 +4973,7 @@ pub mod ffi_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -5074,32 +5090,34 @@ pub mod ffi_response {
         ApmProcessStream(super::ApmProcessStreamResponse),
         #[prost(message, tag="51")]
         ApmProcessReverseStream(super::ApmProcessReverseStreamResponse),
-        /// Data Streams (high level)
         #[prost(message, tag="52")]
-        ByteReadIncremental(super::ByteStreamReaderReadIncrementalResponse),
+        ApmSetStreamDelay(super::ApmSetStreamDelayResponse),
+        /// Data Streams (high level)
         #[prost(message, tag="53")]
-        ByteReadAll(super::ByteStreamReaderReadAllResponse),
+        ByteReadIncremental(super::ByteStreamReaderReadIncrementalResponse),
         #[prost(message, tag="54")]
-        ByteWriteToFile(super::ByteStreamReaderWriteToFileResponse),
+        ByteReadAll(super::ByteStreamReaderReadAllResponse),
         #[prost(message, tag="55")]
-        TextReadIncremental(super::TextStreamReaderReadIncrementalResponse),
+        ByteWriteToFile(super::ByteStreamReaderWriteToFileResponse),
         #[prost(message, tag="56")]
-        TextReadAll(super::TextStreamReaderReadAllResponse),
+        TextReadIncremental(super::TextStreamReaderReadIncrementalResponse),
         #[prost(message, tag="57")]
-        SendFile(super::StreamSendFileResponse),
+        TextReadAll(super::TextStreamReaderReadAllResponse),
         #[prost(message, tag="58")]
-        SendText(super::StreamSendTextResponse),
+        SendFile(super::StreamSendFileResponse),
         #[prost(message, tag="59")]
-        ByteStreamOpen(super::ByteStreamOpenResponse),
+        SendText(super::StreamSendTextResponse),
         #[prost(message, tag="60")]
-        ByteStreamWrite(super::ByteStreamWriterWriteResponse),
+        ByteStreamOpen(super::ByteStreamOpenResponse),
         #[prost(message, tag="61")]
-        ByteStreamClose(super::ByteStreamWriterCloseResponse),
+        ByteStreamWrite(super::ByteStreamWriterWriteResponse),
         #[prost(message, tag="62")]
-        TextStreamOpen(super::TextStreamOpenResponse),
+        ByteStreamClose(super::ByteStreamWriterCloseResponse),
         #[prost(message, tag="63")]
-        TextStreamWrite(super::TextStreamWriterWriteResponse),
+        TextStreamOpen(super::TextStreamOpenResponse),
         #[prost(message, tag="64")]
+        TextStreamWrite(super::TextStreamWriterWriteResponse),
+        #[prost(message, tag="65")]
         TextStreamClose(super::TextStreamWriterCloseResponse),
     }
 }
