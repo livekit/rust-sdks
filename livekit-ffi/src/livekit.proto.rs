@@ -2224,8 +2224,6 @@ pub mod text_stream_reader_event {
 pub struct TextStreamReaderChunkReceived {
     #[prost(string, required, tag="1")]
     pub content: ::prost::alloc::string::String,
-    #[prost(message, required, tag="2")]
-    pub progress: StreamProgress,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2353,8 +2351,6 @@ pub mod byte_stream_reader_event {
 pub struct ByteStreamReaderChunkReceived {
     #[prost(bytes="vec", required, tag="1")]
     pub content: ::prost::alloc::vec::Vec<u8>,
-    #[prost(message, required, tag="2")]
-    pub progress: StreamProgress,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2760,22 +2756,11 @@ pub struct StreamByteOptions {
     #[prost(uint64, optional, tag="7")]
     pub total_length: ::core::option::Option<u64>,
 }
-/// Progress of a stream.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamProgress {
-    /// Number of bytes read or written so far.
-    #[prost(uint64, required, tag="1")]
-    pub bytes_processed: u64,
-    /// Total number of bytes that are expected to be read or written (finite streams only).
-    #[prost(uint64, optional, tag="2")]
-    pub bytes_total: ::core::option::Option<u64>,
-}
 /// Error pertaining to a stream.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamError {
-    /// TODO: make this an enum.
+    /// TODO(ladvoc): make this an enum.
     #[prost(string, required, tag="1")]
     pub description: ::prost::alloc::string::String,
 }

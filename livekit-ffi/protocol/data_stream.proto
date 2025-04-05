@@ -58,7 +58,6 @@ message TextStreamReaderEvent {
 
 message TextStreamReaderChunkReceived {
     required string content = 1;
-    required StreamProgress progress = 2;
 }
 
 message TextStreamReaderEOS {
@@ -129,7 +128,6 @@ message ByteStreamReaderEvent {
 
 message ByteStreamReaderChunkReceived {
     required bytes content = 1;
-    required StreamProgress progress = 2;
 }
 
 message ByteStreamReaderEOS {
@@ -343,17 +341,8 @@ message StreamByteOptions {
     optional uint64 total_length = 7;
 }
 
-// Progress of a stream.
-message StreamProgress {
-    // Number of bytes read or written so far.
-    required uint64 bytes_processed = 1;
-
-    // Total number of bytes that are expected to be read or written (finite streams only).
-    optional uint64 bytes_total = 2;
-}
-
 // Error pertaining to a stream.
 message StreamError {
-    // TODO: make this an enum.
+    // TODO(ladvoc): make this an enum.
     required string description = 1;
 }

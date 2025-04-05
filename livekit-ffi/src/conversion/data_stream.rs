@@ -15,7 +15,7 @@
 use crate::proto::{self};
 use bytes::Bytes;
 use livekit::{
-    ByteStreamInfo, OperationType, StreamByteOptions, StreamError, StreamProgress, StreamResult,
+    ByteStreamInfo, OperationType, StreamByteOptions, StreamError, StreamResult,
     StreamTextOptions, TextStreamInfo,
 };
 use std::path::PathBuf;
@@ -118,12 +118,6 @@ impl From<StreamResult<String>> for proto::text_stream_reader_read_all_callback:
             Ok(content) => Self::Content(content),
             Err(error) => Self::Error(error.into()),
         }
-    }
-}
-
-impl From<StreamProgress> for proto::StreamProgress {
-    fn from(progress: StreamProgress) -> Self {
-        Self { bytes_processed: progress.bytes_processed, bytes_total: progress.bytes_total }
     }
 }
 

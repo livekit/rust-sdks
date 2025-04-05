@@ -59,10 +59,9 @@ impl FfiByteStreamReader {
             let mut stream = self.inner;
             while let Some(result) = stream.next().await {
                 match result {
-                    Ok((bytes, progress)) => {
+                    Ok(bytes) => {
                         let detail = proto::ByteStreamReaderChunkReceived {
-                            content: bytes.to_vec(),
-                            progress: progress.into(),
+                            content: bytes.to_vec()
                         };
                         let event = proto::ByteStreamReaderEvent {
                             reader_handle: self.handle_id,
@@ -147,10 +146,9 @@ impl FfiTextStreamReader {
             let mut stream = self.inner;
             while let Some(result) = stream.next().await {
                 match result {
-                    Ok((text, progress)) => {
+                    Ok(text) => {
                         let detail = proto::TextStreamReaderChunkReceived {
-                            content: text,
-                            progress: progress.into(),
+                            content: text
                         };
                         let event = proto::TextStreamReaderEvent {
                             reader_handle: self.handle_id,
