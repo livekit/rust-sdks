@@ -24,7 +24,7 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt,
+    audio_source, audio_stream, colorcvt, data_stream,
     participant::FfiParticipant,
     resampler,
     room::{self, FfiPublication, FfiTrack},
@@ -1051,6 +1051,116 @@ fn on_set_track_subscription_permissions(
     Ok(ffi_participant.room.set_track_subscription_permissions(server, set_permissions))
 }
 
+fn on_byte_stream_reader_read_incremental(
+    server: &'static FfiServer,
+    request: proto::ByteStreamReaderReadIncrementalRequest,
+) -> FfiResult<proto::ByteStreamReaderReadIncrementalResponse> {
+    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    reader.read_incremental(server, request)
+}
+
+fn on_byte_stream_reader_read_all(
+    server: &'static FfiServer,
+    request: proto::ByteStreamReaderReadAllRequest,
+) -> FfiResult<proto::ByteStreamReaderReadAllResponse> {
+    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    reader.read_all(server, request)
+}
+
+fn on_byte_stream_reader_write_to_file(
+    server: &'static FfiServer,
+    request: proto::ByteStreamReaderWriteToFileRequest,
+) -> FfiResult<proto::ByteStreamReaderWriteToFileResponse> {
+    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
+    reader.write_to_file(server, request)
+}
+
+fn on_text_stream_reader_read_incremental(
+    server: &'static FfiServer,
+    request: proto::TextStreamReaderReadIncrementalRequest,
+) -> FfiResult<proto::TextStreamReaderReadIncrementalResponse> {
+    let reader = server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
+    reader.read_incremental(server, request)
+}
+
+fn on_text_stream_reader_read_all(
+    server: &'static FfiServer,
+    request: proto::TextStreamReaderReadAllRequest,
+) -> FfiResult<proto::TextStreamReaderReadAllResponse> {
+    let reader = server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
+    reader.read_all(server, request)
+}
+
+fn on_send_file(
+    server: &'static FfiServer,
+    request: proto::StreamSendFileRequest,
+) -> FfiResult<proto::StreamSendFileResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.send_file(server, request)
+}
+
+fn on_send_text(
+    server: &'static FfiServer,
+    request: proto::StreamSendTextRequest,
+) -> FfiResult<proto::StreamSendTextResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.send_text(server, request)
+}
+
+fn on_byte_stream_open(
+    server: &'static FfiServer,
+    request: proto::ByteStreamOpenRequest,
+) -> FfiResult<proto::ByteStreamOpenResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.stream_bytes(server, request)
+}
+
+fn on_byte_stream_write(
+    server: &'static FfiServer,
+    request: proto::ByteStreamWriterWriteRequest,
+) -> FfiResult<proto::ByteStreamWriterWriteResponse> {
+    let writer =
+        server.retrieve_handle::<data_stream::FfiByteStreamWriter>(request.writer_handle)?;
+    writer.write(server, request)
+}
+
+fn on_byte_stream_close(
+    server: &'static FfiServer,
+    request: proto::ByteStreamWriterCloseRequest,
+) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
+    let writer = server.take_handle::<data_stream::FfiByteStreamWriter>(request.writer_handle)?;
+    writer.close(server, request)
+}
+
+fn on_text_stream_open(
+    server: &'static FfiServer,
+    request: proto::TextStreamOpenRequest,
+) -> FfiResult<proto::TextStreamOpenResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.stream_text(server, request)
+}
+
+fn on_text_stream_write(
+    server: &'static FfiServer,
+    request: proto::TextStreamWriterWriteRequest,
+) -> FfiResult<proto::TextStreamWriterWriteResponse> {
+    let writer =
+        server.retrieve_handle::<data_stream::FfiTextStreamWriter>(request.writer_handle)?;
+    writer.write(server, request)
+}
+
+fn on_text_stream_close(
+    server: &'static FfiServer,
+    request: proto::TextStreamWriterCloseRequest,
+) -> FfiResult<proto::TextStreamWriterCloseResponse> {
+    let writer = server.take_handle::<data_stream::FfiTextStreamWriter>(request.writer_handle)?;
+    writer.close(server, request)
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1188,11 +1298,9 @@ pub fn handle_request(
         proto::ffi_request::Message::NewApm(new_apm) => {
             proto::ffi_response::Message::NewApm(on_new_apm(server, new_apm)?)
         }
-
         proto::ffi_request::Message::ApmProcessStream(request) => {
             proto::ffi_response::Message::ApmProcessStream(on_apm_process_stream(server, request)?)
         }
-
         proto::ffi_request::Message::ApmProcessReverseStream(request) => {
             proto::ffi_response::Message::ApmProcessReverseStream(on_apm_process_reverse_stream(
                 server, request,
@@ -1246,6 +1354,55 @@ pub fn handle_request(
             proto::ffi_response::Message::SetDataChannelBufferedAmountLowThreshold(
                 on_set_data_channel_buffered_amount_low_threshold(server, request)?,
             )
+        }
+        proto::ffi_request::Message::ByteReadIncremental(request) => {
+            proto::ffi_response::Message::ByteReadIncremental(
+                on_byte_stream_reader_read_incremental(server, request)?,
+            )
+        }
+        proto::ffi_request::Message::ByteReadAll(request) => {
+            proto::ffi_response::Message::ByteReadAll(on_byte_stream_reader_read_all(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::ByteWriteToFile(request) => {
+            proto::ffi_response::Message::ByteWriteToFile(on_byte_stream_reader_write_to_file(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::TextReadIncremental(request) => {
+            proto::ffi_response::Message::TextReadIncremental(
+                on_text_stream_reader_read_incremental(server, request)?,
+            )
+        }
+        proto::ffi_request::Message::TextReadAll(request) => {
+            proto::ffi_response::Message::TextReadAll(on_text_stream_reader_read_all(
+                server, request,
+            )?)
+        }
+        proto::ffi_request::Message::SendFile(request) => {
+            proto::ffi_response::Message::SendFile(on_send_file(server, request)?)
+        }
+        proto::ffi_request::Message::SendText(request) => {
+            proto::ffi_response::Message::SendText(on_send_text(server, request)?)
+        }
+        proto::ffi_request::Message::ByteStreamOpen(request) => {
+            proto::ffi_response::Message::ByteStreamOpen(on_byte_stream_open(server, request)?)
+        }
+        proto::ffi_request::Message::ByteStreamWrite(request) => {
+            proto::ffi_response::Message::ByteStreamWrite(on_byte_stream_write(server, request)?)
+        }
+        proto::ffi_request::Message::ByteStreamClose(request) => {
+            proto::ffi_response::Message::ByteStreamClose(on_byte_stream_close(server, request)?)
+        }
+        proto::ffi_request::Message::TextStreamOpen(request) => {
+            proto::ffi_response::Message::TextStreamOpen(on_text_stream_open(server, request)?)
+        }
+        proto::ffi_request::Message::TextStreamWrite(request) => {
+            proto::ffi_response::Message::TextStreamWrite(on_text_stream_write(server, request)?)
+        }
+        proto::ffi_request::Message::TextStreamClose(request) => {
+            proto::ffi_response::Message::TextStreamClose(on_text_stream_close(server, request)?)
         }
         proto::ffi_request::Message::LoadAudioFilterPlugin(request) => {
             proto::ffi_response::Message::LoadAudioFilterPlugin(on_load_audio_filter_plugin(

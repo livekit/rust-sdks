@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::ChatMessage;
 use livekit::{prelude::*, registered_audio_filter_plugins};
+use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
@@ -26,6 +26,7 @@ use tokio::task::JoinHandle;
 use super::FfiDataBuffer;
 use crate::{
     proto,
+    server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
     server::participant::FfiParticipant,
     server::{FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
@@ -704,6 +705,8 @@ impl RoomInner {
         proto::SendChatMessageResponse { async_id }
     }
 
+    // Data Streams (low level)
+
     pub fn send_stream_header(
         self: &Arc<Self>,
         server: &'static FfiServer,
@@ -1299,6 +1302,38 @@ async fn forward_event(
                 send_event(proto::room_event::Message::E2eeStateChanged(proto::E2eeStateChanged {
                     participant_identity: participant.identity().to_string(),
                     state: proto::EncryptionState::from(state).into(),
+                }));
+        }
+        RoomEvent::ByteStreamOpened { reader, topic: _, participant_identity } => {
+            let Some(reader) = reader.take() else { return };
+            let handle_id = server.next_id();
+            let info = reader.info().clone();
+            let ffi_reader = FfiByteStreamReader { handle_id, inner: reader };
+            server.store_handle(ffi_reader.handle_id, ffi_reader);
+
+            let _ =
+                send_event(proto::room_event::Message::ByteStreamOpened(proto::ByteStreamOpened {
+                    reader: proto::OwnedByteStreamReader {
+                        handle: proto::FfiOwnedHandle { id: handle_id },
+                        info: info.into(),
+                    },
+                    participant_identity: participant_identity.0,
+                }));
+        }
+        RoomEvent::TextStreamOpened { reader, topic: _, participant_identity } => {
+            let Some(reader) = reader.take() else { return };
+            let handle_id = server.next_id();
+            let info = reader.info().clone();
+            let ffi_reader = FfiTextStreamReader { handle_id, inner: reader };
+            server.store_handle(ffi_reader.handle_id, ffi_reader);
+
+            let _ =
+                send_event(proto::room_event::Message::TextStreamOpened(proto::TextStreamOpened {
+                    reader: proto::OwnedTextStreamReader {
+                        handle: proto::FfiOwnedHandle { id: handle_id },
+                        info: info.into(),
+                    },
+                    participant_identity: participant_identity.0,
                 }));
         }
         RoomEvent::StreamHeaderReceived { header, participant_identity } => {

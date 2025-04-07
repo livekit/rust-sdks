@@ -25,6 +25,7 @@ import "room.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
 import "rpc.proto";
+import "data_stream.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -112,7 +113,7 @@ message FfiRequest {
     EnableRemoteTrackPublicationRequest enable_remote_track_publication = 42;
     UpdateRemoteTrackPublicationDimensionRequest update_remote_track_publication_dimension = 43;
 
-    // Data Streams
+    // Data Streams (low level)
     SendStreamHeaderRequest send_stream_header = 44;
     SendStreamChunkRequest send_stream_chunk = 45;
     SendStreamTrailerRequest send_stream_trailer = 46;
@@ -128,7 +129,26 @@ message FfiRequest {
     ApmProcessReverseStreamRequest apm_process_reverse_stream = 52;
     ApmSetStreamDelayRequest apm_set_stream_delay = 53;
 
-    // NEXT_ID: 54
+    // Data Streams (high level)
+    ByteStreamReaderReadIncrementalRequest byte_read_incremental = 54;
+    ByteStreamReaderReadAllRequest byte_read_all = 55;
+    ByteStreamReaderWriteToFileRequest byte_write_to_file = 56;
+
+    TextStreamReaderReadIncrementalRequest text_read_incremental = 57;
+    TextStreamReaderReadAllRequest text_read_all = 58;
+
+    StreamSendFileRequest send_file = 59;
+    StreamSendTextRequest send_text = 60;
+
+    ByteStreamOpenRequest byte_stream_open = 61;
+    ByteStreamWriterWriteRequest byte_stream_write = 62;
+    ByteStreamWriterCloseRequest byte_stream_close = 63;
+
+    TextStreamOpenRequest text_stream_open = 64;
+    TextStreamWriterWriteRequest text_stream_write = 65;
+    TextStreamWriterCloseRequest text_stream_close = 66;
+
+    // NEXT_ID: 67
   }
 }
 
@@ -204,7 +224,26 @@ message FfiResponse {
     ApmProcessReverseStreamResponse apm_process_reverse_stream = 51;
     ApmSetStreamDelayResponse apm_set_stream_delay = 52;
 
-    // NEXT_ID: 53
+    // Data Streams (high level)
+    ByteStreamReaderReadIncrementalResponse byte_read_incremental = 53;
+    ByteStreamReaderReadAllResponse byte_read_all = 54;
+    ByteStreamReaderWriteToFileResponse byte_write_to_file = 55;
+
+    TextStreamReaderReadIncrementalResponse text_read_incremental = 56;
+    TextStreamReaderReadAllResponse text_read_all = 57;
+
+    StreamSendFileResponse send_file = 58;
+    StreamSendTextResponse send_text = 59;
+
+    ByteStreamOpenResponse byte_stream_open = 60;
+    ByteStreamWriterWriteResponse byte_stream_write = 61;
+    ByteStreamWriterCloseResponse byte_stream_close = 62;
+
+    TextStreamOpenResponse text_stream_open = 63;
+    TextStreamWriterWriteResponse text_stream_write = 64;
+    TextStreamWriterCloseResponse text_stream_close = 65;
+
+    // NEXT_ID: 66
   }
 }
 
@@ -236,9 +275,29 @@ message FfiEvent {
     SendChatMessageCallback chat_message = 22;
     PerformRpcCallback perform_rpc = 23;
     RpcMethodInvocationEvent rpc_method_invocation = 24;
+
+    // Data Streams (low level)
     SendStreamHeaderCallback send_stream_header = 25;
     SendStreamChunkCallback send_stream_chunk = 26;
     SendStreamTrailerCallback send_stream_trailer = 27;
+
+    // Data Streams (high level)
+    ByteStreamReaderEvent byte_stream_reader_event = 28;
+    ByteStreamReaderReadAllCallback byte_stream_reader_read_all = 29;
+    ByteStreamReaderWriteToFileCallback byte_stream_reader_write_to_file = 30;
+
+    ByteStreamOpenCallback byte_stream_open = 31;
+    ByteStreamWriterWriteCallback byte_stream_writer_write = 32;
+    ByteStreamWriterCloseCallback byte_stream_writer_close = 33;
+    StreamSendFileCallback send_file = 34;
+
+    TextStreamReaderEvent text_stream_reader_event = 35;
+    TextStreamReaderReadAllCallback text_stream_reader_read_all = 36;
+
+    TextStreamOpenCallback text_stream_open = 37;
+    TextStreamWriterWriteCallback text_stream_writer_write = 38;
+    TextStreamWriterCloseCallback text_stream_writer_close = 39;
+    StreamSendTextCallback send_text = 40;
   }
 }
 
