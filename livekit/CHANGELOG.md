@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.9] - 2025-04-08
+
+### Added
+
+- High-level data streams API
+
+### Deprecated
+
+- Low-level data stream packet events
+
 ## [0.7.8] - 2025-03-21
 
 ### Fixed

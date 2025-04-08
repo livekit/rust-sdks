@@ -1,3 +1,0 @@
-patch type="added" package="livekit" "High-level data streams API"
-patch type="deprecated" package="livekit" "Low-level data stream packet events"
-patch type="added" package="livekit-ffi" "FFI support for the new high-level data streams API"

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.20] - 2025-04-08
+
+### Added
+
+- FFI support for the new high-level data streams API
+
 ## [0.12.18] - 2025-03-21
 
 ### Fixed
