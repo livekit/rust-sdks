@@ -65,9 +65,23 @@ impl LocalTrackPublication {
         self.inner.info.read().proto_info.clone()
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn update_info(&self, info: proto::TrackInfo) {
-        super::update_info(&self.inner, &TrackPublication::Local(self.clone()), info);
+    pub(crate) fn update_info(&self, new_info: proto::TrackInfo) {
+        super::update_info(&self.inner, &TrackPublication::Local(self.clone()), new_info.clone());
+
+        let mut info = self.inner.info.write();
+        if info.muted != new_info.muted {
+            info.muted = new_info.muted;
+
+            drop(info);
+
+            if new_info.muted {
+                if let Some(on_mute) = self.inner.events.muted.lock().as_ref() {
+                    on_mute(TrackPublication::Local(self.clone()));
+                }
+            } else if let Some(on_unmute) = self.inner.events.unmuted.lock().as_ref() {
+                on_unmute(TrackPublication::Local(self.clone()));
+            }
+        }
     }
 
     pub(crate) fn update_publish_options(&self, opts: TrackPublishOptions) {
