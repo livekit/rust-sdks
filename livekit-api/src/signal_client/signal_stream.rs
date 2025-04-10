@@ -115,6 +115,12 @@ impl SignalStream {
                 env::var("HTTP_PROXY").or_else(|_| env::var("http_proxy"))
             };
 
+            eprintln!("!!! print all env !!!");
+            for (key, value) in std::env::vars() {
+                eprintln!("{}: {}", key, value);
+            }
+            eprintln!("!!! done !!!");
+
             // Connect directly or through proxy
             let ws_stream = if let Ok(proxy_url) = proxy_env {
                 if !proxy_url.is_empty() {
