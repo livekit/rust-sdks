@@ -1,0 +1,12 @@
+--- a/tools_webrtc/libs/generate_licenses.py
++++ b/tools_webrtc/libs/generate_licenses.py
+@@ -175,8 +187,7 @@ class LicenseBuilder:
+     @staticmethod
+     def _run_gn(buildfile_dir, target):
+         cmd = [
+-            sys.executable,
+-            os.path.join(find_depot_tools.DEPOT_TOOLS_PATH, 'gn.py'),
++            'gn',
+             'desc',
+             '--all',
+             '--format=json',
