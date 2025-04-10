@@ -106,13 +106,6 @@ impl SignalStream {
             log::info!("connecting to {}", url);
         }
 
-        eprintln!("!!!! signal_stream::connect !!!!");
-        #[cfg(feature = "signal-client-tokio")]
-        eprintln!("signal-client-tokio enabled");
-        #[cfg(feature = "rustls-tls-native-roots")]
-        eprintln!("rustls-tls-native-roots enabled");
-        eprintln!("!!!! end !!!!");
-
         #[cfg(feature = "signal-client-tokio")]
         let ws_stream = {
             // Check for HTTP_PROXY or HTTPS_PROXY environment variables
