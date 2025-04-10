@@ -1,1 +1,1 @@
-patch type="fixed" "fix rtc.AudioStream.from_participant close"
+patch type="fixed" package="livekit-ffi" "fix rtc.AudioStream.from_participant close"

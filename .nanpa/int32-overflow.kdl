@@ -1,1 +1,1 @@
-patch type="fixed" "fix uint32 overflow"
+patch type="fixed" package="libwebrtc" "fix uint32 overflow"

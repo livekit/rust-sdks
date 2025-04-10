@@ -1,1 +1,1 @@
-patch type="fixed" "Build issue for libwebrtc.jar and libjingle_peerconnection_so.so"
+patch type="fixed" package="webrtc-sys" "Build issue for libwebrtc.jar and libjingle_peerconnection_so.so"
