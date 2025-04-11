@@ -2805,6 +2805,7 @@ impl serde::Serialize for client_info::Sdk {
             Self::Cpp => "CPP",
             Self::UnityWeb => "UNITY_WEB",
             Self::Node => "NODE",
+            Self::Unreal => "UNREAL",
         };
         serializer.serialize_str(variant)
     }
@@ -2829,6 +2830,7 @@ impl<'de> serde::Deserialize<'de> for client_info::Sdk {
             "CPP",
             "UNITY_WEB",
             "NODE",
+            "UNREAL",
         ];
 
         struct GeneratedVisitor;
@@ -2882,6 +2884,7 @@ impl<'de> serde::Deserialize<'de> for client_info::Sdk {
                     "CPP" => Ok(client_info::Sdk::Cpp),
                     "UNITY_WEB" => Ok(client_info::Sdk::UnityWeb),
                     "NODE" => Ok(client_info::Sdk::Node),
+                    "UNREAL" => Ok(client_info::Sdk::Unreal),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -7570,6 +7573,7 @@ impl serde::Serialize for DisconnectReason {
             Self::UserUnavailable => "USER_UNAVAILABLE",
             Self::UserRejected => "USER_REJECTED",
             Self::SipTrunkFailure => "SIP_TRUNK_FAILURE",
+            Self::ConnectionTimeout => "CONNECTION_TIMEOUT",
         };
         serializer.serialize_str(variant)
     }
@@ -7595,6 +7599,7 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
             "USER_UNAVAILABLE",
             "USER_REJECTED",
             "SIP_TRUNK_FAILURE",
+            "CONNECTION_TIMEOUT",
         ];
 
         struct GeneratedVisitor;
@@ -7649,6 +7654,7 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
                     "USER_UNAVAILABLE" => Ok(DisconnectReason::UserUnavailable),
                     "USER_REJECTED" => Ok(DisconnectReason::UserRejected),
                     "SIP_TRUNK_FAILURE" => Ok(DisconnectReason::SipTrunkFailure),
+                    "CONNECTION_TIMEOUT" => Ok(DisconnectReason::ConnectionTimeout),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -17291,6 +17297,9 @@ impl serde::Serialize for ParticipantEgressRequest {
         if !self.image_outputs.is_empty() {
             len += 1;
         }
+        if !self.webhooks.is_empty() {
+            len += 1;
+        }
         if self.options.is_some() {
             len += 1;
         }
@@ -17315,6 +17324,9 @@ impl serde::Serialize for ParticipantEgressRequest {
         }
         if !self.image_outputs.is_empty() {
             struct_ser.serialize_field("imageOutputs", &self.image_outputs)?;
+        }
+        if !self.webhooks.is_empty() {
+            struct_ser.serialize_field("webhooks", &self.webhooks)?;
         }
         if let Some(v) = self.options.as_ref() {
             match v {
@@ -17351,6 +17363,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantEgressRequest {
             "segmentOutputs",
             "image_outputs",
             "imageOutputs",
+            "webhooks",
             "preset",
             "advanced",
         ];
@@ -17364,6 +17377,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantEgressRequest {
             StreamOutputs,
             SegmentOutputs,
             ImageOutputs,
+            Webhooks,
             Preset,
             Advanced,
             __SkipField__,
@@ -17395,6 +17409,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantEgressRequest {
                             "streamOutputs" | "stream_outputs" => Ok(GeneratedField::StreamOutputs),
                             "segmentOutputs" | "segment_outputs" => Ok(GeneratedField::SegmentOutputs),
                             "imageOutputs" | "image_outputs" => Ok(GeneratedField::ImageOutputs),
+                            "webhooks" => Ok(GeneratedField::Webhooks),
                             "preset" => Ok(GeneratedField::Preset),
                             "advanced" => Ok(GeneratedField::Advanced),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -17423,6 +17438,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantEgressRequest {
                 let mut stream_outputs__ = None;
                 let mut segment_outputs__ = None;
                 let mut image_outputs__ = None;
+                let mut webhooks__ = None;
                 let mut options__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -17468,6 +17484,12 @@ impl<'de> serde::Deserialize<'de> for ParticipantEgressRequest {
                             }
                             image_outputs__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Webhooks => {
+                            if webhooks__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("webhooks"));
+                            }
+                            webhooks__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::Preset => {
                             if options__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("preset"));
@@ -17494,6 +17516,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantEgressRequest {
                     stream_outputs: stream_outputs__.unwrap_or_default(),
                     segment_outputs: segment_outputs__.unwrap_or_default(),
                     image_outputs: image_outputs__.unwrap_or_default(),
+                    webhooks: webhooks__.unwrap_or_default(),
                     options: options__,
                 })
             }
@@ -22546,6 +22569,9 @@ impl serde::Serialize for RoomCompositeEgressRequest {
         if !self.image_outputs.is_empty() {
             len += 1;
         }
+        if !self.webhooks.is_empty() {
+            len += 1;
+        }
         if self.output.is_some() {
             len += 1;
         }
@@ -22584,6 +22610,9 @@ impl serde::Serialize for RoomCompositeEgressRequest {
         }
         if !self.image_outputs.is_empty() {
             struct_ser.serialize_field("imageOutputs", &self.image_outputs)?;
+        }
+        if !self.webhooks.is_empty() {
+            struct_ser.serialize_field("webhooks", &self.webhooks)?;
         }
         if let Some(v) = self.output.as_ref() {
             match v {
@@ -22639,6 +22668,7 @@ impl<'de> serde::Deserialize<'de> for RoomCompositeEgressRequest {
             "segmentOutputs",
             "image_outputs",
             "imageOutputs",
+            "webhooks",
             "file",
             "stream",
             "segments",
@@ -22658,6 +22688,7 @@ impl<'de> serde::Deserialize<'de> for RoomCompositeEgressRequest {
             StreamOutputs,
             SegmentOutputs,
             ImageOutputs,
+            Webhooks,
             File,
             Stream,
             Segments,
@@ -22695,6 +22726,7 @@ impl<'de> serde::Deserialize<'de> for RoomCompositeEgressRequest {
                             "streamOutputs" | "stream_outputs" => Ok(GeneratedField::StreamOutputs),
                             "segmentOutputs" | "segment_outputs" => Ok(GeneratedField::SegmentOutputs),
                             "imageOutputs" | "image_outputs" => Ok(GeneratedField::ImageOutputs),
+                            "webhooks" => Ok(GeneratedField::Webhooks),
                             "file" => Ok(GeneratedField::File),
                             "stream" => Ok(GeneratedField::Stream),
                             "segments" => Ok(GeneratedField::Segments),
@@ -22729,6 +22761,7 @@ impl<'de> serde::Deserialize<'de> for RoomCompositeEgressRequest {
                 let mut stream_outputs__ = None;
                 let mut segment_outputs__ = None;
                 let mut image_outputs__ = None;
+                let mut webhooks__ = None;
                 let mut output__ = None;
                 let mut options__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -22793,6 +22826,12 @@ impl<'de> serde::Deserialize<'de> for RoomCompositeEgressRequest {
                             }
                             image_outputs__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Webhooks => {
+                            if webhooks__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("webhooks"));
+                            }
+                            webhooks__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::File => {
                             if output__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("file"));
@@ -22843,6 +22882,7 @@ impl<'de> serde::Deserialize<'de> for RoomCompositeEgressRequest {
                     stream_outputs: stream_outputs__.unwrap_or_default(),
                     segment_outputs: segment_outputs__.unwrap_or_default(),
                     image_outputs: image_outputs__.unwrap_or_default(),
+                    webhooks: webhooks__.unwrap_or_default(),
                     output: output__,
                     options: options__,
                 })
@@ -33947,6 +33987,9 @@ impl serde::Serialize for TrackCompositeEgressRequest {
         if !self.image_outputs.is_empty() {
             len += 1;
         }
+        if !self.webhooks.is_empty() {
+            len += 1;
+        }
         if self.output.is_some() {
             len += 1;
         }
@@ -33974,6 +34017,9 @@ impl serde::Serialize for TrackCompositeEgressRequest {
         }
         if !self.image_outputs.is_empty() {
             struct_ser.serialize_field("imageOutputs", &self.image_outputs)?;
+        }
+        if !self.webhooks.is_empty() {
+            struct_ser.serialize_field("webhooks", &self.webhooks)?;
         }
         if let Some(v) = self.output.as_ref() {
             match v {
@@ -34024,6 +34070,7 @@ impl<'de> serde::Deserialize<'de> for TrackCompositeEgressRequest {
             "segmentOutputs",
             "image_outputs",
             "imageOutputs",
+            "webhooks",
             "file",
             "stream",
             "segments",
@@ -34040,6 +34087,7 @@ impl<'de> serde::Deserialize<'de> for TrackCompositeEgressRequest {
             StreamOutputs,
             SegmentOutputs,
             ImageOutputs,
+            Webhooks,
             File,
             Stream,
             Segments,
@@ -34074,6 +34122,7 @@ impl<'de> serde::Deserialize<'de> for TrackCompositeEgressRequest {
                             "streamOutputs" | "stream_outputs" => Ok(GeneratedField::StreamOutputs),
                             "segmentOutputs" | "segment_outputs" => Ok(GeneratedField::SegmentOutputs),
                             "imageOutputs" | "image_outputs" => Ok(GeneratedField::ImageOutputs),
+                            "webhooks" => Ok(GeneratedField::Webhooks),
                             "file" => Ok(GeneratedField::File),
                             "stream" => Ok(GeneratedField::Stream),
                             "segments" => Ok(GeneratedField::Segments),
@@ -34105,6 +34154,7 @@ impl<'de> serde::Deserialize<'de> for TrackCompositeEgressRequest {
                 let mut stream_outputs__ = None;
                 let mut segment_outputs__ = None;
                 let mut image_outputs__ = None;
+                let mut webhooks__ = None;
                 let mut output__ = None;
                 let mut options__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -34150,6 +34200,12 @@ impl<'de> serde::Deserialize<'de> for TrackCompositeEgressRequest {
                                 return Err(serde::de::Error::duplicate_field("imageOutputs"));
                             }
                             image_outputs__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Webhooks => {
+                            if webhooks__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("webhooks"));
+                            }
+                            webhooks__ = Some(map_.next_value()?);
                         }
                         GeneratedField::File => {
                             if output__.is_some() {
@@ -34198,6 +34254,7 @@ impl<'de> serde::Deserialize<'de> for TrackCompositeEgressRequest {
                     stream_outputs: stream_outputs__.unwrap_or_default(),
                     segment_outputs: segment_outputs__.unwrap_or_default(),
                     image_outputs: image_outputs__.unwrap_or_default(),
+                    webhooks: webhooks__.unwrap_or_default(),
                     output: output__,
                     options: options__,
                 })
@@ -34220,6 +34277,9 @@ impl serde::Serialize for TrackEgressRequest {
         if !self.track_id.is_empty() {
             len += 1;
         }
+        if !self.webhooks.is_empty() {
+            len += 1;
+        }
         if self.output.is_some() {
             len += 1;
         }
@@ -34229,6 +34289,9 @@ impl serde::Serialize for TrackEgressRequest {
         }
         if !self.track_id.is_empty() {
             struct_ser.serialize_field("trackId", &self.track_id)?;
+        }
+        if !self.webhooks.is_empty() {
+            struct_ser.serialize_field("webhooks", &self.webhooks)?;
         }
         if let Some(v) = self.output.as_ref() {
             match v {
@@ -34254,6 +34317,7 @@ impl<'de> serde::Deserialize<'de> for TrackEgressRequest {
             "roomName",
             "track_id",
             "trackId",
+            "webhooks",
             "file",
             "websocket_url",
             "websocketUrl",
@@ -34263,6 +34327,7 @@ impl<'de> serde::Deserialize<'de> for TrackEgressRequest {
         enum GeneratedField {
             RoomName,
             TrackId,
+            Webhooks,
             File,
             WebsocketUrl,
             __SkipField__,
@@ -34289,6 +34354,7 @@ impl<'de> serde::Deserialize<'de> for TrackEgressRequest {
                         match value {
                             "roomName" | "room_name" => Ok(GeneratedField::RoomName),
                             "trackId" | "track_id" => Ok(GeneratedField::TrackId),
+                            "webhooks" => Ok(GeneratedField::Webhooks),
                             "file" => Ok(GeneratedField::File),
                             "websocketUrl" | "websocket_url" => Ok(GeneratedField::WebsocketUrl),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -34312,6 +34378,7 @@ impl<'de> serde::Deserialize<'de> for TrackEgressRequest {
             {
                 let mut room_name__ = None;
                 let mut track_id__ = None;
+                let mut webhooks__ = None;
                 let mut output__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -34326,6 +34393,12 @@ impl<'de> serde::Deserialize<'de> for TrackEgressRequest {
                                 return Err(serde::de::Error::duplicate_field("trackId"));
                             }
                             track_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Webhooks => {
+                            if webhooks__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("webhooks"));
+                            }
+                            webhooks__ = Some(map_.next_value()?);
                         }
                         GeneratedField::File => {
                             if output__.is_some() {
@@ -34348,6 +34421,7 @@ impl<'de> serde::Deserialize<'de> for TrackEgressRequest {
                 Ok(TrackEgressRequest {
                     room_name: room_name__.unwrap_or_default(),
                     track_id: track_id__.unwrap_or_default(),
+                    webhooks: webhooks__.unwrap_or_default(),
                     output: output__,
                 })
             }
@@ -35746,6 +35820,9 @@ impl serde::Serialize for TransferSipParticipantRequest {
         if !self.headers.is_empty() {
             len += 1;
         }
+        if self.ringing_timeout.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.TransferSIPParticipantRequest", len)?;
         if !self.participant_identity.is_empty() {
             struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
@@ -35761,6 +35838,9 @@ impl serde::Serialize for TransferSipParticipantRequest {
         }
         if !self.headers.is_empty() {
             struct_ser.serialize_field("headers", &self.headers)?;
+        }
+        if let Some(v) = self.ringing_timeout.as_ref() {
+            struct_ser.serialize_field("ringingTimeout", v)?;
         }
         struct_ser.end()
     }
@@ -35781,6 +35861,8 @@ impl<'de> serde::Deserialize<'de> for TransferSipParticipantRequest {
             "play_dialtone",
             "playDialtone",
             "headers",
+            "ringing_timeout",
+            "ringingTimeout",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -35790,6 +35872,7 @@ impl<'de> serde::Deserialize<'de> for TransferSipParticipantRequest {
             TransferTo,
             PlayDialtone,
             Headers,
+            RingingTimeout,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -35817,6 +35900,7 @@ impl<'de> serde::Deserialize<'de> for TransferSipParticipantRequest {
                             "transferTo" | "transfer_to" => Ok(GeneratedField::TransferTo),
                             "playDialtone" | "play_dialtone" => Ok(GeneratedField::PlayDialtone),
                             "headers" => Ok(GeneratedField::Headers),
+                            "ringingTimeout" | "ringing_timeout" => Ok(GeneratedField::RingingTimeout),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -35841,6 +35925,7 @@ impl<'de> serde::Deserialize<'de> for TransferSipParticipantRequest {
                 let mut transfer_to__ = None;
                 let mut play_dialtone__ = None;
                 let mut headers__ = None;
+                let mut ringing_timeout__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ParticipantIdentity => {
@@ -35875,6 +35960,12 @@ impl<'de> serde::Deserialize<'de> for TransferSipParticipantRequest {
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
+                        GeneratedField::RingingTimeout => {
+                            if ringing_timeout__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ringingTimeout"));
+                            }
+                            ringing_timeout__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -35886,6 +35977,7 @@ impl<'de> serde::Deserialize<'de> for TransferSipParticipantRequest {
                     transfer_to: transfer_to__.unwrap_or_default(),
                     play_dialtone: play_dialtone__.unwrap_or_default(),
                     headers: headers__.unwrap_or_default(),
+                    ringing_timeout: ringing_timeout__,
                 })
             }
         }
@@ -39526,6 +39618,9 @@ impl serde::Serialize for WebEgressRequest {
         if !self.image_outputs.is_empty() {
             len += 1;
         }
+        if !self.webhooks.is_empty() {
+            len += 1;
+        }
         if self.output.is_some() {
             len += 1;
         }
@@ -39556,6 +39651,9 @@ impl serde::Serialize for WebEgressRequest {
         }
         if !self.image_outputs.is_empty() {
             struct_ser.serialize_field("imageOutputs", &self.image_outputs)?;
+        }
+        if !self.webhooks.is_empty() {
+            struct_ser.serialize_field("webhooks", &self.webhooks)?;
         }
         if let Some(v) = self.output.as_ref() {
             match v {
@@ -39607,6 +39705,7 @@ impl<'de> serde::Deserialize<'de> for WebEgressRequest {
             "segmentOutputs",
             "image_outputs",
             "imageOutputs",
+            "webhooks",
             "file",
             "stream",
             "segments",
@@ -39624,6 +39723,7 @@ impl<'de> serde::Deserialize<'de> for WebEgressRequest {
             StreamOutputs,
             SegmentOutputs,
             ImageOutputs,
+            Webhooks,
             File,
             Stream,
             Segments,
@@ -39659,6 +39759,7 @@ impl<'de> serde::Deserialize<'de> for WebEgressRequest {
                             "streamOutputs" | "stream_outputs" => Ok(GeneratedField::StreamOutputs),
                             "segmentOutputs" | "segment_outputs" => Ok(GeneratedField::SegmentOutputs),
                             "imageOutputs" | "image_outputs" => Ok(GeneratedField::ImageOutputs),
+                            "webhooks" => Ok(GeneratedField::Webhooks),
                             "file" => Ok(GeneratedField::File),
                             "stream" => Ok(GeneratedField::Stream),
                             "segments" => Ok(GeneratedField::Segments),
@@ -39691,6 +39792,7 @@ impl<'de> serde::Deserialize<'de> for WebEgressRequest {
                 let mut stream_outputs__ = None;
                 let mut segment_outputs__ = None;
                 let mut image_outputs__ = None;
+                let mut webhooks__ = None;
                 let mut output__ = None;
                 let mut options__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -39743,6 +39845,12 @@ impl<'de> serde::Deserialize<'de> for WebEgressRequest {
                             }
                             image_outputs__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Webhooks => {
+                            if webhooks__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("webhooks"));
+                            }
+                            webhooks__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::File => {
                             if output__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("file"));
@@ -39791,12 +39899,126 @@ impl<'de> serde::Deserialize<'de> for WebEgressRequest {
                     stream_outputs: stream_outputs__.unwrap_or_default(),
                     segment_outputs: segment_outputs__.unwrap_or_default(),
                     image_outputs: image_outputs__.unwrap_or_default(),
+                    webhooks: webhooks__.unwrap_or_default(),
                     output: output__,
                     options: options__,
                 })
             }
         }
         deserializer.deserialize_struct("livekit.WebEgressRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for WebhookConfig {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.url.is_empty() {
+            len += 1;
+        }
+        if !self.signing_key.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.WebhookConfig", len)?;
+        if !self.url.is_empty() {
+            struct_ser.serialize_field("url", &self.url)?;
+        }
+        if !self.signing_key.is_empty() {
+            struct_ser.serialize_field("signingKey", &self.signing_key)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for WebhookConfig {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "url",
+            "signing_key",
+            "signingKey",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Url,
+            SigningKey,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "url" => Ok(GeneratedField::Url),
+                            "signingKey" | "signing_key" => Ok(GeneratedField::SigningKey),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WebhookConfig;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.WebhookConfig")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<WebhookConfig, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut url__ = None;
+                let mut signing_key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Url => {
+                            if url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("url"));
+                            }
+                            url__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SigningKey => {
+                            if signing_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("signingKey"));
+                            }
+                            signing_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(WebhookConfig {
+                    url: url__.unwrap_or_default(),
+                    signing_key: signing_key__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.WebhookConfig", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for WebhookEvent {

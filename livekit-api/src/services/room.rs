@@ -209,7 +209,7 @@ impl RoomClient {
     ) -> ServiceResult<(proto::ForwardParticipantResponse)> {
         self.client
             .request(
-                SVC,    
+                SVC,
                 "ForwardParticipant",
                 proto::ForwardParticipantRequest{ room: room.to_owned(), identity: identity.to_owned(), destination_room: destination_room.to_owned() },
                 self.base.auth_header(
