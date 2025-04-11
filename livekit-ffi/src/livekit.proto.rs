@@ -1694,6 +1694,8 @@ pub enum DisconnectReason {
     UserRejected = 12,
     /// SIP protocol failure or unexpected response
     SipTrunkFailure = 13,
+    /// server timed out a participant session
+    ConnectionTimeout = 14,
 }
 impl DisconnectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1716,6 +1718,7 @@ impl DisconnectReason {
             DisconnectReason::UserUnavailable => "USER_UNAVAILABLE",
             DisconnectReason::UserRejected => "USER_REJECTED",
             DisconnectReason::SipTrunkFailure => "SIP_TRUNK_FAILURE",
+            DisconnectReason::ConnectionTimeout => "ConnectionTimeout",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1735,6 +1738,7 @@ impl DisconnectReason {
             "USER_UNAVAILABLE" => Some(Self::UserUnavailable),
             "USER_REJECTED" => Some(Self::UserRejected),
             "SIP_TRUNK_FAILURE" => Some(Self::SipTrunkFailure),
+            "ConnectionTimeout" => Some(Self::ConnectionTimeout),
             _ => None,
         }
     }
