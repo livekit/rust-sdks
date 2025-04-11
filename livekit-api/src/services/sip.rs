@@ -346,17 +346,17 @@ impl SIPClient {
                 SVC,
                 "CreateSIPDispatchRule",
                 proto::CreateSipDispatchRuleRequest {
-                    name: options.name,
-                    metadata: options.metadata,
-                    attributes: options.attributes,
-                    trunk_ids: options.trunk_ids.to_owned(),
-                    inbound_numbers: options.allowed_numbers.to_owned(),
-                    hide_phone_number: options.hide_phone_number,
-                    rule: Some(proto::SipDispatchRule { rule: Some(rule.to_owned()) }),
-
-                    // TODO: support these attributes
-                    room_preset: Default::default(),
-                    room_config: Default::default(),
+                    dispatch_rule: Some(proto::SipDispatchRuleInfo {
+                        name: options.name,
+                        metadata: options.metadata,
+                        attributes: options.attributes,
+                        trunk_ids: options.trunk_ids.to_owned(),
+                        inbound_numbers: options.allowed_numbers.to_owned(),
+                        hide_phone_number: options.hide_phone_number,
+                        rule: Some(proto::SipDispatchRule { rule: Some(rule.to_owned()) }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
                 },
                 self.base.auth_header(
                     Default::default(),
