@@ -213,7 +213,7 @@ impl RoomClient {
                 "ForwardParticipant",
                 proto::ForwardParticipantRequest{ room: room.to_owned(), identity: identity.to_owned(), destination_room: destination_room.to_owned() },
                 self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
+                    VideoGrants { room_admin: true, room: room.to_owned(), destination_room: destination_room.to_owned(), ..Default::default() },
                     None,
                 )?,
             )
