@@ -57,6 +57,8 @@ pub struct VideoGrants {
     pub room_join: bool,
     #[serde(default)]
     pub room: String,
+    #[serde(default)]
+    pub destination_room: String,
 
     // permissions within a room
     #[serde(default = "default_true")]
@@ -102,6 +104,7 @@ impl Default for VideoGrants {
             room_admin: false,
             room_join: false,
             room: "".to_string(),
+            destination_room: "".to_string(),
             can_publish: true,
             can_subscribe: true,
             can_publish_data: true,
