@@ -1669,7 +1669,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.20"
+version = "0.12.21"
 dependencies = [
  "bytes",
  "console-subscriber",
