@@ -16,7 +16,7 @@
   #define rint16D(a,b) __asm__ __volatile__("fistps %0": "=m"(a): "t"(b): "st")
   #define rint32F rint32D
   #define rint16F rint16D
-  #define FE_INVALID 1
+  //#define FE_INVALID 1
   static __inline int fe_test_invalid(void) {
     int status_word;
     __asm__ __volatile__("fnstsw %%ax": "=a"(status_word));
@@ -42,7 +42,7 @@
   #define rint32F(y,x) rint32f(&(y),x)
   #define rint16D(y,x) rint16d(&(y),x)
   #define rint16F(y,x) rint16f(&(y),x)
-  #define FE_INVALID 1
+  //#define FE_INVALID 1
   static __inline int fe_test_invalid(void) {
     short status_word;
     __asm fnstsw status_word
@@ -70,7 +70,7 @@
   #define rint32F(y,x) rint32f(&(y),x)
   #define rint16D(y,x) rint16d(&(y),x)
   #define rint16F(y,x) rint16d(&(y),(double)(x))
-  #define FE_INVALID 1
+  //#define FE_INVALID 1
   #define fe_test_invalid() (_statusfp() & _SW_INVALID)
   #define fe_clear_invalid _clearfp /* Note: clears all. */
 #elif HAVE_LRINT && LONG_MAX == 2147483647L && HAVE_FENV_H
