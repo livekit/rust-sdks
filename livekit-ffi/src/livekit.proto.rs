@@ -4773,6 +4773,196 @@ pub struct RpcMethodInvocationEvent {
     #[prost(uint32, required, tag="7")]
     pub response_timeout_ms: u32,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MetricsBatch {
+    /// time at which this batch is sent based on a monotonic clock (millisecond resolution)
+    #[prost(int64, tag="1")]
+    pub timestamp_ms: i64,
+    #[prost(message, optional, tag="2")]
+    pub normalized_timestamp: ::core::option::Option<::prost_types::Timestamp>,
+    /// To avoid repeating string values, we store them in a separate list and reference them by index
+    /// This is useful for storing participant identities, track names, etc.
+    /// There is also a predefined list of labels that can be used to reference common metrics.
+    /// They have reserved indices from 0 to (METRIC_LABEL_PREDEFINED_MAX_VALUE - 1).
+    /// Indexes pointing at str_data should start from METRIC_LABEL_PREDEFINED_MAX_VALUE, 
+    /// such that str_data\[0\] == index of METRIC_LABEL_PREDEFINED_MAX_VALUE.
+    #[prost(string, repeated, tag="3")]
+    pub str_data: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="4")]
+    pub time_series: ::prost::alloc::vec::Vec<TimeSeriesMetric>,
+    #[prost(message, repeated, tag="5")]
+    pub events: ::prost::alloc::vec::Vec<EventMetric>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TimeSeriesMetric {
+    /// Metric name e.g "speech_probablity". The string value is not directly stored in the message, but referenced by index
+    /// in the `str_data` field of `MetricsBatch`
+    #[prost(uint32, tag="1")]
+    pub label: u32,
+    /// index into `str_data`
+    #[prost(uint32, tag="2")]
+    pub participant_identity: u32,
+    /// index into `str_data`
+    #[prost(uint32, tag="3")]
+    pub track_sid: u32,
+    #[prost(message, repeated, tag="4")]
+    pub samples: ::prost::alloc::vec::Vec<MetricSample>,
+    /// index into 'str_data'
+    #[prost(uint32, tag="5")]
+    pub rid: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MetricSample {
+    /// time of metric based on a monotonic clock (in milliseconds)
+    #[prost(int64, tag="1")]
+    pub timestamp_ms: i64,
+    #[prost(message, optional, tag="2")]
+    pub normalized_timestamp: ::core::option::Option<::prost_types::Timestamp>,
+    #[prost(float, tag="3")]
+    pub value: f32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventMetric {
+    #[prost(uint32, tag="1")]
+    pub label: u32,
+    /// index into `str_data`
+    #[prost(uint32, tag="2")]
+    pub participant_identity: u32,
+    /// index into `str_data`
+    #[prost(uint32, tag="3")]
+    pub track_sid: u32,
+    /// start time of event based on a monotonic clock (in milliseconds)
+    #[prost(int64, tag="4")]
+    pub start_timestamp_ms: i64,
+    /// end time of event based on a monotonic clock (in milliseconds), if needed
+    #[prost(int64, optional, tag="5")]
+    pub end_timestamp_ms: ::core::option::Option<i64>,
+    #[prost(message, optional, tag="6")]
+    pub normalized_start_timestamp: ::core::option::Option<::prost_types::Timestamp>,
+    #[prost(message, optional, tag="7")]
+    pub normalized_end_timestamp: ::core::option::Option<::prost_types::Timestamp>,
+    #[prost(string, tag="8")]
+    pub metadata: ::prost::alloc::string::String,
+    /// index into 'str_data'
+    #[prost(uint32, tag="9")]
+    pub rid: u32,
+}
+//
+// Protocol used to record metrics for a specific session.
+//
+// Clients send their timestamp in their own monotonically increasing time (e.g `performance.now` on JS).
+// These timestamps are then augmented by the SFU to its time base.
+//
+// A metric can be linked to a specific track by setting `track_sid`.
+
+/// index from [0: MAX_LABEL_PREDEFINED_MAX_VALUE) are for predefined labels (`MetricLabel`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum MetricLabel {
+    /// time to first token from LLM
+    AgentsLlmTtft = 0,
+    /// time to final transcription
+    AgentsSttTtft = 1,
+    /// time to first byte
+    AgentsTtsTtfb = 2,
+    /// Number of video freezes
+    ClientVideoSubscriberFreezeCount = 3,
+    /// total duration of freezes
+    ClientVideoSubscriberTotalFreezeDuration = 4,
+    /// number of video pauses
+    ClientVideoSubscriberPauseCount = 5,
+    /// total duration of pauses
+    ClientVideoSubscriberTotalPausesDuration = 6,
+    /// number of concealed (synthesized) audio samples
+    ClientAudioSubscriberConcealedSamples = 7,
+    /// number of silent concealed samples
+    ClientAudioSubscriberSilentConcealedSamples = 8,
+    /// number of concealment events
+    ClientAudioSubscriberConcealmentEvents = 9,
+    /// number of interruptions
+    ClientAudioSubscriberInterruptionCount = 10,
+    /// total duration of interruptions
+    ClientAudioSubscriberTotalInterruptionDuration = 11,
+    /// total time spent in jitter buffer
+    ClientSubscriberJitterBufferDelay = 12,
+    /// total time spent in jitter buffer
+    ClientSubscriberJitterBufferEmittedCount = 13,
+    /// total duration spent in bandwidth quality limitation
+    ClientVideoPublisherQualityLimitationDurationBandwidth = 14,
+    /// total duration spent in cpu quality limitation
+    ClientVideoPublisherQualityLimitationDurationCpu = 15,
+    /// total duration spent in other quality limitation
+    ClientVideoPublisherQualityLimitationDurationOther = 16,
+    /// Publisher RTT (participant -> server)
+    PublisherRtt = 17,
+    /// RTT between publisher node and subscriber node (could involve intermedia node(s))
+    ServerMeshRtt = 18,
+    /// Subscribe RTT (server -> participant)
+    SubscriberRtt = 19,
+    PredefinedMaxValue = 4096,
+}
+impl MetricLabel {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            MetricLabel::AgentsLlmTtft => "AGENTS_LLM_TTFT",
+            MetricLabel::AgentsSttTtft => "AGENTS_STT_TTFT",
+            MetricLabel::AgentsTtsTtfb => "AGENTS_TTS_TTFB",
+            MetricLabel::ClientVideoSubscriberFreezeCount => "CLIENT_VIDEO_SUBSCRIBER_FREEZE_COUNT",
+            MetricLabel::ClientVideoSubscriberTotalFreezeDuration => "CLIENT_VIDEO_SUBSCRIBER_TOTAL_FREEZE_DURATION",
+            MetricLabel::ClientVideoSubscriberPauseCount => "CLIENT_VIDEO_SUBSCRIBER_PAUSE_COUNT",
+            MetricLabel::ClientVideoSubscriberTotalPausesDuration => "CLIENT_VIDEO_SUBSCRIBER_TOTAL_PAUSES_DURATION",
+            MetricLabel::ClientAudioSubscriberConcealedSamples => "CLIENT_AUDIO_SUBSCRIBER_CONCEALED_SAMPLES",
+            MetricLabel::ClientAudioSubscriberSilentConcealedSamples => "CLIENT_AUDIO_SUBSCRIBER_SILENT_CONCEALED_SAMPLES",
+            MetricLabel::ClientAudioSubscriberConcealmentEvents => "CLIENT_AUDIO_SUBSCRIBER_CONCEALMENT_EVENTS",
+            MetricLabel::ClientAudioSubscriberInterruptionCount => "CLIENT_AUDIO_SUBSCRIBER_INTERRUPTION_COUNT",
+            MetricLabel::ClientAudioSubscriberTotalInterruptionDuration => "CLIENT_AUDIO_SUBSCRIBER_TOTAL_INTERRUPTION_DURATION",
+            MetricLabel::ClientSubscriberJitterBufferDelay => "CLIENT_SUBSCRIBER_JITTER_BUFFER_DELAY",
+            MetricLabel::ClientSubscriberJitterBufferEmittedCount => "CLIENT_SUBSCRIBER_JITTER_BUFFER_EMITTED_COUNT",
+            MetricLabel::ClientVideoPublisherQualityLimitationDurationBandwidth => "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_BANDWIDTH",
+            MetricLabel::ClientVideoPublisherQualityLimitationDurationCpu => "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_CPU",
+            MetricLabel::ClientVideoPublisherQualityLimitationDurationOther => "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_OTHER",
+            MetricLabel::PublisherRtt => "PUBLISHER_RTT",
+            MetricLabel::ServerMeshRtt => "SERVER_MESH_RTT",
+            MetricLabel::SubscriberRtt => "SUBSCRIBER_RTT",
+            MetricLabel::PredefinedMaxValue => "METRIC_LABEL_PREDEFINED_MAX_VALUE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "AGENTS_LLM_TTFT" => Some(Self::AgentsLlmTtft),
+            "AGENTS_STT_TTFT" => Some(Self::AgentsSttTtft),
+            "AGENTS_TTS_TTFB" => Some(Self::AgentsTtsTtfb),
+            "CLIENT_VIDEO_SUBSCRIBER_FREEZE_COUNT" => Some(Self::ClientVideoSubscriberFreezeCount),
+            "CLIENT_VIDEO_SUBSCRIBER_TOTAL_FREEZE_DURATION" => Some(Self::ClientVideoSubscriberTotalFreezeDuration),
+            "CLIENT_VIDEO_SUBSCRIBER_PAUSE_COUNT" => Some(Self::ClientVideoSubscriberPauseCount),
+            "CLIENT_VIDEO_SUBSCRIBER_TOTAL_PAUSES_DURATION" => Some(Self::ClientVideoSubscriberTotalPausesDuration),
+            "CLIENT_AUDIO_SUBSCRIBER_CONCEALED_SAMPLES" => Some(Self::ClientAudioSubscriberConcealedSamples),
+            "CLIENT_AUDIO_SUBSCRIBER_SILENT_CONCEALED_SAMPLES" => Some(Self::ClientAudioSubscriberSilentConcealedSamples),
+            "CLIENT_AUDIO_SUBSCRIBER_CONCEALMENT_EVENTS" => Some(Self::ClientAudioSubscriberConcealmentEvents),
+            "CLIENT_AUDIO_SUBSCRIBER_INTERRUPTION_COUNT" => Some(Self::ClientAudioSubscriberInterruptionCount),
+            "CLIENT_AUDIO_SUBSCRIBER_TOTAL_INTERRUPTION_DURATION" => Some(Self::ClientAudioSubscriberTotalInterruptionDuration),
+            "CLIENT_SUBSCRIBER_JITTER_BUFFER_DELAY" => Some(Self::ClientSubscriberJitterBufferDelay),
+            "CLIENT_SUBSCRIBER_JITTER_BUFFER_EMITTED_COUNT" => Some(Self::ClientSubscriberJitterBufferEmittedCount),
+            "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_BANDWIDTH" => Some(Self::ClientVideoPublisherQualityLimitationDurationBandwidth),
+            "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_CPU" => Some(Self::ClientVideoPublisherQualityLimitationDurationCpu),
+            "CLIENT_VIDEO_PUBLISHER_QUALITY_LIMITATION_DURATION_OTHER" => Some(Self::ClientVideoPublisherQualityLimitationDurationOther),
+            "PUBLISHER_RTT" => Some(Self::PublisherRtt),
+            "SERVER_MESH_RTT" => Some(Self::ServerMeshRtt),
+            "SUBSCRIBER_RTT" => Some(Self::SubscriberRtt),
+            "METRIC_LABEL_PREDEFINED_MAX_VALUE" => Some(Self::PredefinedMaxValue),
+            _ => None,
+        }
+    }
+}
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
 // refer as the ffi client the foreign language that commumicates with the ffi server. (e.g Python SDK, Unity SDK, etc...)
@@ -4804,7 +4994,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -4952,13 +5142,15 @@ pub mod ffi_request {
         TextStreamWrite(super::TextStreamWriterWriteRequest),
         #[prost(message, tag="66")]
         TextStreamClose(super::TextStreamWriterCloseRequest),
+        #[prost(message, tag="67")]
+        PublishMetrics(super::PublishMetricsRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -5104,6 +5296,8 @@ pub mod ffi_response {
         TextStreamWrite(super::TextStreamWriterWriteResponse),
         #[prost(message, tag="65")]
         TextStreamClose(super::TextStreamWriterCloseResponse),
+        #[prost(message, tag="66")]
+        PublishMetrics(super::PublishMetricsResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
@@ -5201,6 +5395,26 @@ pub mod ffi_event {
         #[prost(message, tag="40")]
         SendText(super::StreamSendTextCallback),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PublishMetricsRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(string, repeated, tag="2")]
+    pub str_data: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="3")]
+    pub time_series: ::prost::alloc::vec::Vec<TimeSeriesMetric>,
+    #[prost(message, repeated, tag="4")]
+    pub events: ::prost::alloc::vec::Vec<EventMetric>,
+    #[prost(uint64, optional, tag="5")]
+    pub async_id: ::core::option::Option<u64>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PublishMetricsResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
 }
 /// Stop all rooms synchronously (Do we need async here?).
 /// e.g: This is used for the Unity Editor after each assemblies reload.

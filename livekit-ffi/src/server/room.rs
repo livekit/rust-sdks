@@ -839,6 +839,53 @@ impl RoomInner {
     pub fn url(&self) -> String {
         self.url.clone()
     }
+
+    pub fn publish_metrics(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        publish: proto::PublishMetricsRequest,
+    ) -> FfiResult<proto::PublishMetricsResponse> {
+        let async_id = publish.async_id.unwrap_or_else(|| server.next_id());
+        
+        let str_data = publish.str_data;
+        let time_series: Vec<livekit_protocol::TimeSeriesMetric> = publish.time_series
+            .into_iter()
+            .map(|m| m.into())
+            .collect();
+        let events: Vec<livekit_protocol::EventMetric> = publish.events
+            .into_iter()
+            .map(|e| e.into())
+            .collect();
+    
+
+        let timestamp_ms = time_series.first()
+            .and_then(|metric| metric.samples.first())
+            .map(|sample| sample.timestamp_ms)
+            .unwrap();
+    
+        let metrics_batch = livekit_protocol::MetricsBatch {
+            str_data,
+            time_series,
+            events,
+            timestamp_ms,
+            ..Default::default()
+        };
+    
+        let data_packet = livekit_protocol::DataPacket {
+            value: Some(livekit_protocol::data_packet::Value::Metrics(metrics_batch)),
+            ..Default::default()
+        };
+    
+        let room_clone = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            if let Err(err) = room_clone.room.local_participant().publish_raw_data(data_packet, true).await {
+                log::error!("Failed to publish metrics: {:?}", err);
+            }
+        });
+        server.watch_panic(handle);
+        
+        Ok(proto::PublishMetricsResponse { async_id })
+    }
 }
 
 // Task used to publish data without blocking the client thread

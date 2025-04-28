@@ -20,3 +20,4 @@ pub mod room;
 pub mod stats;
 pub mod track;
 pub mod video_frame;
+pub mod metrics;

@@ -31,4 +31,5 @@ protoc \
     $PROTOCOL/e2ee.proto \
     $PROTOCOL/stats.proto \
     $PROTOCOL/rpc.proto \
-    $PROTOCOL/data_stream.proto
+    $PROTOCOL/data_stream.proto \
+    $PROTOCOL/metrics.proto
