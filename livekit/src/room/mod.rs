@@ -26,6 +26,7 @@ use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
+use metrics::RtcMetricsManager;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
@@ -61,6 +62,7 @@ pub mod participant;
 pub mod publication;
 pub mod track;
 pub(crate) mod utils;
+mod metrics;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -345,6 +347,7 @@ pub struct RoomOptions {
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
     pub preregistration: Option<PreRegistration>,
+    pub enable_metrics: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -372,12 +375,15 @@ impl Default for RoomOptions {
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
             preregistration: None,
+            enable_metrics: true
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Room {
     inner: Arc<RoomSession>,
+    cancellation_token: tokio_util::sync::CancellationToken
 }
 
 impl Debug for Room {
@@ -654,10 +660,26 @@ impl Room {
             Handle { room_handle, incoming_stream_handle, outgoing_stream_handle, close_tx };
         inner.handle.lock().await.replace(handle);
 
-        Ok((Self { inner }, events))
+        let cancellation_token = tokio_util::sync::CancellationToken::new();
+        let self_local = Self {
+            inner,
+            cancellation_token: cancellation_token.clone(),
+        };
+
+        if options.enable_metrics {
+            let room_clone = self_local.clone();
+            let cancellation_for_task = cancellation_token.clone();
+            tokio::spawn(async move {
+                let metrics_manager = RtcMetricsManager::new();
+                metrics_manager.collect_metrics(&room_clone, &rtc_engine, cancellation_for_task).await;
+            });
+        }
+
+        Ok((self_local, events))
     }
 
     pub async fn close(&self) -> RoomResult<()> {
+        self.cancellation_token.cancel();
         self.inner.close(DisconnectReason::ClientInitiated).await
     }
 
