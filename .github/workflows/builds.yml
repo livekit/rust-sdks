@@ -88,6 +88,9 @@ jobs:
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
         run: |
+          export CFLAGS="--sysroot=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          export CXXFLAGS="$CFLAGS"
+
           ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so,libc++abi.a} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
