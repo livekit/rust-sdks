@@ -1425,9 +1425,9 @@ pub fn handle_request(
             )
         }
         proto::ffi_request::Message::PublishMetrics(publish_metrics) => {
-            on_publish_metrics(server, publish_metrics).map(|res| {
-                proto::ffi_response::Message::PublishMetrics(res)
-            })
+            proto::ffi_response::Message::PublishMetrics(
+                on_publish_metrics(server, publish_metrics)?
+            )
         },
     });
 

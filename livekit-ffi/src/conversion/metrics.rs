@@ -38,7 +38,7 @@ impl From<protocol::MetricLabel> for proto::MetricLabel {
             protocol::MetricLabel::PublisherRtt => Self::PublisherRtt,
             protocol::MetricLabel::ServerMeshRtt => Self::ServerMeshRtt,
             protocol::MetricLabel::SubscriberRtt => Self::SubscriberRtt,
-            protocol::MetricLabel::PredefinedMaxValue => Self::MetricLabelPredefinedMaxValue,
+            protocol::MetricLabel::PredefinedMaxValue => Self::PredefinedMaxValue,
         }
     }
 }
@@ -47,7 +47,7 @@ impl From<protocol::MetricSample> for proto::MetricSample {
     fn from(value: protocol::MetricSample) -> Self {
         Self {
             timestamp_ms: value.timestamp_ms,
-            normalized_timestamp: value.normalized_timestamp.map(Into::into),
+            normalized_timestamp: value.normalized_timestamp,
             value: value.value,
         }
     }
@@ -73,8 +73,8 @@ impl From<protocol::EventMetric> for proto::EventMetric {
             track_sid: value.track_sid,
             start_timestamp_ms: value.start_timestamp_ms,
             end_timestamp_ms: value.end_timestamp_ms,
-            normalized_start_timestamp: value.normalized_start_timestamp.map(Into::into),
-            normalized_end_timestamp: value.normalized_end_timestamp.map(Into::into),
+            normalized_start_timestamp: value.normalized_start_timestamp,
+            normalized_end_timestamp: value.normalized_end_timestamp,
             metadata: value.metadata,
             rid: value.rid,
         }
@@ -85,7 +85,57 @@ impl From<protocol::MetricsBatch> for proto::MetricsBatch {
     fn from(value: protocol::MetricsBatch) -> Self {
         Self {
             timestamp_ms: value.timestamp_ms,
-            normalized_timestamp: value.normalized_timestamp.map(Into::into),
+            normalized_timestamp: value.normalized_timestamp,
+            str_data: value.str_data,
+            time_series: value.time_series.into_iter().map(Into::into).collect(),
+            events: value.events.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<proto::TimeSeriesMetric> for protocol::TimeSeriesMetric {
+    fn from(value: proto::TimeSeriesMetric) -> Self {
+        Self {
+            label: value.label,
+            participant_identity: value.participant_identity,
+            track_sid: value.track_sid,
+            samples: value.samples.into_iter().map(Into::into).collect(),
+            rid: value.rid,
+        }
+    }
+}
+
+impl From<proto::MetricSample> for protocol::MetricSample {
+    fn from(value: proto::MetricSample) -> Self {
+        Self {
+            timestamp_ms: value.timestamp_ms,
+            normalized_timestamp: value.normalized_timestamp,
+            value: value.value,
+        }
+    }
+}
+
+impl From<proto::EventMetric> for protocol::EventMetric {
+    fn from(value: proto::EventMetric) -> Self {
+        Self {
+            label: value.label,
+            participant_identity: value.participant_identity,
+            track_sid: value.track_sid,
+            start_timestamp_ms: value.start_timestamp_ms,
+            end_timestamp_ms: value.end_timestamp_ms,
+            normalized_start_timestamp: value.normalized_start_timestamp,
+            normalized_end_timestamp: value.normalized_end_timestamp,
+            metadata: value.metadata,
+            rid: value.rid,
+        }
+    }
+}
+
+impl From<proto::MetricsBatch> for protocol::MetricsBatch {
+    fn from(value: proto::MetricsBatch) -> Self {
+        Self {
+            timestamp_ms: value.timestamp_ms,
+            normalized_timestamp: value.normalized_timestamp,
             str_data: value.str_data,
             time_series: value.time_series.into_iter().map(Into::into).collect(),
             events: value.events.into_iter().map(Into::into).collect(),

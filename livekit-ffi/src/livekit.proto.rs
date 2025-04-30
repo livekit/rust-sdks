@@ -4780,7 +4780,7 @@ pub struct MetricsBatch {
     #[prost(int64, tag="1")]
     pub timestamp_ms: i64,
     #[prost(message, optional, tag="2")]
-    pub normalized_timestamp: ::core::option::Option<::prost_types::Timestamp>,
+    pub normalized_timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
     /// To avoid repeating string values, we store them in a separate list and reference them by index
     /// This is useful for storing participant identities, track names, etc.
     /// There is also a predefined list of labels that can be used to reference common metrics.
@@ -4820,7 +4820,7 @@ pub struct MetricSample {
     #[prost(int64, tag="1")]
     pub timestamp_ms: i64,
     #[prost(message, optional, tag="2")]
-    pub normalized_timestamp: ::core::option::Option<::prost_types::Timestamp>,
+    pub normalized_timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(float, tag="3")]
     pub value: f32,
 }
@@ -4842,9 +4842,9 @@ pub struct EventMetric {
     #[prost(int64, optional, tag="5")]
     pub end_timestamp_ms: ::core::option::Option<i64>,
     #[prost(message, optional, tag="6")]
-    pub normalized_start_timestamp: ::core::option::Option<::prost_types::Timestamp>,
+    pub normalized_start_timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(message, optional, tag="7")]
-    pub normalized_end_timestamp: ::core::option::Option<::prost_types::Timestamp>,
+    pub normalized_end_timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(string, tag="8")]
     pub metadata: ::prost::alloc::string::String,
     /// index into 'str_data'
