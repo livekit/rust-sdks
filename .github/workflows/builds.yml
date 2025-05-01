@@ -88,6 +88,7 @@ jobs:
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
         run: |
+          sudo apt install -y gcc-multilib
           export CFLAGS="--sysroot=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export CXXFLAGS="$CFLAGS"
 
