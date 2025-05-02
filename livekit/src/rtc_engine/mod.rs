@@ -15,8 +15,8 @@
 use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 
 use libwebrtc::prelude::*;
-use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
+use livekit_api::signal_client::{RegionUrlProvider, SignalError, SignalOptions};
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
 use thiserror::Error;
@@ -337,13 +337,15 @@ impl EngineInner {
         let lk_runtime = LkRuntime::instance();
         let max_retries = options.join_retries;
 
+        let urls = RegionUrlProvider::fetch_region_urls(url, token).await?;
+
         let try_connect = {
-            move || {
+            move |url: String| {
                 let options = options.clone();
                 let lk_runtime = lk_runtime.clone();
                 async move {
                     let (session, join_response, session_events) =
-                        RtcSession::connect(url, token, options.clone()).await?;
+                        RtcSession::connect(&url, token, options.clone()).await?;
                     session.wait_pc_connection().await?;
 
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
@@ -379,20 +381,22 @@ impl EngineInner {
         };
 
         let mut last_error = None;
-        for i in 0..(max_retries + 1) {
-            match try_connect().await {
-                Ok(res) => return Ok(res),
-                Err(e) => {
-                    let attempt_i = i + 1;
-                    if i < max_retries {
-                        log::warn!(
-                            "failed to connect: {:?}, retrying... ({}/{})",
-                            e,
-                            attempt_i,
-                            max_retries
-                        );
+        for url in urls.iter() {
+            for i in 0..(max_retries + 1) {
+                match try_connect(url.clone()).await {
+                    Ok(res) => return Ok(res),
+                    Err(e) => {
+                        let attempt_i = i + 1;
+                        if i < max_retries {
+                            log::warn!(
+                                "failed to connect: {:?}, retrying... ({}/{})",
+                                e,
+                                attempt_i,
+                                max_retries
+                            );
+                        }
+                        last_error = Some(e)
                     }
-                    last_error = Some(e)
                 }
             }
         }

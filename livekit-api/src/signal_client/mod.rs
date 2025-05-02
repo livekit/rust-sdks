@@ -38,6 +38,9 @@ use async_tungstenite::tungstenite::Error as WsError;
 use crate::{http_client, signal_client::signal_stream::SignalStream};
 
 mod signal_stream;
+mod region;
+
+pub use region::RegionUrlProvider;
 
 pub type SignalEmitter = mpsc::UnboundedSender<SignalEvent>;
 pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
@@ -62,6 +65,8 @@ pub enum SignalError {
     Timeout(String),
     #[error("failed to send message to the server")]
     SendError,
+    #[error("failed to retrieve region info: {0}")]
+    RegionError(String),
 }
 
 #[derive(Debug, Clone)]
