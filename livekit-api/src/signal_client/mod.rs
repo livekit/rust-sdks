@@ -37,8 +37,8 @@ use async_tungstenite::tungstenite::Error as WsError;
 
 use crate::{http_client, signal_client::signal_stream::SignalStream};
 
-mod signal_stream;
 mod region;
+mod signal_stream;
 
 pub use region::RegionUrlProvider;
 

@@ -1,4 +1,4 @@
-use http::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
 
 use crate::http_client;
@@ -24,11 +24,20 @@ impl RegionUrlProvider {
         if is_cloud_url(url)? {
             let client = http_client::Client::new();
             let mut headers = HeaderMap::new();
-            headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
-            let res = client.get(region_endpoint(url)?)
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+            );
+            let res = client
+                .get(region_endpoint(url)?)
                 .headers(headers)
-                .send().await.map_err(|e| SignalError::RegionError(e.to_string()))?;
-            let res = res.json::<RegionUrlResponse>().await.map_err(|e| SignalError::RegionError(e.to_string()))?;
+                .send()
+                .await
+                .map_err(|e| SignalError::RegionError(e.to_string()))?;
+            let res = res
+                .json::<RegionUrlResponse>()
+                .await
+                .map_err(|e| SignalError::RegionError(e.to_string()))?;
             Ok(res.regions.into_iter().map(|i| i.url).collect())
         } else {
             Ok(vec![url.into()])
@@ -42,7 +51,7 @@ fn is_cloud_url(url: &str) -> SignalResult<bool> {
         Some(host) => host.to_string(),
         None => {
             return Err(SignalError::UrlParse("invalid hostname".into()));
-        },
+        }
     };
 
     Ok(host.ends_with(".livekit.cloud") || host.ends_with(".livekit.run"))
