@@ -4131,7 +4131,7 @@ pub struct NewAudioSourceResponse {
     #[prost(message, required, tag="1")]
     pub source: OwnedAudioSource,
 }
-/// Push a frame to an AudioSource 
+/// Push a frame to an AudioSource
 /// The data provided must be available as long as the client receive the callback.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4272,6 +4272,32 @@ pub struct ApmSetStreamDelayRequest {
 pub struct ApmSetStreamDelayResponse {
     #[prost(string, optional, tag="1")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApmAecDumpCreateAndAttachRequest {
+    #[prost(uint64, required, tag="1")]
+    pub apm_handle: u64,
+    #[prost(string, required, tag="2")]
+    pub file_path: ::prost::alloc::string::String,
+    #[prost(int64, optional, tag="3")]
+    pub max_log_size_bytes: ::core::option::Option<i64>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApmAecDumpCreateAndAttachResponse {
+    #[prost(string, optional, tag="1")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApmAecDumpDetachRequest {
+    #[prost(uint64, required, tag="1")]
+    pub apm_handle: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApmAecDumpDetachResponse {
 }
 // New resampler using SoX (much better quality)
 
@@ -4804,7 +4830,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -4952,13 +4978,17 @@ pub mod ffi_request {
         TextStreamWrite(super::TextStreamWriterWriteRequest),
         #[prost(message, tag="66")]
         TextStreamClose(super::TextStreamWriterCloseRequest),
+        #[prost(message, tag="67")]
+        ApmAecDumpCreateAndAttach(super::ApmAecDumpCreateAndAttachRequest),
+        #[prost(message, tag="68")]
+        ApmAecDumpDetach(super::ApmAecDumpDetachRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -5104,6 +5134,10 @@ pub mod ffi_response {
         TextStreamWrite(super::TextStreamWriterWriteResponse),
         #[prost(message, tag="65")]
         TextStreamClose(super::TextStreamWriterCloseResponse),
+        #[prost(message, tag="66")]
+        ApmAecDumpCreateAndAttach(super::ApmAecDumpCreateAndAttachResponse),
+        #[prost(message, tag="67")]
+        ApmAecDumpDetach(super::ApmAecDumpDetachResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.

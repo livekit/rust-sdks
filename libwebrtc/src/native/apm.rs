@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use cxx::UniquePtr;
+use std::path::Path;
 use webrtc_sys::apm::ffi as sys_apm;
 
 use crate::{RtcError, RtcErrorType};
@@ -109,5 +110,38 @@ impl AudioProcessingModule {
                 message: "Failed to set stream delay".to_string(),
             })
         }
+    }
+
+    /// Creates and attaches an AEC dump for recording debugging information.
+    pub fn create_and_attach_aec_dump(
+        &mut self,
+        file_path: impl AsRef<Path>,
+        max_log_size_bytes: Option<i64>,
+    ) -> Result<(), RtcError> {
+        let Some(file_path) = file_path.as_ref().to_str() else {
+            Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: "Invalid file path".to_string(),
+            })?
+        };
+        let max_size = max_log_size_bytes.unwrap_or(-1);
+
+        if self.sys_handle.pin_mut().create_and_attach_aec_dump(file_path, max_size) {
+            Ok(())
+        } else {
+            Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: "Failed to create and attach AEC dump".to_string(),
+            })
+        }
+    }
+
+    /// Ends an in-progress AEC dump.
+    ///
+    /// If no AEC dump was created with [`create_and_attach_aec_dump`], this
+    /// method has no effect.
+    ///
+    pub fn detach_aec_dump(&mut self) {
+        self.sys_handle.pin_mut().detach_aec_dump();
     }
 }

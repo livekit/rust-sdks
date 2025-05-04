@@ -958,6 +958,36 @@ fn on_apm_set_stream_delay(
     Ok(proto::ApmSetStreamDelayResponse { error: None })
 }
 
+fn on_apm_aec_dump_create_and_attach(
+    server: &'static FfiServer,
+    request: proto::ApmAecDumpCreateAndAttachRequest,
+) -> FfiResult<proto::ApmAecDumpCreateAndAttachResponse> {
+    let aec = server
+        .retrieve_handle::<Arc<Mutex<apm::AudioProcessingModule>>>(request.apm_handle)?
+        .clone();
+
+    let mut aec = aec.lock();
+
+    if let Err(e) = aec.create_and_attach_aec_dump(&request.file_path, request.max_log_size_bytes) {
+        return Ok(proto::ApmAecDumpCreateAndAttachResponse { error: Some(e.to_string()) });
+    }
+
+    Ok(proto::ApmAecDumpCreateAndAttachResponse { error: None })
+}
+
+fn on_apm_aec_dump_detach(
+    server: &'static FfiServer,
+    request: proto::ApmAecDumpDetachRequest,
+) -> FfiResult<proto::ApmAecDumpDetachResponse> {
+    let aec = server
+        .retrieve_handle::<Arc<Mutex<apm::AudioProcessingModule>>>(request.apm_handle)?
+        .clone();
+
+    let mut aec = aec.lock();
+    aec.detach_aec_dump();
+    Ok(proto::ApmAecDumpDetachResponse {})
+}
+
 fn on_perform_rpc(
     server: &'static FfiServer,
     request: proto::PerformRpcRequest,
@@ -1310,6 +1340,14 @@ pub fn handle_request(
             proto::ffi_response::Message::ApmSetStreamDelay(on_apm_set_stream_delay(
                 server, request,
             )?)
+        }
+        proto::ffi_request::Message::ApmAecDumpCreateAndAttach(request) => {
+            proto::ffi_response::Message::ApmAecDumpCreateAndAttach(
+                on_apm_aec_dump_create_and_attach(server, request)?,
+            )
+        }
+        proto::ffi_request::Message::ApmAecDumpDetach(request) => {
+            proto::ffi_response::Message::ApmAecDumpDetach(on_apm_aec_dump_detach(server, request)?)
         }
         proto::ffi_request::Message::PerformRpc(request) => {
             proto::ffi_response::Message::PerformRpc(on_perform_rpc(server, request)?)

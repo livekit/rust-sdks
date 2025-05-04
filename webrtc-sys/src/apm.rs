@@ -43,6 +43,14 @@ pub mod ffi {
 
         fn set_stream_delay_ms(self: Pin<&mut AudioProcessingModule>, delay: i32) -> i32;
 
+        fn create_and_attach_aec_dump(
+            self: Pin<&mut AudioProcessingModule>,
+            file_name: &str,
+            max_log_size_bytes: i64,
+        ) -> bool;
+
+        fn detach_aec_dump(self: Pin<&mut AudioProcessingModule>);
+
         fn create_apm(
             echo_canceller_enabled: bool,
             gain_controller_enabled: bool,

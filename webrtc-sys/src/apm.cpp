@@ -50,4 +50,21 @@ std::unique_ptr<AudioProcessingModule> create_apm(
   return std::make_unique<AudioProcessingModule>(config);
 }
 
+bool AudioProcessingModule::create_and_attach_aec_dump(rust::Str file_name,
+                                                       int64_t max_log_size_bytes) {
+  if (!aec_dump_queue_) {
+    aec_dump_queue_ = GetGlobalTaskQueueFactory()->CreateTaskQueue(
+        "aec-dump", webrtc::TaskQueueFactory::Priority::LOW);
+  }
+  return apm_->CreateAndAttachAecDump(
+      absl::string_view(file_name.data(), file_name.size()),
+      max_log_size_bytes,
+      aec_dump_queue_.get());
+}
+
+void AudioProcessingModule::detach_aec_dump() {
+  apm_->DetachAecDump();
+  aec_dump_queue_.reset();
+}
+
 }  // namespace livekit
