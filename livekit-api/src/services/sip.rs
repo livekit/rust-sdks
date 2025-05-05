@@ -354,12 +354,7 @@ impl SIPClient {
                     hide_phone_number: options.hide_phone_number,
                     rule: Some(proto::SipDispatchRule { rule: Some(rule.to_owned()) }),
 
-                    // TODO: support these attributes
-                    room_preset: Default::default(),
-                    room_config: Default::default(),
-
-                    // TODO implement dispatch_rule
-                    dispatch_rule: Default::default(),
+                    ..Default::default()
                 },
                 self.base.auth_header(
                     Default::default(),
