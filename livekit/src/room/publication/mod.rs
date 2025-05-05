@@ -14,8 +14,8 @@
 
 use std::sync::Arc;
 
-use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
+use livekit_protocol::{self as proto, AudioTrackFeature};
 use parking_lot::{Mutex, RwLock};
 
 use super::track::TrackDimension;
@@ -94,6 +94,7 @@ struct PublicationInfo {
     pub muted: bool,
     pub proto_info: proto::TrackInfo,
     pub encryption_type: EncryptionType,
+    pub audio_features: Vec<AudioTrackFeature>,
 }
 
 pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication) + Send>;
@@ -120,12 +121,17 @@ pub(super) fn new_inner(
         source: info.source().into(),
         kind: info.r#type().try_into().unwrap(),
         encryption_type: info.encryption().into(),
-        name: info.name,
-        sid: info.sid.try_into().unwrap(),
+        name: info.clone().name,
+        sid: info.sid.clone().try_into().unwrap(),
         simulcasted: info.simulcast,
         dimension: TrackDimension(info.width, info.height),
-        mime_type: info.mime_type,
+        mime_type: info.mime_type.clone(),
         muted: info.muted,
+        audio_features: info
+            .audio_features()
+            .into_iter()
+            .map(|item| item.try_into().unwrap())
+            .collect(),
     };
 
     Arc::new(TrackPublicationInner { info: RwLock::new(info), events: Default::default() })
@@ -141,11 +147,13 @@ pub(super) fn update_info(
     info.source = TrackSource::from(new_info.source());
     info.encryption_type = new_info.encryption().into();
     info.proto_info = new_info.clone();
-    info.name = new_info.name;
-    info.sid = new_info.sid.try_into().unwrap();
+    info.name = new_info.name.clone();
+    info.sid = new_info.sid.clone().try_into().unwrap();
     info.dimension = TrackDimension(new_info.width, new_info.height);
-    info.mime_type = new_info.mime_type;
+    info.mime_type = new_info.mime_type.clone();
     info.simulcasted = new_info.simulcast;
+    info.audio_features =
+        new_info.audio_features().into_iter().map(|item| item.try_into().unwrap()).collect();
 }
 
 pub(super) fn set_track(
