@@ -34,6 +34,11 @@ impl From<&FfiPublication> for proto::TrackPublicationInfo {
             muted: publication.is_muted(),
             remote: publication.is_remote(),
             encryption_type: proto::EncryptionType::from(publication.encryption_type()).into(),
+            audio_features: publication
+                .audio_features()
+                .into_iter()
+                .map(|item| item.into())
+                .collect(),
         }
     }
 }

@@ -89,6 +89,7 @@ message TrackPublicationInfo {
   required bool muted = 9;
   required bool remote = 10;
   required EncryptionType encryption_type = 11;
+  repeated AudioTrackFeature audio_features = 12;
 }
 
 message OwnedTrackPublication {
@@ -146,4 +147,14 @@ message ParticipantTrackPermission {
 }
 
 message SetTrackSubscriptionPermissionsResponse {
+}
+
+enum AudioTrackFeature {
+  TF_STEREO = 0;
+  TF_NO_DTX = 1;
+  TF_AUTO_GAIN_CONTROL = 2;
+  TF_ECHO_CANCELLATION = 3;
+  TF_NOISE_SUPPRESSION = 4;
+  TF_ENHANCED_NOISE_CANCELLATION = 5;
+  TF_PRECONNECT_BUFFER = 6; // client will buffer audio once available and send it to the server via bytes stream once connected
 }

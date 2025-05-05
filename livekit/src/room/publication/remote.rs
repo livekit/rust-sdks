@@ -369,7 +369,7 @@ impl RemoteTrackPublication {
         self.inner.info.read().encryption_type
     }
 
-    pub fn get_audio_features(&self) -> Vec<AudioTrackFeature> {
+    pub fn audio_features(&self) -> Vec<AudioTrackFeature> {
         self.inner.info.read().audio_features.clone()
     }
 }

@@ -59,6 +59,7 @@ impl TrackPublication {
         pub fn is_muted(self: &Self) -> bool;
         pub fn is_remote(self: &Self) -> bool;
         pub fn encryption_type(self: &Self) -> EncryptionType;
+        pub fn audio_features(self: &Self) -> Vec<AudioTrackFeature>;
 
         pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication) + Send + 'static) -> ();
         pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication) + Send + 'static) -> ();

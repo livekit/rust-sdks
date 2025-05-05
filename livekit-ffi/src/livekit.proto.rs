@@ -1392,6 +1392,8 @@ pub struct TrackPublicationInfo {
     pub remote: bool,
     #[prost(enumeration="EncryptionType", required, tag="11")]
     pub encryption_type: i32,
+    #[prost(enumeration="AudioTrackFeature", repeated, packed="false", tag="12")]
+    pub audio_features: ::prost::alloc::vec::Vec<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1571,6 +1573,48 @@ impl StreamState {
             "STATE_UNKNOWN" => Some(Self::StateUnknown),
             "STATE_ACTIVE" => Some(Self::StateActive),
             "STATE_PAUSED" => Some(Self::StatePaused),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AudioTrackFeature {
+    TfStereo = 0,
+    TfNoDtx = 1,
+    TfAutoGainControl = 2,
+    TfEchoCancellation = 3,
+    TfNoiseSuppression = 4,
+    TfEnhancedNoiseCancellation = 5,
+    /// client will buffer audio once available and send it to the server via bytes stream once connected
+    TfPreconnectBuffer = 6,
+}
+impl AudioTrackFeature {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            AudioTrackFeature::TfStereo => "TF_STEREO",
+            AudioTrackFeature::TfNoDtx => "TF_NO_DTX",
+            AudioTrackFeature::TfAutoGainControl => "TF_AUTO_GAIN_CONTROL",
+            AudioTrackFeature::TfEchoCancellation => "TF_ECHO_CANCELLATION",
+            AudioTrackFeature::TfNoiseSuppression => "TF_NOISE_SUPPRESSION",
+            AudioTrackFeature::TfEnhancedNoiseCancellation => "TF_ENHANCED_NOISE_CANCELLATION",
+            AudioTrackFeature::TfPreconnectBuffer => "TF_PRECONNECT_BUFFER",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TF_STEREO" => Some(Self::TfStereo),
+            "TF_NO_DTX" => Some(Self::TfNoDtx),
+            "TF_AUTO_GAIN_CONTROL" => Some(Self::TfAutoGainControl),
+            "TF_ECHO_CANCELLATION" => Some(Self::TfEchoCancellation),
+            "TF_NOISE_SUPPRESSION" => Some(Self::TfNoiseSuppression),
+            "TF_ENHANCED_NOISE_CANCELLATION" => Some(Self::TfEnhancedNoiseCancellation),
+            "TF_PRECONNECT_BUFFER" => Some(Self::TfPreconnectBuffer),
             _ => None,
         }
     }
