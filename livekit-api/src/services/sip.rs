@@ -357,6 +357,9 @@ impl SIPClient {
                     // TODO: support these attributes
                     room_preset: Default::default(),
                     room_config: Default::default(),
+
+                    // TODO implement dispatch_rule
+                    dispatch_rule: Default::default(),
                 },
                 self.base.auth_header(
                     Default::default(),
