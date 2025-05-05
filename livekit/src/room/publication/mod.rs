@@ -152,8 +152,7 @@ pub(super) fn update_info(
     info.dimension = TrackDimension(new_info.width, new_info.height);
     info.mime_type = new_info.mime_type.clone();
     info.simulcasted = new_info.simulcast;
-    info.audio_features =
-        new_info.audio_features().into_iter().map(|item| item.try_into().unwrap()).collect();
+    info.audio_features = new_info.audio_features().collect();
 }
 
 pub(super) fn set_track(
