@@ -14,7 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use livekit_protocol as proto;
+use livekit_protocol::{self as proto, AudioTrackFeature};
 use parking_lot::{Mutex, RwLock};
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
@@ -367,5 +367,9 @@ impl RemoteTrackPublication {
 
     pub fn encryption_type(&self) -> EncryptionType {
         self.inner.info.read().encryption_type
+    }
+
+    pub fn audio_features(&self) -> Vec<AudioTrackFeature> {
+        self.inner.info.read().audio_features.clone()
     }
 }

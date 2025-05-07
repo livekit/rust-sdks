@@ -15,8 +15,8 @@
 use std::{fmt::Debug, sync::Arc};
 
 use libwebrtc::{prelude::*, stats::RtcStats};
-use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
+use livekit_protocol::{self as proto};
 use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
 
@@ -145,6 +145,7 @@ struct TrackInfo {
     pub stream_state: StreamState,
     pub muted: bool,
     pub transceiver: Option<RtpTransceiver>,
+    pub audio_features: Vec<proto::AudioTrackFeature>,
 }
 
 pub(super) struct TrackInner {
@@ -168,6 +169,7 @@ pub(super) fn new_inner(
             stream_state: StreamState::Active,
             muted: false,
             transceiver: None,
+            audio_features: Vec::new(),
         }),
         rtc_track,
         events: Default::default(),
@@ -203,6 +205,8 @@ pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: pro
     let mut info = inner.info.write();
     info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
     info.source = TrackSource::from(new_info.source());
-    info.name = new_info.name;
-    info.sid = new_info.sid.try_into().unwrap();
+    info.name = new_info.name.clone();
+    info.sid = new_info.sid.clone().try_into().unwrap();
+    info.audio_features =
+        new_info.audio_features().into_iter().map(|item| item.try_into().unwrap()).collect();
 }
