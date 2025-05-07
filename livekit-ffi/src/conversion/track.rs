@@ -37,7 +37,7 @@ impl From<&FfiPublication> for proto::TrackPublicationInfo {
             audio_features: publication
                 .audio_features()
                 .into_iter()
-                .map(|item| item.into())
+                .map(|i| proto::AudioTrackFeature::from(i).into())
                 .collect(),
         }
     }
