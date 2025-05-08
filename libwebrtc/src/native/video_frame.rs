@@ -312,6 +312,14 @@ impl I420Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> vf::I420Buffer {
+        vf::I420Buffer {
+            handle: I420Buffer {
+                sys_handle: self.sys_handle.pin_mut().scale(scaled_width, scaled_height),
+            },
+        }
+    }
 }
 
 impl I420ABuffer {
@@ -408,6 +416,14 @@ impl I420ABuffer {
                     (self.stride_a() * self.height()) as usize,
                 )),
             )
+        }
+    }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> vf::I420ABuffer {
+        vf::I420ABuffer {
+            handle: I420ABuffer {
+                sys_handle: self.sys_handle.pin_mut().scale(scaled_width, scaled_height),
+            },
         }
     }
 }
@@ -516,6 +532,14 @@ impl I422Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> vf::I422Buffer {
+        vf::I422Buffer {
+            handle: I422Buffer {
+                sys_handle: self.sys_handle.pin_mut().scale(scaled_width, scaled_height),
+            },
+        }
+    }
 }
 impl I444Buffer {
     pub fn new(
@@ -619,6 +643,14 @@ impl I444Buffer {
                 slice::from_raw_parts((*ptr).data_u(), (self.stride_u() * self.height()) as usize),
                 slice::from_raw_parts((*ptr).data_v(), (self.stride_v() * self.height()) as usize),
             )
+        }
+    }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> vf::I444Buffer {
+        vf::I444Buffer {
+            handle: I444Buffer {
+                sys_handle: self.sys_handle.pin_mut().scale(scaled_width, scaled_height),
+            },
         }
     }
 }
@@ -738,6 +770,14 @@ impl I010Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> vf::I010Buffer {
+        vf::I010Buffer {
+            handle: I010Buffer {
+                sys_handle: self.sys_handle.pin_mut().scale(scaled_width, scaled_height),
+            },
+        }
+    }
 }
 
 impl NV12Buffer {
@@ -841,6 +881,14 @@ impl NV12Buffer {
                     (self.stride_uv() * chroma_height) as usize,
                 ),
             )
+        }
+    }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> vf::NV12Buffer {
+        vf::NV12Buffer {
+            handle: NV12Buffer {
+                sys_handle: self.sys_handle.pin_mut().scale(scaled_width, scaled_height),
+            },
         }
     }
 }
