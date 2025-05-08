@@ -20,6 +20,8 @@ OUT_RUST=src
 protoc \
     -I=$PROTOCOL \
     --prost_out=$OUT_RUST \
+    --prost_opt=compile_well_known_types \
+    --prost_opt=extern_path=.google.protobuf=::pbjson_types \
     $PROTOCOL/ffi.proto \
     $PROTOCOL/handle.proto \
     $PROTOCOL/room.proto \
@@ -31,4 +33,5 @@ protoc \
     $PROTOCOL/e2ee.proto \
     $PROTOCOL/stats.proto \
     $PROTOCOL/rpc.proto \
-    $PROTOCOL/data_stream.proto
+    $PROTOCOL/data_stream.proto \
+    $PROTOCOL/metrics.proto
