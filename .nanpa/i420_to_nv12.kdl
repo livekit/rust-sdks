@@ -1,1 +1,2 @@
-minor type="added" "Add i420_to_nv12"
+patch type="added" package="webrtc-sys" "Add i420_to_nv12"
+patch type="added" package="libwebrtc" "Add i420_to_nv12"
