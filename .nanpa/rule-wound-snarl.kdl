@@ -1,2 +1,0 @@
-patch package="livekit-ffi" type="added" "Initial HTTP_PROXY support for SignalClient"
-patch package="livekit-api" type="added" "Initial HTTP_PROXY support for SignalClient"
