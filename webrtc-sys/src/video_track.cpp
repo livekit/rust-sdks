@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 LiveKit
+ * Copyright 2023-2025 LiveKit
  *
  * Licensed under the Apache License, Version 2.0 (the “License”);
  * you may not use this file except in compliance with the License.
@@ -111,7 +111,13 @@ VideoTrackSource::InternalSource::InternalSource(
 VideoTrackSource::InternalSource::~InternalSource() {}
 
 bool VideoTrackSource::InternalSource::is_screencast() const {
-  return false;
+  webrtc::MutexLock lock(&mutex_);
+  return is_screencast_;
+}
+
+void VideoTrackSource::InternalSource::set_is_screencast(bool is_screencast) {
+  webrtc::MutexLock lock(&mutex_);
+  is_screencast_ = is_screencast;
 }
 
 absl::optional<bool> VideoTrackSource::InternalSource::needs_denoising() const {
@@ -187,6 +193,10 @@ bool VideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame) const {
   auto rtc_frame = frame->get();
   return source_->on_captured_frame(rtc_frame);
+}
+
+void VideoTrackSource::set_is_screencast(bool is_screencast) const {
+  source_->set_is_screencast(is_screencast);
 }
 
 rtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()

@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2023-2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -67,6 +67,7 @@ pub mod ffi {
 
         fn video_resolution(self: &VideoTrackSource) -> VideoResolution;
         fn on_captured_frame(self: &VideoTrackSource, frame: &UniquePtr<VideoFrame>) -> bool;
+        fn set_is_screencast(self: &VideoTrackSource, is_screencast: bool);
         fn new_video_track_source(resolution: &VideoResolution) -> SharedPtr<VideoTrackSource>;
         fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;
