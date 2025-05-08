@@ -54,9 +54,9 @@ message NewAudioSourceRequest {
 }
 message NewAudioSourceResponse { required OwnedAudioSource source = 1; }
 
-// Push a frame to an AudioSource 
+// Push a frame to an AudioSource
 // The data provided must be available as long as the client receive the callback.
-message CaptureAudioFrameRequest { 
+message CaptureAudioFrameRequest {
   required uint64 source_handle = 1;
   required AudioFrameBufferInfo buffer = 2;
 }
@@ -137,6 +137,21 @@ message ApmSetStreamDelayResponse {
   optional string error = 1;
 }
 
+message ApmAecDumpCreateAndAttachRequest {
+  required uint64 apm_handle = 1;
+  required string file_path = 2;
+  optional int64 max_log_size_bytes = 3;
+}
+
+message ApmAecDumpCreateAndAttachResponse {
+  optional string error = 1;
+}
+
+message ApmAecDumpDetachRequest {
+  required uint64 apm_handle = 1;
+}
+
+message ApmAecDumpDetachResponse {}
 
 // New resampler using SoX (much better quality)
 
@@ -154,7 +169,7 @@ message NewSoxResamplerResponse {
     OwnedSoxResampler resampler = 1;
     string error = 2;
   }
-  
+
 }
 
 message PushSoxResamplerRequest {
@@ -240,7 +255,7 @@ message OwnedAudioStream {
 
 message AudioStreamEvent {
   required uint64 stream_handle = 1;
-  oneof message { 
+  oneof message {
     AudioFrameReceived frame_received = 2;
     AudioStreamEOS eos = 3;
   }
