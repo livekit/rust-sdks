@@ -34,6 +34,7 @@ type DestroyFn = unsafe extern "C" fn(*const c_void);
 type ProcessI16Fn = unsafe extern "C" fn(*const c_void, usize, *const i16, *mut i16);
 type ProcessF32Fn = unsafe extern "C" fn(*const c_void, usize, *const f32, *mut f32);
 type UpdateStreamInfoFn = unsafe extern "C" fn(*const c_void, *const c_char);
+type UpdateRefreshedTokenFn = unsafe extern "C" fn(*const c_char, *const c_char);
 
 static REGISTERED_PLUGINS: LazyLock<RwLock<HashMap<String, Arc<AudioFilterPlugin>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
@@ -59,6 +60,7 @@ pub struct AudioFilterPlugin {
     process_i16_fn_ptr: *const c_void,
     process_f32_fn_ptr: *const c_void,
     update_stream_info_fn_ptr: *const c_void,
+    update_token_fn_ptr: *const c_void,
 }
 
 impl AudioFilterPlugin {
@@ -123,6 +125,13 @@ impl AudioFilterPlugin {
                 .try_as_raw_ptr()
                 .unwrap()
         };
+        let update_token_fn_ptr = unsafe {
+            // treat as optional function for now
+            match lib.get::<Symbol<UpdateRefreshedTokenFn>>(b"audio_filter_update_token") {
+                Ok(sym) => sym.try_as_raw_ptr().unwrap(),
+                Err(_) => std::ptr::null(),
+            }
+        };
 
         Ok(Self {
             lib,
@@ -133,6 +142,7 @@ impl AudioFilterPlugin {
             process_i16_fn_ptr,
             process_f32_fn_ptr,
             update_stream_info_fn_ptr,
+            update_token_fn_ptr,
         })
     }
 
@@ -160,6 +170,17 @@ impl AudioFilterPlugin {
         } else {
             Err(PluginError::OnLoad(res))
         }
+    }
+
+    pub fn update_token(&self, url: String, token: String) {
+        if self.update_token_fn_ptr.is_null() {
+            return;
+        }
+        let update_token_fn: UpdateRefreshedTokenFn =
+            unsafe { std::mem::transmute(self.update_token_fn_ptr) };
+        let url = CString::new(url).unwrap();
+        let token = CString::new(token).unwrap();
+        unsafe { update_token_fn(url.as_ptr(), token.as_ptr()) }
     }
 
     pub fn new_session<S: AsRef<str>>(
