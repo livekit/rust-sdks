@@ -27,8 +27,6 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 prost = "0.12"
 prost-types = "0.12"
-pbjson = "0.6"
-pbjson-types = "0.6"
 lazy_static = "1.4"
 thiserror = "1.0"
 log = "0.4"

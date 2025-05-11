@@ -1635,7 +1635,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]
@@ -1686,8 +1685,6 @@ dependencies = [
  "livekit-protocol",
  "log",
  "parking_lot",
- "pbjson",
- "pbjson-types",
  "prost 0.12.3",
  "prost-types 0.12.3",
  "soxr-sys",

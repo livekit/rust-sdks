@@ -17,11 +17,11 @@ use std::time::Duration;
 
 use livekit_protocol::{self as proto, data_packet};
 use proto::{DataPacket, MetricLabel, MetricSample, MetricsBatch, TimeSeriesMetric};
+use tokio::sync::broadcast;
 
 use crate::prelude::LocalTrackPublication;
 use crate::room::{Room, RtcEngine};
 use libwebrtc::stats::{InboundRtpStats, MediaSourceStats, OutboundRtpStats, RtcStats};
-use tokio_util::sync::CancellationToken;
 
 use super::id::{ParticipantIdentity, TrackSid};
 use super::DataPacketKind;
@@ -111,28 +111,32 @@ impl RtcMetricsManager {
         &self,
         room: &Room,
         rtc_engine: &RtcEngine,
-        cancellation_token: CancellationToken,
+        mut close_rx: broadcast::Receiver<()>,
     ) {
-        cancellation_token
-            .run_until_cancelled(async move {
-                std::thread::sleep(Duration::from_secs(1));
-
-                match room.get_stats().await {
-                    Ok(stats) => {
-                        let publisher_stats = stats.publisher_stats;
-                        let subscriber_stats = stats.subscriber_stats;
-
-                        tokio::join!(
-                            self.collect_publisher_metrics(room, rtc_engine, &publisher_stats),
-                            self.collect_subscriber_metrics(room, rtc_engine, &subscriber_stats)
-                        );
-                    }
-                    Err(e) => {
-                        log::error!("Failed to retrieve stats: {:?}", e);
-                    }
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {},
+                _ = close_rx.recv() => {
+                    // Room is closing, exit the collection loop
+                    return;
                 }
-            })
-            .await;
+            }
+
+            match room.get_stats().await {
+                Ok(stats) => {
+                    let publisher_stats = stats.publisher_stats;
+                    let subscriber_stats = stats.subscriber_stats;
+
+                    tokio::join!(
+                        self.collect_publisher_metrics(room, rtc_engine, &publisher_stats),
+                        self.collect_subscriber_metrics(room, rtc_engine, &subscriber_stats)
+                    );
+                }
+                Err(e) => {
+                    log::error!("Failed to retrieve stats: {:?}", e);
+                }
+            }
+        };
     }
 
     fn find_publisher_stats(
@@ -231,7 +235,7 @@ impl RtcMetricsManager {
             room.local_participant().identity().into(),
         );
 
-        let _ = self.send_metrics(rtc_engine, strings, publisher_ts_metrics).await;
+        self.send_metrics(rtc_engine, strings, publisher_ts_metrics).await;
     }
 
     fn find_subscriber_stats(
@@ -352,10 +356,10 @@ impl RtcMetricsManager {
             room.local_participant().identity().into(),
         );
 
-        let _ = self.send_metrics(rtc_engine, strings, subscriber_ts_metrics).await;
+        self.send_metrics(rtc_engine, strings, subscriber_ts_metrics).await;
     }
 
-    async fn send_metrics(
+    pub async fn send_metrics(
         &self,
         rtc_engine: &RtcEngine,
         strings: Vec<String>,
@@ -376,7 +380,9 @@ impl RtcMetricsManager {
                 ..Default::default()
             };
 
-            let _ = rtc_engine.publish_data(data_packet, DataPacketKind::Reliable).await;
+            if let Err(e) = rtc_engine.publish_data(data_packet, DataPacketKind::Reliable).await {
+                log::warn!("Failed to publish metrics: {:?}", e);
+            };
         }
     }
 }

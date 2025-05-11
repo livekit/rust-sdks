@@ -846,39 +846,21 @@ impl RoomInner {
         publish: proto::PublishMetricsRequest,
     ) -> FfiResult<proto::PublishMetricsResponse> {
         let async_id = publish.async_id.unwrap_or_else(|| server.next_id());
-        
-        let str_data = publish.str_data;
-        let time_series: Vec<livekit_protocol::TimeSeriesMetric> = publish.time_series
-            .into_iter()
-            .map(|m| m.into())
-            .collect();
-        let events: Vec<livekit_protocol::EventMetric> = publish.events
-            .into_iter()
-            .map(|e| e.into())
-            .collect();
-    
 
-        let timestamp_ms = time_series.first()
-            .and_then(|metric| metric.samples.first())
-            .map(|sample| sample.timestamp_ms)
-            .unwrap();
-    
-        let metrics_batch = livekit_protocol::MetricsBatch {
-            str_data,
-            time_series,
-            events,
-            timestamp_ms,
-            ..Default::default()
-        };
-    
-        let data_packet = livekit_protocol::DataPacket {
-            value: Some(livekit_protocol::data_packet::Value::Metrics(metrics_batch)),
-            ..Default::default()
-        };
-    
-        let room_clone = self.clone();
+        let data = unsafe {
+            slice::from_raw_parts(publish.data_ptr as *const u8, publish.data_len as usize)
+        }
+        .to_vec();
+
+        let self_clone = self.clone();
         let handle = server.async_runtime.spawn(async move {
-            if let Err(err) = room_clone.room.local_participant().publish_raw_data(data_packet, true).await {
+            if let Err(err) = self_clone.data_tx.send(FfiDataPacket {
+                payload: DataPacket {
+                    payload: data.to_vec(), // Avoid copy?
+                    ..Default::default()
+                },
+                async_id,
+            }) {
                 log::error!("Failed to publish metrics: {:?}", err);
             }
         });

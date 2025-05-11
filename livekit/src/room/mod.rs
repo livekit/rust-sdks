@@ -383,7 +383,6 @@ impl Default for RoomOptions {
 #[derive(Clone)]
 pub struct Room {
     inner: Arc<RoomSession>,
-    cancellation_token: tokio_util::sync::CancellationToken
 }
 
 impl Debug for Room {
@@ -435,6 +434,7 @@ struct Handle {
     incoming_stream_handle: JoinHandle<()>,
     outgoing_stream_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
+    metrics_handle: Option<JoinHandle<()>>,
 }
 
 impl Debug for RoomSession {
@@ -642,44 +642,46 @@ impl Room {
 
         let (close_tx, close_rx) = broadcast::channel(1);
 
+        let close_rx_room = close_rx;
+        let close_rx_incoming = close_rx_room.resubscribe();
+        let close_rx_outgoing = close_rx_room.resubscribe();
+        let close_rx_metrics = close_rx_room.resubscribe();
+
         let incoming_stream_handle = livekit_runtime::spawn(incoming_data_stream_task(
             open_rx,
             dispatcher.clone(),
-            close_rx.resubscribe(),
+            close_rx_incoming,
         ));
         let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
             packet_rx,
             identity,
             rtc_engine.clone(),
-            close_rx.resubscribe(),
+            close_rx_outgoing,
         ));
 
-        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx_room));
 
-        let handle =
-            Handle { room_handle, incoming_stream_handle, outgoing_stream_handle, close_tx };
-        inner.handle.lock().await.replace(handle);
+        let metrics_handle = if options.enable_metrics {
+            let room_clone = Self {
+                inner: inner.clone()
+            };
 
-        let cancellation_token = tokio_util::sync::CancellationToken::new();
-        let self_local = Self {
-            inner,
-            cancellation_token: cancellation_token.clone(),
+            Some(livekit_runtime::spawn(async move {
+                let metrics_manager = RtcMetricsManager::new();
+                metrics_manager.collect_metrics(&room_clone, &rtc_engine, close_rx_metrics).await;
+            }))
+        } else {
+            None
         };
 
-        if options.enable_metrics {
-            let room_clone = self_local.clone();
-            let cancellation_for_task = cancellation_token.clone();
-            tokio::spawn(async move {
-                let metrics_manager = RtcMetricsManager::new();
-                metrics_manager.collect_metrics(&room_clone, &rtc_engine, cancellation_for_task).await;
-            });
-        }
+        let handle =
+            Handle { room_handle, incoming_stream_handle, outgoing_stream_handle, metrics_handle, close_tx };
+        inner.handle.lock().await.replace(handle);
 
-        Ok((self_local, events))
+        Ok((Self { inner }, events))
     }
 
     pub async fn close(&self) -> RoomResult<()> {
-        self.cancellation_token.cancel();
         self.inner.close(DisconnectReason::ClientInitiated).await
     }
 
@@ -870,6 +872,9 @@ impl RoomSession {
         let _ = handle.incoming_stream_handle.await;
         let _ = handle.outgoing_stream_handle.await;
         let _ = handle.room_handle.await;
+        if let Some(metrics_handle) = handle.metrics_handle {
+            let _ = metrics_handle.await;
+        }
 
         self.dispatcher.clear();
         Ok(())
