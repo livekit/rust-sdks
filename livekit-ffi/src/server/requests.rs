@@ -1425,10 +1425,11 @@ pub fn handle_request(
             )
         }
         proto::ffi_request::Message::PublishMetrics(publish_metrics) => {
-            proto::ffi_response::Message::PublishMetrics(
-                on_publish_metrics(server, publish_metrics)?
-            )
-        },
+            proto::ffi_response::Message::PublishMetrics(on_publish_metrics(
+                server,
+                publish_metrics,
+            )?)
+        }
     });
 
     Ok(res)

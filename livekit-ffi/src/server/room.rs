@@ -865,7 +865,7 @@ impl RoomInner {
             }
         });
         server.watch_panic(handle);
-        
+
         Ok(proto::PublishMetricsResponse { async_id })
     }
 }

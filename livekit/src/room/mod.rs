@@ -57,12 +57,12 @@ use crate::{
 pub mod data_stream;
 pub mod e2ee;
 pub mod id;
+mod metrics;
 pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod track;
 pub(crate) mod utils;
-mod metrics;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -375,7 +375,7 @@ impl Default for RoomOptions {
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
             preregistration: None,
-            enable_metrics: true
+            enable_metrics: true,
         }
     }
 }
@@ -659,12 +659,11 @@ impl Room {
             close_rx_outgoing,
         ));
 
-        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx_room));
+        let room_handle =
+            livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx_room));
 
         let metrics_handle = if options.enable_metrics {
-            let room_clone = Self {
-                inner: inner.clone()
-            };
+            let room_clone = Self { inner: inner.clone() };
 
             Some(livekit_runtime::spawn(async move {
                 let metrics_manager = RtcMetricsManager::new();
@@ -674,8 +673,13 @@ impl Room {
             None
         };
 
-        let handle =
-            Handle { room_handle, incoming_stream_handle, outgoing_stream_handle, metrics_handle, close_tx };
+        let handle = Handle {
+            room_handle,
+            incoming_stream_handle,
+            outgoing_stream_handle,
+            metrics_handle,
+            close_tx,
+        };
         inner.handle.lock().await.replace(handle);
 
         Ok((Self { inner }, events))

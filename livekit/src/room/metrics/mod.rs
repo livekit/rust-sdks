@@ -70,11 +70,8 @@ impl RtcMetricsManager {
         track_sid: Option<&str>,
         rid: Option<&str>,
     ) -> TimeSeriesMetric {
-        let mut time_series = TimeSeriesMetric {
-            label: label as u32,
-            samples,
-            ..Default::default()
-        };
+        let mut time_series =
+            TimeSeriesMetric { label: label as u32, samples, ..Default::default() };
 
         if let Some(id) = identity {
             time_series.participant_identity = self.get_or_create_index(strings, id.to_string());
@@ -136,7 +133,7 @@ impl RtcMetricsManager {
                     log::error!("Failed to retrieve stats: {:?}", e);
                 }
             }
-        };
+        }
     }
 
     fn find_publisher_stats(
@@ -363,13 +360,14 @@ impl RtcMetricsManager {
         &self,
         rtc_engine: &RtcEngine,
         strings: Vec<String>,
-        metrics: Vec<TimeSeriesMetric>
+        metrics: Vec<TimeSeriesMetric>,
     ) {
         if metrics.len() > 0 {
-            let timestamp = metrics.first()
-            .and_then(|metric| metric.samples.first())
-            .map(|sample| sample.timestamp_ms)
-            .unwrap();
+            let timestamp = metrics
+                .first()
+                .and_then(|metric| metric.samples.first())
+                .map(|sample| sample.timestamp_ms)
+                .unwrap();
             let data_packet = DataPacket {
                 value: Some(data_packet::Value::Metrics(MetricsBatch {
                     str_data: strings,
