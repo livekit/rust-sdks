@@ -141,14 +141,36 @@ impl SignalClient {
         token: &str,
         options: SignalOptions,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
-        let (inner, join_response, stream_events) =
-            SignalInner::connect(url, token, options).await?;
+        let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
+            let (emitter, events) = mpsc::unbounded_channel();
+            let signal_task =
+                livekit_runtime::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
 
-        let (emitter, events) = mpsc::unbounded_channel();
-        let signal_task =
-            livekit_runtime::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
+            (Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events)
+        };
 
-        Ok((Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events))
+        match SignalInner::connect(url, token, options.clone()).await {
+            Ok((inner, join_response, stream_events)) => {
+                return Ok(handle_success(inner, join_response, stream_events))
+            }
+            Err(err) => {
+                // fallback to region urls
+                let urls = RegionUrlProvider::fetch_region_urls(url.into(), token.into()).await?;
+                let mut last_err = err;
+
+                for url in urls.iter() {
+                    log::info!("fallback connection to: {}", url);
+                    match SignalInner::connect(url, token, options.clone()).await {
+                        Ok((inner, join_response, stream_events)) => {
+                            return Ok(handle_success(inner, join_response, stream_events))
+                        }
+                        Err(err) => last_err = err,
+                    }
+                }
+
+                Err(last_err)
+            }
+        }
     }
 
     /// Restart the connection to the server
