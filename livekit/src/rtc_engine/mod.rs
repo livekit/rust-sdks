@@ -344,8 +344,9 @@ impl EngineInner {
                 async move {
                     let (session, join_response, session_events) =
                         RtcSession::connect(url, token, options.clone()).await?;
+                    log::debug!("Connected to session with response: {:?}", join_response);
                     session.wait_pc_connection().await?;
-
+                    log::debug!("PC connected");
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
                     let inner = Arc::new(Self {
                         lk_runtime,

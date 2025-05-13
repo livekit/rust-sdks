@@ -131,6 +131,7 @@ impl FfiRoom {
         let connect = async move {
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
+                    log::debug!("Connected to room");
                     // initialize audio filters
                     let result = server
                         .async_runtime

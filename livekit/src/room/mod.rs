@@ -590,8 +590,9 @@ impl Room {
 
         let (close_tx, close_rx) = oneshot::channel();
         let room_task = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+        log::debug!("Room task spawned");
         inner.room_task.lock().await.replace((room_task, close_tx));
-
+        log::debug!("Room task replaced");
         Ok((Self { inner }, events))
     }
 
