@@ -254,7 +254,7 @@ impl RtcSession {
         let mut lossy_dc = publisher_pc.peer_connection().create_data_channel(
             LOSSY_DC_LABEL,
             DataChannelInit {
-                ordered: true,
+                ordered: false,
                 max_retransmits: Some(0),
                 ..DataChannelInit::default()
             },
