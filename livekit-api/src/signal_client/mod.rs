@@ -155,6 +155,9 @@ impl SignalClient {
             }
             Err(err) => {
                 // fallback to region urls
+                if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
+                    log::error!("unexpected signal error: {}", err.to_string());
+                }
                 let urls = RegionUrlProvider::fetch_region_urls(url.into(), token.into()).await?;
                 let mut last_err = err;
 
