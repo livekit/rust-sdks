@@ -2920,7 +2920,7 @@ pub mod signal_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -2997,6 +2997,9 @@ pub mod signal_response {
         /// notify to the publisher when a published track has been subscribed for the first time
         #[prost(message, tag="23")]
         TrackSubscribed(super::TrackSubscribed),
+        /// notify to the participant when they have been moved to a new room
+        #[prost(message, tag="24")]
+        RoomMoved(super::RoomMovedResponse),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3395,6 +3398,20 @@ pub struct SubscriptionPermissionUpdate {
     pub track_sid: ::prost::alloc::string::String,
     #[prost(bool, tag="3")]
     pub allowed: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RoomMovedResponse {
+    /// information about the new room
+    #[prost(message, optional, tag="1")]
+    pub room: ::core::option::Option<Room>,
+    /// new reconnect token that can be used to reconnect to the new room
+    #[prost(string, tag="2")]
+    pub token: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub participant: ::core::option::Option<ParticipantInfo>,
+    #[prost(message, repeated, tag="4")]
+    pub other_participants: ::prost::alloc::vec::Vec<ParticipantInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4274,6 +4291,23 @@ pub struct ForwardParticipantRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ForwardParticipantResponse {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MoveParticipantRequest {
+    /// room to move participant from
+    #[prost(string, tag="1")]
+    pub room: ::prost::alloc::string::String,
+    /// identity of the participant to move to
+    #[prost(string, tag="2")]
+    pub identity: ::prost::alloc::string::String,
+    /// room to move participant to
+    #[prost(string, tag="3")]
+    pub destination_room: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MoveParticipantResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5507,6 +5541,26 @@ pub struct SipCallInfo {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipTransferInfo {
+    #[prost(string, tag="1")]
+    pub transfer_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub call_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub transfer_to: ::prost::alloc::string::String,
+    #[prost(int64, tag="4")]
+    pub transfer_initiated_at_ns: i64,
+    #[prost(int64, tag="5")]
+    pub transfer_completed_at_ns: i64,
+    #[prost(enumeration="SipTransferStatus", tag="6")]
+    pub transfer_status: i32,
+    #[prost(string, tag="7")]
+    pub error: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="8")]
+    pub transfer_status_code: ::core::option::Option<SipStatus>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SipUri {
     #[prost(string, tag="1")]
     pub user: ::prost::alloc::string::String,
@@ -5818,6 +5872,35 @@ impl SipCallStatus {
             "SCS_ACTIVE" => Some(Self::ScsActive),
             "SCS_DISCONNECTED" => Some(Self::ScsDisconnected),
             "SCS_ERROR" => Some(Self::ScsError),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipTransferStatus {
+    StsTransferOngoing = 0,
+    StsTransferFailed = 1,
+    StsTransferSuccessful = 2,
+}
+impl SipTransferStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipTransferStatus::StsTransferOngoing => "STS_TRANSFER_ONGOING",
+            SipTransferStatus::StsTransferFailed => "STS_TRANSFER_FAILED",
+            SipTransferStatus::StsTransferSuccessful => "STS_TRANSFER_SUCCESSFUL",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "STS_TRANSFER_ONGOING" => Some(Self::StsTransferOngoing),
+            "STS_TRANSFER_FAILED" => Some(Self::StsTransferFailed),
+            "STS_TRANSFER_SUCCESSFUL" => Some(Self::StsTransferSuccessful),
             _ => None,
         }
     }
