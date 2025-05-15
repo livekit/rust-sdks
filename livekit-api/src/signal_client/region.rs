@@ -40,7 +40,7 @@ impl RegionUrlProvider {
                 .map_err(|e| SignalError::RegionError(e.to_string()))?;
             Ok(res.regions.into_iter().map(|i| i.url).collect())
         } else {
-            Ok(vec![url.into()])
+            Ok(vec![])
         }
     }
 }
