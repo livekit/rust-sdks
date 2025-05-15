@@ -13,18 +13,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- #include "livekit/vaapi_video_factory.h"
- #include "vaapi/vaapi_encoder.h"
+#include "livekit/vaapi_video_factory.h"
+
+#include "vaapi/vaapi_encoder.h"
 
 namespace livekit {
-    std::unique_ptr<webrtc::VideoEncoderFactory> CreateVaapiVideoEncoderFactory() {
-        // Implementation of the encoder factory creation
-        // This is a placeholder, actual implementation will depend on the specific requirements
-        return nullptr;
-    }
-    std::unique_ptr<webrtc::VideoDecoderFactory> CreateVaapiVideoDecoderFactory() {
-        // Implementation of the decoder factory creation
-        // This is a placeholder, actual implementation will depend on the specific requirements
-        return nullptr;
-    }
+std::unique_ptr<webrtc::VideoEncoderFactory> CreateVaapiVideoEncoderFactory() {
+  // Implementation of the encoder factory creation
+  // This is a placeholder, actual implementation will depend on the specific
+  // requirements
+  return nullptr;
 }
+std::unique_ptr<webrtc::VideoDecoderFactory> CreateVaapiVideoDecoderFactory() {
+  // Implementation of the decoder factory creation
+  // This is a placeholder, actual implementation will depend on the specific
+  // requirements
+  return nullptr;
+}
+}  // namespace livekit

@@ -26,5 +26,5 @@
  std::unique_ptr<webrtc::VideoEncoderFactory> CreateVaapiVideoEncoderFactory();
  std::unique_ptr<webrtc::VideoDecoderFactory> CreateVaapiVideoDecoderFactory();
  
- }  // namespace livekit
+ } // namespace livekit
  
