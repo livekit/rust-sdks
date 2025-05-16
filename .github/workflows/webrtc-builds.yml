@@ -109,7 +109,11 @@ jobs:
           submodules: true
 
       - uses: actions/setup-python@v4
-      - run: pip3 install setuptools # pkg_resources is sometimes not found?
+
+      - name: install setuptools (none-macOS)
+        if: ${{ matrix.target.os != 'macos-latest' }}
+        run: |
+         pip3 install setuptools # pkg_resources is sometimes not found?
 
       - name: Install linux dependencies
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
@@ -119,7 +123,10 @@ jobs:
 
       - name: Install macos dependencies
         if: ${{ matrix.target.os == 'macos-latest' }}
-        run: brew install ninja
+        run: |
+          brew install ninja
+          brew install pipx
+          pipx install setuptools
 
       - name: Install windows dependencies
         if: ${{ matrix.target.os == 'windows-latest' }}
