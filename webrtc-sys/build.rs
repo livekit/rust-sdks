@@ -136,7 +136,11 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
-            builder.flag("-std=c++2a");
+            builder
+            .file("src/vaapi_video_factory.cpp")
+            .file("src/vaapi/vaapi_display.cpp")
+            .file("src/vaapi/vaapi_encoder.cpp")
+            .flag("-std=c++2a");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
