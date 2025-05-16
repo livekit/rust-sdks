@@ -125,8 +125,6 @@ jobs:
         if: ${{ matrix.target.os == 'macos-latest' }}
         run: |
           brew install ninja
-          brew install pipx
-          pipx install setuptools
 
       - name: Install windows dependencies
         if: ${{ matrix.target.os == 'windows-latest' }}
