@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "async-tungstenite",
  "base64",
@@ -1670,7 +1670,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.24"
+version = "0.12.25"
 dependencies = [
  "bytes",
  "console-subscriber",
