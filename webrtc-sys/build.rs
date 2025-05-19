@@ -140,6 +140,7 @@ fn main() {
             .file("src/vaapi_video_factory.cpp")
             .file("src/vaapi/vaapi_display.cpp")
             .file("src/vaapi/vaapi_encoder.cpp")
+            .file("src/vaapi/h264_encoder_impl.cpp")
             .flag("-std=c++2a");
         }
         "macos" => {
