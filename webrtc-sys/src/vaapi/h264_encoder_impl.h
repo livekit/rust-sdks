@@ -20,6 +20,23 @@ namespace webrtc {
 
 class VAAPIH264EncoderWrapper : public VideoEncoder {
  public:
+  struct LayerConfig {
+    int simulcast_idx = 0;
+    int width = -1;
+    int height = -1;
+    bool sending = true;
+    bool key_frame_request = false;
+    float max_frame_rate = 0;
+    uint32_t target_bps = 0;
+    uint32_t max_bps = 0;
+    bool frame_dropping_on = false;
+    int key_frame_interval = 0;
+    int num_temporal_layers = 1;
+
+    void SetStreamState(bool send_stream);
+  };
+
+ public:
   VAAPIH264EncoderWrapper(
       std::unique_ptr<livekit::VaapiEncoderWrapper> vaapi_encoder);
   ~VAAPIH264EncoderWrapper() override;
@@ -37,12 +54,18 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
 
   void SetRates(const RateControlParameters& rc_parameters) override;
 
-  EncoderInfo GetEncoderInfo() const { return encoder_info_; }
+  EncoderInfo GetEncoderInfo() const override;
 
  private:
-  EncoderInfo encoder_info_;
-  EncodedImageCallback* callback_;
+  EncodedImageCallback* encoded_image_callback_ = nullptr;
   std::unique_ptr<livekit::VaapiEncoderWrapper> encoder_;
+  LayerConfig configuration_;
+  EncodedImage encoded_image_;
+  VideoCodec codec_;
+  void ReportInit();
+  void ReportError();
+  bool has_reported_init_ = false;
+  bool has_reported_error_ = false;
 };
 
 }  // namespace webrtc

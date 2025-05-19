@@ -23,26 +23,74 @@
 
 namespace webrtc {
 
+// Used by histograms. Values of entries should not be changed.
+enum H264EncoderImplEvent {
+  kH264EncoderEventInit = 0,
+  kH264EncoderEventError = 1,
+  kH264EncoderEventMax = 16,
+};
+
 VAAPIH264EncoderWrapper::VAAPIH264EncoderWrapper(
     std::unique_ptr<livekit::VaapiEncoderWrapper> vaapi_encoder)
     : encoder_(std::move(vaapi_encoder)) {
-  encoder_info_.is_hardware_accelerated = true;
 }
 
 VAAPIH264EncoderWrapper::~VAAPIH264EncoderWrapper() {
   Release();
 }
 
+void VAAPIH264EncoderWrapper::ReportInit() {
+  if (has_reported_init_)
+    return;
+  RTC_HISTOGRAM_ENUMERATION("WebRTC.Video.H264EncoderImpl.Event",
+                            kH264EncoderEventInit, kH264EncoderEventMax);
+  has_reported_init_ = true;
+}
+
+void VAAPIH264EncoderWrapper::ReportError() {
+  if (has_reported_error_)
+    return;
+  RTC_HISTOGRAM_ENUMERATION("WebRTC.Video.H264EncoderImpl.Event",
+                            kH264EncoderEventError, kH264EncoderEventMax);
+  has_reported_error_ = true;
+}
+
 int32_t VAAPIH264EncoderWrapper::InitEncode(
     const VideoCodec* inst,
     const VideoEncoder::Settings& settings) {
+  if (!inst || inst->codecType != kVideoCodecH264) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+  }
+  if (inst->maxFramerate == 0) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+  }
+  if (inst->width < 1 || inst->height < 1) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+  }
+
+  int32_t release_ret = Release();
+  if (release_ret != WEBRTC_VIDEO_CODEC_OK) {
+    ReportError();
+    return release_ret;
+  }
+
+  // Initialize encoded image. Default buffer size: size of unencoded data.
+  const size_t new_capacity =
+      CalcBufferSize(VideoType::kI420, codec_.width, codec_.height);
+  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(new_capacity));
+  encoded_image_._encodedWidth = codec_.width;
+  encoded_image_._encodedHeight = codec_.height;
+  encoded_image_.set_size(0);
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int32_t VAAPIH264EncoderWrapper::RegisterEncodeCompleteCallback(
     EncodedImageCallback* callback) {
   RTC_DCHECK(callback);
-  callback_ = callback;
+  encoded_image_callback_ = callback;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -51,12 +99,52 @@ int32_t VAAPIH264EncoderWrapper::Release() {
 }
 
 int32_t VAAPIH264EncoderWrapper::Encode(
-    const VideoFrame& frame,
+    const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
-  RTC_DCHECK(frame.video_frame_buffer()->type() ==
-             VideoFrameBuffer::Type::kI420);
+  if (!encoder_) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+  }
+  if (!encoded_image_callback_) {
+    RTC_LOG(LS_WARNING)
+        << "InitEncode() has been called, but a callback function "
+           "has not been set with RegisterEncodeCompleteCallback()";
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+  }
+
+  rtc::scoped_refptr<I420BufferInterface> frame_buffer =
+      input_frame.video_frame_buffer()->ToI420();
+  if (!frame_buffer) {
+    RTC_LOG(LS_ERROR) << "Failed to convert "
+                      << VideoFrameBufferTypeToString(
+                             input_frame.video_frame_buffer()->type())
+                      << " image to I420. Can't encode frame.";
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
+  RTC_CHECK(frame_buffer->type() == VideoFrameBuffer::Type::kI420 ||
+            frame_buffer->type() == VideoFrameBuffer::Type::kI420A);
+
+  bool is_keyframe_needed = false;
+  if (configuration_.key_frame_request && configuration_.sending) {
+    // This is legacy behavior, generating a keyframe on all layers
+    // when generating one for a layer that became active for the first time
+    // or after being disabled.
+    is_keyframe_needed = true;
+  }
 
   return WEBRTC_VIDEO_CODEC_OK;
+}
+
+VideoEncoder::EncoderInfo VAAPIH264EncoderWrapper::GetEncoderInfo() const {
+  EncoderInfo info;
+  info.supports_native_handle = false;
+  info.implementation_name = "VAAPI H264 Encoder";
+  info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
+  info.is_hardware_accelerated = true;
+  info.supports_simulcast = false;
+  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kI420};
+  return info;
 }
 
 void VAAPIH264EncoderWrapper::SetRates(
