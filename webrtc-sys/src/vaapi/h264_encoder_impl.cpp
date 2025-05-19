@@ -32,8 +32,7 @@ enum H264EncoderImplEvent {
 
 VAAPIH264EncoderWrapper::VAAPIH264EncoderWrapper(
     std::unique_ptr<livekit::VaapiEncoderWrapper> vaapi_encoder)
-    : encoder_(std::move(vaapi_encoder)) {
-}
+    : encoder_(std::move(vaapi_encoder)) {}
 
 VAAPIH264EncoderWrapper::~VAAPIH264EncoderWrapper() {
   Release();
@@ -77,6 +76,15 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
     return release_ret;
   }
 
+  codec_ = *inst;
+
+  // Code expects simulcastStream resolutions to be correct, make sure they are
+  // filled even when there are no simulcast layers.
+  if (codec_.numberOfSimulcastStreams == 0) {
+    codec_.simulcastStream[0].width = codec_.width;
+    codec_.simulcastStream[0].height = codec_.height;
+  }
+
   // Initialize encoded image. Default buffer size: size of unencoded data.
   const size_t new_capacity =
       CalcBufferSize(VideoType::kI420, codec_.width, codec_.height);
@@ -84,6 +92,14 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
   encoded_image_._encodedWidth = codec_.width;
   encoded_image_._encodedHeight = codec_.height;
   encoded_image_.set_size(0);
+
+  // Initialize encoder.
+
+  SimulcastRateAllocator init_allocator(codec_);
+  VideoBitrateAllocation allocation =
+      init_allocator.Allocate(VideoBitrateAllocationParameters(
+          DataRate::KilobitsPerSec(codec_.startBitrate), codec_.maxFramerate));
+  SetRates(RateControlParameters(allocation, codec_.maxFramerate));
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -148,6 +164,37 @@ VideoEncoder::EncoderInfo VAAPIH264EncoderWrapper::GetEncoderInfo() const {
 }
 
 void VAAPIH264EncoderWrapper::SetRates(
-    const RateControlParameters& rc_parameters) {}
+    const RateControlParameters& parameters) {
+  if (!encoder_) {
+    RTC_LOG(LS_WARNING) << "SetRates() while uninitialized.";
+    return;
+  }
+
+  if (parameters.framerate_fps < 1.0) {
+    RTC_LOG(LS_WARNING) << "Invalid frame rate: " << parameters.framerate_fps;
+    return;
+  }
+
+  if (parameters.bitrate.get_sum_bps() == 0) {
+    configuration_.SetStreamState(false);
+
+    return;
+  }
+
+  codec_.maxFramerate = static_cast<uint32_t>(parameters.framerate_fps);
+
+  // Update layer config.
+  configuration_.target_bps = parameters.bitrate.get_sum_bps();
+  configuration_.max_frame_rate = parameters.framerate_fps;
+
+  if (configuration_.target_bps) {
+    configuration_.SetStreamState(true);
+
+    // Update max_frame_rate/target_bitrate for vaapi encoder.
+    //  TODO: Update this to use the new rate control API.
+  } else {
+    configuration_.SetStreamState(false);
+  }
+}
 
 }  // namespace webrtc
