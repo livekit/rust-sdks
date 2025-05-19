@@ -123,8 +123,7 @@ jobs:
 
       - name: Install macos dependencies
         if: ${{ matrix.target.os == 'macos-latest' }}
-        run: |
-          brew install ninja
+        run: brew install ninja
 
       - name: Install windows dependencies
         if: ${{ matrix.target.os == 'windows-latest' }}
