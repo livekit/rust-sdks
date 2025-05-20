@@ -146,7 +146,6 @@ static int upload_surface_yuv(VADisplay va_dpy,
   return 0;
 }
 
-
 #define MIN(a, b) ((a) > (b) ? (b) : (a))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -370,10 +369,10 @@ static void sps_rbsp(VA264Context* context, bitstream* bs) {
       bitstream_put_ui(bs, 6, 4); /* cpb_size_scale */
 
       bitstream_put_ue(
-          bs, context->config.frame_bitrate - 1); /* bit_rate_value_minus1[0] */
-      bitstream_put_ue(bs, context->config.frame_bitrate * 8 -
-                               1); /* cpb_size_value_minus1[0] */
-      bitstream_put_ui(bs, 1, 1);  /* cbr_flag[0] */
+          bs, context->config.bitrate - 1); /* bit_rate_value_minus1[0] */
+      bitstream_put_ue(
+          bs, context->config.bitrate * 8 - 1); /* cpb_size_value_minus1[0] */
+      bitstream_put_ui(bs, 1, 1);               /* cbr_flag[0] */
 
       bitstream_put_ui(bs, 23, 5); /* initial_cpb_removal_delay_length_minus1 */
       bitstream_put_ui(bs, 23, 5); /* cpb_removal_delay_length_minus1 */
@@ -1255,6 +1254,50 @@ static int update_RefPicList(VA264Context* context) {
   return 0;
 }
 
+template <typename VAEncMiscParam>
+VAEncMiscParam& AllocateMiscParameterBuffer(
+    std::vector<uint8_t>& misc_buffer,
+    VAEncMiscParameterType misc_param_type) {
+  constexpr size_t buffer_size =
+      sizeof(VAEncMiscParameterBuffer) + sizeof(VAEncMiscParam);
+  misc_buffer.resize(buffer_size);
+  auto* va_buffer =
+      reinterpret_cast<VAEncMiscParameterBuffer*>(misc_buffer.data());
+  va_buffer->type = misc_param_type;
+  return *reinterpret_cast<VAEncMiscParam*>(va_buffer->data);
+}
+
+void CreateVAEncRateControlParams(uint32_t bps,
+                                  uint32_t target_percentage,
+                                  uint32_t window_size,
+                                  uint32_t initial_qp,
+                                  uint32_t min_qp,
+                                  uint32_t max_qp,
+                                  uint32_t framerate,
+                                  uint32_t buffer_size,
+                                  std::vector<uint8_t> misc_buffers[3]) {
+  auto& rate_control_param =
+      AllocateMiscParameterBuffer<VAEncMiscParameterRateControl>(
+          misc_buffers[0], VAEncMiscParameterTypeRateControl);
+  rate_control_param.bits_per_second = bps;
+  rate_control_param.target_percentage = target_percentage;
+  rate_control_param.window_size = window_size;
+  rate_control_param.initial_qp = initial_qp;
+  rate_control_param.min_qp = min_qp;
+  rate_control_param.max_qp = max_qp;
+  rate_control_param.rc_flags.bits.disable_frame_skip = true;
+
+  auto& framerate_param =
+      AllocateMiscParameterBuffer<VAEncMiscParameterFrameRate>(
+          misc_buffers[1], VAEncMiscParameterTypeFrameRate);
+  framerate_param.framerate = framerate;
+
+  auto& hrd_param = AllocateMiscParameterBuffer<VAEncMiscParameterHRD>(
+      misc_buffers[2], VAEncMiscParameterTypeHRD);
+  hrd_param.buffer_size = buffer_size;
+  hrd_param.initial_buffer_fullness = buffer_size / 2;
+}
+
 static int render_sequence(VA264Context* context) {
   VABufferID seq_param_buf, rc_param_buf, misc_param_tmpbuf, render_id[2];
   VAStatus va_status;
@@ -1265,7 +1308,7 @@ static int render_sequence(VA264Context* context) {
   context->seq_param.picture_width_in_mbs = context->frame_width_mbaligned / 16;
   context->seq_param.picture_height_in_mbs =
       context->frame_height_mbaligned / 16;
-  context->seq_param.bits_per_second = context->config.frame_bitrate;
+  context->seq_param.bits_per_second = context->config.bitrate;
 
   context->seq_param.intra_period = context->config.intra_period;
   context->seq_param.intra_idr_period = context->config.intra_idr_period;
@@ -1317,7 +1360,7 @@ static int render_sequence(VA264Context* context) {
   misc_param->type = VAEncMiscParameterTypeRateControl;
   misc_rate_ctrl = (VAEncMiscParameterRateControl*)misc_param->data;
   memset(misc_rate_ctrl, 0, sizeof(*misc_rate_ctrl));
-  misc_rate_ctrl->bits_per_second = context->config.frame_bitrate;
+  misc_rate_ctrl->bits_per_second = context->config.bitrate;
   misc_rate_ctrl->target_percentage = 66;
   misc_rate_ctrl->window_size = 1000;
   misc_rate_ctrl->initial_qp = context->config.initial_qp;
@@ -1397,7 +1440,7 @@ static int render_picture(VA264Context* context) {
   context->pic_param.CurrPic.frame_idx = context->current_frame_num;
   context->pic_param.CurrPic.flags = 0;
   context->pic_param.CurrPic.TopFieldOrderCnt = calc_poc(
-      context, (context->current_frame_display - context->current_IDR_display) %
+      context, (context->current_frame_display - context->current_idr_display) %
                    MaxPicOrderCntLsb);
   context->pic_param.CurrPic.BottomFieldOrderCnt =
       context->pic_param.CurrPic.TopFieldOrderCnt;
@@ -1642,7 +1685,7 @@ static int render_slice(VA264Context* context) {
   context->slice_param.slice_beta_offset_div2 = 0;
   context->slice_param.direct_spatial_mv_pred_flag = 1;
   context->slice_param.pic_order_cnt_lsb =
-      (context->current_frame_display - context->current_IDR_display) %
+      (context->current_frame_display - context->current_idr_display) %
       MaxPicOrderCntLsb;
 
   if (context->h264_packedheader &&
@@ -1716,7 +1759,7 @@ bool livekit::VaapiEncoderWrapper::Initialize(int width,
   context->config.frame_width = width;
   context->config.frame_height = height;
   context->config.frame_rate = frame_rate;
-  context->config.frame_bitrate = bitrate;
+  context->config.bitrate = bitrate;
   context->config.initial_qp = 26;
   context->config.minimal_qp = 0;
   context->config.intra_period = intra_period;
@@ -1742,10 +1785,10 @@ bool livekit::VaapiEncoderWrapper::Initialize(int width,
     return false;
   }
 
-  if (context->config.frame_bitrate == 0) {
-    context->config.frame_bitrate = context->config.frame_width *
-                                    context->config.frame_height * 12 *
-                                    context->config.frame_rate / 50;
+  if (context->config.bitrate == 0) {
+    context->config.bitrate = context->config.frame_width *
+                              context->config.frame_height * 12 *
+                              context->config.frame_rate / 50;
   }
 
   // one of: VAProfileH264ConstrainedBaseline, VAProfileH264Main,
@@ -1831,7 +1874,7 @@ bool livekit::VaapiEncoderWrapper::Encode(int fourcc,
   if (context_->current_frame_type == FRAME_IDR) {
     context_->num_short_term = 0;
     context_->current_frame_num = 0;
-    context_->current_IDR_display = context_->current_frame_display;
+    context_->current_idr_display = context_->current_frame_display;
   }
 
   VAStatus va_status = vaBeginPicture(

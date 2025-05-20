@@ -19,7 +19,7 @@ typedef struct {
   int frame_width;
   int frame_height;
   int frame_rate;
-  uint32_t frame_bitrate;
+  uint32_t bitrate;
   int initial_qp;
   int minimal_qp;
   int intra_period;
@@ -63,7 +63,7 @@ typedef struct {
   int current_frame_type;
   uint64_t current_frame_encoding;
   uint64_t current_frame_display;
-  uint64_t current_IDR_display;
+  uint64_t current_idr_display;
 
   uint8_t* encoded_buffer;
   VA264Config config;
@@ -94,6 +94,12 @@ class VaapiEncoderWrapper {
               uint8_t* v,
               bool forceIDR,
               std::vector<uint8_t>& output);
+
+
+  void UpdateRates(int frame_rate, int bitrate) {
+    context_->config.frame_rate = frame_rate;
+    context_->config.bitrate = bitrate;
+  }
 
   // Release resources.
   void Destroy();

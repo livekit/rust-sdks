@@ -189,12 +189,20 @@ void VAAPIH264EncoderWrapper::SetRates(
 
   if (configuration_.target_bps) {
     configuration_.SetStreamState(true);
-
     // Update max_frame_rate/target_bitrate for vaapi encoder.
-    //  TODO: Update this to use the new rate control API.
+    encoder_->UpdateRates(configuration_.max_frame_rate,
+                          configuration_.target_bps);
   } else {
     configuration_.SetStreamState(false);
   }
+}
+
+void VAAPIH264EncoderWrapper::LayerConfig::SetStreamState(bool send_stream) {
+  if (send_stream && !sending) {
+    // Need a key frame if we have not sent this stream before.
+    key_frame_request = true;
+  }
+  sending = send_stream;
 }
 
 }  // namespace webrtc
