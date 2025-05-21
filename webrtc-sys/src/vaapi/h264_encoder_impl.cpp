@@ -31,6 +31,7 @@ enum H264EncoderImplEvent {
 };
 
 VAAPIH264EncoderWrapper::VAAPIH264EncoderWrapper(
+    const webrtc::Environment& env,
     std::unique_ptr<livekit::VaapiEncoderWrapper> vaapi_encoder)
     : encoder_(std::move(vaapi_encoder)) {}
 

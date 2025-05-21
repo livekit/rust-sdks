@@ -37,7 +37,7 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
   };
 
  public:
-  VAAPIH264EncoderWrapper(
+  VAAPIH264EncoderWrapper(const webrtc::Environment& env,
       std::unique_ptr<livekit::VaapiEncoderWrapper> vaapi_encoder);
   ~VAAPIH264EncoderWrapper() override;
 
