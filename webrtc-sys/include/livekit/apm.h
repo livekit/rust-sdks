@@ -19,10 +19,13 @@
 #include <memory>
 
 #include "api/scoped_refptr.h"
+#include "api/task_queue/task_queue_base.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_encoder_factory.h"
 #include "modules/audio_processing/aec3/echo_canceller3.h"
 #include "modules/audio_processing/audio_buffer.h"
+#include "livekit/global_task_queue.h"
+#include "rust/cxx.h"
 
 namespace livekit {
 
@@ -62,8 +65,14 @@ class AudioProcessingModule {
 
   int set_stream_delay_ms(int delay_ms);
 
+  bool create_and_attach_aec_dump(rust::Str file_name,
+                                  int64_t max_log_size_bytes);
+
+  void detach_aec_dump();
+
  private:
   rtc::scoped_refptr<webrtc::AudioProcessing> apm_;
+  std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> aec_dump_queue_;
 };
 
 std::unique_ptr<AudioProcessingModule> create_apm(

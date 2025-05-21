@@ -148,7 +148,10 @@ message FfiRequest {
     TextStreamWriterWriteRequest text_stream_write = 65;
     TextStreamWriterCloseRequest text_stream_close = 66;
 
-    // NEXT_ID: 67
+    ApmAecDumpCreateAndAttachRequest apm_aec_dump_create_and_attach = 67;
+    ApmAecDumpDetachRequest apm_aec_dump_detach = 68;
+
+    // NEXT_ID: 69
   }
 }
 
@@ -243,7 +246,10 @@ message FfiResponse {
     TextStreamWriterWriteResponse text_stream_write = 64;
     TextStreamWriterCloseResponse text_stream_close = 65;
 
-    // NEXT_ID: 66
+    ApmAecDumpCreateAndAttachResponse apm_aec_dump_create_and_attach = 66;
+    ApmAecDumpDetachResponse apm_aec_dump_detach = 67;
+
+    // NEXT_ID: 68
   }
 }
 
