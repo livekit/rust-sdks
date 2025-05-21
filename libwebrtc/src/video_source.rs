@@ -1,4 +1,4 @@
-// Copyright 2024 LiveKit, Inc.
+// Copyright 2024-2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,6 +35,10 @@ impl RtcVideoSource {
     enum_dispatch!(
         [Native];
         pub fn video_resolution(self: &Self) -> VideoResolution;
+    );
+    enum_dispatch!(
+        [Native];
+        pub fn set_is_screencast(self: &Self, is_screencast: bool);
     );
 }
 
@@ -73,6 +77,10 @@ pub mod native {
 
         pub fn video_resolution(&self) -> VideoResolution {
             self.handle.video_resolution()
+        }
+
+        pub fn set_is_screencast(&self, is_screencast: bool) {
+            self.handle.set_is_screencast(is_screencast)
         }
     }
 }
