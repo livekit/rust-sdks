@@ -154,11 +154,11 @@ int32_t VAAPIH264EncoderWrapper::Encode(
     // Initialize encoder.
     int keyFrameInterval = 60;
     if (codec_.maxFramerate > 0) {
-      keyFrameInterval = codec_.maxFramerate * 10;
+      keyFrameInterval = codec_.maxFramerate * 5;
     }
-    encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate,
+    encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate * 1000,
                          keyFrameInterval, keyFrameInterval, 1,
-                         codec_.maxFramerate, VAProfileH264Baseline, VA_RC_VBR);
+                         codec_.maxFramerate, VAProfileH264Main, VA_RC_CBR);
   }
 
   std::vector<uint8_t> output;

@@ -1719,12 +1719,9 @@ livekit::VaapiEncoderWrapper::VaapiEncoderWrapper()
   memset((void*)context_.get(), 0, sizeof(VA264Context));
 }
 
-livekit::VaapiEncoderWrapper::~VaapiEncoderWrapper() {
-
-}
+livekit::VaapiEncoderWrapper::~VaapiEncoderWrapper() {}
 
 void livekit::VaapiEncoderWrapper::Destroy() {
-
   if (context_->va_dpy) {
     vaDestroySurfaces(context_->va_dpy, &context_->src_surface[0], SURFACE_NUM);
     vaDestroySurfaces(context_->va_dpy, &context_->ref_surface[0], SURFACE_NUM);
@@ -1767,7 +1764,7 @@ bool livekit::VaapiEncoderWrapper::Initialize(int width,
   context_->config.intra_period = intra_period;
   context_->config.intra_idr_period = idr_period;
   context_->config.ip_period = ip_period;
-  context_->config.rc_mode = rc_mode;  // VA_RC_VBR
+  context_->config.rc_mode = rc_mode;
   context_->h264_maxref = (1 << 16 | 1);
   context_->requested_entrypoint = context_->selected_entrypoint = -1;
 
@@ -1848,7 +1845,6 @@ bool livekit::VaapiEncoderWrapper::Encode(int fourcc,
                                           const uint8_t* v,
                                           bool forceIDR,
                                           std::vector<uint8_t>& encoded) {
-
   if (forceIDR) {
     // reset the sequence to start with a new IDR regardless of layout
     context_->current_frame_num = context_->current_frame_display =
