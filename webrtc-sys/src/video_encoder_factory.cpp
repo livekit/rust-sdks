@@ -37,6 +37,10 @@
 #include "livekit/android.h"
 #endif
 
+#ifdef __linux__
+#include "livekit/vaapi_video_factory.h"
+#endif
+
 namespace livekit {
 
 using Factory = webrtc::VideoEncoderFactoryTemplate<
@@ -56,6 +60,10 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 
 #ifdef WEBRTC_ANDROID
   factories_.push_back(CreateAndroidVideoEncoderFactory());
+#endif
+
+#ifdef __linux__
+  factories_.push_back(CreateVaapiVideoEncoderFactory());
 #endif
 
   // TODO(theomonnom): Add other HW encoders here
