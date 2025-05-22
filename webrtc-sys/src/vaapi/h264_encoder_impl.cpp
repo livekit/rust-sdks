@@ -167,9 +167,7 @@ int32_t VAAPIH264EncoderWrapper::Encode(
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
-  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(output.size()));
-  encoded_image_._encodedHeight = 
-
+  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(output.data(), output.size()));
   encoded_image_._encodedWidth = configuration_.width;
   encoded_image_._encodedHeight = configuration_.height;
   encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
@@ -177,7 +175,6 @@ int32_t VAAPIH264EncoderWrapper::Encode(
   encoded_image_._frameType = is_keyframe_needed?
       VideoFrameType::kVideoFrameKey : VideoFrameType::kVideoFrameDelta;
   encoded_image_.SetSimulcastIndex(configuration_.simulcast_idx);
-
 
   CodecSpecificInfo codec_specific;
   codec_specific.codecType = kVideoCodecH264;
