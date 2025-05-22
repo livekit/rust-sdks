@@ -69,11 +69,11 @@ static int upload_surface_yuv(VADisplay va_dpy,
                               int src_fourcc,
                               int src_width,
                               int src_height,
-                              unsigned char* src_Y,
-                              unsigned char* src_U,
-                              unsigned char* src_V) {
+                              uint8_t* src_Y,
+                              uint8_t* src_U,
+                              uint8_t* src_V) {
   VAImage surface_image;
-  unsigned char *surface_p = NULL, *Y_start = NULL, *U_start = NULL;
+  uint8_t* surface_p = NULL, *Y_start = NULL, *U_start = NULL;
   int Y_pitch = 0, U_pitch = 0, row;
   VAStatus va_status;
 
@@ -116,12 +116,12 @@ static int upload_surface_yuv(VADisplay va_dpy,
 
   /* copy Y plane */
   for (row = 0; row < src_height; row++) {
-    unsigned char* Y_row = Y_start + row * Y_pitch;
+    uint8_t* Y_row = Y_start + row * Y_pitch;
     memcpy(Y_row, src_Y + row * src_width, src_width);
   }
   for (row = 0; row < src_height / 2; row++) {
-    unsigned char* U_row = U_start + row * U_pitch;
-    unsigned char *u_ptr = NULL, *v_ptr = NULL;
+    uint8_t* U_row = U_start + row * U_pitch;
+    uint8_t* u_ptr = NULL, *v_ptr = NULL;
     int j;
     if (src_fourcc == VA_FOURCC_NV12) {
       memcpy(U_row, src_U + row * src_width, src_width);
@@ -1838,9 +1838,9 @@ bool livekit::VaapiEncoderWrapper::Initialize(int width,
 }
 
 bool livekit::VaapiEncoderWrapper::Encode(int fourcc,
-                                          uint8_t* y,
-                                          uint8_t* u,
-                                          uint8_t* v,
+                                          const uint8_t* y,
+                                          const uint8_t* u,
+                                          const uint8_t* v,
                                           bool forceIDR,
                                           std::vector<uint8_t>& encoded) {
   if (!context_) {
@@ -1859,7 +1859,7 @@ bool livekit::VaapiEncoderWrapper::Encode(int fourcc,
       context_->src_surface[context_->current_frame_encoding % SURFACE_NUM];
   int retv = upload_surface_yuv(context_->va_dpy, surface, fourcc,
                                 context_->config.frame_width,
-                                context_->config.frame_height, y, u, v);
+                                context_->config.frame_height, (uint8_t*)y, (uint8_t*)u, (uint8_t*)v);
 
   if (retv != 0) {
     RTC_LOG(LS_ERROR) << "Failed to upload surface";

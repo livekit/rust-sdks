@@ -21,6 +21,8 @@
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/scale.h"
 
+#define VA_FOURCC_I420 0x30323449  // I420
+
 namespace webrtc {
 
 // Used by histograms. Values of entries should not be changed.
@@ -30,10 +32,10 @@ enum H264EncoderImplEvent {
   kH264EncoderEventMax = 16,
 };
 
-VAAPIH264EncoderWrapper::VAAPIH264EncoderWrapper(
-    const webrtc::Environment& env,
-    std::unique_ptr<livekit::VaapiEncoderWrapper> vaapi_encoder)
-    : encoder_(std::move(vaapi_encoder)) {}
+VAAPIH264EncoderWrapper::VAAPIH264EncoderWrapper(const webrtc::Environment& env,
+                                                 H264EncoderSettings settings)
+    : encoder_(new livekit::VaapiEncoderWrapper()),
+      packetization_mode_(settings.packetization_mode) {}
 
 VAAPIH264EncoderWrapper::~VAAPIH264EncoderWrapper() {
   Release();
@@ -95,6 +97,13 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
   encoded_image_.set_size(0);
 
   // Initialize encoder.
+  int keyFrameInterval = 60;
+  if (codec_.maxFramerate > 0) {
+    keyFrameInterval = codec_.maxFramerate * 10;
+  }
+  encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate,
+                       keyFrameInterval, keyFrameInterval, 1,
+                       codec_.maxFramerate, VAProfileH264Baseline, VA_RC_VBR);
 
   SimulcastRateAllocator init_allocator(codec_);
   VideoBitrateAllocation allocation =
@@ -149,6 +158,34 @@ int32_t VAAPIH264EncoderWrapper::Encode(
     // or after being disabled.
     is_keyframe_needed = true;
   }
+  std::vector<uint8_t> output;
+  encoder_->Encode(VA_FOURCC_I420, frame_buffer->DataY(), frame_buffer->DataU(),
+                   frame_buffer->DataV(), is_keyframe_needed, output);
+
+  if (output.empty()) {
+    RTC_LOG(LS_ERROR) << "Failed to encode frame.";
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
+
+  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(output.size()));
+  encoded_image_._encodedHeight = 
+
+  encoded_image_._encodedWidth = configuration_.width;
+  encoded_image_._encodedHeight = configuration_.height;
+  encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
+  encoded_image_.SetColorSpace(input_frame.color_space());
+  encoded_image_._frameType = is_keyframe_needed?
+      VideoFrameType::kVideoFrameKey : VideoFrameType::kVideoFrameDelta;
+  encoded_image_.SetSimulcastIndex(configuration_.simulcast_idx);
+
+
+  CodecSpecificInfo codec_specific;
+  codec_specific.codecType = kVideoCodecH264;
+  codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
+  codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
+  codec_specific.codecSpecific.H264.base_layer_sync = false;
+  codec_specific.codecSpecific.H264.idr_frame = is_keyframe_needed;
+  encoded_image_callback_->OnEncodedImage(encoded_image_, &codec_specific);
 
   return WEBRTC_VIDEO_CODEC_OK;
 }

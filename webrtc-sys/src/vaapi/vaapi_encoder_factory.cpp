@@ -14,7 +14,7 @@ VAAPIVideoEncoderFactory::~VAAPIVideoEncoderFactory() {
 std::unique_ptr<VideoEncoder> VAAPIVideoEncoderFactory::Create(
     const Environment& env, const SdpVideoFormat& format) {
   if (format.IsSameCodec(supported_formats_[0])) {
-    return std::make_unique<VAAPIH264EncoderWrapper>(env, std::make_unique<livekit::VaapiEncoderWrapper>());
+    return std::make_unique<VAAPIH264EncoderWrapper>(env, H264EncoderSettings::Parse(format));
   }
   return nullptr;
 }

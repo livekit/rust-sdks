@@ -89,12 +89,11 @@ class VaapiEncoderWrapper {
 
   // Encode a frame and return the encoded data.
   bool Encode(int fourcc,
-              uint8_t* y,
-              uint8_t* u,
-              uint8_t* v,
+              const uint8_t* y,
+              const uint8_t* u,
+              const uint8_t* v,
               bool forceIDR,
               std::vector<uint8_t>& output);
-
 
   void UpdateRates(int frame_rate, int bitrate) {
     context_->config.frame_rate = frame_rate;

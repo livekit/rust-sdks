@@ -38,7 +38,7 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
 
  public:
   VAAPIH264EncoderWrapper(const webrtc::Environment& env,
-      std::unique_ptr<livekit::VaapiEncoderWrapper> vaapi_encoder);
+                          H264EncoderSettings settings);
   ~VAAPIH264EncoderWrapper() override;
 
   int32_t InitEncode(const VideoCodec* codec_settings,
@@ -61,6 +61,7 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
   std::unique_ptr<livekit::VaapiEncoderWrapper> encoder_;
   LayerConfig configuration_;
   EncodedImage encoded_image_;
+  H264PacketizationMode packetization_mode_;
   VideoCodec codec_;
   void ReportInit();
   void ReportError();
