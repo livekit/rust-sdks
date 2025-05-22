@@ -24,7 +24,9 @@
  
    std::vector<SdpVideoFormat> GetImplementations() const override;
  
-   std::unique_ptr<EncoderSelectorInterface> GetEncoderSelector() const override;
+   std::unique_ptr<EncoderSelectorInterface> GetEncoderSelector() const override {
+    return nullptr;
+   }
  
   private:
    std::vector<SdpVideoFormat> supported_formats_;

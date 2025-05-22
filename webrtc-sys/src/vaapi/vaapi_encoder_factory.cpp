@@ -4,8 +4,13 @@
 namespace webrtc {
 
 VAAPIVideoEncoderFactory::VAAPIVideoEncoderFactory() {
-  supported_formats_.push_back(SdpVideoFormat("H264"));
-  implementations_.push_back(SdpVideoFormat("H264"));
+  std::map<std::string,std::string> parameters = {
+      {"profile-level-id", "42e01f"},
+      {"level-asymmetry-allowed", "1"},
+      {"packetization-mode", "1"},
+  };
+  supported_formats_.push_back(SdpVideoFormat("H264", parameters));
+  implementations_.push_back(SdpVideoFormat("H264", parameters));
 }
 
 VAAPIVideoEncoderFactory::~VAAPIVideoEncoderFactory() {

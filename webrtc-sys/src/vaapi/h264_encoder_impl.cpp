@@ -96,15 +96,6 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
   encoded_image_._encodedHeight = codec_.height;
   encoded_image_.set_size(0);
 
-  // Initialize encoder.
-  int keyFrameInterval = 60;
-  if (codec_.maxFramerate > 0) {
-    keyFrameInterval = codec_.maxFramerate * 10;
-  }
-  encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate,
-                       keyFrameInterval, keyFrameInterval, 1,
-                       codec_.maxFramerate, VAProfileH264Baseline, VA_RC_VBR);
-
   SimulcastRateAllocator init_allocator(codec_);
   VideoBitrateAllocation allocation =
       init_allocator.Allocate(VideoBitrateAllocationParameters(
@@ -158,23 +149,37 @@ int32_t VAAPIH264EncoderWrapper::Encode(
     // or after being disabled.
     is_keyframe_needed = true;
   }
+
+  if (!encoder_->IsInitialized()) {
+    // Initialize encoder.
+    int keyFrameInterval = 60;
+    if (codec_.maxFramerate > 0) {
+      keyFrameInterval = codec_.maxFramerate * 10;
+    }
+    encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate,
+                         keyFrameInterval, keyFrameInterval, 1,
+                         codec_.maxFramerate, VAProfileH264Baseline, VA_RC_VBR);
+  }
+
   std::vector<uint8_t> output;
   encoder_->Encode(VA_FOURCC_I420, frame_buffer->DataY(), frame_buffer->DataU(),
                    frame_buffer->DataV(), is_keyframe_needed, output);
 
   if (output.empty()) {
     RTC_LOG(LS_ERROR) << "Failed to encode frame.";
-    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    return WEBRTC_VIDEO_CODEC_OK;
   }
 
-  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(output.data(), output.size()));
+  encoded_image_.SetEncodedData(
+      EncodedImageBuffer::Create(output.data(), output.size()));
   encoded_image_._encodedWidth = configuration_.width;
   encoded_image_._encodedHeight = configuration_.height;
   encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
   encoded_image_.SetColorSpace(input_frame.color_space());
-  encoded_image_._frameType = is_keyframe_needed?
-      VideoFrameType::kVideoFrameKey : VideoFrameType::kVideoFrameDelta;
-  encoded_image_.SetSimulcastIndex(configuration_.simulcast_idx);
+  encoded_image_._frameType = is_keyframe_needed
+                                  ? VideoFrameType::kVideoFrameKey
+                                  : VideoFrameType::kVideoFrameDelta;
+  // encoded_image_.SetSimulcastIndex(configuration_.simulcast_idx);
 
   CodecSpecificInfo codec_specific;
   codec_specific.codecType = kVideoCodecH264;

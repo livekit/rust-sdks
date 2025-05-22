@@ -16,13 +16,11 @@
 #include "livekit/vaapi_video_factory.h"
 
 #include "vaapi/vaapi_encoder.h"
+#include "vaapi/vaapi_encoder_factory.h"
 
 namespace livekit {
 std::unique_ptr<webrtc::VideoEncoderFactory> CreateVaapiVideoEncoderFactory() {
-  // Implementation of the encoder factory creation
-  // This is a placeholder, actual implementation will depend on the specific
-  // requirements
-  return nullptr;
+  return std::make_unique<webrtc::VAAPIVideoEncoderFactory>();
 }
 std::unique_ptr<webrtc::VideoDecoderFactory> CreateVaapiVideoDecoderFactory() {
   // Implementation of the decoder factory creation

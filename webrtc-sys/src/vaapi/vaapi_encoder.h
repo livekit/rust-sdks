@@ -96,8 +96,14 @@ class VaapiEncoderWrapper {
               std::vector<uint8_t>& output);
 
   void UpdateRates(int frame_rate, int bitrate) {
-    context_->config.frame_rate = frame_rate;
-    context_->config.bitrate = bitrate;
+    if (context_) {
+      context_->config.frame_rate = frame_rate;
+      context_->config.bitrate = bitrate;
+    }
+  }
+
+  bool IsInitialized() const {
+    return initialized_;
   }
 
   // Release resources.

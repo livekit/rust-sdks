@@ -73,7 +73,7 @@ static int upload_surface_yuv(VADisplay va_dpy,
                               uint8_t* src_U,
                               uint8_t* src_V) {
   VAImage surface_image;
-  uint8_t* surface_p = NULL, *Y_start = NULL, *U_start = NULL;
+  uint8_t *surface_p = NULL, *Y_start = NULL, *U_start = NULL;
   int Y_pitch = 0, U_pitch = 0, row;
   VAStatus va_status;
 
@@ -121,7 +121,7 @@ static int upload_surface_yuv(VADisplay va_dpy,
   }
   for (row = 0; row < src_height / 2; row++) {
     uint8_t* U_row = U_start + row * U_pitch;
-    uint8_t* u_ptr = NULL, *v_ptr = NULL;
+    uint8_t *u_ptr = NULL, *v_ptr = NULL;
     int j;
     if (src_fourcc == VA_FOURCC_NV12) {
       memcpy(U_row, src_U + row * src_width, src_width);
@@ -1714,20 +1714,24 @@ static int render_slice(VA264Context* context) {
 }
 
 livekit::VaapiEncoderWrapper::VaapiEncoderWrapper()
-    : va_display_(std::make_unique<VaapiDisplayDrm>()) {}
+    : va_display_(std::make_unique<VaapiDisplayDrm>()) {
+  context_ = std::make_unique<VA264Context>();
+  memset((void*)context_.get(), 0, sizeof(VA264Context));
+}
+
+livekit::VaapiEncoderWrapper::~VaapiEncoderWrapper() {
+
+}
 
 void livekit::VaapiEncoderWrapper::Destroy() {
-  if (!context_) {
-    // Encoder not initialized
-    return;
-  }
+
   if (context_->va_dpy) {
     vaDestroySurfaces(context_->va_dpy, &context_->src_surface[0], SURFACE_NUM);
     vaDestroySurfaces(context_->va_dpy, &context_->ref_surface[0], SURFACE_NUM);
   }
   if (context_->encoded_buffer) {
     free(context_->encoded_buffer);
-    context_->encoded_buffer = 0;
+    context_->encoded_buffer = nullptr;
   }
 
   for (int i = 0; i < SURFACE_NUM; i++)
@@ -1753,87 +1757,88 @@ bool livekit::VaapiEncoderWrapper::Initialize(int width,
                                               int frame_rate,
                                               VAProfile profile,
                                               int rc_mode) {
-  auto context = std::make_unique<VA264Context>();
-  memset((void*)context.get(), 0, sizeof(VA264Context));
-  context->config.h264_entropy_mode = 1;  // cabac
-  context->config.frame_width = width;
-  context->config.frame_height = height;
-  context->config.frame_rate = frame_rate;
-  context->config.bitrate = bitrate;
-  context->config.initial_qp = 26;
-  context->config.minimal_qp = 0;
-  context->config.intra_period = intra_period;
-  context->config.intra_idr_period = idr_period;
-  context->config.ip_period = ip_period;
-  context->config.rc_mode = rc_mode;  // VA_RC_VBR
-  context->h264_maxref = (1 << 16 | 1);
-  context->requested_entrypoint = context->selected_entrypoint = -1;
+  context_->config.h264_entropy_mode = 1;  // cabac
+  context_->config.frame_width = width;
+  context_->config.frame_height = height;
+  context_->config.frame_rate = frame_rate;
+  context_->config.bitrate = bitrate;
+  context_->config.initial_qp = 26;
+  context_->config.minimal_qp = 0;
+  context_->config.intra_period = intra_period;
+  context_->config.intra_idr_period = idr_period;
+  context_->config.ip_period = ip_period;
+  context_->config.rc_mode = rc_mode;  // VA_RC_VBR
+  context_->h264_maxref = (1 << 16 | 1);
+  context_->requested_entrypoint = context_->selected_entrypoint = -1;
 
-  if (context->config.ip_period < 1) {
+  if (context_->config.ip_period < 1) {
     RTC_LOG(LS_WARNING) << "ip_period must be greater than 0";
     return false;
   }
-  if (context->config.intra_period != 1 &&
-      context->config.intra_period % context->config.ip_period != 0) {
+  if (context_->config.intra_period != 1 &&
+      context_->config.intra_period % context_->config.ip_period != 0) {
     RTC_LOG(LS_WARNING) << "intra_period must be a multiplier of ip_period";
     return false;
   }
-  if (context->config.intra_period != 0 &&
-      context->config.intra_idr_period % context->config.intra_period != 0) {
+  if (context_->config.intra_period != 0 &&
+      context_->config.intra_idr_period % context_->config.intra_period != 0) {
     RTC_LOG(LS_WARNING)
         << "intra_idr_period must be a multiplier of intra_period";
     return false;
   }
 
-  if (context->config.bitrate == 0) {
-    context->config.bitrate = context->config.frame_width *
-                              context->config.frame_height * 12 *
-                              context->config.frame_rate / 50;
+  if (context_->config.bitrate == 0) {
+    context_->config.bitrate = context_->config.frame_width *
+                               context_->config.frame_height * 12 *
+                               context_->config.frame_rate / 50;
   }
 
   // one of: VAProfileH264ConstrainedBaseline, VAProfileH264Main,
   // VAProfileH264High
-  context->config.h264_profile = profile;
+  context_->config.h264_profile = profile;
 
-  context->frame_width_mbaligned = (context->config.frame_width + 15) & (~15);
-  context->frame_height_mbaligned = (context->config.frame_height + 15) & (~15);
-  if (context->config.frame_width != context->frame_width_mbaligned ||
-      context->config.frame_height != context->frame_height_mbaligned) {
-    RTC_LOG(LS_INFO) << "Source frame is " << context->config.frame_width << "x"
-                     << context->config.frame_height
+  context_->frame_width_mbaligned = (context_->config.frame_width + 15) & (~15);
+  context_->frame_height_mbaligned =
+      (context_->config.frame_height + 15) & (~15);
+  if (context_->config.frame_width != context_->frame_width_mbaligned ||
+      context_->config.frame_height != context_->frame_height_mbaligned) {
+    RTC_LOG(LS_INFO) << "Source frame is " << context_->config.frame_width
+                     << "x" << context_->config.frame_height
                      << " and will code clip to "
-                     << context->frame_width_mbaligned << "x"
-                     << context->frame_height_mbaligned << " with crop";
+                     << context_->frame_width_mbaligned << "x"
+                     << context_->frame_height_mbaligned << " with crop";
   }
 
   // the buffer to receive the encoded frames from encodeImage
-  context->encoded_buffer = (uint8_t*)malloc(
-      context->frame_width_mbaligned * context->frame_height_mbaligned * 3);
+  context_->encoded_buffer = (uint8_t*)malloc(
+      context_->frame_width_mbaligned * context_->frame_height_mbaligned * 3);
 
   if (!va_display_->isOpen()) {
     if (!va_display_->Open()) {
-      free(context->encoded_buffer);
+      free(context_->encoded_buffer);
+      context_->encoded_buffer = nullptr;
       return false;
     }
   }
 
-  if (init_va(context.get(), va_display_->display()) != VA_STATUS_SUCCESS) {
-    free(context->encoded_buffer);
+  if (init_va(context_.get(), va_display_->display()) != VA_STATUS_SUCCESS) {
+    free(context_->encoded_buffer);
+    context_->encoded_buffer = nullptr;
     return false;
   }
 
-  if (setup_encode(context.get()) != VA_STATUS_SUCCESS) {
-    free(context->encoded_buffer);
+  if (setup_encode(context_.get()) != VA_STATUS_SUCCESS) {
+    free(context_->encoded_buffer);
+    context_->encoded_buffer = nullptr;
     return false;
   }
 
   // reset sps/pps/slice params
-  memset(&context->seq_param, 0, sizeof(context->seq_param));
-  memset(&context->pic_param, 0, sizeof(context->pic_param));
-  memset(&context->slice_param, 0, sizeof(context->slice_param));
+  memset(&context_->seq_param, 0, sizeof(context_->seq_param));
+  memset(&context_->pic_param, 0, sizeof(context_->pic_param));
+  memset(&context_->slice_param, 0, sizeof(context_->slice_param));
 
-  context_ = std::move(context);
-
+  initialized_ = true;
   return true;
 }
 
@@ -1843,10 +1848,6 @@ bool livekit::VaapiEncoderWrapper::Encode(int fourcc,
                                           const uint8_t* v,
                                           bool forceIDR,
                                           std::vector<uint8_t>& encoded) {
-  if (!context_) {
-    // Encoder not initialized
-    return false;
-  }
 
   if (forceIDR) {
     // reset the sequence to start with a new IDR regardless of layout
@@ -1857,9 +1858,9 @@ bool livekit::VaapiEncoderWrapper::Encode(int fourcc,
   uint8_t* output = context_->encoded_buffer;
   VASurfaceID surface =
       context_->src_surface[context_->current_frame_encoding % SURFACE_NUM];
-  int retv = upload_surface_yuv(context_->va_dpy, surface, fourcc,
-                                context_->config.frame_width,
-                                context_->config.frame_height, (uint8_t*)y, (uint8_t*)u, (uint8_t*)v);
+  int retv = upload_surface_yuv(
+      context_->va_dpy, surface, fourcc, context_->config.frame_width,
+      context_->config.frame_height, (uint8_t*)y, (uint8_t*)u, (uint8_t*)v);
 
   if (retv != 0) {
     RTC_LOG(LS_ERROR) << "Failed to upload surface";
