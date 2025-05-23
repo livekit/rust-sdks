@@ -347,7 +347,12 @@ impl LocalParticipant {
         let transceiver =
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
         track.set_transceiver(Some(transceiver));
-        self.inner.rtc_engine.publisher_negotiation_needed();
+        
+        if can_fast_publish {
+            self.inner.rtc_engine.publisher_negotiation_immediate();
+        } else {
+            self.inner.rtc_engine.publisher_negotiation_needed();
+        }
         publication.update_publish_options(options);
 
         self.local.local_track_publications.write().insert(identifier, publication.clone());

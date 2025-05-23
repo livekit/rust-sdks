@@ -308,6 +308,15 @@ impl RtcEngine {
         });
     }
 
+    pub fn publisher_negotiation_immediate(&self) {
+        let inner = self.inner.clone();
+        livekit_runtime::spawn(async move {
+            if let Ok((handle, _)) = inner.wait_reconnection().await {
+                handle.session.publisher_negotiation_immediate()
+            }
+        });
+    }
+
     pub async fn send_request(&self, msg: proto::signal_request::Message) {
         // Getting the current session is OK to do without waiting for reconnection
         // SignalClient will attempt to queue the message if the session is not connected

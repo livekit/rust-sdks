@@ -176,6 +176,7 @@ struct IceCandidateJson {
 struct SessionInner {
     signal_client: Arc<SignalClient>,
     has_published: AtomicBool,
+    pending_negotiation: AtomicBool,
 
     publisher_pc: PeerTransport,
     subscriber_pc: PeerTransport,
@@ -278,6 +279,7 @@ impl RtcSession {
         let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
+            pending_negotiation: Default::default(),
             signal_client,
             publisher_pc,
             subscriber_pc,
@@ -322,6 +324,10 @@ impl RtcSession {
 
     pub fn publisher_negotiation_needed(&self) {
         self.inner.publisher_negotiation_needed()
+    }
+
+    pub fn publisher_negotiation_immediate(&self) {
+        self.inner.publisher_negotiation_immediate()
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -1208,14 +1214,33 @@ impl SessionInner {
             let session = self.clone();
 
             *debouncer = Some(debouncer::debounce(PUBLISHER_NEGOTIATION_FREQUENCY, async move {
-                log::debug!("negotiating the publisher");
-                if let Err(err) =
-                    session.publisher_pc.create_and_send_offer(OfferOptions::default()).await
-                {
-                    log::error!("failed to negotiate the publisher: {:?}", err);
-                }
+                session.perform_negotiation().await;
             }));
         }
+    }
+
+    /// Start immediate publisher negotiation (for fast_publish)
+    fn publisher_negotiation_immediate(self: &Arc<Self>) {
+        self.has_published.store(true, Ordering::Release);
+
+        if self.pending_negotiation.swap(true, Ordering::AcqRel) {
+            log::debug!("negotiation already pending, falling back to debounced negotiation");
+            self.publisher_negotiation_needed();
+            return;
+        }
+
+        let session = self.clone();
+        livekit_runtime::spawn(async move {
+            session.perform_negotiation().await;
+        });
+    }
+
+    async fn perform_negotiation(self: &Arc<Self>) {
+        log::debug!("negotiating the publisher");
+        if let Err(err) = self.publisher_pc.create_and_send_offer(OfferOptions::default()).await {
+            log::error!("failed to negotiate the publisher: {:?}", err);
+        }
+        self.pending_negotiation.store(false, Ordering::Release);
     }
 
     /// Ensure the Publisher PC is connected, if not, start the negotiation
