@@ -84,6 +84,7 @@ struct LocalInfo {
     all_participants_allowed: Mutex<bool>,
     track_permissions: Mutex<Vec<ParticipantTrackPermission>>,
     session: RwLock<Option<Weak<RoomSession>>>,
+    local_track_publications: RwLock<HashMap<LocalTrackIdentifier, LocalTrackPublication>>,
 }
 
 #[derive(Clone)]
@@ -122,6 +123,7 @@ impl LocalParticipant {
                 all_participants_allowed: Mutex::new(true),
                 track_permissions: Mutex::new(vec![]),
                 session: Default::default(),
+                local_track_publications: Default::default(),
             }),
         }
     }
@@ -135,7 +137,16 @@ impl LocalParticipant {
     }
 
     pub(crate) fn internal_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
-        self.inner.track_publications.read().clone()
+        self.local
+            .local_track_publications
+            .read()
+            .iter()
+            .filter_map(|(identifier, publication)| {
+                identifier
+                    .as_track_sid()
+                    .map(|sid| (sid.clone(), TrackPublication::Local(publication.clone())))
+            })
+            .collect()
     }
 
     pub(crate) fn update_info(&self, info: proto::ParticipantInfo) {
@@ -268,19 +279,75 @@ impl LocalParticipant {
                 });
             }
         }
-        let track_info = self.inner.rtc_engine.add_track(req).await?;
-        let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
-        track.update_info(track_info); // Update sid + source
+        let session = self
+            .session()
+            .ok_or_else(|| RoomError::Internal("Session not available".to_string()))?;
+        let can_fast_publish = session.fast_publish
+            && self.is_codec_supported(&track, &session.enabled_publish_codecs);
+
+        let (publication, identifier) = if can_fast_publish {
+            let client_id = req.cid.clone();
+            let track_info = proto::TrackInfo {
+                sid: client_id.clone(),
+                name: track.name(),
+                r#type: proto::TrackType::from(track.kind()) as i32,
+                source: proto::TrackSource::from(options.source) as i32,
+                ..Default::default()
+            };
+            let publication = LocalTrackPublication::new(track_info, track.clone());
+            let identifier = LocalTrackIdentifier::ClientId(client_id.clone());
+
+            let rtc_engine = self.inner.rtc_engine.clone();
+            let local_info = self.local.clone();
+            let participant_identity = self.identity();
+            livekit_runtime::spawn(async move {
+                if let Ok(server_track_info) = rtc_engine.add_track(req).await {
+                    let mut publications = local_info.local_track_publications.write();
+                    if let Some(publication) =
+                        publications.remove(&LocalTrackIdentifier::ClientId(client_id.clone()))
+                    {
+                        let old_sid: TrackSid = client_id.try_into().unwrap();
+                        let server_sid: TrackSid =
+                            server_track_info.sid.clone().try_into().unwrap();
+                        publications.insert(
+                            LocalTrackIdentifier::ServerSid(server_sid.clone()),
+                            publication.clone(),
+                        );
+
+                        if let Some(track) = publication.track() {
+                            track.update_info(server_track_info);
+                        }
+
+                        if let Some(session) =
+                            local_info.session.read().as_ref().and_then(|s| s.upgrade())
+                        {
+                            session.e2ee_manager.migrate_track_sid(
+                                participant_identity,
+                                old_sid,
+                                server_sid,
+                            );
+                        }
+                    }
+                }
+            });
+
+            (publication, identifier)
+        } else {
+            let track_info = self.inner.rtc_engine.add_track(req).await?;
+            let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
+            track.update_info(track_info.clone());
+            let track_sid: TrackSid = track_info.sid.try_into().unwrap();
+            let identifier = LocalTrackIdentifier::ServerSid(track_sid);
+            (publication, identifier)
+        };
 
         let transceiver =
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
-
         track.set_transceiver(Some(transceiver));
-
         self.inner.rtc_engine.publisher_negotiation_needed();
-
         publication.update_publish_options(options);
-        self.add_publication(TrackPublication::Local(publication.clone()));
+
+        self.local.local_track_publications.write().insert(identifier, publication.clone());
 
         if let Some(local_track_published) = self.local.events.local_track_published.lock().as_ref()
         {
@@ -289,6 +356,12 @@ impl LocalParticipant {
         track.enable();
 
         Ok(publication)
+    }
+
+    fn is_codec_supported(&self, _track: &LocalTrack, _enabled_codecs: &[proto::Codec]) -> bool {
+        // For now, assume all codecs are supported
+        // TODO: Implement proper codec detection from track
+        true
     }
 
     pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
@@ -438,8 +511,10 @@ impl LocalParticipant {
         sid: &TrackSid,
         // _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
-        let publication = self.remove_publication(sid);
-        if let Some(TrackPublication::Local(publication)) = publication {
+        let identifier = LocalTrackIdentifier::ServerSid(sid.clone());
+        let publication = self.local.local_track_publications.write().remove(&identifier);
+
+        if let Some(publication) = publication {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();
 
@@ -678,19 +753,21 @@ impl LocalParticipant {
     }
 
     pub fn track_publications(&self) -> HashMap<TrackSid, LocalTrackPublication> {
-        self.inner
-            .track_publications
+        self.local
+            .local_track_publications
             .read()
-            .clone()
-            .into_iter()
-            .map(|(sid, track)| {
-                if let TrackPublication::Local(local) = track {
-                    return (sid, local);
-                }
-
-                unreachable!()
+            .iter()
+            .filter_map(|(identifier, publication)| {
+                identifier.as_track_sid().map(|sid| (sid.clone(), publication.clone()))
             })
             .collect()
+    }
+
+    pub fn get_track_publication_by_identifier(
+        &self,
+        identifier: &LocalTrackIdentifier,
+    ) -> Option<LocalTrackPublication> {
+        self.local.local_track_publications.read().get(identifier).cloned()
     }
 
     pub fn audio_level(&self) -> f32 {

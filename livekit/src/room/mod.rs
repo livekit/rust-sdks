@@ -423,6 +423,8 @@ pub(crate) struct RoomSession {
     incoming_stream_manager: IncomingStreamManager,
     outgoing_stream_manager: OutgoingStreamManager,
     handle: AsyncMutex<Option<Handle>>,
+    fast_publish: bool,
+    enabled_publish_codecs: Vec<proto::Codec>,
 }
 
 struct Handle {
@@ -580,6 +582,8 @@ impl Room {
             incoming_stream_manager,
             outgoing_stream_manager,
             handle: Default::default(),
+            fast_publish: join_response.fast_publish,
+            enabled_publish_codecs: join_response.enabled_publish_codecs,
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
 

@@ -145,6 +145,22 @@ impl E2eeManager {
         self.remove_frame_cryptor(participant.identity(), publication.sid());
     }
 
+    /// Called when track SID is migrated from client ID to server SID (fast_publish)
+    pub(crate) fn migrate_track_sid(
+        &self,
+        participant_identity: ParticipantIdentity,
+        old_sid: TrackSid,
+        new_sid: TrackSid,
+    ) {
+        let mut inner = self.inner.lock();
+        let old_key = (participant_identity.clone(), old_sid);
+        let new_key = (participant_identity, new_sid);
+
+        if let Some(frame_cryptor) = inner.frame_cryptors.remove(&old_key) {
+            inner.frame_cryptors.insert(new_key, frame_cryptor);
+        }
+    }
+
     /// Called by the room
     pub(crate) fn on_track_unsubscribed(
         &self,

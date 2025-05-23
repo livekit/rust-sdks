@@ -18,6 +18,12 @@ pub struct TrackSid(String);
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct RoomSid(String);
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub enum LocalTrackIdentifier {
+    ClientId(String),
+    ServerSid(TrackSid),
+}
+
 impl From<String> for ParticipantIdentity {
     fn from(value: String) -> Self {
         Self(value)
@@ -70,3 +76,45 @@ macro_rules! impl_from_prefix {
 impl_from_prefix!(RoomSid, ROOM_PREFIX);
 impl_from_prefix!(ParticipantSid, PARTICIPANT_PREFIX);
 impl_from_prefix!(TrackSid, TRACK_PREFIX);
+
+impl LocalTrackIdentifier {
+    pub fn as_str(&self) -> &str {
+        match self {
+            LocalTrackIdentifier::ClientId(cid) => cid,
+            LocalTrackIdentifier::ServerSid(sid) => sid.as_str(),
+        }
+    }
+
+    pub fn is_server_sid(&self) -> bool {
+        matches!(self, LocalTrackIdentifier::ServerSid(_))
+    }
+
+    pub fn is_client_id(&self) -> bool {
+        matches!(self, LocalTrackIdentifier::ClientId(_))
+    }
+
+    pub fn as_track_sid(&self) -> Option<&TrackSid> {
+        match self {
+            LocalTrackIdentifier::ServerSid(sid) => Some(sid),
+            LocalTrackIdentifier::ClientId(_) => None,
+        }
+    }
+}
+
+impl Display for LocalTrackIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl From<TrackSid> for LocalTrackIdentifier {
+    fn from(sid: TrackSid) -> Self {
+        LocalTrackIdentifier::ServerSid(sid)
+    }
+}
+
+impl From<String> for LocalTrackIdentifier {
+    fn from(cid: String) -> Self {
+        LocalTrackIdentifier::ClientId(cid)
+    }
+}
