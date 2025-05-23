@@ -22,7 +22,10 @@ use std::{
     time::Duration,
 };
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission};
+use super::{
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantPublications,
+    ParticipantTrackPermission,
+};
 use crate::{
     data_stream::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
@@ -215,11 +218,11 @@ impl LocalParticipant {
     }
 
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
-        super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
+        super::add_publication(self, &self.inner, &Participant::Local(self.clone()), publication);
     }
 
     pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
-        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid)
+        super::remove_publication(self, &self.inner, &Participant::Local(self.clone()), sid)
     }
 
     pub(crate) fn published_tracks_info(&self) -> Vec<proto::TrackPublishedResponse> {
@@ -348,6 +351,7 @@ impl LocalParticipant {
         publication.update_publish_options(options);
 
         self.local.local_track_publications.write().insert(identifier, publication.clone());
+        self.add_publication(TrackPublication::Local(publication.clone()));
 
         if let Some(local_track_published) = self.local.events.local_track_published.lock().as_ref()
         {
@@ -515,6 +519,7 @@ impl LocalParticipant {
         let publication = self.local.local_track_publications.write().remove(&identifier);
 
         if let Some(publication) = publication {
+            self.remove_publication(sid);
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();
 
@@ -1045,5 +1050,33 @@ impl LocalParticipant {
     ///
     pub async fn stream_bytes(&self, options: StreamByteOptions) -> StreamResult<ByteStreamWriter> {
         self.session().unwrap().outgoing_stream_manager.stream_bytes(options).await
+    }
+}
+
+impl ParticipantPublications for LocalParticipant {
+    fn get_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.internal_track_publications()
+    }
+
+    fn get_track_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
+        let identifier = LocalTrackIdentifier::ServerSid(sid.clone());
+        self.local
+            .local_track_publications
+            .read()
+            .get(&identifier)
+            .map(|publication| TrackPublication::Local(publication.clone()))
+    }
+
+    fn add_publication_internal(&self, _publication: TrackPublication) {
+        // No-op: LocalParticipant manages storage directly in publish_track
+    }
+
+    fn remove_publication_internal(&self, sid: &TrackSid) -> Option<TrackPublication> {
+        let identifier = LocalTrackIdentifier::ServerSid(sid.clone());
+        self.local
+            .local_track_publications
+            .read()
+            .get(&identifier)
+            .map(|publication| TrackPublication::Local(publication.clone()))
     }
 }

@@ -20,6 +20,13 @@ use parking_lot::{Mutex, RwLock};
 
 use crate::{prelude::*, rtc_engine::RtcEngine};
 
+pub(super) trait ParticipantPublications {
+    fn get_track_publications(&self) -> HashMap<TrackSid, TrackPublication>;
+    fn get_track_publication(&self, sid: &TrackSid) -> Option<TrackPublication>;
+    fn add_publication_internal(&self, publication: TrackPublication);
+    fn remove_publication_internal(&self, sid: &TrackSid) -> Option<TrackPublication>;
+}
+
 mod local_participant;
 mod remote_participant;
 mod rpc;
@@ -134,7 +141,6 @@ struct ParticipantEvents {
 pub(super) struct ParticipantInner {
     rtc_engine: Arc<RtcEngine>,
     info: RwLock<ParticipantInfo>,
-    track_publications: RwLock<HashMap<TrackSid, TrackPublication>>,
     events: Arc<ParticipantEvents>,
 }
 
@@ -168,7 +174,6 @@ pub(super) fn new_inner(
             connection_quality: ConnectionQuality::Excellent,
             disconnect_reason: DisconnectReason::UnknownReason,
         }),
-        track_publications: Default::default(),
         events: Default::default(),
     })
 }
@@ -268,12 +273,12 @@ pub(super) fn on_attributes_changed(
 }
 
 pub(super) fn remove_publication(
-    inner: &Arc<ParticipantInner>,
+    participant_publications: &dyn ParticipantPublications,
+    _inner: &Arc<ParticipantInner>,
     _participant: &Participant,
     sid: &TrackSid,
 ) -> Option<TrackPublication> {
-    let mut tracks = inner.track_publications.write();
-    let publication = tracks.remove(sid);
+    let publication = participant_publications.remove_publication_internal(sid);
     if let Some(publication) = publication.clone() {
         // remove events
         publication.on_muted(|_| {});
@@ -287,12 +292,12 @@ pub(super) fn remove_publication(
 }
 
 pub(super) fn add_publication(
+    participant_publications: &dyn ParticipantPublications,
     inner: &Arc<ParticipantInner>,
     participant: &Participant,
     publication: TrackPublication,
 ) {
-    let mut tracks = inner.track_publications.write();
-    tracks.insert(publication.sid(), publication.clone());
+    participant_publications.add_publication_internal(publication.clone());
 
     publication.on_muted({
         let events = inner.events.clone();

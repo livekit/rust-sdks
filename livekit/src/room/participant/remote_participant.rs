@@ -22,9 +22,11 @@ use std::{
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, TrackKind};
+use super::{
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantPublications, TrackKind,
+};
 use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -49,6 +51,7 @@ struct RemoteEvents {
 struct RemoteInfo {
     events: Arc<RemoteEvents>,
     auto_subscribe: bool, // better way to access this from room?
+    track_publications: RwLock<HashMap<TrackSid, TrackPublication>>,
 }
 
 #[derive(Clone)]
@@ -80,12 +83,16 @@ impl RemoteParticipant {
     ) -> Self {
         Self {
             inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
-            remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
+            remote: Arc::new(RemoteInfo {
+                events: Default::default(),
+                auto_subscribe,
+                track_publications: Default::default(),
+            }),
         }
     }
 
     pub(crate) fn internal_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
-        self.inner.track_publications.read().clone()
+        self.remote.track_publications.read().clone()
     }
 
     pub(crate) async fn add_subscribed_media_track(
@@ -208,7 +215,7 @@ impl RemoteParticipant {
         }
 
         // remove tracks that are no longer valid
-        let tracks = self.inner.track_publications.read().clone();
+        let tracks = self.remote.track_publications.read().clone();
         for sid in tracks.keys() {
             if valid_tracks.contains(sid) {
                 continue;
@@ -307,6 +314,7 @@ impl RemoteParticipant {
 
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
         super::add_publication(
+            self,
             &self.inner,
             &Participant::Remote(self.clone()),
             publication.clone(),
@@ -414,7 +422,7 @@ impl RemoteParticipant {
 
     pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
         let publication =
-            super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
+            super::remove_publication(self, &self.inner, &Participant::Remote(self.clone()), sid);
 
         if let Some(publication) = publication.clone() {
             let TrackPublication::Remote(publication) = publication else {
@@ -430,7 +438,7 @@ impl RemoteParticipant {
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<RemoteTrackPublication> {
-        self.inner.track_publications.read().get(sid).map(|track| {
+        self.remote.track_publications.read().get(sid).map(|track| {
             if let TrackPublication::Remote(remote) = track {
                 return remote.clone();
             }
@@ -463,7 +471,7 @@ impl RemoteParticipant {
     }
 
     pub fn track_publications(&self) -> HashMap<TrackSid, RemoteTrackPublication> {
-        self.inner
+        self.remote
             .track_publications
             .read()
             .clone()
@@ -491,5 +499,23 @@ impl RemoteParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+}
+
+impl ParticipantPublications for RemoteParticipant {
+    fn get_track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
+        self.remote.track_publications.read().clone()
+    }
+
+    fn get_track_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
+        self.remote.track_publications.read().get(sid).cloned()
+    }
+
+    fn add_publication_internal(&self, publication: TrackPublication) {
+        self.remote.track_publications.write().insert(publication.sid(), publication);
+    }
+
+    fn remove_publication_internal(&self, sid: &TrackSid) -> Option<TrackPublication> {
+        self.remote.track_publications.write().remove(sid)
     }
 }
