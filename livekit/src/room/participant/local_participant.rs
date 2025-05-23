@@ -719,13 +719,8 @@ impl LocalParticipant {
     }
 
     pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
-        self.inner.track_publications.read().get(sid).map(|track| {
-            if let TrackPublication::Local(local) = track {
-                return local.clone();
-            }
-
-            unreachable!()
-        })
+        let identifier = LocalTrackIdentifier::ServerSid(sid.clone());
+        self.local.local_track_publications.read().get(&identifier).cloned()
     }
 
     pub fn sid(&self) -> ParticipantSid {
