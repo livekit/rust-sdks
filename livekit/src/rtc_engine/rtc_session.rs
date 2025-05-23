@@ -35,7 +35,7 @@ use proto::{
     SignalTarget,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{id::ParticipantIdentity, ChatMessage, TranscriptionSegment};
@@ -59,6 +59,24 @@ pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
+
+#[derive(Debug)]
+enum NegotiationState {
+    Idle,
+    InProgress,
+    PendingRetry,
+}
+
+struct NegotiationQueue {
+    state: Arc<Mutex<NegotiationState>>,
+    waker: Arc<Notify>,
+}
+
+impl NegotiationQueue {
+    fn new() -> Self {
+        Self { state: Arc::new(Mutex::new(NegotiationState::Idle)), waker: Arc::new(Notify::new()) }
+    }
+}
 
 pub type SessionEmitter = mpsc::UnboundedSender<SessionEvent>;
 pub type SessionEvents = mpsc::UnboundedReceiver<SessionEvent>;
@@ -176,6 +194,7 @@ struct IceCandidateJson {
 struct SessionInner {
     signal_client: Arc<SignalClient>,
     has_published: AtomicBool,
+    fast_publish: AtomicBool,
 
     publisher_pc: PeerTransport,
     subscriber_pc: PeerTransport,
@@ -200,6 +219,7 @@ struct SessionInner {
 
     options: EngineOptions,
     negotiation_debouncer: Mutex<Option<Debouncer>>,
+    negotiation_queue: NegotiationQueue,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
 }
@@ -278,6 +298,7 @@ impl RtcSession {
         let (close_tx, close_rx) = watch::channel(false);
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
+            fast_publish: AtomicBool::new(join_response.fast_publish),
             signal_client,
             publisher_pc,
             subscriber_pc,
@@ -297,6 +318,7 @@ impl RtcSession {
             emitter,
             options,
             negotiation_debouncer: Default::default(),
+            negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
         });
 
@@ -1201,6 +1223,59 @@ impl SessionInner {
     fn publisher_negotiation_needed(self: &Arc<Self>) {
         self.has_published.store(true, Ordering::Release);
 
+        if self.fast_publish.load(Ordering::Acquire) {
+            self.queue_negotiation();
+        } else {
+            self.debounce_negotiation();
+        }
+    }
+
+    fn queue_negotiation(self: &Arc<Self>) {
+        let mut state = self.negotiation_queue.state.lock();
+
+        match *state {
+            NegotiationState::Idle => {
+                *state = NegotiationState::InProgress;
+                drop(state);
+
+                let session = self.clone();
+                livekit_runtime::spawn(async move {
+                    session.execute_negotiation_with_retry().await;
+                });
+            }
+            NegotiationState::InProgress => {
+                *state = NegotiationState::PendingRetry;
+            }
+            NegotiationState::PendingRetry => {
+                // Already pending retry
+            }
+        }
+    }
+
+    async fn execute_negotiation_with_retry(self: &Arc<Self>) {
+        loop {
+            log::debug!("negotiating the publisher (fast mode)");
+            if let Err(err) = self.publisher_pc.create_and_send_offer(OfferOptions::default()).await
+            {
+                log::error!("failed to negotiate the publisher: {:?}", err);
+            }
+
+            let mut state = self.negotiation_queue.state.lock();
+            match *state {
+                NegotiationState::PendingRetry => {
+                    *state = NegotiationState::InProgress;
+                    drop(state);
+                    continue;
+                }
+                _ => {
+                    *state = NegotiationState::Idle;
+                    break;
+                }
+            }
+        }
+    }
+
+    fn debounce_negotiation(self: &Arc<Self>) {
         let mut debouncer = self.negotiation_debouncer.lock();
 
         // call() returns an error if the debouncer has finished
@@ -1208,7 +1283,7 @@ impl SessionInner {
             let session = self.clone();
 
             *debouncer = Some(debouncer::debounce(PUBLISHER_NEGOTIATION_FREQUENCY, async move {
-                log::debug!("negotiating the publisher");
+                log::debug!("negotiating the publisher (debounced)");
                 if let Err(err) =
                     session.publisher_pc.create_and_send_offer(OfferOptions::default()).await
                 {
