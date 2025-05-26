@@ -210,7 +210,7 @@ int32_t VAAPIH264EncoderWrapper::Encode(
   encoded_image_._encodedHeight = configuration_.height;
   encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
   encoded_image_.SetColorSpace(input_frame.color_space());
-  encoded_image_._frameType = is_keyframe_needed
+  encoded_image_._frameType = send_key_frame
                                   ? VideoFrameType::kVideoFrameKey
                                   : VideoFrameType::kVideoFrameDelta;
   // encoded_image_.SetSimulcastIndex(configuration_.simulcast_idx);
@@ -220,7 +220,7 @@ int32_t VAAPIH264EncoderWrapper::Encode(
   codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
   codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
   codec_specific.codecSpecific.H264.base_layer_sync = false;
-  codec_specific.codecSpecific.H264.idr_frame = is_keyframe_needed;
+  codec_specific.codecSpecific.H264.idr_frame = send_key_frame;
   encoded_image_callback_->OnEncodedImage(encoded_image_, &codec_specific);
 
   return WEBRTC_VIDEO_CODEC_OK;
@@ -251,14 +251,13 @@ void VAAPIH264EncoderWrapper::SetRates(
 
   if (parameters.bitrate.get_sum_bps() == 0) {
     configuration_.SetStreamState(false);
-
     return;
   }
 
   codec_.maxFramerate = static_cast<uint32_t>(parameters.framerate_fps);
 
   // Update layer config.
-  configuration_.target_bps = parameters.bitrate.get_sum_bps();
+  configuration_.target_bps = parameters.bitrate.GetSpatialLayerSum(0);
   configuration_.max_frame_rate = parameters.framerate_fps;
 
   if (configuration_.target_bps) {
