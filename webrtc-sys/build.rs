@@ -139,7 +139,6 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=va-drm");
 
             builder
-            .file("src/vaapi_video_factory.cpp")
             .file("src/vaapi/vaapi_display.cpp")
             .file("src/vaapi/vaapi_encoder.cpp")
             .file("src/vaapi/h264_encoder_impl.cpp")

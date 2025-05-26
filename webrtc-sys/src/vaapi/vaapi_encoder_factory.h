@@ -15,6 +15,8 @@
   public:
   VAAPIVideoEncoderFactory();
    ~VAAPIVideoEncoderFactory() override;
+
+   static bool IsSupported();
  
    std::unique_ptr<VideoEncoder> Create(const Environment& env,
                                         const SdpVideoFormat& format) override;
