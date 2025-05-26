@@ -67,6 +67,7 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
   void ReportError();
   bool has_reported_init_ = false;
   bool has_reported_error_ = false;
+  webrtc::H264BitstreamParser h264_bitstream_parser_;
 };
 
 }  // namespace webrtc

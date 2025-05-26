@@ -1742,7 +1742,10 @@ void livekit::VaapiEncoderWrapper::Destroy() {
     va_display_->Close();
   }
 
-  context_ = nullptr;
+  context_->va_dpy = nullptr;
+  context_->context_id = VA_INVALID_ID;
+  memset((void*)context_.get(), 0, sizeof(VA264Context));
+  initialized_ = false;
 }
 
 bool livekit::VaapiEncoderWrapper::Initialize(int width,

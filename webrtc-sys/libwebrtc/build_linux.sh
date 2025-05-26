@@ -108,9 +108,9 @@ args="is_debug=$debug  \
   use_rtti=true \
   rtc_use_x11=false"
 
-if [ "$debug" = "true" ]; then
-  args="${args} is_asan=true is_lsan=true";
-fi
+#if [ "$debug" = "true" ]; then
+#  args="${args} is_asan=true is_lsan=true";
+#fi
 
 # generate ninja files
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"

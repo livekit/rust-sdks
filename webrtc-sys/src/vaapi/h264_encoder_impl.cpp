@@ -96,6 +96,18 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
   encoded_image_._encodedHeight = codec_.height;
   encoded_image_.set_size(0);
 
+
+  if (!encoder_->IsInitialized()) {
+    // Initialize encoder.
+    int keyFrameInterval = 60;
+    if (codec_.maxFramerate > 0) {
+      keyFrameInterval = codec_.maxFramerate * 5;
+    }
+    encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate * 1000,
+                         keyFrameInterval, keyFrameInterval, 1,
+                         codec_.maxFramerate, VAProfileH264High, VA_RC_CBR);
+  }
+
   SimulcastRateAllocator init_allocator(codec_);
   VideoBitrateAllocation allocation =
       init_allocator.Allocate(VideoBitrateAllocationParameters(
@@ -112,6 +124,9 @@ int32_t VAAPIH264EncoderWrapper::RegisterEncodeCompleteCallback(
 }
 
 int32_t VAAPIH264EncoderWrapper::Release() {
+  if(encoder_->IsInitialized()) {
+    encoder_->Destroy();
+  }
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -150,28 +165,47 @@ int32_t VAAPIH264EncoderWrapper::Encode(
     is_keyframe_needed = true;
   }
 
-  if (!encoder_->IsInitialized()) {
-    // Initialize encoder.
-    int keyFrameInterval = 60;
-    if (codec_.maxFramerate > 0) {
-      keyFrameInterval = codec_.maxFramerate * 5;
+  bool send_key_frame =
+        is_keyframe_needed ||
+        (frame_types &&
+         (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
+    if (send_key_frame) {
+      is_keyframe_needed = true;
+      configuration_.key_frame_request = false;
     }
-    encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate * 1000,
-                         keyFrameInterval, keyFrameInterval, 1,
-                         codec_.maxFramerate, VAProfileH264Main, VA_RC_CBR);
+
+  RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
+  RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
+
+  
+  if (!configuration_.sending) {
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
+
+  if (frame_types != nullptr) {
+    // Skip frame?
+    if ((*frame_types)[0] == VideoFrameType::kEmptyFrame) {
+      return WEBRTC_VIDEO_CODEC_OK;
+    }
   }
 
   std::vector<uint8_t> output;
   encoder_->Encode(VA_FOURCC_I420, frame_buffer->DataY(), frame_buffer->DataU(),
-                   frame_buffer->DataV(), is_keyframe_needed, output);
+                   frame_buffer->DataV(), send_key_frame, output);
 
   if (output.empty()) {
     RTC_LOG(LS_ERROR) << "Failed to encode frame.";
-    return WEBRTC_VIDEO_CODEC_OK;
+    return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
   encoded_image_.SetEncodedData(
       EncodedImageBuffer::Create(output.data(), output.size()));
+
+  h264_bitstream_parser_.ParseBitstream(encoded_image_);
+
+  encoded_image_.qp_ =
+          h264_bitstream_parser_.GetLastSliceQp().value_or(-1);
+
   encoded_image_._encodedWidth = configuration_.width;
   encoded_image_._encodedHeight = configuration_.height;
   encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
