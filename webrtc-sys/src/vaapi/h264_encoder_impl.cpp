@@ -203,9 +203,6 @@ int32_t VAAPIH264EncoderWrapper::Encode(
 
   bool is_keyframe_needed = false;
   if (configuration_.key_frame_request && configuration_.sending) {
-    // This is legacy behavior, generating a keyframe on all layers
-    // when generating one for a layer that became active for the first time
-    // or after being disabled.
     is_keyframe_needed = true;
   }
 
@@ -221,13 +218,13 @@ int32_t VAAPIH264EncoderWrapper::Encode(
   RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
 
   if (!configuration_.sending) {
-    return WEBRTC_VIDEO_CODEC_OK;
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
   if (frame_types != nullptr) {
     // Skip frame?
     if ((*frame_types)[0] == VideoFrameType::kEmptyFrame) {
-      return WEBRTC_VIDEO_CODEC_OK;
+      return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
     }
   }
 
@@ -253,8 +250,6 @@ int32_t VAAPIH264EncoderWrapper::Encode(
   encoded_image_.SetColorSpace(input_frame.color_space());
   encoded_image_._frameType = send_key_frame ? VideoFrameType::kVideoFrameKey
                                              : VideoFrameType::kVideoFrameDelta;
-  // encoded_image_.SetSimulcastIndex(configuration_.simulcast_idx);
-
   CodecSpecificInfo codec_specific;
   codec_specific.codecType = kVideoCodecH264;
   codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
@@ -296,7 +291,6 @@ void VAAPIH264EncoderWrapper::SetRates(
 
   codec_.maxFramerate = static_cast<uint32_t>(parameters.framerate_fps);
 
-  // Update layer config.
   configuration_.target_bps = parameters.bitrate.GetSpatialLayerSum(0);
   configuration_.max_frame_rate = parameters.framerate_fps;
 
