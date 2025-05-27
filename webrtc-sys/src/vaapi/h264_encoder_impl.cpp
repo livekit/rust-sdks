@@ -33,9 +33,35 @@ enum H264EncoderImplEvent {
 };
 
 VAAPIH264EncoderWrapper::VAAPIH264EncoderWrapper(const webrtc::Environment& env,
-                                                 H264EncoderSettings settings)
+                                                 const SdpVideoFormat& format)
     : encoder_(new livekit::VaapiEncoderWrapper()),
-      packetization_mode_(settings.packetization_mode) {}
+      packetization_mode_(
+          H264EncoderSettings::Parse(format).packetization_mode),
+      format_(format) {
+  std::string hexString = format_.parameters.at("profile-level-id");
+  absl::optional<webrtc::H264ProfileLevelId> profile_level_id =
+      webrtc::ParseH264ProfileLevelId(hexString.c_str());
+  if (profile_level_id.has_value()) {
+    profile_ = profile_level_id->profile;
+    level_ = profile_level_id->level;
+  }
+}
+
+VAProfile VAAPIH264EncoderWrapper::GetVAProfile() const {
+  switch (profile_) {
+    case H264Profile::kProfileConstrainedBaseline:
+    case H264Profile::kProfileBaseline:
+      return VAProfileH264ConstrainedBaseline;
+
+    case H264Profile::kProfileMain:
+      return VAProfileH264Main;
+
+    case H264Profile::kProfileConstrainedHigh:
+    case H264Profile::kProfileHigh:
+      return VAProfileH264High;
+  }
+  return VAProfileNone;
+}
 
 VAAPIH264EncoderWrapper::~VAAPIH264EncoderWrapper() {
   Release();
@@ -96,7 +122,6 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
   encoded_image_._encodedHeight = codec_.height;
   encoded_image_.set_size(0);
 
-
   configuration_.sending = false;
   configuration_.frame_dropping_on = codec_.GetFrameDropEnabled();
   configuration_.key_frame_interval = codec_.H264()->keyFrameInterval;
@@ -108,16 +133,23 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
   configuration_.target_bps = codec_.startBitrate * 1000;
   configuration_.max_bps = codec_.maxBitrate * 1000;
 
-
   if (!encoder_->IsInitialized()) {
     // Initialize encoder.
     int keyFrameInterval = 60;
     if (codec_.maxFramerate > 0) {
       keyFrameInterval = codec_.maxFramerate * 5;
     }
-    encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate * 1000,
-                         keyFrameInterval, keyFrameInterval, 1,
-                         codec_.maxFramerate, VAProfileH264ConstrainedBaseline, VA_RC_VBR);
+    auto va_profile = GetVAProfile();
+    if (va_profile == VAProfileNone) {
+      RTC_LOG(LS_ERROR) << "Unsupported H264 profile: "
+                        << static_cast<int>(profile_);
+      ReportError();
+      return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+    }
+    encoder_->Initialize(codec_.width, codec_.height,
+                         codec_.startBitrate * 1000, keyFrameInterval,
+                         keyFrameInterval, 1, codec_.maxFramerate,
+                         va_profile, VA_RC_VBR);
   }
 
   SimulcastRateAllocator init_allocator(codec_);
@@ -136,7 +168,7 @@ int32_t VAAPIH264EncoderWrapper::RegisterEncodeCompleteCallback(
 }
 
 int32_t VAAPIH264EncoderWrapper::Release() {
-  if(encoder_->IsInitialized()) {
+  if (encoder_->IsInitialized()) {
     encoder_->Destroy();
   }
   return WEBRTC_VIDEO_CODEC_OK;
@@ -178,18 +210,16 @@ int32_t VAAPIH264EncoderWrapper::Encode(
   }
 
   bool send_key_frame =
-        is_keyframe_needed ||
-        (frame_types &&
-         (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
-    if (send_key_frame) {
-      is_keyframe_needed = true;
-      configuration_.key_frame_request = false;
-    }
+      is_keyframe_needed ||
+      (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
+  if (send_key_frame) {
+    is_keyframe_needed = true;
+    configuration_.key_frame_request = false;
+  }
 
   RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
   RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
 
-  
   if (!configuration_.sending) {
     return WEBRTC_VIDEO_CODEC_OK;
   }
@@ -215,16 +245,14 @@ int32_t VAAPIH264EncoderWrapper::Encode(
 
   h264_bitstream_parser_.ParseBitstream(encoded_image_);
 
-  encoded_image_.qp_ =
-          h264_bitstream_parser_.GetLastSliceQp().value_or(-1);
+  encoded_image_.qp_ = h264_bitstream_parser_.GetLastSliceQp().value_or(-1);
 
   encoded_image_._encodedWidth = configuration_.width;
   encoded_image_._encodedHeight = configuration_.height;
   encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
   encoded_image_.SetColorSpace(input_frame.color_space());
-  encoded_image_._frameType = send_key_frame
-                                  ? VideoFrameType::kVideoFrameKey
-                                  : VideoFrameType::kVideoFrameDelta;
+  encoded_image_._frameType = send_key_frame ? VideoFrameType::kVideoFrameKey
+                                             : VideoFrameType::kVideoFrameDelta;
   // encoded_image_.SetSimulcastIndex(configuration_.simulcast_idx);
 
   CodecSpecificInfo codec_specific;

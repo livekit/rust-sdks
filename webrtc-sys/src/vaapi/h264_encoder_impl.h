@@ -38,7 +38,7 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
 
  public:
   VAAPIH264EncoderWrapper(const webrtc::Environment& env,
-                          H264EncoderSettings settings);
+                          const SdpVideoFormat& format);
   ~VAAPIH264EncoderWrapper() override;
 
   int32_t InitEncode(const VideoCodec* codec_settings,
@@ -57,6 +57,9 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
   EncoderInfo GetEncoderInfo() const override;
 
  private:
+  VAProfile GetVAProfile() const;
+
+ private:
   EncodedImageCallback* encoded_image_callback_ = nullptr;
   std::unique_ptr<livekit::VaapiEncoderWrapper> encoder_;
   LayerConfig configuration_;
@@ -68,6 +71,9 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
   bool has_reported_init_ = false;
   bool has_reported_error_ = false;
   webrtc::H264BitstreamParser h264_bitstream_parser_;
+  const SdpVideoFormat format_;
+  H264Profile profile_ = H264Profile::kProfileConstrainedBaseline;
+  H264Level level_ = H264Level::kLevel1_b;
 };
 
 }  // namespace webrtc

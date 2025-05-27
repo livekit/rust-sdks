@@ -8,13 +8,21 @@
 namespace webrtc {
 
 VAAPIVideoEncoderFactory::VAAPIVideoEncoderFactory() {
-  std::map<std::string, std::string> parameters = {
+  std::map<std::string, std::string> baselineParameters = {
       {"profile-level-id", "42e01f"},
       {"level-asymmetry-allowed", "1"},
       {"packetization-mode", "1"},
   };
-  supported_formats_.push_back(SdpVideoFormat("H264", parameters));
-  implementations_.push_back(SdpVideoFormat("H264", parameters));
+  supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
+/*
+  std::map<std::string, std::string> highParameters = {
+      {"profile-level-id", "640c1f"},
+      {"level-asymmetry-allowed", "1"},
+      {"packetization-mode", "1"},
+  };
+
+  supported_formats_.push_back(SdpVideoFormat("H264", highParameters));
+*/
 }
 
 VAAPIVideoEncoderFactory::~VAAPIVideoEncoderFactory() {}
@@ -35,9 +43,12 @@ bool VAAPIVideoEncoderFactory::IsSupported() {
 std::unique_ptr<VideoEncoder> VAAPIVideoEncoderFactory::Create(
     const Environment& env,
     const SdpVideoFormat& format) {
-  if (format.IsSameCodec(supported_formats_[0])) {
-    return std::make_unique<VAAPIH264EncoderWrapper>(
-        env, H264EncoderSettings::Parse(format));
+  // Check if the requested format is supported.
+  for (const auto& supported_format : supported_formats_) {
+    if (format.IsSameCodec(supported_format)) {
+      // If the format is supported, create and return the encoder.
+      return std::make_unique<VAAPIH264EncoderWrapper>(env, format);
+    }
   }
   return nullptr;
 }
@@ -48,7 +59,7 @@ std::vector<SdpVideoFormat> VAAPIVideoEncoderFactory::GetSupportedFormats()
 
 std::vector<SdpVideoFormat> VAAPIVideoEncoderFactory::GetImplementations()
     const {
-  return implementations_;
+  return supported_formats_;
 }
 
 }  // namespace webrtc

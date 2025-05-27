@@ -32,7 +32,6 @@
  
   private:
    std::vector<SdpVideoFormat> supported_formats_;
-   std::vector<SdpVideoFormat> implementations_;
  };
  
  }  // namespace webrtc
