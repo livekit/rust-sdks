@@ -97,6 +97,18 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
   encoded_image_.set_size(0);
 
 
+  configuration_.sending = false;
+  configuration_.frame_dropping_on = codec_.GetFrameDropEnabled();
+  configuration_.key_frame_interval = codec_.H264()->keyFrameInterval;
+
+  configuration_.width = codec_.width;
+  configuration_.height = codec_.height;
+
+  configuration_.max_frame_rate = codec_.maxFramerate;
+  configuration_.target_bps = codec_.startBitrate * 1000;
+  configuration_.max_bps = codec_.maxBitrate * 1000;
+
+
   if (!encoder_->IsInitialized()) {
     // Initialize encoder.
     int keyFrameInterval = 60;
@@ -105,7 +117,7 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
     }
     encoder_->Initialize(codec_.width, codec_.height, codec_.startBitrate * 1000,
                          keyFrameInterval, keyFrameInterval, 1,
-                         codec_.maxFramerate, VAProfileH264High, VA_RC_CBR);
+                         codec_.maxFramerate, VAProfileH264ConstrainedBaseline, VA_RC_VBR);
   }
 
   SimulcastRateAllocator init_allocator(codec_);

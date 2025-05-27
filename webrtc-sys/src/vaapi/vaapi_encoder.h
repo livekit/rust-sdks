@@ -14,6 +14,8 @@
 #define SURFACE_NUM 16 /* 16 surfaces for reference */
 
 typedef struct {
+  // one of: VAProfileH264ConstrainedBaseline, VAProfileH264Main,
+  // VAProfileH264High
   VAProfile h264_profile;
   int h264_entropy_mode;
   int frame_width;

@@ -887,24 +887,25 @@ static int init_va(VA264Context* context, VADisplay va_dpy) {
 
   if (context->attrib[VAConfigAttribRateControl].value !=
       VA_ATTRIB_NOT_SUPPORTED) {
-    context->attrib[VAConfigAttribRateControl].value = VA_RC_CBR;
     int tmp = context->attrib[VAConfigAttribRateControl].value;
 
-    std::string rc_default_modes;
-    if (tmp & VA_RC_NONE)
-      rc_default_modes += "NONE ";
-    if (tmp & VA_RC_VBR)
-      rc_default_modes += "VBR ";
-    if (tmp & VA_RC_CBR)
-      rc_default_modes += "CBR ";
-    if (tmp & VA_RC_VCM)
-      rc_default_modes += "VCM ";
-    if (tmp & VA_RC_CQP)
-      rc_default_modes += "CQP ";
-    if (tmp & VA_RC_VBR_CONSTRAINED)
-      rc_default_modes += "VBR_CONSTRAINED ";
+    //context->attrib[VAConfigAttribRateControl].value = context->config.rc_mode;
 
-    RTC_LOG(LS_INFO) << "Support rate control mode: " << rc_default_modes;
+    std::string rc_modes;
+    if (tmp & VA_RC_NONE)
+      rc_modes += "NONE ";
+    if (tmp & VA_RC_VBR)
+      rc_modes += "VBR ";
+    if (tmp & VA_RC_CBR)
+      rc_modes += "CBR ";
+    if (tmp & VA_RC_VCM)
+      rc_modes += "VCM ";
+    if (tmp & VA_RC_CQP)
+      rc_modes += "CQP ";
+    if (tmp & VA_RC_VBR_CONSTRAINED)
+      rc_modes += "VBR_CONSTRAINED ";
+
+    RTC_LOG(LS_INFO) << "Support rate control mode: " << rc_modes;
 
     if (context->config.rc_mode == -1 || !(context->config.rc_mode & tmp)) {
       if (context->config.rc_mode != -1) {
@@ -1793,8 +1794,6 @@ bool livekit::VaapiEncoderWrapper::Initialize(int width,
                                context_->config.frame_rate / 50;
   }
 
-  // one of: VAProfileH264ConstrainedBaseline, VAProfileH264Main,
-  // VAProfileH264High
   context_->config.h264_profile = profile;
 
   context_->frame_width_mbaligned = (context_->config.frame_width + 15) & (~15);
