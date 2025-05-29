@@ -76,8 +76,8 @@ struct NegotiationQueue {
 
 impl NegotiationQueue {
     fn new() -> Self {
-        Self { 
-            state: Arc::new(Mutex::new(NegotiationState::Idle)), 
+        Self {
+            state: Arc::new(Mutex::new(NegotiationState::Idle)),
             waker: Arc::new(Notify::new()),
             task_running: AtomicBool::new(false),
             waiting_for_answer: AtomicBool::new(false),
@@ -303,8 +303,7 @@ impl RtcSession {
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
         let (close_tx, close_rx) = watch::channel(false);
-        log::warn!("fast_publish enabled: {}", join_response.fast_publish);
-        
+
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
             fast_publish: AtomicBool::new(join_response.fast_publish),
@@ -661,16 +660,14 @@ impl SessionInner {
     async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
         match event {
             proto::signal_response::Message::Answer(answer) => {
-                log::warn!("received publisher answer, processing...");
+                log::debug!("received publisher answer: {:?}", answer);
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
-                log::warn!("setting remote description...");
                 self.publisher_pc.set_remote_description(answer).await?;
-                log::warn!("remote description set successfully");
-                
+
                 if self.fast_publish.load(Ordering::Acquire) {
                     if self.negotiation_queue.waiting_for_answer.swap(false, Ordering::AcqRel) {
-                        log::warn!("answer received, notifying negotiation loop");
+                        log::debug!("answer received, notifying negotiation loop");
                         self.negotiation_queue.waker.notify_one();
                     }
                 }
@@ -1241,12 +1238,12 @@ impl SessionInner {
     fn publisher_negotiation_needed(self: &Arc<Self>) {
         let fast_publish = self.fast_publish.load(Ordering::Acquire);
         self.has_published.store(true, Ordering::Release);
-        
-        log::warn!("publisher_negotiation_needed: fast_publish={}", fast_publish);
-        
+
+        log::debug!("publisher_negotiation_needed: fast_publish={}", fast_publish);
+
         if fast_publish {
             if self.negotiation_queue.waiting_for_answer.load(Ordering::Acquire) {
-                log::warn!("already waiting for answer, marking for retry");
+                log::debug!("already waiting for answer, marking for retry");
                 let mut state = self.negotiation_queue.state.lock();
                 *state = NegotiationState::PendingRetry;
                 return;
@@ -1263,12 +1260,12 @@ impl SessionInner {
         match *state {
             NegotiationState::Idle => {
                 if self.negotiation_queue.task_running.swap(true, Ordering::AcqRel) {
-                    log::warn!("queue_negotiation: task already running, marking for retry");
+                    log::debug!("queue_negotiation: task already running, marking for retry");
                     *state = NegotiationState::PendingRetry;
                     return;
                 }
-                
-                log::warn!("queue_negotiation: starting new negotiation");
+
+                log::debug!("queue_negotiation: starting new negotiation");
                 *state = NegotiationState::InProgress;
                 drop(state);
 
@@ -1279,37 +1276,37 @@ impl SessionInner {
                 });
             }
             NegotiationState::InProgress => {
-                log::warn!("queue_negotiation: marking for retry");
+                log::debug!("queue_negotiation: marking for retry");
                 *state = NegotiationState::PendingRetry;
             }
             NegotiationState::PendingRetry => {
-                log::warn!("queue_negotiation: already pending retry");
+                log::debug!("queue_negotiation: already pending retry");
             }
         }
     }
 
     async fn execute_negotiation_with_retry(self: &Arc<Self>) {
         loop {
-            log::warn!("negotiating the publisher (fast mode)");
-            
+            log::debug!("negotiating the publisher (fast mode)");
+
             self.negotiation_queue.waiting_for_answer.store(true, Ordering::Release);
-            
+
             if let Err(err) = self.publisher_pc.create_and_send_offer(OfferOptions::default()).await
             {
                 log::error!("failed to negotiate the publisher: {:?}", err);
                 self.negotiation_queue.waiting_for_answer.store(false, Ordering::Release);
             } else {
-                log::warn!("offer sent, waiting for answer...");
-                
+                log::debug!("offer sent, waiting for answer...");
+
                 let timeout = tokio::time::sleep(Duration::from_secs(10));
                 tokio::pin!(timeout);
-                
+
                 tokio::select! {
                     _ = self.negotiation_queue.waker.notified() => {
-                        log::warn!("answer received successfully");
+                        log::debug!("answer received successfully");
                     }
                     _ = &mut timeout => {
-                        log::warn!("timeout waiting for answer");
+                        log::debug!("timeout waiting for answer");
                         self.negotiation_queue.waiting_for_answer.store(false, Ordering::Release);
                     }
                 }
@@ -1318,13 +1315,13 @@ impl SessionInner {
             let mut state = self.negotiation_queue.state.lock();
             match *state {
                 NegotiationState::PendingRetry => {
-                    log::warn!("retrying negotiation");
+                    log::debug!("retrying negotiation");
                     *state = NegotiationState::InProgress;
                     drop(state);
                     continue;
                 }
                 _ => {
-                    log::warn!("negotiation completed");
+                    log::debug!("negotiation completed");
                     *state = NegotiationState::Idle;
                     break;
                 }
