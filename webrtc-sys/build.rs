@@ -139,11 +139,11 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=va-drm");
 
             builder
-            .file("src/vaapi/vaapi_display.cpp")
-            .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
-            .file("src/vaapi/vaapi_encoder_factory.cpp")
-            .file("src/vaapi/h264_encoder_impl.cpp")
-            .flag("-std=c++2a");
+                .file("src/vaapi/vaapi_display.cpp")
+                .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                .file("src/vaapi/vaapi_encoder_factory.cpp")
+                .file("src/vaapi/h264_encoder_impl.cpp")
+                .flag("-std=c++2a");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
