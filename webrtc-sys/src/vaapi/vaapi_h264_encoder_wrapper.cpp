@@ -1,4 +1,4 @@
-#include "vaapi_encoder.h"
+#include "vaapi_h264_encoder_wrapper.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -14,6 +14,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <map>
 
 #include "rtc_base/logging.h"
 #include "vaapi_display.h"
@@ -454,12 +455,6 @@ static void slice_header(VA264Context* context, bitstream* bs) {
       context->seq_param.seq_fields.bits.log2_max_frame_num_minus4 +
           4); /* frame_num */
 
-  /* frame_mbs_only_flag == 1 */
-  if (!context->seq_param.seq_fields.bits.frame_mbs_only_flag) {
-    /* FIXME: */
-    assert(0);
-  }
-
   if (context->pic_param.pic_fields.bits.idr_pic_flag)
     bitstream_put_ue(bs, context->slice_param.idr_pic_id); /* idr_pic_id: 0 */
 
@@ -469,9 +464,6 @@ static void slice_header(VA264Context* context, bitstream* bs) {
         context->seq_param.seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 +
             4);
     /* pic_order_present_flag == 0 */
-  } else {
-    /* FIXME: */
-    assert(0);
   }
 
   /* redundant_pic_cnt_present_flag == 0 */
@@ -506,8 +498,6 @@ static void slice_header(VA264Context* context, bitstream* bs) {
        IS_P_SLICE(context->slice_param.slice_type)) ||
       ((context->pic_param.pic_fields.bits.weighted_bipred_idc == 1) &&
        IS_B_SLICE(context->slice_param.slice_type))) {
-    /* FIXME: fill weight/offset table */
-    assert(0);
   }
 
   /* dec_ref_pic_marking */
@@ -712,56 +702,35 @@ void encoding2display_order(uint64_t encoding_order,
   }
 }
 
-static char* fourcc_to_string(int fourcc) {
-  switch (fourcc) {
-    case VA_FOURCC_NV12:
-      return "NV12";
-    case VA_FOURCC_I420:
-      return "I420";
-    case VA_FOURCC_YV12:
-      return "YV12";
-    case VA_FOURCC_UYVY:
-      return "UYVY";
-    default:
-      return "Unknown";
+std::map<int, std::string> fourcc_map = {
+    {VA_FOURCC_NV12, "NV12"},
+    {VA_FOURCC_I420, "I420"},
+    {VA_FOURCC_YV12, "YV12"},
+    {VA_FOURCC_UYVY, "UYVY"}};
+
+static std::string fourcc_to_string(int fourcc) {
+  auto it = fourcc_map.find(fourcc);
+  if (it != fourcc_map.end()) {
+    return it->second;
   }
+  RTC_LOG(LS_ERROR) << "Unknow FOURCC";
+  return "Unknown";
 }
 
-static int string_to_fourcc(char* str) {
-  int fourcc;
+std::map<int, std::string> rc_mode_map = {
+    {VA_RC_NONE, "NONE"},
+    {VA_RC_CBR, "CBR"},
+    {VA_RC_VBR, "VBR"},
+    {VA_RC_VCM, "VCM"},
+    {VA_RC_CQP, "CQP"},
+    {VA_RC_VBR_CONSTRAINED, "VBR_CONSTRAINED"}};
 
-  if (!strncmp(str, "NV12", 4))
-    fourcc = VA_FOURCC_NV12;
-  else if (!strncmp(str, "I420", 4))
-    fourcc = VA_FOURCC_I420;
-  else if (!strncmp(str, "YV12", 4))
-    fourcc = VA_FOURCC_YV12;
-  else if (!strncmp(str, "UYVY", 4))
-    fourcc = VA_FOURCC_UYVY;
-  else {
-    RTC_LOG(LS_ERROR) << "Unknow FOURCC";
-    fourcc = -1;
+static std::string rc_to_string(int rcmode) {
+  auto it = rc_mode_map.find(rcmode);
+  if (it != rc_mode_map.end()) {
+    return it->second;
   }
-  return fourcc;
-}
-
-static char* rc_to_string(int rcmode) {
-  switch (rcmode) {
-    case VA_RC_NONE:
-      return "NONE";
-    case VA_RC_CBR:
-      return "CBR";
-    case VA_RC_VBR:
-      return "VBR";
-    case VA_RC_VCM:
-      return "VCM";
-    case VA_RC_CQP:
-      return "CQP";
-    case VA_RC_VBR_CONSTRAINED:
-      return "VBR_CONSTRAINED";
-    default:
-      return "Unknown";
-  }
+  return "Unknown";
 }
 
 static int init_va(VA264Context* context, VADisplay va_dpy) {
@@ -889,7 +858,8 @@ static int init_va(VA264Context* context, VADisplay va_dpy) {
       VA_ATTRIB_NOT_SUPPORTED) {
     int tmp = context->attrib[VAConfigAttribRateControl].value;
 
-    //context->attrib[VAConfigAttribRateControl].value = context->config.rc_mode;
+    // context->attrib[VAConfigAttribRateControl].value =
+    // context->config.rc_mode;
 
     std::string rc_modes;
     if (tmp & VA_RC_NONE)
@@ -1383,19 +1353,18 @@ static int render_sequence(VA264Context* context) {
   return 0;
 }
 
-static char* frametype_to_string(int ftype) {
-  switch (ftype) {
-    case FRAME_P:
-      return "P";
-    case FRAME_B:
-      return "B";
-    case FRAME_I:
-      return "I";
-    case FRAME_IDR:
-      return "IDR";
-    default:
-      return "Unknown";
+std::map<int, std::string> frame_type_map = {
+    {FRAME_P, "P"},
+    {FRAME_B, "B"},
+    {FRAME_I, "I"},
+    {FRAME_IDR, "IDR"}};
+
+static std::string frametype_to_string(int ftype) {
+  auto it = frame_type_map.find(ftype);
+  if (it != frame_type_map.end()) {
+    return it->second;
   }
+  return "Unknown";
 }
 
 static int calc_poc(VA264Context* context, int pic_order_cnt_lsb) {
@@ -1714,26 +1683,31 @@ static int render_slice(VA264Context* context) {
   return 0;
 }
 
-livekit::VaapiEncoderWrapper::VaapiEncoderWrapper()
+namespace livekit {
+
+VaapiH264EncoderWrapper::VaapiH264EncoderWrapper()
     : va_display_(std::make_unique<VaapiDisplayDrm>()) {
   context_ = std::make_unique<VA264Context>();
   memset((void*)context_.get(), 0, sizeof(VA264Context));
 }
 
-livekit::VaapiEncoderWrapper::~VaapiEncoderWrapper() {}
+VaapiH264EncoderWrapper::~VaapiH264EncoderWrapper() {
+}
 
-void livekit::VaapiEncoderWrapper::Destroy() {
+void VaapiH264EncoderWrapper::Destroy() {
   if (context_->va_dpy) {
     vaDestroySurfaces(context_->va_dpy, &context_->src_surface[0], SURFACE_NUM);
     vaDestroySurfaces(context_->va_dpy, &context_->ref_surface[0], SURFACE_NUM);
   }
+
   if (context_->encoded_buffer) {
     free(context_->encoded_buffer);
     context_->encoded_buffer = nullptr;
   }
 
-  for (int i = 0; i < SURFACE_NUM; i++)
+  for (int i = 0; i < SURFACE_NUM; i++) {
     vaDestroyBuffer(context_->va_dpy, context_->coded_buf[i]);
+  }
 
   vaDestroyContext(context_->va_dpy, context_->context_id);
   vaDestroyConfig(context_->va_dpy, context_->config_id);
@@ -1749,15 +1723,15 @@ void livekit::VaapiEncoderWrapper::Destroy() {
   initialized_ = false;
 }
 
-bool livekit::VaapiEncoderWrapper::Initialize(int width,
-                                              int height,
-                                              int bitrate,
-                                              int intra_period,
-                                              int idr_period,
-                                              int ip_period,
-                                              int frame_rate,
-                                              VAProfile profile,
-                                              int rc_mode) {
+bool VaapiH264EncoderWrapper::Initialize(int width,
+                                         int height,
+                                         int bitrate,
+                                         int intra_period,
+                                         int idr_period,
+                                         int ip_period,
+                                         int frame_rate,
+                                         VAProfile profile,
+                                         int rc_mode) {
   context_->config.h264_entropy_mode = 1;  // cabac
   context_->config.frame_width = width;
   context_->config.frame_height = height;
@@ -1841,12 +1815,12 @@ bool livekit::VaapiEncoderWrapper::Initialize(int width,
   return true;
 }
 
-bool livekit::VaapiEncoderWrapper::Encode(int fourcc,
-                                          const uint8_t* y,
-                                          const uint8_t* u,
-                                          const uint8_t* v,
-                                          bool forceIDR,
-                                          std::vector<uint8_t>& encoded) {
+bool VaapiH264EncoderWrapper::Encode(int fourcc,
+                                     const uint8_t* y,
+                                     const uint8_t* u,
+                                     const uint8_t* v,
+                                     bool forceIDR,
+                                     std::vector<uint8_t>& encoded) {
   if (forceIDR) {
     // reset the sequence to start with a new IDR regardless of layout
     context_->current_frame_num = context_->current_frame_display =
@@ -1940,3 +1914,5 @@ bool livekit::VaapiEncoderWrapper::Encode(int fourcc,
   encoded = std::vector<uint8_t>(output, output + coded_size);
   return true;
 }
+
+}  // namespace livekit

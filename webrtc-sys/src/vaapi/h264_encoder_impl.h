@@ -14,7 +14,8 @@
 #include "modules/video_coding/codecs/h264/include/h264.h"
 #include "modules/video_coding/svc/scalable_video_controller.h"
 #include "modules/video_coding/utility/quality_scaler.h"
-#include "vaapi_encoder.h"
+
+#include "vaapi_h264_encoder_wrapper.h"
 
 namespace webrtc {
 
@@ -61,7 +62,7 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
 
  private:
   EncodedImageCallback* encoded_image_callback_ = nullptr;
-  std::unique_ptr<livekit::VaapiEncoderWrapper> encoder_;
+  std::unique_ptr<livekit::VaapiH264EncoderWrapper> encoder_;
   LayerConfig configuration_;
   EncodedImage encoded_image_;
   H264PacketizationMode packetization_mode_;

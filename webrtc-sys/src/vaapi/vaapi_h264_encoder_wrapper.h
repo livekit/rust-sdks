@@ -1,5 +1,5 @@
-#ifndef VAAPI_ENCODER_WRAPPER_H_
-#define VAAPI_ENCODER_WRAPPER_H_
+#ifndef VAAPI_H264_ENCODER_WRAPPER_H_
+#define VAAPI_H264_ENCODER_WRAPPER_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -73,10 +73,10 @@ typedef struct {
 
 namespace livekit {
 
-class VaapiEncoderWrapper {
+class VaapiH264EncoderWrapper {
  public:
-  VaapiEncoderWrapper();
-  ~VaapiEncoderWrapper();
+  VaapiH264EncoderWrapper();
+  ~VaapiH264EncoderWrapper();
 
   // Initialize the encoder with the given parameters.
   bool Initialize(int width,
@@ -119,4 +119,4 @@ class VaapiEncoderWrapper {
 
 }  // namespace livekit
 
-#endif  // VAAPI_ENCODER_WRAPPER_H_
+#endif  // VAAPI_H264_ENCODER_WRAPPER_H_

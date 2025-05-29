@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "vaapi_encoder.h"
 #ifdef IN_LIBVA
 #include "va/drm/va_drm.h"
 #else
