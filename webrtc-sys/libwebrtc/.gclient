@@ -1,7 +1,7 @@
 solutions = [
   {
     "name": 'src',
-    "url": 'https://github.com/webrtc-sdk/webrtc.git@duan/bump-version-for-boringssl',
+    "url": 'https://github.com/webrtc-sdk/webrtc.git@m125_release',
     "custom_deps": {},
     "deps_file": "DEPS",
     "managed": False,
