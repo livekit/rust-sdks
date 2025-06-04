@@ -141,7 +141,7 @@ impl SignalStream {
                 let mut root_store = RootCertStore::empty();
                 let mut pem = MY_ROOT_CA_PEM.as_bytes();
                 
-                // rustls-pemfile::certs() 결과를 올바르게 처리
+                // rustls-pemfile::certs() 결과를 올바르게  처리
                 let certs: Result<Vec<CertificateDer>, _> = rustls_pemfile::certs(&mut pem).collect();
                 let certs = certs.map_err(|_| SignalError::SendError)?;
                 
