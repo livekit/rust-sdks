@@ -14,10 +14,11 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include <map>
 
 #include "rtc_base/logging.h"
-#include "vaapi_display.h"
+#include "vaapi_display_drm.h"
 
 #define NAL_REF_IDC_NONE 0
 #define NAL_REF_IDC_LOW 1
@@ -702,11 +703,10 @@ void encoding2display_order(uint64_t encoding_order,
   }
 }
 
-std::map<int, std::string> fourcc_map = {
-    {VA_FOURCC_NV12, "NV12"},
-    {VA_FOURCC_I420, "I420"},
-    {VA_FOURCC_YV12, "YV12"},
-    {VA_FOURCC_UYVY, "UYVY"}};
+std::map<int, std::string> fourcc_map = {{VA_FOURCC_NV12, "NV12"},
+                                         {VA_FOURCC_I420, "I420"},
+                                         {VA_FOURCC_YV12, "YV12"},
+                                         {VA_FOURCC_UYVY, "UYVY"}};
 
 static std::string fourcc_to_string(int fourcc) {
   auto it = fourcc_map.find(fourcc);
@@ -718,12 +718,9 @@ static std::string fourcc_to_string(int fourcc) {
 }
 
 std::map<int, std::string> rc_mode_map = {
-    {VA_RC_NONE, "NONE"},
-    {VA_RC_CBR, "CBR"},
-    {VA_RC_VBR, "VBR"},
-    {VA_RC_VCM, "VCM"},
-    {VA_RC_CQP, "CQP"},
-    {VA_RC_VBR_CONSTRAINED, "VBR_CONSTRAINED"}};
+    {VA_RC_NONE, "NONE"}, {VA_RC_CBR, "CBR"},
+    {VA_RC_VBR, "VBR"},   {VA_RC_VCM, "VCM"},
+    {VA_RC_CQP, "CQP"},   {VA_RC_VBR_CONSTRAINED, "VBR_CONSTRAINED"}};
 
 static std::string rc_to_string(int rcmode) {
   auto it = rc_mode_map.find(rcmode);
@@ -1353,11 +1350,10 @@ static int render_sequence(VA264Context* context) {
   return 0;
 }
 
-std::map<int, std::string> frame_type_map = {
-    {FRAME_P, "P"},
-    {FRAME_B, "B"},
-    {FRAME_I, "I"},
-    {FRAME_IDR, "IDR"}};
+std::map<int, std::string> frame_type_map = {{FRAME_P, "P"},
+                                             {FRAME_B, "B"},
+                                             {FRAME_I, "I"},
+                                             {FRAME_IDR, "IDR"}};
 
 static std::string frametype_to_string(int ftype) {
   auto it = frame_type_map.find(ftype);
@@ -1416,23 +1412,11 @@ static int render_picture(VA264Context* context) {
       context->pic_param.CurrPic.TopFieldOrderCnt;
   context->current_curr_pic = context->pic_param.CurrPic;
 
-  if (getenv("TO_DEL")) {       /* set RefPicList into ReferenceFrames */
-    update_RefPicList(context); /* calc RefPicList */
-    memset(context->pic_param.ReferenceFrames, 0xff,
-           16 * sizeof(VAPictureH264)); /* invalid all */
-    if (context->current_frame_type == FRAME_P) {
-      context->pic_param.ReferenceFrames[0] = context->ref_pic_list0_p[0];
-    } else if (context->current_frame_type == FRAME_B) {
-      context->pic_param.ReferenceFrames[0] = context->ref_pic_list0_b[0];
-      context->pic_param.ReferenceFrames[1] = context->ref_pic_list1_b[0];
-    }
-  } else {
-    memcpy(context->pic_param.ReferenceFrames, context->reference_frames,
-           context->num_short_term * sizeof(VAPictureH264));
-    for (i = context->num_short_term; i < SURFACE_NUM; i++) {
-      context->pic_param.ReferenceFrames[i].picture_id = VA_INVALID_SURFACE;
-      context->pic_param.ReferenceFrames[i].flags = VA_PICTURE_H264_INVALID;
-    }
+  memcpy(context->pic_param.ReferenceFrames, context->reference_frames,
+         context->num_short_term * sizeof(VAPictureH264));
+  for (i = context->num_short_term; i < SURFACE_NUM; i++) {
+    context->pic_param.ReferenceFrames[i].picture_id = VA_INVALID_SURFACE;
+    context->pic_param.ReferenceFrames[i].flags = VA_PICTURE_H264_INVALID;
   }
 
   context->pic_param.pic_fields.bits.idr_pic_flag =
@@ -1691,8 +1675,7 @@ VaapiH264EncoderWrapper::VaapiH264EncoderWrapper()
   memset((void*)context_.get(), 0, sizeof(VA264Context));
 }
 
-VaapiH264EncoderWrapper::~VaapiH264EncoderWrapper() {
-}
+VaapiH264EncoderWrapper::~VaapiH264EncoderWrapper() {}
 
 void VaapiH264EncoderWrapper::Destroy() {
   if (context_->va_dpy) {

@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-#include "vaapi_display.h"
+#include "vaapi_display_drm.h"
 
 #define SURFACE_NUM 16 /* 16 surfaces for reference */
 

@@ -1,4 +1,4 @@
-#include "vaapi_display.h"
+#include "vaapi_display_drm.h"
 
 #include <fcntl.h>
 #include <stdio.h>
