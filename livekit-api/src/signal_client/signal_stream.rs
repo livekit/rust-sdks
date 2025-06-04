@@ -39,7 +39,7 @@ use tokio_rustls::rustls::{self, Certificate, RootCertStore, ClientConfig};use t
 #[cfg(feature = "signal-client-tokio")]
 use rustls::pki_types::CertificateDer;
 #[cfg(feature = "signal-client-tokio")]
-const MY_ROOT_CA_PEM: &str = r#"-----BEGIN CERTIFICATE-----
+const MY_ROOT_CA_PEM: &str =  r#"-----BEGIN CERTIFICATE-----
 MIIEujCCAqKgAwIBAgIUGPmGvrXP3M7Duidx10zdkjPOxDMwDQYJKoZIhvcNAQEL
 BQAwaDELMAkGA1UEBhMCS1IxDjAMBgNVBAgMBVNlb3VsMQ4wDAYDVQQHDAVTZW91
 bDEaMBgGA1UECgwRVklSTkVDVCBDTy4sIExURC4xHTAbBgNVBAMMFFZpcm5lY3Qg
