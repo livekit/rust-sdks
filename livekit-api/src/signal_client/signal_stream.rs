@@ -19,8 +19,18 @@ use futures_util::{
 use livekit_protocol as proto;
 use livekit_runtime::{JoinHandle, TcpStream};
 use prost::Message as ProtoMessage;
+use std::{env, io};
 
 use tokio::sync::{mpsc, oneshot};
+
+#[cfg(feature = "signal-client-tokio")]
+use base64;
+
+#[cfg(feature = "signal-client-tokio")]
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    net::TcpStream as TokioTcpStream,
+};
 
 #[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::{
@@ -28,54 +38,57 @@ use tokio_tungstenite::{
     tungstenite::error::ProtocolError,
     tungstenite::{Error as WsError, Message},
     MaybeTlsStream, WebSocketStream,
-    Connector,
+};
+
+#[cfg(feature = "__signal-client-async-compatible")]
+use async_tungstenite::{
+    async_std::connect_async,
+    async_std::ClientStream as MaybeTlsStream,
+    tungstenite::error::ProtocolError,
+    tungstenite::{Error as WsError, Message},
+    WebSocketStream,
 };
 
 #[cfg(feature = "signal-client-tokio")]
 use std::sync::Arc;
 
 #[cfg(feature = "signal-client-tokio")]
-use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
-
-#[cfg(feature = "signal-client-tokio")]
-use rustls::pki_types::CertificateDer;
+use tokio_rustls::rustls::{self, Certificate, RootCertStore, ClientConfig};
 
 #[cfg(feature = "signal-client-tokio")]
 const MY_ROOT_CA_PEM: &str = r#"-----BEGIN CERTIFICATE-----
-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
+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
-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
+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
-EVZJUk5FQ1QgQ08uLCBMVEQuMR0wGwYDVQQDDBRWaXJuZWN0IFJTQSA0MDk2IFYw
-MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAI31ziR2xLzFWyfTzjub
-6YsOH/svhInVQyVcqgms3Atftblj3T45Tq3PHRbbFZW1C2uxAVHDcjUzaKVueZ2t
-4bQh+J7MTP50ZyYLiBPq5rLlPj/zxARrym7cPOViXsMhWaHUM5YfGXKxVaM52lJo
-5iSIB/a2p/NS2Hs581lJBmA0HAKvj7D01qMhTFocXsaIy+p96rqeNf4VQPzy+GYT
-1A12c3WAPOlFs37x/fyBeA6YE9CpqOm7eySG3P638Vca1K5x4IPqegFok8sNDRHN
-6ZeF+Q2FYFOZVpOEXWY10I08Bmsgm94OE+GwEvCrYagW1MWsvPkLbMwVH5MNs39a
-tz4mUEg/ebbp7FWuWgEce0ntsaU4EMBySEV1fqE+uYMHhNoN/hPY2Xa6iaby1llU
-ax6o9g9Ge1D4XHmDpfZ406IC+FoXSlyGq4laFHhee3HHVNnehnm3wkGPGv+2MJxC
-Ye/gYbrGifvUG+wrsDQ1Ak5Gcr1319g2MjDu7OgbmhxV0OupmTee1+IbqHsIRO/z
-BKKoEJSg45dsNJTPVopr942jynLdXEE7VnspGeUNmdKwRnR7lpx5bkbb3j7BnYA5
-Ft/XEK0EMbWF7CKBCxE+qiN9So6UJVhN/ETtcZ+nn8Z/T+m7IuJd2Dt93cvpbwgH
-FO7DlcyTZYKRwNlAMY1EoTgZAgMBAAGjgYowgYcwIQYDVR0RBBowGIcECsgKyYcE
-CsgKzIcECsgKyocECsgK0DASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQE
-AwIBhjAdBgNVHQ4EFgQUzs5AA54E5VoGFGu6DHTvw+EaqXswHwYDVR0jBBgwFoAU
-4BGuqQLCMi47i0+jPYU4oZUeD8AwDQYJKoZIhvcNAQELBQADggIBADbp77+S9WYK
-K7Pdk8B+Rr06nJiIP2m6RbdY7broY2KgHQaMj5KHamdZgFefrXAnizI6CoURUP0+
-lgSxec8FdVdn3R+pj43Anrv0Z/mqsdQdC9+LKJ5qI2P8chpQiI1mJQVdqTfXj/8L
-qIxEqqAOVRst+9AhUBtrQOtRsjdYIqInKu1iI57FNOfKnuBgX/iWGhT7P70WiA5i
-OdFP7YhJTuyVtYFuyrsHUirqjsMuvEZA6WLuakInweOxRftGrDcJWxhtNI8YpVV+
-Zi2R1OlNUWr59SILstiSuFSs2m31cehCsoFT0CE13tniQidmcq3dwxxA7CF4PbDY
-bpuLssLFG5xFnyBvve4jd/so5lyT+2i62GrTnaVW/nvgKvqyDtbP7MGH8Nd38d7f
-DuPIWcS8zAIm0Catc2K8Y0uOUJLdBbnLx+rtQ/C55I+1Zk9e2XSOIEa1xvUQJFCs
-bUUw5zarmZUUYQwIeKBok1Fdtz8YoGY4eCMJQSyZLZd03Ol84EPQgQNiognSAXEv
-k18kI6FkUswGiy8tvAXTER/bQw4g/JbPPkMbrBkJR+kwDUEBCNSRZix0OP1dwdeu
-+Kqii3kGCDgszvAHoeA0peWCm5KwX3KUHmJ6GtQ1QeLvXaeXnQd+6gB4iuuA50RI
-SObEwf+LW1ftJ1igUGT9KF6kuhVJ+Q/w
+EVZJUk5FQ1QgQ08uLCBMVEQuMRgwFgYDVQQDDA9WaXJuZWN0IFJvb3QgQ0EwggIi
+MA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCNHuepYYD2K8dYUB9jlv8JUVa6
+PGxIT8itE5pVeWHT+Wpc2UdChW4AOOEOnrQv+tJRi+bseyu/BtJ5czfBGLkXgLtz
+8WAAe5ALplvaVmfogoiuKQjNy9KCVngq/vfZgaR4YI3m4c/jgb1TKPm4vP1uQdrH
+DdwUHg8iPGyjeEX+3x2MvFcAESIdPIpuwKtNb+irTjc+QeBGVA3B2O9zbggtOyTg
+D8UyTWsFIplAI+w1Tt6ovCKUErcyMSsycEB8G6KW6Zv/mrWbppWOnxJExJc23jC7
+nt/M3ENvZyKP0HDf643T7EIJ+SAYtIszVVEAaYjWFxVh36ItdWyXzJO9GO3XgKXa
+7DxGEI74tCQ24UlUOwGa1INW/WwX3uEvVco0xid+iTdnur5Q8UXTcFUSjnR7WNTc
+2M3kXOBUrN97OQ70o2EOQfHW+YyOSBBpLwJyKLPQNE00laGNeP06UZnWtQGRHg4e
+3M/i4XaPcQfjwIcbsySxTH+lbNwNCfz9ISLJPKOSZR2ESlAEV5f/VjAQhSVYHmNt
+kbIvHS3ajHEaXHQTfrXP/xaSvoRswq0ZQLosYNB8dezLnbzvsrX7qvI7+iH6BFya
+hczyAPRe5MqMSofaWAeIzNzA+71M+xmzPAFevmTntV89cTE4C1CyR9ucr4hGLfbh
+bgQzU95YM4WAZhCKvwIDAQABo1MwUTAdBgNVHQ4EFgQU4BGuqQLCMi47i0+jPYU4
+oZUeD8AwHwYDVR0jBBgwFoAU4BGuqQLCMi47i0+jPYU4oZUeD8AwDwYDVR0TAQH/
+BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAgEAiBM87aqUZqsgcP+n4CfAsxRb4sSr
+yKzCcW8kYJtx6Tj9vT66pUePvYMdM/OGav395/NB8X8kemX4mQNgApliRBszsJ2i
+hC2ZL+Vf0jyFB1OFHH1CocdALCG8l4M6em740JDSWajnlUH3caXohvh7atm7VXpf
+VNG1VIHMBiugfB1TvGzjcLUlgVTzOW7sd3JwbAeeVlsv2Uc6gpxWKs9frfTGxSKL
+jmEjOPQb1Tp1cBQsM+DcMxDTlh2uGEApwzwjWxPOuGT5womRw1vUQJxkEKgPnCDI
+Xs3m3d24O2hZdbOkWZ9dNxH0Q65Ne3idURzGg/Lbd4iNz9pp/ZTebyJ8U572W+x2
+IRKyQ+nYPgvzQanJyFAELOfWbdpwwRO0zm0dAwYSbzBpIJjTFDC/xJMvHrLPxTLZ
+zR3tAZ+BPJhsmq0LwZlXqrVBF0U4pm6iJ4hOMTg4iNcuhxfo3g32eZhjK3kKKdFQ
+V6yTzvSy0zIkC15g67AXV+G60AAw4XJ440y2sjaQAMRdN6a7milEcQyBlAmkMSm2
+w9ESbMVC3IkLhTp21XNDhEKG8GPOaTYPIl1tpIUJD0RtBjAb1Uh87UB9y/Nuuee5
+lSL8F3goKRewe0xQAqokpW3DWhfwlkKaInSSn9xTE/E+jFeXmvPi1eP7tkdDDD4f
+XEl6MIZPi8V2QYY=
 -----END CERTIFICATE-----"#;
-
 
 use super::{SignalError, SignalResult};
 
@@ -136,48 +149,216 @@ impl SignalStream {
 
         #[cfg(feature = "signal-client-tokio")]
         let ws_stream = {
-            if url.scheme() == "wss" {
-                // Parse the PEM and add to root store
-                let mut root_store = RootCertStore::empty();
-                let mut pem = MY_ROOT_CA_PEM.as_bytes();
-                
-                // rustls-pemfile::certs() 결과를 올바르게  처리
-                let certs: Result<Vec<CertificateDer>, _> = rustls_pemfile::certs(&mut pem).collect();
-                let certs = certs.map_err(|_| SignalError::SendError)?;
-                
-                for cert in certs {
-                    root_store.add(cert).map_err(|_| SignalError::SendError)?;
-                }
-                
-                // 최신 rustls API 사용 (with_safe_defaults() 제거)
-                let config = ClientConfig::builder()
-                    .with_root_certificates(root_store)
-                    .with_no_client_auth();
-                    
-                let connector = Connector::Rustls(Arc::new(config));
-                let (ws_stream, _) = tokio_tungstenite::connect_async_tls_with_config(
-                    url,
-                    None,
-                    false,
-                    Some(connector),
-                )
-                .await?;
-                ws_stream
+            // Check for HTTP_PROXY or HTTPS_PROXY environment variables
+            let proxy_env = if url.scheme() == "wss" {
+                env::var("HTTPS_PROXY").or_else(|_| env::var("https_proxy"))
             } else {
+                env::var("HTTP_PROXY").or_else(|_| env::var("http_proxy"))
+            };
+
+            // Connect directly or through proxy
+            let ws_stream = if let Ok(proxy_url) = proxy_env {
+                if !proxy_url.is_empty() {
+                    log::info!("Using proxy: {}", proxy_url);
+                    let proxy_url = url::Url::parse(&proxy_url).map_err(|e| {
+                        WsError::Io(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Invalid proxy URL: {}", e),
+                        ))
+                    })?;
+
+                    let host = url.host_str().ok_or_else(|| {
+                        WsError::Io(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "Target URL has no host",
+                        ))
+                    })?;
+
+                    let port = url.port_or_known_default().ok_or_else(|| {
+                        WsError::Io(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "Target URL has no port and no default for scheme",
+                        ))
+                    })?;
+
+                    let proxy_host = proxy_url.host_str().ok_or_else(|| {
+                        WsError::Io(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "Proxy URL has no host",
+                        ))
+                    })?;
+
+                    let proxy_port = proxy_url.port_or_known_default().unwrap_or(80);
+                    let proxy_addr = format!("{}:{}", proxy_host, proxy_port);
+
+                    let mut proxy_stream =
+                        TokioTcpStream::connect(proxy_addr).await.map_err(WsError::Io)?;
+
+                    let mut proxy_auth_header = None;
+                    if let Some(password) = proxy_url.password() {
+                        let auth = format!("{}:{}", proxy_url.username(), password);
+                        let auth = format!("Basic {}", base64::encode(auth));
+                        proxy_auth_header = Some(auth);
+                    }
+
+                    // Send CONNECT request
+                    let target = format!("{}:{}", host, port);
+                    let mut connect_req =
+                        format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n", target, target);
+
+                    // Add proxy authorization if needed
+                    if let Some(auth) = proxy_auth_header {
+                        connect_req.push_str(&format!("Proxy-Authorization: {}\r\n", auth));
+                    }
+
+                    // Finalize request
+                    connect_req.push_str("\r\n");
+
+                    log::debug!("Sending CONNECT request to proxy");
+                    proxy_stream.write_all(connect_req.as_bytes()).await.map_err(WsError::Io)?;
+
+                    // Read and parse response
+                    let mut response = Vec::new();
+                    let mut buf = [0u8; 4096];
+                    let mut headers_complete = false;
+
+                    while !headers_complete {
+                        let n = proxy_stream.read(&mut buf).await.map_err(WsError::Io)?;
+                        if n == 0 {
+                            return Err(WsError::Io(io::Error::new(
+                                io::ErrorKind::UnexpectedEof,
+                                "Proxy connection closed while reading response",
+                            ))
+                            .into());
+                        }
+
+                        response.extend_from_slice(&buf[..n]);
+
+                        // Check if we've received the end of headers (double CRLF)
+                        if response.windows(4).any(|w| w == b"\r\n\r\n") {
+                            headers_complete = true;
+                        }
+                    }
+
+                    // Parse status line
+                    let response_str = String::from_utf8_lossy(&response);
+                    let status_line = response_str.lines().next().ok_or_else(|| {
+                        WsError::Io(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Invalid proxy response",
+                        ))
+                    })?;
+
+                    // Check status code
+                    if !status_line.contains("200") {
+                        return Err(WsError::Io(io::Error::new(
+                            io::ErrorKind::ConnectionRefused,
+                            format!("Proxy connection failed: {}", status_line),
+                        ))
+                        .into());
+                    }
+
+                    log::debug!("Proxy connection established to {}", target);
+
+                    // Create MaybeTlsStream based on original URL scheme
+                    let stream = if url.scheme() == "wss" {
+                        // Only enable proxy TLS support when rustls-tls-native-roots is enabled
+                        #[cfg(feature = "rustls-tls-native-roots")]
+                        {
+                            // For WSS, we need to establish TLS over the proxy connection
+                            use std::sync::Arc;
+                            use tokio_rustls::{rustls, TlsConnector};
+
+                            // Load native root certificates
+                            let mut root_store = rustls::RootCertStore::empty();
+                            match rustls_native_certs::load_native_certs() {
+                                Ok(certs) => {
+                                    let roots: Vec<rustls::Certificate> = certs
+                                        .into_iter()
+                                        .map(|cert| rustls::Certificate(cert.0))
+                                        .collect();
+
+                                    for root in roots {
+                                        root_store.add(&root).map_err(|e| {
+                                            WsError::Io(io::Error::new(
+                                                io::ErrorKind::Other,
+                                                format!(
+                                                    "Failed to parse root certificate: {:?}",
+                                                    e
+                                                ),
+                                            ))
+                                        })?;
+                                    }
+                                }
+                                Err(e) => {
+                                    return Err(WsError::Io(io::Error::new(
+                                        io::ErrorKind::Other,
+                                        format!("Could not load native root certificates: {}", e),
+                                    ))
+                                    .into());
+                                }
+                            }
+
+                            let tls_config = rustls::ClientConfig::builder()
+                                .with_safe_defaults()
+                                .with_root_certificates(root_store)
+                                .with_no_client_auth();
+
+                            let server_name = rustls::ServerName::try_from(host).map_err(|_| {
+                                WsError::Io(io::Error::new(
+                                    io::ErrorKind::InvalidInput,
+                                    format!("Invalid DNS name: {}", host),
+                                ))
+                            })?;
+
+                            let connector = TlsConnector::from(Arc::new(tls_config));
+                            let tls_stream = connector
+                                .connect(server_name, proxy_stream)
+                                .await
+                                .map_err(|e| {
+                                    WsError::Io(io::Error::new(
+                                        io::ErrorKind::Other,
+                                        format!("TLS connection error: {}", e),
+                                    ))
+                                })?;
+
+                            MaybeTlsStream::Rustls(tls_stream)
+                        }
+
+                        #[cfg(not(feature = "rustls-tls-native-roots"))]
+                        {
+                            // For non-rustls-tls-native-roots builds, don't support proxy for WSS
+                            return Err(WsError::Io(io::Error::new(
+                                io::ErrorKind::Other,
+                                "WSS over proxy requires rustls-tls-native-roots feature",
+                            ))
+                            .into());
+                        }
+                    } else {
+                        // For plain WS, just use the proxy stream directly
+                        MaybeTlsStream::Plain(proxy_stream)
+                    };
+
+                    // Now perform WebSocket handshake over the established connection
+                    let (ws_stream, _) =
+                        tokio_tungstenite::client_async_with_config(url, stream, None).await?;
+                    ws_stream
+                } else {
+                    // No proxy specified, connect directly
+                    let (ws_stream, _) = connect_async(url).await?;
+                    ws_stream
+                }
+            } else {
+                // Non-tokio build or no proxy - connect directly
                 let (ws_stream, _) = connect_async(url).await?;
                 ws_stream
-            }
-        };
+            };
 
-
-
-        #[cfg(not(feature = "signal-client-tokio"))]
-        let ws_stream = {
-            let (ws_stream, _) = connect_async(url).await?;
             ws_stream
         };
 
-
+        #[cfg(not(feature = "signal-client-tokio"))]
+        let (ws_stream, _) = connect_async(url).await?;
         let (ws_writer, ws_reader) = ws_stream.split();
 
         let (emitter, events) = mpsc::unbounded_channel();
