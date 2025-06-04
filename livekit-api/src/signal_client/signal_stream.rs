@@ -76,6 +76,7 @@ k18kI6FkUswGiy8tvAXTER/bQw4g/JbPPkMbrBkJR+kwDUEBCNSRZix0OP1dwdeu
 SObEwf+LW1ftJ1igUGT9KF6kuhVJ+Q/w
 -----END CERTIFICATE-----"#;
 
+
 use super::{SignalError, SignalResult};
 
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -133,31 +134,42 @@ impl SignalStream {
             log::info!("connecting to {}", url);
         }
 
-         #[cfg(feature = "signal-client-tokio")]
+        #[cfg(feature = "signal-client-tokio")]
         let ws_stream = {
             if url.scheme() == "wss" {
                 // Parse the PEM and add to root store
                 let mut root_store = RootCertStore::empty();
-                 let mut pem = MY_ROOT_CA_PEM.as_bytes();
-                let certs: Vec<_> = rustls_pemfile::certs(&mut pem)
-                    .collect();
+                let mut pem = MY_ROOT_CA_PEM.as_bytes();
+                
+                // rustls-pemfile::certs() 결과를 올바르게 처리
+                let certs: Result<Vec<CertificateDer>, _> = rustls_pemfile::certs(&mut pem).collect();
+                let certs = certs.map_err(|_| SignalError::SendError)?;
+                
                 for cert in certs {
-                       let cert = cert.map_err(|_| SignalError::SendError)?;
-                     root_store.add(&Certificate(cert.to_vec())).map_err(|_| SignalError::SendError)?;
                     root_store.add(cert).map_err(|_| SignalError::SendError)?;
                 }
+                
+                // 최신 rustls API 사용 (with_safe_defaults() 제거)
                 let config = ClientConfig::builder()
-                    .with_safe_defaults()
                     .with_root_certificates(root_store)
                     .with_no_client_auth();
+                    
                 let connector = Connector::Rustls(Arc::new(config));
-                 let (ws_stream, _) = tokio_tungstenite::connect_async_tls_with_config(url, None, false, Some(connector)).await?;
+                let (ws_stream, _) = tokio_tungstenite::connect_async_tls_with_config(
+                    url,
+                    None,
+                    false,
+                    Some(connector),
+                )
+                .await?;
                 ws_stream
             } else {
-                   let (ws_stream, _) = connect_async(url).await?;
+                let (ws_stream, _) = connect_async(url).await?;
                 ws_stream
             }
         };
+
+
 
         #[cfg(not(feature = "signal-client-tokio"))]
         let ws_stream = {
