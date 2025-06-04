@@ -35,13 +35,13 @@ use tokio_tungstenite::{
 use std::sync::Arc;
 
 #[cfg(feature = "signal-client-tokio")]
-use tokio_rustls::rustls::{self, RootCertStore, ClientConfig};
+use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
 
 #[cfg(feature = "signal-client-tokio")]
 use rustls::pki_types::CertificateDer;
 
 #[cfg(feature = "signal-client-tokio")]
-const MY_ROOT_CA_PEM: &str =  r#"-----BEGIN CERTIFICATE-----
+const MY_ROOT_CA_PEM: &str = r#"-----BEGIN CERTIFICATE-----
 MIIF5DCCA8ygAwIBAgIUL3ytpWHHgVcBYX7JzetXMFnviVAwDQYJKoZIhvcNAQEL
 BQAwYzELMAkGA1UEBhMCS1IxDjAMBgNVBAgMBVNlb3VsMQ4wDAYDVQQHDAVTZW91
 bDEaMBgGA1UECgwRVklSTkVDVCBDTy4sIExURC4xGDAWBgNVBAMMD1Zpcm5lY3Qg
