@@ -56,7 +56,7 @@ use std::sync::Arc;
 use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
 
 #[cfg(feature = "signal-client-tokio")]
-use rustls_pki_types::CertificateDer;
+use rustls_pki_types::CertificateDer; 
 
 #[cfg(feature = "signal-client-tokio")]
 const MY_ROOT_CA_PEM: &str = r#"-----BEGIN CERTIFICATE-----
