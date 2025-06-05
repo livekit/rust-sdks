@@ -262,8 +262,8 @@ impl SignalStream {
                         .into());
                     }
 
-                    log::debug!("Proxy connection established to {}", target);
-                       
+                    log::debug!("Proxy connection established to {}",target);
+                    
                     // Create MaybeTlsStream based on original URL scheme
                     let stream = if url.scheme() == "wss" {
                         // For WSS, we need to establish TLS over the proxy connection
@@ -281,7 +281,7 @@ impl SignalStream {
                         }
 
                         let tls_config = ClientConfig::builder()
-                            .with_safe_defaults()                // 1~3단계를 한번에 처리
+                            .with_safe_defaults()
                             .with_root_certificates(root_store)
                             .with_no_client_auth();
 
