@@ -260,7 +260,7 @@ impl SignalStream {
                     }
 
                     log::debug!("Proxy connection established to {}", target);
-
+                    #[cfg(feature = "signal-client-tokio")]       
                     // Create MaybeTlsStream based on original URL scheme
                     let stream = if url.scheme() == "wss" {
                         // For WSS, we need to establish TLS over the proxy connection
@@ -268,9 +268,9 @@ impl SignalStream {
                         let mut root_store = RootCertStore::empty();
                         let mut pem = MY_ROOT_CA_PEM.as_bytes();
 
-                        let certs: Result<Vec<CertificateDer>, _> =
-                            rustls_pemfile::certs(&mut pem).collect();
-                        let certs = certs.map_err(|_| SignalError::SendError)?;
+                        let certs = rustls_pemfile::certs(&mut pem)
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(|_| SignalError::SendError)?;
 
                         for cert in certs {
                             root_store.add(cert).map_err(|_| SignalError::SendError)?;
@@ -278,7 +278,8 @@ impl SignalStream {
                         }
 
                         let tls_config = ClientConfig::builder()
-                            .with_root_certificates(root_store) // with_safe_defaults() 제거
+                            .with_safe_defaults()                // 1~3단계를 한번에 처리
+                            .with_root_certificates(root_store)
                             .with_no_client_auth();
 
                         use rustls_pki_types::ServerName; // import 추가
