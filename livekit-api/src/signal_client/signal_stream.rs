@@ -118,6 +118,9 @@ pub(super) struct SignalStream {
     write_handle: JoinHandle<()>,
 }
 
+#[cfg(feature = "signal-client-tokio")]
+use rustls_pemfile; // 추가
+
 impl SignalStream {
     // "..." 제거됨
     /// Connect to livekit websocket.
@@ -260,7 +263,7 @@ impl SignalStream {
                     }
 
                     log::debug!("Proxy connection established to {}", target);
-                    #[cfg(feature = "signal-client-tokio")]       
+                       
                     // Create MaybeTlsStream based on original URL scheme
                     let stream = if url.scheme() == "wss" {
                         // For WSS, we need to establish TLS over the proxy connection
