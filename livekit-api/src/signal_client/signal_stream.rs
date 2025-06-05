@@ -151,7 +151,7 @@ impl SignalStream {
             log::info!("connecting to {}", url);
         }
 
-       #[cfg(feature = "signal-client-tokio")]
+        #[cfg(feature = "signal-client-tokio")]
         let ws_stream = {
             // Check for HTTP_PROXY or HTTPS_PROXY environment variables
             let proxy_env = if url.scheme() == "wss" {
@@ -219,10 +219,7 @@ impl SignalStream {
                     connect_req.push_str("\r\n");
 
                     log::debug!("Sending CONNECT request to proxy");
-                    proxy_stream
-                        .write_all(connect_req.as_bytes())
-                        .await
-                        .map_err(WsError::Io)?;
+                    proxy_stream.write_all(connect_req.as_bytes()).await.map_err(WsError::Io)?;
 
                     // Read and parse response
                     let mut response = Vec::new();
@@ -269,9 +266,9 @@ impl SignalStream {
 
                     // Create MaybeTlsStream based on original URL scheme
                     let stream = if url.scheme() == "wss" {
+                        use rustls_pki_types::{CertificateDer, ServerName};
                         use std::sync::Arc;
                         use tokio_rustls::{rustls, TlsConnector};
-                        use rustls_pki_types::{CertificateDer, ServerName};
 
                         let mut root_store = rustls::RootCertStore::empty();
                         let mut pem = MY_ROOT_CA_PEM.as_bytes();
@@ -302,10 +299,8 @@ impl SignalStream {
 
                         // 5. TLS 연결 생성
                         let connector = TlsConnector::from(Arc::new(tls_config));
-                        let tls_stream = connector
-                            .connect(server_name, proxy_stream)
-                            .await
-                            .map_err(|e| {
+                        let tls_stream =
+                            connector.connect(server_name, proxy_stream).await.map_err(|e| {
                                 WsError::Io(io::Error::new(
                                     io::ErrorKind::Other,
                                     format!("TLS connection error: {}", e),
@@ -335,7 +330,6 @@ impl SignalStream {
 
             ws_stream
         };
-
 
         #[cfg(not(feature = "signal-client-tokio"))]
         let (ws_stream, _) = connect_async(url).await?;
