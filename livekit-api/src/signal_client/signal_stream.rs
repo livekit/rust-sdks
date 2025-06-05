@@ -263,7 +263,7 @@ impl SignalStream {
 
                     log::debug!("Proxy connection established to {}", target);
 
-                    // Create MaybeTlsStream based on original URL scheme
+                   // Create MaybeTlsStream based on original URL scheme
                     let stream = if url.scheme() == "wss" {
                         // Only enable proxy TLS support when rustls-tls-native-roots is enabled
                         #[cfg(feature = "rustls-tls-native-roots")]
@@ -271,18 +271,19 @@ impl SignalStream {
                             // For WSS, we need to establish TLS over the proxy connection
                             use std::sync::Arc;
                             use tokio_rustls::{rustls, TlsConnector};
+                            use rustls_pki_types::{CertificateDer, ServerName};
 
                             // Load native root certificates
                             let mut root_store = rustls::RootCertStore::empty();
                             match rustls_native_certs::load_native_certs() {
                                 Ok(certs) => {
-                                    let roots: Vec<rustls::Certificate> = certs
+                                    let roots: Vec<CertificateDer> = certs
                                         .into_iter()
-                                        .map(|cert| rustls::Certificate(cert.0))
+                                        .map(|cert| CertificateDer::from(cert.0))
                                         .collect();
 
                                     for root in roots {
-                                        root_store.add(&root).map_err(|e| {
+                                        root_store.add(root).map_err(|e| {  // & 제거
                                             WsError::Io(io::Error::new(
                                                 io::ErrorKind::Other,
                                                 format!(
@@ -303,11 +304,10 @@ impl SignalStream {
                             }
 
                             let tls_config = rustls::ClientConfig::builder()
-                                .with_safe_defaults()
-                                .with_root_certificates(root_store)
+                                .with_root_certificates(root_store)  // with_safe_defaults() 제거
                                 .with_no_client_auth();
 
-                            let server_name = rustls::ServerName::try_from(host).map_err(|_| {
+                            let server_name = ServerName::try_from(host).map_err(|_| {
                                 WsError::Io(io::Error::new(
                                     io::ErrorKind::InvalidInput,
                                     format!("Invalid DNS name: {}", host),
@@ -342,23 +342,16 @@ impl SignalStream {
                         MaybeTlsStream::Plain(proxy_stream)
                     };
 
-                    // Now perform WebSocket handshake over the established connection
-                    let (ws_stream, _) =
-                        tokio_tungstenite::client_async_with_config(url, stream, None).await?;
-                    ws_stream
+                    WebSocketStream::from(stream)
                 } else {
-                    // No proxy specified, connect directly
-                    let (ws_stream, _) = connect_async(url).await?;
-                    ws_stream
-                }
-            } else {
-                // Non-tokio build or no proxy - connect directly
-                let (ws_stream, _) = connect_async(url).await?;
-                ws_stream
-            };
+                    // No proxy, connect directly
+                    let stream = TokioTcpStream::connect((host, port)).await.map_err(WsError::Io)?;
+                    WebSocketStream::from(MaybeTlsStream::Plain(stream))
+                };
 
             ws_stream
         };
+
 
         #[cfg(not(feature = "signal-client-tokio"))]
         let (ws_stream, _) = connect_async(url).await?;
