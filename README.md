@@ -25,7 +25,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - [x] Publishing tracks
 - [x] Data channels
 - [x] Simulcast
-- [ ] SVC codecs (AV1/VP9)
+- [x] SVC codecs (AV1/VP9)
 - [ ] Adaptive Streaming
 - [ ] Dynacast
 - [x] Hardware video enc/dec
@@ -166,6 +166,16 @@ match event {
 - [mobile](https://github.com/livekit/rust-sdks/tree/main/examples/mobile): mobile app targeting iOS and Android
 - [play_from_disk](https://github.com/livekit/rust-sdks/tree/main/examples/play_from_disk): publish audio from a wav file
 - [save_to_disk](https://github.com/livekit/rust-sdks/tree/main/examples/save_to_disk): save received audio to a wav file
+
+## Building
+
+### MacOS
+
+When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implementation make use of ObjectiveC libraries on the Mac. You may get the following error if the app isn't linked with ObjC:
+
+```
+*** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: '-[RTCVideoCodecInfo nativeSdpVideoFormat]: unrecognized selector sent to instance 0x600003bc6660'
+```
 
 ## Motivation and Design Goals
 
