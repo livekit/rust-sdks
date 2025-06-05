@@ -11,6 +11,7 @@ repository = "https://github.com/livekit/rust-sdks"
 default = ["services-tokio", "access-token", "webhooks"]
 
 signal-client-tokio = [
+    "dep:tokio-rustls", 
     "dep:tokio-tungstenite",
     "dep:tokio",
     "dep:futures-util",
@@ -98,7 +99,7 @@ livekit-runtime = { workspace = true, optional = true}
 tokio-tungstenite = { version = "0.20", optional = true }
 async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
 tokio = { version = "1", default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
-tokio-rustls = { version = "0.24", optional = true }
+tokio-rustls = { version = "0.25", optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
 futures-util = { version = "0.3", default-features = false, features = [ "sink" ], optional = true }
 
