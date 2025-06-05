@@ -80,6 +80,10 @@ prost = "0.12"
 pbjson-types = "0.6"
 
 
+rustls = "0.22"
+rustls-pemfile = "2.0"
+
+
 
 
 # webhooks
