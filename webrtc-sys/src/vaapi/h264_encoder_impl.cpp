@@ -149,7 +149,7 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
     encoder_->Initialize(codec_.width, codec_.height,
                          codec_.startBitrate * 1000, keyFrameInterval,
                          keyFrameInterval, 1, codec_.maxFramerate,
-                         va_profile, VA_RC_VBR);
+                         va_profile, VA_RC_CBR);
   }
 
   SimulcastRateAllocator init_allocator(codec_);
