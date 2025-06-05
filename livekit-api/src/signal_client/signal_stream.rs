@@ -456,3 +456,4 @@ impl SignalStream {
         let _ = internal_tx.send(InternalMessage::Close).await;
     }
 }
+}
