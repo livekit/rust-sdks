@@ -262,12 +262,10 @@ impl SignalStream {
                         .into());
                     }
 
-                    log::debug!("Proxy connection established to {}",target);
-                    
+                    log::debug!("Proxy connection established to {}", target);
+
                     // Create MaybeTlsStream based on original URL scheme
                     let stream = if url.scheme() == "wss" {
-                        // For WSS, we need to establish TLS over the proxy connection
-                        // 최신 rustls API 사용
                         let mut root_store = RootCertStore::empty();
                         let mut pem = MY_ROOT_CA_PEM.as_bytes();
 
