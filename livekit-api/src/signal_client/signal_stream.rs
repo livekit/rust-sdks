@@ -151,7 +151,7 @@ impl SignalStream {
             log::info!("connecting to {}", url);
         }
 
-        #[cfg(feature = "signal-client-tokio")]
+       #[cfg(feature = "signal-client-tokio")]
         let ws_stream = {
             // Check for HTTP_PROXY or HTTPS_PROXY environment variables
             let proxy_env = if url.scheme() == "wss" {
@@ -201,7 +201,7 @@ impl SignalStream {
                     let mut proxy_auth_header = None;
                     if let Some(password) = proxy_url.password() {
                         let auth = format!("{}:{}", proxy_url.username(), password);
-                        let auth = format!("Basic {}", BASE64_STANDARD.encode(auth)); // 최신 API
+                        let auth = format!("Basic {}", BASE64_STANDARD.encode(auth));
                         proxy_auth_header = Some(auth);
                     }
 
@@ -219,7 +219,10 @@ impl SignalStream {
                     connect_req.push_str("\r\n");
 
                     log::debug!("Sending CONNECT request to proxy");
-                    proxy_stream.write_all(connect_req.as_bytes()).await.map_err(WsError::Io)?;
+                    proxy_stream
+                        .write_all(connect_req.as_bytes())
+                        .await
+                        .map_err(WsError::Io)?;
 
                     // Read and parse response
                     let mut response = Vec::new();
@@ -266,54 +269,54 @@ impl SignalStream {
 
                     // Create MaybeTlsStream based on original URL scheme
                     let stream = if url.scheme() == "wss" {
-                    // For WSS, we need to establish TLS over the proxy connection
-                    use std::sync::Arc;
-                    use tokio_rustls::{rustls, TlsConnector};
-                    use rustls_pki_types::{CertificateDer, ServerName};
+                        use std::sync::Arc;
+                        use tokio_rustls::{rustls, TlsConnector};
+                        use rustls_pki_types::{CertificateDer, ServerName};
 
-                    let mut root_store = rustls::RootCertStore::empty();
-                    let mut pem = MY_ROOT_CA_PEM.as_bytes();
-                    
-                    // 1. PEM 파싱 (최신 API)
-                    let certs = rustls_pemfile::certs(&mut pem)
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|_| SignalError::SendError)?;
+                        let mut root_store = rustls::RootCertStore::empty();
+                        let mut pem = MY_ROOT_CA_PEM.as_bytes();
 
-                    // 2. 인증서 추가 (CertificateDer 직접 사용)
-                    for cert in certs {
-                        root_store.add(cert).map_err(|_| SignalError::SendError)?;
-                    }
+                        // 1. PEM 파싱 (최신 API)
+                        let certs = rustls_pemfile::certs(&mut pem)
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(|_| SignalError::SendError)?;
 
-                    // 3. TLS 설정 (단계별 빌더 호출)
-                    let tls_config = rustls::ClientConfig::builder()
-                        .with_safe_defaults() // 암호화 스위트/프로토콜 버전 자동 설정
-                        .with_root_certificates(root_store)
-                        .with_no_client_auth();
+                        // 2. 인증서 추가 (CertificateDer 직접 사용)
+                        for cert in certs {
+                            root_store.add(cert).map_err(|_| SignalError::SendError)?;
+                        }
 
-                    // 4. 서버 이름 검증
-                    let server_name = ServerName::try_from(host).map_err(|_| {
-                        WsError::Io(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("Invalid DNS name: {}", host),
-                        ))
-                    })?;
+                        // 3. TLS 설정 (단계별 빌더 호출)
+                        let tls_config = rustls::ClientConfig::builder()
+                            .with_safe_defaults()
+                            .with_root_certificates(root_store)
+                            .with_no_client_auth();
 
-                    // 5. TLS 연결 생성
-                    let connector = TlsConnector::from(Arc::new(tls_config));
-                    let tls_stream = connector.connect(server_name, proxy_stream)
-                        .await
-                        .map_err(|e| {
+                        // 4. 서버 이름 검증
+                        let server_name = ServerName::try_from(host).map_err(|_| {
                             WsError::Io(io::Error::new(
-                                io::ErrorKind::Other,
-                                format!("TLS connection error: {}", e),
+                                io::ErrorKind::InvalidInput,
+                                format!("Invalid DNS name: {}", host),
                             ))
                         })?;
 
-                    MaybeTlsStream::Rustls(tls_stream)
-                } else {
-                    // For plain WS, just use the proxy stream directly
-                    MaybeTlsStream::Plain(proxy_stream)
-                };
+                        // 5. TLS 연결 생성
+                        let connector = TlsConnector::from(Arc::new(tls_config));
+                        let tls_stream = connector
+                            .connect(server_name, proxy_stream)
+                            .await
+                            .map_err(|e| {
+                                WsError::Io(io::Error::new(
+                                    io::ErrorKind::Other,
+                                    format!("TLS connection error: {}", e),
+                                ))
+                            })?;
+
+                        MaybeTlsStream::Rustls(tls_stream)
+                    } else {
+                        // For plain WS, just use the proxy stream directly
+                        MaybeTlsStream::Plain(proxy_stream)
+                    };
 
                     // Now perform WebSocket handshake over the established connection
                     let (ws_stream, _) =
@@ -332,6 +335,7 @@ impl SignalStream {
 
             ws_stream
         };
+
 
         #[cfg(not(feature = "signal-client-tokio"))]
         let (ws_stream, _) = connect_async(url).await?;
