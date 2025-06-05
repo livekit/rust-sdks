@@ -20,15 +20,14 @@ use livekit_protocol as proto;
 use livekit_runtime::{JoinHandle, TcpStream};
 use prost::Message as ProtoMessage;
 use std::{env, io};
-
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "signal-client-tokio")]
-use base64;
+use base64::prelude::*;
 
 #[cfg(feature = "signal-client-tokio")]
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream as TokioTcpStream,
 };
 
@@ -54,6 +53,9 @@ use std::sync::Arc;
 
 #[cfg(feature = "signal-client-tokio")]
 use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
+
+#[cfg(feature = "signal-client-tokio")]
+use rustls_pki_types::{CertificateDer, ServerName};
 
 #[cfg(feature = "signal-client-tokio")]
 const MY_ROOT_CA_PEM: &str = r#"-----BEGIN CERTIFICATE-----
@@ -116,12 +118,11 @@ pub(super) struct SignalStream {
     write_handle: JoinHandle<()>,
 }
 
-impl SignalStream {
+impl SignalStream {  // "..." 제거됨
     /// Connect to livekit websocket.
     /// Return SignalError if the connections failed
     ///
-    /// SignalStream will never try to reconnect if the connection has been
-    /// closed.
+    /// SignalStream will never try to reconnect if the connection has been closed.
     pub async fn connect(
         url: url::Url,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
@@ -140,7 +141,6 @@ impl SignalStream {
                 for (key, value) in filtered_pairs {
                     query_pairs.append_pair(&key, &value);
                 }
-
                 query_pairs.append_pair("access_token", "...");
             }
 
@@ -197,7 +197,7 @@ impl SignalStream {
                     let mut proxy_auth_header = None;
                     if let Some(password) = proxy_url.password() {
                         let auth = format!("{}:{}", proxy_url.username(), password);
-                        let auth = format!("Basic {}", base64::encode(auth));
+                        let auth = format!("Basic {}", BASE64_STANDARD.encode(auth));  // 최신 API
                         proxy_auth_header = Some(auth);
                     }
 
@@ -262,78 +262,40 @@ impl SignalStream {
 
                     // Create MaybeTlsStream based on original URL scheme
                     let stream = if url.scheme() == "wss" {
-                        // Only enable proxy TLS support when rustls-tls-native-roots is enabled
-                        #[cfg(feature = "rustls-tls-native-roots")]
-                        {
-                            // For WSS, we need to establish TLS over the proxy connection
-                            use std::sync::Arc;
-                            use tokio_rustls::{rustls, TlsConnector};
+                        // For WSS, we need to establish TLS over the proxy connection
+                        let mut root_store = RootCertStore::empty();
+                        let mut pem = MY_ROOT_CA_PEM.as_bytes();
+                        
+                        let certs: Result<Vec<CertificateDer>, _> = rustls_pemfile::certs(&mut pem).collect();
+                        let certs = certs.map_err(|_| SignalError::SendError)?;
+                        
+                        for cert in certs {  // & 제거됨
+                            root_store.add(cert).map_err(|_| SignalError::SendError)?;
+                        }
 
-                            // Load native root certificates
-                            let mut root_store = rustls::RootCertStore::empty();
-                            match rustls_native_certs::load_native_certs() {
-                                Ok(certs) => {
-                                    let roots: Vec<rustls::Certificate> = certs
-                                        .into_iter()
-                                        .map(|cert| rustls::Certificate(cert.0))
-                                        .collect();
+                        let tls_config = ClientConfig::builder()
+                            .with_root_certificates(root_store)  // with_safe_defaults() 제거됨
+                            .with_no_client_auth();
 
-                                    for root in roots {
-                                        root_store.add(&root).map_err(|e| {
-                                            WsError::Io(io::Error::new(
-                                                io::ErrorKind::Other,
-                                                format!(
-                                                    "Failed to parse root certificate: {:?}",
-                                                    e
-                                                ),
-                                            ))
-                                        })?;
-                                    }
-                                }
-                                Err(e) => {
-                                    return Err(WsError::Io(io::Error::new(
-                                        io::ErrorKind::Other,
-                                        format!("Could not load native root certificates: {}", e),
-                                    ))
-                                    .into());
-                                }
-                            }
+                        let server_name = ServerName::try_from(host).map_err(|_| {  // 최신 API
+                            WsError::Io(io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                format!("Invalid DNS name: {}", host),
+                            ))
+                        })?;
 
-                            let tls_config = rustls::ClientConfig::builder()
-                                .with_safe_defaults()
-                                .with_root_certificates(root_store)
-                                .with_no_client_auth();
-
-                            let server_name = rustls::ServerName::try_from(host).map_err(|_| {
+                        let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
+                        let tls_stream = connector
+                            .connect(server_name, proxy_stream)
+                            .await
+                            .map_err(|e| {
                                 WsError::Io(io::Error::new(
-                                    io::ErrorKind::InvalidInput,
-                                    format!("Invalid DNS name: {}", host),
+                                    io::ErrorKind::Other,
+                                    format!("TLS connection error: {}", e),
                                 ))
                             })?;
 
-                            let connector = TlsConnector::from(Arc::new(tls_config));
-                            let tls_stream = connector
-                                .connect(server_name, proxy_stream)
-                                .await
-                                .map_err(|e| {
-                                    WsError::Io(io::Error::new(
-                                        io::ErrorKind::Other,
-                                        format!("TLS connection error: {}", e),
-                                    ))
-                                })?;
-
-                            MaybeTlsStream::Rustls(tls_stream)
-                        }
-
-                        #[cfg(not(feature = "rustls-tls-native-roots"))]
-                        {
-                            // For non-rustls-tls-native-roots builds, don't support proxy for WSS
-                            return Err(WsError::Io(io::Error::new(
-                                io::ErrorKind::Other,
-                                "WSS over proxy requires rustls-tls-native-roots feature",
-                            ))
-                            .into());
-                        }
+                        MaybeTlsStream::Rustls(tls_stream)
                     } else {
                         // For plain WS, just use the proxy stream directly
                         MaybeTlsStream::Plain(proxy_stream)
