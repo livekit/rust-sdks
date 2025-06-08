@@ -168,8 +168,10 @@ impl<'a> VideoGridContext<'a> {
     pub fn video_frame(&mut self, add_contents: impl FnOnce(&mut egui::Ui)) -> egui::Response {
         let frame_rect = self.layout.next_frame_rect();
 
-        let mut child_ui = self.ui.child_ui(frame_rect, egui::Layout::default());
-        add_contents(&mut child_ui);
+        if self.ui.is_visible() {
+            let mut child_ui = self.ui.child_ui(frame_rect, egui::Layout::default(), None);
+            add_contents(&mut child_ui);
+        }
 
         self.ui.allocate_rect(frame_rect, egui::Sense::hover())
     }

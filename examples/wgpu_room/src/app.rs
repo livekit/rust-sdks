@@ -3,7 +3,7 @@ use crate::{
     video_grid::VideoGrid,
     video_renderer::VideoRenderer,
 };
-use egui::{Rounding, Stroke};
+use egui::{CornerRadius, Stroke};
 use livekit::{e2ee::EncryptionType, prelude::*, SimulateScenario};
 use std::collections::HashMap;
 
@@ -428,7 +428,7 @@ fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &m
 
     if speaking {
         ui.painter()
-            .rect(rect, Rounding::none(), egui::Color32::GREEN, Stroke::NONE);
+            .rect(rect, CornerRadius::default(), egui::Color32::GREEN, Stroke::NONE, egui::StrokeKind::Inside);
     }
 
     // Always draw a background in case we still didn't receive a frame
