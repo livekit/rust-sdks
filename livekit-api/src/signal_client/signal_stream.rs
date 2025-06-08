@@ -284,11 +284,13 @@ impl SignalStream {
                         }
 
                         // 3. TLS 설정 (단계별 빌더 호출)
-                        let tls_config = rustls::ClientConfig::builder()
-                            .with_safe_defaults()
+                       let tls_config = rustls::ClientConfig::builder()
+                            .with_safe_default_cipher_suites()
+                            .with_safe_default_kx_groups()
+                            .with_safe_default_protocol_versions()
+                            .unwrap()
                             .with_root_certificates(root_store)
                             .with_no_client_auth();
-
 
                         // 4. 서버 이름 검증
                         let server_name = ServerName::try_from(host).map_err(|_| {
