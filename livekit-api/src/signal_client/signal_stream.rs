@@ -53,7 +53,7 @@ use async_tungstenite::{
 use std::sync::Arc;
 
 #[cfg(feature = "signal-client-tokio")]
-use tokio_rustls::rustls::{self, Certificate, RootCertStore, ClientConfig};
+use tokio_rustls::rustls::{self, Certificate, ClientConfig, RootCertStore};
 
 #[cfg(feature = "signal-client-tokio")]
 const MY_ROOT_CA_PEM: &str = r#"-----BEGIN CERTIFICATE-----
