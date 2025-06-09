@@ -291,7 +291,6 @@ impl SignalStream {
                             .unwrap()
                             .with_root_certificates(root_store)
                             .with_no_client_auth();
-
                         // 4. 서버 이름 검증
                         let server_name = ServerName::try_from(host).map_err(|_| {
                             WsError::Io(io::Error::new(
@@ -301,6 +300,7 @@ impl SignalStream {
                         })?;
 
                         let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
+                        #[cfg(feature = "signal-client-tokio")]
                         let tls_stream: TlsStream<TokioTcpStream> =
                             connector.connect(server_name, proxy_stream).await.map_err(|e| {
                                 WsError::Io(io::Error::new(
