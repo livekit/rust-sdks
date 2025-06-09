@@ -91,3 +91,15 @@ jobs:
           ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so,libc++abi.a} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
+      - name: Install build dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'}}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            libssl-dev libx11-dev libgl1-mesa-dev libxext-dev \
+            cmake clang pkg-config unzip gcc-multilib g++-multilib libc6-dev
+      - name: Download WebRTC binary
+        run: wget https://github.com/livekit/webrtc/releases/download/vXXX/webrtc-linux-x64-release.zip -O /tmp/webrtc.zip
+
+      - name: Set LK_CUSTOM_WEBRTC
+        run: echo "LK_CUSTOM_WEBRTC=/tmp/webrtc.zip" >> $GITHUB_ENV
