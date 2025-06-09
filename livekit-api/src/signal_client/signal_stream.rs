@@ -58,6 +58,9 @@ use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
 use rustls_pki_types::{CertificateDer, ServerName};
 
 #[cfg(feature = "signal-client-tokio")]
+use tokio_rustls::TlsStream;
+
+#[cfg(feature = "signal-client-tokio")]
 const MY_ROOT_CA_PEM: &str = r#"-----BEGIN CERTIFICATE-----
 MIIFpzCCA4+gAwIBAgIUBZ9icmUbGUpKyXRsigBbkWkll14wDQYJKoZIhvcNAQEL
 BQAwYzELMAkGA1UEBhMCS1IxDjAMBgNVBAgMBVNlb3VsMQ4wDAYDVQQHDAVTZW91
