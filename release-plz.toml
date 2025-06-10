@@ -22,12 +22,6 @@ publish = true
 release = true
 
 [[package]]
-name = "livekit-ffi"
-changelog_path = "livekit-api/CHANGELOG.md"
-publish = false
-release = true
-
-[[package]]
 name = "livekit-protocol"
 changelog_path = "livekit-protocol/CHANGELOG.md"
 publish = true
