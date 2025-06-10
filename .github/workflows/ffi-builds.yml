@@ -161,7 +161,7 @@ jobs:
           cd livekit-ffi/
           ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so,libc++abi.a} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
-          cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
+          RUSTFLAGS="-C link-arg=-Wl,-z,common-page-size=16384"  cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
 
       - name: Copy/Build licenses
         run: |

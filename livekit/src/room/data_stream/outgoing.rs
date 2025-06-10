@@ -74,7 +74,7 @@ impl<'a> StreamWriter<'a> for ByteStreamWriter {
         &self.info
     }
 
-    async fn write(&self, bytes: &'a [u8]) -> StreamResult<()> {
+    async fn write(&self, bytes: &[u8]) -> StreamResult<()> {
         let mut stream = self.stream.lock().await;
         for chunk in bytes.chunks(CHUNK_SIZE) {
             stream.write_chunk(chunk).await?;
@@ -116,7 +116,7 @@ impl<'a> StreamWriter<'a> for TextStreamWriter {
         &self.info
     }
 
-    async fn write(&self, text: &'a str) -> StreamResult<()> {
+    async fn write(&self, text: &str) -> StreamResult<()> {
         let mut stream = self.stream.lock().await;
         for chunk in text.as_bytes().utf8_aware_chunks(CHUNK_SIZE) {
             stream.write_chunk(chunk).await?;

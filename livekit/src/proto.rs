@@ -47,7 +47,6 @@ impl From<DisconnectReason> for participant::DisconnectReason {
             DisconnectReason::UserUnavailable => Self::UserUnavailable,
             DisconnectReason::UserRejected => Self::UserRejected,
             DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
-            DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
         }
     }
 }

@@ -51,7 +51,7 @@ jobs:
             arch: x64
 
           - name: linux
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             cmd: ./build_linux.sh
             arch: arm64
 
@@ -109,11 +109,7 @@ jobs:
           submodules: true
 
       - uses: actions/setup-python@v4
-
-      - name: install setuptools (none-macOS)
-        if: ${{ matrix.target.os != 'macos-latest' }}
-        run: |
-         pip3 install setuptools # pkg_resources is sometimes not found?
+      - run: pip3 install setuptools # pkg_resources is sometimes not found?
 
       - name: Install linux dependencies
         if: ${{ matrix.target.os == 'ubuntu-latest' }}

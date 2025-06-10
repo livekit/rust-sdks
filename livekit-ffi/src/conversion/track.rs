@@ -34,11 +34,6 @@ impl From<&FfiPublication> for proto::TrackPublicationInfo {
             muted: publication.is_muted(),
             remote: publication.is_remote(),
             encryption_type: proto::EncryptionType::from(publication.encryption_type()).into(),
-            audio_features: publication
-                .audio_features()
-                .into_iter()
-                .map(|i| proto::AudioTrackFeature::from(i).into())
-                .collect(),
         }
     }
 }
@@ -123,38 +118,6 @@ impl From<proto::ParticipantTrackPermission> for ParticipantTrackPermission {
                 .into_iter()
                 .map(|sid| sid.try_into().unwrap())
                 .collect(),
-        }
-    }
-}
-
-impl From<proto::AudioTrackFeature> for AudioTrackFeature {
-    fn from(value: proto::AudioTrackFeature) -> Self {
-        match value {
-            proto::AudioTrackFeature::TfStereo => AudioTrackFeature::TfStereo,
-            proto::AudioTrackFeature::TfNoDtx => AudioTrackFeature::TfNoDtx,
-            proto::AudioTrackFeature::TfAutoGainControl => AudioTrackFeature::TfAutoGainControl,
-            proto::AudioTrackFeature::TfEchoCancellation => AudioTrackFeature::TfEchoCancellation,
-            proto::AudioTrackFeature::TfNoiseSuppression => AudioTrackFeature::TfNoiseSuppression,
-            proto::AudioTrackFeature::TfEnhancedNoiseCancellation => {
-                AudioTrackFeature::TfEnhancedNoiseCancellation
-            }
-            proto::AudioTrackFeature::TfPreconnectBuffer => AudioTrackFeature::TfPreconnectBuffer,
-        }
-    }
-}
-
-impl From<AudioTrackFeature> for proto::AudioTrackFeature {
-    fn from(value: AudioTrackFeature) -> Self {
-        match value {
-            AudioTrackFeature::TfStereo => proto::AudioTrackFeature::TfStereo,
-            AudioTrackFeature::TfNoDtx => proto::AudioTrackFeature::TfNoDtx,
-            AudioTrackFeature::TfAutoGainControl => proto::AudioTrackFeature::TfAutoGainControl,
-            AudioTrackFeature::TfEchoCancellation => proto::AudioTrackFeature::TfEchoCancellation,
-            AudioTrackFeature::TfNoiseSuppression => proto::AudioTrackFeature::TfNoiseSuppression,
-            AudioTrackFeature::TfEnhancedNoiseCancellation => {
-                proto::AudioTrackFeature::TfEnhancedNoiseCancellation
-            }
-            AudioTrackFeature::TfPreconnectBuffer => proto::AudioTrackFeature::TfPreconnectBuffer,
         }
     }
 }

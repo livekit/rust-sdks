@@ -37,10 +37,7 @@ use async_tungstenite::tungstenite::Error as WsError;
 
 use crate::{http_client, signal_client::signal_stream::SignalStream};
 
-mod region;
 mod signal_stream;
-
-pub use region::RegionUrlProvider;
 
 pub type SignalEmitter = mpsc::UnboundedSender<SignalEvent>;
 pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
@@ -65,8 +62,6 @@ pub enum SignalError {
     Timeout(String),
     #[error("failed to send message to the server")]
     SendError,
-    #[error("failed to retrieve region info: {0}")]
-    RegionError(String),
 }
 
 #[derive(Debug, Clone)]
@@ -141,39 +136,14 @@ impl SignalClient {
         token: &str,
         options: SignalOptions,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
-        let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
-            let (emitter, events) = mpsc::unbounded_channel();
-            let signal_task =
-                livekit_runtime::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
+        let (inner, join_response, stream_events) =
+            SignalInner::connect(url, token, options).await?;
 
-            (Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events)
-        };
+        let (emitter, events) = mpsc::unbounded_channel();
+        let signal_task =
+            livekit_runtime::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
 
-        match SignalInner::connect(url, token, options.clone()).await {
-            Ok((inner, join_response, stream_events)) => {
-                return Ok(handle_success(inner, join_response, stream_events))
-            }
-            Err(err) => {
-                // fallback to region urls
-                if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
-                    log::error!("unexpected signal error: {}", err.to_string());
-                }
-                let urls = RegionUrlProvider::fetch_region_urls(url.into(), token.into()).await?;
-                let mut last_err = err;
-
-                for url in urls.iter() {
-                    log::info!("fallback connection to: {}", url);
-                    match SignalInner::connect(url, token, options.clone()).await {
-                        Ok((inner, join_response, stream_events)) => {
-                            return Ok(handle_success(inner, join_response, stream_events))
-                        }
-                        Err(err) => last_err = err,
-                    }
-                }
-
-                Err(last_err)
-            }
-        }
+        Ok((Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events))
     }
 
     /// Restart the connection to the server

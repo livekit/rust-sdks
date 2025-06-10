@@ -70,5 +70,4 @@ enum DisconnectReason {
   USER_REJECTED = 12;
   // SIP protocol failure or unexpected response
   SIP_TRUNK_FAILURE = 13;
-  CONNECTION_TIMEOUT = 14;
 }
