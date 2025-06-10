@@ -4126,6 +4126,8 @@ pub struct NewAudioStreamRequest {
     pub audio_filter_module_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="6")]
     pub audio_filter_options: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint32, optional, tag="7")]
+    pub frame_size_ms: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4150,6 +4152,8 @@ pub struct AudioStreamFromParticipantRequest {
     pub audio_filter_module_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="8")]
     pub audio_filter_options: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint32, optional, tag="9")]
+    pub frame_size_ms: ::core::option::Option<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
