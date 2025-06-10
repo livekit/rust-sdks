@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::time::Duration;
+use std::borrow::Cow;
 
 use futures_util::StreamExt;
 use livekit::track::Track;
@@ -135,6 +136,9 @@ impl FfiAudioStream {
                     server.watch_handle_dropped(new_stream.track_handle),
                     true,
                     info,
+                    new_stream.frame_size_ms,
+                    sample_rate.try_into().unwrap(),
+                    num_channels.try_into().unwrap(),
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
@@ -312,6 +316,9 @@ impl FfiAudioStream {
                         handle_dropped_rx,
                         false,
                         info,
+                        request.frame_size_ms,
+                        sample_rate.try_into().unwrap(),
+                        num_channels.try_into().unwrap(),
                     )
                     .await;
                     let _ = done_tx.send(());
@@ -348,7 +355,13 @@ impl FfiAudioStream {
         mut handle_dropped_rx: oneshot::Receiver<()>,
         send_eos: bool,
         mut filter_info: Option<AudioFilterInfo>,
+        frame_size_ms: Option<u32>,
+        sample_rate: u32, 
+        num_channels: u32,
     ) {
+        let mut buf = Vec::new();
+        let target_samples = frame_size_ms.map(|ms| sample_rate * ms / 1000 * num_channels);
+
         loop {
             tokio::select! {
                 _ = &mut self_dropped_rx => {
@@ -377,26 +390,59 @@ impl FfiAudioStream {
                         }
                     }
 
-                    let handle_id = server.next_id();
-                    let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
-                    server.store_handle(handle_id, frame);
-
-                    if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
-                        proto::AudioStreamEvent {
-                            stream_handle: stream_handle_id,
-                            message: Some(proto::audio_stream_event::Message::FrameReceived(
-                                proto::AudioFrameReceived {
-                                    frame: proto::OwnedAudioFrameBuffer {
-                                        handle: proto::FfiOwnedHandle { id: handle_id },
-                                        info: buffer_info,
-                                    },
+                    if let Some(target) = target_samples {
+                        buf.extend_from_slice(&frame.data);
+                        if buf.len() as u32 >= target {
+                            let data = buf.split_off(target as usize);
+                            let mut frame_data = std::mem::replace(&mut buf, data);
+                            let new_frame = AudioFrame {
+                                data: Cow::Owned(frame_data),
+                                sample_rate,
+                                num_channels,
+                                samples_per_channel: target / num_channels,
+                            };
+                            let handle_id = server.next_id();
+                            let buffer_info = proto::AudioFrameBufferInfo::from(&new_frame);
+                            server.store_handle(handle_id, new_frame);
+                            if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+                                proto::AudioStreamEvent {
+                                    stream_handle: stream_handle_id,
+                                    message: Some(proto::audio_stream_event::Message::FrameReceived(
+                                        proto::AudioFrameReceived {
+                                            frame: proto::OwnedAudioFrameBuffer {
+                                                handle: proto::FfiOwnedHandle { id: handle_id },
+                                                info: buffer_info,
+                                            },
+                                        },
+                                    )),
                                 },
-                            )),
-                        },
-                    )) {
-                        server.drop_handle(handle_id);
-                        log::warn!("failed to send audio frame: {}", err);
+                            )) {
+                                server.drop_handle(handle_id);
+                                log::warn!("failed to send audio frame: {}", err);
+                            }
+                        }
+                    } else {
+                        let handle_id = server.next_id();
+                        let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
+                        server.store_handle(handle_id, frame);
+                        if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+                            proto::AudioStreamEvent {
+                                stream_handle: stream_handle_id,
+                                message: Some(proto::audio_stream_event::Message::FrameReceived(
+                                    proto::AudioFrameReceived {
+                                        frame: proto::OwnedAudioFrameBuffer {
+                                            handle: proto::FfiOwnedHandle { id: handle_id },
+                                            info: buffer_info,
+                                        },
+                                    },
+                                )),
+                            },
+                        )) {
+                            server.drop_handle(handle_id);
+                            log::warn!("failed to send audio frame: {}", err);
+                        }
                     }
+
                 }
             }
         }

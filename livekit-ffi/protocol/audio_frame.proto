@@ -29,6 +29,7 @@ message NewAudioStreamRequest {
   optional uint32 num_channels = 4;
   optional string audio_filter_module_id = 5; // Unique identifier passed in LoadAudioFilterPluginRequest
   optional string audio_filter_options = 6;
+  optional uint32 frame_size_ms = 7;
 }
 message NewAudioStreamResponse { required OwnedAudioStream stream = 1; }
 
@@ -40,6 +41,7 @@ message AudioStreamFromParticipantRequest {
   optional uint32 num_channels = 6;
   optional string audio_filter_module_id = 7;
   optional string audio_filter_options = 8;
+  optional uint32 frame_size_ms = 9;
 }
 
 message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 1; }
