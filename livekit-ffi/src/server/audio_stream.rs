@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
 use std::borrow::Cow;
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use livekit::track::Track;
@@ -356,11 +356,12 @@ impl FfiAudioStream {
         send_eos: bool,
         mut filter_info: Option<AudioFilterInfo>,
         frame_size_ms: Option<u32>,
-        sample_rate: u32, 
+        sample_rate: u32,
         num_channels: u32,
     ) {
         let mut buf = Vec::new();
-        let target_samples = frame_size_ms.map(|ms| sample_rate * ms / 1000 * num_channels);
+        let target_samples = frame_size_ms
+            .map(|ms| sample_rate as usize * ms as usize / 1000 * num_channels as usize);
 
         loop {
             tokio::select! {
@@ -392,14 +393,14 @@ impl FfiAudioStream {
 
                     if let Some(target) = target_samples {
                         buf.extend_from_slice(&frame.data);
-                        if buf.len() as u32 >= target {
-                            let data = buf.split_off(target as usize);
+                        while buf.len() >= target {
+                            let data = buf.split_off(target);
                             let mut frame_data = std::mem::replace(&mut buf, data);
                             let new_frame = AudioFrame {
                                 data: Cow::Owned(frame_data),
                                 sample_rate,
                                 num_channels,
-                                samples_per_channel: target / num_channels,
+                                samples_per_channel: target as u32 / num_channels,
                             };
                             let handle_id = server.next_id();
                             let buffer_info = proto::AudioFrameBufferInfo::from(&new_frame);
