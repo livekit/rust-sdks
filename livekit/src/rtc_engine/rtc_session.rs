@@ -152,10 +152,6 @@ pub enum SessionEvent {
         kind: DataPacketKind,
         threshold: u64,
     },
-    RefreshToken {
-        url: String,
-        token: String,
-    },
 }
 
 #[derive(Debug)]
@@ -258,7 +254,7 @@ impl RtcSession {
         let mut lossy_dc = publisher_pc.peer_connection().create_data_channel(
             LOSSY_DC_LABEL,
             DataChannelInit {
-                ordered: false,
+                ordered: true,
                 max_retransmits: Some(0),
                 ..DataChannelInit::default()
             },
@@ -708,10 +704,6 @@ impl SessionInner {
                 if let Some(tx) = pending_requests.remove(&request_response.request_id) {
                     let _ = tx.send(request_response);
                 }
-            }
-            proto::signal_response::Message::RefreshToken(ref token) => {
-                let url = self.signal_client.url();
-                let _ = self.emitter.send(SessionEvent::RefreshToken { url, token: token.clone() });
             }
             _ => {}
         }

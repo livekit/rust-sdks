@@ -61,7 +61,6 @@ impl From<DisconnectReason> for proto::DisconnectReason {
             DisconnectReason::UserUnavailable => proto::DisconnectReason::UserUnavailable,
             DisconnectReason::UserRejected => proto::DisconnectReason::UserRejected,
             DisconnectReason::SipTrunkFailure => proto::DisconnectReason::SipTrunkFailure,
-            DisconnectReason::ConnectionTimeout => proto::DisconnectReason::ConnectionTimeout,
         }
     }
 }

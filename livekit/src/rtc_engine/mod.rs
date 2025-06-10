@@ -175,10 +175,6 @@ pub enum EngineEvent {
         kind: DataPacketKind,
         threshold: u64,
     },
-    RefreshToken {
-        url: String,
-        token: String,
-    },
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -563,9 +559,6 @@ impl EngineInner {
                 let _ = self.engine_tx.send(
                     EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold },
                 );
-            }
-            SessionEvent::RefreshToken { url, token } => {
-                let _ = self.engine_tx.send(EngineEvent::RefreshToken { url, token });
             }
         }
         Ok(())

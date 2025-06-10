@@ -201,64 +201,6 @@ impl RoomClient {
             .map_err(Into::into)
     }
 
-    pub async fn forward_participant(
-        &self,
-        room: &str,
-        identity: &str,
-        destination_room: &str,
-    ) -> ServiceResult<()> {
-        self.client
-            .request(
-                SVC,
-                "ForwardParticipant",
-                proto::ForwardParticipantRequest {
-                    room: room.to_owned(),
-                    identity: identity.to_owned(),
-                    destination_room: destination_room.to_owned(),
-                },
-                self.base.auth_header(
-                    VideoGrants {
-                        room_admin: true,
-                        room: room.to_owned(),
-                        destination_room: destination_room.to_owned(),
-                        ..Default::default()
-                    },
-                    None,
-                )?,
-            )
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn move_participant(
-        &self,
-        room: &str,
-        identity: &str,
-        destination_room: &str,
-    ) -> ServiceResult<()> {
-        self.client
-            .request(
-                SVC,
-                "MoveParticipant",
-                proto::MoveParticipantRequest {
-                    room: room.to_owned(),
-                    identity: identity.to_owned(),
-                    destination_room: destination_room.to_owned(),
-                },
-                self.base.auth_header(
-                    VideoGrants {
-                        room_admin: true,
-                        room: room.to_owned(),
-                        destination_room: destination_room.to_owned(),
-                        ..Default::default()
-                    },
-                    None,
-                )?,
-            )
-            .await
-            .map_err(Into::into)
-    }
-
     pub async fn mute_published_track(
         &self,
         room: &str,

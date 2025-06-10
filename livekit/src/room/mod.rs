@@ -47,7 +47,6 @@ pub use crate::rtc_engine::SimulateScenario;
 use crate::{
     participant::ConnectionQuality,
     prelude::*,
-    registered_audio_filter_plugins,
     rtc_engine::{
         EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
         SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
@@ -833,9 +832,6 @@ impl RoomSession {
             EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
                 self.handle_data_channel_buffered_low_threshold_change(kind, threshold);
             }
-            EngineEvent::RefreshToken { url, token } => {
-                self.handle_refresh_token(url, token);
-            }
             _ => {}
         }
 
@@ -1564,13 +1560,6 @@ impl RoomSession {
             return Some(Participant::Local(self.local_participant.clone()));
         }
         return self.get_participant_by_identity(identity).map(Participant::Remote);
-    }
-
-    fn handle_refresh_token(self: &Arc<Self>, url: String, token: String) {
-        // notify refreshed token to registered audio filters
-        for filter in registered_audio_filter_plugins().into_iter() {
-            filter.update_token(url.clone(), token.clone());
-        }
     }
 }
 
