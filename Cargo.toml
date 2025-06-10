@@ -19,7 +19,7 @@ imgproc = { version = "0.3.12", path = "imgproc" }
 yuv-sys = { version = "0.3.7", path = "yuv-sys" }
 libwebrtc = { version = "0.3.10", path = "libwebrtc" }
 livekit-api = { version = "0.4.3", path = "livekit-api" }
-livekit-ffi = { version = "0.12.25", path = "livekit-ffi" }
+livekit-ffi = { version = "0.12.26", path = "livekit-ffi" }
 livekit-protocol = { version = "0.3.10", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 livekit = { version = "0.7.11", path = "livekit" }
