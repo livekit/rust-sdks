@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.12](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.11...rust-sdks/livekit@0.7.12) - 2025-06-11
+
+### Fixed
+
+- fix duration overflow ([#654](https://github.com/livekit/rust-sdks/pull/654))
+
+### Other
+
+- Remove debouncer when fast_publish is enabled ([#649](https://github.com/livekit/rust-sdks/pull/649))
+
 ## [0.7.9] - 2025-04-08
 
 ### Added
