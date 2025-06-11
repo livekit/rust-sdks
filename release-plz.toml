@@ -1,0 +1,52 @@
+[workspace]
+publish = false
+release = false
+git_tag_name = "rust-sdks/{{ package }}@{{ version }}"
+
+[[package]]
+name = "imgproc"
+changelog_path = "imgproc/CHANGELOG.md"
+publish = true
+release = true
+
+[[package]]
+name = "libwebrtc"
+changelog_path = "libwebrtc/CHANGELOG.md"
+publish = true
+release = true
+
+[[package]]
+name = "livekit-api"
+changelog_path = "livekit-api/CHANGELOG.md"
+publish = true
+release = true
+
+[[package]]
+name = "livekit-protocol"
+changelog_path = "livekit-protocol/CHANGELOG.md"
+publish = true
+release = true
+
+# [[package]]
+# name = "livekit-runtime"
+# changelog_path = "livekit-runtime/CHANGELOG.md"
+# publish = true
+# release = true
+
+[[package]]
+name = "livekit"
+changelog_path = "livekit/CHANGELOG.md"
+publish = true
+release = true
+
+[[package]]
+name = "webrtc-sys"
+changelog_path = "webrtc-sys/CHANGELOG.md"
+publish = true
+release = true
+
+[[package]]
+name = "yuv-sys"
+changelog_path = "yuv-sys/CHANGELOG.md"
+publish = true
+release = true
