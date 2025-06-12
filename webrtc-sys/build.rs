@@ -138,9 +138,13 @@ fn main() {
 
             builder
             .flag("-Isrc/nvidia/NvCodec/include")
+            .flag("-Isrc/nvidia/NvCodec/NvCodec")
             .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
             .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
             .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
+            .file("src/nvidia/CreateVideoCodecFactory.cpp")
+            .file("src/nvidia/SimulcastEncoderFactory.cpp")
+            .file("src/nvidia/H264ProfileLevelId.cpp")
             .flag("-std=c++2a")
             .flag("-Wno-deprecated-declarations");
         }
