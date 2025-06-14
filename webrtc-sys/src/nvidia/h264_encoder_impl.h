@@ -1,5 +1,5 @@
-#ifndef VAAPI_H264_ENCODER_IMPL_H_
-#define VAAPI_H264_ENCODER_IMPL_H_
+#ifndef NVIDIA_H264_ENCODER_IMPL_H_
+#define NVIDIA_H264_ENCODER_IMPL_H_
 
 #include <cuda.h>
 
@@ -8,6 +8,7 @@
 
 #include "NvEncoder/NvEncoder.h"
 #include "NvEncoder/NvEncoderCuda.h"
+
 #include "absl/container/inlined_vector.h"
 #include "api/transport/rtp/dependency_descriptor.h"
 #include "api/video/i420_buffer.h"
@@ -21,7 +22,7 @@
 
 namespace webrtc {
 
-class NvidiaH264EncoderWrapper : public VideoEncoder {
+class NvidiaH264EncoderImpl : public VideoEncoder {
  public:
   struct LayerConfig {
     int simulcast_idx = 0;
@@ -40,12 +41,12 @@ class NvidiaH264EncoderWrapper : public VideoEncoder {
   };
 
  public:
-  NvidiaH264EncoderWrapper(const webrtc::Environment& env,
+  NvidiaH264EncoderImpl(const webrtc::Environment& env,
                            CUcontext context,
                            CUmemorytype memory_type,
                            NV_ENC_BUFFER_FORMAT nv_format,
                            const SdpVideoFormat& format);
-  ~NvidiaH264EncoderWrapper() override;
+  ~NvidiaH264EncoderImpl() override;
 
   int32_t InitEncode(const VideoCodec* codec_settings,
                      const Settings& settings) override;

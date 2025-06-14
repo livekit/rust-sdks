@@ -1,16 +1,15 @@
 #include "h264_encoder_impl.h"
 
-#include <common_video/h264/h264_common.h>
 
 #include <algorithm>
 #include <limits>
 #include <string>
 
-#include "NvEncoderCudaWithCUarray.h"
 #include "absl/strings/match.h"
 #include "absl/types/optional.h"
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/scalability_mode.h"
+#include <common_video/h264/h264_common.h>
 #include "common_video/libyuv/include/webrtc_libyuv.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
@@ -24,7 +23,8 @@
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/scale.h"
 
-#define VA_FOURCC_I420 0x30323449  // I420
+
+#include "NvEncoderCudaWithCUarray.h"
 
 namespace webrtc {
 
@@ -35,7 +35,7 @@ enum H264EncoderImplEvent {
   kH264EncoderEventMax = 16,
 };
 
-NvidiaH264EncoderWrapper::NvidiaH264EncoderWrapper(
+NvidiaH264EncoderImpl::NvidiaH264EncoderImpl(
     const webrtc::Environment& env,
     CUcontext context,
     CUmemorytype memory_type,
@@ -60,11 +60,11 @@ NvidiaH264EncoderWrapper::NvidiaH264EncoderWrapper(
   RTC_CHECK_NE(cu_memory_type_, CU_MEMORYTYPE_HOST);
 }
 
-NvidiaH264EncoderWrapper::~NvidiaH264EncoderWrapper() {
+NvidiaH264EncoderImpl::~NvidiaH264EncoderImpl() {
   Release();
 }
 
-void NvidiaH264EncoderWrapper::ReportInit() {
+void NvidiaH264EncoderImpl::ReportInit() {
   if (has_reported_init_)
     return;
   RTC_HISTOGRAM_ENUMERATION("WebRTC.Video.H264EncoderImpl.Event",
@@ -72,7 +72,7 @@ void NvidiaH264EncoderWrapper::ReportInit() {
   has_reported_init_ = true;
 }
 
-void NvidiaH264EncoderWrapper::ReportError() {
+void NvidiaH264EncoderImpl::ReportError() {
   if (has_reported_error_)
     return;
   RTC_HISTOGRAM_ENUMERATION("WebRTC.Video.H264EncoderImpl.Event",
@@ -80,7 +80,7 @@ void NvidiaH264EncoderWrapper::ReportError() {
   has_reported_error_ = true;
 }
 
-int32_t NvidiaH264EncoderWrapper::InitEncode(
+int32_t NvidiaH264EncoderImpl::InitEncode(
     const VideoCodec* inst,
     const VideoEncoder::Settings& settings) {
   if (!inst || inst->codecType != kVideoCodecH264) {
@@ -202,14 +202,14 @@ int32_t NvidiaH264EncoderWrapper::InitEncode(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t NvidiaH264EncoderWrapper::RegisterEncodeCompleteCallback(
+int32_t NvidiaH264EncoderImpl::RegisterEncodeCompleteCallback(
     EncodedImageCallback* callback) {
   RTC_DCHECK(callback);
   encoded_image_callback_ = callback;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t NvidiaH264EncoderWrapper::Release() {
+int32_t NvidiaH264EncoderImpl::Release() {
   if (encoder_) {
     encoder_->DestroyEncoder();
     encoder_ = nullptr;
@@ -221,7 +221,7 @@ int32_t NvidiaH264EncoderWrapper::Release() {
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t NvidiaH264EncoderWrapper::Encode(
+int32_t NvidiaH264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
   if (!encoder_) {
@@ -339,7 +339,7 @@ int32_t NvidiaH264EncoderWrapper::Encode(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t NvidiaH264EncoderWrapper::ProcessEncodedFrame(
+int32_t NvidiaH264EncoderImpl::ProcessEncodedFrame(
     std::vector<uint8_t>& packet,
     const ::webrtc::VideoFrame& inputFrame) {
   encoded_image_._encodedWidth = encoder_->GetEncodeWidth();
@@ -386,7 +386,7 @@ int32_t NvidiaH264EncoderWrapper::ProcessEncodedFrame(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-VideoEncoder::EncoderInfo NvidiaH264EncoderWrapper::GetEncoderInfo() const {
+VideoEncoder::EncoderInfo NvidiaH264EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
   info.supports_native_handle = false;
   info.implementation_name = "NVIDIA H264 Encoder";
@@ -397,7 +397,7 @@ VideoEncoder::EncoderInfo NvidiaH264EncoderWrapper::GetEncoderInfo() const {
   return info;
 }
 
-void NvidiaH264EncoderWrapper::SetRates(
+void NvidiaH264EncoderImpl::SetRates(
     const RateControlParameters& parameters) {
   if (!encoder_) {
     RTC_LOG(LS_WARNING) << "SetRates() while uninitialized.";
@@ -427,7 +427,7 @@ void NvidiaH264EncoderWrapper::SetRates(
   }
 }
 
-void NvidiaH264EncoderWrapper::LayerConfig::SetStreamState(bool send_stream) {
+void NvidiaH264EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
   if (send_stream && !sending) {
     // Need a key frame if we have not sent this stream before.
     key_frame_request = true;
