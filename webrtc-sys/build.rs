@@ -142,9 +142,8 @@ fn main() {
             .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
             .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
             .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
-            .file("src/nvidia/CreateVideoCodecFactory.cpp")
-            .file("src/nvidia/SimulcastEncoderFactory.cpp")
-            .file("src/nvidia/H264ProfileLevelId.cpp")
+            .file("src/nvidia/h264_encoder_impl.cpp")
+            .file("src/nvidia/NvEncoderCudaWithCUarray.cpp")
             .flag("-std=c++2a")
             .flag("-Wno-deprecated-declarations");
         }
