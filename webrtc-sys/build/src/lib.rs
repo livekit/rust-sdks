@@ -183,6 +183,11 @@ pub fn configure_jni_symbols() -> Result<()> {
 
 pub fn download_webrtc() -> Result<()> {
     let dir = scratch::path(SCRATH_PATH);
+    if let Err(err) = fs::create_dir(&dir) {
+        if err.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(anyhow!("failed to create scratch_path: {}", err));
+        }
+    }
     let flock = File::create(dir.join(".lock"))
         .context("Failed to create lock file for WebRTC download")?;
     flock.lock_exclusive().context("Failed to acquire exclusive lock for WebRTC download")?;
