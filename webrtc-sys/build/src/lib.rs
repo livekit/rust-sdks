@@ -196,7 +196,6 @@ pub fn download_webrtc() -> Result<(), Box<dyn Error>> {
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let tmp_path = PathBuf::from(out_dir).join("webrtc.zip");
-    let tmp_path = path::Path::new(&tmp_path);
     let mut file = fs::File::options().write(true).read(true).create(true).open(tmp_path)?;
     resp.copy_to(&mut file)?;
 
