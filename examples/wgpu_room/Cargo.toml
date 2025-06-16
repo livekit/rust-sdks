@@ -11,13 +11,13 @@ tracing = ["console-subscriber", "tokio/tracing"]
 tokio = { version = "1", features = ["full", "parking_lot"] }
 livekit = { path = "../../livekit", features = ["native-tls"] }
 futures = "0.3"
-winit = "0.28"
+winit = "0.30.11"
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 image = "0.24"
-wgpu = "0.16"
-egui = "0.22.0"
-egui-wgpu = "0.22.0"
-eframe = { version = "0.22.0", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
+wgpu = "25.0"
+egui = "0.31.1"
+egui-wgpu = "0.31.1"
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
 env_logger = "0.10.0"
