@@ -204,7 +204,7 @@ pub fn download_webrtc() -> Result<()> {
         .write(true)
         .read(true)
         .create(true)
-        .open(tmp_path)
+        .open(&tmp_path)
         .context("Failed to create temporary file for WebRTC download")?;
     resp.copy_to(&mut file).context("Failed to write WebRTC download to temporary file")?;
 
@@ -212,7 +212,7 @@ pub fn download_webrtc() -> Result<()> {
     archive.extract(webrtc_dir.parent().unwrap()).context("Failed to extract WebRTC archive")?;
     drop(archive);
 
-    fs::remove_file(tmp_path).context("Failed to remove temporary WebRTC zip file")?;
+    fs::remove_file(&tmp_path).context("Failed to remove temporary WebRTC zip file")?;
     Ok(())
 }
 
