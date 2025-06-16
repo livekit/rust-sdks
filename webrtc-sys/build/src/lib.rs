@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{
     env,
     fs::{self, File},
@@ -181,14 +181,8 @@ pub fn configure_jni_symbols() -> Result<()> {
     Ok(())
 }
 
-pub fn scratch_path(suffix: &str) -> PathBuf {
-    let p = Path::new(&env::var("OUT_DIR").unwrap()).join(suffix);
-    fs::create_dir(&p).expect("failed to create scratch_path");
-    p
-}
-
 pub fn download_webrtc() -> Result<()> {
-    let dir = scratch_path(SCRATH_PATH);
+    let dir = scratch::path(SCRATH_PATH);
     let flock = File::create(dir.join(".lock"))
         .context("Failed to create lock file for WebRTC download")?;
     flock.lock_exclusive().context("Failed to acquire exclusive lock for WebRTC download")?;
