@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::path::PathBuf;
 use std::{
     env,
     error::Error,
@@ -194,9 +195,9 @@ pub fn download_webrtc() -> Result<(), Box<dyn Error>> {
         return Err(format!("failed to download webrtc: {}", resp.status()).into());
     }
 
-    let tmp_path = env::var("OUT_DIR").unwrap() + "/webrtc.zip";
-    let tmp_path = path::Path::new(&tmp_path);
-    let mut file = fs::File::options().write(true).read(true).create(true).open(tmp_path)?;
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let tmp_path = PathBuf::from(out_dir).join("webrtc.zip");
+    let mut file = fs::File::options().write(true).read(true).create(true).open(&tmp_path)?;
     resp.copy_to(&mut file)?;
 
     let mut archive = zip::ZipArchive::new(file)?;
