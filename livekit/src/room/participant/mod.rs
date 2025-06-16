@@ -63,6 +63,7 @@ pub enum DisconnectReason {
     UserRejected,
     SipTrunkFailure,
     ConnectionTimeout,
+    MediaFailure,
 }
 
 #[derive(Debug, Clone)]

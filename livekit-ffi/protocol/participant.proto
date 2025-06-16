@@ -71,4 +71,5 @@ enum DisconnectReason {
   // SIP protocol failure or unexpected response
   SIP_TRUNK_FAILURE = 13;
   CONNECTION_TIMEOUT = 14;
+  MEDIA_FAILURE = 15;
 }

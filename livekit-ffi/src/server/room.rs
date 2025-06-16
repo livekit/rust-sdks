@@ -652,7 +652,7 @@ impl RoomInner {
                     ));
                 }
             }
-            sent_message;
+            drop(sent_message);
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
@@ -699,7 +699,7 @@ impl RoomInner {
                     ));
                 }
             }
-            sent_message;
+            drop(sent_message);
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
@@ -720,6 +720,7 @@ impl RoomInner {
                 send_stream_header.header.into(),
             )
             .into(),
+            ..Default::default()
         };
         let async_id = server.next_id();
         let inner = self.clone();
@@ -748,6 +749,7 @@ impl RoomInner {
                 send_stream_chunk.chunk.into(),
             )
             .into(),
+            ..Default::default()
         };
         let async_id = server.next_id();
         let inner = self.clone();
@@ -777,6 +779,7 @@ impl RoomInner {
                 send_stream_trailer.trailer.into(),
             )
             .into(),
+            ..Default::default()
         };
         let async_id = server.next_id();
         let inner = self.clone();
@@ -1248,7 +1251,7 @@ async fn forward_event(
             ));
         }
         RoomEvent::SipDTMFReceived { code, digit, participant } => {
-            let (sid, identity) = match participant {
+            let (_sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
@@ -1265,7 +1268,7 @@ async fn forward_event(
         }
 
         RoomEvent::ChatMessage { message, participant } => {
-            let (sid, identity) = match participant {
+            let (_sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
@@ -1358,6 +1361,12 @@ async fn forward_event(
                     threshold,
                 },
             ));
+        }
+        RoomEvent::RoomUpdated { room } => {
+            let _ = send_event(proto::room_event::Message::RoomUpdated(room.into()));
+        }
+        RoomEvent::Moved { room } => {
+            let _ = send_event(proto::room_event::Message::Moved(room.into()));
         }
         _ => {
             log::warn!("unhandled room event: {:?}", event);

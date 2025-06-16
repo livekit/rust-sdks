@@ -567,6 +567,12 @@ pub struct DataPacket {
     /// identities of participants who will receive the message (sent to all by default)
     #[prost(string, repeated, tag="5")]
     pub destination_identities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// sequence number of reliable packet
+    #[prost(uint32, tag="16")]
+    pub sequence: u32,
+    /// sid of the user that sent the message
+    #[prost(string, tag="17")]
+    pub participant_sid: ::prost::alloc::string::String,
     #[prost(oneof="data_packet::Value", tags="2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15")]
     pub value: ::core::option::Option<data_packet::Value>,
 }
@@ -1633,6 +1639,8 @@ pub enum DisconnectReason {
     SipTrunkFailure = 13,
     /// server timed out a participant session
     ConnectionTimeout = 14,
+    /// media stream failure or media timeout
+    MediaFailure = 15,
 }
 impl DisconnectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1656,6 +1664,7 @@ impl DisconnectReason {
             DisconnectReason::UserRejected => "USER_REJECTED",
             DisconnectReason::SipTrunkFailure => "SIP_TRUNK_FAILURE",
             DisconnectReason::ConnectionTimeout => "CONNECTION_TIMEOUT",
+            DisconnectReason::MediaFailure => "MEDIA_FAILURE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1676,6 +1685,7 @@ impl DisconnectReason {
             "USER_REJECTED" => Some(Self::UserRejected),
             "SIP_TRUNK_FAILURE" => Some(Self::SipTrunkFailure),
             "CONNECTION_TIMEOUT" => Some(Self::ConnectionTimeout),
+            "MEDIA_FAILURE" => Some(Self::MediaFailure),
             _ => None,
         }
     }
@@ -3127,6 +3137,11 @@ pub struct ReconnectResponse {
     pub ice_servers: ::prost::alloc::vec::Vec<IceServer>,
     #[prost(message, optional, tag="2")]
     pub client_configuration: ::core::option::Option<ClientConfiguration>,
+    #[prost(message, optional, tag="3")]
+    pub server_info: ::core::option::Option<ServerInfo>,
+    /// last sequence number of reliable message received before resuming
+    #[prost(uint32, tag="4")]
+    pub last_message_seq: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3150,6 +3165,8 @@ pub struct SessionDescription {
     pub r#type: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub sdp: ::prost::alloc::string::String,
+    #[prost(uint32, tag="3")]
+    pub id: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3363,6 +3380,7 @@ pub struct SubscribedCodec {
 pub struct SubscribedQualityUpdate {
     #[prost(string, tag="1")]
     pub track_sid: ::prost::alloc::string::String,
+    #[deprecated]
     #[prost(message, repeated, tag="2")]
     pub subscribed_qualities: ::prost::alloc::vec::Vec<SubscribedQuality>,
     #[prost(message, repeated, tag="3")]
@@ -3430,6 +3448,16 @@ pub struct SyncState {
     pub offer: ::core::option::Option<SessionDescription>,
     #[prost(string, repeated, tag="6")]
     pub track_sids_disabled: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="7")]
+    pub datachannel_receive_states: ::prost::alloc::vec::Vec<DataChannelReceiveState>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataChannelReceiveState {
+    #[prost(string, tag="1")]
+    pub publisher_sid: ::prost::alloc::string::String,
+    #[prost(uint32, tag="2")]
+    pub last_seq: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3829,12 +3857,15 @@ pub struct AvailabilityResponse {
     pub available: bool,
     #[prost(bool, tag="3")]
     pub supports_resume: bool,
+    #[prost(bool, tag="8")]
+    pub terminate: bool,
     #[prost(string, tag="4")]
     pub participant_name: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub participant_identity: ::prost::alloc::string::String,
     #[prost(string, tag="6")]
     pub participant_metadata: ::prost::alloc::string::String,
+    /// NEXT_ID: 9
     #[prost(map="string, string", tag="7")]
     pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
@@ -5018,6 +5049,9 @@ pub struct SipOutboundTrunkInfo {
     /// Note that this is not a SIP URI and should not contain the 'sip:' protocol prefix.
     #[prost(string, tag="4")]
     pub address: ::prost::alloc::string::String,
+    /// country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
+    #[prost(string, tag="14")]
+    pub destination_country: ::prost::alloc::string::String,
     /// SIP Transport used for outbound call.
     #[prost(enumeration="SipTransport", tag="5")]
     pub transport: i32,
@@ -5060,6 +5094,8 @@ pub struct SipOutboundTrunkUpdate {
     pub address: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(enumeration="SipTransport", optional, tag="2")]
     pub transport: ::core::option::Option<i32>,
+    #[prost(string, optional, tag="9")]
+    pub destination_country: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag="3")]
     pub numbers: ::core::option::Option<ListUpdate>,
     #[prost(string, optional, tag="4")]
@@ -5361,6 +5397,9 @@ pub struct SipOutboundConfig {
     /// SIP server address
     #[prost(string, tag="1")]
     pub hostname: ::prost::alloc::string::String,
+    /// country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
+    #[prost(string, tag="7")]
+    pub destination_country: ::prost::alloc::string::String,
     /// SIP Transport used for outbound call.
     #[prost(enumeration="SipTransport", tag="2")]
     pub transport: i32,
