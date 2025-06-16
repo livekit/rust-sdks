@@ -3332,7 +3332,7 @@ pub struct OwnedBuffer {
 pub struct RoomEvent {
     #[prost(uint64, required, tag="1")]
     pub room_handle: u64,
-    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37")]
+    #[prost(oneof="room_event::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38")]
     pub message: ::core::option::Option<room_event::Message>,
 }
 /// Nested message and enum types in `RoomEvent`.
@@ -3418,6 +3418,9 @@ pub mod room_event {
         /// Participant moved to new room
         #[prost(message, tag="37")]
         Moved(super::RoomInfo),
+        /// carry over all participant info updates, including sid
+        #[prost(message, tag="38")]
+        ParticipantsUpdated(super::ParticipantsUpdated),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3455,6 +3458,12 @@ pub struct OwnedRoom {
     pub handle: FfiOwnedHandle,
     #[prost(message, required, tag="2")]
     pub info: RoomInfo,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantsUpdated {
+    #[prost(message, repeated, tag="1")]
+    pub participants: ::prost::alloc::vec::Vec<ParticipantInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

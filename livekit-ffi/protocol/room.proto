@@ -380,6 +380,8 @@ message RoomEvent {
     RoomInfo room_updated = 36;
     // Participant moved to new room
     RoomInfo moved = 37;
+    // carry over all participant info updates, including sid
+    ParticipantsUpdated participants_updated = 38;
   }
 }
 
@@ -401,6 +403,10 @@ message RoomInfo {
 message OwnedRoom {
   required FfiOwnedHandle handle = 1;
   required RoomInfo info = 2;
+}
+
+message ParticipantsUpdated {
+  repeated ParticipantInfo participants = 1;
 }
 
 message ParticipantConnected { required OwnedParticipant info = 1; }

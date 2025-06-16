@@ -227,6 +227,9 @@ pub enum RoomEvent {
     Moved {
         room: RoomInfo,
     },
+    ParticipantsUpdated {
+        participants: Vec<Participant>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -933,6 +936,8 @@ impl RoomSession {
     /// It'll create, update or remove a participant
     /// It also update the participant tracks.
     fn handle_participant_update(self: &Arc<Self>, updates: Vec<proto::ParticipantInfo>) {
+        // only update non-disconnected participants to refresh info
+        let mut participants: Vec<Participant> = Vec::new();
         for pi in updates {
             let participant_sid = pi.sid.clone().try_into().unwrap();
             let participant_identity: ParticipantIdentity = pi.identity.clone().into();
@@ -941,6 +946,7 @@ impl RoomSession {
                 || participant_identity == self.local_participant.identity()
             {
                 self.local_participant.clone().update_info(pi);
+                participants.push(Participant::Local(self.local_participant.clone()));
                 continue;
             }
 
@@ -966,6 +972,7 @@ impl RoomSession {
                 }
             } else if let Some(remote_participant) = remote_participant {
                 remote_participant.update_info(pi.clone());
+                participants.push(Participant::Remote(remote_participant));
             } else {
                 // Create a new participant
                 let remote_participant = {
@@ -985,6 +992,9 @@ impl RoomSession {
 
                 remote_participant.update_info(pi.clone()); // Add tracks
             }
+        }
+        if !participants.is_empty() {
+            self.dispatcher.dispatch(&RoomEvent::ParticipantsUpdated { participants });
         }
     }
 
@@ -1236,6 +1246,9 @@ impl RoomSession {
         self.handle_refresh_token(self.rtc_engine.session().signal_client().url(), moved.token);
         if let Some(local_participant) = moved.participant {
             self.local_participant.update_info(local_participant);
+            self.dispatcher.dispatch(&RoomEvent::ParticipantsUpdated {
+                participants: vec![Participant::Local(self.local_participant.clone())],
+            });
         }
         self.handle_participant_update(moved.other_participants);
         if let Some(room) = moved.room {

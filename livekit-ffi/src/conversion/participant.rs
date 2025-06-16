@@ -13,12 +13,18 @@
 // limitations under the License.
 
 use crate::{proto, server::participant::FfiParticipant};
+use livekit::prelude::*;
 use livekit::DisconnectReason;
 use livekit::ParticipantKind;
 
 impl From<&FfiParticipant> for proto::ParticipantInfo {
     fn from(value: &FfiParticipant) -> Self {
-        let participant = &value.participant;
+        From::<&Participant>::from(&value.participant)
+    }
+}
+
+impl From<&Participant> for proto::ParticipantInfo {
+    fn from(participant: &Participant) -> Self {
         Self {
             sid: participant.sid().into(),
             name: participant.name(),

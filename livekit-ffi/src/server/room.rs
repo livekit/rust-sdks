@@ -1368,6 +1368,16 @@ async fn forward_event(
         RoomEvent::Moved { room } => {
             let _ = send_event(proto::room_event::Message::Moved(room.into()));
         }
+        RoomEvent::ParticipantsUpdated { participants } => {
+            let _ = send_event(proto::room_event::Message::ParticipantsUpdated(
+                proto::ParticipantsUpdated {
+                    participants: participants
+                        .into_iter()
+                        .map(|p| proto::ParticipantInfo::from(&p))
+                        .collect(),
+                },
+            ));
+        }
         _ => {
             log::warn!("unhandled room event: {:?}", event);
         }
