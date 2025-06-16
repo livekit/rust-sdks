@@ -1,5 +1,5 @@
-#ifndef NVIDIA_H264_ENCODER_IMPL_H_
-#define NVIDIA_H264_ENCODER_IMPL_H_
+#ifndef WEBRTC_NVIDIA_H264_ENCODER_IMPL_H_
+#define WEBRTC_NVIDIA_H264_ENCODER_IMPL_H_
 
 #include <cuda.h>
 
@@ -95,4 +95,4 @@ class NvidiaH264EncoderImpl : public VideoEncoder {
 
 }  // namespace webrtc
 
-#endif  // VAAPI_H264_ENCODER_IMPL_H_
+#endif  // WEBRTC_NVIDIA_H264_ENCODER_IMPL_H_

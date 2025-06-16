@@ -1,7 +1,7 @@
 
 
-#ifndef VAAPI_VIDEO_ENCODER_FACTORY_H_
-#define VAAPI_VIDEO_ENCODER_FACTORY_H_
+#ifndef NVIDIA_VIDEO_DECODER_FACTORY_H_
+#define NVIDIA_VIDEO_DECODER_FACTORY_H_
 
 #include <vector>
 
@@ -31,4 +31,4 @@ class NvidiaVideoDecoderFactory : public VideoDecoderFactory {
 
 }  // namespace webrtc
 
-#endif  // VAAPI_VIDEO_ENCODER_FACTORY_H_
+#endif  // NVIDIA_VIDEO_DECODER_FACTORY_H_

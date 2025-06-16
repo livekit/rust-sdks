@@ -1,5 +1,5 @@
-#pragma once
-
+#ifndef WEBRTC_NVIDIA_H264_DECODER_IMPL_H_
+#define WEBRTC_NVIDIA_H264_DECODER_IMPL_H_
 
 #include <api/video_codecs/h264_profile_level_id.h>
 #include <api/video_codecs/sdp_video_format.h>
@@ -7,11 +7,10 @@
 #include <api/video_codecs/video_decoder_factory.h>
 #include <api/video_codecs/video_encoder.h>
 #include <api/video_codecs/video_encoder_factory.h>
+#include <common_video/h264/h264_bitstream_parser.h>
 #include <common_video/h264/pps_parser.h>
 #include <common_video/h264/sps_parser.h>
-#include <common_video/h264/h264_bitstream_parser.h>
 #include <common_video/include/video_frame_buffer_pool.h>
-
 #include <cuda.h>
 #include <media/base/codec.h>
 
@@ -54,3 +53,5 @@ class NvidiaH264DecoderImpl : public VideoDecoder {
 };
 
 }  // end namespace webrtc
+
+#endif  // WEBRTC_NVIDIA_H264_DECODER_IMPL_H_
