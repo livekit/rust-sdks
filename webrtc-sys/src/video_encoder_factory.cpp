@@ -37,6 +37,10 @@
 #include "livekit/android.h"
 #endif
 
+#ifdef __linux__
+#include "nvidia/nvidia_encoder_factory.h"
+#endif
+
 namespace livekit {
 
 using Factory = webrtc::VideoEncoderFactoryTemplate<
@@ -58,7 +62,11 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
-  // TODO(theomonnom): Add other HW encoders here
+#ifdef __linux__
+  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+  }
+#endif
 }
 
 std::vector<webrtc::SdpVideoFormat>

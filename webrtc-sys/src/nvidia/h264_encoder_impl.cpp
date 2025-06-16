@@ -23,9 +23,6 @@
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/scale.h"
 
-
-#include "NvEncoderCudaWithCUarray.h"
-
 namespace webrtc {
 
 // Used by histograms. Values of entries should not be changed.
@@ -34,6 +31,48 @@ enum H264EncoderImplEvent {
   kH264EncoderEventError = 1,
   kH264EncoderEventMax = 16,
 };
+
+
+NV_ENC_LEVEL H264LevelToNvEncLevel(webrtc::H264Level level) {
+  switch (level) {
+    case H264Level::kLevel1_b:
+      return NV_ENC_LEVEL_H264_1b;
+    case H264Level::kLevel1:
+      return NV_ENC_LEVEL_H264_1;
+    case H264Level::kLevel1_1:
+      return NV_ENC_LEVEL_H264_11;
+    case H264Level::kLevel1_2:
+      return NV_ENC_LEVEL_H264_12;
+    case H264Level::kLevel1_3:
+      return NV_ENC_LEVEL_H264_13;
+    case H264Level::kLevel2:
+      return NV_ENC_LEVEL_H264_2;
+    case H264Level::kLevel2_1:
+      return NV_ENC_LEVEL_H264_21;
+    case H264Level::kLevel2_2:
+      return NV_ENC_LEVEL_H264_22;
+    case H264Level::kLevel3:
+      return NV_ENC_LEVEL_H264_3;
+    case H264Level::kLevel3_1:
+      return NV_ENC_LEVEL_H264_31;
+    case H264Level::kLevel3_2:
+      return NV_ENC_LEVEL_H264_32;
+    case H264Level::kLevel4:
+      return NV_ENC_LEVEL_H264_4;
+    case H264Level::kLevel4_1:
+      return NV_ENC_LEVEL_H264_41;
+    case H264Level::kLevel4_2:
+      return NV_ENC_LEVEL_H264_42;
+    case H264Level::kLevel5:
+      return NV_ENC_LEVEL_H264_5;
+    case H264Level::kLevel5_1:
+      return NV_ENC_LEVEL_H264_51;
+    case H264Level::kLevel5_2:
+      return NV_ENC_LEVEL_H264_52;
+  }
+  return NV_ENC_LEVEL_AUTOSELECT;  // Default value.
+}
+
 
 NvidiaH264EncoderImpl::NvidiaH264EncoderImpl(
     const webrtc::Environment& env,
@@ -55,6 +94,12 @@ NvidiaH264EncoderImpl::NvidiaH264EncoderImpl(
   if (profile_level_id.has_value()) {
     profile_ = profile_level_id->profile;
     level_ = profile_level_id->level;
+  }
+
+  nv_enc_level_ = NV_ENC_LEVEL_AUTOSELECT;
+  if (level_ != H264Level::kLevel1_b) {
+    // Convert H264Level to NV_ENC_LEVEL.
+    nv_enc_level_ = webrtc::H264LevelToNvEncLevel(level_);
   }
 
   RTC_CHECK_NE(cu_memory_type_, CU_MEMORYTYPE_HOST);
@@ -143,9 +188,6 @@ int32_t NvidiaH264EncoderImpl::InitEncode(
     if (cu_memory_type_ == CU_MEMORYTYPE_DEVICE) {
       encoder_ = std::make_unique<NvEncoderCuda>(cu_context_, codec_.width,
                                                  codec_.height, nv_format_, 0);
-    } else if (cu_memory_type_ == CU_MEMORYTYPE_ARRAY) {
-      encoder_ = std::make_unique<NvEncoderCudaWithCUarray>(
-          cu_context_, codec_.width, codec_.height, nv_format_, 0);
     } else {
       RTC_DCHECK_NOTREACHED();
     }
@@ -169,6 +211,7 @@ int32_t NvidiaH264EncoderImpl::InitEncode(
   nv_initialize_params_.frameRateNum =
       static_cast<uint32_t>(configuration_.max_frame_rate);
   nv_initialize_params_.frameRateDen = 1;
+  nv_initialize_params_.bufferFormat = nv_format_;
 
   nv_encode_config_.profileGUID = nv_profile_guid_;
   nv_encode_config_.gopLength = NVENC_INFINITE_GOPLENGTH;
@@ -279,36 +322,10 @@ int32_t NvidiaH264EncoderImpl::Encode(
 
     if (cu_memory_type_ == CU_MEMORYTYPE_DEVICE) {
       NvEncoderCuda::CopyToDeviceFrame(
-          cu_context_, nullptr /*TODO: */, 0,
+          cu_context_, (void*)frame_buffer->DataY(), 0,
           reinterpret_cast<CUdeviceptr>(nv_enc_input_frame->inputPtr),
           nv_enc_input_frame->pitch, input_frame.width(), input_frame.height(),
           CU_MEMORYTYPE_DEVICE, nv_enc_input_frame->bufferFormat,
-          nv_enc_input_frame->chromaOffsets, nv_enc_input_frame->numChromaPlanes);
-    } else if (cu_memory_type_ == CU_MEMORYTYPE_ARRAY) {
-      void* pSrcArray = nullptr; /*TODO: */
-
-      // Resize cuda array when the resolution of input buffer is different from
-      // output one. The output buffer named m_scaledArray is reused while the
-      // resolution is matched.
-#if SUPPORT_CUDA_KERNEL
-      if (buffer->GetSize() != size) {
-        CUresult result = Resize(handle->mappedArray, m_scaledArray, size);
-        if (result != CUDA_SUCCESS) {
-          RTC_LOG(LS_INFO) << "Resize failed. original size="
-                           << buffer->GetSize().width() << ","
-                           << buffer->GetSize().height()
-                           << " output size=" << size.width() << ","
-                           << size.height();
-          return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
-        }
-        pSrcArray = static_cast<void*>(m_scaledArray);
-      }
-#endif
-      NvEncoderCudaWithCUarray::CopyToDeviceFrame(
-          cu_context_, pSrcArray, 0,
-          static_cast<CUarray>(nv_enc_input_frame->inputPtr),
-          nv_enc_input_frame->pitch, input_frame.width(), input_frame.height(),
-          CU_MEMORYTYPE_ARRAY, nv_enc_input_frame->bufferFormat,
           nv_enc_input_frame->chromaOffsets, nv_enc_input_frame->numChromaPlanes);
     }
 

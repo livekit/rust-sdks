@@ -17,6 +17,9 @@
 #include "nvcuvid.h"
 #include "NvDecoder.h"
 
+#include "Utils/Logger.h"
+simplelogger::Logger* logger = simplelogger::LoggerFactory::CreateConsoleLogger();
+
 #define START_TIMER auto start = std::chrono::high_resolution_clock::now();
 
 #define STOP_TIMER(print_message) int64_t elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>( \
