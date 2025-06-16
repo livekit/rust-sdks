@@ -14,13 +14,13 @@
 
 use std::{
     env,
-    error::Error,
     fs::{self, File},
     io::{self, BufRead, Write},
     path,
     process::Command,
 };
 
+use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
 use regex::Regex;
 use reqwest::StatusCode;
@@ -135,10 +135,10 @@ pub fn webrtc_defines() -> Vec<(String, Option<String>)> {
     vec
 }
 
-pub fn configure_jni_symbols() -> Result<(), Box<dyn Error>> {
-    download_webrtc()?;
+pub fn configure_jni_symbols() -> Result<()> {
+    download_webrtc().context("Failed to download WebRTC binaries for JNI configuration")?;
 
-    let toolchain = android_ndk_toolchain()?;
+    let toolchain = android_ndk_toolchain().context("Failed to locate Android NDK toolchain")?;
     let toolchain_bin = toolchain.join("bin");
 
     let webrtc_dir = webrtc_dir();
@@ -159,7 +159,7 @@ pub fn configure_jni_symbols() -> Result<(), Box<dyn Error>> {
         jni_regex.captures_iter(&content).map(|cap| cap.get(1).unwrap().as_str()).collect();
 
     if jni_symbols.is_empty() {
-        return Err("No JNI symbols found".into()); // Shouldn't happen
+        return Err(anyhow!("No JNI symbols found")); // Shouldn't happen
     }
 
     // Keep JNI symbols
@@ -169,45 +169,53 @@ pub fn configure_jni_symbols() -> Result<(), Box<dyn Error>> {
 
     // Version script
     let vs_path = out_dir.join("webrtc_jni.map");
-    let mut vs_file = fs::File::create(&vs_path).unwrap();
+    let mut vs_file = fs::File::create(&vs_path).context("Failed to create version script file")?;
 
     let jni_symbols = jni_symbols.join("; ");
-    write!(vs_file, "JNI_WEBRTC {{\n\tglobal: {}; \n}};", jni_symbols).unwrap();
+    write!(vs_file, "JNI_WEBRTC {{\n\tglobal: {}; \n}};", jni_symbols)
+        .context("Failed to write version script")?;
 
     println!("cargo:rustc-link-arg=-Wl,--version-script={}", vs_path.display());
 
     Ok(())
 }
 
-pub fn download_webrtc() -> Result<(), Box<dyn Error>> {
+pub fn download_webrtc() -> Result<()> {
     let dir = scratch::path(SCRATH_PATH);
-    let flock = File::create(dir.join(".lock"))?;
-    flock.lock_exclusive()?;
+    let flock = File::create(dir.join(".lock"))
+        .context("Failed to create lock file for WebRTC download")?;
+    flock.lock_exclusive().context("Failed to acquire exclusive lock for WebRTC download")?;
 
     let webrtc_dir = webrtc_dir();
     if webrtc_dir.exists() {
         return Ok(());
     }
 
-    let mut resp = reqwest::blocking::get(download_url())?;
+    let mut resp = reqwest::blocking::get(download_url())
+        .context("Failed to send HTTP request to download WebRTC")?;
     if resp.status() != StatusCode::OK {
-        return Err(format!("failed to download webrtc: {}", resp.status()).into());
+        return Err(anyhow!("failed to download webrtc: {}", resp.status()));
     }
 
     let tmp_path = env::var("OUT_DIR").unwrap() + "/webrtc.zip";
     let tmp_path = path::Path::new(&tmp_path);
-    let mut file = fs::File::options().write(true).read(true).create(true).open(tmp_path)?;
-    resp.copy_to(&mut file)?;
+    let mut file = fs::File::options()
+        .write(true)
+        .read(true)
+        .create(true)
+        .open(tmp_path)
+        .context("Failed to create temporary file for WebRTC download")?;
+    resp.copy_to(&mut file).context("Failed to write WebRTC download to temporary file")?;
 
-    let mut archive = zip::ZipArchive::new(file)?;
-    archive.extract(webrtc_dir.parent().unwrap())?;
+    let mut archive = zip::ZipArchive::new(file).context("Failed to open WebRTC zip archive")?;
+    archive.extract(webrtc_dir.parent().unwrap()).context("Failed to extract WebRTC archive")?;
     drop(archive);
 
-    fs::remove_file(tmp_path)?;
+    fs::remove_file(tmp_path).context("Failed to remove temporary WebRTC zip file")?;
     Ok(())
 }
 
-pub fn android_ndk_toolchain() -> Result<path::PathBuf, &'static str> {
+pub fn android_ndk_toolchain() -> Result<path::PathBuf> {
     let host_os = host_os();
 
     let home = env::var("HOME");
@@ -220,7 +228,7 @@ pub fn android_ndk_toolchain() -> Result<path::PathBuf, &'static str> {
     } else if host_os == Some("windows") {
         path::PathBuf::from(local.unwrap())
     } else {
-        return Err("Unsupported host OS");
+        return Err(anyhow!("Unsupported host OS"));
     };
 
     let ndk_dir = || -> Option<path::PathBuf> {
@@ -261,12 +269,12 @@ pub fn android_ndk_toolchain() -> Result<path::PathBuf, &'static str> {
         } else if host_os == Some("windows") {
             "windows-x86_64"
         } else {
-            return Err("Unsupported host OS");
+            return Err(anyhow!("Unsupported host OS"));
         };
 
         Ok(ndk_dir.join(format!("toolchains/llvm/prebuilt/{}", llvm_dir)))
     } else {
-        Err("Android NDK not found, please set ANDROID_NDK_HOME to your NDK path")
+        Err(anyhow!("Android NDK not found, please set ANDROID_NDK_HOME to your NDK path"))
     }
 }
 
