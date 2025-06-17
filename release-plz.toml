@@ -56,3 +56,24 @@ name = "yuv-sys"
 changelog_path = "yuv-sys/CHANGELOG.md"
 publish = true
 release = true
+
+[[package]]
+name = "soxr-sys"
+changelog_path = "soxr-sys/CHANGELOG.md"
+publish = true
+release = true
+
+[[package]]
+name = "livekit-ffi"
+changelog_path = "livekit-ffi/CHANGELOG.md"
+publish = true
+publish_no_verify = true
+release = true
+git_release_enable = false # existing CI manages GitHub release
+changelog_include = [
+  "livekit",
+  "soxr-sys",
+  "imgproc",
+  "livekit-protocol",
+  "webrtc-sys-build",
+]
