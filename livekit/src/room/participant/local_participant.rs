@@ -738,7 +738,7 @@ impl LocalParticipant {
                 id: id.clone(),
                 method: data.method.clone(),
                 payload: data.payload.clone(),
-                response_timeout: data.response_timeout - max_round_trip_latency,
+                response_timeout: data.response_timeout,
                 version: 1,
             })
             .await
