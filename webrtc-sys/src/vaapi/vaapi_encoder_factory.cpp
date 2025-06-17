@@ -3,7 +3,14 @@
 #include <memory>
 
 #include "h264_encoder_impl.h"
+
+#if defined(WIN32)
+#include "vaapi_display_win32.h"
+using VaapiDisplay = livekit::VaapiDisplayWin32;
+#elif defined(__linux__)
 #include "vaapi_display_drm.h"
+using VaapiDisplay = livekit::VaapiDisplayDrm ;
+#endif
 
 namespace webrtc {
 
@@ -30,7 +37,7 @@ VAAPIVideoEncoderFactory::~VAAPIVideoEncoderFactory() {}
 bool VAAPIVideoEncoderFactory::IsSupported() {
   // Check if VAAPI is supported by the environment.
   // This could involve checking if the VAAPI display can be opened.
-  livekit::VaapiDisplayDrm vaapi_display;
+  VaapiDisplay vaapi_display;
   if (!vaapi_display.Open()) {
     return false;
   }

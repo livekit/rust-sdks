@@ -8,7 +8,6 @@
 #include <map>
 
 #include "rtc_base/logging.h"
-#include "vaapi_display_drm.h"
 
 #define NAL_REF_IDC_NONE 0
 #define NAL_REF_IDC_LOW 1
@@ -1650,7 +1649,7 @@ static int render_slice(VA264Context* context) {
 namespace livekit {
 
 VaapiH264EncoderWrapper::VaapiH264EncoderWrapper()
-    : va_display_(std::make_unique<VaapiDisplayDrm>()) {
+    : va_display_(std::make_unique<VaapiDisplay>()) {
   context_ = std::make_unique<VA264Context>();
   memset((void*)context_.get(), 0, sizeof(VA264Context));
 }

@@ -128,15 +128,14 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=dylib=shcore");
 
-            builder
-            .include("./vaapi-windows/DirectX-Headers-1.0/include")
-            .include(path::PathBuf::from("./vaapi-windows/x64/include"));
-
-
+            let path = env::current_dir().unwrap();
+            println!("cargo:rustc-link-search=native={}/vaapi-windows/x64/lib", path.display());
             println!("cargo:rustc-link-lib=dylib=va");
-            println!("cargo:rustc-link-lib=dylib=va-win32");
+            println!("cargo:rustc-link-lib=dylib=va_win32");
 
             builder
+                .include("./vaapi-windows/DirectX-Headers-1.0/include")
+                .include(path::PathBuf::from("./vaapi-windows/x64/include"))
                 .file("vaapi-windows/DirectX-Headers-1.0/src/dxguids.cpp")
                 .file("src/vaapi/vaapi_display_win32.cpp")
                 .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")

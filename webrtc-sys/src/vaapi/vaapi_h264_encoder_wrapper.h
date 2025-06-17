@@ -9,8 +9,13 @@
 #include <memory>
 #include <vector>
 
+#if defined(WIN32)
+#include "vaapi_display_win32.h"
+using VaapiDisplay = livekit::VaapiDisplayWin32;
+#elif defined(__linux__)
 #include "vaapi_display_drm.h"
-
+using VaapiDisplay = livekit::VaapiDisplayDrm ;
+#endif
 #define SURFACE_NUM 16 /* 16 surfaces for reference */
 
 typedef struct {
@@ -113,7 +118,7 @@ class VaapiH264EncoderWrapper {
 
  private:
   std::unique_ptr<VA264Context> context_;
-  std::unique_ptr<VaapiDisplayDrm> va_display_;
+  std::unique_ptr<VaapiDisplay> va_display_;
   bool initialized_ = false;
 };
 
