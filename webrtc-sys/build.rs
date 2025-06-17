@@ -128,7 +128,24 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=dylib=shcore");
 
-            builder.flag("/std:c++20").flag("/EHsc");
+            builder
+            .include("./vaapi-windows/DirectX-Headers-1.0/include")
+            .include(path::PathBuf::from("./vaapi-windows/x64/include"));
+
+
+            println!("cargo:rustc-link-lib=dylib=va");
+            println!("cargo:rustc-link-lib=dylib=va-win32");
+
+            builder
+                .file("vaapi-windows/DirectX-Headers-1.0/src/dxguids.cpp")
+                .file("src/vaapi/vaapi_display_win32.cpp")
+                .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                .file("src/vaapi/vaapi_encoder_factory.cpp")
+                .file("src/vaapi/h264_encoder_impl.cpp")
+                .flag("/std:c++20")
+                .flag("/wd4819")
+                .flag("/wd4068")
+                .flag("/EHsc");
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=rt");

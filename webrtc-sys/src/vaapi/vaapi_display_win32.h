@@ -1,17 +1,18 @@
-#ifndef VAAPI_DISPLAY_DRM_H_
-#define VAAPI_DISPLAY_DRM_H_
+#ifndef VAAPI_DISPLAY_WIN32_H_
+#define VAAPI_DISPLAY_WIN32_H_
 
 #include <stdio.h>
-#include <va/va.h>
+
+#include <va/va_win32.h>
 
 namespace livekit {
 
-// VAAPI drm display wrapper class
-class VaapiDisplayDrm {
+// VAAPI win32 display wrapper class
+class VaapiDisplayWin32 {
  public:
-  VaapiDisplayDrm() = default;
-  VaapiDisplayDrm(const VaapiDisplayDrm&) = delete;
-  ~VaapiDisplayDrm() = default;
+  VaapiDisplayWin32() = default;
+  VaapiDisplayDrm(const VaapiDisplayWin32&) = delete;
+  ~VaapiDisplayWin32() = default;
 
   // Initialize the VAAPI display
   bool Open();
@@ -32,4 +33,4 @@ class VaapiDisplayDrm {
 
 }  // namespace livekit
 
-#endif  // VAAPI_DISPLAY_DRM_H_
+#endif  // VAAPI_DISPLAY_WIN32_H_

@@ -1,19 +1,9 @@
 #include "vaapi_h264_encoder_wrapper.h"
 
 #include <assert.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <getopt.h>
-#include <math.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 #include <map>
 
@@ -604,16 +594,6 @@ static int build_packed_slice_buffer(VA264Context* context,
 
   *header_buffer = (unsigned char*)bs.buffer;
   return bs.bit_offset;
-}
-
-/*
- * Helper function for profiling purposes
- */
-static uint32_t GetTickCount() {
-  struct timeval tv;
-  if (gettimeofday(&tv, NULL))
-    return 0;
-  return tv.tv_usec / 1000 + tv.tv_sec * 1000;
 }
 
 /*
