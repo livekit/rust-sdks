@@ -183,6 +183,8 @@ pub fn configure_jni_symbols() -> Result<()> {
 
 pub fn download_webrtc() -> Result<()> {
     let dir = scratch::path(SCRATH_PATH);
+    // temporary fix to avoid github workflow issue
+    fs::create_dir_all(&dir).context("Failed to create scratch_path")?;
     let flock = File::create(dir.join(".lock"))
         .context("Failed to create lock file for WebRTC download")?;
     flock.lock_exclusive().context("Failed to acquire exclusive lock for WebRTC download")?;
