@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.12](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.11...rust-sdks/libwebrtc@0.3.12) - 2025-06-17
+
+### Other
+
+- updated the following local packages: livekit-protocol, webrtc-sys
+
 ## [0.3.11](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.10...rust-sdks/libwebrtc@0.3.11) - 2025-06-11
 
 ### Fixed

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.27](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.26...rust-sdks/livekit-ffi@0.12.27) - 2025-06-17
+
+### Fixed
+
+- *(webrtc-sys-build)* add temporary workaround to fix ci in Windows ([#665](https://github.com/livekit/rust-sdks/pull/665))
+- *(webrtc-sys-build)* add error context to debug issues ([#664](https://github.com/livekit/rust-sdks/pull/664))
+
+### Other
+
+- Expose room updates, support MoveParticipant (protocol 15) ([#662](https://github.com/livekit/rust-sdks/pull/662))
+- use path.join instead of hardcoded `/` ([#663](https://github.com/livekit/rust-sdks/pull/663))
+- bump version for webrtc (fix win CI) ([#650](https://github.com/livekit/rust-sdks/pull/650))
+- try to fix webrtc build for iOS/macOS. ([#646](https://github.com/livekit/rust-sdks/pull/646))
+- remove ([#633](https://github.com/livekit/rust-sdks/pull/633))
+
 ## [0.12.20] - 2025-04-08
 
 ### Added

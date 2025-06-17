@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.8...rust-sdks/webrtc-sys@0.3.9) - 2025-06-17
+
+### Other
+
+- updated the following local packages: webrtc-sys-build
+
 ## [0.3.8](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.7...rust-sdks/webrtc-sys@0.3.8) - 2025-06-11
 
 ### Fixed
