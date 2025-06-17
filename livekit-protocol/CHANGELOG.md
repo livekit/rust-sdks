@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.3.10...rust-sdks/livekit-protocol@0.4.0) - 2025-06-17
+
+### Other
+
+- Expose room updates, support MoveParticipant (protocol 15) ([#662](https://github.com/livekit/rust-sdks/pull/662))
+
 ## [0.3.9] - 2025-03-04
 
 ### Fixed
