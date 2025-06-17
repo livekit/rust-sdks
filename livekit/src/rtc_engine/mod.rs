@@ -138,6 +138,9 @@ pub enum EngineEvent {
     RoomUpdate {
         room: proto::Room,
     },
+    RoomMoved {
+        moved: proto::RoomMovedResponse,
+    },
     /// The following events are used to notify the room about the reconnection state
     /// Since the room needs to also sync state in a good timing with the server.
     /// We synchronize the state with a one-shot channel.
@@ -540,6 +543,9 @@ impl EngineInner {
             }
             SessionEvent::RoomUpdate { room } => {
                 let _ = self.engine_tx.send(EngineEvent::RoomUpdate { room });
+            }
+            SessionEvent::RoomMoved { moved } => {
+                let _ = self.engine_tx.send(EngineEvent::RoomMoved { moved });
             }
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });

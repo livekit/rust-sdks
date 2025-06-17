@@ -221,6 +221,15 @@ pub enum RoomEvent {
         kind: DataPacketKind,
         threshold: u64,
     },
+    RoomUpdated {
+        room: RoomInfo,
+    },
+    Moved {
+        room: RoomInfo,
+    },
+    ParticipantsUpdated {
+        participants: Vec<Participant>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -391,14 +400,24 @@ impl Debug for Room {
     }
 }
 
-struct RoomInfo {
-    metadata: String,
-    state: ConnectionState,
-    lossy_dc_options: DataChannelOptions,
-    reliable_dc_options: DataChannelOptions,
+#[derive(Clone, Debug)]
+pub struct RoomInfo {
+    pub sid: Option<RoomSid>,
+    pub name: String,
+    pub metadata: String,
+    pub state: ConnectionState,
+    pub lossy_dc_options: DataChannelOptions,
+    pub reliable_dc_options: DataChannelOptions,
+    pub empty_timeout: u32,
+    pub departure_timeout: u32,
+    pub max_participants: u32,
+    pub creation_time: i64,
+    pub num_publishers: u32,
+    pub num_participants: u32,
+    pub active_recording: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DataChannelOptions {
     pub buffered_amount_low_threshold: u64,
 }
@@ -411,8 +430,7 @@ impl Default for DataChannelOptions {
 
 pub(crate) struct RoomSession {
     rtc_engine: Arc<RtcEngine>,
-    sid: Promise<RoomSid>,
-    name: String,
+    sid_promise: Promise<RoomSid>,
     info: RwLock<RoomInfo>,
     dispatcher: Dispatcher<RoomEvent>,
     options: RoomOptions,
@@ -434,9 +452,10 @@ struct Handle {
 
 impl Debug for RoomSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let info = self.info.read();
         f.debug_struct("SessionInner")
-            .field("sid", &self.sid.try_result())
-            .field("name", &self.name)
+            .field("sid", &info.sid)
+            .field("name", &info.name)
             .field("rtc_engine", &self.rtc_engine)
             .finish()
     }
@@ -562,11 +581,19 @@ impl Room {
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
-            sid: Promise::new(),
-            name: room_info.name,
+            sid_promise: Promise::new(),
             info: RwLock::new(RoomInfo {
-                state: ConnectionState::Disconnected,
+                sid: room_info.sid.try_into().ok(),
+                name: room_info.name,
                 metadata: room_info.metadata,
+                empty_timeout: room_info.empty_timeout,
+                departure_timeout: room_info.departure_timeout,
+                max_participants: room_info.max_participants,
+                creation_time: room_info.creation_time,
+                num_publishers: room_info.num_publishers,
+                num_participants: room_info.num_participants,
+                active_recording: room_info.active_recording,
+                state: ConnectionState::Disconnected,
                 lossy_dc_options: Default::default(),
                 reliable_dc_options: Default::default(),
             }),
@@ -675,15 +702,20 @@ impl Room {
     }
 
     pub async fn sid(&self) -> RoomSid {
-        self.inner.sid.result().await
+        // sid could have been updated due to room move
+        let sid = self.inner.info.read().sid.clone();
+        if sid.is_none() {
+            return self.inner.sid_promise.result().await;
+        }
+        sid.unwrap()
     }
 
     pub fn maybe_sid(&self) -> Option<RoomSid> {
-        self.inner.sid.try_result()
+        self.inner.info.read().sid.clone()
     }
 
     pub fn name(&self) -> String {
-        self.inner.name.clone()
+        self.inner.info.read().name.clone()
     }
 
     pub fn metadata(&self) -> String {
@@ -711,6 +743,34 @@ impl Room {
             DataPacketKind::Lossy => self.inner.info.read().lossy_dc_options.clone(),
             DataPacketKind::Reliable => self.inner.info.read().reliable_dc_options.clone(),
         }
+    }
+
+    pub fn empty_timeout(&self) -> u32 {
+        self.inner.info.read().empty_timeout
+    }
+
+    pub fn departure_timeout(&self) -> u32 {
+        self.inner.info.read().departure_timeout
+    }
+
+    pub fn max_participants(&self) -> u32 {
+        self.inner.info.read().max_participants
+    }
+
+    pub fn creation_time(&self) -> i64 {
+        self.inner.info.read().creation_time
+    }
+
+    pub fn num_participants(&self) -> u32 {
+        self.inner.info.read().num_participants
+    }
+
+    pub fn num_publishers(&self) -> u32 {
+        self.inner.info.read().num_publishers
+    }
+
+    pub fn active_recording(&self) -> bool {
+        self.inner.info.read().active_recording
     }
 }
 
@@ -759,6 +819,7 @@ impl RoomSession {
                 self.handle_media_track(track, stream, transceiver)
             }
             EngineEvent::RoomUpdate { room } => self.handle_room_update(room),
+            EngineEvent::RoomMoved { moved } => self.handle_room_moved(moved),
             EngineEvent::Resuming(tx) => self.handle_resuming(tx),
             EngineEvent::Resumed(tx) => self.handle_resumed(tx),
             EngineEvent::SignalResumed { reconnect_response, tx } => {
@@ -875,6 +936,8 @@ impl RoomSession {
     /// It'll create, update or remove a participant
     /// It also update the participant tracks.
     fn handle_participant_update(self: &Arc<Self>, updates: Vec<proto::ParticipantInfo>) {
+        // only update non-disconnected participants to refresh info
+        let mut participants: Vec<Participant> = Vec::new();
         for pi in updates {
             let participant_sid = pi.sid.clone().try_into().unwrap();
             let participant_identity: ParticipantIdentity = pi.identity.clone().into();
@@ -883,6 +946,7 @@ impl RoomSession {
                 || participant_identity == self.local_participant.identity()
             {
                 self.local_participant.clone().update_info(pi);
+                participants.push(Participant::Local(self.local_participant.clone()));
                 continue;
             }
 
@@ -908,6 +972,7 @@ impl RoomSession {
                 }
             } else if let Some(remote_participant) = remote_participant {
                 remote_participant.update_info(pi.clone());
+                participants.push(Participant::Remote(remote_participant));
             } else {
                 // Create a new participant
                 let remote_participant = {
@@ -927,6 +992,9 @@ impl RoomSession {
 
                 remote_participant.update_info(pi.clone()); // Add tracks
             }
+        }
+        if !participants.is_empty() {
+            self.dispatcher.dispatch(&RoomEvent::ParticipantsUpdated { participants });
         }
     }
 
@@ -1099,10 +1167,12 @@ impl RoomSession {
             answer: Some(proto::SessionDescription {
                 sdp: answer.to_string(),
                 r#type: answer.sdp_type().to_string(),
+                id: 0,
             }),
             offer: Some(proto::SessionDescription {
                 sdp: offer.to_string(),
                 r#type: offer.sdp_type().to_string(),
+                id: 0,
             }),
             track_sids_disabled: Vec::default(), // TODO: New protocol version
             subscription: Some(proto::UpdateSubscription {
@@ -1112,6 +1182,8 @@ impl RoomSession {
             }),
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
+            // unimplemented, stubbed for now
+            datachannel_receive_states: Vec::new(),
         };
 
         log::debug!("sending sync state {:?}", sync_state);
@@ -1121,15 +1193,69 @@ impl RoomSession {
     fn handle_room_update(self: &Arc<Self>, room: proto::Room) {
         let mut info = self.info.write();
         let old_metadata = std::mem::replace(&mut info.metadata, room.metadata.clone());
+        let mut updated = false;
         if old_metadata != room.metadata {
+            updated = true;
             self.dispatcher.dispatch(&RoomEvent::RoomMetadataChanged {
                 old_metadata,
                 metadata: info.metadata.clone(),
             });
         }
         if !room.sid.is_empty() {
-            let _ = self.sid.resolve(room.sid.try_into().unwrap());
+            let sid = room.sid.try_into().ok();
+            info.sid = sid.clone();
+            if let Some(sid) = sid {
+                let _ = self.sid_promise.resolve(sid);
+            }
         }
+        if info.name != room.name {
+            updated = true;
+            info.name = room.name;
+        }
+        if info.empty_timeout != room.empty_timeout {
+            updated = true;
+            info.empty_timeout = room.empty_timeout;
+        }
+        if info.departure_timeout != room.departure_timeout {
+            updated = true;
+            info.departure_timeout = room.departure_timeout;
+        }
+        if info.max_participants != room.max_participants {
+            updated = true;
+            info.max_participants = room.max_participants;
+        }
+        if info.num_participants != room.num_participants {
+            updated = true;
+            info.num_participants = room.num_participants;
+        }
+        if info.num_publishers != room.num_publishers {
+            updated = true;
+            info.num_publishers = room.num_publishers;
+        }
+        if info.active_recording != room.active_recording {
+            updated = true;
+            info.active_recording = room.active_recording;
+        }
+        info.creation_time = room.creation_time_ms;
+        if updated {
+            self.dispatcher.dispatch(&RoomEvent::RoomUpdated { room: info.clone() });
+        }
+    }
+
+    fn handle_room_moved(self: &Arc<Self>, moved: proto::RoomMovedResponse) {
+        self.handle_refresh_token(self.rtc_engine.session().signal_client().url(), moved.token);
+        if let Some(local_participant) = moved.participant {
+            self.local_participant.update_info(local_participant);
+            self.dispatcher.dispatch(&RoomEvent::ParticipantsUpdated {
+                participants: vec![Participant::Local(self.local_participant.clone())],
+            });
+        }
+        self.handle_participant_update(moved.other_participants);
+        if let Some(room) = moved.room {
+            self.handle_room_update(room);
+        }
+        let info = self.info.read();
+        self.dispatcher.dispatch(&RoomEvent::Moved { room: info.clone() });
     }
 
     fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {

@@ -200,6 +200,8 @@ impl RawStream {
             participant_identity: String::new(), // populate later
             destination_identities: destination_identities.into_iter().map(|id| id.0).collect(),
             value: Some(livekit_protocol::data_packet::Value::StreamHeader(header)),
+            // TODO: placeholder for reliable data transport
+            ..Default::default()
         }
     }
 

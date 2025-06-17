@@ -48,6 +48,7 @@ impl From<DisconnectReason> for participant::DisconnectReason {
             DisconnectReason::UserRejected => Self::UserRejected,
             DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
             DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
+            DisconnectReason::MediaFailure => Self::MediaFailure,
         }
     }
 }

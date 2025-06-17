@@ -629,7 +629,6 @@ impl RoomInner {
                     send_chat_message.sender_identity,
                 )
                 .await;
-            let sent_message = res.as_ref().unwrap().clone();
             match res {
                 Ok(message) => {
                     let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
@@ -652,7 +651,6 @@ impl RoomInner {
                     ));
                 }
             }
-            sent_message;
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
@@ -676,7 +674,6 @@ impl RoomInner {
                     edit_chat_message.sender_identity,
                 )
                 .await;
-            let sent_message: ChatMessage = res.as_ref().unwrap().clone();
             match res {
                 Ok(message) => {
                     let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
@@ -699,7 +696,6 @@ impl RoomInner {
                     ));
                 }
             }
-            sent_message;
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
@@ -720,6 +716,7 @@ impl RoomInner {
                 send_stream_header.header.into(),
             )
             .into(),
+            ..Default::default()
         };
         let async_id = server.next_id();
         let inner = self.clone();
@@ -748,6 +745,7 @@ impl RoomInner {
                 send_stream_chunk.chunk.into(),
             )
             .into(),
+            ..Default::default()
         };
         let async_id = server.next_id();
         let inner = self.clone();
@@ -777,6 +775,7 @@ impl RoomInner {
                 send_stream_trailer.trailer.into(),
             )
             .into(),
+            ..Default::default()
         };
         let async_id = server.next_id();
         let inner = self.clone();
@@ -1248,7 +1247,7 @@ async fn forward_event(
             ));
         }
         RoomEvent::SipDTMFReceived { code, digit, participant } => {
-            let (sid, identity) = match participant {
+            let (_sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
@@ -1265,7 +1264,7 @@ async fn forward_event(
         }
 
         RoomEvent::ChatMessage { message, participant } => {
-            let (sid, identity) = match participant {
+            let (_sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
@@ -1356,6 +1355,22 @@ async fn forward_event(
                 proto::DataChannelBufferedAmountLowThresholdChanged {
                     kind: proto::DataPacketKind::from(kind).into(),
                     threshold,
+                },
+            ));
+        }
+        RoomEvent::RoomUpdated { room } => {
+            let _ = send_event(proto::room_event::Message::RoomUpdated(room.into()));
+        }
+        RoomEvent::Moved { room } => {
+            let _ = send_event(proto::room_event::Message::Moved(room.into()));
+        }
+        RoomEvent::ParticipantsUpdated { participants } => {
+            let _ = send_event(proto::room_event::Message::ParticipantsUpdated(
+                proto::ParticipantsUpdated {
+                    participants: participants
+                        .into_iter()
+                        .map(|p| proto::ParticipantInfo::from(&p))
+                        .collect(),
                 },
             ));
         }

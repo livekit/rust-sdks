@@ -236,6 +236,7 @@ impl SIPClient {
                         // TODO: support these attributes
                         include_headers: Default::default(),
                         media_encryption: Default::default(),
+                        destination_country: Default::default(),
                     }),
                 },
                 self.base.auth_header(

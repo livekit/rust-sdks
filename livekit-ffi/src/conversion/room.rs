@@ -24,6 +24,7 @@ use livekit::{
         native::frame_cryptor::EncryptionState,
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
+    RoomInfo,
 };
 
 impl From<EncryptionState> for proto::EncryptionState {
@@ -99,6 +100,7 @@ impl From<DisconnectReason> for proto::DisconnectReason {
             DisconnectReason::UserRejected => Self::UserRejected,
             DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
             DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
+            DisconnectReason::MediaFailure => Self::MediaFailure,
         }
     }
 }
@@ -249,7 +251,7 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 impl From<&FfiRoom> for proto::RoomInfo {
     fn from(value: &FfiRoom) -> Self {
         let room = &value.inner.room;
-        Self {
+        proto::RoomInfo {
             sid: room.maybe_sid().map(|x| x.to_string()),
             name: room.name(),
             metadata: room.metadata(),
@@ -259,6 +261,36 @@ impl From<&FfiRoom> for proto::RoomInfo {
             reliable_dc_buffered_amount_low_threshold: room
                 .data_channel_options(DataPacketKind::Reliable)
                 .buffered_amount_low_threshold,
+            empty_timeout: room.empty_timeout(),
+            departure_timeout: room.departure_timeout(),
+            max_participants: room.max_participants(),
+            creation_time: room.creation_time(),
+            num_participants: room.num_participants(),
+            num_publishers: room.num_publishers(),
+            active_recording: room.active_recording(),
+        }
+    }
+}
+
+impl From<RoomInfo> for proto::RoomInfo {
+    fn from(room: RoomInfo) -> Self {
+        proto::RoomInfo {
+            sid: room.sid.map(|x| x.to_string()),
+            name: room.name,
+            metadata: room.metadata,
+            lossy_dc_buffered_amount_low_threshold: room
+                .lossy_dc_options
+                .buffered_amount_low_threshold,
+            reliable_dc_buffered_amount_low_threshold: room
+                .reliable_dc_options
+                .buffered_amount_low_threshold,
+            empty_timeout: room.empty_timeout,
+            departure_timeout: room.departure_timeout,
+            max_participants: room.max_participants,
+            creation_time: room.creation_time,
+            num_participants: room.num_participants,
+            num_publishers: room.num_publishers,
+            active_recording: room.active_recording,
         }
     }
 }

@@ -152,6 +152,9 @@ pub enum SessionEvent {
     RoomUpdate {
         room: proto::Room,
     },
+    RoomMoved {
+        moved: proto::RoomMovedResponse,
+    },
     LocalTrackSubscribed {
         track_sid: String,
     },
@@ -683,6 +686,7 @@ impl SessionInner {
                     .send(proto::signal_request::Message::Answer(proto::SessionDescription {
                         r#type: "answer".to_string(),
                         sdp: answer.to_string(),
+                        id: 0,
                     }))
                     .await;
             }
@@ -734,6 +738,9 @@ impl SessionInner {
             proto::signal_response::Message::RoomUpdate(room_update) => {
                 let _ =
                     self.emitter.send(SessionEvent::RoomUpdate { room: room_update.room.unwrap() });
+            }
+            proto::signal_response::Message::RoomMoved(room_moved) => {
+                let _ = self.emitter.send(SessionEvent::RoomMoved { moved: room_moved });
             }
             proto::signal_response::Message::TrackSubscribed(track_subscribed) => {
                 let _ = self.emitter.send(SessionEvent::LocalTrackSubscribed {
@@ -803,6 +810,7 @@ impl SessionInner {
                     .send(proto::signal_request::Message::Offer(proto::SessionDescription {
                         r#type: "offer".to_string(),
                         sdp: offer.to_string(),
+                        id: 0,
                     }))
                     .await;
             }
