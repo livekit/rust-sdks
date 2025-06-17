@@ -46,6 +46,12 @@ publish = true
 release = true
 
 [[package]]
+name = "webrtc-sys-build"
+changelog_path = "webrtc-sys/build/CHANGELOG.md"
+publish = true
+release = true
+
+[[package]]
 name = "yuv-sys"
 changelog_path = "yuv-sys/CHANGELOG.md"
 publish = true
