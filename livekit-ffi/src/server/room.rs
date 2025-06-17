@@ -629,7 +629,6 @@ impl RoomInner {
                     send_chat_message.sender_identity,
                 )
                 .await;
-            let sent_message = res.as_ref().unwrap().clone();
             match res {
                 Ok(message) => {
                     let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
@@ -652,7 +651,6 @@ impl RoomInner {
                     ));
                 }
             }
-            drop(sent_message);
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
@@ -676,7 +674,6 @@ impl RoomInner {
                     edit_chat_message.sender_identity,
                 )
                 .await;
-            let sent_message: ChatMessage = res.as_ref().unwrap().clone();
             match res {
                 Ok(message) => {
                     let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
@@ -699,7 +696,6 @@ impl RoomInner {
                     ));
                 }
             }
-            drop(sent_message);
         });
         server.watch_panic(handle);
         proto::SendChatMessageResponse { async_id }
