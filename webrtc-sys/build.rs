@@ -139,18 +139,18 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=nvcuvid");
 
             builder
-            .flag("-Isrc/nvidia/NvCodec/include")
-            .flag("-Isrc/nvidia/NvCodec/NvCodec")
-            .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
-            .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
-            .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
-            .file("src/nvidia/h264_encoder_impl.cpp")
-            .file("src/nvidia/h264_decoder_impl.cpp")
-            .file("src/nvidia/nvidia_decoder_factory.cpp")
-            .file("src/nvidia/nvidia_encoder_factory.cpp")
-            .file("src/nvidia/cuda_context.cpp")
-            .flag("-std=c++2a")
-            .flag("-Wno-deprecated-declarations");
+                .flag("-Isrc/nvidia/NvCodec/include")
+                .flag("-Isrc/nvidia/NvCodec/NvCodec")
+                .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
+                .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
+                .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
+                .file("src/nvidia/h264_encoder_impl.cpp")
+                .file("src/nvidia/h264_decoder_impl.cpp")
+                .file("src/nvidia/nvidia_decoder_factory.cpp")
+                .file("src/nvidia/nvidia_encoder_factory.cpp")
+                .file("src/nvidia/cuda_context.cpp")
+                .flag("-std=c++2a")
+                .flag("-Wno-deprecated-declarations");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
