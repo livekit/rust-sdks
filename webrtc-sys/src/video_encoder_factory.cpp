@@ -37,7 +37,9 @@
 #include "livekit/android.h"
 #endif
 
+#if defined(__linux__)
 #include "vaapi/vaapi_encoder_factory.h"
+#endif
 
 namespace livekit {
 
@@ -60,10 +62,11 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
+#if defined(__linux__)
   if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
   }
-
+#endif
   // TODO(theomonnom): Add other HW encoders here
 }
 
