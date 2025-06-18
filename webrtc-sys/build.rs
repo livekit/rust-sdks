@@ -128,22 +128,22 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=dylib=shcore");
 
-            let path = env::current_dir().unwrap();
-            println!("cargo:rustc-link-search=native={}/vaapi-windows/x64/lib", path.display());
-            println!("cargo:rustc-link-lib=dylib=va");
-            println!("cargo:rustc-link-lib=dylib=va_win32");
+            //let path = env::current_dir().unwrap();
+            //println!("cargo:rustc-link-search=native={}/vaapi-windows/x64/lib", path.display());
+            //println!("cargo:rustc-link-lib=dylib=va");
+            //println!("cargo:rustc-link-lib=dylib=va_win32");
 
             builder
-                .include("./vaapi-windows/DirectX-Headers-1.0/include")
-                .include(path::PathBuf::from("./vaapi-windows/x64/include"))
-                .file("vaapi-windows/DirectX-Headers-1.0/src/dxguids.cpp")
-                .file("src/vaapi/vaapi_display_win32.cpp")
-                .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
-                .file("src/vaapi/vaapi_encoder_factory.cpp")
-                .file("src/vaapi/h264_encoder_impl.cpp")
+                //.include("./vaapi-windows/DirectX-Headers-1.0/include")
+                //.include(path::PathBuf::from("./vaapi-windows/x64/include"))
+                //.file("vaapi-windows/DirectX-Headers-1.0/src/dxguids.cpp")
+                //.file("src/vaapi/vaapi_display_win32.cpp")
+                //.file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                //.file("src/vaapi/vaapi_encoder_factory.cpp")
+                //.file("src/vaapi/h264_encoder_impl.cpp")
                 .flag("/std:c++20")
-                .flag("/wd4819")
-                .flag("/wd4068")
+                //.flag("/wd4819")
+                //.flag("/wd4068")
                 .flag("/EHsc");
         }
         "linux" => {
