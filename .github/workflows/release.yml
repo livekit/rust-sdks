@@ -27,11 +27,25 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
         uses: release-plz/action@v0.5
+        id: release-plz
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+      - name: Trigger FFI workflow if needed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASES: ${{ steps.release-plz.outputs.releases }}
+        run: |
+          set -e
+          echo "releases: $RELEASES"
+
+          ffi_tag=$(echo "$RELEASES" | jq -r '.[].tag' | grep 'rust-sdks/livekit-ffi@' || true)
+          if [ -n "$ffi_tag" ]; then
+            echo "Found ffi_tag: $ffi_tag"
+            gh workflow run ffi-builds.yml --ref $ffi_tag
+          fi
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-plz-pr:
