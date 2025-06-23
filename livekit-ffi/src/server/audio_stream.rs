@@ -394,8 +394,7 @@ impl FfiAudioStream {
                     if let Some(target) = target_samples {
                         buf.extend_from_slice(&frame.data);
                         while buf.len() >= target {
-                            let data = buf.split_off(target);
-                            let mut frame_data = std::mem::replace(&mut buf, data);
+                            let frame_data = buf.drain(..target).collect::<Vec<_>>();
                             let new_frame = AudioFrame {
                                 data: Cow::Owned(frame_data),
                                 sample_rate,
