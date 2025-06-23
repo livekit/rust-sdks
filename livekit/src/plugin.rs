@@ -294,7 +294,7 @@ impl Stream for AudioFilterAudioStream {
 
             if this.buffer.len() >= this.frame_size {
                 let data = this.buffer.drain(..this.frame_size).collect::<Vec<_>>();
-                let mut out: Vec<i16> = Vec::with_capacity(this.frame_size);
+                let mut out: Vec<i16> = vec![0; this.frame_size];
 
                 this.session.process_i16(this.frame_size, &data, &mut out);
 
