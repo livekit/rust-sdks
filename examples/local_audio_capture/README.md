@@ -1,32 +1,34 @@
 # Local Audio Capture Example
 
-This example demonstrates how to capture audio from local microphone devices and stream it to a LiveKit room using the LiveKit Rust SDK.
+This example demonstrates how to capture audio from a local microphone and stream it to a LiveKit room while simultaneously playing back audio from other participants. It provides a complete bidirectional audio experience with real-time level monitoring.
 
 ## Features
 
-- **Device Enumeration**: List all available audio input devices
-- **Flexible Device Selection**: Choose specific microphone or use system default
-- **Audio Processing**: Optional echo cancellation, noise suppression, and auto gain control
-- **Real-time Streaming**: Low-latency audio capture and streaming to LiveKit
-- **Configurable Parameters**: Adjust sample rate, channels, and audio processing settings
-- **Robust Error Handling**: Graceful handling of device access and streaming errors
+- **Bidirectional Audio**: Capture from local microphone and play back remote participants
+- **Device Selection**: Choose specific input/output devices or use system defaults
+- **Real-time Level Meter**: Visual dB meter showing local microphone levels
+- **Audio Processing**: Echo cancellation, noise suppression, and auto gain control (enabled by default)
+- **Volume Control**: Adjustable playback volume for remote participants
+- **Audio Mixing**: Combines audio from multiple remote participants
+- **Format Support**: Handles F32, I16, and U16 sample formats
+- **Cross-platform**: Works on Windows, macOS, and Linux
 
 ## Prerequisites
 
 1. **Rust**: Install Rust 1.70+ from [rustup.rs](https://rustup.rs/)
 2. **LiveKit Server**: Access to a LiveKit server instance
-3. **Audio Device**: A working microphone or audio input device
-4. **System Audio**: Appropriate permissions for audio device access
+3. **Audio Devices**: Working microphone and speakers/headphones
+4. **System Permissions**: Audio device access permissions
 
 ### Platform-specific Requirements
 
-- **macOS**: May require microphone permissions in System Preferences
-- **Windows**: Ensure audio drivers are properly installed
-- **Linux**: May need ALSA or PulseAudio development libraries
+- **macOS**: Grant microphone permissions in System Preferences → Privacy & Security → Microphone
+- **Windows**: Ensure audio drivers are installed and microphone is not in use by other applications
+- **Linux**: May need ALSA or PulseAudio libraries (`sudo apt install libasound2-dev` on Ubuntu/Debian)
 
 ## Setup
 
-1. **Environment Variables**: Set the required LiveKit connection details:
+1. **Set Environment Variables**:
 
 ```bash
 export LIVEKIT_URL="wss://your-livekit-server.com"
@@ -38,107 +40,151 @@ export LIVEKIT_API_SECRET="your-api-secret"
 
 ```bash
 cd examples/local_audio_capture
-cargo build
+cargo build --release
 ```
 
 ## Usage
 
 ### List Available Audio Devices
 
-Before streaming, you can list all available audio input devices:
-
 ```bash
 cargo run -- --list-devices
 ```
 
-This will output something like:
+Example output:
 ```
-Available audio input devices:
-─────────────────────────────
+Available Input Devices:
+───────────────────────────────────────────────────────────────
 1. MacBook Pro Microphone
-   └─ Sample rate: 48000 Hz
-   └─ Channels: 1
-   └─ Sample format: F32
+   ├─ Sample Rate: 8000-48000 Hz
+   ├─ Channels: 1-2
+   └─ Formats: F32, I16
 
 2. USB Microphone
-   └─ Sample rate: 44100 Hz
-   └─ Channels: 2
-   └─ Sample format: I16
+   ├─ Sample Rate: 44100-48000 Hz
+   ├─ Channels: 1-2
+   └─ Formats: F32, I16
 
-Default device: MacBook Pro Microphone
+Default Input Device: MacBook Pro Microphone
+
+Available Output Devices:
+───────────────────────────────────────────────────────────────
+1. MacBook Pro Speakers
+   ├─ Sample Rate: 8000-48000 Hz
+   ├─ Channels: 2
+   └─ Formats: F32, I16
+
+2. USB Headphones
+   ├─ Sample Rate: 44100-48000 Hz
+   ├─ Channels: 2
+   └─ Formats: F32, I16
+
+Default Output Device: MacBook Pro Speakers
 ```
 
-### Basic Audio Streaming
+### Basic Usage
 
-Stream audio using the default microphone:
+Stream audio with default settings:
 
 ```bash
 cargo run
 ```
 
-### Advanced Configuration
+Join a specific room with custom identity:
 
-Use a specific device with custom settings:
+```bash
+cargo run -- --room-name "my-meeting" --identity "john-doe"
+```
+
+### Advanced Configuration
 
 ```bash
 cargo run -- \
-  --device "USB Microphone" \
+  --input-device "USB Microphone" \
+  --output-device "USB Headphones" \
   --sample-rate 44100 \
   --channels 2 \
-  --echo-cancellation \
-  --noise-suppression \
-  --auto-gain-control
+  --volume 0.8 \
+  --room-name "conference-room"
+```
+
+### Capture-Only Mode
+
+Disable audio playback and only capture:
+
+```bash
+cargo run -- --no-playback
 ```
 
 ## Command Line Options
 
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--list-devices` | `-l` | List available audio devices and exit | - |
-| `--device <NAME>` | `-d` | Specify audio device by name | System default |
-| `--sample-rate <HZ>` | `-s` | Audio sample rate in Hz | 48000 |
-| `--channels <COUNT>` | `-c` | Number of audio channels | 1 |
-| `--echo-cancellation` | - | Enable echo cancellation | false |
-| `--noise-suppression` | - | Enable noise suppression | false |
-| `--auto-gain-control` | - | Enable automatic gain control | false |
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--list-devices` | List available audio devices and exit | - |
+| `--input-device <NAME>` | Input device name | System default |
+| `--output-device <NAME>` | Output device name | System default |
+| `--sample-rate <HZ>` | Sample rate in Hz | 48000 |
+| `--channels <COUNT>` | Number of channels | 1 |
+| `--echo-cancellation` | Enable echo cancellation | true |
+| `--noise-suppression` | Enable noise suppression | true |
+| `--auto-gain-control` | Enable auto gain control | true |
+| `--no-playback` | Disable audio playback (capture only) | false |
+| `--volume <LEVEL>` | Playback volume (0.0 to 1.0) | 1.0 |
+| `--identity <NAME>` | LiveKit participant identity | "audio-streamer" |
+| `--room-name <NAME>` | LiveKit room name | "audio-room" |
+
+## Features in Detail
+
+### Real-time Audio Level Meter
+
+The example displays a real-time dB meter showing your microphone input levels:
+
+```
+Local Audio Level
+────────────────────────────────────────
+Mic Level: -12.3 dB [██████████████████████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓]
+```
+
+- **Green bars (█)**: Normal levels
+- **Yellow bars (▓)**: High levels
+- **Red bars (▒)**: Very high levels (potential clipping)
+
+### Audio Processing
+
+The WebRTC audio processing pipeline includes:
+
+- **Echo Cancellation**: Removes acoustic feedback between microphone and speakers
+- **Noise Suppression**: Reduces background noise
+- **Auto Gain Control**: Automatically adjusts microphone sensitivity
+
+All processing features are enabled by default for optimal audio quality.
+
+### Bidirectional Audio
+
+The example handles both directions:
+
+1. **Outgoing**: Captures from your microphone → processes → streams to LiveKit
+2. **Incoming**: Receives audio from other participants → mixes → plays through speakers
 
 ## Architecture
 
 ### Components
 
-1. **Audio Capture (`AudioCapture`)**
-   - Uses `cpal` library for cross-platform audio device access
-   - Supports multiple sample formats (F32, I16, U16)
-   - Handles format conversion to 16-bit PCM for LiveKit
-
-2. **Buffer Management**
-   - Collects audio samples from the device callback
-   - Buffers data into 10ms chunks for optimal LiveKit streaming
-   - Manages sample rate and channel configuration
-
-3. **LiveKit Integration**
-   - Creates `NativeAudioSource` with configurable audio processing
-   - Publishes audio track as microphone source
-   - Handles room connection and participant management
+1. **AudioCapture**: Captures audio from input devices using `cpal`
+2. **AudioMixer**: Combines audio streams from multiple remote participants
+3. **AudioPlayback**: Plays mixed audio through output devices
+4. **LiveKit Integration**: Handles room connection and audio streaming
 
 ### Data Flow
 
 ```
-Microphone → cpal → Format Conversion → Buffer → LiveKit AudioFrame → LiveKit Room
-```
-
-## Audio Processing Options
-
-The example supports WebRTC's built-in audio processing features:
-
-- **Echo Cancellation**: Removes acoustic echo from the audio signal
-- **Noise Suppression**: Reduces background noise
-- **Auto Gain Control**: Automatically adjusts microphone gain levels
-
-Enable these features using command-line flags:
-
-```bash
-cargo run -- --echo-cancellation --noise-suppression --auto-gain-control
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌──────────────┐
+│ Microphone  │───▶│ AudioCapture │───▶│ Processing  │───▶│ LiveKit Room │
+└─────────────┘    └──────────────┘    └─────────────┘    └──────────────┘
+                                                                    │
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐              │
+│ Speakers    │◀───│ AudioPlayback│◀───│ AudioMixer  │◀─────────────┘
+└─────────────┘    └──────────────┘    └─────────────┘
 ```
 
 ## Troubleshooting
@@ -146,93 +192,92 @@ cargo run -- --echo-cancellation --noise-suppression --auto-gain-control
 ### Common Issues
 
 1. **"No default input device available"**
-   - Check that a microphone is connected and recognized by the system
-   - Try listing devices with `--list-devices` to see available options
+   - Check microphone connection and system audio settings
+   - List devices with `--list-devices` to see available options
 
-2. **"Permission denied" or access errors**
-   - On macOS: Grant microphone permissions in System Preferences → Security & Privacy
-   - On Linux: Ensure user is in the `audio` group
-   - On Windows: Check that the microphone is not being used by another application
+2. **"Permission denied"**
+   - **macOS**: Grant microphone permissions in System Preferences
+   - **Linux**: Add user to `audio` group: `sudo usermod -a -G audio $USER`
+   - **Windows**: Check privacy settings for microphone access
 
 3. **"Device not found"**
-   - Use `--list-devices` to see exact device names
-   - Device names are case-sensitive and must match exactly
+   - Use exact device names from `--list-devices` output
+   - Device names are case-sensitive
 
-4. **Audio quality issues**
+4. **Audio feedback/echo**
+   - Use headphones instead of speakers
+   - Ensure echo cancellation is enabled (default)
+   - Reduce volume with `--volume` option
+
+5. **Poor audio quality**
    - Try different sample rates (44100, 48000)
-   - Enable audio processing options (echo cancellation, noise suppression)
-   - Check microphone levels in system audio settings
+   - Check microphone levels in system settings
+   - Ensure stable network connection
 
-5. **High latency or dropouts**
-   - Reduce the buffer size in the code (currently 1000ms)
-   - Check system audio latency settings
-   - Ensure stable network connection to LiveKit server
+6. **High latency**
+   - Use lower sample rates if needed
+   - Check system audio buffer settings
+   - Ensure adequate CPU resources
 
-### Debug Logging
+### Debug Information
 
-Enable detailed logging to troubleshoot issues:
+Enable detailed logging:
 
 ```bash
 RUST_LOG=debug cargo run
 ```
 
-## Configuration Examples
+## Example Scenarios
 
-### High-Quality Studio Microphone
+### Online Meeting
 
 ```bash
 cargo run -- \
-  --device "Blue Yeti" \
+  --room-name "team-standup" \
+  --identity "alice" \
+  --input-device "USB Headset" \
+  --output-device "USB Headset" \
+  --volume 0.9
+```
+
+### Podcast Recording
+
+```bash
+cargo run -- \
+  --room-name "podcast-session" \
+  --identity "host" \
+  --input-device "Audio Interface" \
   --sample-rate 48000 \
   --channels 2 \
-  --auto-gain-control
+  --volume 0.7
 ```
 
-### Laptop Built-in Microphone with Noise Reduction
+### Live Streaming
 
 ```bash
 cargo run -- \
-  --sample-rate 48000 \
-  --channels 1 \
-  --echo-cancellation \
-  --noise-suppression \
-  --auto-gain-control
+  --room-name "live-stream" \
+  --identity "streamer" \
+  --input-device "Studio Microphone" \
+  --no-playback
 ```
 
-### Low-Latency Gaming Setup
+## Integration Notes
 
-```bash
-cargo run -- \
-  --device "Gaming Headset" \
-  --sample-rate 44100 \
-  --channels 1
-```
+This example can be combined with other LiveKit features:
 
-## Integration with Other Examples
-
-This example can be used alongside other LiveKit examples:
-
-1. **With Video**: Combine with camera capture for full audio/video streaming
-2. **With Recording**: Use `save_to_disk` example to record the audio stream
-3. **With Processing**: Add custom audio effects before streaming
+- **Video Streaming**: Add video tracks alongside audio
+- **Screen Sharing**: Share screen content with audio
+- **Recording**: Record the audio session
+- **Multiple Participants**: Handle rooms with many participants
 
 ## Performance Considerations
 
-- **CPU Usage**: Audio processing features increase CPU usage
-- **Memory**: Larger buffer sizes use more memory but may reduce dropouts
-- **Network**: Higher sample rates and channel counts increase bandwidth usage
-- **Latency**: Smaller buffer sizes reduce latency but may cause audio glitches
-
-## Contributing
-
-To extend this example:
-
-1. **Add Audio Effects**: Implement custom audio processing in the streaming pipeline
-2. **Multiple Devices**: Support streaming from multiple microphones simultaneously  
-3. **Auto Device Selection**: Implement smart device selection based on quality metrics
-4. **Dynamic Configuration**: Allow runtime changes to audio settings
-5. **Monitoring**: Add audio level meters and quality monitoring
+- **CPU Usage**: Audio processing features increase CPU load
+- **Memory**: Audio buffers scale with participant count
+- **Network**: Higher sample rates increase bandwidth usage
+- **Latency**: Balance between audio quality and real-time performance
 
 ## License
 
-This example is part of the LiveKit Rust SDK and follows the same license terms. 
+This example is part of the LiveKit Rust SDK under the Apache 2.0 license. 
