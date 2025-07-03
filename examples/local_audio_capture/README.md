@@ -90,16 +90,30 @@ Default Output Device: MacBook Pro Speakers
 
 ### Basic Usage
 
-Stream audio with default settings:
+Stream audio with default settings (using environment variables):
 
 ```bash
 cargo run
 ```
 
+Using CLI arguments for connection details:
+
+```bash
+cargo run -- \
+  --url "wss://your-livekit-server.com" \
+  --api-key "your-api-key" \
+  --api-secret "your-api-secret"
+```
+
 Join a specific room with custom identity:
 
 ```bash
-cargo run -- --room-name "my-meeting" --identity "john-doe"
+cargo run -- \
+  --url "wss://your-livekit-server.com" \
+  --api-key "your-api-key" \
+  --api-secret "your-api-secret" \
+  --room-name "my-meeting" \
+  --identity "john-doe"
 ```
 
 ### Advanced Configuration
@@ -122,7 +136,11 @@ cargo run -- \
 Disable audio playback and only capture:
 
 ```bash
-cargo run -- --no-playback
+cargo run -- \
+  --url "wss://your-livekit-server.com" \
+  --api-key "your-api-key" \
+  --api-secret "your-api-secret" \
+  --no-playback
 ```
 
 ## Command Line Options
@@ -144,155 +162,3 @@ cargo run -- --no-playback
 | `--url <URL>` | LiveKit server URL | From LIVEKIT_URL env var |
 | `--api-key <KEY>` | LiveKit API key | From LIVEKIT_API_KEY env var |
 | `--api-secret <SECRET>` | LiveKit API secret | From LIVEKIT_API_SECRET env var |
-
-## Features in Detail
-
-### Real-time Audio Level Meter
-
-The example displays a real-time dB meter showing your microphone input levels:
-
-```
-Local Audio Level
-────────────────────────────────────────
-Mic Level: -12.3 dB [██████████████████████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓]
-```
-
-- **Green bars (█)**: Normal levels
-- **Yellow bars (▓)**: High levels
-- **Red bars (▒)**: Very high levels (potential clipping)
-
-### Audio Processing
-
-The WebRTC audio processing pipeline includes:
-
-- **Echo Cancellation**: Removes acoustic feedback between microphone and speakers
-- **Noise Suppression**: Reduces background noise
-- **Auto Gain Control**: Automatically adjusts microphone sensitivity
-
-All processing features are enabled by default for optimal audio quality.
-
-### Bidirectional Audio
-
-The example handles both directions:
-
-1. **Outgoing**: Captures from your microphone → processes → streams to LiveKit
-2. **Incoming**: Receives audio from other participants → mixes → plays through speakers
-
-## Architecture
-
-### Components
-
-1. **AudioCapture**: Captures audio from input devices using `cpal`
-2. **AudioMixer**: Combines audio streams from multiple remote participants
-3. **AudioPlayback**: Plays mixed audio through output devices
-4. **LiveKit Integration**: Handles room connection and audio streaming
-
-### Data Flow
-
-```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌──────────────┐
-│ Microphone  │───▶│ AudioCapture │───▶│ Processing  │───▶│ LiveKit Room │
-└─────────────┘    └──────────────┘    └─────────────┘    └──────────────┘
-                                                                    │
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐              │
-│ Speakers    │◀───│ AudioPlayback│◀───│ AudioMixer  │◀─────────────┘
-└─────────────┘    └──────────────┘    └─────────────┘
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"No default input device available"**
-   - Check microphone connection and system audio settings
-   - List devices with `--list-devices` to see available options
-
-2. **"Permission denied"**
-   - **macOS**: Grant microphone permissions in System Preferences
-   - **Linux**: Add user to `audio` group: `sudo usermod -a -G audio $USER`
-   - **Windows**: Check privacy settings for microphone access
-
-3. **"Device not found"**
-   - Use exact device names from `--list-devices` output
-   - Device names are case-sensitive
-
-4. **Audio feedback/echo**
-   - Use headphones instead of speakers
-   - Ensure echo cancellation is enabled (default)
-   - Reduce volume with `--volume` option
-
-5. **Poor audio quality**
-   - Try different sample rates (44100, 48000)
-   - Check microphone levels in system settings
-   - Ensure stable network connection
-
-6. **High latency**
-   - Use lower sample rates if needed
-   - Check system audio buffer settings
-   - Ensure adequate CPU resources
-
-### Debug Information
-
-Enable detailed logging:
-
-```bash
-RUST_LOG=debug cargo run
-```
-
-## Example Scenarios
-
-### Online Meeting
-
-```bash
-cargo run -- \
-  --url "wss://your-livekit-server.com" \
-  --api-key "your-api-key" \
-  --api-secret "your-api-secret" \
-  --room-name "team-standup" \
-  --identity "alice" \
-  --input-device "USB Headset" \
-  --output-device "USB Headset" \
-  --volume 0.9
-```
-
-### Podcast Recording
-
-```bash
-cargo run -- \
-  --room-name "podcast-session" \
-  --identity "host" \
-  --input-device "Audio Interface" \
-  --sample-rate 48000 \
-  --channels 2 \
-  --volume 0.7
-```
-
-### Live Streaming
-
-```bash
-cargo run -- \
-  --room-name "live-stream" \
-  --identity "streamer" \
-  --input-device "Studio Microphone" \
-  --no-playback
-```
-
-## Integration Notes
-
-This example can be combined with other LiveKit features:
-
-- **Video Streaming**: Add video tracks alongside audio
-- **Screen Sharing**: Share screen content with audio
-- **Recording**: Record the audio session
-- **Multiple Participants**: Handle rooms with many participants
-
-## Performance Considerations
-
-- **CPU Usage**: Audio processing features increase CPU load
-- **Memory**: Audio buffers scale with participant count
-- **Network**: Higher sample rates increase bandwidth usage
-- **Latency**: Balance between audio quality and real-time performance
-
-## License
-
-This example is part of the LiveKit Rust SDK under the Apache 2.0 license. 
