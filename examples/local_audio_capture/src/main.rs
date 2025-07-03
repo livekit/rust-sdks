@@ -157,7 +157,7 @@ struct Args {
     auto_gain_control: bool,
 
     /// Disable audio playback (capture only)
-    #[arg(long)]
+    #[arg(long, default_value_t = true)]
     no_playback: bool,
 
     /// Master playback volume (0.0 to 1.0, default: 1.0)
