@@ -16,7 +16,6 @@ use livekit::{
 use livekit_api::access_token;
 use log::{debug, error, info, warn};
 use std::{
-    collections::HashMap,
     env,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -157,7 +156,7 @@ struct Args {
     auto_gain_control: bool,
 
     /// Disable audio playback (capture only)
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     no_playback: bool,
 
     /// Master playback volume (0.0 to 1.0, default: 1.0)
@@ -276,43 +275,60 @@ impl Drop for AudioCapture {
 
 #[derive(Clone)]
 struct AudioMixer {
-    samples: Arc<Mutex<Vec<i16>>>,
+    buffer: Arc<Mutex<std::collections::VecDeque<i16>>>,
     sample_rate: u32,
     channels: u32,
     volume: f32,
+    max_buffer_size: usize,
 }
 
 impl AudioMixer {
     fn new(sample_rate: u32, channels: u32, volume: f32) -> Self {
+        // Buffer for 1 second of audio
+        let max_buffer_size = sample_rate as usize * channels as usize;
+        
         Self {
-            samples: Arc::new(Mutex::new(Vec::new())),
+            buffer: Arc::new(Mutex::new(std::collections::VecDeque::with_capacity(max_buffer_size))),
             sample_rate,
             channels,
             volume: volume.clamp(0.0, 1.0),
+            max_buffer_size,
         }
     }
 
     fn add_audio_data(&self, data: &[i16]) {
-        let mut samples = self.samples.lock().unwrap();
+        let mut buffer = self.buffer.lock().unwrap();
         
-        if samples.len() < data.len() {
-            samples.resize(data.len(), 0);
-        }
-
-        // Mix the audio by adding samples together with volume scaling
-        for (i, &sample) in data.iter().enumerate() {
-            if i < samples.len() {
-                let mixed = samples[i] as i32 + ((sample as f32 * self.volume) as i32);
-                samples[i] = mixed.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        // Apply volume scaling and add to buffer
+        for &sample in data.iter() {
+            let scaled_sample = (sample as f32 * self.volume) as i16;
+            buffer.push_back(scaled_sample);
+            
+            // Prevent buffer from growing too large
+            if buffer.len() > self.max_buffer_size {
+                buffer.pop_front();
             }
         }
     }
 
-    fn get_and_clear_samples(&self) -> Vec<i16> {
-        let mut samples = self.samples.lock().unwrap();
-        let result = samples.clone();
-        samples.clear();
+    fn get_samples(&self, requested_samples: usize) -> Vec<i16> {
+        let mut buffer = self.buffer.lock().unwrap();
+        let mut result = Vec::with_capacity(requested_samples);
+        
+        // Fill the requested samples
+        for _ in 0..requested_samples {
+            if let Some(sample) = buffer.pop_front() {
+                result.push(sample);
+            } else {
+                result.push(0); // Silence when no data available
+            }
+        }
+        
         result
+    }
+    
+    fn buffer_size(&self) -> usize {
+        self.buffer.lock().unwrap().len()
     }
 }
 
@@ -369,15 +385,11 @@ impl AudioPlayback {
                     return;
                 }
 
-                let mixed_samples = mixer.get_and_clear_samples();
+                let mixed_samples = mixer.get_samples(data.len());
                 
                 // Convert mixed i16 samples to output format
                 for (i, sample) in data.iter_mut().enumerate() {
-                    if i < mixed_samples.len() {
-                        *sample = Self::convert_i16_to_sample::<T>(mixed_samples[i]);
-                    } else {
-                        *sample = Sample::from_sample(0.0f32); // Silence for missing samples
-                    }
+                    *sample = Self::convert_i16_to_sample::<T>(mixed_samples[i]);
                 }
             },
             move |err| {
@@ -545,10 +557,22 @@ async fn handle_remote_audio_streams(
 
     while let Some(event) = room_events.recv().await {
         match event {
+            RoomEvent::ParticipantConnected(participant) => {
+                info!("Participant connected: {} ({})", participant.identity(), participant.name());
+            }
+            
+            RoomEvent::TrackPublished { participant, publication } => {
+                info!("Track published by {}: {} ({:?})", 
+                    participant.identity(), publication.name(), publication.kind());
+            }
+            
             RoomEvent::TrackSubscribed { track, participant, .. } => {
+                info!("Track subscribed from {}: {} ({:?})", 
+                    participant.identity(), track.name(), track.kind());
+                    
                 if let livekit::track::RemoteTrack::Audio(audio_track) = track {
                     let participant_identity = participant.identity().to_string();
-                    info!("Subscribed to audio track from participant: {}", participant_identity);
+                    info!("Setting up audio stream for participant: {}", participant_identity);
 
                     // Create audio stream for this remote track
                     let mut audio_stream = NativeAudioStream::new(
@@ -566,7 +590,11 @@ async fn handle_remote_audio_streams(
                         
                         while let Some(audio_frame) = audio_stream.next().await {
                             // Add this participant's audio to the mixer
-                            mixer_clone.add_audio_data(&audio_frame.data);
+                            mixer_clone.add_audio_data(audio_frame.data.as_ref());
+                            
+                            debug!("Received audio frame from {}: {} samples, {} channels, {} Hz, buffer size: {}", 
+                                stream_key, audio_frame.data.len(), audio_frame.num_channels, 
+                                audio_frame.sample_rate, mixer_clone.buffer_size());
                         }
                         
                         info!("Audio stream ended for participant: {}", stream_key);
@@ -575,9 +603,12 @@ async fn handle_remote_audio_streams(
             }
             
             RoomEvent::TrackUnsubscribed { track, participant, .. } => {
+                info!("Track unsubscribed from {}: {} ({:?})", 
+                    participant.identity(), track.name(), track.kind());
+                    
                 if let livekit::track::RemoteTrack::Audio(_) = track {
                     let participant_identity = participant.identity().to_string();
-                    info!("Unsubscribed from audio track from participant: {}", participant_identity);
+                    info!("Stopping audio stream for participant: {}", participant_identity);
                     
                     // Audio stream will be automatically cleaned up when the task ends
                 }
@@ -630,9 +661,11 @@ async fn main() -> Result<()> {
         })
         .to_jwt()?;
         
-    // Connect to LiveKit room
+    // Connect to LiveKit room with auto-subscribe enabled
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
-    let (room, _) = Room::connect(&url, &token, RoomOptions::default()).await?;
+    let mut room_options = RoomOptions::default();
+    room_options.auto_subscribe = true;
+    let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = Arc::new(room);
     info!("Connected to room: {} - {}", room.name(), room.sid().await);
 
@@ -742,7 +775,7 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-    info!("Audio track published to LiveKit");
+    info!("Audio track published to LiveKit successfully");
 
     // Set up audio capture and streaming
     let (audio_tx, audio_rx) = mpsc::unbounded_channel();
@@ -798,8 +831,14 @@ async fn main() -> Result<()> {
 
         info!("Audio playback enabled with volume: {:.1}%", args.volume * 100.0);
         
-        // Don't drop the remote audio task
-        std::mem::forget(remote_audio_task);
+        // Store the remote audio task handle for proper cleanup
+        let remote_audio_task_handle = remote_audio_task;
+        
+        // Keep the task alive by storing it in a variable that won't be dropped
+        tokio::spawn(async move {
+            let _ = remote_audio_task_handle.await;
+        });
+        
         Some(playback)
     } else {
         None
