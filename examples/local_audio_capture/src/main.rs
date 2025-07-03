@@ -35,7 +35,7 @@ fn calculate_db_level(samples: &[i16]) -> f32 {
         return -60.0; // Very quiet
     }
     
-    // Calculate RMS (Root Mean Square)
+    // Calculate RMS
     let sum_squares: f64 = samples.iter()
         .map(|&sample| {
             let normalized = sample as f64 / i16::MAX as f64;
@@ -81,18 +81,7 @@ fn format_db_meter(db_level: f32) -> String {
         }
     }
     meter.push(']');
-    
-    // Add level indicator
-    if db_level > -6.0 {
-        meter.push_str(" ⚠️  HIGH");
-    } else if db_level > -12.0 {
-        meter.push_str(" 📢 GOOD");
-    } else if db_level > -30.0 {
-        meter.push_str(" 🔉 LOW");
-    } else {
-        meter.push_str(" 🔇 QUIET");
-    }
-    
+
     meter
 }
 
@@ -100,7 +89,7 @@ async fn display_db_meter(mut db_rx: mpsc::UnboundedReceiver<f32>) -> Result<()>
     let mut last_update = std::time::Instant::now();
     let mut current_db = -60.0f32;
     
-    println!("\n📊 Audio Level Meter (Local Microphone)");
+    println!("\nLocal Audio Level");
     println!("────────────────────────────────────────");
     
     loop {
@@ -156,15 +145,15 @@ struct Args {
     channels: u32,
 
     /// Enable echo cancellation
-    #[arg(long)]
+    #[arg(long, default_value_t = true)]
     echo_cancellation: bool,
 
     /// Enable noise suppression
-    #[arg(long)]
+    #[arg(long, default_value_t = true)]
     noise_suppression: bool,
 
     /// Enable auto gain control
-    #[arg(long)]
+    #[arg(long, default_value_t = true)]
     auto_gain_control: bool,
 
     /// Disable audio playback (capture only)
@@ -174,6 +163,14 @@ struct Args {
     /// Master playback volume (0.0 to 1.0, default: 1.0)
     #[arg(long, default_value_t = 1.0)]
     volume: f32,
+
+    /// LiveKit participant identity (default: "audio-streamer")
+    #[arg(long, default_value = "audio-streamer")]
+    identity: String,
+
+    /// LiveKit room name to join (default: "audio-room")
+    #[arg(long, default_value = "audio-room")]
+    room_name: String,
 }
 
 struct AudioCapture {
@@ -621,20 +618,20 @@ async fn main() -> Result<()> {
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     let api_key = env::var("LIVEKIT_API_KEY").expect("LIVEKIT_API_KEY is not set");
     let api_secret = env::var("LIVEKIT_API_SECRET").expect("LIVEKIT_API_SECRET is not set");
-
+    
     // Create access token
     let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
-        .with_identity("audio-streamer")
-        .with_name("Audio Streamer")
+        .with_identity(&args.identity)
+        .with_name(&args.identity)
         .with_grants(access_token::VideoGrants {
             room_join: true,
-            room: "audio-room".to_string(),
+            room: args.room_name.clone(),
             ..Default::default()
         })
         .to_jwt()?;
-
+        
     // Connect to LiveKit room
-    info!("Connecting to LiveKit room...");
+    info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let (room, _) = Room::connect(&url, &token, RoomOptions::default()).await?;
     let room = Arc::new(room);
     info!("Connected to room: {} - {}", room.name(), room.sid().await);
