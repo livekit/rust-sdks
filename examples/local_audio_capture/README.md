@@ -28,13 +28,19 @@ This example demonstrates how to capture audio from a local microphone and strea
 
 ## Setup
 
-1. **Set Environment Variables**:
+1. **LiveKit Connection Details** (choose one method):
 
-```bash
-export LIVEKIT_URL="wss://your-livekit-server.com"
-export LIVEKIT_API_KEY="your-api-key"
-export LIVEKIT_API_SECRET="your-api-secret"
-```
+   **Option A: Environment Variables**
+   ```bash
+   export LIVEKIT_URL="wss://your-livekit-server.com"
+   export LIVEKIT_API_KEY="your-api-key"
+   export LIVEKIT_API_SECRET="your-api-secret"
+   ```
+
+   **Option B: CLI Arguments**  
+   Pass connection details directly to the command (see examples below)
+
+   **Note**: CLI arguments take precedence over environment variables. You can mix both methods - for example, set API credentials via environment variables but override the URL via CLI.
 
 2. **Build the Example**:
 
@@ -100,6 +106,9 @@ cargo run -- --room-name "my-meeting" --identity "john-doe"
 
 ```bash
 cargo run -- \
+  --url "wss://your-livekit-server.com" \
+  --api-key "your-api-key" \
+  --api-secret "your-api-secret" \
   --input-device "USB Microphone" \
   --output-device "USB Headphones" \
   --sample-rate 44100 \
@@ -132,6 +141,9 @@ cargo run -- --no-playback
 | `--volume <LEVEL>` | Playback volume (0.0 to 1.0) | 1.0 |
 | `--identity <NAME>` | LiveKit participant identity | "audio-streamer" |
 | `--room-name <NAME>` | LiveKit room name | "audio-room" |
+| `--url <URL>` | LiveKit server URL | From LIVEKIT_URL env var |
+| `--api-key <KEY>` | LiveKit API key | From LIVEKIT_API_KEY env var |
+| `--api-secret <SECRET>` | LiveKit API secret | From LIVEKIT_API_SECRET env var |
 
 ## Features in Detail
 
@@ -233,6 +245,9 @@ RUST_LOG=debug cargo run
 
 ```bash
 cargo run -- \
+  --url "wss://your-livekit-server.com" \
+  --api-key "your-api-key" \
+  --api-secret "your-api-secret" \
   --room-name "team-standup" \
   --identity "alice" \
   --input-device "USB Headset" \

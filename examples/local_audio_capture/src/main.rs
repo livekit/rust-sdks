@@ -170,6 +170,18 @@ struct Args {
     /// LiveKit room name to join (default: "audio-room")
     #[arg(long, default_value = "audio-room")]
     room_name: String,
+
+    /// LiveKit server URL (can also be set via LIVEKIT_URL environment variable)
+    #[arg(long)]
+    url: Option<String>,
+
+    /// LiveKit API key (can also be set via LIVEKIT_API_KEY environment variable)
+    #[arg(long)]
+    api_key: Option<String>,
+
+    /// LiveKit API secret (can also be set via LIVEKIT_API_SECRET environment variable)
+    #[arg(long)]
+    api_secret: Option<String>,
 }
 
 struct AudioCapture {
@@ -645,10 +657,13 @@ async fn main() -> Result<()> {
         return Err(anyhow!("Volume must be between 0.0 and 1.0"));
     }
 
-    // Get LiveKit connection details from environment
-    let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
-    let api_key = env::var("LIVEKIT_API_KEY").expect("LIVEKIT_API_KEY is not set");
-    let api_secret = env::var("LIVEKIT_API_SECRET").expect("LIVEKIT_API_SECRET is not set");
+    // Get LiveKit connection details from CLI arguments or environment variables
+    let url = args.url.or_else(|| env::var("LIVEKIT_URL").ok())
+        .expect("LiveKit URL must be provided via --url argument or LIVEKIT_URL environment variable");
+    let api_key = args.api_key.or_else(|| env::var("LIVEKIT_API_KEY").ok())
+        .expect("LiveKit API key must be provided via --api-key argument or LIVEKIT_API_KEY environment variable");
+    let api_secret = args.api_secret.or_else(|| env::var("LIVEKIT_API_SECRET").ok())
+        .expect("LiveKit API secret must be provided via --api-secret argument or LIVEKIT_API_SECRET environment variable");
     
     // Create access token
     let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
