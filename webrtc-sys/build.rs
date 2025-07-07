@@ -151,14 +151,16 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dl");
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
-            println!("cargo:rustc-link-lib=dylib=va");
-            println!("cargo:rustc-link-lib=dylib=va-drm");
 
             builder
                 .file("src/vaapi/vaapi_display_drm.cpp")
                 .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
                 .file("src/vaapi/vaapi_encoder_factory.cpp")
                 .file("src/vaapi/h264_encoder_impl.cpp")
+                .file("src/vaapi/implib/libva-drm.so.init.c")
+                .file("src/vaapi/implib/libva-drm.so.tramp.S")
+                .file("src/vaapi/implib/libva.so.init.c")
+                .file("src/vaapi/implib/libva.so.tramp.S")
                 .flag("-std=c++2a");
         }
         "macos" => {
