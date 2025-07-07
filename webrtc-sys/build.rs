@@ -135,8 +135,6 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dl");
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
-            println!("cargo:rustc-link-lib=dylib=cuda");
-            println!("cargo:rustc-link-lib=dylib=nvcuvid");
 
             builder
                 .flag("-Isrc/nvidia/NvCodec/include")
@@ -149,6 +147,10 @@ fn main() {
                 .file("src/nvidia/nvidia_decoder_factory.cpp")
                 .file("src/nvidia/nvidia_encoder_factory.cpp")
                 .file("src/nvidia/cuda_context.cpp")
+                .file("src/nvidia/implib/libcuda.so.init.c")
+                .file("src/nvidia/implib/libcuda.so.tramp.S")
+                .file("src/nvidia/implib/libnvcuvid.so.init.c")
+                .file("src/nvidia/implib/libnvcuvid.so.tramp.S")
                 .flag("-std=c++2a")
                 .flag("-Wno-deprecated-declarations");
         }
