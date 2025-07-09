@@ -16,6 +16,60 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::{env, path, process::Command};
 
+fn setup_custom_abseil() -> PathBuf {
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let abseil_dir = PathBuf::from(&out_dir).join("abseil-cpp");
+
+    // Check if we already have the right version
+    let version_file = abseil_dir.join(".version");
+    let target_version = "20240722.0";
+
+    let needs_download = if version_file.exists() {
+        std::fs::read_to_string(&version_file)
+            .map(|v| v.trim() != target_version)
+            .unwrap_or(true)
+    } else {
+        true
+    };
+
+    if needs_download {
+        println!("Setting up Abseil version: {}", target_version);
+
+        // Remove existing directory if it exists
+        if abseil_dir.exists() {
+            std::fs::remove_dir_all(&abseil_dir).unwrap();
+        }
+
+        // Clone the specific version
+        let status = Command::new("git")
+            .args(&[
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                &format!("{}", target_version),
+                "https://github.com/abseil/abseil-cpp.git",
+            ])
+            .arg(&abseil_dir)
+            .status();
+
+        match status {
+            Ok(status) if status.success() => {
+                // Write version file
+                std::fs::write(&version_file, target_version).unwrap();
+                println!("Successfully cloned Abseil {}", target_version);
+            }
+            _ => {
+                panic!("Failed to clone Abseil version {}", target_version);
+            }
+        }
+    } else {
+        println!("Using cached Abseil version: {}", target_version);
+    }
+
+    abseil_dir
+}
+
 fn main() {
     if env::var("DOCS_RS").is_ok() {
         return;
@@ -23,6 +77,7 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
+    println!("cargo:rerun-if-env-changed=USE_CUSTOM_ABSEIL");
 
     let mut builder = cxx_build::bridges([
         "src/peer_connection.rs",
@@ -46,9 +101,7 @@ fn main() {
         "src/helper.rs",
         "src/yuv_helper.rs",
         "src/audio_resampler.rs",
-        "src/android.rs",
         "src/prohibit_libsrtp_initialization.rs",
-        "src/apm.rs",
     ]);
 
     builder.files(&[
@@ -76,7 +129,6 @@ fn main() {
         "src/frame_cryptor.cpp",
         "src/global_task_queue.cpp",
         "src/prohibit_libsrtp_initialization.cpp",
-        "src/apm.cpp",
     ]);
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
@@ -87,17 +139,30 @@ fn main() {
         webrtc_sys_build::download_webrtc().unwrap();
     }
 
+    // Use custom Abseil if environment variable is set
+    let abseil_include = if env::var("USE_CUSTOM_ABSEIL").is_ok() {
+        let custom_abseil_dir = setup_custom_abseil();
+        println!("Using custom Abseil from: {}", custom_abseil_dir.display());
+        custom_abseil_dir
+    } else {
+        println!("Using WebRTC's bundled Abseil");
+        webrtc_include.join("third_party/abseil-cpp/")
+    };
+
     builder.includes(&[
         path::PathBuf::from("./include"),
         webrtc_include.clone(),
-        webrtc_include.join("third_party/abseil-cpp/"),
+        abseil_include,
         webrtc_include.join("third_party/libyuv/include/"),
         webrtc_include.join("third_party/libc++/"),
-        // For mac & ios
-        webrtc_include.join("sdk/objc"),
-        webrtc_include.join("sdk/objc/base"),
     ]);
-    builder.define("WEBRTC_APM_DEBUG_DUMP", "0");
+
+    // Configure Abseil to use std::optional instead of absl::optional
+    // This matches the behavior you'd get from bazel_dep
+    if env::var("USE_CUSTOM_ABSEIL").is_ok() {
+        builder.define("ABSL_OPTION_USE_STD_OPTIONAL", Some("2"));
+        builder.define("ABSL_USES_STD_OPTIONAL", None);
+    }
 
     println!("cargo:rustc-link-search=native={}", webrtc_lib.to_str().unwrap());
 
@@ -109,99 +174,14 @@ fn main() {
     // Link webrtc library
     println!("cargo:rustc-link-lib=static=webrtc");
 
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    match target_os.as_str() {
-        "windows" => {
-            println!("cargo:rustc-link-lib=dylib=msdmo");
-            println!("cargo:rustc-link-lib=dylib=wmcodecdspuuid");
-            println!("cargo:rustc-link-lib=dylib=dmoguids");
-            println!("cargo:rustc-link-lib=dylib=crypt32");
-            println!("cargo:rustc-link-lib=dylib=iphlpapi");
-            println!("cargo:rustc-link-lib=dylib=ole32");
-            println!("cargo:rustc-link-lib=dylib=secur32");
-            println!("cargo:rustc-link-lib=dylib=winmm");
-            println!("cargo:rustc-link-lib=dylib=ws2_32");
-            println!("cargo:rustc-link-lib=dylib=strmiids");
-            println!("cargo:rustc-link-lib=dylib=d3d11");
-            println!("cargo:rustc-link-lib=dylib=gdi32");
-            println!("cargo:rustc-link-lib=dylib=dxgi");
-            println!("cargo:rustc-link-lib=dylib=dwmapi");
-            println!("cargo:rustc-link-lib=dylib=shcore");
+    // Linux-specific libraries
+    println!("cargo:rustc-link-lib=dylib=rt");
+    println!("cargo:rustc-link-lib=dylib=dl");
+    println!("cargo:rustc-link-lib=dylib=pthread");
+    println!("cargo:rustc-link-lib=dylib=m");
 
-            builder.flag("/std:c++20").flag("/EHsc");
-        }
-        "linux" => {
-            println!("cargo:rustc-link-lib=dylib=rt");
-            println!("cargo:rustc-link-lib=dylib=dl");
-            println!("cargo:rustc-link-lib=dylib=pthread");
-            println!("cargo:rustc-link-lib=dylib=m");
-
-            builder.flag("-std=c++2a");
-        }
-        "macos" => {
-            println!("cargo:rustc-link-lib=framework=Foundation");
-            println!("cargo:rustc-link-lib=framework=AVFoundation");
-            println!("cargo:rustc-link-lib=framework=CoreAudio");
-            println!("cargo:rustc-link-lib=framework=AudioToolbox");
-            println!("cargo:rustc-link-lib=framework=Appkit");
-            println!("cargo:rustc-link-lib=framework=CoreMedia");
-            println!("cargo:rustc-link-lib=framework=CoreGraphics");
-            println!("cargo:rustc-link-lib=framework=VideoToolbox");
-            println!("cargo:rustc-link-lib=framework=CoreVideo");
-            println!("cargo:rustc-link-lib=framework=OpenGL");
-            println!("cargo:rustc-link-lib=framework=Metal");
-            println!("cargo:rustc-link-lib=framework=MetalKit");
-            println!("cargo:rustc-link-lib=framework=QuartzCore");
-            println!("cargo:rustc-link-lib=framework=IOKit");
-            println!("cargo:rustc-link-lib=framework=IOSurface");
-
-            configure_darwin_sysroot(&mut builder);
-
-            builder
-                .file("src/objc_video_factory.mm")
-                .file("src/objc_video_frame_buffer.mm")
-                .flag("-stdlib=libc++")
-                .flag("-std=c++20");
-        }
-        "ios" => {
-            println!("cargo:rustc-link-lib=framework=CoreFoundation");
-            println!("cargo:rustc-link-lib=framework=AVFoundation");
-            println!("cargo:rustc-link-lib=framework=CoreAudio");
-            println!("cargo:rustc-link-lib=framework=UIKit");
-            println!("cargo:rustc-link-lib=framework=CoreVideo");
-            println!("cargo:rustc-link-lib=framework=CoreGraphics");
-            println!("cargo:rustc-link-lib=framework=CoreMedia");
-            println!("cargo:rustc-link-lib=framework=VideoToolbox");
-            println!("cargo:rustc-link-lib=framework=AudioToolbox");
-            println!("cargo:rustc-link-lib=framework=OpenGLES");
-            println!("cargo:rustc-link-lib=framework=GLKit");
-            println!("cargo:rustc-link-lib=framework=Metal");
-            println!("cargo:rustc-link-lib=framework=MetalKit");
-            println!("cargo:rustc-link-lib=framework=Network");
-            println!("cargo:rustc-link-lib=framework=QuartzCore");
-
-            configure_darwin_sysroot(&mut builder);
-
-            builder
-                .file("src/objc_video_factory.mm")
-                .file("src/objc_video_frame_buffer.mm")
-                .flag("-std=c++20");
-        }
-        "android" => {
-            webrtc_sys_build::configure_jni_symbols().unwrap();
-
-            println!("cargo:rustc-link-lib=EGL");
-            println!("cargo:rustc-link-lib=c++abi");
-            println!("cargo:rustc-link-lib=OpenSLES");
-
-            configure_android_sysroot(&mut builder);
-
-            builder.file("src/android.cpp").flag("-std=c++20").cpp_link_stdlib("c++_static");
-        }
-        _ => {
-            panic!("Unsupported target, {}", target_os);
-        }
-    }
+    // Linux-specific C++ flags
+    builder.flag("-std=c++2a");
 
     // TODO(theomonnom) Only add this define when building tests
     builder.define("LIVEKIT_TEST", None);
@@ -211,83 +191,7 @@ fn main() {
         println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
 
-    for entry in glob::glob("./src/**/*.mm").unwrap() {
-        println!("cargo:rerun-if-changed={}", entry.unwrap().display());
-    }
-
     for entry in glob::glob("./include/**/*.h").unwrap() {
         println!("cargo:rerun-if-changed={}", entry.unwrap().display());
     }
-
-    if target_os.as_str() == "android" {
-        copy_libwebrtc_jar(&PathBuf::from(Path::new(&webrtc_dir)));
-    }
-}
-
-fn copy_libwebrtc_jar(webrtc_dir: &PathBuf) {
-    let jar_path = webrtc_dir.join("libwebrtc.jar");
-    let output_path = get_output_path();
-    let output_jar_path = output_path.join("libwebrtc.jar");
-    let res = std::fs::copy(jar_path, output_jar_path);
-    if let Err(e) = res {
-        println!("Failed to copy libwebrtc.jar: {}", e);
-    }
-}
-
-fn get_output_path() -> PathBuf {
-    let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let build_type = env::var("PROFILE").unwrap();
-    let build_target = env::var("TARGET").unwrap();
-    let path =
-        Path::new(&manifest_dir_string).join("../target").join(build_target).join(build_type);
-    return PathBuf::from(path);
-}
-
-fn configure_darwin_sysroot(builder: &mut cc::Build) {
-    let target_os = webrtc_sys_build::target_os();
-
-    let sdk = match target_os.as_str() {
-        "mac" => "macosx",
-        "ios-device" => "iphoneos",
-        "ios-simulator" => "iphonesimulator",
-        _ => panic!("Unsupported target_os: {}", target_os),
-    };
-
-    let clang_rt = match target_os.as_str() {
-        "mac" => "clang_rt.osx",
-        "ios-device" => "clang_rt.ios",
-        "ios-simulator" => "clang_rt.iossim",
-        _ => panic!("Unsupported target_os: {}", target_os),
-    };
-
-    println!("cargo:rustc-link-lib={}", clang_rt);
-    println!("cargo:rustc-link-arg=-ObjC");
-
-    let sysroot = Command::new("xcrun").args(["--sdk", sdk, "--show-sdk-path"]).output().unwrap();
-
-    let sysroot = String::from_utf8_lossy(&sysroot.stdout);
-    let sysroot = sysroot.trim();
-
-    let search_dirs = Command::new("clang").arg("--print-search-dirs").output().unwrap();
-
-    let search_dirs = String::from_utf8_lossy(&search_dirs.stdout);
-    for line in search_dirs.lines() {
-        if line.contains("libraries: =") {
-            let path = line.split('=').nth(1).unwrap();
-            let path = format!("{}/lib/darwin", path);
-            println!("cargo:rustc-link-search={}", path);
-        }
-    }
-
-    builder.flag(format!("-isysroot{}", sysroot).as_str());
-}
-
-fn configure_android_sysroot(builder: &mut cc::Build) {
-    let toolchain = webrtc_sys_build::android_ndk_toolchain().unwrap();
-    let toolchain_lib = toolchain.join("lib");
-
-    let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
-    println!("cargo:rustc-link-search={}", toolchain_lib.display());
-
-    builder.flag(format!("-isysroot{}", sysroot.display()).as_str());
 }
