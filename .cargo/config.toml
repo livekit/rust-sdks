@@ -1,3 +1,7 @@
+[registries.quantum-forge]
+index = "https://crate-registry.quantum-forge.io/api/v1/crates/"
+global-credential-providers = ["cargo:token"]
+
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
 

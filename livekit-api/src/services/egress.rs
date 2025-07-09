@@ -14,6 +14,8 @@
 
 use livekit_protocol as proto;
 
+use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
@@ -95,13 +97,23 @@ impl EgressClient {
         Ok(Self::with_api_key(host, &api_key, &api_secret))
     }
 
+    // Example modified function
     pub async fn start_room_composite_egress(
         &self,
         room: &str,
         outputs: Vec<EgressOutput>,
         options: RoomCompositeOptions,
+        access_token: &str,
     ) -> ServiceResult<proto::EgressInfo> {
         let (file_outputs, stream_outputs, segment_outputs, image_outputs) = get_outputs(outputs);
+
+        // Construct the request headers with Authorization
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", access_token)).unwrap(),
+        );
+
         self.client
             .request(
                 SVC,
@@ -122,8 +134,7 @@ impl EgressClient {
                     output: None, // Deprecated
                     ..Default::default()
                 },
-                self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                headers, // Inject headers with access_token here
             )
             .await
             .map_err(Into::into)
