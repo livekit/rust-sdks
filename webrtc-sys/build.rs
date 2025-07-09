@@ -16,6 +16,40 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::{env, path, process::Command};
 
+fn setup_system_abseil() -> PathBuf {
+    // Use system-installed Abseil
+    if let Ok(abseil_dir) = env::var("ABSEIL_DIR") {
+        let abseil_path = PathBuf::from(abseil_dir);
+        println!("Using system Abseil from: {}", abseil_path.display());
+
+        // Verify the installation exists
+        let absl_subdir = abseil_path.join("absl");
+        if !absl_subdir.exists() {
+            panic!("Abseil headers not found at: {}", absl_subdir.display());
+        }
+
+        return abseil_path;
+    }
+
+    // Auto-detect system Abseil installation
+    let common_paths = [
+        "/usr/include",
+        "/usr/local/include",
+        "/opt/abseil/include",
+    ];
+
+    for path in &common_paths {
+        let abseil_path = PathBuf::from(path);
+        let absl_subdir = abseil_path.join("absl");
+        if absl_subdir.exists() {
+            println!("Found system Abseil at: {}", abseil_path.display());
+            return abseil_path;
+        }
+    }
+
+    panic!("Could not find system Abseil installation. Please install libabsl-dev or set ABSEIL_DIR");
+}
+
 fn setup_custom_abseil() -> PathBuf {
     let out_dir = env::var("OUT_DIR").unwrap();
     let abseil_dir = PathBuf::from(&out_dir).join("abseil-cpp");
@@ -78,6 +112,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
     println!("cargo:rerun-if-env-changed=USE_CUSTOM_ABSEIL");
+    println!("cargo:rerun-if-env-changed=ABSEIL_DIR");
+    println!("cargo:rerun-if-env-changed=ABSEIL_LIB_DIR");
 
     let mut builder = cxx_build::bridges([
         "src/peer_connection.rs",
@@ -139,11 +175,14 @@ fn main() {
         webrtc_sys_build::download_webrtc().unwrap();
     }
 
-    // Use custom Abseil if environment variable is set
+    // Determine which Abseil to use
     let abseil_include = if env::var("USE_CUSTOM_ABSEIL").is_ok() {
-        let custom_abseil_dir = setup_custom_abseil();
-        println!("Using custom Abseil from: {}", custom_abseil_dir.display());
-        custom_abseil_dir
+        // Check if user wants system Abseil or downloaded Abseil
+        if env::var("ABSEIL_DIR").is_ok() || env::var("USE_SYSTEM_ABSEIL").is_ok() {
+            setup_system_abseil()
+        } else {
+            setup_custom_abseil()
+        }
     } else {
         println!("Using WebRTC's bundled Abseil");
         webrtc_include.join("third_party/abseil-cpp/")
@@ -157,11 +196,36 @@ fn main() {
         webrtc_include.join("third_party/libc++/"),
     ]);
 
-    // Configure Abseil to use std::optional instead of absl::optional
-    // This matches the behavior you'd get from bazel_dep
+    // Configure Abseil behavior for custom/system installation
     if env::var("USE_CUSTOM_ABSEIL").is_ok() {
-        builder.define("ABSL_OPTION_USE_STD_OPTIONAL", Some("2"));
-        builder.define("ABSL_USES_STD_OPTIONAL", None);
+        // For system Abseil (version 20210324), use more conservative settings
+        if env::var("ABSEIL_DIR").is_ok() || env::var("USE_SYSTEM_ABSEIL").is_ok() {
+            println!("Configuring for system Abseil (Ubuntu 22.04 version)");
+
+            // Use absl::optional instead of std::optional for older Abseil
+            builder.define("ABSL_OPTION_USE_STD_OPTIONAL", Some("0"));
+
+            // Add symbol isolation to prevent conflicts
+            builder.define("ABSL_OPTION_USE_INLINE_NAMESPACE", Some("1"));
+            builder.define("ABSL_OPTION_INLINE_NAMESPACE_NAME", Some("webrtc_absl"));
+        } else {
+            // For newer downloaded Abseil
+            builder.define("ABSL_OPTION_USE_STD_OPTIONAL", Some("2"));
+            builder.define("ABSL_USES_STD_OPTIONAL", None);
+        }
+
+        // Link against system Abseil libraries if library directory is specified
+        if let Ok(abseil_lib_dir) = env::var("ABSEIL_LIB_DIR") {
+            println!("cargo:rustc-link-search=native={}", abseil_lib_dir);
+
+            // Link essential Abseil libraries (Ubuntu package names)
+            println!("cargo:rustc-link-lib=dylib=absl_base");
+            println!("cargo:rustc-link-lib=dylib=absl_strings");
+            println!("cargo:rustc-link-lib=dylib=absl_synchronization");
+            println!("cargo:rustc-link-lib=dylib=absl_time");
+            println!("cargo:rustc-link-lib=dylib=absl_hash");
+            println!("cargo:rustc-link-lib=dylib=absl_debugging");
+        }
     }
 
     println!("cargo:rustc-link-search=native={}", webrtc_lib.to_str().unwrap());
@@ -182,6 +246,9 @@ fn main() {
 
     // Linux-specific C++ flags
     builder.flag("-std=c++2a");
+
+    // Add linker flag to handle potential symbol conflicts gracefully
+    println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
 
     // TODO(theomonnom) Only add this define when building tests
     builder.define("LIVEKIT_TEST", None);
