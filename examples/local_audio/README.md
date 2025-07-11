@@ -45,7 +45,7 @@ This example demonstrates how to capture audio from a local microphone and strea
 2. **Build the Example**:
 
 ```bash
-cd examples/local_audio_capture
+cd examples/local_audio
 cargo build --release
 ```
 
@@ -100,7 +100,7 @@ Using CLI arguments for connection details:
 
 ```bash
 cargo run -- \
-  --url "wss://your-livekit-server.com" \
+  --url "wss://your-project.livekit.cloud" \
   --api-key "your-api-key" \
   --api-secret "your-api-secret"
 ```
@@ -109,7 +109,7 @@ Join a specific room with custom identity:
 
 ```bash
 cargo run -- \
-  --url "wss://your-livekit-server.com" \
+  --url "wss://your-project.livekit.cloud" \
   --api-key "your-api-key" \
   --api-secret "your-api-secret" \
   --room-name "my-meeting" \
@@ -120,7 +120,7 @@ cargo run -- \
 
 ```bash
 cargo run -- \
-  --url "wss://your-livekit-server.com" \
+  --url "wss://your-project.livekit.cloud" \
   --api-key "your-api-key" \
   --api-secret "your-api-secret" \
   --input-device "USB Microphone" \
@@ -137,7 +137,7 @@ Disable audio playback and only capture:
 
 ```bash
 cargo run -- \
-  --url "wss://your-livekit-server.com" \
+  --url "wss://your-project.livekit.cloud" \
   --api-key "your-api-key" \
   --api-secret "your-api-secret" \
   --no-playback
@@ -157,7 +157,7 @@ cargo run -- \
 | `--auto-gain-control` | Enable auto gain control | true |
 | `--no-playback` | Disable audio playback (capture only) | false |
 | `--volume <LEVEL>` | Playback volume (0.0 to 1.0) | 1.0 |
-| `--identity <NAME>` | LiveKit participant identity | "audio-streamer" |
+| `--identity <NAME>` | LiveKit participant identity | "rust-audio-streamer" |
 | `--room-name <NAME>` | LiveKit room name | "audio-room" |
 | `--url <URL>` | LiveKit server URL | From LIVEKIT_URL env var |
 | `--api-key <KEY>` | LiveKit API key | From LIVEKIT_API_KEY env var |
