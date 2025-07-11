@@ -1,7 +1,16 @@
+mod db_meter;
+mod audio_mixer;
+mod audio_capture;
+mod audio_playback;
+
 use anyhow::{anyhow, Result};
+use audio_capture::AudioCapture;
+use audio_mixer::AudioMixer;
+use audio_playback::AudioPlayback;
 use clap::Parser;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, SampleFormat, SampleRate, SizedSample, Stream, StreamConfig, Sample, FromSample};
+use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::{Device, SampleRate, StreamConfig};
+use db_meter::display_db_meter;
 use livekit::{
     options::TrackPublishOptions,
     track::{LocalAudioTrack, LocalTrack, TrackSource},
@@ -14,111 +23,13 @@ use livekit::{
     Room, RoomEvent, RoomOptions,
 };
 use livekit_api::access_token;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use std::{
     env,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::Arc,
 };
 use tokio::sync::mpsc;
 use futures_util::StreamExt;
-
-// Add dB meter related constants and functions
-const DB_METER_UPDATE_INTERVAL_MS: u64 = 50; // Update every 50ms
-const DB_METER_WIDTH: usize = 40; // Width of the dB meter bar
-
-fn calculate_db_level(samples: &[i16]) -> f32 {
-    if samples.is_empty() {
-        return -60.0; // Very quiet
-    }
-    
-    // Calculate RMS
-    let sum_squares: f64 = samples.iter()
-        .map(|&sample| {
-            let normalized = sample as f64 / i16::MAX as f64;
-            normalized * normalized
-        })
-        .sum();
-    
-    let rms = (sum_squares / samples.len() as f64).sqrt();
-    
-    // Convert to dB (20 * log10(rms))
-    if rms > 0.0 {
-        20.0 * rms.log10() as f32
-    } else {
-        -60.0 // Very quiet
-    }
-}
-
-fn format_db_meter(db_level: f32) -> String {
-    let db_clamped = db_level.clamp(-60.0, 0.0);
-    let normalized = (db_clamped + 60.0) / 60.0; // Normalize to 0.0-1.0
-    let filled_width = (normalized * DB_METER_WIDTH as f32) as usize;
-    
-    let mut meter = String::new();
-    meter.push_str("\r"); // Return to start of line
-    meter.push_str("Mic Level: ");
-    
-    // Add the dB value
-    meter.push_str(&format!("{:>5.1} dB ", db_level));
-    
-    // Add the visual meter
-    meter.push('[');
-    for i in 0..DB_METER_WIDTH {
-        if i < filled_width {
-            if i < DB_METER_WIDTH * 2 / 3 {
-                meter.push('█'); // Full block for low/medium levels
-            } else if i < DB_METER_WIDTH * 9 / 10 {
-                meter.push('▓'); // Medium block for high levels
-            } else {
-                meter.push('▒'); // Light block for very high levels (clipping warning)
-            }
-        } else {
-            meter.push('░'); // Light shade for empty
-        }
-    }
-    meter.push(']');
-
-    meter
-}
-
-async fn display_db_meter(mut db_rx: mpsc::UnboundedReceiver<f32>) -> Result<()> {
-    let mut last_update = std::time::Instant::now();
-    let mut current_db = -60.0f32;
-    
-    println!("\nLocal Audio Level");
-    println!("────────────────────────────────────────");
-    
-    loop {
-        tokio::select! {
-            db_level = db_rx.recv() => {
-                if let Some(db) = db_level {
-                    current_db = db;
-                    
-                    // Update display at regular intervals
-                    if last_update.elapsed().as_millis() >= DB_METER_UPDATE_INTERVAL_MS as u128 {
-                        print!("{}", format_db_meter(current_db));
-                        use std::io::{self, Write};
-                        io::stdout().flush().unwrap();
-                        last_update = std::time::Instant::now();
-                    }
-                } else {
-                    break;
-                }
-            }
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(DB_METER_UPDATE_INTERVAL_MS)) => {
-                // Update display even if no new data
-                print!("{}", format_db_meter(current_db));
-                use std::io::{self, Write};
-                io::stdout().flush().unwrap();
-            }
-        }
-    }
-    
-    Ok(())
-}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -163,8 +74,8 @@ struct Args {
     #[arg(long, default_value_t = 1.0)]
     volume: f32,
 
-    /// LiveKit participant identity (default: "audio-streamer")
-    #[arg(long, default_value = "audio-streamer")]
+    /// LiveKit participant identity (default: "rust-audio-streamer")
+    #[arg(long, default_value = "rust-audio-streamer")]
     identity: String,
 
     /// LiveKit room name to join (default: "audio-room")
@@ -184,259 +95,11 @@ struct Args {
     api_secret: Option<String>,
 }
 
-struct AudioCapture {
-    _stream: Stream,
-    is_running: Arc<AtomicBool>,
-}
 
-impl AudioCapture {
-    async fn new(
-        device: Device,
-        config: StreamConfig,
-        sample_format: SampleFormat,
-        audio_tx: mpsc::UnboundedSender<Vec<i16>>,
-        db_tx: Option<mpsc::UnboundedSender<f32>>,
-    ) -> Result<Self> {
-        let is_running = Arc::new(AtomicBool::new(true));
-        let is_running_clone = is_running.clone();
 
-        let stream = match sample_format {
-            SampleFormat::F32 => Self::create_input_stream::<f32>(device, config, audio_tx, db_tx, is_running_clone)?,
-            SampleFormat::I16 => Self::create_input_stream::<i16>(device, config, audio_tx, db_tx, is_running_clone)?,
-            SampleFormat::U16 => Self::create_input_stream::<u16>(device, config, audio_tx, db_tx, is_running_clone)?,
-            sample_format => {
-                return Err(anyhow!("Unsupported sample format: {:?}", sample_format));
-            }
-        };
 
-        stream.play()?;
-        info!("Audio capture stream started");
 
-        Ok(AudioCapture {
-            _stream: stream,
-            is_running,
-        })
-    }
 
-    fn create_input_stream<T>(
-        device: Device,
-        config: StreamConfig,
-        audio_tx: mpsc::UnboundedSender<Vec<i16>>,
-        db_tx: Option<mpsc::UnboundedSender<f32>>,
-        is_running: Arc<AtomicBool>,
-    ) -> Result<Stream>
-    where
-        T: SizedSample + Send + 'static,
-    {
-        let stream = device.build_input_stream(
-            &config,
-            move |data: &[T], _: &cpal::InputCallbackInfo| {
-                if !is_running.load(Ordering::Relaxed) {
-                    return;
-                }
-
-                let converted: Vec<i16> = data.iter().map(|&sample| {
-                    Self::convert_sample_to_i16(sample)
-                }).collect();
-                
-                // Calculate and send dB level if channel is available
-                if let Some(ref db_sender) = db_tx {
-                    let db_level = calculate_db_level(&converted);
-                    if let Err(e) = db_sender.send(db_level) {
-                        warn!("Failed to send dB level: {}", e);
-                    }
-                }
-                
-                if let Err(e) = audio_tx.send(converted) {
-                    warn!("Failed to send audio data: {}", e);
-                }
-            },
-            move |err| {
-                error!("Audio input stream error: {}", err);
-            },
-            None,
-        )?;
-
-        Ok(stream)
-    }
-
-    fn convert_sample_to_i16<T: SizedSample>(sample: T) -> i16 {
-        if std::mem::size_of::<T>() == std::mem::size_of::<f32>() {
-            let sample_f32 = unsafe { std::mem::transmute_copy::<T, f32>(&sample) };
-            (sample_f32.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
-        } else if std::mem::size_of::<T>() == std::mem::size_of::<i16>() {
-            unsafe { std::mem::transmute_copy::<T, i16>(&sample) }
-        } else if std::mem::size_of::<T>() == std::mem::size_of::<u16>() {
-            let sample_u16 = unsafe { std::mem::transmute_copy::<T, u16>(&sample) };
-            ((sample_u16 as i32) - (u16::MAX as i32 / 2)) as i16
-        } else {
-            0
-        }
-    }
-
-    fn stop(&self) {
-        self.is_running.store(false, Ordering::Relaxed);
-    }
-}
-
-impl Drop for AudioCapture {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-#[derive(Clone)]
-struct AudioMixer {
-    buffer: Arc<Mutex<std::collections::VecDeque<i16>>>,
-    sample_rate: u32,
-    channels: u32,
-    volume: f32,
-    max_buffer_size: usize,
-}
-
-impl AudioMixer {
-    fn new(sample_rate: u32, channels: u32, volume: f32) -> Self {
-        // Buffer for 1 second of audio
-        let max_buffer_size = sample_rate as usize * channels as usize;
-        
-        Self {
-            buffer: Arc::new(Mutex::new(std::collections::VecDeque::with_capacity(max_buffer_size))),
-            sample_rate,
-            channels,
-            volume: volume.clamp(0.0, 1.0),
-            max_buffer_size,
-        }
-    }
-
-    fn add_audio_data(&self, data: &[i16]) {
-        let mut buffer = self.buffer.lock().unwrap();
-        
-        // Apply volume scaling and add to buffer
-        for &sample in data.iter() {
-            let scaled_sample = (sample as f32 * self.volume) as i16;
-            buffer.push_back(scaled_sample);
-            
-            // Prevent buffer from growing too large
-            if buffer.len() > self.max_buffer_size {
-                buffer.pop_front();
-            }
-        }
-    }
-
-    fn get_samples(&self, requested_samples: usize) -> Vec<i16> {
-        let mut buffer = self.buffer.lock().unwrap();
-        let mut result = Vec::with_capacity(requested_samples);
-        
-        // Fill the requested samples
-        for _ in 0..requested_samples {
-            if let Some(sample) = buffer.pop_front() {
-                result.push(sample);
-            } else {
-                result.push(0); // Silence when no data available
-            }
-        }
-        
-        result
-    }
-    
-    fn buffer_size(&self) -> usize {
-        self.buffer.lock().unwrap().len()
-    }
-}
-
-struct AudioPlayback {
-    _stream: Stream,
-    is_running: Arc<AtomicBool>,
-}
-
-impl AudioPlayback {
-    async fn new(
-        device: Device,
-        config: StreamConfig,
-        sample_format: SampleFormat,
-        mixer: AudioMixer,
-    ) -> Result<Self> {
-        let is_running = Arc::new(AtomicBool::new(true));
-        let is_running_clone = is_running.clone();
-
-        let stream = match sample_format {
-            SampleFormat::F32 => Self::create_output_stream::<f32>(device, config, mixer, is_running_clone)?,
-            SampleFormat::I16 => Self::create_output_stream::<i16>(device, config, mixer, is_running_clone)?,
-            SampleFormat::U16 => Self::create_output_stream::<u16>(device, config, mixer, is_running_clone)?,
-            sample_format => {
-                return Err(anyhow!("Unsupported sample format: {:?}", sample_format));
-            }
-        };
-
-        stream.play()?;
-        info!("Audio playback stream started");
-
-        Ok(AudioPlayback {
-            _stream: stream,
-            is_running,
-        })
-    }
-
-    fn create_output_stream<T>(
-        device: Device,
-        config: StreamConfig,
-        mixer: AudioMixer,
-        is_running: Arc<AtomicBool>,
-    ) -> Result<Stream>
-    where
-        T: SizedSample + Sample + Send + 'static + FromSample<f32>,
-    {
-        let stream = device.build_output_stream(
-            &config,
-            move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                if !is_running.load(Ordering::Relaxed) {
-                    // Fill with silence if not running
-                    for sample in data.iter_mut() {
-                        *sample = Sample::from_sample(0.0f32);
-                    }
-                    return;
-                }
-
-                let mixed_samples = mixer.get_samples(data.len());
-                
-                // Convert mixed i16 samples to output format
-                for (i, sample) in data.iter_mut().enumerate() {
-                    *sample = Self::convert_i16_to_sample::<T>(mixed_samples[i]);
-                }
-            },
-            move |err| {
-                error!("Audio output stream error: {}", err);
-            },
-            None,
-        )?;
-
-        Ok(stream)
-    }
-
-    fn convert_i16_to_sample<T: SizedSample + Sample + FromSample<f32>>(sample: i16) -> T {
-        if std::mem::size_of::<T>() == std::mem::size_of::<f32>() {
-            let sample_f32 = sample as f32 / i16::MAX as f32;
-            unsafe { std::mem::transmute_copy::<f32, T>(&sample_f32) }
-        } else if std::mem::size_of::<T>() == std::mem::size_of::<i16>() {
-            unsafe { std::mem::transmute_copy::<i16, T>(&sample) }
-        } else if std::mem::size_of::<T>() == std::mem::size_of::<u16>() {
-            let sample_u16 = ((sample as i32) + (u16::MAX as i32 / 2)) as u16;
-            unsafe { std::mem::transmute_copy::<u16, T>(&sample_u16) }
-        } else {
-            Sample::from_sample(0.0f32)
-        }
-    }
-
-    fn stop(&self) {
-        self.is_running.store(false, Ordering::Relaxed);
-    }
-}
-
-impl Drop for AudioPlayback {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
 
 fn list_audio_devices() -> Result<()> {
     let host = cpal::default_host();

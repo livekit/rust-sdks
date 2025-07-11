@@ -2572,7 +2572,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "local_audio_capture"
+name = "local_audio"
 version = "0.1.0"
 dependencies = [
  "anyhow",
