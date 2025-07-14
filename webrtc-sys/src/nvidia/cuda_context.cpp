@@ -55,7 +55,7 @@ static bool load_cuda_modules() {
   // in the implib module when cuda api called on Linux.
   dlclose(s_module_ptr);
   s_module_ptr = nullptr;
-#endif `
+#endif
   return true;
 }
 
