@@ -28,12 +28,14 @@ class CpuLinux : public CpuWrapper {
   void Reset() override { return; }
   void Stop() override { return; }
 
+  int GetNumCores() override;
+
  private:
   int GetData(long long& busy,
               long long& idle,
               long long*& busyArray,
               long long*& idleArray);
-  int GetNumCores();
+  
 
   long long m_oldBusyTime;
   long long m_oldIdleTime;

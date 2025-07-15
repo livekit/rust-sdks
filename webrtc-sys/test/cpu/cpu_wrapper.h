@@ -46,6 +46,8 @@ public:
     virtual void Reset() = 0;
     virtual void Stop() = 0;
 
+    virtual int GetNumCores() = 0;
+
 protected:
     CpuWrapper() {}
 };

@@ -189,9 +189,11 @@ void Benchmark::Perform() {
             uint32_t cpuUsage = _cpu->CpuUsage();
             if (cpuUsage > 0) {
               currCpuUsage += cpuUsage;
-              std::string str = "CPU Usage[%]:";
-              str += " " + std::to_string(cpuUsage) + "%" +
-                     ", Iteration: " + std::to_string(l + 1);
+              int coreCount = _cpu->GetNumCores();
+              std::string str = "CPU Usage[%]: cores ";
+              str += std::to_string(coreCount);
+              str += ", usage " + std::to_string(cpuUsage) + "%" +
+                     ", Test Iteration: " + std::to_string(l + 1) + "/" + std::to_string(testIterations);
               std::cout << str << std::flush;
               for (int i = 0; i < str.length(); ++i) {
                 std::cout << "\b";
