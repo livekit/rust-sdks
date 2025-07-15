@@ -173,6 +173,7 @@ fn find_output_device_by_name(name: &str) -> Result<Device> {
     let devices = host.output_devices()?;
     
     for device in devices {
+        println!("Device: {:?}", device);
         if let Ok(device_name) = device.name() {
             if device_name.contains(name) {
                 return Ok(device);
