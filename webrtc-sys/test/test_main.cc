@@ -7,8 +7,8 @@ int main(int argc, char** argv) {
 
   std::vector<Benchmark*> benchmarks;
   //benchmarks.push_back(new NvidiaBenchmark());
-  benchmarks.push_back(new OpenH264Benchmark());
   benchmarks.push_back(new VaapiBenchmark());
+  benchmarks.push_back(new OpenH264Benchmark());
 
   for (auto benchmark : benchmarks) {
     if (benchmark->IsSupported()) {

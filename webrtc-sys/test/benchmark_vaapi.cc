@@ -32,7 +32,7 @@ VideoEncoder* VaapiBenchmark::GetNewEncoder() {
     _factory = std::make_unique<VAAPIVideoEncoderFactory>();
   }
   std::map<std::string, std::string> baselineParameters = {
-      {"profile-level-id", "42e01f"},
+      {"profile-level-id", "4d0032"},
       {"level-asymmetry-allowed", "1"},
       {"packetization-mode", "1"},
   };

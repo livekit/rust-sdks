@@ -113,16 +113,16 @@ void Benchmark::Perform() {
   sources.push_back(new const VideoSource(
       webrtc::test::ProjectRootPath() + "resources/FourPeople_1280x720_30.yuv",
       kWHD));
-  //    sources.push_back(new const VideoSource(webrtc::test::ProjectRootPath()
-  //    +
-  //                                            "resources/akiyo_cif.yuv",
-  //                                            kCIF));
+  sources.push_back(
+      new const VideoSource(webrtc::test::ProjectRootPath() +
+                                "resources/Big_Buck_Bunny_1920x1080_30.yuv",
+                            kWFullHD));
 
-  const VideoSize size[] = {kWHD};
+  const VideoSize size[] = {kWHD, kWFullHD};
   const int frameRate[] = {30};
   // Specifies the framerates for which to perform a speed test.
   const bool speedTestMask[] = {true};
-  const int bitRate[] = { 500, 1000, 2000, 3000, 4000};
+  const int bitRate[] = {500, 1000, 2000, 3000, 4000};
   // Determines the number of iterations to perform to arrive at the speed
   // result.
   enum { kSpeedTestIterations = 8 };
@@ -143,104 +143,88 @@ void Benchmark::Perform() {
   _results << _codecName << std::endl;
 
   for (it = sources.begin(); it < sources.end(); it++) {
-    for (int i = 0; i < static_cast<int>(sizeof(size) / sizeof(*size)); i++) {
-      for (int j = 0; j < nFrameRates; j++) {
-        std::stringstream ss;
-        std::string strFrameRate;
-        std::string outFileName;
-        ss << frameRate[j];
-        ss >> strFrameRate;
-        outFileName = (*it)->GetFilePath() + "/" + (*it)->GetName() + "_" +
-                      VideoSource::GetSizeString(size[i]) + "_" + strFrameRate +
-                      ".yuv";
-
-        _target = new const VideoSource(outFileName, size[i], frameRate[j]);
-        (*it)->Convert(*_target);
-        if (VideoSource::FileExists(outFileName.c_str())) {
-          _inname = outFileName;
-        } else {
-          _inname = (*it)->GetFileName();
-        }
-
-        std::cout << (*it)->GetName() << ", "
-                  << VideoSource::GetSizeString(size[i]) << ", " << frameRate[j]
-                  << " fps" << ", " << _name << std::endl;
-        _results << (*it)->GetName() << ","
-                 << VideoSource::GetSizeString(size[i]) << "," << frameRate[j]
-                 << " fps" << ", " << _name << std::endl
-                 << "Bitrate [kbps]";
-
-        if (speedTestMask[j]) {
-          testIterations = kSpeedTestIterations;
-        } else {
-          testIterations = 1;
-        }
-
-        for (int k = 0; k < nBitrates; k++) {
-          _bitRate = (bitRate[k]);
-          double avgFps = 0.0;
-          uint32_t currCpuUsage = 0;
-          totalEncodeTime[k] = 0;
-
-          std::cout << "TargetBitrate [kbps]:" << " " << _bitRate << std::endl;
-
-          for (int l = 0; l < testIterations; l++) {
-            PerformNormalTest();
-            uint32_t cpuUsage = _cpu->CpuUsage();
-            if (cpuUsage > 0) {
-              currCpuUsage += cpuUsage;
-              int coreCount = _cpu->GetNumCores();
-              std::string str = "CPU Usage[%]: cores ";
-              str += std::to_string(coreCount);
-              str += ", usage " + std::to_string(cpuUsage) + "%" +
-                     ", Test Iteration: " + std::to_string(l + 1) + "/" + std::to_string(testIterations);
-              std::cout << str << std::flush;
-              for (int i = 0; i < str.length(); ++i) {
-                std::cout << "\b";
-              }
-            }
-            _appendNext = false;
-            avgFps += _framecnt / (_totalEncodeTime);
-            totalEncodeTime[k] += _totalEncodeTime;
-          }
-          avgFps /= testIterations;
-          totalEncodeTime[k] /= testIterations;
-          currCpuUsage /= testIterations;
-
-          double actualBitRate = ActualBitRate(_framecnt) / 1000.0;
-          std::cout << "ActualBitRate [kbps]:" << " " << actualBitRate << std::endl;
-          _results << "," << actualBitRate;
-          fps[k] = avgFps;
-          cpuUsage[k] = currCpuUsage;
-        }
-
-        std::cout << std::endl << "CpuUsage [%]:";
-        _results << std::endl << "CpuUsage [%]";
-        for (int k = 0; k < nBitrates; k++) {
-          std::cout << " " << cpuUsage[k] << "%";
-          _results << "," << cpuUsage[k] << "%";
-        }
-        std::cout << std::endl << "Encode Time[ms]:";
-        _results << std::endl << "Encode Time[ms]";
-        for (int k = 0; k < nBitrates; k++) {
-          std::cout << " " << totalEncodeTime[k];
-          _results << "," << totalEncodeTime[k];
-        }
-
-        if (speedTestMask[j]) {
-          std::cout << std::endl << "Speed [fps]:";
-          _results << std::endl << "Speed [fps]";
-          for (int k = 0; k < nBitrates; k++) {
-            std::cout << " " << static_cast<int>(fps[k] + 0.5);
-            _results << "," << static_cast<int>(fps[k] + 0.5);
-          }
-        }
-        std::cout << std::endl << std::endl;
-        _results << std::endl << std::endl;
-
-        delete _target;
+    int i = 0;
+    for (int j = 0; j < nFrameRates; j++) {
+      _target = *it;
+      _inname = (*it)->GetFileName();
+      std::cout << (*it)->GetName() << ", "
+                << VideoSource::GetSizeString(size[i]) << ", " << frameRate[j]
+                << " fps" << ", " << _name << std::endl;
+      _results << (*it)->GetName() << "," << VideoSource::GetSizeString(size[i])
+               << "," << frameRate[j] << " fps" << ", " << _name << std::endl
+               << "Bitrate [kbps]";
+      
+      if (speedTestMask[j]) {
+        testIterations = kSpeedTestIterations;
+      } else {
+        testIterations = 1;
       }
+
+      for (int k = 0; k < nBitrates; k++) {
+        _bitRate = (bitRate[k]);
+        double avgFps = 0.0;
+        uint32_t currCpuUsage = 0;
+        totalEncodeTime[k] = 0;
+
+        std::cout << "TargetBitrate [kbps]:" << " " << _bitRate << std::endl;
+
+        for (int l = 0; l < testIterations; l++) {
+          PerformNormalTest();
+          uint32_t cpuUsage = _cpu->CpuUsage();
+          if (cpuUsage > 0) {
+            currCpuUsage += cpuUsage;
+            int coreCount = _cpu->GetNumCores();
+            std::string str = "CPU Usage[%]: cores ";
+            str += std::to_string(coreCount);
+            str += ", usage " + std::to_string(cpuUsage) + "%" +
+                   ", Test Iteration: " + std::to_string(l + 1) + "/" +
+                   std::to_string(testIterations);
+            std::cout << str << std::flush;
+            for (int i = 0; i < str.length(); ++i) {
+              std::cout << "\b";
+            }
+          }
+          _appendNext = false;
+          avgFps += _framecnt / (_totalEncodeTime);
+          totalEncodeTime[k] += _totalEncodeTime;
+        }
+        avgFps /= testIterations;
+        totalEncodeTime[k] /= testIterations;
+        currCpuUsage /= testIterations;
+
+        double actualBitRate = ActualBitRate(_framecnt) / 1000.0;
+        std::cout << "ActualBitRate [kbps]:" << " " << actualBitRate
+                  << std::endl;
+        _results << "," << actualBitRate;
+        fps[k] = avgFps;
+        cpuUsage[k] = currCpuUsage;
+      }
+
+      std::cout << std::endl << "CpuUsage [%]:";
+      _results << std::endl << "CpuUsage [%]";
+      for (int k = 0; k < nBitrates; k++) {
+        std::cout << " " << cpuUsage[k] << "%";
+        _results << "," << cpuUsage[k] << "%";
+      }
+      std::cout << std::endl << "Encode Time[ms]:";
+      _results << std::endl << "Encode Time[ms]";
+      for (int k = 0; k < nBitrates; k++) {
+        std::cout << " " << totalEncodeTime[k];
+        _results << "," << totalEncodeTime[k];
+      }
+
+      if (speedTestMask[j]) {
+        std::cout << std::endl << "Speed [fps]:";
+        _results << std::endl << "Speed [fps]";
+        for (int k = 0; k < nBitrates; k++) {
+          std::cout << " " << static_cast<int>(fps[k] + 0.5);
+          _results << "," << static_cast<int>(fps[k] + 0.5);
+        }
+      }
+      std::cout << std::endl << std::endl;
+      _results << std::endl << std::endl;
     }
+    i++;
     delete *it;
   }
   _results.close();
