@@ -143,6 +143,7 @@ class Benchmark {
     _inst.SetScalabilityMode(webrtc::ScalabilityMode::kL1T1);
     _inst.mode = webrtc::VideoCodecMode::kRealtimeVideo;
     _inst.qpMax = 56;
+    _inst.SetFrameDropEnabled(true);
   }
 
   double tGetTime() {
@@ -160,6 +161,8 @@ class Benchmark {
   const VideoSource* _target;
   std::string _resultsFileName;
   std::ofstream _results;
+  std::string _name;
+  std::string _description;
   std::string _codecName;
   std::string _inname;
   std::string _outname;
@@ -169,7 +172,6 @@ class Benchmark {
   bool _appendNext = false;
   int _framecnt;
   int _encFrameCnt;
-  uint32_t _totalCpuUsage;
   double _totalEncodeTime;
   double _totalDecodeTime;
   double _decodeCompleteTime;

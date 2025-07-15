@@ -90,14 +90,18 @@ Benchmark::Benchmark()
       _codecName("Default") {}
 
 Benchmark::Benchmark(std::string name, std::string description)
-    : _resultsFileName(webrtc::test::OutputPath() + "benchmark.txt"),
+    : _name(name),
+      _description(description),
+      _resultsFileName(webrtc::test::OutputPath() + "benchmark.txt"),
       _codecName("Default") {}
 
 Benchmark::Benchmark(std::string name,
                      std::string description,
                      std::string resultsFileName,
                      std::string codecName)
-    : _resultsFileName(resultsFileName),
+    : _name(name),
+      _description(description),
+      _resultsFileName(resultsFileName),
       _codecName(codecName),
       _cpu(webrtc::CpuWrapper::CreateCpu()) {}
 
@@ -131,6 +135,7 @@ void Benchmark::Perform() {
   int testIterations = 1;
 
   double fps[nBitrates];
+  uint32_t cpuUsage[nBitrates];
   double totalEncodeTime[nBitrates];
   double totalDecodeTime[nBitrates];
 
@@ -160,11 +165,10 @@ void Benchmark::Perform() {
 
         std::cout << (*it)->GetName() << ", "
                   << VideoSource::GetSizeString(size[i]) << ", " << frameRate[j]
-                  << " fps" << std::endl
-                  << "Bitrate [kbps]:";
+                  << " fps" << ", " << _name << std::endl;
         _results << (*it)->GetName() << ","
                  << VideoSource::GetSizeString(size[i]) << "," << frameRate[j]
-                 << " fps" << std::endl
+                 << " fps" << ", " << _name << std::endl
                  << "Bitrate [kbps]";
 
         if (speedTestMask[j]) {
@@ -176,22 +180,42 @@ void Benchmark::Perform() {
         for (int k = 0; k < nBitrates; k++) {
           _bitRate = (bitRate[k]);
           double avgFps = 0.0;
+          uint32_t currCpuUsage = 0;
           totalEncodeTime[k] = 0;
 
           for (int l = 0; l < testIterations; l++) {
             PerformNormalTest();
+            uint32_t cpuUsage = _cpu->CpuUsage();
+            if (cpuUsage > 0) {
+              currCpuUsage += cpuUsage;
+              std::string str = "CPU Usage[%]:";
+              str += " " + std::to_string(cpuUsage) + "%" +
+                     ", Iteration: " + std::to_string(l + 1);
+              std::cout << str << std::flush;
+              for (int i = 0; i < str.length(); ++i) {
+                std::cout << "\b";
+              }
+            }
             _appendNext = false;
-
             avgFps += _framecnt / (_totalEncodeTime);
             totalEncodeTime[k] += _totalEncodeTime;
           }
           avgFps /= testIterations;
           totalEncodeTime[k] /= testIterations;
+          currCpuUsage /= testIterations;
 
           double actualBitRate = ActualBitRate(_framecnt) / 1000.0;
-          std::cout << " " << actualBitRate;
+          std::cout << "Bitrate [kbps]:" << " " << actualBitRate << std::endl;
           _results << "," << actualBitRate;
           fps[k] = avgFps;
+          cpuUsage[k] = currCpuUsage;
+        }
+
+        std::cout << std::endl << "CpuUsage [%]:";
+        _results << std::endl << "CpuUsage [%]";
+        for (int k = 0; k < nBitrates; k++) {
+          std::cout << " " << cpuUsage[k] << "%";
+          _results << "," << cpuUsage[k] << "%";
         }
         std::cout << std::endl << "Encode Time[ms]:";
         _results << std::endl << "Encode Time[ms]";
@@ -199,14 +223,6 @@ void Benchmark::Perform() {
           std::cout << " " << totalEncodeTime[k];
           _results << "," << totalEncodeTime[k];
         }
-
-        /*
-        std::cout << std::endl << "Decode Time[ms]:";
-        _results << std::endl << "Decode Time[ms]";
-        for (int k = 0; k < nBitrates; k++) {
-          std::cout << " " << totalDecodeTime[k];
-          _results << "," << totalDecodeTime[k];
-        }*/
 
         if (speedTestMask[j]) {
           std::cout << std::endl << "Speed [fps]:";
@@ -250,7 +266,6 @@ void Benchmark::PerformNormalTest() {
   _framecnt = 0;
   _encFrameCnt = 0;
   _sumEncBytes = 0;
-  _totalCpuUsage = 0;
   _lengthEncFrame = 0;
   while (!complete) {
     complete = Encode();

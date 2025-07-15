@@ -9,13 +9,13 @@ using namespace webrtc;
 VaapiBenchmark::VaapiBenchmark()
     : Benchmark("VaapiBenchmark",
                 "VAAPI benchmark over a range of test cases",
-                webrtc::test::OutputPath() + "VaapiBenchmarkH264.txt",
+                webrtc::test::OutputPath() + "VaapiBenchmark.txt",
                 "vaapi_bitstream_output.h264") {}
 
 VaapiBenchmark::VaapiBenchmark(std::string name, std::string description)
     : Benchmark(name,
                 description,
-                webrtc::test::OutputPath() + "VaapiBenchmarkH264.txt",
+                webrtc::test::OutputPath() + "VaapiBenchmark.txt",
                 "vaapi_bitstream_output.h264") {}
 
 VaapiBenchmark::VaapiBenchmark(std::string name,

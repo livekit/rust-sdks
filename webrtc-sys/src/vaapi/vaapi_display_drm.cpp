@@ -13,7 +13,6 @@
 
 #include "rtc_base/logging.h"
 
-
 static bool check_h264_encoding_support(VADisplay va_display) {
   VAProfile profile_list[] = {VAProfileH264High, VAProfileH264Main,
                               VAProfileH264ConstrainedBaseline};
@@ -95,6 +94,8 @@ static VADisplay va_open_display_drm(int* drm_fd) {
       continue;
 
     va_dpy = vaGetDisplayDRM(*drm_fd);
+    vaSetErrorCallback(va_dpy, NULL, NULL);
+    vaSetInfoCallback(va_dpy, NULL, NULL);
     if (va_dpy && check_h264_encoding_support(va_dpy))
       return va_dpy;
 
