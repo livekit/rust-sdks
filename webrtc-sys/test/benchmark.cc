@@ -122,11 +122,10 @@ void Benchmark::Perform() {
   const int frameRate[] = {30};
   // Specifies the framerates for which to perform a speed test.
   const bool speedTestMask[] = {true};
-  const int bitRate[] = {/*50, 100, 200, 300, 400, */ 500, 600, 1000, 2000,
-                         3000};
+  const int bitRate[] = { 500, 1000, 2000, 3000, 4000};
   // Determines the number of iterations to perform to arrive at the speed
   // result.
-  enum { kSpeedTestIterations = 5 };
+  enum { kSpeedTestIterations = 8 };
   // ----------------------------------------
 
   const int nFrameRates = sizeof(frameRate) / sizeof(*frameRate);
@@ -183,6 +182,8 @@ void Benchmark::Perform() {
           uint32_t currCpuUsage = 0;
           totalEncodeTime[k] = 0;
 
+          std::cout << "TargetBitrate [kbps]:" << " " << _bitRate << std::endl;
+
           for (int l = 0; l < testIterations; l++) {
             PerformNormalTest();
             uint32_t cpuUsage = _cpu->CpuUsage();
@@ -205,7 +206,7 @@ void Benchmark::Perform() {
           currCpuUsage /= testIterations;
 
           double actualBitRate = ActualBitRate(_framecnt) / 1000.0;
-          std::cout << "Bitrate [kbps]:" << " " << actualBitRate << std::endl;
+          std::cout << "ActualBitRate [kbps]:" << " " << actualBitRate << std::endl;
           _results << "," << actualBitRate;
           fps[k] = avgFps;
           cpuUsage[k] = currCpuUsage;
