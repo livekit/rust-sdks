@@ -6,7 +6,7 @@ enable_language(ASM)
 set(BINARY_NAME "h264_benchmark")
 
 # Set the C++ standard to C++23.
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 
 set(CMAKE_BUILD_TYPE Debug)
 
@@ -41,17 +41,19 @@ add_definitions(-DWEBRTC_LIBRARY_IMPL)
 add_definitions(-DWEBRTC_ENABLE_AVX2)
 
 include_directories(
-  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-debug/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-debug/include/third_party/abseil-cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-debug/include/third_party/libyuv/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-release/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-release/include/third_party/abseil-cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-release/include/third_party/libyuv/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/../src/nvidia/NvCodec/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/../src/nvidia/NvCodec/NvCodec"
   "${CMAKE_CURRENT_SOURCE_DIR}/../src"
 )
 
 link_libraries(
-  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-debug/lib/libwebrtc.a"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-release/lib/libwebrtc.a"
 )
+
+find_package (Threads)
 
 add_executable(${BINARY_NAME}
   "test_main.cc"
@@ -59,6 +61,7 @@ add_executable(${BINARY_NAME}
   "benchmark_openh264.cc"
   "video_source.cc"
   "fileutils.cc"
+  "cpu/cpu_linux.cc"
 
   #"benchmark_nvidia.cc"
   #"../src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp"
@@ -84,3 +87,6 @@ add_executable(${BINARY_NAME}
   "../src/vaapi/implib/libva.so.init.c"
   "../src/vaapi/implib/libva.so.tramp.S"
 )
+
+target_link_libraries(${BINARY_NAME} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(${BINARY_NAME} dl)

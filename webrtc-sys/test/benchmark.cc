@@ -20,9 +20,9 @@
 
 #include "api/video/i420_buffer.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
+#include "fileutils.h"
 #include "modules/video_coding/utility/simulcast_rate_allocator.h"
 #include "rtc_base/event.h"
-#include "fileutils.h"
 #include "video_source.h"
 
 #define SSIM_CALC 0  // by default, don't compute SSIM
@@ -73,9 +73,11 @@ VideoEncodeCompleteCallback::OnEncodedImage(
   _encodedBytes += encodedImage.GetEncodedData()->size();
 
   if (_encodedFile != NULL) {
-    if (fwrite(encodedImage.GetEncodedData()->data(), 1, encodedImage.GetEncodedData()->size(), _encodedFile) !=
-        encodedImage.GetEncodedData()->size()) {
-      fprintf(stderr, "Error writing to encoded file %s\n", _test._outname.c_str());
+    if (fwrite(encodedImage.GetEncodedData()->data(), 1,
+               encodedImage.GetEncodedData()->size(),
+               _encodedFile) != encodedImage.GetEncodedData()->size()) {
+      fprintf(stderr, "Error writing to encoded file %s\n",
+              _test._outname.c_str());
     }
   }
 
@@ -95,7 +97,9 @@ Benchmark::Benchmark(std::string name,
                      std::string description,
                      std::string resultsFileName,
                      std::string codecName)
-    : _resultsFileName(resultsFileName), _codecName(codecName) {}
+    : _resultsFileName(resultsFileName),
+      _codecName(codecName),
+      _cpu(webrtc::CpuWrapper::CreateCpu()) {}
 
 void Benchmark::Perform() {
   std::vector<const VideoSource*> sources;
@@ -195,6 +199,7 @@ void Benchmark::Perform() {
           std::cout << " " << totalEncodeTime[k];
           _results << "," << totalEncodeTime[k];
         }
+
         /*
         std::cout << std::endl << "Decode Time[ms]:";
         _results << std::endl << "Decode Time[ms]";
@@ -245,6 +250,7 @@ void Benchmark::PerformNormalTest() {
   _framecnt = 0;
   _encFrameCnt = 0;
   _sumEncBytes = 0;
+  _totalCpuUsage = 0;
   _lengthEncFrame = 0;
   while (!complete) {
     complete = Encode();

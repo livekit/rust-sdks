@@ -17,10 +17,12 @@
 #include <queue>
 #include <string>
 
+#include "cpu/cpu_linux.h"
 #include "modules/include/module_common_types.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "system_wrappers/include/clock.h"
+
 
 class VideoSource;
 class Benchmark;
@@ -153,9 +155,7 @@ class Benchmark {
     return NULL;
   };
 
-  void UpdateEncodedBytes(int encodedBytes) { 
-    _sumEncBytes += encodedBytes; 
-  }
+  void UpdateEncodedBytes(int encodedBytes) { _sumEncBytes += encodedBytes; }
 
   const VideoSource* _target;
   std::string _resultsFileName;
@@ -169,6 +169,7 @@ class Benchmark {
   bool _appendNext = false;
   int _framecnt;
   int _encFrameCnt;
+  uint32_t _totalCpuUsage;
   double _totalEncodeTime;
   double _totalDecodeTime;
   double _decodeCompleteTime;
@@ -203,6 +204,7 @@ class Benchmark {
   uint64_t _lastDecRefPictureId = 0;
   uint64_t _lastDecPictureId = 0;
   std::list<fbSignal> _signalPLI;
+  webrtc::CpuWrapper* _cpu;
 };
 
 #endif  // WEBRTC_MODULES_VIDEO_CODING_CODECS_TEST_FRAWEWORK_BENCHMARK_H_
