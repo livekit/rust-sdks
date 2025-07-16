@@ -71,7 +71,13 @@ impl SoxResampler {
             return Err(error_msg.to_string_lossy().to_string());
         }
 
-        Ok(Self { soxr_ptr, out_buf: Vec::new(), input_rate, output_rate, num_channels })
+        Ok(Self {
+            soxr_ptr,
+            out_buf: Vec::with_capacity(output_rate as usize / 100), // ensure valid memory ptr
+            input_rate,
+            output_rate,
+            num_channels,
+        })
     }
 
     pub fn push(&mut self, input: &[i16]) -> Result<&[i16], String> {
@@ -110,22 +116,6 @@ impl SoxResampler {
     }
 
     pub fn flush(&mut self) -> Result<&[i16], String> {
-        let delay = unsafe { soxr_sys::soxr_delay(self.soxr_ptr) };
-        let delay_samples = delay.ceil() as usize;
-        if delay_samples == 0 {
-            let error = unsafe { soxr_sys::soxr_clear(self.soxr_ptr) };
-            if !error.is_null() {
-                let msg = unsafe { std::ffi::CStr::from_ptr(error) };
-                return Err(msg.to_string_lossy().to_string());
-            }
-            return Ok(&[]);
-        }
-
-        let required_output_size = delay_samples * self.num_channels as usize;
-        if self.out_buf.len() < required_output_size {
-            self.out_buf.resize(required_output_size, 0);
-        }
-
         let mut odone: usize = 0;
         let error = unsafe {
             soxr_sys::soxr_process(
@@ -134,7 +124,7 @@ impl SoxResampler {
                 0,
                 std::ptr::null_mut(),
                 self.out_buf.as_mut_ptr() as *mut c_void,
-                delay_samples,
+                self.out_buf.len(),
                 &mut odone,
             )
         };
