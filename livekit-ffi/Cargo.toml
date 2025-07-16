@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.28"
+version = "0.12.29"
 edition = "2021"
 license = "Apache-2.0"
 description = "FFI interface for bindings in other languages"

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.15](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.14...rust-sdks/livekit@0.7.15) - 2025-07-16
+
+### Other
+
+- remove published tracks when the room is closed ([#677](https://github.com/livekit/rust-sdks/pull/677))
+
 ## [0.7.14](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.13...rust-sdks/livekit@0.7.14) - 2025-06-23
 
 ### Fixed
