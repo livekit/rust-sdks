@@ -150,7 +150,7 @@ jobs:
             clang --version; \
             yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
-            cd livekit-ffi && RUSTFLAGS="-g" cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
+            cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
           sudo chown -R $USER:$USER target/${{ matrix.target }}/release/
 
