@@ -213,7 +213,7 @@ jobs:
     needs: build
     permissions:
       contents: write
-    if: startsWith(env.TAG_NAME, 'rust-sdks/livekit-ffi@')
+    if: startsWith(inputs.tag || github.ref_name, 'rust-sdks/livekit-ffi@')
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
