@@ -19,9 +19,15 @@ on:
     tags:
       - "rust-sdks/livekit-ffi@*"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
+  TAG_NAME: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -207,7 +213,7 @@ jobs:
     needs: build
     permissions:
       contents: write
-    if: startsWith(github.ref, 'refs/tags/rust-sdks/livekit-ffi')
+    if: startsWith(env.TAG_NAME, 'rust-sdks/livekit-ffi@')
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -222,5 +228,5 @@ jobs:
 
       - name: Create draft release
         run: |
-          gh release create ${{ github.ref_name }} --draft --title "${{ github.ref_name }}"
-          gh release upload ${{ github.ref_name }} ${{ github.workspace }}/ffi-builds/*
+          gh release create ${{ env.TAG_NAME }} --draft --title "${{ env.TAG_NAME }}"
+          gh release upload ${{ env.TAG_NAME }} ${{ github.workspace }}/ffi-builds/*

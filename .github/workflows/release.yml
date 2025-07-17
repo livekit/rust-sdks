@@ -18,6 +18,8 @@ jobs:
     if: ${{ github.repository_owner == 'livekit' }}
     permissions:
       contents: write
+    outputs:
+      ffi_tag: ${{ steps.ffi.outputs.ffi_tag }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,19 +36,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
-      - name: Trigger FFI workflow if needed
+      - name: Extract ffi tag
+        id: ffi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASES: ${{ steps.release-plz.outputs.releases }}
         run: |
           set -e
-          echo "releases: $RELEASES"
-
           ffi_tag=$(echo "$RELEASES" | jq -r '.[].tag' | grep 'rust-sdks/livekit-ffi@' || true)
-          if [ -n "$ffi_tag" ]; then
-            echo "Found ffi_tag: $ffi_tag"
-            gh workflow run ffi-builds.yml --ref $ffi_tag
-          fi
+          echo "ffi_tag=$ffi_tag"
+          echo "ffi_tag=$ffi_tag" >> $GITHUB_OUTPUT
+
+  call-ffi:
+    name: Call FFI Builds
+    if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
+    uses: ./.github/workflows/ffi-builds.yml
+    needs: release-plz-release
+    with:
+      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-plz-pr:
