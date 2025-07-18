@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.30](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.29...rust-sdks/livekit-ffi@0.12.30) - 2025-07-18
+
+### Fixed
+
+- fix SoxrResampler flush segv ([#678](https://github.com/livekit/rust-sdks/pull/678))
+
 ## [0.12.29](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.28...rust-sdks/livekit-ffi@0.12.29) - 2025-07-16
 
 ### Other
