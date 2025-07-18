@@ -328,8 +328,9 @@ int AudioDevice::GetRecordAudioParameters(
 }
 #endif  // WEBRTC_IOS
 
-int32_t AudioDevice::SetAudioDeviceSink(webrtc::AudioDeviceSink* sink) const {
-  return 0;
-}
+// TODO: SetAudioDeviceSink was removed in M137
+// int32_t AudioDevice::SetAudioDeviceSink(webrtc::AudioDeviceSink* sink) const {
+//   return 0;
+// }
 
 }  // namespace livekit

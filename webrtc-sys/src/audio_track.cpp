@@ -100,8 +100,8 @@ void NativeAudioSink::OnData(const void* audio_data,
 
   if (sample_rate_ != sample_rate || num_channels_ != number_of_channels) {
     // resample/remix before capturing
-    webrtc::voe::RemixAndResample(data, number_of_frames, number_of_channels,
-                                  sample_rate, &resampler_, &frame_);
+    webrtc::InterleavedView<const int16_t> src_data(data, number_of_channels, number_of_frames);
+    webrtc::voe::RemixAndResample(src_data, sample_rate, &resampler_, &frame_);
 
     rust::Slice<const int16_t> rust_slice(
         frame_.data(), frame_.num_channels() * frame_.samples_per_channel());

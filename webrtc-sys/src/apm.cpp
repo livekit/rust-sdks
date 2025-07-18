@@ -3,11 +3,17 @@
 #include <iostream>
 #include <memory>
 
+#include "api/audio/builtin_audio_processing_builder.h"
+#include "api/environment/environment.h"
+#include "api/environment/environment_factory.h"
+
 namespace livekit {
 
 AudioProcessingModule::AudioProcessingModule(
     const AudioProcessingConfig& config) {
-  apm_ = webrtc::AudioProcessingBuilder().Create();
+  webrtc::Environment env = webrtc::EnvironmentFactory().Create();
+  webrtc::BuiltinAudioProcessingBuilder builder(config.ToWebrtcConfig());
+  apm_ = builder.Build(env);
 
   apm_->ApplyConfig(config.ToWebrtcConfig());
   apm_->Initialize();

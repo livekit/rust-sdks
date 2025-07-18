@@ -26,6 +26,8 @@
 #include "api/enable_media.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "api/task_queue/default_task_queue_factory.h"
+#include "api/environment/environment_factory.h"
+#include "api/audio/builtin_audio_processing_builder.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "livekit/audio_device.h"
@@ -56,7 +58,8 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.socket_factory = rtc_runtime_->network_thread()->socketserver();
   dependencies.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
-  dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
+  // Field trials are now handled through Environment in M137
+  // dependencies.trials is set to nullptr by default
 
   audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
     return rtc::make_ref_counted<livekit::AudioDevice>(
@@ -71,7 +74,10 @@ PeerConnectionFactory::PeerConnectionFactory(
       std::move(std::make_unique<livekit::VideoDecoderFactory>());
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-  dependencies.audio_processing = webrtc::AudioProcessingBuilder().Create();
+  // Create Environment for BuiltinAudioProcessingBuilder
+  webrtc::Environment env = webrtc::EnvironmentFactory().Create();
+  webrtc::BuiltinAudioProcessingBuilder apm_builder;
+  dependencies.audio_processing = apm_builder.Build(env);
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =

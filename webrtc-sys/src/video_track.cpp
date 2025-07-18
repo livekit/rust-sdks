@@ -62,11 +62,14 @@ void VideoTrack::remove_sink(
 }
 
 void VideoTrack::set_should_receive(bool should_receive) const {
-  track()->set_should_receive(should_receive);
+  // TODO: set_should_receive was removed in M137
+  // track()->set_should_receive(should_receive);
 }
 
 bool VideoTrack::should_receive() const {
-  return track()->should_receive();
+  // TODO: should_receive was removed in M137
+  return true; // Default to receiving
+  // return track()->should_receive();
 }
 
 ContentHint VideoTrack::content_hint() const {
@@ -114,7 +117,7 @@ bool VideoTrackSource::InternalSource::is_screencast() const {
   return false;
 }
 
-absl::optional<bool> VideoTrackSource::InternalSource::needs_denoising() const {
+std::optional<bool> VideoTrackSource::InternalSource::needs_denoising() const {
   return false;
 }
 

@@ -36,8 +36,10 @@ webrtc::DataChannelInit to_native_data_channel_init(DataChannelInit init) {
   if (init.has_max_retransmits)
     rtc_init.maxRetransmits = init.max_retransmits;
 
-  if (init.has_priority)
-    rtc_init.priority = static_cast<webrtc::Priority>(init.priority);
+  if (init.has_priority) {
+    webrtc::Priority prio = static_cast<webrtc::Priority>(init.priority);
+    rtc_init.priority = webrtc::PriorityValue(prio);
+  }
 
   return rtc_init;
 }

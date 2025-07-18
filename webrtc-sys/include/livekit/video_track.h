@@ -94,7 +94,7 @@ class VideoTrackSource {
     ~InternalSource() override;
 
     bool is_screencast() const override;
-    absl::optional<bool> needs_denoising() const override;
+    std::optional<bool> needs_denoising() const override;
     SourceState state() const override;
     bool remote() const override;
     VideoResolution video_resolution() const;

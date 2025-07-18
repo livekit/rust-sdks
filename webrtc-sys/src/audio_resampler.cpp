@@ -30,8 +30,8 @@ size_t AudioResampler::remix_and_resample(const int16_t* src,
                                           int dest_sample_rate) {
   frame_.num_channels_ = dest_num_channels;
   frame_.sample_rate_hz_ = dest_sample_rate;
-  webrtc::voe::RemixAndResample(src, samples_per_channel, num_channels,
-                                sample_rate, &resampler_, &frame_);
+  webrtc::InterleavedView<const int16_t> src_data(src, num_channels, samples_per_channel);
+  webrtc::voe::RemixAndResample(src_data, sample_rate, &resampler_, &frame_);
 
   return frame_.num_channels() * frame_.samples_per_channel() * sizeof(int16_t);
 }

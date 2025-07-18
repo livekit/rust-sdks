@@ -26,7 +26,7 @@
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "livekit/video_track.h"
-#include "rtc_base/helpers.h"
+#include "rtc_base/crypto_random.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
 
@@ -170,7 +170,7 @@ std::unique_ptr<LogSink> new_log_sink(
 }
 
 rust::String create_random_uuid() {
-  return rtc::CreateRandomUuid();
+  return webrtc::CreateRandomUuid();
 }
 
 }  // namespace livekit

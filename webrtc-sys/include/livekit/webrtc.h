@@ -25,6 +25,7 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/physical_socket_server.h"
 #include "rtc_base/ssl_adapter.h"
+#include "rtc_base/thread.h"
 #include "rust/cxx.h"
 
 #ifdef WEBRTC_WIN

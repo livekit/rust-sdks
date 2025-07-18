@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
 
@@ -29,7 +31,7 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
 
     CodecSupport QueryCodecSupport(
         const webrtc::SdpVideoFormat& format,
-        absl::optional<std::string> scalability_mode) const override;
+        std::optional<std::string> scalability_mode) const override;
 
     std::unique_ptr<webrtc::VideoEncoder> Create(
         const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) override;
@@ -45,7 +47,7 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
 
   CodecSupport QueryCodecSupport(
       const webrtc::SdpVideoFormat& format,
-      absl::optional<std::string> scalability_mode) const override;
+      std::optional<std::string> scalability_mode) const override;
 
   std::unique_ptr<webrtc::VideoEncoder> Create(
       const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) override;

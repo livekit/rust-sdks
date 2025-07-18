@@ -43,7 +43,9 @@ int64_t VideoFrame::ntp_time_ms() const {
   return frame_.ntp_time_ms();
 }
 uint32_t VideoFrame::timestamp() const {
-  return frame_.timestamp();
+  // TODO: timestamp() was replaced with timestamp_us() in M137
+  // Converting microseconds to 90kHz timestamp (RTP timestamp units)
+  return static_cast<uint32_t>(frame_.timestamp_us() * 90 / 1000);
 }
 
 VideoRotation VideoFrame::rotation() const {
