@@ -1,0 +1,27 @@
+diff --git a/tools_webrtc/libs/generate_licenses.py b/tools_webrtc/libs/generate_licenses.py
+index 73fd19a..01504f7 100755
+--- a/tools_webrtc/libs/generate_licenses.py
++++ b/tools_webrtc/libs/generate_licenses.py
+@@ -190,8 +190,20 @@ class LicenseBuilder:
+             target,
+         ]
+         logging.debug('Running: %r', cmd)
+-        output_json = subprocess.check_output(cmd,
+-                                              cwd=WEBRTC_ROOT).decode('UTF-8')
++        # Run command and capture both stdout and stderr
++        process = subprocess.Popen(cmd,
++                                   stdout=subprocess.PIPE,
++                                   stderr=subprocess.PIPE,
++                                   cwd=WEBRTC_ROOT)
++        stdout, stderr = process.communicate()
++        output_text = stdout.decode('UTF-8')
++
++        # Find the start of the JSON object (skip any warnings)
++        json_start = output_text.find('{')
++        if json_start == -1:
++            raise Exception('No JSON output found from gn desc command')
++
++        output_json = output_text[json_start:]
+         logging.debug('Output: %s', output_json)
+         return output_json
+ 
