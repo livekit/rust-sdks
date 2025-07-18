@@ -32,7 +32,7 @@ fn main() {
         "src/audio_track.rs",
         "src/video_track.rs",
         "src/data_channel.rs",
-        // "src/frame_cryptor.rs", // TODO: Re-enable after M137 migration
+        "src/frame_cryptor.rs",
         "src/jsep.rs",
         "src/candidate.rs",
         "src/rtp_parameters.rs",
@@ -73,7 +73,7 @@ fn main() {
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",
         "src/audio_resampler.cpp",
-        // "src/frame_cryptor.cpp", // TODO: Re-enable after M137 migration
+        "src/frame_cryptor.cpp",
         "src/global_task_queue.cpp",
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
