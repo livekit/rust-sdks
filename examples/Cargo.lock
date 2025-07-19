@@ -2580,6 +2580,7 @@ dependencies = [
  "cpal",
  "env_logger",
  "futures-util",
+ "libwebrtc",
  "livekit",
  "livekit-api",
  "log",

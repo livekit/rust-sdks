@@ -10,6 +10,8 @@ pub struct AudioMixer {
     volume: f32,
     max_buffer_size: usize,
     db_tx: Option<mpsc::UnboundedSender<f32>>,
+    // Channel to send reference audio for echo cancellation
+    reference_audio_tx: Option<mpsc::UnboundedSender<Vec<i16>>>,
 }
 
 impl AudioMixer {
@@ -24,6 +26,7 @@ impl AudioMixer {
             volume: volume.clamp(0.0, 1.0),
             max_buffer_size,
             db_tx: None,
+            reference_audio_tx: None,
         }
     }
 
@@ -38,6 +41,28 @@ impl AudioMixer {
             volume: volume.clamp(0.0, 1.0),
             max_buffer_size,
             db_tx: Some(db_tx),
+            reference_audio_tx: None,
+        }
+    }
+
+    pub fn with_reference_audio(
+        sample_rate: u32, 
+        channels: u32, 
+        volume: f32, 
+        db_tx: mpsc::UnboundedSender<f32>,
+        reference_audio_tx: mpsc::UnboundedSender<Vec<i16>>
+    ) -> Self {
+        // Buffer for 1 second of audio
+        let max_buffer_size = sample_rate as usize * channels as usize;
+        
+        Self {
+            buffer: Arc::new(Mutex::new(std::collections::VecDeque::with_capacity(max_buffer_size))),
+            sample_rate,
+            channels,
+            volume: volume.clamp(0.0, 1.0),
+            max_buffer_size,
+            db_tx: Some(db_tx),
+            reference_audio_tx: Some(reference_audio_tx),
         }
     }
 
@@ -73,6 +98,21 @@ impl AudioMixer {
         if let Some(ref db_tx) = self.db_tx {
             let db_level = calculate_db_level(&result);
             let _ = db_tx.send(db_level); // Ignore errors if receiver is closed
+        }
+        
+        // Send copy to reference audio channel for echo cancellation
+        // Send ALL audio frames (including silence) for proper timing synchronization
+        if let Some(ref ref_tx) = self.reference_audio_tx {
+            if let Err(_) = ref_tx.send(result.clone()) {
+                // Only log occasionally to avoid spam
+                static mut LOG_COUNTER: u32 = 0;
+                unsafe {
+                    LOG_COUNTER += 1;
+                    if LOG_COUNTER % 1000 == 0 {
+                        log::warn!("Reference audio channel closed or full (logged every 1000 attempts)");
+                    }
+                }
+            }
         }
         
         result

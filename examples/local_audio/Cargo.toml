@@ -8,6 +8,7 @@ tokio = { version = "1", features = ["full"] }
 env_logger = "0.10"
 livekit = { path = "../../livekit", features = ["rustls-tls-native-roots"]}
 livekit-api = { path = "../../livekit-api", features = ["rustls-tls-native-roots"]}
+libwebrtc = { path = "../../libwebrtc" }
 log = "0.4"
 cpal = "0.15"
 anyhow = "1.0"
