@@ -10,7 +10,7 @@ use audio_playback::AudioPlayback;
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, SampleRate, StreamConfig};
-use db_meter::display_db_meter;
+use db_meter::display_dual_db_meters;
 use livekit::{
     options::TrackPublishOptions,
     track::{LocalAudioTrack, LocalTrack, TrackSource},
@@ -464,11 +464,12 @@ async fn main() -> Result<()> {
     // Set up audio capture and streaming
     let (audio_tx, audio_rx) = mpsc::unbounded_channel();
     
-    // Set up dB meter
-    let (db_tx, db_rx) = mpsc::unbounded_channel();
+    // Set up dB meters
+    let (mic_db_tx, mic_db_rx) = mpsc::unbounded_channel();
+    let (room_db_tx, room_db_rx) = mpsc::unbounded_channel();
     
-    // Start dB meter display
-    let db_meter_task = tokio::spawn(display_db_meter(db_rx));
+    // Start dual dB meter display
+    let db_meter_task = tokio::spawn(display_dual_db_meters(mic_db_rx, room_db_rx));
     
     // Start audio capture with channel selection
     let _audio_capture = AudioCapture::new(
@@ -476,7 +477,7 @@ async fn main() -> Result<()> {
         input_config,
         input_supported_config.sample_format(),
         audio_tx,
-        Some(db_tx),
+        Some(mic_db_tx),
         args.channel,  // Pass selected channel index
         supported_channels,  // Pass number of input channels
     ).await?;
@@ -491,7 +492,7 @@ async fn main() -> Result<()> {
     // Set up audio playback (if enabled)
     let _audio_playback = if let (Some(output_device), Some(output_config)) = (output_device, output_config) {
         // Create audio mixer for combining participant audio streams (fixed to 1 channel)
-        let mixer = AudioMixer::new(args.sample_rate, 1, args.volume);
+        let mixer = AudioMixer::with_db_meter(args.sample_rate, 1, args.volume, room_db_tx);
         
         // Start handling remote audio streams
         let room_clone = room.clone();

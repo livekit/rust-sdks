@@ -1,4 +1,6 @@
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
+use crate::db_meter::calculate_db_level;
 
 #[derive(Clone)]
 pub struct AudioMixer {
@@ -7,6 +9,7 @@ pub struct AudioMixer {
     channels: u32,
     volume: f32,
     max_buffer_size: usize,
+    db_tx: Option<mpsc::UnboundedSender<f32>>,
 }
 
 impl AudioMixer {
@@ -20,6 +23,21 @@ impl AudioMixer {
             channels,
             volume: volume.clamp(0.0, 1.0),
             max_buffer_size,
+            db_tx: None,
+        }
+    }
+
+    pub fn with_db_meter(sample_rate: u32, channels: u32, volume: f32, db_tx: mpsc::UnboundedSender<f32>) -> Self {
+        // Buffer for 1 second of audio
+        let max_buffer_size = sample_rate as usize * channels as usize;
+        
+        Self {
+            buffer: Arc::new(Mutex::new(std::collections::VecDeque::with_capacity(max_buffer_size))),
+            sample_rate,
+            channels,
+            volume: volume.clamp(0.0, 1.0),
+            max_buffer_size,
+            db_tx: Some(db_tx),
         }
     }
 
@@ -49,6 +67,12 @@ impl AudioMixer {
             } else {
                 result.push(0); // Silence when no data available
             }
+        }
+        
+        // Calculate and send dB level if we have a sender
+        if let Some(ref db_tx) = self.db_tx {
+            let db_level = calculate_db_level(&result);
+            let _ = db_tx.send(db_level); // Ignore errors if receiver is closed
         }
         
         result
