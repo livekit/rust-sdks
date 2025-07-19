@@ -74,6 +74,10 @@ struct Args {
     #[arg(long, default_value_t = 1.0)]
     volume: f32,
 
+    /// Input channel index to capture (default: 0)
+    #[arg(long, default_value_t = 0)]
+    channel: u32,
+
     /// LiveKit participant identity (default: "rust-audio-streamer")
     #[arg(long, default_value = "rust-audio-streamer")]
     identity: String,
@@ -187,14 +191,13 @@ async fn stream_audio_to_livekit(
     mut audio_rx: mpsc::UnboundedReceiver<Vec<i16>>,
     livekit_source: NativeAudioSource,
     sample_rate: u32,
-    channels: u32,
 ) -> Result<()> {
     let mut buffer = Vec::new();
-    let samples_per_10ms = (sample_rate as usize * channels as usize) / 100;
+    let samples_per_10ms = (sample_rate / 100) as usize;  // For mono
     
     info!(
-        "Starting LiveKit audio streaming ({}Hz, {} channels, {} samples per 10ms)",
-        sample_rate, channels, samples_per_10ms
+        "Starting LiveKit audio streaming ({}Hz, 1 channel, {} samples per 10ms)",
+        sample_rate, samples_per_10ms
     );
 
     while let Some(audio_data) = audio_rx.recv().await {
@@ -207,8 +210,8 @@ async fn stream_audio_to_livekit(
             let audio_frame = AudioFrame {
                 data: chunk.into(),
                 sample_rate,
-                num_channels: channels,
-                samples_per_channel: (samples_per_10ms / channels as usize) as u32,
+                num_channels: 1,  // Fixed to mono
+                samples_per_channel: samples_per_10ms as u32,
             };
 
             if let Err(e) = livekit_source.capture_frame(&audio_frame).await {
@@ -224,7 +227,6 @@ async fn handle_remote_audio_streams(
     room: Arc<Room>,
     mixer: AudioMixer,
     sample_rate: u32,
-    channels: u32,
 ) -> Result<()> {
     let mut room_events = room.subscribe();
 
@@ -249,11 +251,11 @@ async fn handle_remote_audio_streams(
                     let participant_identity = participant.identity().to_string();
                     info!("Setting up audio stream for participant: {}", participant_identity);
 
-                    // Create audio stream for this remote track
+                    // Create audio stream for this remote track (fixed to 1 channel)
                     let mut audio_stream = NativeAudioStream::new(
                         audio_track.rtc_track(),
                         sample_rate as i32,
-                        channels as i32,
+                        1,  // Fixed to mono
                     );
 
                     // Start processing audio frames from this participant
@@ -384,8 +386,13 @@ async fn main() -> Result<()> {
 
     // Configure audio capture
     let input_supported_config = input_device.default_input_config()?;
+    let supported_channels = input_supported_config.channels() as u32;
+    if args.channel >= supported_channels {
+        return Err(anyhow!("Invalid channel index: {}. Device supports {} channels.", args.channel, supported_channels));
+    }
+
     let input_config = StreamConfig {
-        channels: args.channels as u16,
+        channels: input_supported_config.channels(),  // Capture all available channels to allow channel selection
         sample_rate: SampleRate(args.sample_rate),
         buffer_size: cpal::BufferSize::Default,
     };
@@ -398,17 +405,16 @@ async fn main() -> Result<()> {
     );
 
     // Configure audio playback (if enabled)
-    let output_config = if output_device.is_some() {
+    let output_config = if !args.no_playback {
         let config = StreamConfig {
-            channels: args.channels as u16,
+            channels: 1,  // Fixed to mono
             sample_rate: SampleRate(args.sample_rate),
             buffer_size: cpal::BufferSize::Default,
         };
         
         info!(
-            "Audio output config: {}Hz, {} channels",
+            "Audio output config: {}Hz, 1 channel",
             config.sample_rate.0,
-            config.channels,
         );
         
         Some(config)
@@ -433,7 +439,7 @@ async fn main() -> Result<()> {
     let livekit_source = NativeAudioSource::new(
         audio_options,
         args.sample_rate,
-        args.channels,
+        1,  // Fixed to 1 channel
         1000, // 1 second buffer
     );
 
@@ -464,13 +470,15 @@ async fn main() -> Result<()> {
     // Start dB meter display
     let db_meter_task = tokio::spawn(display_db_meter(db_rx));
     
-    // Start audio capture
+    // Start audio capture with channel selection
     let _audio_capture = AudioCapture::new(
         input_device,
         input_config,
         input_supported_config.sample_format(),
         audio_tx,
-        Some(db_tx)
+        Some(db_tx),
+        args.channel,  // Pass selected channel index
+        supported_channels,  // Pass number of input channels
     ).await?;
     
     // Start streaming to LiveKit
@@ -478,13 +486,12 @@ async fn main() -> Result<()> {
         audio_rx,
         livekit_source,
         args.sample_rate,
-        args.channels,
     ));
 
     // Set up audio playback (if enabled)
     let _audio_playback = if let (Some(output_device), Some(output_config)) = (output_device, output_config) {
-        // Create audio mixer for combining participant audio streams
-        let mixer = AudioMixer::new(args.sample_rate, args.channels, args.volume);
+        // Create audio mixer for combining participant audio streams (fixed to 1 channel)
+        let mixer = AudioMixer::new(args.sample_rate, 1, args.volume);
         
         // Start handling remote audio streams
         let room_clone = room.clone();
@@ -493,7 +500,6 @@ async fn main() -> Result<()> {
             room_clone,
             mixer_clone,
             args.sample_rate,
-            args.channels,
         ));
 
         // Get output device format
