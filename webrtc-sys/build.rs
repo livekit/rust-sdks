@@ -128,7 +128,23 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=dylib=shcore");
 
-            builder.flag("/std:c++20").flag("/EHsc");
+            //let path = env::current_dir().unwrap();
+            //println!("cargo:rustc-link-search=native={}/vaapi-windows/x64/lib", path.display());
+            //println!("cargo:rustc-link-lib=dylib=va");
+            //println!("cargo:rustc-link-lib=dylib=va_win32");
+
+            builder
+                //.include("./vaapi-windows/DirectX-Headers-1.0/include")
+                //.include(path::PathBuf::from("./vaapi-windows/x64/include"))
+                //.file("vaapi-windows/DirectX-Headers-1.0/src/dxguids.cpp")
+                //.file("src/vaapi/vaapi_display_win32.cpp")
+                //.file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                //.file("src/vaapi/vaapi_encoder_factory.cpp")
+                //.file("src/vaapi/h264_encoder_impl.cpp")
+                .flag("/std:c++20")
+                //.flag("/wd4819")
+                //.flag("/wd4068")
+                .flag("/EHsc");
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=rt");
@@ -136,7 +152,16 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
-            builder.flag("-std=c++2a");
+            builder
+                .file("src/vaapi/vaapi_display_drm.cpp")
+                .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                .file("src/vaapi/vaapi_encoder_factory.cpp")
+                .file("src/vaapi/h264_encoder_impl.cpp")
+                .file("src/vaapi/implib/libva-drm.so.init.c")
+                .file("src/vaapi/implib/libva-drm.so.tramp.S")
+                .file("src/vaapi/implib/libva.so.init.c")
+                .file("src/vaapi/implib/libva.so.tramp.S")
+                .flag("-std=c++2a");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
