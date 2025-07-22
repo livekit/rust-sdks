@@ -1,0 +1,16 @@
+[package]
+name = "local_audio"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+env_logger = "0.10"
+livekit = { path = "../../livekit", features = ["rustls-tls-native-roots"]}
+livekit-api = { path = "../../livekit-api", features = ["rustls-tls-native-roots"]}
+libwebrtc = { path = "../../libwebrtc" }
+log = "0.4"
+cpal = "0.15"
+anyhow = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+futures-util = "0.3" 
