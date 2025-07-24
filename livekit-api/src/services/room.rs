@@ -24,6 +24,7 @@ const SVC: &str = "RoomService";
 #[derive(Debug, Clone, Default)]
 pub struct CreateRoomOptions {
     pub empty_timeout: u32,
+    pub departure_timeout: u32,
     pub max_participants: u32,
     pub node_id: String,
     pub metadata: String,
@@ -78,11 +79,12 @@ impl RoomClient {
                 proto::CreateRoomRequest {
                     name: name.to_owned(),
                     empty_timeout: options.empty_timeout,
+                    departure_timeout: options.departure_timeout,
                     max_participants: options.max_participants,
                     node_id: options.node_id,
                     metadata: options.metadata,
                     egress: options.egress,
-                    ..Default::default()
+                    ....Default::default()
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
