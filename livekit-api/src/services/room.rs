@@ -84,7 +84,7 @@ impl RoomClient {
                     node_id: options.node_id,
                     metadata: options.metadata,
                     egress: options.egress,
-                    ....Default::default()
+                    ..Default::default()
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
