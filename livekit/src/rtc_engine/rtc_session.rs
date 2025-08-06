@@ -18,7 +18,7 @@ use std::{
     fmt::Debug,
     ops::Not,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -26,7 +26,7 @@ use std::{
 
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-use livekit_protocol as proto;
+use livekit_protocol::{self as proto, DataPacket};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::{id::ParticipantIdentity, ChatMessage, TranscriptionSegment};
+use crate::{id::ParticipantIdentity, utils::ttl_map::TtlMap, ChatMessage, TranscriptionSegment};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -57,6 +57,7 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
 
@@ -190,6 +191,8 @@ pub enum SessionEvent {
 enum DataChannelEvent {
     PublishData(proto::DataPacket, DataPacketKind, oneshot::Sender<Result<(), EngineError>>),
     BufferedAmountChange(u64, DataPacketKind),
+    EnqueueForRetry(Vec<u8>, u32),
+    RetryRequested(u32),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -215,8 +218,12 @@ struct SessionInner {
     // used to send data to other participants (The SFU forwards the messages)
     lossy_dc: DataChannel,
     lossy_dc_buffered_amount_low_threshold: AtomicU64,
+
     reliable_dc: DataChannel,
     reliable_dc_buffered_amount_low_threshold: AtomicU64,
+    reliable_sequence_number: AtomicU32,
+    reliable_received_state: Mutex<TtlMap<String, u32>>,
+
     dc_emitter: mpsc::UnboundedSender<DataChannelEvent>,
 
     // Keep a strong reference to the subscriber datachannels,
@@ -322,6 +329,8 @@ impl RtcSession {
             reliable_dc_buffered_amount_low_threshold: AtomicU64::new(
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
+            reliable_sequence_number: 1.into(),
+            reliable_received_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
@@ -470,6 +479,12 @@ impl RtcSession {
             .send(SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold });
     }
 
+    fn reliable_retry_amount(&self) -> u64 {
+        let threshold =
+            self.inner.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
+        ((threshold as f64) * 1.25) as u64
+    }
+
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         self.inner.get_response(request_id).await
     }
@@ -575,6 +590,12 @@ impl SessionInner {
         let mut lossy_queue = VecDeque::new();
         let mut reliable_queue = VecDeque::new();
 
+        // TODO: reliable retry queue
+
+        let mut retry_queue: VecDeque<(Vec<u8>, u32)> = VecDeque::new();
+        let mut retry_current_amount = 0;
+        let mut retry_min_amount = 0;
+
         loop {
             tokio::select! {
                 event = dc_events.recv() => {
@@ -588,14 +609,14 @@ impl SessionInner {
                             let data = packet.encode_to_vec();
                             match kind {
                                 DataPacketKind::Lossy => {
-                                    lossy_queue.push_back((data, kind, tx));
+                                    lossy_queue.push_back((data, tx));
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut lossy_buffered_amount, &mut lossy_queue);
+                                    self._send_until_threshold(threshold, &mut lossy_buffered_amount,  DataPacketKind::Lossy, &mut lossy_queue);
                                 }
                                 DataPacketKind::Reliable => {
-                                    reliable_queue.push_back((data, kind, tx));
+                                    reliable_queue.push_back((data, tx));
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut reliable_buffered_amount, &mut reliable_queue);
+                                    self._send_until_threshold(threshold, &mut reliable_buffered_amount, DataPacketKind::Reliable, &mut reliable_queue);
                                 }
                             }
                         }
@@ -610,7 +631,7 @@ impl SessionInner {
                                         lossy_buffered_amount -= sent;
                                     }
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut lossy_buffered_amount, &mut lossy_queue);
+                                    self._send_until_threshold(threshold, &mut lossy_buffered_amount, DataPacketKind::Lossy, &mut lossy_queue);
                                 }
                                 DataPacketKind::Reliable => {
                                     if reliable_buffered_amount < sent {
@@ -620,9 +641,23 @@ impl SessionInner {
                                         reliable_buffered_amount -= sent;
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut reliable_buffered_amount, &mut reliable_queue);
+                                    self._send_until_threshold(threshold, &mut reliable_buffered_amount, DataPacketKind::Reliable, &mut reliable_queue);
+                                    // TODO: Trim reliable retry buffer to new amount
                                 }
                             }
+                        }
+                        DataChannelEvent::EnqueueForRetry(data, sequence) => {
+                            let len = data.len() as u64;
+                            retry_queue.push_back((data, sequence));
+                            retry_current_amount += len;
+                        }
+                        DataChannelEvent::RetryRequested(last_sequence) => {
+                            if let Some((_, sequence)) = retry_queue.front() {
+                                if *sequence > last_sequence + 1 {
+                                    log::warn!("Wrong packet sequence while retrying: {} > {}, {} packets missing", sequence, last_sequence + 1, sequence - last_sequence - 1);
+                                }
+                            }
+                            // TODO: dequeue, emit publish again
                         }
                     }
                 },
@@ -640,21 +675,19 @@ impl SessionInner {
         self: &Arc<Self>,
         threshold: u64,
         buffered_amount: &mut u64,
-        queue: &mut VecDeque<(Vec<u8>, DataPacketKind, oneshot::Sender<Result<(), EngineError>>)>,
+        kind: DataPacketKind,
+        queue: &mut VecDeque<(Vec<u8>, oneshot::Sender<Result<(), EngineError>>)>,
     ) {
+        let channel = self.data_channel(SignalTarget::Publisher, kind).unwrap();
         while *buffered_amount <= threshold {
-            let Some((data, kind, tx)) = queue.pop_front() else {
+            let Some((data, tx)) = queue.pop_front() else {
                 break;
             };
 
             *buffered_amount += data.len() as u64;
-            let result = self
-                .data_channel(SignalTarget::Publisher, kind)
-                .unwrap()
-                .send(&data, true)
-                .map_err(|err| {
-                    EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
-                });
+            let result = channel.send(&data, true).map_err(|err| {
+                EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
+            });
 
             let _ = tx.send(result);
         }
@@ -825,144 +858,16 @@ impl SessionInner {
                     log::warn!("Track event with no streams");
                 }
             }
-            RtcEvent::Data { data, binary } => {
+            RtcEvent::Data { data, binary, kind } => {
                 if !binary {
                     Err(EngineError::Internal("text messages aren't supported".into()))?;
                 }
+                let packet = proto::DataPacket::decode(&*data).unwrap();
 
-                let data = proto::DataPacket::decode(&*data).unwrap();
-                if let Some(packet) = data.value.as_ref() {
-                    match packet {
-                        proto::data_packet::Value::User(user) => {
-                            let participant_sid = user
-                                .participant_sid
-                                .is_empty()
-                                .not()
-                                .then_some(user.participant_sid.clone());
-
-                            let participant_identity = if !data.participant_identity.is_empty() {
-                                Some(data.participant_identity.clone())
-                            } else if !user.participant_identity.is_empty() {
-                                Some(user.participant_identity.clone())
-                            } else {
-                                None
-                            };
-
-                            let _ = self.emitter.send(SessionEvent::Data {
-                                kind: data.kind().into(),
-                                participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
-                                participant_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
-                                payload: user.payload.clone(),
-                                topic: user.topic.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::SipDtmf(dtmf) => {
-                            let participant_identity = data
-                                .participant_identity
-                                .is_empty()
-                                .not()
-                                .then_some(data.participant_identity.clone());
-                            let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
-
-                            let _ = self.emitter.send(SessionEvent::SipDTMF {
-                                participant_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
-                                digit: digit.map(|s| s.try_into().unwrap()),
-                                code: dtmf.code,
-                            });
-                        }
-                        proto::data_packet::Value::Speaker(_) => {}
-                        proto::data_packet::Value::Transcription(transcription) => {
-                            let track_sid = transcription.track_id.clone();
-                            // let segments = transcription.segments.clone();
-                            let segments = transcription
-                                .segments
-                                .iter()
-                                .map(|s| TranscriptionSegment {
-                                    id: s.id.clone(),
-                                    start_time: s.start_time,
-                                    end_time: s.end_time,
-                                    text: s.text.clone(),
-                                    language: s.language.clone(),
-                                    r#final: s.r#final,
-                                })
-                                .collect();
-                            let participant_identity: ParticipantIdentity =
-                                transcription.transcribed_participant_identity.clone().into();
-                            let _ = self.emitter.send(SessionEvent::Transcription {
-                                participant_identity,
-                                track_sid,
-                                segments,
-                            });
-                        }
-                        proto::data_packet::Value::RpcRequest(rpc_request) => {
-                            let caller_identity = data
-                                .participant_identity
-                                .is_empty()
-                                .not()
-                                .then_some(data.participant_identity.clone())
-                                .map(|s| s.try_into().unwrap());
-                            let _ = self.emitter.send(SessionEvent::RpcRequest {
-                                caller_identity,
-                                request_id: rpc_request.id.clone(),
-                                method: rpc_request.method.clone(),
-                                payload: rpc_request.payload.clone(),
-                                response_timeout: Duration::from_millis(
-                                    rpc_request.response_timeout_ms as u64,
-                                ),
-                                version: rpc_request.version,
-                            });
-                        }
-                        proto::data_packet::Value::RpcResponse(rpc_response) => {
-                            let _ = self.emitter.send(SessionEvent::RpcResponse {
-                                request_id: rpc_response.request_id.clone(),
-                                payload: rpc_response.value.as_ref().and_then(|v| match v {
-                                    proto::rpc_response::Value::Payload(payload) => {
-                                        Some(payload.clone())
-                                    }
-                                    _ => None,
-                                }),
-                                error: rpc_response.value.as_ref().and_then(|v| match v {
-                                    proto::rpc_response::Value::Error(error) => Some(error.clone()),
-                                    _ => None,
-                                }),
-                            });
-                        }
-                        proto::data_packet::Value::RpcAck(rpc_ack) => {
-                            let _ = self.emitter.send(SessionEvent::RpcAck {
-                                request_id: rpc_ack.request_id.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::ChatMessage(message) => {
-                            let _ = self.emitter.send(SessionEvent::ChatMessage {
-                                participant_identity: ParticipantIdentity(
-                                    data.participant_identity,
-                                ),
-                                message: ChatMessage::from(message.clone()),
-                            });
-                        }
-                        proto::data_packet::Value::StreamHeader(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamHeader {
-                                header: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::StreamChunk(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamChunk {
-                                chunk: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::StreamTrailer(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamTrailer {
-                                trailer: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        _ => {}
-                    }
+                if kind == DataPacketKind::Reliable {
+                    self.update_reliable_received_state(&packet);
                 }
+                self.emit_event_for_packet(packet);
             }
             RtcEvent::DataChannelBufferedAmountChange { sent, amount: _, kind } => {
                 if let Err(err) =
@@ -974,6 +879,150 @@ impl SessionInner {
         }
 
         Ok(())
+    }
+
+    fn reliable_retry(buffer: PacketBuffer, last_sequence: u32) {
+        // TODO: perform retry
+    }
+
+    fn update_reliable_received_state(&self, packet: &proto::DataPacket) {
+        if packet.sequence <= 0 || packet.participant_sid.is_empty() {
+            return;
+        };
+        let mut state = self.reliable_received_state.lock();
+        if state
+            .get(&packet.participant_sid)
+            .is_some_and(|&last_sequence| packet.sequence <= last_sequence)
+        {
+            log::warn!("Ignoring duplicate/out-of-order reliable data message");
+            return;
+        }
+        // TODO: avoid clone if key already present
+        state.set(packet.participant_sid.clone(), Some(packet.sequence));
+    }
+
+    /// Emits a session event for a received data packet.
+    fn emit_event_for_packet(&self, packet: proto::DataPacket) {
+        let Some(value) = packet.value.as_ref() else { return };
+        match value {
+            proto::data_packet::Value::User(user) => {
+                let participant_sid =
+                    user.participant_sid.is_empty().not().then_some(user.participant_sid.clone());
+
+                let participant_identity = if !packet.participant_identity.is_empty() {
+                    Some(packet.participant_identity.clone())
+                } else if !user.participant_identity.is_empty() {
+                    Some(user.participant_identity.clone())
+                } else {
+                    None
+                };
+
+                let _ = self.emitter.send(SessionEvent::Data {
+                    kind: packet.kind().into(),
+                    participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
+                    participant_identity: participant_identity.map(|s| s.try_into().unwrap()),
+                    payload: user.payload.clone(),
+                    topic: user.topic.clone(),
+                });
+            }
+            proto::data_packet::Value::SipDtmf(dtmf) => {
+                let participant_identity = packet
+                    .participant_identity
+                    .is_empty()
+                    .not()
+                    .then_some(packet.participant_identity.clone());
+                let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
+
+                let _ = self.emitter.send(SessionEvent::SipDTMF {
+                    participant_identity: participant_identity.map(|s| s.try_into().unwrap()),
+                    digit: digit.map(|s| s.try_into().unwrap()),
+                    code: dtmf.code,
+                });
+            }
+            proto::data_packet::Value::Speaker(_) => {}
+            proto::data_packet::Value::Transcription(transcription) => {
+                let track_sid = transcription.track_id.clone();
+                // let segments = transcription.segments.clone();
+                let segments = transcription
+                    .segments
+                    .iter()
+                    .map(|s| TranscriptionSegment {
+                        id: s.id.clone(),
+                        start_time: s.start_time,
+                        end_time: s.end_time,
+                        text: s.text.clone(),
+                        language: s.language.clone(),
+                        r#final: s.r#final,
+                    })
+                    .collect();
+                let participant_identity: ParticipantIdentity =
+                    transcription.transcribed_participant_identity.clone().into();
+                let _ = self.emitter.send(SessionEvent::Transcription {
+                    participant_identity,
+                    track_sid,
+                    segments,
+                });
+            }
+            proto::data_packet::Value::RpcRequest(rpc_request) => {
+                let caller_identity = packet
+                    .participant_identity
+                    .is_empty()
+                    .not()
+                    .then_some(packet.participant_identity.clone())
+                    .map(|s| s.try_into().unwrap());
+                let _ = self.emitter.send(SessionEvent::RpcRequest {
+                    caller_identity,
+                    request_id: rpc_request.id.clone(),
+                    method: rpc_request.method.clone(),
+                    payload: rpc_request.payload.clone(),
+                    response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
+                    version: rpc_request.version,
+                });
+            }
+            proto::data_packet::Value::RpcResponse(rpc_response) => {
+                let _ = self.emitter.send(SessionEvent::RpcResponse {
+                    request_id: rpc_response.request_id.clone(),
+                    payload: rpc_response.value.as_ref().and_then(|v| match v {
+                        proto::rpc_response::Value::Payload(payload) => Some(payload.clone()),
+                        _ => None,
+                    }),
+                    error: rpc_response.value.as_ref().and_then(|v| match v {
+                        proto::rpc_response::Value::Error(error) => Some(error.clone()),
+                        _ => None,
+                    }),
+                });
+            }
+            proto::data_packet::Value::RpcAck(rpc_ack) => {
+                let _ = self
+                    .emitter
+                    .send(SessionEvent::RpcAck { request_id: rpc_ack.request_id.clone() });
+            }
+            proto::data_packet::Value::ChatMessage(message) => {
+                let _ = self.emitter.send(SessionEvent::ChatMessage {
+                    participant_identity: ParticipantIdentity(packet.participant_identity),
+                    message: ChatMessage::from(message.clone()),
+                });
+            }
+            proto::data_packet::Value::StreamHeader(message) => {
+                let _ = self.emitter.send(SessionEvent::DataStreamHeader {
+                    header: message.clone(),
+                    participant_identity: packet.participant_identity.clone(),
+                });
+            }
+            proto::data_packet::Value::StreamChunk(message) => {
+                let _ = self.emitter.send(SessionEvent::DataStreamChunk {
+                    chunk: message.clone(),
+                    participant_identity: packet.participant_identity.clone(),
+                });
+            }
+            proto::data_packet::Value::StreamTrailer(message) => {
+                let _ = self.emitter.send(SessionEvent::DataStreamTrailer {
+                    trailer: message.clone(),
+                    participant_identity: packet.participant_identity.clone(),
+                });
+            }
+            _ => {}
+        }
     }
 
     async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -1204,6 +1253,11 @@ impl SessionInner {
             make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());
         self.publisher_pc.peer_connection().set_configuration(rtc_config.clone())?;
         self.subscriber_pc.peer_connection().set_configuration(rtc_config)?;
+
+        let last_sequence = reconnect_response.last_message_seq;
+        if let Err(err) = self.dc_emitter.send(DataChannelEvent::RetryRequested(last_sequence)) {
+            log::error!("failed to send dc_event retry_requested: {:?}", err);
+        }
 
         Ok(reconnect_response)
     }
