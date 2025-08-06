@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+pub mod ttl_map;
 pub mod take_cell;
 pub mod utf8_chunk;
 
