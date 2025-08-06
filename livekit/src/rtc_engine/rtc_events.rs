@@ -50,6 +50,7 @@ pub enum RtcEvent {
     Data {
         data: Vec<u8>,
         binary: bool,
+        kind: DataPacketKind,
     },
     DataChannelBufferedAmountChange {
         sent: u64,
@@ -140,9 +141,13 @@ pub fn forward_pc_events(transport: &mut PeerTransport, rtc_emitter: RtcEmitter)
     transport.on_offer(Some(on_offer(signal_target, rtc_emitter)));
 }
 
-fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
+fn on_message(emitter: RtcEmitter, kind: DataPacketKind) -> rtc::data_channel::OnMessage {
     Box::new(move |buffer| {
-        let _ = emitter.send(RtcEvent::Data { data: buffer.data.to_vec(), binary: buffer.binary });
+        let _ = emitter.send(RtcEvent::Data {
+            data: buffer.data.to_vec(),
+            binary: buffer.binary,
+            kind,
+        });
     })
 }
 
@@ -158,6 +163,6 @@ fn on_buffered_amount_change(
 }
 
 pub fn forward_dc_events(dc: &mut DataChannel, kind: DataPacketKind, rtc_emitter: RtcEmitter) {
-    dc.on_message(Some(on_message(rtc_emitter.clone())));
+    dc.on_message(Some(on_message(rtc_emitter.clone(), kind)));
     dc.on_buffered_amount_change(Some(on_buffered_amount_change(rtc_emitter, dc.clone(), kind)));
 }
