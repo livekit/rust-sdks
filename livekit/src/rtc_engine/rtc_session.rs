@@ -825,7 +825,7 @@ impl SessionInner {
                     log::warn!("Track event with no streams");
                 }
             }
-            RtcEvent::Data { data, binary } => {
+            RtcEvent::Data { data, binary, kind } => {
                 if !binary {
                     Err(EngineError::Internal("text messages aren't supported".into()))?;
                 }
