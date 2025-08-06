@@ -353,15 +353,7 @@ pub struct RoomOptions {
     pub e2ee: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
-    pub sdk_options: RoomSdkOptions,
-    pub preregistration: Option<PreRegistration>,
-}
-
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct PreRegistration {
-    text_stream_topics: Vec<String>,
-    byte_stream_topics: Vec<String>,
+    pub sdk_options: RoomSdkOptions
 }
 
 impl Default for RoomOptions {
@@ -380,8 +372,7 @@ impl Default for RoomOptions {
                 ice_transport_type: IceTransportsType::All,
             },
             join_retries: 3,
-            sdk_options: RoomSdkOptions::default(),
-            preregistration: None,
+            sdk_options: RoomSdkOptions::default()
         }
     }
 }
