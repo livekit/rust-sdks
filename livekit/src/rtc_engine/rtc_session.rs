@@ -191,6 +191,7 @@ pub enum SessionEvent {
 enum DataChannelEvent {
     PublishData(proto::DataPacket, DataPacketKind, oneshot::Sender<Result<(), EngineError>>),
     BufferedAmountChange(u64, DataPacketKind),
+    EnqueueForRetry(Vec<u8>, u32),
     RetryRequested(u32),
 }
 
@@ -591,6 +592,10 @@ impl SessionInner {
 
         // TODO: reliable retry queue
 
+        let mut retry_queue: VecDeque<(Vec<u8>, u32)> = VecDeque::new();
+        let mut retry_current_amount = 0;
+        let mut retry_min_amount = 0;
+
         loop {
             tokio::select! {
                 event = dc_events.recv() => {
@@ -641,8 +646,18 @@ impl SessionInner {
                                 }
                             }
                         }
+                        DataChannelEvent::EnqueueForRetry(data, sequence) => {
+                            let len = data.len() as u64;
+                            retry_queue.push_back((data, sequence));
+                            retry_current_amount += len;
+                        }
                         DataChannelEvent::RetryRequested(last_sequence) => {
-                            // TODO: retry
+                            if let Some((_, sequence)) = retry_queue.front() {
+                                if *sequence > last_sequence + 1 {
+                                    log::warn!("Wrong packet sequence while retrying: {} > {}, {} packets missing", sequence, last_sequence + 1, sequence - last_sequence - 1);
+                                }
+                            }
+                            // TODO: dequeue, emit publish again
                         }
                     }
                 },
@@ -670,11 +685,9 @@ impl SessionInner {
             };
 
             *buffered_amount += data.len() as u64;
-            let result = channel
-                .send(&data, true)
-                .map_err(|err| {
-                    EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
-                });
+            let result = channel.send(&data, true).map_err(|err| {
+                EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
+            });
 
             let _ = tx.send(result);
         }
