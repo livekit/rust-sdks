@@ -1,0 +1,4 @@
+patch type="added" "Add a setter for is_screencast in InternalSource" package="webrtc-sys"
+patch type="added" "Expose set_is_screencast in NativeVideoSource" package="libwebrtc"
+patch type="added" "Extend enum_dispatch to create functions that don't have a return type" package="livekit-protocol"
+patch type="added" "Set is_screencast in publish_track when the source is Screenshare" package="livekit"
