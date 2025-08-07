@@ -110,6 +110,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=webrtc");
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
@@ -152,16 +153,23 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
-            builder
-                .file("src/vaapi/vaapi_display_drm.cpp")
-                .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
-                .file("src/vaapi/vaapi_encoder_factory.cpp")
-                .file("src/vaapi/h264_encoder_impl.cpp")
-                .file("src/vaapi/implib/libva-drm.so.init.c")
-                .file("src/vaapi/implib/libva-drm.so.tramp.S")
-                .file("src/vaapi/implib/libva.so.init.c")
-                .file("src/vaapi/implib/libva.so.tramp.S")
-                .flag("-std=c++2a");
+            match target_arch.as_str() {
+                "x86_64" => {
+                   builder
+                        .file("src/vaapi/vaapi_display_drm.cpp")
+                        .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                        .file("src/vaapi/vaapi_encoder_factory.cpp")
+                        .file("src/vaapi/h264_encoder_impl.cpp")
+                        .file("src/vaapi/implib/libva-drm.so.init.c")
+                        .file("src/vaapi/implib/libva-drm.so.tramp.S")
+                        .file("src/vaapi/implib/libva.so.init.c")
+                        .file("src/vaapi/implib/libva.so.tramp.S");
+                }
+                _ => {},
+                
+            }
+
+            builder.flag("-std=c++2a");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
