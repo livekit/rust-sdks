@@ -16,6 +16,7 @@
 
 arch=""
 profile="release"
+toolchain="sysroot"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -35,6 +36,14 @@ while [ "$#" -gt 0 ]; do
       fi
       shift 2
       ;;
+    --toolchain)
+      toolchain="$2"
+      if [ "$toolchain" != "sysroot" ] && [ "$toolchain" != "host" ]; then
+        echo "Error: Invalid value for --toolchain. Must be 'sysroot' or 'host'."
+        exit 1
+      fi
+      shift 2
+      ;;
     *)
       echo "Error: Unknown argument '$1'"
       exit 1
@@ -50,26 +59,49 @@ fi
 echo "Building LiveKit WebRTC - Linux"
 echo "Arch: $arch"
 echo "Profile: $profile"
+echo "Toolchain: $toolchain"
 
 if [ ! -e "$(pwd)/depot_tools" ]
 then
   git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
 fi
 
+old_path="$PATH"
 export COMMAND_DIR=$(cd $(dirname $0); pwd)
-export PATH="$(pwd)/depot_tools:$PATH"
+export PATH="$PATH:$(pwd)/depot_tools"
 export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
 export ARTIFACTS_DIR="$(pwd)/linux-$arch-$profile"
 
+if [ "$toolchain" = "host" ]; then
+  export DEPOT_TOOLS_UPDATE=0
+  export VPYTHON_BYPASS='manually managed python not supported by chrome operations'
+fi
+
 if [ ! -e "$(pwd)/src" ]
 then
-  gclient sync -D --no-history
+  if [ "$toolchain" = "host" ]; then
+    cd depot_tools
+    # We don't need those deps to build natively
+    git apply "$COMMAND_DIR/patches/gclient_ignore_platform_specific_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+    cd ..
+    gclient sync -D --no-history --nohooks
+    # manually run some hooks
+    python3 src/build/landmines.py --landmine-scripts src/tools_webrtc/get_landmines.py --src-dir src
+    python3 src/build/util/lastchange.py -o src/build/util/LASTCHANGE
+  else
+    gclient sync -D --no-history
+  fi
 fi
 
 cd src
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+if [ "$toolchain" = "host" ]; then
+  git apply "$COMMAND_DIR/patches/gn_use_system_python3.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+  git apply "$COMMAND_DIR/patches/generate_licenses_use_system_gn.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+fi
 
 cd third_party
 git apply "$COMMAND_DIR/patches/abseil_use_optional.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
@@ -79,7 +111,9 @@ cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
-python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
+if [ "$toolchain" = "sysroot" ]; then
+  python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
+fi
 
 debug="false"
 if [ "$profile" = "debug" ]; then
@@ -110,6 +144,19 @@ args="is_debug=$debug  \
 
 if [ "$debug" = "true" ]; then
   args="${args} is_asan=true is_lsan=true";
+fi
+
+if [ "$toolchain" = "host" ]; then
+  export PATH="$old_path"
+  [ -n "$CC" ] || export CC=clang
+  [ -n "$CXX" ] || export CXX=clang++
+  [ -n "$AR" ] || export AR=ar
+  [ -n "$NM" ] || export NM=nm
+  args="${args} \
+    custom_toolchain=\"//build/toolchain/linux/unbundle:default\" \
+    host_toolchain=\"//build/toolchain/linux/unbundle:default\" \
+    clang_use_chrome_plugins=false \
+    use_sysroot=false";
 fi
 
 # generate ninja files
