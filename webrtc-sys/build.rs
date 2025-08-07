@@ -155,7 +155,7 @@ fn main() {
 
             match target_arch.as_str() {
                 "x86_64" => {
-                   builder
+                    builder
                         .file("src/vaapi/vaapi_display_drm.cpp")
                         .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
                         .file("src/vaapi/vaapi_encoder_factory.cpp")
@@ -165,8 +165,7 @@ fn main() {
                         .file("src/vaapi/implib/libva.so.init.c")
                         .file("src/vaapi/implib/libva.so.tramp.S");
                 }
-                _ => {},
-                
+                _ => {}
             }
 
             builder.flag("-std=c++2a");
