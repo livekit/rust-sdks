@@ -276,11 +276,11 @@ fn main() {
 
     // Platform-specific configuration
     if is_windows_msvc {
-        // Windows MSVC specific configuration
-        println!("cargo:warning=Applying Windows MSVC configuration");
+        // Windows MSVC specific configuration 
+        println!("cargo:warning=Applying Windows MSVC configuration for combined build");
         
         // MSVC compiler flags for C++
-        builder.flag("/EHsc");          // Exception handling
+        builder.flag("/EHsc");          // Exception handling - critical for cxx bridge
         builder.flag("/std:c++20");     // C++20 standard
         builder.flag("/Zc:__cplusplus"); // Correct __cplusplus macro
         
