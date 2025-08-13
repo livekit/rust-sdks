@@ -7,6 +7,11 @@ license = "Apache-2.0"
 description = "Unsafe bindings to libwebrtc"
 repository = "https://github.com/livekit/client-sdk-rust"
 
+[features]
+default = ["bundled-abseil"]
+system-abseil = []
+bundled-abseil = []
+
 [dependencies]
 cxx = "1.0"
 log = "0.4"
