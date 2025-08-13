@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::Path;
 use std::path::PathBuf;
 use std::{env, path, process::Command};
 
 fn setup_system_abseil() -> PathBuf {
-    // Use system-installed Abseil
-    if let Ok(abseil_dir) = env::var("ABSEIL_DIR") {
+    // Use system-installed Abseil - check ABSEIL_ROOT first, then ABSEIL_DIR for backwards compatibility
+    if let Ok(abseil_dir) = env::var("ABSEIL_ROOT").or_else(|_| env::var("ABSEIL_DIR")) {
         let abseil_path = PathBuf::from(abseil_dir);
-        println!("Using system Abseil from: {}", abseil_path.display());
+        println!("cargo:warning=Using system Abseil from: {}", abseil_path.display());
 
         // Verify the installation exists
         let absl_subdir = abseil_path.join("absl");
@@ -42,12 +41,12 @@ fn setup_system_abseil() -> PathBuf {
         let abseil_path = PathBuf::from(path);
         let absl_subdir = abseil_path.join("absl");
         if absl_subdir.exists() {
-            println!("Found system Abseil at: {}", abseil_path.display());
+            println!("cargo:warning=Found system Abseil at: {}", abseil_path.display());
             return abseil_path;
         }
     }
 
-    panic!("Could not find system Abseil installation. Please install libabsl-dev or set ABSEIL_DIR");
+    panic!("Could not find system Abseil installation. Please install libabsl-dev or set ABSEIL_ROOT/ABSEIL_DIR");
 }
 
 fn setup_custom_abseil() -> PathBuf {
@@ -112,8 +111,19 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
     println!("cargo:rerun-if-env-changed=USE_CUSTOM_ABSEIL");
+    println!("cargo:rerun-if-env-changed=USE_SYSTEM_ABSEIL");
     println!("cargo:rerun-if-env-changed=ABSEIL_DIR");
+    println!("cargo:rerun-if-env-changed=ABSEIL_ROOT");
     println!("cargo:rerun-if-env-changed=ABSEIL_LIB_DIR");
+
+    // Get target information for Windows-specific handling
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    let is_windows_msvc = target_os == "windows" && target_env == "msvc";
+
+    if is_windows_msvc {
+        println!("cargo:warning=Detected Windows MSVC target - applying MSVC-specific configuration");
+    }
 
     let mut builder = cxx_build::bridges([
         "src/peer_connection.rs",
@@ -175,32 +185,60 @@ fn main() {
         webrtc_sys_build::download_webrtc().unwrap();
     }
 
-    // Determine which Abseil to use
-    let abseil_include = if env::var("USE_CUSTOM_ABSEIL").is_ok() {
-        // Check if user wants system Abseil or downloaded Abseil
-        if env::var("ABSEIL_DIR").is_ok() || env::var("USE_SYSTEM_ABSEIL").is_ok() {
-            setup_system_abseil()
-        } else {
-            setup_custom_abseil()
-        }
+    // Determine which Abseil to use based on features and environment variables
+    let use_system_abseil = cfg!(feature = "system-abseil") 
+        || env::var("USE_SYSTEM_ABSEIL").is_ok() 
+        || env::var("ABSEIL_ROOT").is_ok() 
+        || env::var("ABSEIL_DIR").is_ok();
+    
+    let use_custom_abseil = env::var("USE_CUSTOM_ABSEIL").is_ok();
+
+    let abseil_include = if use_system_abseil {
+        println!("cargo:warning=Using system Abseil (via feature, USE_SYSTEM_ABSEIL, or ABSEIL_ROOT/ABSEIL_DIR)");
+        setup_system_abseil()
+    } else if use_custom_abseil {
+        println!("cargo:warning=Using custom downloaded Abseil");
+        setup_custom_abseil()
     } else {
-        println!("Using WebRTC's bundled Abseil");
+        println!("cargo:warning=Using WebRTC's bundled Abseil");
         webrtc_include.join("third_party/abseil-cpp/")
     };
 
-    builder.includes(&[
+    // Set up include paths - put external Abseil BEFORE WebRTC's bundled version to fix include order
+    let mut include_paths = vec![
         path::PathBuf::from("./include"),
         webrtc_include.clone(),
-        abseil_include,
+    ];
+
+    // Add Abseil include path early in the order if using system/custom Abseil  
+    if use_system_abseil || use_custom_abseil {
+        include_paths.insert(1, abseil_include.clone()); // Insert after ./include but before webrtc_include
+    }
+
+    // Add other include paths
+    include_paths.extend([
         webrtc_include.join("third_party/libyuv/include/"),
         webrtc_include.join("third_party/libc++/"),
     ]);
 
+    // Add bundled Abseil path only if not using system/custom (to maintain backwards compatibility)
+    if !use_system_abseil && !use_custom_abseil {
+        include_paths.push(abseil_include);
+    }
+
+    // Log effective include order for troubleshooting
+    println!("cargo:warning=Include path order:");
+    for (i, path) in include_paths.iter().enumerate() {
+        println!("cargo:warning=  {}: {}", i + 1, path.display());
+    }
+
+    builder.includes(&include_paths);
+
     // Configure Abseil behavior for custom/system installation
-    if env::var("USE_CUSTOM_ABSEIL").is_ok() {
+    if use_system_abseil || use_custom_abseil {
         // For system Abseil (version 20210324), use more conservative settings
-        if env::var("ABSEIL_DIR").is_ok() || env::var("USE_SYSTEM_ABSEIL").is_ok() {
-            println!("Configuring for system Abseil (Ubuntu 22.04 version)");
+        if use_system_abseil {
+            println!("cargo:warning=Configuring for system Abseil");
 
             // Use absl::optional instead of std::optional for older Abseil
             builder.define("ABSL_OPTION_USE_STD_OPTIONAL", Some("0"));
@@ -210,6 +248,7 @@ fn main() {
             builder.define("ABSL_OPTION_INLINE_NAMESPACE_NAME", Some("webrtc_absl"));
         } else {
             // For newer downloaded Abseil
+            println!("cargo:warning=Configuring for custom downloaded Abseil");
             builder.define("ABSL_OPTION_USE_STD_OPTIONAL", Some("2"));
             builder.define("ABSL_USES_STD_OPTIONAL", None);
         }
@@ -235,20 +274,54 @@ fn main() {
         builder.define(key.as_str(), value);
     }
 
-    // Link webrtc library
-    println!("cargo:rustc-link-lib=static=webrtc");
+    // Platform-specific configuration
+    if is_windows_msvc {
+        // Windows MSVC specific configuration 
+        println!("cargo:warning=Applying Windows MSVC configuration for combined build");
+        
+        // MSVC compiler flags for C++
+        builder.flag("/EHsc");          // Exception handling - critical for cxx bridge
+        builder.flag("/std:c++20");     // C++20 standard
+        builder.flag("/Zc:__cplusplus"); // Correct __cplusplus macro
+        
+        // Windows defines
+        builder.define("NOMINMAX", None);
+        builder.define("WIN32_LEAN_AND_MEAN", None);
+        builder.define("_WIN32_WINNT", Some("0x0A00")); // Windows 10
+        
+        // Ensure exceptions are enabled for cxx bridge (undo any _HAS_EXCEPTIONS=0)
+        builder.flag("/U_HAS_EXCEPTIONS");
+        
+        // Link webrtc library
+        println!("cargo:rustc-link-lib=static=webrtc");
+        
+        // Windows-specific libraries
+        println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=secur32");
+        println!("cargo:rustc-link-lib=bcrypt");
+        println!("cargo:rustc-link-lib=userenv");
+        println!("cargo:rustc-link-lib=winmm");
+        println!("cargo:rustc-link-lib=dmoguids");
+        println!("cargo:rustc-link-lib=wmcodecdspuuid");
+        println!("cargo:rustc-link-lib=msdmo");
+        println!("cargo:rustc-link-lib=strmiids");
+    } else {
+        // Linux-specific configuration
+        // Link webrtc library
+        println!("cargo:rustc-link-lib=static=webrtc");
 
-    // Linux-specific libraries
-    println!("cargo:rustc-link-lib=dylib=rt");
-    println!("cargo:rustc-link-lib=dylib=dl");
-    println!("cargo:rustc-link-lib=dylib=pthread");
-    println!("cargo:rustc-link-lib=dylib=m");
+        // Linux-specific libraries
+        println!("cargo:rustc-link-lib=dylib=rt");
+        println!("cargo:rustc-link-lib=dylib=dl");
+        println!("cargo:rustc-link-lib=dylib=pthread");
+        println!("cargo:rustc-link-lib=dylib=m");
 
-    // Linux-specific C++ flags
-    builder.flag("-std=c++2a");
+        // Linux-specific C++ flags
+        builder.flag("-std=c++2a");
 
-    // Add linker flag to handle potential symbol conflicts gracefully
-    println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
+        // Add linker flag to handle potential symbol conflicts gracefully
+        println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
+    }
 
     // TODO(theomonnom) Only add this define when building tests
     builder.define("LIVEKIT_TEST", None);
