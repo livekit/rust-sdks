@@ -1,5 +1,23 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.3.10](https://github.com/Evolving-Software/livekit-rust-sdks/compare/rust-sdks/webrtc-sys@0.3.9...rust-sdks/webrtc-sys@0.3.10) - 2025-08-13
+
+### Other
+
+- Complete Windows MSVC Abseil compatibility implementation with documentation
+- Add Windows MSVC support and improved Abseil handling to webrtc-sys
+- uh huh
+- yeah baby
+- Update abseil_use_optional.patch
+# Changelog
+
 ## [0.3.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.8...rust-sdks/webrtc-sys@0.3.9) - 2025-06-17
 
 ### Other
