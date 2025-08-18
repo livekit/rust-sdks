@@ -17,7 +17,7 @@ use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::{prelude::*, registered_audio_filter_plugins};
-use livekit::{ChatMessage, StreamReader};
+use livekit::StreamReader;
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};

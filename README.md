@@ -177,6 +177,11 @@ When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implemen
 *** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: '-[RTCVideoCodecInfo nativeSdpVideoFormat]: unrecognized selector sent to instance 0x600003bc6660'
 ```
 
+## Abseil usage
+
+- Default path uses the bundled Abseil; no system Abseil needed.
+- For system Abseil requirements and setup, see [`docs/abseil.md`](docs/abseil.md:1).
+
 ## Motivation and Design Goals
 
 LiveKit aims to provide an open source, end-to-end WebRTC stack that works everywhere. We have two goals in mind with this SDK:

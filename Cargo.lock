@@ -1578,7 +1578,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webrtc-sys",
+ "webrtc-sys 0.3.10 (git+https://github.com/Evolving-Software/livekit-rust-sdks?rev=6609801242b92551112136aa9c32e6bdae7ec809)",
 ]
 
 [[package]]
@@ -1691,7 +1691,7 @@ dependencies = [
  "soxr-sys",
  "thiserror",
  "tokio",
- "webrtc-sys-build",
+ "webrtc-sys-build 0.3.7",
 ]
 
 [[package]]
@@ -3375,12 +3375,39 @@ dependencies = [
  "env_logger",
  "glob",
  "log",
- "webrtc-sys-build",
+ "webrtc-sys-build 0.3.7",
+]
+
+[[package]]
+name = "webrtc-sys"
+version = "0.3.10"
+source = "git+https://github.com/Evolving-Software/livekit-rust-sdks?rev=6609801242b92551112136aa9c32e6bdae7ec809#6609801242b92551112136aa9c32e6bdae7ec809"
+dependencies = [
+ "cc",
+ "cxx",
+ "cxx-build",
+ "glob",
+ "log",
+ "webrtc-sys-build 0.3.7 (git+https://github.com/Evolving-Software/livekit-rust-sdks?rev=6609801242b92551112136aa9c32e6bdae7ec809)",
 ]
 
 [[package]]
 name = "webrtc-sys-build"
 version = "0.3.7"
+dependencies = [
+ "anyhow",
+ "fs2",
+ "regex",
+ "reqwest",
+ "scratch",
+ "semver",
+ "zip",
+]
+
+[[package]]
+name = "webrtc-sys-build"
+version = "0.3.7"
+source = "git+https://github.com/Evolving-Software/livekit-rust-sdks?rev=6609801242b92551112136aa9c32e6bdae7ec809#6609801242b92551112136aa9c32e6bdae7ec809"
 dependencies = [
  "anyhow",
  "fs2",

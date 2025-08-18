@@ -25,4 +25,4 @@ livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 livekit = { version = "0.7.14", path = "livekit" }
 soxr-sys = { version = "0.1.0", path = "soxr-sys" }
 webrtc-sys-build = { version = "0.3.7", path = "webrtc-sys/build" }
-webrtc-sys = { version = "0.3.10", path = "webrtc-sys" }
+webrtc-sys = { git = "https://github.com/Evolving-Software/livekit-rust-sdks", rev = "6609801242b92551112136aa9c32e6bdae7ec809" }

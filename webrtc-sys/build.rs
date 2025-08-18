@@ -179,22 +179,40 @@ fn main() {
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
     let webrtc_include = webrtc_dir.join("include");
+    let absl_bundled_include = webrtc_include.join("third_party/abseil-cpp/");
     let webrtc_lib = webrtc_dir.join("lib");
+    
+    // Detect Bazel build environments or workspace files and emit a diagnostic note.
+    // This does not change build behavior; it only warns when Bazel is likely in use.
+    let bazel_detected = env::var("BAZEL_BUILD").is_ok()
+        || env::var("BUILD_WORKSPACE_DIRECTORY").is_ok()
+        || webrtc_dir.join("WORKSPACE").exists()
+        || webrtc_dir.join("BUILD").exists();
+    
+    if bazel_detected {
+        println!("cargo:warning=Detected Bazel build environment or workspace at: {}", webrtc_dir.display());
+        println!("cargo:warning=Detected Bazel; bundled Abseil candidate: {:?}", absl_bundled_include);
+    }
 
     if !webrtc_dir.exists() {
         webrtc_sys_build::download_webrtc().unwrap();
     }
 
     // Determine which Abseil to use based on features and environment variables
-    let use_system_abseil = cfg!(feature = "system-abseil") 
-        || env::var("USE_SYSTEM_ABSEIL").is_ok() 
-        || env::var("ABSEIL_ROOT").is_ok() 
-        || env::var("ABSEIL_DIR").is_ok();
+    let use_system_abseil = cfg!(feature = "system-abseil")
+        || env::var("USE_SYSTEM_ABSEIL")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes"))
+            .unwrap_or(false);
     
     let use_custom_abseil = env::var("USE_CUSTOM_ABSEIL").is_ok();
 
+    if !use_system_abseil && (env::var("ABSEIL_ROOT").is_ok() || env::var("ABSEIL_DIR").is_ok()) {
+        println!("cargo:warning=Ignoring ABSEIL_ROOT/ABSEIL_DIR because USE_SYSTEM_ABSEIL or feature 'system-abseil' is not enabled");
+    }
+
     let abseil_include = if use_system_abseil {
-        println!("cargo:warning=Using system Abseil (via feature, USE_SYSTEM_ABSEIL, or ABSEIL_ROOT/ABSEIL_DIR)");
+        let trigger = if cfg!(feature = "system-abseil") { "feature 'system-abseil'" } else { "env USE_SYSTEM_ABSEIL" };
+        println!("cargo:warning=Using system Abseil via {}", trigger);
         setup_system_abseil()
     } else if use_custom_abseil {
         println!("cargo:warning=Using custom downloaded Abseil");
@@ -208,11 +226,12 @@ fn main() {
     let mut include_paths = vec![
         path::PathBuf::from("./include"),
         webrtc_include.clone(),
+        absl_bundled_include.clone(),
     ];
 
-    // Add Abseil include path early in the order if using system/custom Abseil  
+    // Add Abseil include path early in the order if using system/custom Abseil
     if use_system_abseil || use_custom_abseil {
-        include_paths.insert(1, abseil_include.clone()); // Insert after ./include but before webrtc_include
+        include_paths.insert(0, abseil_include.clone()); // Insert at front to take priority over ./include
     }
 
     // Add other include paths
@@ -223,7 +242,7 @@ fn main() {
 
     // Add bundled Abseil path only if not using system/custom (to maintain backwards compatibility)
     if !use_system_abseil && !use_custom_abseil {
-        include_paths.push(abseil_include);
+        println!("cargo:warning=Adding bundled Abseil include {:?}", absl_bundled_include);
     }
 
     // Log effective include order for troubleshooting
