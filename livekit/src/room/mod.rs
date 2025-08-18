@@ -906,6 +906,11 @@ impl RoomSession {
     async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
         let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
 
+        // remove published tracks
+        for (sid, _) in self.local_participant.track_publications().iter() {
+            let _ = self.local_participant.unpublish_track(sid).await;
+        }
+
         self.rtc_engine.close(reason).await;
         self.e2ee_manager.cleanup();
 

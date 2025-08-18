@@ -7,12 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.12.29](https://github.com/Evolving-Software/livekit-rust-sdks/compare/rust-sdks/livekit-ffi@0.12.28...rust-sdks/livekit-ffi@0.12.29) - 2025-08-13
+## [0.12.31](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.30...rust-sdks/livekit-ffi@0.12.31) - 2025-07-31
 
 ### Other
 
-- yeah baby
+- updated the following local packages: livekit-api, livekit
 # Changelog
+
+## [0.12.30](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.29...rust-sdks/livekit-ffi@0.12.30) - 2025-07-18
+
+### Fixed
+
+- fix SoxrResampler flush segv ([#678](https://github.com/livekit/rust-sdks/pull/678))
+
+## [0.12.29](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.28...rust-sdks/livekit-ffi@0.12.29) - 2025-07-16
+
+### Other
+
+- remove published tracks when the room is closed ([#677](https://github.com/livekit/rust-sdks/pull/677))
 
 ## [0.12.28](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.27...rust-sdks/livekit-ffi@0.12.28) - 2025-06-23
 
