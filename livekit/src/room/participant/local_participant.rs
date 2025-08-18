@@ -22,7 +22,10 @@ use std::{
     time::Duration,
 };
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission};
+use super::{
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantState,
+    ParticipantTrackPermission,
+};
 use crate::{
     data_stream::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
@@ -106,6 +109,7 @@ impl LocalParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
         kind: ParticipantKind,
+        state: ParticipantState,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -114,7 +118,7 @@ impl LocalParticipant {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
+            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind, state),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
                 encryption_type,
@@ -663,6 +667,10 @@ impl LocalParticipant {
 
     pub fn name(&self) -> String {
         self.inner.info.read().name.clone()
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.inner.info.read().state == ParticipantState::Active
     }
 
     pub fn metadata(&self) -> String {

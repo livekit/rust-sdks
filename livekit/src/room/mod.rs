@@ -45,7 +45,7 @@ pub use self::{
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
-    participant::ConnectionQuality,
+    participant::{ConnectionQuality, ParticipantState},
     prelude::*,
     registered_audio_filter_plugins,
     rtc_engine::{
@@ -86,7 +86,16 @@ pub enum RoomError {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum RoomEvent {
+    /// Remote participant joined the room.
+    ///
+    /// This event is fired immediately after a participant joins before
+    /// it is able to receive data messages. To send data messages in response
+    /// to a participant joining, respond to the [`Self::ParticipantActive`] event instead.
+    ///
     ParticipantConnected(RemoteParticipant),
+    /// Remote participant is active and ready to receive data messages.
+    ParticipantActive(RemoteParticipant),
+    /// Remote participant disconnected from the room.
     ParticipantDisconnected(RemoteParticipant),
     LocalTrackPublished {
         publication: LocalTrackPublication,
@@ -493,6 +502,7 @@ impl Room {
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
             pi.kind().into(),
+            pi.state().into(),
             pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
@@ -639,6 +649,7 @@ impl Room {
                 let pi = pi.clone();
                 inner.create_participant(
                     pi.kind().into(),
+                    pi.state().into(),
                     pi.sid.try_into().unwrap(),
                     pi.identity.into(),
                     pi.name,
@@ -976,7 +987,11 @@ impl RoomSession {
                     // disconnected
                 }
             } else if let Some(remote_participant) = remote_participant {
+                let already_active = remote_participant.is_active();
                 remote_participant.update_info(pi.clone());
+                if !already_active && remote_participant.is_active() {
+                    self.dispatcher.dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
+                }
                 participants.push(Participant::Remote(remote_participant));
             } else {
                 // Create a new participant
@@ -984,6 +999,7 @@ impl RoomSession {
                     let pi = pi.clone();
                     self.create_participant(
                         pi.kind().into(),
+                        pi.state().into(),
                         pi.sid.try_into().unwrap(),
                         pi.identity.into(),
                         pi.name,
@@ -1547,6 +1563,7 @@ impl RoomSession {
     fn create_participant(
         self: &Arc<Self>,
         kind: ParticipantKind,
+        state: ParticipantState,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -1556,6 +1573,7 @@ impl RoomSession {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
             kind,
+            state,
             sid.clone(),
             identity.clone(),
             name,

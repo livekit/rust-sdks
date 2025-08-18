@@ -47,6 +47,14 @@ pub enum ParticipantKind {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum ParticipantState {
+    Joining,
+    Joined,
+    Active,
+    Disconnected
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum DisconnectReason {
     UnknownReason,
     ClientInitiated,
@@ -78,6 +86,7 @@ impl Participant {
         pub fn sid(self: &Self) -> ParticipantSid;
         pub fn identity(self: &Self) -> ParticipantIdentity;
         pub fn name(self: &Self) -> String;
+        pub fn is_active(self: &Self) -> bool;
         pub fn metadata(self: &Self) -> String;
         pub fn attributes(self: &Self) -> HashMap<String, String>;
         pub fn is_speaking(self: &Self) -> bool;
@@ -114,6 +123,7 @@ struct ParticipantInfo {
     pub audio_level: f32,
     pub connection_quality: ConnectionQuality,
     pub kind: ParticipantKind,
+    pub state: ParticipantState,
     pub disconnect_reason: DisconnectReason,
 }
 
@@ -154,6 +164,7 @@ pub(super) fn new_inner(
     metadata: String,
     attributes: HashMap<String, String>,
     kind: ParticipantKind,
+    state: ParticipantState
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -164,6 +175,7 @@ pub(super) fn new_inner(
             metadata,
             attributes,
             kind,
+            state,
             speaking: false,
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
@@ -180,6 +192,7 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
+    info.state = new_info.state().into();
     info.disconnect_reason = new_info.disconnect_reason().into();
     info.kind = new_info.kind().into();
     info.sid = new_info.sid.try_into().unwrap();
