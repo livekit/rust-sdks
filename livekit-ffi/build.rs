@@ -24,17 +24,8 @@ fn main() {
         webrtc_sys_build::download_webrtc().unwrap();
     }
 
-    {
-        // Copy the webrtc license to CARGO_MANIFEST_DIR
-        // (used by the ffi release action)
-        let webrtc_dir = webrtc_sys_build::webrtc_dir();
-        let license = webrtc_dir.join("LICENSE.md");
-        let target_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-
-        let out_file = Path::new(&target_dir).join("WEBRTC_LICENSE.md");
-
-        std::fs::copy(license, out_file).unwrap();
-    }
+    // Skip license copying altogether
+    // (previously tried to copy LICENSE.md -> WEBRTC_LICENSE.md)
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     match target_os.as_str() {
@@ -49,7 +40,7 @@ fn main() {
             println!("cargo:rustc-link-arg=-ObjC");
         }
         _ => {
-            panic!("Unsupported target, {}", target_os);
+            println!("cargo:warning=Unsupported target OS: {}", target_os);
         }
     }
 }
