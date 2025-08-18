@@ -154,7 +154,7 @@ impl From<participant_info::State> for participant::ParticipantState {
             participant_info::State::Joining => participant::ParticipantState::Joining,
             participant_info::State::Joined => participant::ParticipantState::Joined,
             participant_info::State::Active => participant::ParticipantState::Active,
-            participant_info::State::Disconnected => participant::ParticipantState::Disconnected
+            participant_info::State::Disconnected => participant::ParticipantState::Disconnected,
         }
     }
 }

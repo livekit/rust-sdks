@@ -990,7 +990,8 @@ impl RoomSession {
                 let already_active = remote_participant.is_active();
                 remote_participant.update_info(pi.clone());
                 if !already_active && remote_participant.is_active() {
-                    self.dispatcher.dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
+                    self.dispatcher
+                        .dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
                 }
                 participants.push(Participant::Remote(remote_participant));
             } else {

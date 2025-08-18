@@ -118,7 +118,9 @@ impl LocalParticipant {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind, state),
+            inner: super::new_inner(
+                rtc_engine, sid, identity, name, metadata, attributes, kind, state,
+            ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
                 encryption_type,

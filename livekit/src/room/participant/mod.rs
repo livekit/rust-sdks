@@ -51,7 +51,7 @@ pub(crate) enum ParticipantState {
     Joining,
     Joined,
     Active,
-    Disconnected
+    Disconnected,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -164,7 +164,7 @@ pub(super) fn new_inner(
     metadata: String,
     attributes: HashMap<String, String>,
     kind: ParticipantKind,
-    state: ParticipantState
+    state: ParticipantState,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
