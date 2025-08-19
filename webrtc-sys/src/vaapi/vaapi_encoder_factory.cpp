@@ -23,7 +23,7 @@ VAAPIVideoEncoderFactory::VAAPIVideoEncoderFactory() {
       {"packetization-mode", "1"},
   };
   supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
-
+  /*
   std::map<std::string, std::string> highParameters = {
       {"profile-level-id", "4d0032"},
       {"level-asymmetry-allowed", "1"},
@@ -31,7 +31,7 @@ VAAPIVideoEncoderFactory::VAAPIVideoEncoderFactory() {
   };
 
   supported_formats_.push_back(SdpVideoFormat("H264", highParameters));
-
+  */
 }
 
 VAAPIVideoEncoderFactory::~VAAPIVideoEncoderFactory() {}
