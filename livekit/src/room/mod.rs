@@ -1178,8 +1178,7 @@ impl RoomSession {
             }),
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
-            // unimplemented, stubbed for now
-            datachannel_receive_states: Vec::new(),
+            datachannel_receive_states: session.data_channel_receive_states()
         };
 
         log::debug!("sending sync state {:?}", sync_state);

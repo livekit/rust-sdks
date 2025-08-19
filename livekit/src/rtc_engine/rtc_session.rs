@@ -18,7 +18,7 @@ use std::{
     fmt::Debug,
     ops::Not,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -38,7 +38,14 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::{id::ParticipantIdentity, ChatMessage, TranscriptionSegment};
+use crate::{
+    id::ParticipantIdentity,
+    utils::{
+        ttl_map::TtlMap,
+        tx_queue::{TxQueue, TxQueueItem},
+    },
+    ChatMessage, TranscriptionSegment,
+};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -57,6 +64,7 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
 
@@ -194,21 +202,55 @@ struct DataChannelEvent {
 
 #[derive(Debug)]
 enum DataChannelEventDetail {
+    /// Publish data packet.
+    PublishPacket(PublishPacketRequest),
+    /// Publish data packet that has already been encoded.
     PublishData(PublishDataRequest),
+    /// RTC buffered amount changed.
     BufferedAmountChange(u64),
+    /// Enqueue reliable packets for retry starting from the given sequence number.
+    RetryFrom(u32),
+}
+
+#[derive(Debug)]
+struct PublishPacketRequest {
+    /// Unencoded data packewt.
+    packet: proto::DataPacket,
+
+    /// Notifies the caller once the request has been fulfilled.
+    completion_tx: oneshot::Sender<Result<(), EngineError>>,
 }
 
 #[derive(Debug)]
 struct PublishDataRequest {
-    /// Encoded packet data.
-    data: Vec<u8>,
-    /// Packet's sequence number ([`proto::DataPacket::sequence`]).
-    sequence: u32,
+    /// Encoded data packet.
+    encoded_packet: EncodedPacket,
+
     /// Notifies the caller once the request has been fulfilled.
     ///
-    /// For retries, this will be [`Option::None`].
+    /// For retries, this will be `None`.
     ///
     completion_tx: Option<oneshot::Sender<Result<(), EngineError>>>,
+}
+
+#[derive(Debug)]
+struct EncodedPacket {
+    /// Encoded packet data.
+    data: Vec<u8>,
+    /// Packet's sequence number from [`proto::DataPacket::sequence`].
+    sequence: u32,
+}
+
+impl Into<EncodedPacket> for proto::DataPacket {
+    fn into(self) -> EncodedPacket {
+        EncodedPacket { data: self.encode_to_vec(), sequence: self.sequence }
+    }
+}
+
+impl TxQueueItem for EncodedPacket {
+    fn buffered_size(&self) -> usize {
+        self.data.len()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -236,6 +278,13 @@ struct SessionInner {
     lossy_dc_buffered_amount_low_threshold: AtomicU64,
     reliable_dc: DataChannel,
     reliable_dc_buffered_amount_low_threshold: AtomicU64,
+
+    /// Next sequence number for reliable packets.
+    next_packet_sequence: AtomicU32,
+
+    /// Time to live (TTL) map between publisher SID and last sequence number.
+    dc_receive_state: Mutex<TtlMap<String, u32>>,
+
     dc_emitter: mpsc::UnboundedSender<DataChannelEvent>,
 
     // Keep a strong reference to the subscriber datachannels,
@@ -341,6 +390,8 @@ impl RtcSession {
             reliable_dc_buffered_amount_low_threshold: AtomicU64::new(
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
+            next_packet_sequence: 1.into(),
+            dc_receive_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
@@ -489,6 +540,10 @@ impl RtcSession {
             .send(SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold });
     }
 
+    pub fn data_channel_receive_states(&self) -> Vec<proto::DataChannelReceiveState> {
+        self.inner.data_channel_receive_states()
+    }
+
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         self.inner.get_response(request_id).await
     }
@@ -593,6 +648,7 @@ impl SessionInner {
         let mut reliable_buffered_amount = 0;
         let mut lossy_queue = VecDeque::new();
         let mut reliable_queue = VecDeque::new();
+        let mut retry_queue = TxQueue::new();
 
         loop {
             tokio::select! {
@@ -603,6 +659,21 @@ impl SessionInner {
                     };
 
                     match event.detail {
+                        DataChannelEventDetail::PublishPacket(mut request) => {
+                            if event.kind == DataPacketKind::Reliable {
+                                request.packet.sequence = self.next_packet_sequence.fetch_add(1, Ordering::Relaxed);
+                            }
+                            let ev = DataChannelEvent {
+                                kind: event.kind,
+                                detail: DataChannelEventDetail::PublishData(PublishDataRequest {
+                                    encoded_packet: request.packet.into(),
+                                    completion_tx: request.completion_tx.into()
+                                })
+                            };
+                            if let Err(err) = self.dc_emitter.send(ev) {
+                                log::error!("Failed to enqueue send data request: {}", err)
+                            }
+                        }
                         DataChannelEventDetail::PublishData(request) => {
                             match event.kind {
                                 DataPacketKind::Lossy => {
@@ -639,8 +710,15 @@ impl SessionInner {
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
                                     self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue);
+                                    // TODO: Ensure this is the proper quantity
+                                    let retry_min_amount = (threshold as usize * 5) / 4; // threshold * 1.25
+                                    retry_queue.trim((sent as usize) + retry_min_amount);
                                 }
                             }
+                        }
+                        DataChannelEventDetail::RetryFrom(last_sequence) => {
+                            assert!(event.kind == DataPacketKind::Reliable);
+                            self._enqueue_for_retry_from(last_sequence, &mut retry_queue);
                         }
                     }
                 },
@@ -665,7 +743,7 @@ impl SessionInner {
             let Some(request) = queue.pop_front() else {
                 break;
             };
-            let data: Vec<u8> = request.data.into();
+            let data = request.encoded_packet.data;
             *buffered_amount += data.len() as u64;
             let result = self
                 .data_channel(SignalTarget::Publisher, kind)
@@ -679,6 +757,53 @@ impl SessionInner {
                 _ = completion_tx.send(result);
             }
         }
+    }
+
+    fn _enqueue_for_retry_from(
+        self: &Arc<Self>,
+        last_sequence: u32,
+        queue: &mut TxQueue<EncodedPacket>,
+    ) {
+        if let Some(first) = queue.peek() {
+            if first.sequence > last_sequence + 1 {
+                log::warn!(
+                    "Wrong packet sequence while retrying: {} > {}, {} packets missing",
+                    first.sequence,
+                    last_sequence + 1,
+                    first.sequence - last_sequence - 1
+                );
+            }
+        }
+        while let Some(encoded_packet) = queue.dequeue() {
+            if encoded_packet.sequence <= last_sequence {
+                continue;
+            };
+            let ev = DataChannelEvent {
+                kind: DataPacketKind::Reliable,
+                detail: DataChannelEventDetail::PublishData(PublishDataRequest {
+                    encoded_packet,
+                    completion_tx: None,
+                }),
+            };
+            if let Err(err) = self.dc_emitter.send(ev) {
+                log::error!("Failed to enqueue data for retry: {}", err);
+            }
+        }
+    }
+
+    fn update_reliable_received_state(&self, packet: &proto::DataPacket) {
+        if packet.sequence <= 0 || packet.participant_sid.is_empty() {
+            return;
+        };
+        let mut state = self.dc_receive_state.lock();
+        if state
+            .get(&packet.participant_sid)
+            .is_some_and(|&last_sequence| packet.sequence <= last_sequence)
+        {
+            log::warn!("Ignoring duplicate/out-of-order reliable data message");
+            return;
+        }
+        state.set(&packet.participant_sid, Some(packet.sequence));
     }
 
     async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
@@ -852,6 +977,9 @@ impl SessionInner {
                 }
 
                 let data = proto::DataPacket::decode(&*data).unwrap();
+                if kind == DataPacketKind::Reliable {
+                    self.update_reliable_received_state(&data);
+                }
                 if let Some(packet) = data.value.as_ref() {
                     match packet {
                         proto::data_packet::Value::User(user) => {
@@ -1201,7 +1329,7 @@ impl SessionInner {
 
     async fn publish_data(
         self: &Arc<Self>,
-        data: proto::DataPacket,
+        packet: proto::DataPacket,
         kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
@@ -1209,15 +1337,14 @@ impl SessionInner {
         let (completion_tx, completion_rx) = oneshot::channel();
         let ev = DataChannelEvent {
             kind,
-            detail: DataChannelEventDetail::PublishData(PublishDataRequest {
-                data: data.encode_to_vec(),
-                sequence: data.sequence,
-                completion_tx: Some(completion_tx)
-            })
+            detail: DataChannelEventDetail::PublishPacket(PublishPacketRequest {
+                packet,
+                completion_tx,
+            }),
         };
         if let Err(err) = self.dc_emitter.send(ev) {
             return Err(EngineError::Internal(
-                format!("failed to push data into queue: {:?}", err).into(),
+                format!("Failed to enqueue publish packet request: {:?}", err).into(),
             ));
         };
         completion_rx.await.map_err(|e| {
@@ -1235,6 +1362,14 @@ impl SessionInner {
             make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());
         self.publisher_pc.peer_connection().set_configuration(rtc_config.clone())?;
         self.subscriber_pc.peer_connection().set_configuration(rtc_config)?;
+
+        let ev = DataChannelEvent {
+            kind: DataPacketKind::Reliable,
+            detail: DataChannelEventDetail::RetryFrom(reconnect_response.last_message_seq),
+        };
+        if let Err(err) = self.dc_emitter.send(ev) {
+            log::error!("Failed to request reliable retry: {:?}", err);
+        }
 
         Ok(reconnect_response)
     }
@@ -1442,6 +1577,17 @@ impl SessionInner {
         } else {
             unreachable!()
         }
+    }
+
+    fn data_channel_receive_states(self: &Arc<Self>) -> Vec<proto::DataChannelReceiveState> {
+        let mut state = self.dc_receive_state.lock();
+        state
+            .iter()
+            .map(|(publisher_sid, last_seq)| proto::DataChannelReceiveState {
+                publisher_sid: publisher_sid.to_string(),
+                last_seq: *last_seq,
+            })
+            .collect()
     }
 
     async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
