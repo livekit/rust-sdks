@@ -4,6 +4,8 @@
 
 #include "h264_encoder_impl.h"
 
+#include <iostream>
+
 #if defined(WIN32)
 #include "vaapi_display_win32.h"
 using VaapiDisplay = livekit::VaapiDisplayWin32;
@@ -39,11 +41,13 @@ bool VAAPIVideoEncoderFactory::IsSupported() {
   // This could involve checking if the VAAPI display can be opened.
   VaapiDisplay vaapi_display;
   if (!vaapi_display.Open()) {
+    std::cerr << "Failed to open VAAPI display." << std::endl;
     return false;
   }
 
   vaapi_display.Close();
   // If we can open the VAAPI display, we consider it supported.
+  std::cout << "VAAPI is supported." << std::endl;
   return true;
 }
 
