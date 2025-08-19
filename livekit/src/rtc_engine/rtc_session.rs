@@ -187,9 +187,28 @@ pub enum SessionEvent {
 }
 
 #[derive(Debug)]
-enum DataChannelEvent {
-    PublishData(proto::DataPacket, DataPacketKind, oneshot::Sender<Result<(), EngineError>>),
-    BufferedAmountChange(u64, DataPacketKind),
+struct DataChannelEvent {
+    kind: DataPacketKind,
+    detail: DataChannelEventDetail,
+}
+
+#[derive(Debug)]
+enum DataChannelEventDetail {
+    PublishData(PublishDataRequest),
+    BufferedAmountChange(u64),
+}
+
+#[derive(Debug)]
+struct PublishDataRequest {
+    /// Encoded packet data.
+    data: Vec<u8>,
+    /// Packet's sequence number ([`proto::DataPacket::sequence`]).
+    sequence: u32,
+    /// Notifies the caller once the request has been fulfilled.
+    ///
+    /// For retries, this will be [`Option::None`].
+    ///
+    completion_tx: Option<oneshot::Sender<Result<(), EngineError>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -583,24 +602,23 @@ impl SessionInner {
                         break;
                     };
 
-                    match event {
-                        DataChannelEvent::PublishData(packet, kind, tx) => {
-                            let data = packet.encode_to_vec();
-                            match kind {
+                    match event.detail {
+                        DataChannelEventDetail::PublishData(request) => {
+                            match event.kind {
                                 DataPacketKind::Lossy => {
-                                    lossy_queue.push_back((data, kind, tx));
+                                    lossy_queue.push_back(request);
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut lossy_buffered_amount, &mut lossy_queue);
+                                    self._send_until_threshold(DataPacketKind::Lossy, threshold, &mut lossy_buffered_amount, &mut lossy_queue);
                                 }
                                 DataPacketKind::Reliable => {
-                                    reliable_queue.push_back((data, kind, tx));
+                                    reliable_queue.push_back(request);
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut reliable_buffered_amount, &mut reliable_queue);
+                                    self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue);
                                 }
                             }
                         }
-                        DataChannelEvent::BufferedAmountChange(sent, kind) => {
-                            match kind {
+                        DataChannelEventDetail::BufferedAmountChange(sent) => {
+                            match event.kind {
                                 DataPacketKind::Lossy => {
                                     if lossy_buffered_amount < sent {
                                         // I believe never reach here but adding logs just in case
@@ -610,7 +628,7 @@ impl SessionInner {
                                         lossy_buffered_amount -= sent;
                                     }
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut lossy_buffered_amount, &mut lossy_queue);
+                                    self._send_until_threshold(DataPacketKind::Lossy, threshold, &mut lossy_buffered_amount, &mut lossy_queue);
                                 }
                                 DataPacketKind::Reliable => {
                                     if reliable_buffered_amount < sent {
@@ -620,7 +638,7 @@ impl SessionInner {
                                         reliable_buffered_amount -= sent;
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut reliable_buffered_amount, &mut reliable_queue);
+                                    self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue);
                                 }
                             }
                         }
@@ -638,15 +656,16 @@ impl SessionInner {
 
     fn _send_until_threshold(
         self: &Arc<Self>,
+        kind: DataPacketKind,
         threshold: u64,
         buffered_amount: &mut u64,
-        queue: &mut VecDeque<(Vec<u8>, DataPacketKind, oneshot::Sender<Result<(), EngineError>>)>,
+        queue: &mut VecDeque<PublishDataRequest>,
     ) {
         while *buffered_amount <= threshold {
-            let Some((data, kind, tx)) = queue.pop_front() else {
+            let Some(request) = queue.pop_front() else {
                 break;
             };
-
+            let data: Vec<u8> = request.data.into();
             *buffered_amount += data.len() as u64;
             let result = self
                 .data_channel(SignalTarget::Publisher, kind)
@@ -656,7 +675,9 @@ impl SessionInner {
                     EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
                 });
 
-            let _ = tx.send(result);
+            if let Some(completion_tx) = request.completion_tx {
+                _ = completion_tx.send(result);
+            }
         }
     }
 
@@ -965,9 +986,11 @@ impl SessionInner {
                 }
             }
             RtcEvent::DataChannelBufferedAmountChange { sent, amount: _, kind } => {
-                if let Err(err) =
-                    self.dc_emitter.send(DataChannelEvent::BufferedAmountChange(sent, kind))
-                {
+                let ev = DataChannelEvent {
+                    kind,
+                    detail: DataChannelEventDetail::BufferedAmountChange(sent),
+                };
+                if let Err(err) = self.dc_emitter.send(ev) {
                     log::error!("failed to send dc_event buffer_amount_change: {:?}", err);
                 }
             }
@@ -1183,13 +1206,21 @@ impl SessionInner {
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
 
-        let (tx, rx) = oneshot::channel();
-        if let Err(err) = self.dc_emitter.send(DataChannelEvent::PublishData(data, kind, tx)) {
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let ev = DataChannelEvent {
+            kind,
+            detail: DataChannelEventDetail::PublishData(PublishDataRequest {
+                data: data.encode_to_vec(),
+                sequence: data.sequence,
+                completion_tx: Some(completion_tx)
+            })
+        };
+        if let Err(err) = self.dc_emitter.send(ev) {
             return Err(EngineError::Internal(
                 format!("failed to push data into queue: {:?}", err).into(),
             ));
         };
-        rx.await.map_err(|e| {
+        completion_rx.await.map_err(|e| {
             EngineError::Internal(format!("failed to receive data from dc_task: {:?}", e).into())
         })?
     }
