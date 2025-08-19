@@ -13,21 +13,21 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
-    hash::Hash,
-    time::{Duration, SystemTime},
+    collections::HashMap, fmt::Debug, hash::Hash, time::{Duration, SystemTime}
 };
 
 /// Time to live (TTL) map
 ///
 /// Elements older than the TTL duration are automatically removed.
 ///
+#[derive(Debug)]
 pub struct TtlMap<K, V> {
     inner: HashMap<K, Entry<V>>,
     last_cleanup: SystemTime,
     ttl: Duration,
 }
 
+#[derive(Debug)]
 struct Entry<V> {
     value: V,
     expires_at: SystemTime,
