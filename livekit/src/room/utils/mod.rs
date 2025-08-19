@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+pub(crate) mod tx_queue;
 pub(crate) mod ttl_map;
 pub mod take_cell;
 pub mod utf8_chunk;
