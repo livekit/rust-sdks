@@ -62,7 +62,7 @@ impl<K, V> TtlMap<K, V> {
 
 impl<K, V> TtlMap<K, V>
 where
-    K: Eq + Hash,
+    K: Eq + Hash + Clone,
 {
     /// Returns a reference to the value corresponding to the key.
     pub fn get(&mut self, k: &K) -> Option<&V> {
@@ -76,7 +76,7 @@ where
     }
 
     /// Sets the value for the given key.
-    pub fn set(&mut self, k: K, v: Option<V>) {
+    pub fn set(&mut self, k: &K, v: Option<V>) {
         let now = SystemTime::now();
         let Ok(elapsed) = now.duration_since(self.last_cleanup) else {
             log::error!("System clock anomaly detected");
@@ -93,7 +93,7 @@ where
         };
         let expires_at = now + self.ttl;
         let entry = Entry { value, expires_at };
-        self.inner.insert(k, entry);
+        self.inner.insert(k.clone(), entry);
     }
 }
 
@@ -108,9 +108,9 @@ mod tests {
     #[tokio::test]
     async fn test_expiration() {
         let mut map = TtlMap::<char, u8>::new(SHORT_TTL);
-        map.set('a', Some(1));
-        map.set('b', Some(2));
-        map.set('c', Some(3));
+        map.set(&'a', Some(1));
+        map.set(&'b', Some(2));
+        map.set(&'c', Some(3));
 
         assert_eq!(map.len(), 3);
         assert!(map.get(&'a').is_some());
@@ -128,9 +128,9 @@ mod tests {
     #[test]
     fn test_iter() {
         let mut map = TtlMap::<char, u8>::new(SHORT_TTL);
-        map.set('a', Some(1));
-        map.set('b', Some(2));
-        map.set('c', Some(3));
+        map.set(&'a', Some(1));
+        map.set(&'b', Some(2));
+        map.set(&'c', Some(3));
 
         let elements: HashSet<_> = map.iter().map(|(k, v)| (*k, *v)).collect();
         assert!(elements.contains(&('a', 1)));
