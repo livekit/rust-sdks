@@ -949,6 +949,23 @@ impl LocalParticipant {
         self.session().unwrap().outgoing_stream_manager.send_file(path, options).await
     }
 
+    /// Send an in-memory blob of bytes to participants in the room.
+    ///
+    /// This method sends a provided byte slice as a byte stream.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The bytes to send.
+    /// * `options` - Configuration options for the byte stream, including topic and
+    ///   destination participants.
+    pub async fn send_bytes(
+        &self,
+        data: impl AsRef<[u8]>,
+        options: StreamByteOptions,
+    ) -> StreamResult<ByteStreamInfo> {
+        self.session().unwrap().outgoing_stream_manager.send_bytes(data, options).await
+    }
+
     /// Stream text incrementally to participants in the room.
     ///
     /// This method allows sending text data in chunks as it becomes available.
