@@ -148,7 +148,7 @@ jobs:
             yum install clang -y; \
             yum groupinstall 'Development Tools' -y; \
             clang --version; \
-            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel cuda-* -y; \
+            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
             cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
