@@ -9,6 +9,8 @@
 #include <dlfcn.h>
 #endif
 
+#include <iostream>
+
 #if defined(WIN32)
 static const char CUDA_DYNAMIC_LIBRARY[] = "nvcuda.dll";
 #else
