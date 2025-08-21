@@ -68,7 +68,7 @@ jobs:
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-latest
             platform: linux
-            build_image: quay.io/pypa/manylinux_2_28_x86_64
+            build_image: sameli/manylinux_2_28_x86_64_cuda_12.3
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
             name: ffi-linux-x86_64
@@ -148,7 +148,7 @@ jobs:
             yum install clang -y; \
             yum groupinstall 'Development Tools' -y; \
             clang --version; \
-            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel libnvidia-decode-570 libnvidia-compute-570 nvidia-cuda-devel -y; \
+            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
             cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
