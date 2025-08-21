@@ -63,8 +63,10 @@ bool CudaContext::Initialize() {
   // Initialize CUDA context
 
   bool success = load_cuda_modules();
-  if (!success)
+  if (!success) {
+    std::cout << "Failed to load CUDA modules. maybe the NVIDIA driver is not installed?" << std::endl;
     return false;
+  }
 
   int numDevices = 0;
   CUdevice cu_device = 0;

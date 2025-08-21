@@ -110,7 +110,7 @@ namespace livekit {
 bool VaapiDisplayDrm::Open() {
   va_display_ = va_open_display_drm(&drm_fd_);
   if (!va_display_) {
-    fprintf(stderr, "Failed to open VA display\n");
+    std::cout << "Failed to open VA display. Maybe the AMD video driver or libva-dev/libdrm-dev is not installed?" << std::endl;
     return false;
   }
   return true;

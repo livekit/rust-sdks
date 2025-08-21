@@ -32,9 +32,11 @@ bool NvidiaVideoEncoderFactory::IsSupported() {
   // Check if the CUDA context can be initialized.
   auto cu_context = std::make_unique<livekit::CudaContext>();
   if (!cu_context->Initialize()) {
-    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA context.";
+    std::cout << "Failed to initialize CUDA context." << std::endl;
     return false;
   }
+
+  std::cout << "Nvidia Codec is supported." << std::endl;
   return true;
 }
 
