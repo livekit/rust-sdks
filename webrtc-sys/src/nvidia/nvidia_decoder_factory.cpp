@@ -3,6 +3,7 @@
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
 #include <memory>
+#include <iostream>
 
 #include "cuda_context.h"
 #include "h264_decoder_impl.h"
@@ -80,9 +81,10 @@ bool NvidiaVideoDecoderFactory::IsSupported() {
   // Check if the CUDA context can be initialized.
   auto cu_context = std::make_unique<livekit::CudaContext>();
   if (!cu_context->Initialize()) {
-    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA context.";
+    std::cout << "Failed to initialize CUDA context." << std::endl;
     return false;
   }
+  std::cout << "Nvidia Decoder is supported." << std::endl;
   return true;
 }
 

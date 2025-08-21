@@ -1,6 +1,7 @@
 #include "nvidia_encoder_factory.h"
 
 #include <memory>
+#include <iostream>
 
 #include "cuda_context.h"
 #include "h264_encoder_impl.h"
@@ -36,7 +37,7 @@ bool NvidiaVideoEncoderFactory::IsSupported() {
     return false;
   }
 
-  std::cout << "Nvidia Codec is supported." << std::endl;
+  std::cout << "Nvidia Encoder is supported." << std::endl;
   return true;
 }
 
