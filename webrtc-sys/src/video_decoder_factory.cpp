@@ -35,6 +35,10 @@
 #include "livekit/android.h"
 #endif
 
+#if defined(__linux__) && defined(__x86_64__)
+#include "nvidia/nvidia_decoder_factory.h"
+#endif
+
 namespace livekit {
 
 VideoDecoderFactory::VideoDecoderFactory() {
@@ -46,7 +50,11 @@ VideoDecoderFactory::VideoDecoderFactory() {
   factories_.push_back(CreateAndroidVideoDecoderFactory());
 #endif
 
-  // TODO(theomonnom): Add other HW decoders here
+#if defined(__linux__) && defined(__x86_64__)
+  if (webrtc::NvidiaVideoDecoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::NvidiaVideoDecoderFactory>());
+  }
+#endif
 }
 
 std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()

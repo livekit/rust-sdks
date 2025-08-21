@@ -164,6 +164,23 @@ fn main() {
                         .file("src/vaapi/implib/libva-drm.so.tramp.S")
                         .file("src/vaapi/implib/libva.so.init.c")
                         .file("src/vaapi/implib/libva.so.tramp.S");
+
+                    builder
+                        .flag("-Isrc/nvidia/NvCodec/include")
+                        .flag("-Isrc/nvidia/NvCodec/NvCodec")
+                        .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
+                        .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
+                        .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
+                        .file("src/nvidia/h264_encoder_impl.cpp")
+                        .file("src/nvidia/h264_decoder_impl.cpp")
+                        .file("src/nvidia/nvidia_decoder_factory.cpp")
+                        .file("src/nvidia/nvidia_encoder_factory.cpp")
+                        .file("src/nvidia/cuda_context.cpp")
+                        .file("src/nvidia/implib/libcuda.so.init.c")
+                        .file("src/nvidia/implib/libcuda.so.tramp.S")
+                        .file("src/nvidia/implib/libnvcuvid.so.init.c")
+                        .file("src/nvidia/implib/libnvcuvid.so.tramp.S")
+                        .flag("-Wno-deprecated-declarations");
                 }
                 _ => {}
             }

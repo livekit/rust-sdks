@@ -38,6 +38,7 @@
 #endif
 
 #if defined(__linux__) && defined(__x86_64__)
+#include "nvidia/nvidia_encoder_factory.h"
 #include "vaapi/vaapi_encoder_factory.h"
 #endif
 
@@ -63,11 +64,12 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 #endif
 
 #if defined(__linux__) && defined(__x86_64__)
-  if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
+  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+  } else if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
   }
 #endif
-  // TODO(theomonnom): Add other HW encoders here
 }
 
 std::vector<webrtc::SdpVideoFormat>
