@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use std::{
-    env,
-    fmt::Debug,
-    ops::Add,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    collections::HashMap, env, fmt::Debug, ops::Add, time::{Duration, SystemTime, UNIX_EPOCH}
 };
 
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header};
@@ -146,6 +143,7 @@ pub struct Claims {
     pub sip: SIPGrants,
     pub sha256: String, // Used to verify the integrity of the message body
     pub metadata: String,
+    pub attributes: HashMap<String, String>,
     pub room_config: Option<livekit_protocol::RoomConfiguration>,
 }
 
@@ -182,6 +180,7 @@ impl AccessToken {
                 sip: SIPGrants::default(),
                 sha256: Default::default(),
                 metadata: Default::default(),
+                attributes: HashMap::new(),
                 room_config: Default::default(),
             },
         }
@@ -226,6 +225,11 @@ impl AccessToken {
 
     pub fn with_metadata(mut self, metadata: &str) -> Self {
         self.claims.metadata = metadata.to_owned();
+        self
+    }
+
+    pub fn with_attributes(mut self, attributes: HashMap<String, String>) -> Self {
+        self.claims.attributes = attributes;
         self
     }
 
