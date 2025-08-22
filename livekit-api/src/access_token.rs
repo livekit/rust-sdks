@@ -13,7 +13,11 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap, env, fmt::Debug, ops::Add, time::{Duration, SystemTime, UNIX_EPOCH}
+    collections::HashMap,
+    env,
+    fmt::Debug,
+    ops::Add,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header};
