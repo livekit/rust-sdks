@@ -148,7 +148,9 @@ message FfiRequest {
     TextStreamWriterWriteRequest text_stream_write = 65;
     TextStreamWriterCloseRequest text_stream_close = 66;
 
-    // NEXT_ID: 67
+    PublishMetricsRequest publish_metrics = 67;
+
+    // NEXT_ID: 68
   }
 }
 
@@ -243,7 +245,9 @@ message FfiResponse {
     TextStreamWriterWriteResponse text_stream_write = 64;
     TextStreamWriterCloseResponse text_stream_close = 65;
 
-    // NEXT_ID: 66
+    PublishMetricsResponse publish_metrics = 66;
+
+    // NEXT_ID: 67
   }
 }
 
@@ -299,6 +303,17 @@ message FfiEvent {
     TextStreamWriterCloseCallback text_stream_writer_close = 39;
     StreamSendTextCallback send_text = 40;
   }
+}
+
+message PublishMetricsRequest {
+  required uint64 local_participant_handle = 1;
+  required uint64 data_ptr = 2;
+  required uint64 data_len = 3;
+  optional uint64 async_id = 4;
+}
+
+message PublishMetricsResponse {
+  required uint64 async_id = 1;
 }
 
 // Stop all rooms synchronously (Do we need async here?).
