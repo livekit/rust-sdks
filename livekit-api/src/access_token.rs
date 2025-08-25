@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::HashMap,
     env,
     fmt::Debug,
     ops::Add,
@@ -146,6 +147,7 @@ pub struct Claims {
     pub sip: SIPGrants,
     pub sha256: String, // Used to verify the integrity of the message body
     pub metadata: String,
+    pub attributes: HashMap<String, String>,
     pub room_config: Option<livekit_protocol::RoomConfiguration>,
 }
 
@@ -182,6 +184,7 @@ impl AccessToken {
                 sip: SIPGrants::default(),
                 sha256: Default::default(),
                 metadata: Default::default(),
+                attributes: HashMap::new(),
                 room_config: Default::default(),
             },
         }
@@ -226,6 +229,17 @@ impl AccessToken {
 
     pub fn with_metadata(mut self, metadata: &str) -> Self {
         self.claims.metadata = metadata.to_owned();
+        self
+    }
+
+    pub fn with_attributes<I, K, V>(mut self, attributes: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.claims.attributes =
+            attributes.into_iter().map(|(k, v)| (k.into(), v.into())).collect::<HashMap<_, _>>();
         self
     }
 
