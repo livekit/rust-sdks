@@ -238,10 +238,8 @@ impl AccessToken {
         K: Into<String>,
         V: Into<String>,
     {
-        self.claims.attributes = attributes
-            .into_iter()
-            .map(|(k, v)| (k.into(), v.into()))
-            .collect::<HashMap<_, _>>();
+        self.claims.attributes =
+            attributes.into_iter().map(|(k, v)| (k.into(), v.into())).collect::<HashMap<_, _>>();
         self
     }
 
