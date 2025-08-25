@@ -353,15 +353,7 @@ pub struct RoomOptions {
     pub e2ee: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
-    pub sdk_options: RoomSdkOptions,
-    pub preregistration: Option<PreRegistration>,
-}
-
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct PreRegistration {
-    text_stream_topics: Vec<String>,
-    byte_stream_topics: Vec<String>,
+    pub sdk_options: RoomSdkOptions
 }
 
 impl Default for RoomOptions {
@@ -380,8 +372,7 @@ impl Default for RoomOptions {
                 ice_transport_type: IceTransportsType::All,
             },
             join_retries: 3,
-            sdk_options: RoomSdkOptions::default(),
-            preregistration: None,
+            sdk_options: RoomSdkOptions::default()
         }
     }
 }
@@ -577,7 +568,8 @@ impl Room {
         let (incoming_stream_manager, open_rx) = IncomingStreamManager::new();
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
 
-        let identity = local_participant.identity().clone();
+        let local_participant_identity = local_participant.identity();
+        let local_participant_sid = local_participant.sid();
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
@@ -671,7 +663,8 @@ impl Room {
         ));
         let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
             packet_rx,
-            identity,
+            local_participant_sid,
+            local_participant_identity,
             rtc_engine.clone(),
             close_rx.resubscribe(),
         ));
@@ -1187,8 +1180,7 @@ impl RoomSession {
             }),
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
-            // unimplemented, stubbed for now
-            datachannel_receive_states: Vec::new(),
+            datachannel_receive_states: session.data_channel_receive_states()
         };
 
         log::debug!("sending sync state {:?}", sync_state);
@@ -1737,6 +1729,7 @@ async fn incoming_data_stream_task(
 /// Receives packets from the outgoing stream manager and send them.
 async fn outgoing_data_stream_task(
     mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
+    participant_sid: ParticipantSid,
     participant_identity: ParticipantIdentity,
     engine: Arc<RtcEngine>,
     mut close_rx: broadcast::Receiver<()>,
@@ -1745,6 +1738,7 @@ async fn outgoing_data_stream_task(
         tokio::select! {
             Ok((mut packet, responder)) = packet_rx.recv() => {
                 // Set packet's participant identity field
+                packet.participant_sid = participant_sid.clone().into();
                 packet.participant_identity = participant_identity.0.clone();
                 let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
                 let _ = responder.respond(result);
