@@ -151,6 +151,11 @@ class BiplanarYuv8Buffer : public BiplanarYuvBuffer {
 class I420Buffer : public PlanarYuv8Buffer {
  public:
   explicit I420Buffer(rtc::scoped_refptr<webrtc::I420BufferInterface> buffer);
+
+  std::unique_ptr<I420Buffer> scale(int scaled_width, int scaled_height) const;
+
+ private:
+  webrtc::I420BufferInterface* buffer() const;
 };
 
 class I420ABuffer : public I420Buffer {
@@ -160,6 +165,8 @@ class I420ABuffer : public I420Buffer {
   unsigned int stride_a() const;
   const uint8_t* data_a() const;
 
+  std::unique_ptr<I420ABuffer> scale(int scaled_width, int scaled_height) const;
+
  private:
   webrtc::I420ABufferInterface* buffer() const;
 };
@@ -167,21 +174,41 @@ class I420ABuffer : public I420Buffer {
 class I422Buffer : public PlanarYuv8Buffer {
  public:
   explicit I422Buffer(rtc::scoped_refptr<webrtc::I422BufferInterface> buffer);
+
+  std::unique_ptr<I422Buffer> scale(int scaled_width, int scaled_height) const;
+
+ private:
+  webrtc::I422BufferInterface* buffer() const;
 };
 
 class I444Buffer : public PlanarYuv8Buffer {
  public:
   explicit I444Buffer(rtc::scoped_refptr<webrtc::I444BufferInterface> buffer);
+
+  std::unique_ptr<I444Buffer> scale(int scaled_width, int scaled_height) const;
+
+ private:
+  webrtc::I444BufferInterface* buffer() const;
 };
 
 class I010Buffer : public PlanarYuv16BBuffer {
  public:
   explicit I010Buffer(rtc::scoped_refptr<webrtc::I010BufferInterface> buffer);
+
+  std::unique_ptr<I010Buffer> scale(int scaled_width, int scaled_height) const;
+
+ private:
+  webrtc::I010BufferInterface* buffer() const;
 };
 
 class NV12Buffer : public BiplanarYuv8Buffer {
  public:
   explicit NV12Buffer(rtc::scoped_refptr<webrtc::NV12BufferInterface> buffer);
+
+  std::unique_ptr<NV12Buffer> scale(int scaled_width, int scaled_height) const;
+
+ private:
+  webrtc::NV12BufferInterface* buffer() const;
 };
 
 std::unique_ptr<I420Buffer> copy_i420_buffer(
