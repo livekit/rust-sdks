@@ -232,8 +232,16 @@ impl AccessToken {
         self
     }
 
-    pub fn with_attributes(mut self, attributes: HashMap<String, String>) -> Self {
-        self.claims.attributes = attributes;
+    pub fn with_attributes<I, K, V>(mut self, attributes: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.claims.attributes = attributes
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect::<HashMap<_, _>>();
         self
     }
 
