@@ -24,7 +24,7 @@ use livekit_protocol as proto;
 use livekit_runtime::timeout;
 use parking_lot::Mutex;
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, TrackKind};
+use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantState, TrackKind};
 use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -71,6 +71,7 @@ impl RemoteParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
         kind: ParticipantKind,
+        state: ParticipantState,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -79,7 +80,9 @@ impl RemoteParticipant {
         auto_subscribe: bool,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
+            inner: super::new_inner(
+                rtc_engine, sid, identity, name, metadata, attributes, kind, state,
+            ),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
     }
@@ -448,6 +451,10 @@ impl RemoteParticipant {
 
     pub fn name(&self) -> String {
         self.inner.info.read().name.clone()
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.inner.info.read().state == ParticipantState::Active
     }
 
     pub fn metadata(&self) -> String {
