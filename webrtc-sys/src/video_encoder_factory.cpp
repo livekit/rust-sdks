@@ -37,6 +37,11 @@
 #include "livekit/android.h"
 #endif
 
+#if defined(__linux__) && defined(__x86_64__) && !defined(WEBRTC_ANDROID)
+#include "nvidia/nvidia_encoder_factory.h"
+#include "vaapi/vaapi_encoder_factory.h"
+#endif
+
 namespace livekit {
 
 using Factory = webrtc::VideoEncoderFactoryTemplate<
@@ -58,7 +63,13 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
-  // TODO(theomonnom): Add other HW encoders here
+#if defined(__linux__) && defined(__x86_64__) && !defined(WEBRTC_ANDROID)
+  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+  } else if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+  }
+#endif
 }
 
 std::vector<webrtc::SdpVideoFormat>
@@ -86,7 +97,8 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
 
 std::unique_ptr<webrtc::VideoEncoder>
 VideoEncoderFactory::InternalFactory::Create(
-    const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
+    const webrtc::Environment& env,
+    const webrtc::SdpVideoFormat& format) {
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format))
@@ -121,7 +133,8 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
 }
 
 std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
-    const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
+    const webrtc::Environment& env,
+    const webrtc::SdpVideoFormat& format) {
   std::unique_ptr<webrtc::VideoEncoder> encoder;
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
