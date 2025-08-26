@@ -30,4 +30,5 @@ protoc.exe ^
     %PROTOCOL%/audio_frame.proto ^
     %PROTOCOL%/e2ee.proto ^
     %PROTOCOL%/stats.proto ^
-    %PROTOCOL%/rpc.proto
+    %PROTOCOL%/rpc.proto ^
+    %PROTOCOL%/data_stream.proto

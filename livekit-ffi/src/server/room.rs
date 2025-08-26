@@ -838,6 +838,35 @@ impl RoomInner {
     pub fn url(&self) -> String {
         self.url.clone()
     }
+
+    pub fn publish_metrics(
+        self: &Arc<Self>,
+        server: &'static FfiServer,
+        publish: proto::PublishMetricsRequest,
+    ) -> FfiResult<proto::PublishMetricsResponse> {
+        let async_id = publish.async_id.unwrap_or_else(|| server.next_id());
+
+        let data = unsafe {
+            slice::from_raw_parts(publish.data_ptr as *const u8, publish.data_len as usize)
+        }
+        .to_vec();
+
+        let self_clone = self.clone();
+        let handle = server.async_runtime.spawn(async move {
+            if let Err(err) = self_clone.data_tx.send(FfiDataPacket {
+                payload: DataPacket {
+                    payload: data.to_vec(), // Avoid copy?
+                    ..Default::default()
+                },
+                async_id,
+            }) {
+                log::error!("Failed to publish metrics: {:?}", err);
+            }
+        });
+        server.watch_panic(handle);
+
+        Ok(proto::PublishMetricsResponse { async_id })
+    }
 }
 
 // Task used to publish data without blocking the client thread
