@@ -166,7 +166,7 @@ fn main() {
                         .file("src/vaapi/implib/libva.so.tramp.S");
 
                     builder
-                        .flag("-I/usr/local/cuda-12.3/targets/x86_64-linux/include")
+                        .flag("-I/usr/local/cuda/include")
                         .flag("-Isrc/nvidia/NvCodec/include")
                         .flag("-Isrc/nvidia/NvCodec/NvCodec")
                         .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
