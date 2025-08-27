@@ -325,7 +325,7 @@ int32_t NvidiaH264EncoderImpl::Encode(
           cu_context_, (void*)frame_buffer->DataY(), frame_buffer->StrideY(),
           reinterpret_cast<CUdeviceptr>(nv_enc_input_frame->inputPtr),
           nv_enc_input_frame->pitch, input_frame.width(), input_frame.height(),
-          CU_MEMORYTYPE_DEVICE, nv_enc_input_frame->bufferFormat,
+          CU_MEMORYTYPE_HOST, nv_enc_input_frame->bufferFormat,
           nv_enc_input_frame->chromaOffsets, nv_enc_input_frame->numChromaPlanes);
     }
 
