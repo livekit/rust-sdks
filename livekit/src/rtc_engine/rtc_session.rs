@@ -975,144 +975,14 @@ impl SessionInner {
                 if !binary {
                     Err(EngineError::Internal("text messages aren't supported".into()))?;
                 }
-
-                let data = proto::DataPacket::decode(&*data).map_err(|err| {
+                let mut packet = proto::DataPacket::decode(&*data).map_err(|err| {
                     EngineError::Internal(format!("failed to decode data packet: {}", err).into())
                 })?;
                 if kind == DataPacketKind::Reliable {
-                    self.update_reliable_received_state(&data);
+                    self.update_reliable_received_state(&packet);
                 }
-                if let Some(packet) = data.value.as_ref() {
-                    match packet {
-                        proto::data_packet::Value::User(user) => {
-                            let participant_sid = user
-                                .participant_sid
-                                .is_empty()
-                                .not()
-                                .then_some(user.participant_sid.clone());
-
-                            let participant_identity = if !data.participant_identity.is_empty() {
-                                Some(data.participant_identity.clone())
-                            } else if !user.participant_identity.is_empty() {
-                                Some(user.participant_identity.clone())
-                            } else {
-                                None
-                            };
-
-                            let _ = self.emitter.send(SessionEvent::Data {
-                                kind,
-                                participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
-                                participant_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
-                                payload: user.payload.clone(),
-                                topic: user.topic.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::SipDtmf(dtmf) => {
-                            let participant_identity = data
-                                .participant_identity
-                                .is_empty()
-                                .not()
-                                .then_some(data.participant_identity.clone());
-                            let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
-
-                            let _ = self.emitter.send(SessionEvent::SipDTMF {
-                                participant_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
-                                digit: digit.map(|s| s.try_into().unwrap()),
-                                code: dtmf.code,
-                            });
-                        }
-                        proto::data_packet::Value::Speaker(_) => {}
-                        proto::data_packet::Value::Transcription(transcription) => {
-                            let track_sid = transcription.track_id.clone();
-                            // let segments = transcription.segments.clone();
-                            let segments = transcription
-                                .segments
-                                .iter()
-                                .map(|s| TranscriptionSegment {
-                                    id: s.id.clone(),
-                                    start_time: s.start_time,
-                                    end_time: s.end_time,
-                                    text: s.text.clone(),
-                                    language: s.language.clone(),
-                                    r#final: s.r#final,
-                                })
-                                .collect();
-                            let participant_identity: ParticipantIdentity =
-                                transcription.transcribed_participant_identity.clone().into();
-                            let _ = self.emitter.send(SessionEvent::Transcription {
-                                participant_identity,
-                                track_sid,
-                                segments,
-                            });
-                        }
-                        proto::data_packet::Value::RpcRequest(rpc_request) => {
-                            let caller_identity = data
-                                .participant_identity
-                                .is_empty()
-                                .not()
-                                .then_some(data.participant_identity.clone())
-                                .map(|s| s.try_into().unwrap());
-                            let _ = self.emitter.send(SessionEvent::RpcRequest {
-                                caller_identity,
-                                request_id: rpc_request.id.clone(),
-                                method: rpc_request.method.clone(),
-                                payload: rpc_request.payload.clone(),
-                                response_timeout: Duration::from_millis(
-                                    rpc_request.response_timeout_ms as u64,
-                                ),
-                                version: rpc_request.version,
-                            });
-                        }
-                        proto::data_packet::Value::RpcResponse(rpc_response) => {
-                            let _ = self.emitter.send(SessionEvent::RpcResponse {
-                                request_id: rpc_response.request_id.clone(),
-                                payload: rpc_response.value.as_ref().and_then(|v| match v {
-                                    proto::rpc_response::Value::Payload(payload) => {
-                                        Some(payload.clone())
-                                    }
-                                    _ => None,
-                                }),
-                                error: rpc_response.value.as_ref().and_then(|v| match v {
-                                    proto::rpc_response::Value::Error(error) => Some(error.clone()),
-                                    _ => None,
-                                }),
-                            });
-                        }
-                        proto::data_packet::Value::RpcAck(rpc_ack) => {
-                            let _ = self.emitter.send(SessionEvent::RpcAck {
-                                request_id: rpc_ack.request_id.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::ChatMessage(message) => {
-                            let _ = self.emitter.send(SessionEvent::ChatMessage {
-                                participant_identity: ParticipantIdentity(
-                                    data.participant_identity,
-                                ),
-                                message: ChatMessage::from(message.clone()),
-                            });
-                        }
-                        proto::data_packet::Value::StreamHeader(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamHeader {
-                                header: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::StreamChunk(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamChunk {
-                                chunk: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::StreamTrailer(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamTrailer {
-                                trailer: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        _ => {}
-                    }
+                if let Some(detail) = packet.value.take() {
+                    self.emit_incoming_packet(kind, packet, detail);
                 }
             }
             RtcEvent::DataChannelBufferedAmountChange { sent, amount: _, kind } => {
@@ -1127,6 +997,122 @@ impl SessionInner {
         }
 
         Ok(())
+    }
+
+    fn emit_incoming_packet(
+        &self,
+        kind: DataPacketKind,
+        packet: proto::DataPacket,
+        value: proto::data_packet::Value,
+    ) {
+        // TODO: Standardize how participant identity is emitted in events;
+        // Option<ParticipantIdentity>, ParticipantIdentity, and String are all used.
+        let participant_sid: Option<ParticipantSid> = packet.participant_sid.try_into().ok();
+        let participant_identity: Option<ParticipantIdentity> =
+            packet.participant_identity.try_into().ok();
+
+        let send_result = match value {
+            proto::data_packet::Value::User(user) => {
+                // Participant SID and identity used to be defined on user packet, but
+                // they have been moved to the packet root. For backwards compatibility,
+                // we take the user packet's values if the top-level fields are not set.
+                let participant_sid = participant_sid
+                    .is_none()
+                    .then_some(user.participant_sid)
+                    .and_then(|sid| sid.try_into().ok());
+                let participant_identity = participant_identity
+                    .is_none()
+                    .then_some(user.participant_identity)
+                    .and_then(|identity| identity.try_into().ok());
+
+                self.emitter.send(SessionEvent::Data {
+                    kind,
+                    participant_sid,
+                    participant_identity,
+                    payload: user.payload,
+                    topic: user.topic,
+                })
+            }
+            proto::data_packet::Value::SipDtmf(dtmf) => self.emitter.send(SessionEvent::SipDTMF {
+                participant_identity,
+                digit: (!dtmf.digit.is_empty()).then_some(dtmf.digit),
+                code: dtmf.code,
+            }),
+            proto::data_packet::Value::Transcription(transcription) => {
+                let segments = transcription
+                    .segments
+                    .into_iter()
+                    .map(|s| TranscriptionSegment {
+                        id: s.id,
+                        start_time: s.start_time,
+                        end_time: s.end_time,
+                        text: s.text,
+                        language: s.language,
+                        r#final: s.r#final,
+                    })
+                    .collect();
+                let participant_identity =
+                    transcription.transcribed_participant_identity.into();
+
+                self.emitter.send(SessionEvent::Transcription {
+                    participant_identity,
+                    track_sid: transcription.track_id,
+                    segments,
+                })
+            }
+            proto::data_packet::Value::RpcRequest(rpc_request) => {
+                let caller_identity = participant_identity;
+                self.emitter.send(SessionEvent::RpcRequest {
+                    caller_identity,
+                    request_id: rpc_request.id,
+                    method: rpc_request.method,
+                    payload: rpc_request.payload,
+                    response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
+                    version: rpc_request.version,
+                })
+            }
+            proto::data_packet::Value::RpcResponse(rpc_response) => {
+                let (payload, error) = match rpc_response.value {
+                    None => (None, None),
+                    Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
+                    Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
+                };
+                self.emitter.send(SessionEvent::RpcResponse {
+                    request_id: rpc_response.request_id,
+                    payload,
+                    error,
+                })
+            }
+            proto::data_packet::Value::RpcAck(rpc_ack) => {
+                self.emitter.send(SessionEvent::RpcAck { request_id: rpc_ack.request_id })
+            }
+            proto::data_packet::Value::ChatMessage(message) => {
+                self.emitter.send(SessionEvent::ChatMessage {
+                    participant_identity: participant_identity
+                        .unwrap_or(ParticipantIdentity("".into())),
+                    message: ChatMessage::from(message),
+                })
+            }
+            proto::data_packet::Value::StreamHeader(header) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamHeader { header, participant_identity })
+            }
+            proto::data_packet::Value::StreamChunk(chunk) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamChunk { chunk, participant_identity })
+            }
+            proto::data_packet::Value::StreamTrailer(trailer) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamTrailer { trailer, participant_identity })
+            }
+            _ => Ok(()),
+        };
+        if let Err(err) = send_result {
+            log::error!("failed to emit incoming data packet: {:?}", err);
+        }
     }
 
     async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
