@@ -134,4 +134,4 @@ cp "src/sdk/android/AndroidManifest.xml" "$ARTIFACTS_DIR"
 
 cd src
 find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-
+find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"

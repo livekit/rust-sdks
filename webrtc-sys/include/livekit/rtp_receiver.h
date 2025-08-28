@@ -40,8 +40,8 @@ class RtpReceiver {
  public:
   RtpReceiver(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
-      rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
+      webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
+      webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   std::shared_ptr<MediaStreamTrack> track() const;
 
@@ -62,14 +62,14 @@ class RtpReceiver {
   void set_jitter_buffer_minimum_delay(bool is_some,
                                        double delay_seconds) const;
 
-  rtc::scoped_refptr<webrtc::RtpReceiverInterface> rtc_receiver() const {
+  webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rtc_receiver() const {
     return receiver_;
   }
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
-  rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
+  webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
 static std::shared_ptr<RtpReceiver> _shared_rtp_receiver() {

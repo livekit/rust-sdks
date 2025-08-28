@@ -64,8 +64,8 @@ class PeerConnectionFactory {
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<AudioDevice> audio_device_;
-  rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
+  webrtc::scoped_refptr<AudioDevice> audio_device_;
+  webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
   webrtc::TaskQueueFactory* task_queue_factory_;
 };
 

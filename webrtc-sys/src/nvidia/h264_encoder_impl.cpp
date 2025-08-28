@@ -89,7 +89,7 @@ NvidiaH264EncoderImpl::NvidiaH264EncoderImpl(
           H264EncoderSettings::Parse(format).packetization_mode),
       format_(format) {
   std::string hexString = format_.parameters.at("profile-level-id");
-  absl::optional<webrtc::H264ProfileLevelId> profile_level_id =
+  std::optional<webrtc::H264ProfileLevelId> profile_level_id =
       webrtc::ParseH264ProfileLevelId(hexString.c_str());
   if (profile_level_id.has_value()) {
     profile_ = profile_level_id->profile;
@@ -279,7 +279,7 @@ int32_t NvidiaH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  rtc::scoped_refptr<I420BufferInterface> frame_buffer =
+  webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
       input_frame.video_frame_buffer()->ToI420();
   if (!frame_buffer) {
     RTC_LOG(LS_ERROR) << "Failed to convert "

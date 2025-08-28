@@ -38,8 +38,8 @@ class RtpSender {
  public:
   RtpSender(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      rtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
-      rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
+      webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
+      webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   bool set_track(std::shared_ptr<MediaStreamTrack> track) const;
 
@@ -65,14 +65,14 @@ class RtpSender {
 
   void set_parameters(RtpParameters params) const;
 
-  rtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const {
+  webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const {
     return sender_;
   }
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
-  rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
+  webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
 static std::shared_ptr<RtpSender> _shared_rtp_sender() {

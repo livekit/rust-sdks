@@ -20,8 +20,8 @@ namespace webrtc {
 
 class H264BitstreamParserEx : public ::webrtc::H264BitstreamParser {
  public:
-  absl::optional<SpsParser::SpsState> sps() { return sps_; }
-  absl::optional<PpsParser::PpsState> pps() { return pps_; }
+  std::optional<SpsParser::SpsState> sps() { return sps_; }
+  std::optional<PpsParser::PpsState> pps() { return pps_; }
 };
 
 class NvidiaH264DecoderImpl : public VideoDecoder {
