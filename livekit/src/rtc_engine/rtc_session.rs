@@ -976,7 +976,9 @@ impl SessionInner {
                     Err(EngineError::Internal("text messages aren't supported".into()))?;
                 }
 
-                let data = proto::DataPacket::decode(&*data).unwrap();
+                let data = proto::DataPacket::decode(&*data).map_err(|err| {
+                    EngineError::Internal(format!("failed to decode data packet: {}", err).into())
+                })?;
                 if kind == DataPacketKind::Reliable {
                     self.update_reliable_received_state(&data);
                 }
