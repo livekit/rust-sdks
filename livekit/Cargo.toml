@@ -22,9 +22,8 @@ native-tls-vendored = ["livekit-api/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit-api/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit-api/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit-api/__rustls-tls"]
-
-# internal features (used by livekit-ffi)
-__lk-internal = []
+__lk-internal = [] # internal features (used by livekit-ffi)
+__lk-e2e-test = [] # end-to-end testing with a LiveKit server
 
 [dependencies]
 livekit-runtime = { workspace = true, default-features = false }
