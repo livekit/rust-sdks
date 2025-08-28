@@ -282,7 +282,7 @@ struct SessionInner {
     next_packet_sequence: AtomicU32,
 
     /// Time to live (TTL) map between publisher SID and last sequence number.
-    dc_receive_state: Mutex<TtlMap<String, u32>>,
+    packet_rx_state: Mutex<TtlMap<String, u32>>,
 
     participant_info: SessionParticipantInfo,
 
@@ -414,7 +414,7 @@ impl RtcSession {
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
             next_packet_sequence: 1.into(),
-            dc_receive_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
+            packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
             participant_info,
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
@@ -815,19 +815,20 @@ impl SessionInner {
         }
     }
 
-    fn update_reliable_received_state(&self, packet: &proto::DataPacket) {
+    /// Updates the packet receive state (TTL map) for reliable packets.
+    fn update_packet_rx_state(&self, packet: &proto::DataPacket) {
         if packet.sequence <= 0 || packet.participant_sid.is_empty() {
             return;
         };
-        let mut state = self.dc_receive_state.lock();
-        if state
+        let mut rx_state = self.packet_rx_state.lock();
+        if rx_state
             .get(&packet.participant_sid)
             .is_some_and(|&last_sequence| packet.sequence <= last_sequence)
         {
             log::warn!("Ignoring duplicate/out-of-order reliable data message");
             return;
         }
-        state.set(&packet.participant_sid, Some(packet.sequence));
+        rx_state.set(&packet.participant_sid, Some(packet.sequence));
     }
 
     async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
@@ -1003,7 +1004,7 @@ impl SessionInner {
                     EngineError::Internal(format!("failed to decode data packet: {}", err).into())
                 })?;
                 if kind == DataPacketKind::Reliable {
-                    self.update_reliable_received_state(&packet);
+                    self.update_packet_rx_state(&packet);
                 }
                 if let Some(detail) = packet.value.take() {
                     self.emit_incoming_packet(kind, packet, detail);
@@ -1595,7 +1596,7 @@ impl SessionInner {
     }
 
     fn data_channel_receive_states(self: &Arc<Self>) -> Vec<proto::DataChannelReceiveState> {
-        let mut state = self.dc_receive_state.lock();
+        let mut state = self.packet_rx_state.lock();
         state
             .iter()
             .map(|(publisher_sid, last_seq)| proto::DataChannelReceiveState {
