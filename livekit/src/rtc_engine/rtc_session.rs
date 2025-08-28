@@ -1000,7 +1000,7 @@ impl SessionInner {
                             };
 
                             let _ = self.emitter.send(SessionEvent::Data {
-                                kind: data.kind().into(),
+                                kind,
                                 participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
                                 participant_identity: participant_identity
                                     .map(|s| s.try_into().unwrap()),
