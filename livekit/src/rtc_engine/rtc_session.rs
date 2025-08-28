@@ -16,7 +16,6 @@ use std::{
     collections::{HashMap, VecDeque},
     convert::TryInto,
     fmt::Debug,
-    ops::Not,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
@@ -285,6 +284,8 @@ struct SessionInner {
     /// Time to live (TTL) map between publisher SID and last sequence number.
     dc_receive_state: Mutex<TtlMap<String, u32>>,
 
+    participant_info: SessionParticipantInfo,
+
     dc_emitter: mpsc::UnboundedSender<DataChannelEvent>,
 
     // Keep a strong reference to the subscriber datachannels,
@@ -300,6 +301,24 @@ struct SessionInner {
     negotiation_queue: NegotiationQueue,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
+}
+
+/// Information about the local participant needed for outgoing
+/// data packets.
+struct SessionParticipantInfo {
+    sid: ParticipantSid,
+    identity: ParticipantIdentity,
+}
+
+impl SessionParticipantInfo {
+    /// Extracts participant info from a join response.
+    fn from_join(join_response: &proto::JoinResponse) -> Option<Self> {
+        let Some(info) = &join_response.participant else { None? };
+        Some(Self {
+            sid: info.sid.clone().try_into().ok()?,
+            identity: info.identity.clone().try_into().ok()?,
+        })
+    }
 }
 
 /// This struct holds a WebRTC session
@@ -336,6 +355,10 @@ impl RtcSession {
             SignalClient::connect(url, token, options.signal_options.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
+
+        let Some(participant_info) = SessionParticipantInfo::from_join(&join_response) else {
+            Err(EngineError::Internal("Join response missing participant info".into()))?
+        };
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
         let rtc_config = make_rtc_config_join(join_response.clone(), options.rtc_config.clone());
@@ -392,6 +415,7 @@ impl RtcSession {
             ),
             next_packet_sequence: 1.into(),
             dc_receive_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
+            participant_info,
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
@@ -1051,8 +1075,7 @@ impl SessionInner {
                         r#final: s.r#final,
                     })
                     .collect();
-                let participant_identity =
-                    transcription.transcribed_participant_identity.into();
+                let participant_identity = transcription.transcribed_participant_identity.into();
 
                 self.emitter.send(SessionEvent::Transcription {
                     participant_identity,
@@ -1317,10 +1340,14 @@ impl SessionInner {
 
     async fn publish_data(
         self: &Arc<Self>,
-        packet: proto::DataPacket,
+        mut packet: proto::DataPacket,
         kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
+
+        // Populate local participant info fields
+        packet.participant_identity = self.participant_info.identity.to_string();
+        packet.participant_sid = self.participant_info.sid.to_string();
 
         let (completion_tx, completion_rx) = oneshot::channel();
         let ev = DataChannelEvent {
