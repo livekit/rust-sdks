@@ -45,3 +45,6 @@ semver = "1.0"
 libloading = { version = "0.8.6" }
 bytes = "1.10.1"
 bmrng = "0.5.2"
+
+[dev-dependencies]
+anyhow = "1.0.99"
