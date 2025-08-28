@@ -186,7 +186,9 @@ fn main() {
                 _ => {}
             }
 
-            builder.flag("-std=c++2a");
+            builder
+                .flag("-Wno-changes-meaning")
+                .flag("-std=c++20");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");

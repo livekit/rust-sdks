@@ -80,7 +80,8 @@ NvidiaH264EncoderImpl::NvidiaH264EncoderImpl(
     CUmemorytype memory_type,
     NV_ENC_BUFFER_FORMAT nv_format,
     const SdpVideoFormat& format)
-    : encoder_(nullptr),
+    : env_(env),
+      encoder_(nullptr),
       cu_context_(context),
       cu_memory_type_(memory_type),
       cu_scaled_array_(nullptr),
@@ -237,7 +238,7 @@ int32_t NvidiaH264EncoderImpl::InitEncode(
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
-  SimulcastRateAllocator init_allocator(codec_);
+  SimulcastRateAllocator init_allocator(env_, codec_);
   VideoBitrateAllocation allocation =
       init_allocator.Allocate(VideoBitrateAllocationParameters(
           DataRate::KilobitsPerSec(codec_.startBitrate), codec_.maxFramerate));
@@ -361,7 +362,7 @@ int32_t NvidiaH264EncoderImpl::ProcessEncodedFrame(
     const ::webrtc::VideoFrame& inputFrame) {
   encoded_image_._encodedWidth = encoder_->GetEncodeWidth();
   encoded_image_._encodedHeight = encoder_->GetEncodeHeight();
-  encoded_image_.SetRtpTimestamp(inputFrame.timestamp());
+  encoded_image_.SetRtpTimestamp(inputFrame.rtp_timestamp());
   encoded_image_.SetSimulcastIndex(0);
   encoded_image_.ntp_time_ms_ = inputFrame.ntp_time_ms();
   encoded_image_.capture_time_ms_ = inputFrame.render_time_ms();
@@ -371,7 +372,7 @@ int32_t NvidiaH264EncoderImpl::ProcessEncodedFrame(
   encoded_image_._frameType = VideoFrameType::kVideoFrameDelta;
   encoded_image_.SetColorSpace(inputFrame.color_space());
   std::vector<H264::NaluIndex> naluIndices =
-      H264::FindNaluIndices(packet.data(), packet.size());
+      H264::FindNaluIndices(MakeArrayView(packet.data(), packet.size()));
   for (uint32_t i = 0; i < naluIndices.size(); i++) {
     const H264::NaluType naluType =
         H264::ParseNaluType(packet[naluIndices[i].payload_start_offset]);

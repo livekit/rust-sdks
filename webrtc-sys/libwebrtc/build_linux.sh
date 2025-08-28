@@ -71,10 +71,6 @@ git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --i
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
-cd third_party
-git apply "$COMMAND_DIR/patches/abseil_use_optional.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-cd ..
-
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -99,9 +95,9 @@ args="is_debug=$debug  \
   enable_libaom=true \
   is_component_build=false \
   enable_stripping=true \
-  use_goma=false \
   ffmpeg_branding=\"Chrome\" \
   rtc_use_h264=true \
+  rtc_use_h265=true \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
@@ -117,7 +113,7 @@ ninja -C "$OUTPUT_DIR" :default
 # make libwebrtc.a
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+objcopy --target=elf64-x86-64 --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"

@@ -34,7 +34,8 @@ enum H264EncoderImplEvent {
 
 VAAPIH264EncoderWrapper::VAAPIH264EncoderWrapper(const webrtc::Environment& env,
                                                  const SdpVideoFormat& format)
-    : encoder_(new livekit::VaapiH264EncoderWrapper()),
+    : env_(env),
+      encoder_(new livekit::VaapiH264EncoderWrapper()),
       packetization_mode_(
           H264EncoderSettings::Parse(format).packetization_mode),
       format_(format) {
@@ -152,7 +153,7 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
                          va_profile, VA_RC_CBR);
   }
 
-  SimulcastRateAllocator init_allocator(codec_);
+  SimulcastRateAllocator init_allocator(env_, codec_);
   VideoBitrateAllocation allocation =
       init_allocator.Allocate(VideoBitrateAllocationParameters(
           DataRate::KilobitsPerSec(codec_.startBitrate), codec_.maxFramerate));
