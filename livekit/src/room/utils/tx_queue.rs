@@ -17,16 +17,13 @@ use std::collections::VecDeque;
 #[derive(Debug)]
 pub struct TxQueue<T> {
     inner: VecDeque<T>,
-    buffered_size: usize
+    buffered_size: usize,
 }
 
 impl<T: TxQueueItem> TxQueue<T> {
     /// Creates an empty queue.
     pub fn new() -> Self {
-        Self {
-            inner: VecDeque::new(),
-            buffered_size: 0
-        }
+        Self { inner: VecDeque::new(), buffered_size: 0 }
     }
 
     /// Number of elements in the queue.

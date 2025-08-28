@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap, fmt::Debug, hash::Hash, time::{Duration, SystemTime}
+    collections::HashMap,
+    fmt::Debug,
+    hash::Hash,
+    time::{Duration, SystemTime},
 };
 
 /// Time to live (TTL) map

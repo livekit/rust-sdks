@@ -353,7 +353,7 @@ pub struct RoomOptions {
     pub e2ee: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
-    pub sdk_options: RoomSdkOptions
+    pub sdk_options: RoomSdkOptions,
 }
 
 impl Default for RoomOptions {
@@ -372,7 +372,7 @@ impl Default for RoomOptions {
                 ice_transport_type: IceTransportsType::All,
             },
             join_retries: 3,
-            sdk_options: RoomSdkOptions::default()
+            sdk_options: RoomSdkOptions::default(),
         }
     }
 }
@@ -1175,7 +1175,7 @@ impl RoomSession {
             }),
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
-            datachannel_receive_states: session.data_channel_receive_states()
+            datachannel_receive_states: session.data_channel_receive_states(),
         };
 
         log::debug!("sending sync state {:?}", sync_state);
