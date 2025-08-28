@@ -26,8 +26,8 @@
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "livekit/video_track.h"
-#include "rtc_base/helpers.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/crypto_random.h"
 #include "rtc_base/synchronization/mutex.h"
 
 #ifdef WEBRTC_WIN
@@ -48,7 +48,7 @@ RtcRuntime::RtcRuntime() {
     // Not the best way to do it...
     webrtc::MutexLock lock(&g_mutex);
     if (g_release_counter == 0) {
-      RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+      RTC_CHECK(webrtc::InitializeSSL()) << "Failed to InitializeSSL()";
 
 #ifdef WEBRTC_WIN
       WSADATA data;
@@ -58,13 +58,13 @@ RtcRuntime::RtcRuntime() {
     g_release_counter++;
   }
 
-  network_thread_ = rtc::Thread::CreateWithSocketServer();
+  network_thread_ = webrtc::Thread::CreateWithSocketServer();
   network_thread_->SetName("network_thread", &network_thread_);
   network_thread_->Start();
-  worker_thread_ = rtc::Thread::Create();
+  worker_thread_ = webrtc::Thread::Create();
   worker_thread_->SetName("worker_thread", &worker_thread_);
   worker_thread_->Start();
-  signaling_thread_ = rtc::Thread::Create();
+  signaling_thread_ = webrtc::Thread::Create();
   signaling_thread_->SetName("signaling_thread", &signaling_thread_);
   signaling_thread_->Start();
 }
@@ -80,7 +80,7 @@ RtcRuntime::~RtcRuntime() {
     webrtc::MutexLock lock(&g_mutex);
     g_release_counter--;
     if (g_release_counter == 0) {
-      RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+      RTC_CHECK(webrtc::CleanupSSL()) << "Failed to CleanupSSL()";
 
 #ifdef WEBRTC_WIN
       WSACleanup();
@@ -89,20 +89,20 @@ RtcRuntime::~RtcRuntime() {
   }
 }
 
-rtc::Thread* RtcRuntime::network_thread() const {
+webrtc::Thread* RtcRuntime::network_thread() const {
   return network_thread_.get();
 }
 
-rtc::Thread* RtcRuntime::worker_thread() const {
+webrtc::Thread* RtcRuntime::worker_thread() const {
   return worker_thread_.get();
 }
 
-rtc::Thread* RtcRuntime::signaling_thread() const {
+webrtc::Thread* RtcRuntime::signaling_thread() const {
   return signaling_thread_.get();
 }
 
 std::shared_ptr<MediaStreamTrack> RtcRuntime::get_or_create_media_stream_track(
-    rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> rtc_track) {
+    webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> rtc_track) {
   webrtc::MutexLock lock(&mutex_);
   for (std::weak_ptr<MediaStreamTrack> weak_existing_track :
        media_stream_tracks_) {
@@ -118,7 +118,7 @@ std::shared_ptr<MediaStreamTrack> RtcRuntime::get_or_create_media_stream_track(
     std::shared_ptr<VideoTrack> video_track =
         std::shared_ptr<VideoTrack>(new VideoTrack(
             shared_from_this(),
-            rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+            webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
                 static_cast<webrtc::VideoTrackInterface*>(rtc_track.get()))));
 
     media_stream_tracks_.push_back(
@@ -128,7 +128,7 @@ std::shared_ptr<MediaStreamTrack> RtcRuntime::get_or_create_media_stream_track(
     std::shared_ptr<AudioTrack> audio_track =
         std::shared_ptr<AudioTrack>(new AudioTrack(
             shared_from_this(),
-            rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+            webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
                 static_cast<webrtc::AudioTrackInterface*>(rtc_track.get()))));
 
     media_stream_tracks_.push_back(
@@ -138,13 +138,13 @@ std::shared_ptr<MediaStreamTrack> RtcRuntime::get_or_create_media_stream_track(
 }
 
 std::shared_ptr<AudioTrack> RtcRuntime::get_or_create_audio_track(
-    rtc::scoped_refptr<webrtc::AudioTrackInterface> track) {
+    webrtc::scoped_refptr<webrtc::AudioTrackInterface> track) {
   return std::static_pointer_cast<AudioTrack>(
       get_or_create_media_stream_track(track));
 }
 
 std::shared_ptr<VideoTrack> RtcRuntime::get_or_create_video_track(
-    rtc::scoped_refptr<webrtc::VideoTrackInterface> track) {
+    webrtc::scoped_refptr<webrtc::VideoTrackInterface> track) {
   return std::static_pointer_cast<VideoTrack>(
       get_or_create_media_stream_track(track));
 }
@@ -152,15 +152,15 @@ std::shared_ptr<VideoTrack> RtcRuntime::get_or_create_video_track(
 LogSink::LogSink(
     rust::Fn<void(rust::String message, LoggingSeverity severity)> fnc)
     : fnc_(fnc) {
-  rtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
+  webrtc::LogMessage::AddLogToStream(this, rtc::LoggingSeverity::LS_VERBOSE);
 }
 
 LogSink::~LogSink() {
-  rtc::LogMessage::RemoveLogToStream(this);
+  webrtc::LogMessage::RemoveLogToStream(this);
 }
 
 void LogSink::OnLogMessage(const std::string& message,
-                           rtc::LoggingSeverity severity) {
+                           webrtc::LoggingSeverity severity) {
   fnc_(rust::String::lossy(message), static_cast<LoggingSeverity>(severity));
 }
 
@@ -170,7 +170,7 @@ std::unique_ptr<LogSink> new_log_sink(
 }
 
 rust::String create_random_uuid() {
-  return rtc::CreateRandomUuid();
+  return webrtc::CreateRandomUuid();
 }
 
 }  // namespace livekit

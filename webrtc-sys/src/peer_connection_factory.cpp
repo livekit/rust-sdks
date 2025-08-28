@@ -21,7 +21,10 @@
 
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "api/audio/builtin_audio_processing_builder.h"
+#include "api/environment/environment_factory.h"
 #include "api/peer_connection_interface.h"
+#include "api/transport/field_trial_based_config.h"
 #include "api/rtc_error.h"
 #include "api/enable_media.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
@@ -59,7 +62,7 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
 
   audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
-    return rtc::make_ref_counted<livekit::AudioDevice>(
+    return webrtc::make_ref_counted<livekit::AudioDevice>(
         dependencies.task_queue_factory.get());
   });
 
@@ -71,7 +74,8 @@ PeerConnectionFactory::PeerConnectionFactory(
       std::move(std::make_unique<livekit::VideoDecoderFactory>());
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-  dependencies.audio_processing = webrtc::AudioProcessingBuilder().Create();
+  dependencies.audio_processing = webrtc::BuiltinAudioProcessingBuilder()
+                                      .Build(webrtc::CreateEnvironment());
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =
@@ -127,13 +131,13 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
 RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(
-      static_cast<cricket::MediaType>(type)));
+      static_cast<webrtc::MediaType>(type)));
 }
 
 RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpReceiverCapabilities(
-      static_cast<cricket::MediaType>(type)));
+      static_cast<webrtc::MediaType>(type)));
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {

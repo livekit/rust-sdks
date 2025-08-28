@@ -32,7 +32,7 @@ namespace livekit {
 
 MediaStreamTrack::MediaStreamTrack(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track)
+    webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track)
     : rtc_runtime_(rtc_runtime), track_(std::move(track)) {}
 
 rust::String MediaStreamTrack::kind() const {

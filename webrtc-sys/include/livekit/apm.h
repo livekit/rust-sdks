@@ -63,7 +63,7 @@ class AudioProcessingModule {
   int set_stream_delay_ms(int delay_ms);
 
  private:
-  rtc::scoped_refptr<webrtc::AudioProcessing> apm_;
+  webrtc::scoped_refptr<webrtc::AudioProcessing> apm_;
 };
 
 std::unique_ptr<AudioProcessingModule> create_apm(
