@@ -48,7 +48,7 @@ class AudioTrack : public MediaStreamTrack {
  private:
   friend RtcRuntime;
   AudioTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
-             rtc::scoped_refptr<webrtc::AudioTrackInterface> track);
+             webrtc::scoped_refptr<webrtc::AudioTrackInterface> track);
 
  public:
   ~AudioTrack();
@@ -167,10 +167,10 @@ class AudioTrackSource {
 
   void clear_buffer() const;
 
-  rtc::scoped_refptr<InternalSource> get() const;
+  webrtc::scoped_refptr<InternalSource> get() const;
 
  private:
-  rtc::scoped_refptr<InternalSource> source_;
+  webrtc::scoped_refptr<InternalSource> source_;
 };
 
 std::shared_ptr<AudioTrackSource> new_audio_track_source(

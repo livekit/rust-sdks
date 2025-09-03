@@ -36,7 +36,7 @@
 namespace livekit {
 
 VideoTrack::VideoTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
-                       rtc::scoped_refptr<webrtc::VideoTrackInterface> track)
+                       webrtc::scoped_refptr<webrtc::VideoTrackInterface> track)
     : MediaStreamTrack(rtc_runtime, std::move(track)) {}
 
 VideoTrack::~VideoTrack() {
@@ -49,7 +49,7 @@ VideoTrack::~VideoTrack() {
 void VideoTrack::add_sink(const std::shared_ptr<NativeVideoSink>& sink) const {
   webrtc::MutexLock lock(&mutex_);
   track()->AddOrUpdateSink(sink.get(),
-                           rtc::VideoSinkWants());  // TODO(theomonnom): Expose
+                           webrtc::VideoSinkWants());  // TODO(theomonnom): Expose
                                                     // VideoSinkWants to Rust?
   sinks_.push_back(sink);
 }
@@ -106,7 +106,7 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
 
 VideoTrackSource::InternalSource::InternalSource(
     const VideoResolution& resolution)
-    : rtc::AdaptedVideoTrackSource(4), resolution_(resolution) {}
+    : webrtc::AdaptedVideoTrackSource(4), resolution_(resolution) {}
 
 VideoTrackSource::InternalSource::~InternalSource() {}
 
@@ -114,7 +114,7 @@ bool VideoTrackSource::InternalSource::is_screencast() const {
   return false;
 }
 
-absl::optional<bool> VideoTrackSource::InternalSource::needs_denoising() const {
+std::optional<bool> VideoTrackSource::InternalSource::needs_denoising() const {
   return false;
 }
 
@@ -137,9 +137,9 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   webrtc::MutexLock lock(&mutex_);
 
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
-      frame.timestamp_us(), rtc::TimeMicros());
+      frame.timestamp_us(), webrtc::TimeMicros());
 
-  rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
+  webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
       frame.video_frame_buffer();
 
   if (resolution_.height == 0 || resolution_.width == 0) {
@@ -161,7 +161,7 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
 
   webrtc::VideoRotation rotation = frame.rotation();
   if (apply_rotation() && rotation != webrtc::kVideoRotation_0) {
-    // If the buffer is I420, rtc::AdaptedVideoTrackSource will handle the
+    // If the buffer is I420, webrtc::AdaptedVideoTrackSource will handle the
     // rotation for us.
     buffer = buffer->ToI420();
   }
@@ -176,7 +176,7 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
 }
 
 VideoTrackSource::VideoTrackSource(const VideoResolution& resolution) {
-  source_ = rtc::make_ref_counted<InternalSource>(resolution);
+  source_ = webrtc::make_ref_counted<InternalSource>(resolution);
 }
 
 VideoResolution VideoTrackSource::video_resolution() const {
@@ -189,7 +189,7 @@ bool VideoTrackSource::on_captured_frame(
   return source_->on_captured_frame(rtc_frame);
 }
 
-rtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()
+webrtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()
     const {
   return source_;
 }

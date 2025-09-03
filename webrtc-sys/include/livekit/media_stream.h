@@ -33,7 +33,7 @@ namespace livekit {
 class MediaStream {
  public:
   MediaStream(std::shared_ptr<RtcRuntime> rtc_runtime,
-              rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
+              webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
 
   rust::String id() const;
   rust::Vec<VideoTrackPtr> get_video_tracks() const;
@@ -47,7 +47,7 @@ class MediaStream {
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;
+  webrtc::scoped_refptr<webrtc::MediaStreamInterface> media_stream_;
 };
 
 static std::shared_ptr<MediaStream> _shared_media_stream() {
