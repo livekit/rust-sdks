@@ -28,6 +28,10 @@ jobs:
           submodules: recursive
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Install VA-API/NVIDIA drivers for build
+        run:  |
+          sudo apt update -y
+          sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
       - name: Run release-plz
         uses: release-plz/action@v0.5
         id: release-plz

@@ -1,5 +1,23 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.3.10](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.9...rust-sdks/webrtc-sys@0.3.10) - 2025-09-03
+
+### Added
+
+- VA-API support for linux. ([#638](https://github.com/livekit/rust-sdks/pull/638))
+
+### Fixed
+
+- hardware rendering ([#695](https://github.com/livekit/rust-sdks/pull/695))
+# Changelog
+
 ## [0.3.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.8...rust-sdks/webrtc-sys@0.3.9) - 2025-06-17
 
 ### Other
