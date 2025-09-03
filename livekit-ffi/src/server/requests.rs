@@ -1161,6 +1161,16 @@ fn on_text_stream_close(
     writer.close(server, request)
 }
 
+fn on_publish_metrics(
+    server: &'static FfiServer,
+    publish: proto::PublishMetricsRequest,
+) -> FfiResult<proto::PublishMetricsResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(publish.local_participant_handle)?;
+
+    ffi_participant.room.publish_metrics(server, publish)
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1413,6 +1423,12 @@ pub fn handle_request(
             proto::ffi_response::Message::SetTrackSubscriptionPermissions(
                 on_set_track_subscription_permissions(server, request)?,
             )
+        }
+        proto::ffi_request::Message::PublishMetrics(publish_metrics) => {
+            proto::ffi_response::Message::PublishMetrics(on_publish_metrics(
+                server,
+                publish_metrics,
+            )?)
         }
     });
 

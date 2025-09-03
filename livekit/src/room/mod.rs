@@ -26,6 +26,7 @@ use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
 use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
 use livekit_runtime::JoinHandle;
+use metrics::RtcMetricsManager;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
@@ -57,6 +58,7 @@ use crate::{
 pub mod data_stream;
 pub mod e2ee;
 pub mod id;
+mod metrics;
 pub mod options;
 pub mod participant;
 pub mod publication;
@@ -355,6 +357,7 @@ pub struct RoomOptions {
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
     pub preregistration: Option<PreRegistration>,
+    pub enable_metrics: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -382,10 +385,12 @@ impl Default for RoomOptions {
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
             preregistration: None,
+            enable_metrics: true,
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Room {
     inner: Arc<RoomSession>,
 }
@@ -448,6 +453,7 @@ struct Handle {
     incoming_stream_handle: JoinHandle<()>,
     outgoing_stream_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
+    metrics_handle: Option<JoinHandle<()>>,
 }
 
 impl Debug for RoomSession {
@@ -664,22 +670,44 @@ impl Room {
 
         let (close_tx, close_rx) = broadcast::channel(1);
 
+        let close_rx_room = close_rx;
+        let close_rx_incoming = close_rx_room.resubscribe();
+        let close_rx_outgoing = close_rx_room.resubscribe();
+        let close_rx_metrics = close_rx_room.resubscribe();
+
         let incoming_stream_handle = livekit_runtime::spawn(incoming_data_stream_task(
             open_rx,
             dispatcher.clone(),
-            close_rx.resubscribe(),
+            close_rx_incoming,
         ));
         let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
             packet_rx,
             identity,
             rtc_engine.clone(),
-            close_rx.resubscribe(),
+            close_rx_outgoing,
         ));
 
-        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+        let room_handle =
+            livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx_room));
 
-        let handle =
-            Handle { room_handle, incoming_stream_handle, outgoing_stream_handle, close_tx };
+        let metrics_handle = if options.enable_metrics {
+            let room_clone = Self { inner: inner.clone() };
+
+            Some(livekit_runtime::spawn(async move {
+                let metrics_manager = RtcMetricsManager::new();
+                metrics_manager.collect_metrics(&room_clone, &rtc_engine, close_rx_metrics).await;
+            }))
+        } else {
+            None
+        };
+
+        let handle = Handle {
+            room_handle,
+            incoming_stream_handle,
+            outgoing_stream_handle,
+            metrics_handle,
+            close_tx,
+        };
         inner.handle.lock().await.replace(handle);
 
         Ok((Self { inner }, events))
@@ -918,6 +946,9 @@ impl RoomSession {
         let _ = handle.incoming_stream_handle.await;
         let _ = handle.outgoing_stream_handle.await;
         let _ = handle.room_handle.await;
+        if let Some(metrics_handle) = handle.metrics_handle {
+            let _ = metrics_handle.await;
+        }
 
         self.dispatcher.clear();
         Ok(())
