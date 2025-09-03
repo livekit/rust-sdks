@@ -1,5 +1,20 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.4.5](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.4...rust-sdks/livekit-api@0.4.5) - 2025-07-31
+
+### Other
+
+- Expose departure_timeout in CreateRoomRequest ([#685](https://github.com/livekit/rust-sdks/pull/685))
+- Handle region fetch errors ([#686](https://github.com/livekit/rust-sdks/pull/686))
+# Changelog
+
 ## [0.4.4](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.3...rust-sdks/livekit-api@0.4.4) - 2025-06-17
 
 ### Other

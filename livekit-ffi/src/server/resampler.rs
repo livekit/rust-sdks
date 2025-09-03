@@ -71,7 +71,13 @@ impl SoxResampler {
             return Err(error_msg.to_string_lossy().to_string());
         }
 
-        Ok(Self { soxr_ptr, out_buf: Vec::new(), input_rate, output_rate, num_channels })
+        Ok(Self {
+            soxr_ptr,
+            out_buf: Vec::with_capacity(output_rate as usize / 100), // ensure valid memory ptr
+            input_rate,
+            output_rate,
+            num_channels,
+        })
     }
 
     pub fn push(&mut self, input: &[i16]) -> Result<&[i16], String> {
@@ -134,7 +140,8 @@ impl SoxResampler {
             return Err(error_msg.to_string_lossy().to_string());
         }
 
-        Ok(&self.out_buf[..odone])
+        let output_samples = odone * self.num_channels as usize;
+        Ok(&self.out_buf[..output_samples])
     }
 }
 

@@ -110,6 +110,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=webrtc");
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
@@ -128,13 +129,62 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=dylib=shcore");
 
-            builder.flag("/std:c++20").flag("/EHsc");
+            //let path = env::current_dir().unwrap();
+            //println!("cargo:rustc-link-search=native={}/vaapi-windows/x64/lib", path.display());
+            //println!("cargo:rustc-link-lib=dylib=va");
+            //println!("cargo:rustc-link-lib=dylib=va_win32");
+
+            builder
+                //.include("./vaapi-windows/DirectX-Headers-1.0/include")
+                //.include(path::PathBuf::from("./vaapi-windows/x64/include"))
+                //.file("vaapi-windows/DirectX-Headers-1.0/src/dxguids.cpp")
+                //.file("src/vaapi/vaapi_display_win32.cpp")
+                //.file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                //.file("src/vaapi/vaapi_encoder_factory.cpp")
+                //.file("src/vaapi/h264_encoder_impl.cpp")
+                .flag("/std:c++20")
+                //.flag("/wd4819")
+                //.flag("/wd4068")
+                .flag("/EHsc");
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=rt");
             println!("cargo:rustc-link-lib=dylib=dl");
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
+
+            match target_arch.as_str() {
+                "x86_64" => {
+                    builder
+                        .file("src/vaapi/vaapi_display_drm.cpp")
+                        .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                        .file("src/vaapi/vaapi_encoder_factory.cpp")
+                        .file("src/vaapi/h264_encoder_impl.cpp")
+                        .file("src/vaapi/implib/libva-drm.so.init.c")
+                        .file("src/vaapi/implib/libva-drm.so.tramp.S")
+                        .file("src/vaapi/implib/libva.so.init.c")
+                        .file("src/vaapi/implib/libva.so.tramp.S");
+
+                    builder
+                        .flag("-I/usr/local/cuda/include")
+                        .flag("-Isrc/nvidia/NvCodec/include")
+                        .flag("-Isrc/nvidia/NvCodec/NvCodec")
+                        .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
+                        .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
+                        .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
+                        .file("src/nvidia/h264_encoder_impl.cpp")
+                        .file("src/nvidia/h264_decoder_impl.cpp")
+                        .file("src/nvidia/nvidia_decoder_factory.cpp")
+                        .file("src/nvidia/nvidia_encoder_factory.cpp")
+                        .file("src/nvidia/cuda_context.cpp")
+                        .file("src/nvidia/implib/libcuda.so.init.c")
+                        .file("src/nvidia/implib/libcuda.so.tramp.S")
+                        .file("src/nvidia/implib/libnvcuvid.so.init.c")
+                        .file("src/nvidia/implib/libnvcuvid.so.tramp.S")
+                        .flag("-Wno-deprecated-declarations");
+                }
+                _ => {}
+            }
 
             builder.flag("-std=c++2a");
         }

@@ -34,6 +34,13 @@ impl RegionUrlProvider {
                 .send()
                 .await
                 .map_err(|e| SignalError::RegionError(e.to_string()))?;
+
+            if !res.status().is_success() {
+                return Err(SignalError::Client(
+                    res.status(),
+                    res.text().await.unwrap_or_default(),
+                ));
+            }
             let res = res
                 .json::<RegionUrlResponse>()
                 .await
