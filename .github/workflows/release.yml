@@ -28,6 +28,8 @@ jobs:
           submodules: recursive
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Install va-api/nvidia deps
+        run: yum install libva-devel libdrm-devel libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
       - name: Run release-plz
         uses: release-plz/action@v0.5
         id: release-plz
