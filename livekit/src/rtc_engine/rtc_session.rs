@@ -703,12 +703,12 @@ impl SessionInner {
                                 DataPacketKind::Lossy => {
                                     lossy_queue.push_back(request);
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(DataPacketKind::Lossy, threshold, &mut lossy_buffered_amount, &mut lossy_queue);
+                                    self._send_until_threshold(DataPacketKind::Lossy, threshold, &mut lossy_buffered_amount, &mut lossy_queue, &mut retry_queue);
                                 }
                                 DataPacketKind::Reliable => {
                                     reliable_queue.push_back(request);
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue);
+                                    self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue, &mut retry_queue);
                                 }
                             }
                         }
@@ -723,7 +723,7 @@ impl SessionInner {
                                         lossy_buffered_amount -= sent;
                                     }
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(DataPacketKind::Lossy, threshold, &mut lossy_buffered_amount, &mut lossy_queue);
+                                    self._send_until_threshold(DataPacketKind::Lossy, threshold, &mut lossy_buffered_amount, &mut lossy_queue, &mut retry_queue);
                                 }
                                 DataPacketKind::Reliable => {
                                     if reliable_buffered_amount < sent {
@@ -733,10 +733,8 @@ impl SessionInner {
                                         reliable_buffered_amount -= sent;
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue);
-                                    // TODO: Ensure this is the proper quantity
-                                    let retry_min_amount = (threshold as usize * 5) / 4; // threshold * 1.25
-                                    retry_queue.trim((sent as usize) + retry_min_amount);
+                                    self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue, &mut retry_queue);
+                                    retry_queue.trim(sent as usize);
                                 }
                             }
                         }
@@ -761,24 +759,26 @@ impl SessionInner {
         kind: DataPacketKind,
         threshold: u64,
         buffered_amount: &mut u64,
-        queue: &mut VecDeque<PublishDataRequest>,
+        request_queue: &mut VecDeque<PublishDataRequest>,
+        retry_queue: &mut TxQueue<EncodedPacket>,
     ) {
         while *buffered_amount <= threshold {
-            let Some(request) = queue.pop_front() else {
+            let Some(request) = request_queue.pop_front() else {
                 break;
             };
-            let data = request.encoded_packet.data;
-            *buffered_amount += data.len() as u64;
+            *buffered_amount += request.encoded_packet.data.len() as u64;
             let result = self
                 .data_channel(SignalTarget::Publisher, kind)
                 .unwrap()
-                .send(&data, true)
+                .send(&request.encoded_packet.data, true)
                 .map_err(|err| {
                     EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
                 });
-
             if let Some(completion_tx) = request.completion_tx {
                 _ = completion_tx.send(result);
+            }
+            if kind == DataPacketKind::Reliable {
+                retry_queue.enqueue(request.encoded_packet);
             }
         }
     }
@@ -786,9 +786,9 @@ impl SessionInner {
     fn _enqueue_for_retry_from(
         self: &Arc<Self>,
         last_sequence: u32,
-        queue: &mut TxQueue<EncodedPacket>,
+        retry_queue: &mut TxQueue<EncodedPacket>,
     ) {
-        if let Some(first) = queue.peek() {
+        if let Some(first) = retry_queue.peek() {
             if first.sequence > last_sequence + 1 {
                 log::warn!(
                     "Wrong packet sequence while retrying: {} > {}, {} packets missing",
@@ -798,7 +798,8 @@ impl SessionInner {
                 );
             }
         }
-        while let Some(encoded_packet) = queue.dequeue() {
+
+        while let Some(encoded_packet) = retry_queue.dequeue() {
             if encoded_packet.sequence <= last_sequence {
                 continue;
             };
