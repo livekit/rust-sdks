@@ -85,6 +85,7 @@ pub struct TrackPublishOptions {
     // pub name: String,
     pub source: TrackSource,
     pub stream: String,
+    pub preconnect_buffer: bool,
 }
 
 impl Default for TrackPublishOptions {
@@ -98,6 +99,7 @@ impl Default for TrackPublishOptions {
             simulcast: true,
             source: TrackSource::Unknown,
             stream: "".to_string(),
+            preconnect_buffer: false,
         }
     }
 }
