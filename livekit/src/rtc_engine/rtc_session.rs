@@ -16,9 +16,8 @@ use std::{
     collections::{HashMap, VecDeque},
     convert::TryInto,
     fmt::Debug,
-    ops::Not,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -38,7 +37,14 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
-use crate::{id::ParticipantIdentity, ChatMessage, TranscriptionSegment};
+use crate::{
+    id::ParticipantIdentity,
+    utils::{
+        ttl_map::TtlMap,
+        tx_queue::{TxQueue, TxQueueItem},
+    },
+    ChatMessage, TranscriptionSegment,
+};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -57,6 +63,7 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
 
@@ -187,9 +194,62 @@ pub enum SessionEvent {
 }
 
 #[derive(Debug)]
-enum DataChannelEvent {
-    PublishData(proto::DataPacket, DataPacketKind, oneshot::Sender<Result<(), EngineError>>),
-    BufferedAmountChange(u64, DataPacketKind),
+struct DataChannelEvent {
+    kind: DataPacketKind,
+    detail: DataChannelEventDetail,
+}
+
+#[derive(Debug)]
+enum DataChannelEventDetail {
+    /// Publish data packet.
+    PublishPacket(PublishPacketRequest),
+    /// Publish data packet that has already been encoded.
+    PublishData(PublishDataRequest),
+    /// RTC buffered amount changed.
+    BufferedAmountChange(u64),
+    /// Enqueue reliable packets for retry starting from the given sequence number.
+    RetryFrom(u32),
+}
+
+#[derive(Debug)]
+struct PublishPacketRequest {
+    /// Unencoded data packewt.
+    packet: proto::DataPacket,
+
+    /// Notifies the caller once the request has been fulfilled.
+    completion_tx: oneshot::Sender<Result<(), EngineError>>,
+}
+
+#[derive(Debug)]
+struct PublishDataRequest {
+    /// Encoded data packet.
+    encoded_packet: EncodedPacket,
+
+    /// Notifies the caller once the request has been fulfilled.
+    ///
+    /// For retries, this will be `None`.
+    ///
+    completion_tx: Option<oneshot::Sender<Result<(), EngineError>>>,
+}
+
+#[derive(Debug)]
+struct EncodedPacket {
+    /// Encoded packet data.
+    data: Vec<u8>,
+    /// Packet's sequence number from [`proto::DataPacket::sequence`].
+    sequence: u32,
+}
+
+impl Into<EncodedPacket> for proto::DataPacket {
+    fn into(self) -> EncodedPacket {
+        EncodedPacket { data: self.encode_to_vec(), sequence: self.sequence }
+    }
+}
+
+impl TxQueueItem for EncodedPacket {
+    fn buffered_size(&self) -> usize {
+        self.data.len()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -217,6 +277,15 @@ struct SessionInner {
     lossy_dc_buffered_amount_low_threshold: AtomicU64,
     reliable_dc: DataChannel,
     reliable_dc_buffered_amount_low_threshold: AtomicU64,
+
+    /// Next sequence number for reliable packets.
+    next_packet_sequence: AtomicU32,
+
+    /// Time to live (TTL) map between publisher SID and last sequence number.
+    packet_rx_state: Mutex<TtlMap<String, u32>>,
+
+    participant_info: SessionParticipantInfo,
+
     dc_emitter: mpsc::UnboundedSender<DataChannelEvent>,
 
     // Keep a strong reference to the subscriber datachannels,
@@ -232,6 +301,24 @@ struct SessionInner {
     negotiation_queue: NegotiationQueue,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
+}
+
+/// Information about the local participant needed for outgoing
+/// data packets.
+struct SessionParticipantInfo {
+    sid: ParticipantSid,
+    identity: ParticipantIdentity,
+}
+
+impl SessionParticipantInfo {
+    /// Extracts participant info from a join response.
+    fn from_join(join_response: &proto::JoinResponse) -> Option<Self> {
+        let Some(info) = &join_response.participant else { None? };
+        Some(Self {
+            sid: info.sid.clone().try_into().ok()?,
+            identity: info.identity.clone().try_into().ok()?,
+        })
+    }
 }
 
 /// This struct holds a WebRTC session
@@ -268,6 +355,10 @@ impl RtcSession {
             SignalClient::connect(url, token, options.signal_options.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
+
+        let Some(participant_info) = SessionParticipantInfo::from_join(&join_response) else {
+            Err(EngineError::Internal("Join response missing participant info".into()))?
+        };
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
         let rtc_config = make_rtc_config_join(join_response.clone(), options.rtc_config.clone());
@@ -322,6 +413,9 @@ impl RtcSession {
             reliable_dc_buffered_amount_low_threshold: AtomicU64::new(
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
+            next_packet_sequence: 1.into(),
+            packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
+            participant_info,
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
@@ -470,6 +564,10 @@ impl RtcSession {
             .send(SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold });
     }
 
+    pub fn data_channel_receive_states(&self) -> Vec<proto::DataChannelReceiveState> {
+        self.inner.data_channel_receive_states()
+    }
+
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         self.inner.get_response(request_id).await
     }
@@ -574,6 +672,7 @@ impl SessionInner {
         let mut reliable_buffered_amount = 0;
         let mut lossy_queue = VecDeque::new();
         let mut reliable_queue = VecDeque::new();
+        let mut retry_queue = TxQueue::new();
 
         loop {
             tokio::select! {
@@ -583,24 +682,38 @@ impl SessionInner {
                         break;
                     };
 
-                    match event {
-                        DataChannelEvent::PublishData(packet, kind, tx) => {
-                            let data = packet.encode_to_vec();
-                            match kind {
+                    match event.detail {
+                        DataChannelEventDetail::PublishPacket(mut request) => {
+                            if event.kind == DataPacketKind::Reliable {
+                                request.packet.sequence = self.next_packet_sequence.fetch_add(1, Ordering::Relaxed);
+                            }
+                            let ev = DataChannelEvent {
+                                kind: event.kind,
+                                detail: DataChannelEventDetail::PublishData(PublishDataRequest {
+                                    encoded_packet: request.packet.into(),
+                                    completion_tx: request.completion_tx.into()
+                                })
+                            };
+                            if let Err(err) = self.dc_emitter.send(ev) {
+                                log::error!("Failed to enqueue send data request: {}", err)
+                            }
+                        }
+                        DataChannelEventDetail::PublishData(request) => {
+                            match event.kind {
                                 DataPacketKind::Lossy => {
-                                    lossy_queue.push_back((data, kind, tx));
+                                    lossy_queue.push_back(request);
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut lossy_buffered_amount, &mut lossy_queue);
+                                    self._send_until_threshold(DataPacketKind::Lossy, threshold, &mut lossy_buffered_amount, &mut lossy_queue, &mut retry_queue);
                                 }
                                 DataPacketKind::Reliable => {
-                                    reliable_queue.push_back((data, kind, tx));
+                                    reliable_queue.push_back(request);
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut reliable_buffered_amount, &mut reliable_queue);
+                                    self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue, &mut retry_queue);
                                 }
                             }
                         }
-                        DataChannelEvent::BufferedAmountChange(sent, kind) => {
-                            match kind {
+                        DataChannelEventDetail::BufferedAmountChange(sent) => {
+                            match event.kind {
                                 DataPacketKind::Lossy => {
                                     if lossy_buffered_amount < sent {
                                         // I believe never reach here but adding logs just in case
@@ -610,7 +723,7 @@ impl SessionInner {
                                         lossy_buffered_amount -= sent;
                                     }
                                     let threshold = self.lossy_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut lossy_buffered_amount, &mut lossy_queue);
+                                    self._send_until_threshold(DataPacketKind::Lossy, threshold, &mut lossy_buffered_amount, &mut lossy_queue, &mut retry_queue);
                                 }
                                 DataPacketKind::Reliable => {
                                     if reliable_buffered_amount < sent {
@@ -620,9 +733,14 @@ impl SessionInner {
                                         reliable_buffered_amount -= sent;
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
-                                    self._send_until_threshold(threshold, &mut reliable_buffered_amount, &mut reliable_queue);
+                                    self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue, &mut retry_queue);
+                                    retry_queue.trim(sent as usize);
                                 }
                             }
+                        }
+                        DataChannelEventDetail::RetryFrom(last_sequence) => {
+                            assert!(event.kind == DataPacketKind::Reliable);
+                            self._enqueue_for_retry_from(last_sequence, &mut retry_queue);
                         }
                     }
                 },
@@ -638,26 +756,80 @@ impl SessionInner {
 
     fn _send_until_threshold(
         self: &Arc<Self>,
+        kind: DataPacketKind,
         threshold: u64,
         buffered_amount: &mut u64,
-        queue: &mut VecDeque<(Vec<u8>, DataPacketKind, oneshot::Sender<Result<(), EngineError>>)>,
+        request_queue: &mut VecDeque<PublishDataRequest>,
+        retry_queue: &mut TxQueue<EncodedPacket>,
     ) {
         while *buffered_amount <= threshold {
-            let Some((data, kind, tx)) = queue.pop_front() else {
+            let Some(request) = request_queue.pop_front() else {
                 break;
             };
-
-            *buffered_amount += data.len() as u64;
+            *buffered_amount += request.encoded_packet.data.len() as u64;
             let result = self
                 .data_channel(SignalTarget::Publisher, kind)
                 .unwrap()
-                .send(&data, true)
+                .send(&request.encoded_packet.data, true)
                 .map_err(|err| {
                     EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
                 });
-
-            let _ = tx.send(result);
+            if let Some(completion_tx) = request.completion_tx {
+                _ = completion_tx.send(result);
+            }
+            if kind == DataPacketKind::Reliable {
+                retry_queue.enqueue(request.encoded_packet);
+            }
         }
+    }
+
+    fn _enqueue_for_retry_from(
+        self: &Arc<Self>,
+        last_sequence: u32,
+        retry_queue: &mut TxQueue<EncodedPacket>,
+    ) {
+        if let Some(first) = retry_queue.peek() {
+            if first.sequence > last_sequence + 1 {
+                log::warn!(
+                    "Wrong packet sequence while retrying: {} > {}, {} packets missing",
+                    first.sequence,
+                    last_sequence + 1,
+                    first.sequence - last_sequence - 1
+                );
+            }
+        }
+
+        while let Some(encoded_packet) = retry_queue.dequeue() {
+            if encoded_packet.sequence <= last_sequence {
+                continue;
+            };
+            let ev = DataChannelEvent {
+                kind: DataPacketKind::Reliable,
+                detail: DataChannelEventDetail::PublishData(PublishDataRequest {
+                    encoded_packet,
+                    completion_tx: None,
+                }),
+            };
+            if let Err(err) = self.dc_emitter.send(ev) {
+                log::error!("Failed to enqueue data for retry: {}", err);
+            }
+        }
+    }
+
+    /// Updates the packet receive state (TTL map) for reliable packets.
+    fn update_packet_rx_state(&self, packet: &proto::DataPacket) {
+        if packet.sequence <= 0 || packet.participant_sid.is_empty() {
+            return;
+        };
+        let mut rx_state = self.packet_rx_state.lock();
+        if rx_state
+            .get(&packet.participant_sid)
+            .is_some_and(|&last_sequence| packet.sequence <= last_sequence)
+        {
+            log::warn!("Ignoring duplicate/out-of-order reliable data message");
+            return;
+        }
+        rx_state.set(&packet.participant_sid, Some(packet.sequence));
     }
 
     async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
@@ -825,155 +997,147 @@ impl SessionInner {
                     log::warn!("Track event with no streams");
                 }
             }
-            RtcEvent::Data { data, binary } => {
+            RtcEvent::Data { data, binary, kind } => {
                 if !binary {
                     Err(EngineError::Internal("text messages aren't supported".into()))?;
                 }
-
-                let data = proto::DataPacket::decode(&*data).unwrap();
-                if let Some(packet) = data.value.as_ref() {
-                    match packet {
-                        proto::data_packet::Value::User(user) => {
-                            let participant_sid = user
-                                .participant_sid
-                                .is_empty()
-                                .not()
-                                .then_some(user.participant_sid.clone());
-
-                            let participant_identity = if !data.participant_identity.is_empty() {
-                                Some(data.participant_identity.clone())
-                            } else if !user.participant_identity.is_empty() {
-                                Some(user.participant_identity.clone())
-                            } else {
-                                None
-                            };
-
-                            let _ = self.emitter.send(SessionEvent::Data {
-                                kind: data.kind().into(),
-                                participant_sid: participant_sid.map(|s| s.try_into().unwrap()),
-                                participant_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
-                                payload: user.payload.clone(),
-                                topic: user.topic.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::SipDtmf(dtmf) => {
-                            let participant_identity = data
-                                .participant_identity
-                                .is_empty()
-                                .not()
-                                .then_some(data.participant_identity.clone());
-                            let digit = dtmf.digit.is_empty().not().then_some(dtmf.digit.clone());
-
-                            let _ = self.emitter.send(SessionEvent::SipDTMF {
-                                participant_identity: participant_identity
-                                    .map(|s| s.try_into().unwrap()),
-                                digit: digit.map(|s| s.try_into().unwrap()),
-                                code: dtmf.code,
-                            });
-                        }
-                        proto::data_packet::Value::Speaker(_) => {}
-                        proto::data_packet::Value::Transcription(transcription) => {
-                            let track_sid = transcription.track_id.clone();
-                            // let segments = transcription.segments.clone();
-                            let segments = transcription
-                                .segments
-                                .iter()
-                                .map(|s| TranscriptionSegment {
-                                    id: s.id.clone(),
-                                    start_time: s.start_time,
-                                    end_time: s.end_time,
-                                    text: s.text.clone(),
-                                    language: s.language.clone(),
-                                    r#final: s.r#final,
-                                })
-                                .collect();
-                            let participant_identity: ParticipantIdentity =
-                                transcription.transcribed_participant_identity.clone().into();
-                            let _ = self.emitter.send(SessionEvent::Transcription {
-                                participant_identity,
-                                track_sid,
-                                segments,
-                            });
-                        }
-                        proto::data_packet::Value::RpcRequest(rpc_request) => {
-                            let caller_identity = data
-                                .participant_identity
-                                .is_empty()
-                                .not()
-                                .then_some(data.participant_identity.clone())
-                                .map(|s| s.try_into().unwrap());
-                            let _ = self.emitter.send(SessionEvent::RpcRequest {
-                                caller_identity,
-                                request_id: rpc_request.id.clone(),
-                                method: rpc_request.method.clone(),
-                                payload: rpc_request.payload.clone(),
-                                response_timeout: Duration::from_millis(
-                                    rpc_request.response_timeout_ms as u64,
-                                ),
-                                version: rpc_request.version,
-                            });
-                        }
-                        proto::data_packet::Value::RpcResponse(rpc_response) => {
-                            let _ = self.emitter.send(SessionEvent::RpcResponse {
-                                request_id: rpc_response.request_id.clone(),
-                                payload: rpc_response.value.as_ref().and_then(|v| match v {
-                                    proto::rpc_response::Value::Payload(payload) => {
-                                        Some(payload.clone())
-                                    }
-                                    _ => None,
-                                }),
-                                error: rpc_response.value.as_ref().and_then(|v| match v {
-                                    proto::rpc_response::Value::Error(error) => Some(error.clone()),
-                                    _ => None,
-                                }),
-                            });
-                        }
-                        proto::data_packet::Value::RpcAck(rpc_ack) => {
-                            let _ = self.emitter.send(SessionEvent::RpcAck {
-                                request_id: rpc_ack.request_id.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::ChatMessage(message) => {
-                            let _ = self.emitter.send(SessionEvent::ChatMessage {
-                                participant_identity: ParticipantIdentity(
-                                    data.participant_identity,
-                                ),
-                                message: ChatMessage::from(message.clone()),
-                            });
-                        }
-                        proto::data_packet::Value::StreamHeader(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamHeader {
-                                header: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::StreamChunk(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamChunk {
-                                chunk: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        proto::data_packet::Value::StreamTrailer(message) => {
-                            let _ = self.emitter.send(SessionEvent::DataStreamTrailer {
-                                trailer: message.clone(),
-                                participant_identity: data.participant_identity.clone(),
-                            });
-                        }
-                        _ => {}
-                    }
+                let mut packet = proto::DataPacket::decode(&*data).map_err(|err| {
+                    EngineError::Internal(format!("failed to decode data packet: {}", err).into())
+                })?;
+                if kind == DataPacketKind::Reliable {
+                    self.update_packet_rx_state(&packet);
+                }
+                if let Some(detail) = packet.value.take() {
+                    self.emit_incoming_packet(kind, packet, detail);
                 }
             }
             RtcEvent::DataChannelBufferedAmountChange { sent, amount: _, kind } => {
-                if let Err(err) =
-                    self.dc_emitter.send(DataChannelEvent::BufferedAmountChange(sent, kind))
-                {
+                let ev = DataChannelEvent {
+                    kind,
+                    detail: DataChannelEventDetail::BufferedAmountChange(sent),
+                };
+                if let Err(err) = self.dc_emitter.send(ev) {
                     log::error!("failed to send dc_event buffer_amount_change: {:?}", err);
                 }
             }
         }
 
         Ok(())
+    }
+
+    fn emit_incoming_packet(
+        &self,
+        kind: DataPacketKind,
+        packet: proto::DataPacket,
+        value: proto::data_packet::Value,
+    ) {
+        // TODO: Standardize how participant identity is emitted in events;
+        // Option<ParticipantIdentity>, ParticipantIdentity, and String are all used.
+        let participant_sid: Option<ParticipantSid> = packet.participant_sid.try_into().ok();
+        let participant_identity: Option<ParticipantIdentity> =
+            packet.participant_identity.try_into().ok();
+
+        let send_result = match value {
+            proto::data_packet::Value::User(user) => {
+                // Participant SID and identity used to be defined on user packet, but
+                // they have been moved to the packet root. For backwards compatibility,
+                // we take the user packet's values if the top-level fields are not set.
+                let participant_sid = participant_sid
+                    .is_none()
+                    .then_some(user.participant_sid)
+                    .and_then(|sid| sid.try_into().ok());
+                let participant_identity = participant_identity
+                    .is_none()
+                    .then_some(user.participant_identity)
+                    .and_then(|identity| identity.try_into().ok());
+
+                self.emitter.send(SessionEvent::Data {
+                    kind,
+                    participant_sid,
+                    participant_identity,
+                    payload: user.payload,
+                    topic: user.topic,
+                })
+            }
+            proto::data_packet::Value::SipDtmf(dtmf) => self.emitter.send(SessionEvent::SipDTMF {
+                participant_identity,
+                digit: (!dtmf.digit.is_empty()).then_some(dtmf.digit),
+                code: dtmf.code,
+            }),
+            proto::data_packet::Value::Transcription(transcription) => {
+                let segments = transcription
+                    .segments
+                    .into_iter()
+                    .map(|s| TranscriptionSegment {
+                        id: s.id,
+                        start_time: s.start_time,
+                        end_time: s.end_time,
+                        text: s.text,
+                        language: s.language,
+                        r#final: s.r#final,
+                    })
+                    .collect();
+                let participant_identity = transcription.transcribed_participant_identity.into();
+
+                self.emitter.send(SessionEvent::Transcription {
+                    participant_identity,
+                    track_sid: transcription.track_id,
+                    segments,
+                })
+            }
+            proto::data_packet::Value::RpcRequest(rpc_request) => {
+                let caller_identity = participant_identity;
+                self.emitter.send(SessionEvent::RpcRequest {
+                    caller_identity,
+                    request_id: rpc_request.id,
+                    method: rpc_request.method,
+                    payload: rpc_request.payload,
+                    response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
+                    version: rpc_request.version,
+                })
+            }
+            proto::data_packet::Value::RpcResponse(rpc_response) => {
+                let (payload, error) = match rpc_response.value {
+                    None => (None, None),
+                    Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
+                    Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
+                };
+                self.emitter.send(SessionEvent::RpcResponse {
+                    request_id: rpc_response.request_id,
+                    payload,
+                    error,
+                })
+            }
+            proto::data_packet::Value::RpcAck(rpc_ack) => {
+                self.emitter.send(SessionEvent::RpcAck { request_id: rpc_ack.request_id })
+            }
+            proto::data_packet::Value::ChatMessage(message) => {
+                self.emitter.send(SessionEvent::ChatMessage {
+                    participant_identity: participant_identity
+                        .unwrap_or(ParticipantIdentity("".into())),
+                    message: ChatMessage::from(message),
+                })
+            }
+            proto::data_packet::Value::StreamHeader(header) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamHeader { header, participant_identity })
+            }
+            proto::data_packet::Value::StreamChunk(chunk) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamChunk { chunk, participant_identity })
+            }
+            proto::data_packet::Value::StreamTrailer(trailer) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamTrailer { trailer, participant_identity })
+            }
+            _ => Ok(()),
+        };
+        if let Err(err) = send_result {
+            log::error!("failed to emit incoming data packet: {:?}", err);
+        }
     }
 
     async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -1178,18 +1342,29 @@ impl SessionInner {
 
     async fn publish_data(
         self: &Arc<Self>,
-        data: proto::DataPacket,
+        mut packet: proto::DataPacket,
         kind: DataPacketKind,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
 
-        let (tx, rx) = oneshot::channel();
-        if let Err(err) = self.dc_emitter.send(DataChannelEvent::PublishData(data, kind, tx)) {
+        // Populate local participant info fields
+        packet.participant_identity = self.participant_info.identity.to_string();
+        packet.participant_sid = self.participant_info.sid.to_string();
+
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let ev = DataChannelEvent {
+            kind,
+            detail: DataChannelEventDetail::PublishPacket(PublishPacketRequest {
+                packet,
+                completion_tx,
+            }),
+        };
+        if let Err(err) = self.dc_emitter.send(ev) {
             return Err(EngineError::Internal(
-                format!("failed to push data into queue: {:?}", err).into(),
+                format!("Failed to enqueue publish packet request: {:?}", err).into(),
             ));
         };
-        rx.await.map_err(|e| {
+        completion_rx.await.map_err(|e| {
             EngineError::Internal(format!("failed to receive data from dc_task: {:?}", e).into())
         })?
     }
@@ -1204,6 +1379,14 @@ impl SessionInner {
             make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());
         self.publisher_pc.peer_connection().set_configuration(rtc_config.clone())?;
         self.subscriber_pc.peer_connection().set_configuration(rtc_config)?;
+
+        let ev = DataChannelEvent {
+            kind: DataPacketKind::Reliable,
+            detail: DataChannelEventDetail::RetryFrom(reconnect_response.last_message_seq),
+        };
+        if let Err(err) = self.dc_emitter.send(ev) {
+            log::error!("Failed to request reliable retry: {:?}", err);
+        }
 
         Ok(reconnect_response)
     }
@@ -1411,6 +1594,17 @@ impl SessionInner {
         } else {
             unreachable!()
         }
+    }
+
+    fn data_channel_receive_states(self: &Arc<Self>) -> Vec<proto::DataChannelReceiveState> {
+        let mut state = self.packet_rx_state.lock();
+        state
+            .iter()
+            .map(|(publisher_sid, last_seq)| proto::DataChannelReceiveState {
+                publisher_sid: publisher_sid.to_string(),
+                last_seq: *last_seq,
+            })
+            .collect()
     }
 
     async fn get_response(&self, request_id: u32) -> proto::RequestResponse {

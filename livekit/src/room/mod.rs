@@ -354,14 +354,6 @@ pub struct RoomOptions {
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
-    pub preregistration: Option<PreRegistration>,
-}
-
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct PreRegistration {
-    text_stream_topics: Vec<String>,
-    byte_stream_topics: Vec<String>,
 }
 
 impl Default for RoomOptions {
@@ -381,7 +373,6 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
-            preregistration: None,
         }
     }
 }
@@ -577,8 +568,6 @@ impl Room {
         let (incoming_stream_manager, open_rx) = IncomingStreamManager::new();
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
 
-        let identity = local_participant.identity().clone();
-
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
             sid_promise: Promise::new(),
@@ -671,7 +660,6 @@ impl Room {
         ));
         let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
             packet_rx,
-            identity,
             rtc_engine.clone(),
             close_rx.resubscribe(),
         ));
@@ -1187,8 +1175,7 @@ impl RoomSession {
             }),
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
-            // unimplemented, stubbed for now
-            datachannel_receive_states: Vec::new(),
+            datachannel_receive_states: session.data_channel_receive_states(),
         };
 
         log::debug!("sending sync state {:?}", sync_state);
@@ -1737,15 +1724,12 @@ async fn incoming_data_stream_task(
 /// Receives packets from the outgoing stream manager and send them.
 async fn outgoing_data_stream_task(
     mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
-    participant_identity: ParticipantIdentity,
     engine: Arc<RtcEngine>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
     loop {
         tokio::select! {
-            Ok((mut packet, responder)) = packet_rx.recv() => {
-                // Set packet's participant identity field
-                packet.participant_identity = participant_identity.0.clone();
+            Ok((packet, responder)) = packet_rx.recv() => {
                 let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
                 let _ = responder.respond(result);
             },
