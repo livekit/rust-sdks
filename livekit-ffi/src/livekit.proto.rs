@@ -3256,6 +3256,8 @@ pub struct TrackPublishOptions {
     pub source: ::core::option::Option<i32>,
     #[prost(string, optional, tag="8")]
     pub stream: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, optional, tag="9")]
+    pub preconnect_buffer: ::core::option::Option<bool>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

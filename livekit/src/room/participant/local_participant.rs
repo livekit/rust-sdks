@@ -245,6 +245,10 @@ impl LocalParticipant {
             ..Default::default()
         };
 
+        if options.preconnect_buffer {
+            req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
+        }
+
         let mut encodings = Vec::default();
         match &track {
             LocalTrack::Video(video_track) => {
