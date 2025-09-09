@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.11](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.10...rust-sdks/webrtc-sys@0.3.11) - 2025-09-09
+
+### Other
+
+- Optional flags for video hw codec. ([#701](https://github.com/livekit/rust-sdks/pull/701))
+
 ## [0.3.10](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.9...rust-sdks/webrtc-sys@0.3.10) - 2025-09-03
 
 ### Added
