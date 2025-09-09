@@ -155,6 +155,7 @@ fn main() {
 
             match target_arch.as_str() {
                 "x86_64" => {
+                    #[cfg(feature = "use_vaapi")]
                     builder
                         .file("src/vaapi/vaapi_display_drm.cpp")
                         .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
@@ -163,8 +164,10 @@ fn main() {
                         .file("src/vaapi/implib/libva-drm.so.init.c")
                         .file("src/vaapi/implib/libva-drm.so.tramp.S")
                         .file("src/vaapi/implib/libva.so.init.c")
-                        .file("src/vaapi/implib/libva.so.tramp.S");
+                        .file("src/vaapi/implib/libva.so.tramp.S")
+                        .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
 
+                    #[cfg(feature = "use_nvidia")]
                     builder
                         .flag("-I/usr/local/cuda/include")
                         .flag("-Isrc/nvidia/NvCodec/include")
@@ -181,7 +184,8 @@ fn main() {
                         .file("src/nvidia/implib/libcuda.so.tramp.S")
                         .file("src/nvidia/implib/libnvcuvid.so.init.c")
                         .file("src/nvidia/implib/libnvcuvid.so.tramp.S")
-                        .flag("-Wno-deprecated-declarations");
+                        .flag("-Wno-deprecated-declarations")
+                        .flag("-DUSE_NVIDIA_VIDEO_CODEC=1");
                 }
                 _ => {}
             }

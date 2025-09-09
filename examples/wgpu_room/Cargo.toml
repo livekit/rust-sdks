@@ -10,6 +10,7 @@ tracing = ["console-subscriber", "tokio/tracing"]
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
 livekit = { path = "../../livekit", features = ["native-tls"] }
+webrtc-sys = { path = "../../webrtc-sys", features = [ "use_vaapi", "use_nvidia" ] }
 futures = "0.3"
 winit = "0.30.11"
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
