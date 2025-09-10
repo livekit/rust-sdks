@@ -156,6 +156,28 @@ message StreamSendFileCallback {
     }
 }
 
+// MARK: - Send bytes
+
+// Sends bytes over a data stream.
+message StreamSendBytesRequest {
+    required uint64 local_participant_handle = 1;
+
+    required StreamByteOptions options = 2;
+
+    // Bytes to send.
+    required bytes bytes = 3;
+}
+message StreamSendBytesResponse {
+    required uint64 async_id = 1;
+}
+message StreamSendBytesCallback {
+    required uint64 async_id = 1;
+    oneof result {
+        ByteStreamInfo info = 2;
+        StreamError error = 3;
+    }
+}
+
 // MARK: - Send text
 
 // Sends text over a data stream.
