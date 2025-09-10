@@ -284,6 +284,7 @@ pub fn video_layers_from_encodings(
             height,
             bitrate: 0,
             ssrc: 0,
+            ..Default::default()
         }];
     }
 
@@ -298,6 +299,7 @@ pub fn video_layers_from_encodings(
             height: (height as f64 / scale) as u32,
             bitrate: encoding.max_bitrate.unwrap_or(0) as u32,
             ssrc: 0,
+            ..Default::default()
         });
     }
 
