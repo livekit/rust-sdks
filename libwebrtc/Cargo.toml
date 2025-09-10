@@ -1,6 +1,6 @@
 [package]
 name = "libwebrtc"
-version = "0.3.14"
+version = "0.3.15"
 edition = "2021"
 homepage = "https://livekit.io"
 license = "Apache-2.0"

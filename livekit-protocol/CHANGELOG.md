@@ -1,5 +1,19 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.5.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.4.0...rust-sdks/livekit-protocol@0.5.0) - 2025-09-10
+
+### Other
+
+- Upgrade protocol to v1.41.0 ([#703](https://github.com/livekit/rust-sdks/pull/703))
+# Changelog
+
 ## [0.4.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.3.10...rust-sdks/livekit-protocol@0.4.0) - 2025-06-17
 
 ### Other
