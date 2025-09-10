@@ -1,9 +1,11 @@
-#![allow(unused_imports)]
-use crate::common::test_rooms;
-use anyhow::{anyhow, Result};
-use livekit::{DataPacket, RoomEvent, SimulateScenario};
-use std::{sync::Arc, time::Duration};
-use tokio::{sync::oneshot, time};
+#[cfg(feature = "__lk-e2e-test")]
+use {
+    crate::common::test_rooms,
+    anyhow::{anyhow, Result},
+    livekit::{DataPacket, RoomEvent, SimulateScenario},
+    std::{sync::Arc, time::Duration},
+    tokio::{sync::oneshot, time}
+};
 
 mod common;
 

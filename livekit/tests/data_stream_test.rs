@@ -1,12 +1,15 @@
-#![allow(unused_imports)]
-use crate::common::test_rooms;
-use anyhow::{anyhow, Context, Ok, Result};
-use chrono::{TimeDelta, Utc};
-use livekit::{
-    OperationType, RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions, TextStreamInfo,
+#[cfg(feature = "__lk-e2e-test")]
+use {
+    crate::common::test_rooms,
+    anyhow::{anyhow, Context, Ok, Result},
+    chrono::{TimeDelta, Utc},
+    livekit::{
+        OperationType, RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions,
+        TextStreamInfo,
+    },
+    std::{sync::Mutex, time::Duration},
+    tokio::{time::timeout, try_join},
 };
-use std::{sync::Mutex, time::Duration};
-use tokio::{time::timeout, try_join};
 
 mod common;
 
