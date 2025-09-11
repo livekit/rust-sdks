@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use bmrng::unbounded::UnboundedRequestReceiver;
+use bytes::Bytes;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -184,6 +185,20 @@ pub enum RoomEvent {
     TextStreamOpened {
         reader: TakeCell<TextStreamReader>,
         topic: String,
+        participant_identity: ParticipantIdentity,
+    },
+    /// A byte buffer has been fully received from a remove participant
+    /// sent using [`LocalParticipant::send_bytes`].
+    BytesReceived {
+        bytes: Bytes,
+        info: ByteStreamInfo,
+        participant_identity: ParticipantIdentity,
+    },
+    /// A string has been fully received from a remove participant
+    /// sent using [`LocalParticipant::send_text`].
+    TextReceived {
+        text: String,
+        info: TextStreamInfo,
         participant_identity: ParticipantIdentity,
     },
     #[deprecated(note = "Use high-level data streams API instead.")]
@@ -1701,22 +1716,51 @@ async fn incoming_data_stream_task(
     loop {
         tokio::select! {
             Some((reader, identity)) = open_rx.recv() => {
-                match reader {
-                    AnyStreamReader::Byte(reader) => dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
-                        topic: reader.info().topic.clone(),
-                        reader: TakeCell::new(reader),
-                        participant_identity: ParticipantIdentity(identity)
-                    }),
-                    AnyStreamReader::Text(reader) => dispatcher.dispatch(&RoomEvent::TextStreamOpened {
-                        topic: reader.info().topic.clone(),
-                        reader: TakeCell::new(reader),
-                        participant_identity: ParticipantIdentity(identity)
-                    }),
+                if let Some(event) = event_for_incoming_stream(reader, identity).await {
+                    dispatcher.dispatch(&event)
                 }
             },
             _ = close_rx.recv() => {
                 break;
             }
+        }
+    }
+}
+
+async fn event_for_incoming_stream(reader: AnyStreamReader, identity: String) -> Option<RoomEvent> {
+    let participant_identity = ParticipantIdentity(identity);
+    match reader {
+        AnyStreamReader::Byte(reader) => {
+            if reader.info().attributes.contains_key("__push") {
+                // TODO: avoid cloning info
+                let info = reader.info().clone();
+                let Ok(bytes) = reader.read_all().await else {
+                    log::error!("Failed to read pushed bytes for stream '{}'", info.id);
+                    return None;
+                };
+                return Some(RoomEvent::BytesReceived { bytes, info, participant_identity });
+            }
+            Some(RoomEvent::ByteStreamOpened {
+                topic: reader.info().topic.clone(),
+                reader: TakeCell::new(reader),
+                participant_identity,
+            })
+        }
+        AnyStreamReader::Text(reader) => {
+            if reader.info().attributes.contains_key("__push") {
+                // TODO: avoid cloning info
+                let info = reader.info().clone();
+                let Ok(text) = reader.read_all().await else {
+                    log::error!("Failed to read pushed text for stream '{}'", info.id);
+                    return None;
+                };
+                return Some(RoomEvent::TextReceived { text, info, participant_identity });
+            }
+            Some(RoomEvent::TextStreamOpened {
+                topic: reader.info().topic.clone(),
+                reader: TakeCell::new(reader),
+                participant_identity,
+            })
         }
     }
 }

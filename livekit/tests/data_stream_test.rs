@@ -40,16 +40,12 @@ async fn test_send_bytes() -> Result<()> {
     };
     let receive_text = async move {
         while let Some(event) = receiving_event_rx.recv().await {
-            let RoomEvent::ByteStreamOpened { reader, topic, participant_identity } = event else {
+            let RoomEvent::BytesReceived { bytes, info, participant_identity } = event else {
                 continue;
             };
-            assert_eq!(topic, "some-topic");
+            assert_eq!(info.topic, "some-topic");
             assert_eq!(participant_identity, sender_identity);
-
-            let Some(reader) = reader.take() else {
-                return Err(anyhow!("Failed to take reader"));
-            };
-            assert_eq!(reader.read_all().await?, BYTES_TO_SEND);
+            assert_eq!(bytes, BYTES_TO_SEND);
             break;
         }
         Ok(())
@@ -85,16 +81,12 @@ async fn test_send_text() -> Result<()> {
     };
     let receive_text = async move {
         while let Some(event) = receiving_event_rx.recv().await {
-            let RoomEvent::TextStreamOpened { reader, topic, participant_identity } = event else {
+            let RoomEvent::TextReceived { text, info, participant_identity } = event else {
                 continue;
             };
-            assert_eq!(topic, "some-topic");
+            assert_eq!(info.topic, "some-topic");
             assert_eq!(participant_identity, sender_identity);
-
-            let Some(reader) = reader.take() else {
-                return Err(anyhow!("Failed to take reader"));
-            };
-            assert_eq!(reader.read_all().await?, TEXT_TO_SEND);
+            assert_eq!(text, TEXT_TO_SEND);
             break;
         }
         Ok(())
