@@ -5,6 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 description = "FFI interface for bindings in other languages"
 repository = "https://github.com/livekit/rust-sdks"
+readme = "README.md"
 
 [features]
 default = ["rustls-tls-native-roots"]

@@ -177,6 +177,26 @@ impl FfiParticipant {
         Ok(proto::StreamSendTextResponse { async_id })
     }
 
+    pub fn send_bytes(
+        &self,
+        server: &'static FfiServer,
+        request: proto::StreamSendBytesRequest,
+    ) -> FfiResult<proto::StreamSendBytesResponse> {
+        let async_id = server.next_id();
+        let local = self.guard_local_participant()?;
+
+        let handle = server.async_runtime.spawn(async move {
+            let result = match local.send_bytes(&request.bytes, request.options.into()).await {
+                Ok(info) => proto::stream_send_bytes_callback::Result::Info(info.into()),
+                Err(err) => proto::stream_send_bytes_callback::Result::Error(err.into()),
+            };
+            let callback = proto::StreamSendBytesCallback { async_id, result: Some(result) };
+            let _ = server.send_event(proto::ffi_event::Message::SendBytes(callback));
+        });
+        server.watch_panic(handle);
+        Ok(proto::StreamSendBytesResponse { async_id })
+    }
+
     pub fn stream_bytes(
         &self,
         server: &'static FfiServer,
