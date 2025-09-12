@@ -21,7 +21,7 @@
 namespace livekit {
 
 VideoFrameBuffer::VideoFrameBuffer(
-    rtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer)
+    webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer)
     : buffer_(std::move(buffer)) {}
 
 VideoFrameBufferType VideoFrameBuffer::buffer_type() const {
@@ -43,46 +43,46 @@ std::unique_ptr<I420Buffer> VideoFrameBuffer::to_i420() const {
 // const_cast is valid here because we take the ownership on the rust side
 std::unique_ptr<I420Buffer> VideoFrameBuffer::get_i420() {
   return std::make_unique<I420Buffer>(
-      rtc::scoped_refptr<webrtc::I420BufferInterface>(
+      webrtc::scoped_refptr<webrtc::I420BufferInterface>(
           const_cast<webrtc::I420BufferInterface*>(buffer_->GetI420())));
 }
 
 std::unique_ptr<I420ABuffer> VideoFrameBuffer::get_i420a() {
   return std::make_unique<I420ABuffer>(
-      rtc::scoped_refptr<webrtc::I420ABufferInterface>(
+      webrtc::scoped_refptr<webrtc::I420ABufferInterface>(
           const_cast<webrtc::I420ABufferInterface*>(buffer_->GetI420A())));
 }
 
 std::unique_ptr<I422Buffer> VideoFrameBuffer::get_i422() {
   return std::make_unique<I422Buffer>(
-      rtc::scoped_refptr<webrtc::I422BufferInterface>(
+      webrtc::scoped_refptr<webrtc::I422BufferInterface>(
           const_cast<webrtc::I422BufferInterface*>(buffer_->GetI422())));
 }
 
 std::unique_ptr<I444Buffer> VideoFrameBuffer::get_i444() {
   return std::make_unique<I444Buffer>(
-      rtc::scoped_refptr<webrtc::I444BufferInterface>(
+      webrtc::scoped_refptr<webrtc::I444BufferInterface>(
           const_cast<webrtc::I444BufferInterface*>(buffer_->GetI444())));
 }
 
 std::unique_ptr<I010Buffer> VideoFrameBuffer::get_i010() {
   return std::make_unique<I010Buffer>(
-      rtc::scoped_refptr<webrtc::I010BufferInterface>(
+      webrtc::scoped_refptr<webrtc::I010BufferInterface>(
           const_cast<webrtc::I010BufferInterface*>(buffer_->GetI010())));
 }
 
 std::unique_ptr<NV12Buffer> VideoFrameBuffer::get_nv12() {
   return std::make_unique<NV12Buffer>(
-      rtc::scoped_refptr<webrtc::NV12BufferInterface>(
+      webrtc::scoped_refptr<webrtc::NV12BufferInterface>(
           const_cast<webrtc::NV12BufferInterface*>(buffer_->GetNV12())));
 }
 
-rtc::scoped_refptr<webrtc::VideoFrameBuffer> VideoFrameBuffer::get() const {
+webrtc::scoped_refptr<webrtc::VideoFrameBuffer> VideoFrameBuffer::get() const {
   return buffer_;
 }
 
 PlanarYuvBuffer::PlanarYuvBuffer(
-    rtc::scoped_refptr<webrtc::PlanarYuvBuffer> buffer)
+    webrtc::scoped_refptr<webrtc::PlanarYuvBuffer> buffer)
     : VideoFrameBuffer(buffer) {}
 
 unsigned int PlanarYuvBuffer::chroma_width() const {
@@ -110,7 +110,7 @@ webrtc::PlanarYuvBuffer* PlanarYuvBuffer::buffer() const {
 }
 
 PlanarYuv8Buffer::PlanarYuv8Buffer(
-    rtc::scoped_refptr<webrtc::PlanarYuv8Buffer> buffer)
+    webrtc::scoped_refptr<webrtc::PlanarYuv8Buffer> buffer)
     : PlanarYuvBuffer(buffer) {}
 
 const uint8_t* PlanarYuv8Buffer::data_y() const {
@@ -130,7 +130,7 @@ webrtc::PlanarYuv8Buffer* PlanarYuv8Buffer::buffer() const {
 }
 
 PlanarYuv16BBuffer::PlanarYuv16BBuffer(
-    rtc::scoped_refptr<webrtc::PlanarYuv16BBuffer> buffer)
+    webrtc::scoped_refptr<webrtc::PlanarYuv16BBuffer> buffer)
     : PlanarYuvBuffer(buffer) {}
 
 const uint16_t* PlanarYuv16BBuffer::data_y() const {
@@ -150,7 +150,7 @@ webrtc::PlanarYuv16BBuffer* PlanarYuv16BBuffer::buffer() const {
 }
 
 BiplanarYuvBuffer::BiplanarYuvBuffer(
-    rtc::scoped_refptr<webrtc::BiplanarYuvBuffer> buffer)
+    webrtc::scoped_refptr<webrtc::BiplanarYuvBuffer> buffer)
     : VideoFrameBuffer(buffer) {}
 
 unsigned int BiplanarYuvBuffer::chroma_width() const {
@@ -174,7 +174,7 @@ webrtc::BiplanarYuvBuffer* BiplanarYuvBuffer::buffer() const {
 }
 
 BiplanarYuv8Buffer::BiplanarYuv8Buffer(
-    rtc::scoped_refptr<webrtc::BiplanarYuv8Buffer> buffer)
+    webrtc::scoped_refptr<webrtc::BiplanarYuv8Buffer> buffer)
     : BiplanarYuvBuffer(buffer) {}
 
 const uint8_t* BiplanarYuv8Buffer::data_y() const {
@@ -189,11 +189,11 @@ webrtc::BiplanarYuv8Buffer* BiplanarYuv8Buffer::buffer() const {
   return static_cast<webrtc::BiplanarYuv8Buffer*>(buffer_.get());
 }
 
-I420Buffer::I420Buffer(rtc::scoped_refptr<webrtc::I420BufferInterface> buffer)
+I420Buffer::I420Buffer(webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}
 
 I420ABuffer::I420ABuffer(
-    rtc::scoped_refptr<webrtc::I420ABufferInterface> buffer)
+    webrtc::scoped_refptr<webrtc::I420ABufferInterface> buffer)
     : I420Buffer(buffer) {}
 
 unsigned int I420ABuffer::stride_a() const {
@@ -208,16 +208,16 @@ webrtc::I420ABufferInterface* I420ABuffer::buffer() const {
   return static_cast<webrtc::I420ABufferInterface*>(buffer_.get());
 }
 
-I422Buffer::I422Buffer(rtc::scoped_refptr<webrtc::I422BufferInterface> buffer)
+I422Buffer::I422Buffer(webrtc::scoped_refptr<webrtc::I422BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}
 
-I444Buffer::I444Buffer(rtc::scoped_refptr<webrtc::I444BufferInterface> buffer)
+I444Buffer::I444Buffer(webrtc::scoped_refptr<webrtc::I444BufferInterface> buffer)
     : PlanarYuv8Buffer(buffer) {}
 
-I010Buffer::I010Buffer(rtc::scoped_refptr<webrtc::I010BufferInterface> buffer)
+I010Buffer::I010Buffer(webrtc::scoped_refptr<webrtc::I010BufferInterface> buffer)
     : PlanarYuv16BBuffer(buffer) {}
 
-NV12Buffer::NV12Buffer(rtc::scoped_refptr<webrtc::NV12BufferInterface> buffer)
+NV12Buffer::NV12Buffer(webrtc::scoped_refptr<webrtc::NV12BufferInterface> buffer)
     : BiplanarYuv8Buffer(buffer) {}
 
 std::unique_ptr<I420Buffer> copy_i420_buffer(
@@ -257,7 +257,7 @@ std::unique_ptr<I010Buffer> new_i010_buffer(int width,
                                             int stride_y,
                                             int stride_u,
                                             int stride_v) {
-  return std::make_unique<I010Buffer>(rtc::make_ref_counted<webrtc::I010Buffer>(
+  return std::make_unique<I010Buffer>(webrtc::make_ref_counted<webrtc::I010Buffer>(
       width, height, stride_y, stride_u, stride_v));
 }
 

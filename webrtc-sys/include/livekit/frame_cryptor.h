@@ -116,10 +116,10 @@ class KeyProvider {
     impl_->SetSifTrailer(trailer_vec);
   }
 
-  rtc::scoped_refptr<webrtc::KeyProvider> rtc_key_provider() { return impl_; }
+  webrtc::scoped_refptr<webrtc::KeyProvider> rtc_key_provider() { return impl_; }
 
  private:
-  rtc::scoped_refptr<webrtc::DefaultKeyProviderImpl> impl_;
+  webrtc::scoped_refptr<webrtc::DefaultKeyProviderImpl> impl_;
 };
 
 class FrameCryptor {
@@ -127,14 +127,14 @@ class FrameCryptor {
   FrameCryptor(std::shared_ptr<RtcRuntime> rtc_runtime,
                const std::string participant_id,
                webrtc::FrameCryptorTransformer::Algorithm algorithm,
-               rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
-               rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
+               webrtc::scoped_refptr<webrtc::KeyProvider> key_provider,
+               webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
   FrameCryptor(std::shared_ptr<RtcRuntime> rtc_runtime,
                const std::string participant_id,
                webrtc::FrameCryptorTransformer::Algorithm algorithm,
-               rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
-               rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
+               webrtc::scoped_refptr<webrtc::KeyProvider> key_provider,
+               webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
   ~FrameCryptor();
 
   /// Enable/Disable frame crypto for the sender or receiver.
@@ -161,11 +161,11 @@ class FrameCryptor {
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   const rust::String participant_id_;
   mutable webrtc::Mutex mutex_;
-  rtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
-  rtc::scoped_refptr<webrtc::KeyProvider> key_provider_;
-  rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
-  rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
-  mutable rtc::scoped_refptr<NativeFrameCryptorObserver> observer_;
+  webrtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
+  webrtc::scoped_refptr<webrtc::KeyProvider> key_provider_;
+  webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
+  webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
+  mutable webrtc::scoped_refptr<NativeFrameCryptorObserver> observer_;
 };
 
 class NativeFrameCryptorObserver

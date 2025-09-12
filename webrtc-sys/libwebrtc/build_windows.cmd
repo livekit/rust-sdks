@@ -88,4 +88,4 @@ copy "%OUTPUT_DIR%\LICENSE.md" "%ARTIFACTS_DIR%"
 
 rem copy header
 xcopy src\*.h "%ARTIFACTS_DIR%\include" /C /S /I /F /H
-
+xcopy src\*.inc "%ARTIFACTS_DIR%\include" /C /S /I /F /H
