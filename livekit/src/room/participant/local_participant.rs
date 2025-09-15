@@ -232,6 +232,8 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
+        let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
+
         let mut req = proto::AddTrackRequest {
             cid: track.rtc_track().id(),
             name: track.name(),
@@ -239,7 +241,7 @@ impl LocalParticipant {
             muted: track.is_muted(),
             source: proto::TrackSource::from(options.source) as i32,
             disable_dtx: !options.dtx,
-            disable_red: !options.red,
+            disable_red,
             encryption: proto::encryption::Type::from(self.local.encryption_type) as i32,
             stream: options.stream.clone(),
             ..Default::default()
