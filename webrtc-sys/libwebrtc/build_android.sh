@@ -94,7 +94,6 @@ args="is_debug=$debug \
   rtc_libvpx_build_vp9=false \
   is_component_build=false \
   enable_stripping=true \
-  use_goma=false \
   rtc_use_h264=false \
   rtc_use_pipewire=false \
   symbol_level=0 \
@@ -109,7 +108,7 @@ fi
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
 # build shared library
-ninja -C "$OUTPUT_DIR" :default \
+autoninja -C "$OUTPUT_DIR" :default \
   sdk/android:native_api \
   sdk/android:libwebrtc \
   sdk/android:libjingle_peerconnection_so
