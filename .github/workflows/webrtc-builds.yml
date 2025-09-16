@@ -120,13 +120,14 @@ jobs:
         run: |
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
           sudo apt update
-          sudo apt install gcc-14 g++-14 -y
+          sudo apt install gcc-14 g++-14 g++-14-aarch64-linux-gnu -y
 
       - name: Verify GCC 14 installation
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
           gcc-14 --version
           g++-14 --version
+          aarch64-linux-gnu-g++-14 --version
 
       - name: Set GCC 14 as default (optional)
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
@@ -134,12 +135,15 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
           sudo update-alternatives --config gcc
           gcc --version
+          sudo update-alternatives --install /usr/bin/aarch64-linux-gnu-gcc aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-gnu-gcc-14 140 --slave /usr/bin/aarch64-linux-gnu-g++ aarch64-linux-gnu-g++ /usr/bin/aarch64-linux-gnu-g++-14
+          sudo update-alternatives --config aarch64-linux-gnu-gcc
+          aarch64-linux-gnu-gcc --version
       
       - name: Install linux dependencies
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
-          sudo apt install -y ninja-build pkg-config openjdk-11-jdk g++-14-aarch64-linux-gnu
+          sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
       - name: Install macos dependencies
         if: ${{ matrix.target.os == 'macos-latest' }}
